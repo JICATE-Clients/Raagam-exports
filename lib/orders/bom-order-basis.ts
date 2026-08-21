@@ -46,6 +46,8 @@ export type { BomStatus };
  * nothing else: the more names in the string, the more ways an unrelated schema
  * change blanks this screen.
  */
+import { ASSORT_WEIGHT_SELECT, assortSizeWeights } from "@/lib/orders/assort-weights";
+
 export const ORDER_SELECT =
   "id, code, po_no, amend_date, delivery_date, excess_pct, rejection_rule_id, " +
   "customer:customers(id,code,name), " +
@@ -53,16 +55,10 @@ export const ORDER_SELECT =
   "styles:garment_order_amendment_styles(style_ref_no), " +
   "approval_qtys:garment_order_amendment_approval_qtys(style_ref_no,combo,qty,approval_qty), " +
   "combos:garment_order_amendment_combos(style_ref_no,combo), " +
-  // `assortment_type` and `inners_per_carton` are both here for one reason: the
-  // pieces a size row represents depend on the ASSORTMENT MODE, and without the
-  // type there is no mode. The embed is disambiguated by FK name because
-  // `garment_order_amendment_quantities` has several `config_lookups` columns
-  // (warehouse, discharge port, country, consignee) and PostgREST cannot guess
-  // which one `config_lookups` means.
-  "quantities:garment_order_amendment_quantities(style_ref_no,assortment_type_id, " +
-  "assortment_type:config_lookups!garment_order_amendment_quantities_assortment_type_id_fkey(code,name), " +
-  "assort_lines:garment_order_amendment_assort_lines(combo,no_of_cartons,inners_per_carton, " +
-  "sizes:garment_order_amendment_assort_line_sizes(size_id,qty)))";
+  // THE FRAGMENT COMES FROM THE RULE, not retyped beside it. `assortSizeWeights`
+  // cannot answer without the assortment type and the inners, so the two travel
+  // together — a caller that selects less would compile and return zeroes.
+  `quantities:garment_order_amendment_quantities(${ASSORT_WEIGHT_SELECT})`;
 
 export type OrderRow = {
   id: string;
@@ -82,6 +78,11 @@ export type OrderRow = {
   quantities:
     | {
         style_ref_no: string | null;
+        /** The destination (0398), for the country-wise basis. Declared here as
+         *  well as selected in ASSORT_WEIGHT_SELECT — a shape that names the
+         *  column and a select that does not is the failure mode AGENTS.md
+         *  records twice over, and it reads as working. */
+        country_id: string | null;
         assortment_type_id: string | null;
         assortment_type: { code: string | null; name: string | null } | null;
         assort_lines:
@@ -116,56 +117,9 @@ export function orderProductionInput(
   row: OrderRow,
   tiersById: Map<string, RejectionTier[]>,
   sizeNames?: Readonly<Record<string, string>>,
+  countryNames?: Readonly<Record<string, string>>,
 ): OrderProductionInput {
-  /**
-   * THE ASSORTMENT MODE DECIDES WHAT A SIZE CELL MEANS, and reading it wrong
-   * silently zeroes the whole order (found 2026-08-20).
-   *
-   * `amendment-screen.tsx` states the rule as `lineQtyOf`:
-   *
-   *     solid  -> the size cells ARE the pieces          (no carton count)
-   *     assort -> cartons x inners x the size's RATIO
-   *
-   * This flattener multiplied by `no_of_cartons` UNCONDITIONALLY, which is two
-   * bugs in one expression:
-   *
-   *   1. On a SOLID/SOLID pack there is no carton count — it is unknowable, so
-   *      the column is 0 — and 0 x every size is 0. Every Material BOM line on
-   *      such an order refused with "Size break-up has no quantities for WHITE"
-   *      while the break-up was sitting there, entered, summing to exactly the
-   *      approval quantity. The order was right; this read it wrong.
-   *   2. On an ASSORT pack it dropped `inners_per_carton` entirely, which
-   *      under-counts by that factor. Invisible on this order because inners is
-   *      1, and wrong the moment it is not.
-   *
-   * MODE OFF THE DECLARED TYPE, never inferred from `no_of_cartons` being 0. A
-   * zero carton count is also what an assort pack looks like before anybody has
-   * typed one, and guessing would silently switch arithmetic underneath a
-   * half-filled row. Same reading `assortModeOf` makes: the lookup's `code`
-   * when it has one, its NAME only as the fallback for rows that predate 0400.
-   */
-  const modeOf = (q: NonNullable<OrderRow["quantities"]>[number]): "solid" | "assort" => {
-    const code = q.assortment_type?.code ?? null;
-    if (code) return code === "solid_solid" ? "solid" : "assort";
-    return /assort\s*size/i.test(q.assortment_type?.name ?? "") ? "assort" : "solid";
-  };
-
-  const assortSizes = (row.quantities ?? []).flatMap((q) => {
-    const mode = modeOf(q);
-    return (q.assort_lines ?? []).flatMap((l) => {
-      // Extracted so the two branches cannot drift into reading the row
-      // differently — the multiplier is the ONLY thing the mode changes.
-      const cartons = Number(l.no_of_cartons) || 0;
-      const inners = Number(l.inners_per_carton) || 0;
-      const factor = mode === "solid" ? 1 : cartons * inners;
-      return (l.sizes ?? []).map((z) => ({
-        style_ref_no: q.style_ref_no,
-        combo: l.combo,
-        size_id: z.size_id,
-        qty: factor * (Number(z.qty) || 0),
-      }));
-    });
-  });
+  const assortSizes = assortSizeWeights(row.quantities);
 
   return {
     excessPct: Number(row.excess_pct) || 0,
@@ -186,6 +140,7 @@ export function orderProductionInput(
     })),
     assortSizes,
     sizeNames,
+    countryNames,
   };
 }
 
@@ -211,6 +166,24 @@ export async function rejectionTiersById(): Promise<Map<string, RejectionTier[]>
   return out;
 }
 
+/**
+ * Destination names, keyed by id — for the country-wise basis's row labels.
+ *
+ * A MAP, never a resolver, for the reason `OrderProductionInput.sizeNames`
+ * records at length: this object crosses a server action boundary and a function
+ * cannot be serialized across it.
+ *
+ * `blocked` rows are SELECTED rather than filtered, the same call
+ * `rejectionTiersById` makes above: a country switched off after an order shipped
+ * to it must still resolve to its NAME, or an existing BOM's rows start labelling
+ * themselves with a uuid.
+ */
+export async function countryNamesById(): Promise<Record<string, string>> {
+  const s = await createClient();
+  const { data } = await s.from("countries").select("id, name");
+  return Object.fromEntries((data ?? []).map((r) => [r.id as string, r.name as string]));
+}
+
 export async function sizeNamesById(): Promise<Record<string, string>> {
   const s = await createClient();
   const { data } = await s
@@ -234,13 +207,14 @@ export async function getOrderProduction(
   garmentOrderId: string,
 ): Promise<OrderProductionInput | null> {
   const s = await createClient();
-  const [tiers, sizeNames, res] = await Promise.all([
+  const [tiers, sizeNames, countryNames, res] = await Promise.all([
     rejectionTiersById(),
     sizeNamesById(),
+    countryNamesById(),
     s.from("garment_order_amendments").select(ORDER_SELECT).eq("id", garmentOrderId).maybeSingle(),
   ]);
   if (!res.data) return null;
-  return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeNames);
+  return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeNames, countryNames);
 }
 
 // ---------------------------------------------------------------------------

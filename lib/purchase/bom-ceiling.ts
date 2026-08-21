@@ -40,8 +40,48 @@
  */
 
 export type BomCeiling = {
-  /** Planned purchase quantity per `items.id`. Absent = the BOM plans none. */
+  /**
+   * THE FINAL QUANTITY per `items.id` — the figure the BOM's own grid shows in
+   * its last column, with the MOQ and the Round To step already applied. Absent
+   * = the BOM plans none of this material.
+   *
+   * IT USED TO BE THE PRE-MOQ SUM, and that made the control fire on correct
+   * work: a line needing 567 with an MOQ of 600 is BOUGHT at 600, so every such
+   * PO was flagged "over by 33" and the buyer learned to dismiss the warning.
+   *
+   * ROLLED UP PER ITEM ACROSS LINES, THEN LIFTED ONCE. A thread used on the body
+   * and on the collar is two BOM lines, each with its own MOQ; applying each
+   * line's minimum separately buys 500 twice where one purchase of 500 covers
+   * both. That is 0437's "six colour rows each rounded buys the rounding error
+   * six times", one level up. So the slices are summed per MATERIAL first, and
+   * the largest contributing MOQ and coarsest step are applied to that one total.
+   *
+   * A CONSEQUENCE WORTH KNOWING: the per-line Final Quantity on the BOM grid and
+   * this per-material ceiling legitimately differ when two lines name one
+   * material. The grid answers "what does this line need"; this answers "what may
+   * be bought".
+   */
   byItem: Map<string, number>;
+  /**
+   * What is ALREADY on other purchase orders for this (sales order, material),
+   * so a ceiling cannot be defeated by splitting the buy in two. Without it two
+   * POs at 60% each both pass and the control never fires once.
+   *
+   * Cancelled POs are excluded; every other status counts, because a draft is a
+   * number somebody is about to act on.
+   */
+  committedByItem: Map<string, number>;
+  /**
+   * Whether the ceiling REFUSES or merely warns.
+   *
+   * True once an `order_budgets` row covering this order is `approved` — the
+   * client's condition, and the point at which somebody has signed the figure.
+   * Before that the long-standing warn-and-record path stands unchanged
+   * (`po-actions.ts` records why that shape was chosen).
+   */
+  enforced: boolean;
+  /** The approved budget doing the enforcing, so the refusal can name it. */
+  budgetCode: string | null;
   /** The BOM this came from, for the confirmation's audit trail. */
   bomId: string | null;
   bomCode: string | null;
@@ -64,8 +104,22 @@ export type BomCeiling = {
  */
 export type CeilingVerdict =
   | { kind: "unchecked"; why: string }
-  | { kind: "within"; planned: number; ordered: number }
-  | { kind: "over"; planned: number; ordered: number; variance: number };
+  | { kind: "within"; planned: number; ordered: number; committed: number }
+  /** Over the plan, and the budget is not approved yet — warn and record. */
+  | { kind: "over"; planned: number; ordered: number; committed: number; variance: number }
+  /**
+   * Over the plan with an approved budget behind it. REFUSED, not recorded: an
+   * over-quantity confirmation is written AFTER the PO exists, so it structurally
+   * cannot authorise one. Revising means revising the budget.
+   */
+  | {
+      kind: "blocked";
+      planned: number;
+      ordered: number;
+      committed: number;
+      variance: number;
+      budgetCode: string | null;
+    };
 
 export function judgeLine(
   ceiling: BomCeiling,
@@ -85,8 +139,42 @@ export function judgeLine(
     };
   }
 
-  const ordered = Number.isFinite(line.quantity) ? line.quantity : 0;
-  return ordered > planned
-    ? { kind: "over", planned, ordered, variance: ordered - planned }
-    : { kind: "within", planned, ordered };
+  const thisLine = Number.isFinite(line.quantity) ? line.quantity : 0;
+  const committed = ceiling.committedByItem.get(line.itemId) ?? 0;
+  // THE WHOLE COMMITMENT, not this form's line. See `committedByItem`.
+  const ordered = thisLine + committed;
+
+  if (ordered <= planned) return { kind: "within", planned, ordered, committed };
+
+  const variance = ordered - planned;
+  return ceiling.enforced
+    ? { kind: "blocked", planned, ordered, committed, variance, budgetCode: ceiling.budgetCode }
+    : { kind: "over", planned, ordered, committed, variance };
 }
+
+/**
+ * The refusal an operator reads, in one place so the form and the server action
+ * cannot word it differently.
+ *
+ * NAMES THE THREE FIGURES rather than only the overage, because "300 over" does
+ * not tell a buyer what to type instead. `requirement.ts` states the same rule
+ * about its own refusals: a sentence, never a code.
+ */
+export function blockedMessage(
+  v: Extract<CeilingVerdict, { kind: "blocked" }>,
+  itemName?: string | null,
+): string {
+  const who = itemName ? `${itemName}: ` : "";
+  const already =
+    v.committed > 0
+      ? ` and ${fmt(v.committed)} are already on other purchase orders`
+      : "";
+  const room = Math.max(0, v.planned - v.committed);
+  return (
+    `${who}the approved Material BOM allows ${fmt(v.planned)}${already}` +
+    `${v.budgetCode ? ` (budget ${v.budgetCode})` : ""}. ` +
+    `This line can be at most ${fmt(room)}.`
+  );
+}
+
+const fmt = (n: number) => n.toLocaleString("en-IN");

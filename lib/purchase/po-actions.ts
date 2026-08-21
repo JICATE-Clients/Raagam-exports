@@ -38,7 +38,7 @@ import {
   getPoItemSizeDeliveries,
 } from "./po-service";
 import type { BudgetLineRow } from "./po-service";
-import { bomCeilingForOrder } from "./bom-ceiling-service";
+import { bomCeilingForOrder, refuseOverCeiling } from "./bom-ceiling-service";
 import type {
   PoSizeDelivery,
   PoDeliverySize,
@@ -325,6 +325,18 @@ export async function createPurchaseOrder(
     };
   }
 
+  /*
+   * THE HARD CEILING (client 2026-08-21). Refuses only where an approved budget
+   * covers the order; below that threshold `judgeLine` returns `over` and the
+   * warn-and-record path this action has always had is untouched.
+   *
+   * SERVER-SIDE BECAUSE THE FORM IS NOT A CONTROL. The check in `new-po-form`
+   * exists so the operator finds out before a round trip; this is the one that
+   * cannot be bypassed by a stale tab or a direct call.
+   */
+  const refusal = await refuseOverCeiling(parsed.data.lines);
+  if (refusal) return { ok: false, error: refusal };
+
   const user = await getAppUser();
   const supabase = await createClient();
   const { lines, ...poFields } = parsed.data;
@@ -376,6 +388,11 @@ export async function addPoLine(
     };
   }
 
+  // NOTHING EXCLUDED: this line does not exist yet, so the committed sum is
+  // exactly the other lines it is being added alongside.
+  const addRefusal = await refuseOverCeiling([parsed.data]);
+  if (addRefusal) return { ok: false, error: addRefusal };
+
   const { quantity, unit_price, ...rest } = parsed.data;
   const amount = lineAmount(quantity, unit_price);
 
@@ -409,6 +426,12 @@ export async function updatePoLine(
       error: parsed.error.issues[0]?.message ?? "Invalid input",
     };
   }
+
+  // EXCLUDE THIS LINE, not its PO. Its stored quantity is already inside the
+  // committed sum, so counting it again would refuse a line for being retyped
+  // at the same figure — the sibling lines must still count.
+  const editRefusal = await refuseOverCeiling([parsed.data], { exclude: { lineId } });
+  if (editRefusal) return { ok: false, error: editRefusal };
 
   const { quantity, unit_price, ...rest } = parsed.data;
   const amount = lineAmount(quantity, unit_price);
@@ -456,6 +479,26 @@ export async function submitPo(poId: string): Promise<ActionResult> {
   if (!po || (po as { status: string }).status !== "draft") {
     return { ok: false, error: "Purchase order is not in draft status" };
   }
+
+  /*
+   * THE LAST GATE, and the one that catches a PO whose ceiling moved UNDER it —
+   * a budget approved, or another PO placed, after this draft was written. The
+   * create/add/edit checks all judged a world that has since changed.
+   *
+   * EXCLUDES THIS PO, not one of its lines: its own lines are the thing being
+   * judged, so leaving them in the committed sum would count every one of them
+   * twice and refuse a draft that is exactly on plan.
+   */
+  const { data: poLines } = await supabase
+    .from("po_line_items")
+    .select("item_id, quantity, sales_order_id")
+    .eq("purchase_order_id", poId);
+
+  const submitRefusal = await refuseOverCeiling(
+    (poLines ?? []) as { item_id: string | null; quantity: number; sales_order_id: string | null }[],
+    { exclude: { poId } },
+  );
+  if (submitRefusal) return { ok: false, error: submitRefusal };
 
   const { error } = await supabase
     .from("purchase_orders")
@@ -806,19 +849,38 @@ export async function updatePoGeneral(
  */
 export async function fetchBomCeiling(salesOrderId: string): Promise<{
   entries: [string, number][];
+  committed: [string, number][];
   bomId: string | null;
   bomCode: string | null;
   unanswered: number;
+  enforced: boolean;
+  budgetCode: string | null;
 }> {
   if (!(await can("materials_purchase", "view"))) {
-    return { entries: [], bomId: null, bomCode: null, unanswered: 0 };
+    return {
+      entries: [],
+      committed: [],
+      bomId: null,
+      bomCode: null,
+      unanswered: 0,
+      // NOT ENFORCED when the ceiling could not be READ. A permission failure
+      // must not become a refusal — that would block a buyer who is allowed to
+      // buy, on the strength of a plan nobody showed them.
+      enforced: false,
+      budgetCode: null,
+    };
   }
   const c = await bomCeilingForOrder(salesOrderId);
   return {
     entries: [...c.byItem.entries()],
+    // Serialised for the same reason `byItem` is: a Map crosses the boundary as
+    // `{}`, which would read as "nothing bought yet" on every line.
+    committed: [...c.committedByItem.entries()],
     bomId: c.bomId,
     bomCode: c.bomCode,
     unanswered: c.unanswered,
+    enforced: c.enforced,
+    budgetCode: c.budgetCode,
   };
 }
 

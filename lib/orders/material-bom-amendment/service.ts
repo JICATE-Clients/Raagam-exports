@@ -124,8 +124,20 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
         "excess_pct, rejection_rule_id, customer:customers(id,code,name), " +
         "sales_order:sales_orders(id,order_number)), " +
         "customer:customers(id,code,name), " +
-        "items:material_bom_amendment_items(*), " +
+        // THE CHILD IS EMBEDDED, and this is the step 0436 never took for its
+        // own child: `(*)` does NOT pull nested relations, so a table that is
+        // typed, validated and carried in form state stays invisible without a
+        // line here. `material_bom_amendment_item_components` has been in
+        // exactly that state since 0436 — declared everywhere, selected nowhere.
+        "items:material_bom_amendment_items(*, " +
+        "slices:material_bom_amendment_item_slices(*)), " +
         "processes:material_bom_amendment_processes(*), " +
+        /* THE CHALLANS RAISED FROM THIS BOM (0446), so the Processes tab can say
+           which rows have already gone out and stop offering to send them twice.
+           Reached by `dc_line_items.mba_amendment_id`, the FK that migration
+           added for exactly this. */
+        "dc_lines:dc_line_items(mba_process_row_uid, sent_qty, returned_qty, " +
+        "delivery_challan_id, challan:delivery_challans(code, dc_date, status, stock_posted_at)), " +
         "requirements:material_bom_amendment_requirements(*)",
     )
     .order("created_at", { ascending: false });
@@ -133,7 +145,11 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
   return withCreators(
     ((data ?? []) as unknown as MaterialBomAmendment[]).map((r) => ({
       ...r,
-      items: [...(r.items ?? [])].sort((a, b) => a.sno - b.sno),
+      // The overrides carry their own `sno` and PostgREST makes no ordering
+      // promise on an embed — the same reason the three children are sorted.
+      items: [...(r.items ?? [])]
+        .sort((a, b) => a.sno - b.sno)
+        .map((it) => ({ ...it, slices: [...(it.slices ?? [])].sort((x, y) => x.sno - y.sno) })),
       processes: [...(r.processes ?? [])].sort((a, b) => a.sno - b.sno),
       requirements: [...(r.requirements ?? [])].sort((a, b) => a.sno - b.sno),
     })),
@@ -532,6 +548,9 @@ export type MbaFormData = {
   /** Every customer's nominated / recommended vendors — see `VendorNomination`. */
   nominations: VendorNomination[];
   processes: PickerRow[];
+  /** Where goods physically leave from, for a Delivery Challan raised off the
+   *  Processes tab (0446). */
+  locations: { id: string; code: string; name: string }[];
   uoms: UomRow[];
   conversions: MbaConversionRow[];
   /**
@@ -575,6 +594,19 @@ function accessoryCategoriesFrom(all: Category[], lookups: ConfigLookup[]): Cate
 }
 
 /** Every picker option list the editor needs, fetched in parallel. */
+/** Active locations, for a challan's "despatched from". Same shape the DC form
+ *  already uses (`grn-service.getLocations`), fetched here so the BOM screen
+ *  does not have to reach into the purchase service. */
+async function getLocationRows(): Promise<{ id: string; code: string; name: string }[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("locations")
+    .select("id, code, name")
+    .eq("is_active", true)
+    .order("code");
+  return (data ?? []) as { id: string; code: string; name: string }[];
+}
+
 export async function getMbaFormData(): Promise<MbaFormData> {
   const [
     orders,
@@ -583,6 +615,7 @@ export async function getMbaFormData(): Promise<MbaFormData> {
     vendors,
     nominations,
     processes,
+    locations,
     uoms,
     conversions,
     allCategories,
@@ -595,6 +628,7 @@ export async function getMbaFormData(): Promise<MbaFormData> {
     getVendorRows(),
     listVendorNominations(),
     getProcessRows(),
+    getLocationRows(),
     getUomRows(),
     getConversionRows(),
     listCategories(),
@@ -608,6 +642,7 @@ export async function getMbaFormData(): Promise<MbaFormData> {
     vendors,
     nominations,
     processes,
+    locations,
     uoms,
     conversions,
     // Scoped AFTER the fetch because the class ids come out of `lookups`, which

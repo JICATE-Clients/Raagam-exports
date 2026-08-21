@@ -70,7 +70,7 @@ export default async function DcDetailPage({
               <dt className="text-xs text-muted-foreground">
                 Vendor / Processor
               </dt>
-              <dd className="mt-0.5">{dc.vendors?.name ?? "—"}</dd>
+              <dd className="mt-0.5">{dc.master_vendors?.name ?? "—"}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Date</dt>

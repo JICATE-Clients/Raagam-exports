@@ -1,6 +1,6 @@
 import { requirePermission } from "@/lib/auth/server";
 import {
-  getVendors,
+  getProcessorVendors,
   getLocations,
   getItems,
   getUoms,
@@ -12,7 +12,7 @@ export default async function DcNewPage() {
   await requirePermission("materials_purchase", "create");
 
   const [vendors, locations, items, uoms] = await Promise.all([
-    getVendors(),
+    getProcessorVendors(),
     getLocations(),
     getItems(),
     getUoms(),

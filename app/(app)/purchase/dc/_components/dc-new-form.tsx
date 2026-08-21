@@ -37,7 +37,10 @@ function emptyLine(): DcDraftLine {
 }
 
 interface Props {
-  vendors: Pick<Vendor, "id" | "code" | "name">[];
+  /* master_vendors since 0445 — a DC's processor is a MASTER vendor. Not
+     `Pick<Vendor,...>`: that type is the legacy purchase-side row, and the two
+     tables are deliberately not interchangeable. */
+  vendors: { id: string; code: string | null; name: string }[];
   locations: { id: string; code: string; name: string }[];
   items: Pick<Item, "id" | "code" | "name">[];
   uoms: Pick<Uom, "id" | "code" | "name">[];

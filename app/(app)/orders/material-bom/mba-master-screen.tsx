@@ -8,14 +8,21 @@ import {
   TriangleAlert,
   Copy,
   Workflow,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
-import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import {
+  ChildGrid,
+  gridKeyNav,
+  type ChildGridColumn,
+} from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
   SectionBody,
@@ -28,6 +35,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { today as todayAtFactory } from "@/lib/calendar";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
@@ -37,6 +45,12 @@ import { nominatedVendorOptions } from "@/lib/masters/vendor-nominations";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CategoryPicker } from "@/components/masters/lookup-picker";
 import { BomCopySheet, BomCopyConfirm } from "@/components/orders/bom-copy-sheet";
+import { DcGenerateSheet, type DcCandidate } from "@/components/orders/dc-generate-sheet";
+import {
+  BomSliceGrid,
+  type BomSliceCell,
+  type BomSliceRow,
+} from "@/components/orders/bom-slice-grid";
 import {
   copyMaterialBomFrom,
   createMaterialBomAmendment,
@@ -45,16 +59,21 @@ import {
   updateMaterialBomAmendment,
 } from "@/lib/orders/material-bom-amendment/actions";
 import {
+  DEFAULT_MATERIAL_TYPE,
+  DEFAULT_SUPPLY_TYPE,
   MATERIAL_TYPE_OPTIONS,
   PROCESS_STATUS_OPTIONS,
   REQUIREMENT_BASIS_LABELS,
   SUPPLY_TYPE_OPTIONS,
   type BomCopySource,
   type MaterialBomAmendment,
+  type MbaDcLine,
   type MbaItemComponent,
+  type MbaItemSlice,
 } from "@/lib/orders/material-bom-amendment/types";
 import {
   BOM_STATUSES,
+  BOM_STATUS_RANK,
   bomStatusHint,
   bomStatusText,
   bomStatusTone,
@@ -67,18 +86,24 @@ import {
   materialsForCategory,
 } from "@/lib/orders/material-bom-amendment/material-options";
 import {
+  baseRequirementFor,
   isRefusal,
   lineQuantity,
   productionSlices,
-  baseRequirementFor,
+  SLICE_SEP,
   requirementFor,
-  REQUIREMENT_BASES,
+  OFFERED_REQUIREMENT_BASES,
   type OrderProductionInput,
+  type ProductionSlice,
   type RequirementBasis,
 } from "@/lib/orders/material-bom/requirement";
+import {
+  consumptionFor,
+  overrideFor,
+  sliceKey,
+} from "@/lib/orders/material-bom/slice-consumption";
 import { processVerdict } from "@/lib/orders/material-bom/process-return";
 import {
-  describeConversion,
   isUsableConversion,
   toPurchaseQty,
   uomPrecision,
@@ -139,12 +164,6 @@ type ItemRow = {
    *  LINE MEANS "matches the garment" — the ordinary case, and the reason the
    *  operator chose Color-wise at all (0419). */
   item_color_id: string | null;
-  /** The GARMENT size this line is for (0441) — `config_lookups` kind=size,
-   *  the rows Quantities and Approval Qty key on. NULL is a real state:
-   *  "every size", which is what an order-, style- or colour-wise line means.
-   *  NOT `size`, which is the MATERIAL's own measurement (24 LIGNE) and is
-   *  free text. A button is 24 ligne on every garment size it is sewn to. */
-  garment_size_id: string | null;
   specification: string;
   size: string;
   requirement_basis: string;
@@ -216,10 +235,24 @@ type ItemRow = {
    * trip first, add the editor second.
    */
   components: MbaItemComponent[];
+  /**
+   * PER-SLICE CONSUMPTION OVERRIDES (0442) — what the operator typed against one
+   * of the rows the Attribute explodes this line into. Empty is the ordinary
+   * state: the line's own figures apply to every slice.
+   */
+  slices: MbaItemSlice[];
 };
 
 type ProcRow = {
   key: string;
+  /**
+   * The row's immutable anchor (0446) — what a raised Delivery Challan points at.
+   *
+   * NOT `key`. `key` is a render key minted fresh on every load, so a challan
+   * matched on it would come unstuck the moment the screen reopened. This is
+   * stored, round-tripped and never shown.
+   */
+  row_uid: string;
   item_id: string | null;
   process_id: string | null;
   vendor_id: string | null;
@@ -239,17 +272,23 @@ const BLANK: HeaderForm = { garment_order_id: null, amend_date: "", remarks: "" 
 const blankItem = (key: string): ItemRow => ({
   key,
   category_id: null,
-  type: "",
+  /* DEFAULTED, NOT BLANK (client 2026-08-21) — see `DEFAULT_MATERIAL_TYPE`.
+     Only a NEW line: the two load paths below carry whatever was stored, so a
+     row saved blank stays blank rather than being quietly re-typed on read. */
+  type: DEFAULT_MATERIAL_TYPE,
   item_id: null,
   attribute_id: null,
   item_color_id: null,
-  garment_size_id: null,
   specification: "",
   size: "",
   requirement_basis: "",
   style_ref_no: "",
   component_id: null,
-  supply_type: "",
+  /* OPENS ON "Local" (client 2026-08-21) — see `DEFAULT_SUPPLY_TYPE`. A blank
+     supply type offers zero vendors, so a fresh line used to carry a Vendor
+     picker that opened onto nothing. New lines only: both load paths below carry
+     whatever was stored, blank included. */
+  supply_type: DEFAULT_SUPPLY_TYPE,
   vendor_id: null,
   purchase_uom_id: null,
   consumption_uom_id: null,
@@ -263,10 +302,15 @@ const blankItem = (key: string): ItemRow => ({
   excess_pct: "",
   required_by: "",
   components: [],
+  slices: [],
 });
 
 const blankProc = (key: string): ProcRow => ({
   key,
+  // Minted here rather than left to the DB default, so the row carries the same
+  // anchor from the moment it appears — a challan can then be raised against it
+  // and survive the save that follows.
+  row_uid: crypto.randomUUID(),
   item_id: null,
   process_id: null,
   vendor_id: null,
@@ -387,6 +431,38 @@ function Step({ label, faded = false }: { label: string; faded?: boolean }) {
 }
 
 /**
+ * "· 12d" beside a delivery date, and "· 12d late" when it has passed.
+ *
+ * THE DATE SAYS WHEN AND THE SUFFIX SAYS HOW SOON, which are different
+ * questions: a merchandiser scanning a queue is deciding what to plan THIS
+ * WEEK, and arithmetic against thirty dates is what they were doing by eye.
+ *
+ * SILENT BEYOND 60 DAYS. A "· 109d" on an order shipping in December is noise
+ * on every card, and noise on every card is what stops the two that say "· 4d"
+ * from being seen. Late is never silent and is the only one that takes a
+ * colour.
+ *
+ * NO HYDRATION GUARD IS NEEDED, and that is `todayAtFactory`'s doing rather
+ * than luck. It formats in Asia/Kolkata, so the server (UTC) and the operator's
+ * browser (IST) agree on what day it is — including during the 5.5 hours every
+ * morning when `new Date()` does not. The local `today()` at the top of this
+ * file is the UTC one `lib/calendar.ts` warns about; do not reach for it here.
+ */
+function DaysOut({ iso }: { iso: string }) {
+  const at = Date.parse(`${iso.slice(0, 10)}T00:00:00`);
+  const now = Date.parse(`${todayAtFactory()}T00:00:00`);
+  if (Number.isNaN(at) || Number.isNaN(now)) return null;
+  const days = Math.round((at - now) / 86_400_000);
+
+  if (days < 0) {
+    return <span className="font-normal text-danger"> · {-days}d late</span>;
+  }
+  if (days === 0) return <span className="font-normal text-danger"> · today</span>;
+  if (days > 60) return null;
+  return <span className="font-normal text-muted-foreground"> · {days}d</span>;
+}
+
+/**
  * THE 22 FIELDS, IN THE CLIENT'S ORDER, CUT INTO THREE RUNS.
  *
  * NOT A REORDERING — a reading of the order that was already there. Every run is
@@ -419,7 +495,8 @@ function Step({ label, faded = false }: { label: string; faded?: boolean }) {
  * boxes beside them, so they take the same 140.
  *
  * THE THIRD RUN IS THE CLIENT'S OWN GROUPING, named as one section when they
- * asked for these widths: No. of Items through Purchase Pack.
+ * asked for these widths: No. of Items through Final Quantity. It ended at
+ * Purchase Pack until 2026-08-21, when the client had that field removed.
  *
  * THE TRACK IS 32, NOT THE HOUSE 12, and it needed no new constant:
  * `FIELD_TRACK_32` already existed and was unused, and `FieldGrid` already
@@ -463,54 +540,44 @@ function Step({ label, faded = false }: { label: string; faded?: boolean }) {
  * three other fields. Worth saying, because the name says otherwise.
  *
  *   run 1  4+3+6+4+3+3+2+3+4   = 32
- *   run 2  4+8+4+8+8          = 32
- *   run 3  4+4+2+4+4+4+2+4+4   = 32
+ *   run 2  8+8+8+8            = 32
+ *   run 3  4+4+2+4+6+4+2+6     = 32
  */
 const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
+  /*
+   * ONE RUN NOW, AND IT IS THE WHOLE LINE (client 2026-08-21, screenshots 2461 /
+   * 2462 / 2463).
+   *
+   * Everything that was per-material-per-attribute moved into the sub-grid over
+   * three rounds — Item Color, Size and Specification first, then No. of Items,
+   * Per Pieces and Excess %, then the three derived figures. What is left is what
+   * genuinely belongs to the LINE: what the material is, who supplies it, what it
+   * is measured in, and the two purchase controls.
+   *
+   * MOQ AND ROUND TO ARE COMMON, AND THAT IS THE CLIENT'S OWN CORRECTION. They
+   * were briefly made per-attribute and moved back the same minute — 0451/0452
+   * carry the schema round trip. The reasoning 0437 recorded is why it is the
+   * right place: a minimum is a fact about what may be BOUGHT of a material, so
+   * six colour rows each floored at 500 buys 3,000 where one purchase of 500
+   * covers the lot. They apply ONCE, to the line's rolled-up total.
+   *
+   * ELEVEN FIELDS, STILL SUMMING TO 32 — 3+3+6+3+2+2+2+3+4+2+2. Every run must
+   * make the track exactly or its last field drops to a line of its own, and the
+   * width went to the two names that need it: Material holds a slashed spec and
+   * Vendor holds a company name.
+   */
   [
-    { header: "Category", size: "md", weight: "key" },
+    { header: "Category", size: "sm", weight: "key" },
     { header: "Type", size: "sm", weight: "quiet" },
     { header: "Material", size: "lg", weight: "key" },
-    { header: "Attribute", size: "md", weight: "key" },
-    { header: "Purchase Uom", size: "sm", weight: "auto" },
-    { header: "Consumption Uom", size: "sm", weight: "auto" },
+    { header: "Attribute", size: "sm", weight: "key" },
+    { header: "Purchase Uom", size: "xs", weight: "auto" },
+    { header: "Consumption Uom", size: "xs", weight: "auto" },
     { header: "Combination", size: "xs", weight: "quiet" },
     { header: "Supply Type", size: "sm", weight: "plain" },
     { header: "Vendor", size: "md", weight: "plain" },
-  ],
-  [
-    /* STYLE LEADS, AT `md` (client 2026-08-20: "move that style price as first
-       field take it mid which is dynamic").
-
-       It leads because it is the OUTERMOST axis: a style has colours, a colour
-       has sizes. Reading Style → Item Color → Size left to right is the same
-       nesting the Prices tab reads in, which is the tab this group is being
-       made to match.
-
-       `md` and not `xl` because a style REF is 14 characters — the width goes to
-       the three columns that hold the exploded values, and Size takes the most
-       of it because a size list is the longest of the three and size-wise is the
-       case the client named twice. */
-    { header: "Style", size: "md", weight: "plain" },
-    { header: "Item Color", size: "xl", weight: "quiet" },
-    /* THE AXIS COLUMN, beside the colour it pairs with on a Combination line.
-       `Size` after it is the MATERIAL's measurement — two meanings, two columns,
-       and they sit apart on purpose so neither reads as the other. */
-    { header: "Garment Size", size: "md", weight: "quiet" },
-    { header: "Size", size: "xl", weight: "quiet" },
-    { header: "Specification", size: "xl", weight: "quiet" },
-  ],
-  [
-    { header: "No. of Items", size: "md", weight: "key" },
-    { header: "Per Pieces", size: "md", weight: "key" },
-    // Two or three characters — "5", "12". `xs` is what that is.
-    { header: "Excess %", size: "xs", weight: "plain" },
-    { header: "Calculated Qty", size: "md", weight: "calc" },
-    { header: "Excess Calculated Qty", size: "md", weight: "calc" },
-    { header: "MOQ", size: "md", weight: "plain" },
+    { header: "MOQ", size: "xs", weight: "plain" },
     { header: "Round To", size: "xs", weight: "plain" },
-    { header: "Final Quantity", size: "md", weight: "final" },
-    { header: "Purchase Pack", size: "md", weight: "plain" },
   ],
 ];
 
@@ -526,6 +593,33 @@ export function MbaMasterScreen({
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
 
+  /*
+   * WHICH LINES HAVE THEIR CONSUMPTION GRID OPEN (client 2026-08-21: "collapsing
+   * these grids by default and allowing operators to expand them on-demand").
+   *
+   * CLOSED IS THE DEFAULT AND ABSENCE MEANS CLOSED — the reverse of the detail
+   * band this screen used to carry, where absence meant open because two REQUIRED
+   * fields lived inside it. Nothing in here is required: every cell is an
+   * override whose blank means "use the line's own figure", so a line is
+   * completely fillable without ever opening it. That is what makes collapsing
+   * safe, and it is the test to re-run if a mandatory field is ever added here.
+   */
+  const [closedSlices, setClosedSlices] = useState<Set<string>>(new Set());
+
+  /* Which lines have their consumption grid CLOSED — absence means OPEN.
+     REVERSED ON SIGHT (client 2026-08-21, screenshots 2456/2457). Collapsing by
+     default was asked for and then seen: picking an Attribute landed on
+     "Color-wise — 3 rows" with the values behind a click, and the client wants
+     the values themselves, which is what 2456 shows. The toggle stays, so a
+     28-row Combination grid can still be folded away by hand — what changed is
+     which state the operator arrives in. */
+
+  /* The challans already raised from this BOM, keyed by the process row's own
+     anchor (0446). Reloaded with the record, so it is the DATABASE's view of
+     what has gone out — never the form's. */
+  const [dcLines, setDcLines] = useState<MbaDcLine[]>([]);
+  const [dcOpen, setDcOpen] = useState(false);
+
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
   const [amendmentNo, setAmendmentNo] = useState<number | null>(null);
@@ -538,6 +632,7 @@ export function MbaMasterScreen({
   // operator with 200 orders had only the browser's find.
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | BomStatus>("");
+
 
   /**
    * The picked order's Approval Qty, Combos and Assort rows.
@@ -828,6 +923,420 @@ export function MbaMasterScreen({
   const updProc = (key: string, patch: Partial<ProcRow>) =>
     mutProcs((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
+  /**
+   * TYPE A CONSUMPTION AGAINST ONE SLICE (0442).
+   *
+   * An UPSERT keyed on the slice, and a DELETE when the cell is emptied — because
+   * an absent row and a row of nulls mean the same thing ("use the line's"), and
+   * keeping the empty one would fill the table with rows that say nothing.
+   *
+   * `sno` is assigned at save from the array index (`actions.ts`), so nothing
+   * here has to maintain it.
+   */
+  /**
+   * TYPE A CONSUMPTION, OR TICK A FLAG, AGAINST ONE SLICE (0442; widened 0449).
+   *
+   * An UPSERT keyed on the slice, and a DELETE when the row has nothing left to
+   * say — because an absent row and a row of defaults mean the same thing.
+   *
+   * ## "NOTHING LEFT TO SAY" IS NO LONGER "BOTH FIGURES NULL"
+   *
+   * 0442 built this as a sparse store of typed FIGURES. Since 0449 a row also
+   * carries legacy's Choose and Size-wise ticks and three descriptive fields, so
+   * the emptiness test is every field at its default — and `chosen` defaults
+   * TRUE, so an unticked row is emphatically not empty.
+   *
+   * `sno` is assigned at save from the array index (`actions.ts`), so nothing
+   * here has to maintain it.
+   */
+  const setSlice = (
+    itemKey: string,
+    slice: ProductionSlice,
+    patch: Partial<
+      Pick<
+        MbaItemSlice,
+        | "no_of_items"
+        | "per_pieces"
+        | "excess_pct"
+        | "moq"
+        | "round_to"
+        | "chosen"
+        | "size_wise"
+        | "item_color_id"
+        | "specification"
+        | "size_spec"
+      >
+    >,
+  ) =>
+    mutItems((xs) =>
+      xs.map((x) => {
+        if (x.key !== itemKey) return x;
+        const want = sliceKey(slice);
+        const found = x.slices.find((o) => sliceKey(o) === want);
+        const next: MbaItemSlice = {
+          id: found?.id ?? "",
+          item_line_id: found?.item_line_id ?? "",
+          sno: found?.sno ?? 0,
+          // THE KEY, copied off the slice rather than the found row: a row that
+          // does not exist yet has no key of its own to preserve.
+          combo: slice.combo,
+          size_id: slice.size_id,
+          country_id: slice.country_id ?? null,
+          chosen: found?.chosen ?? true,
+          size_wise: found?.size_wise ?? false,
+          item_color_id: found?.item_color_id ?? null,
+          specification: found?.specification ?? null,
+          size_spec: found?.size_spec ?? null,
+          excess_pct: found?.excess_pct ?? null,
+          moq: found?.moq ?? null,
+          round_to: found?.round_to ?? null,
+          no_of_items: found?.no_of_items ?? null,
+          per_pieces: found?.per_pieces ?? null,
+          ...patch,
+        };
+        const rest = x.slices.filter((o) => sliceKey(o) !== want);
+        const empty =
+          next.no_of_items == null &&
+          next.per_pieces == null &&
+          next.excess_pct == null &&
+          next.moq == null &&
+          next.round_to == null &&
+          next.chosen === true &&
+          next.size_wise === false &&
+          next.item_color_id == null &&
+          !next.specification &&
+          !next.size_spec;
+        return { ...x, slices: empty ? rest : [...rest, next] };
+      }),
+    );
+
+  /**
+   * THE ATTRIBUTE'S OWN GRID — legacy's nested sub-row, under the line's fields
+   * (client 2026-08-21, screenshots 2458 / 2459).
+   *
+   * WHAT IT IS NOT: a list of separate materials. An earlier attempt generated
+   * one BOM line per slice and filled the material list with a dozen "Not filled
+   * in" entries — the client: "not as separate material… inside the screen".
+   *
+   * THE ROWS ARE NOT STORED. They are `productionSlices()` — the same call the
+   * Requirement section makes — so the grid always mirrors the order's CURRENT
+   * colours, sizes and destinations (the client's rule: "follow the order
+   * exactly"). Only the typed cells and the two ticks are stored, and a row whose
+   * slice has gone is simply not drawn.
+   *
+   * A REFUSAL DRAWS NOTHING. `productionSlices` refuses when the order's tabs
+   * disagree, and `qtyRibbon` prints that sentence in full below — a second copy
+   * here would be a second place for the wording to drift.
+   */
+  /**
+   * THE PER-ROW TICKS, READ THE SAME WAY THE SERVER READS THEM (0449).
+   *
+   * `sliceFlags` in `actions.ts` is the same function over the same keys. Two
+   * readings of one store is exactly how the screen and the server came to
+   * disagree about per-slice consumption before — the defect fixed earlier today
+   * — so this is deliberately the same shape, and if one moves both must.
+   *
+   * `chosen` DEFAULTS TRUE: a slice with no stored row has never been unticked.
+   */
+  const sliceFlagsOf = (r: ItemRow) => {
+    const by = new Map(r.slices.map((sl) => [sliceKey(sl), sl]));
+    return {
+      row: (sl: ProductionSlice) => by.get(sliceKey(sl)) ?? null,
+      chosen: (sl: ProductionSlice) => by.get(sliceKey(sl))?.chosen ?? true,
+      sizeWise: (sl: ProductionSlice) => by.get(sliceKey(sl))?.size_wise ?? false,
+    };
+  };
+
+  /**
+   * THE ATTRIBUTE'S OWN GRID — legacy's nested sub-row (client 2026-08-21,
+   * screenshots 2458 / 2459: "our screen we right but field listing is wrong").
+   *
+   * WHAT IT IS NOT: a list of separate materials. An earlier attempt generated
+   * one BOM line per slice and filled the material list with a dozen "Not filled
+   * in" entries — the client: "not as separate material… inside the screen".
+   *
+   * THE ROWS ARE NOT STORED. They are `productionSlices()` — the same call the
+   * Requirement section and the server both make — so the grid always mirrors the
+   * order's CURRENT colours, sizes and destinations. Only the typed cells and the
+   * ticks are stored, and a row whose slice has gone is simply not drawn.
+   *
+   * TWO CALLS, DELIBERATELY. The PRIMARY rows are the grid's rows, so they are
+   * fetched without the tick; the expanded set is fetched with it and its
+   * children are grouped under their parent by key prefix — `expandBySize` mints
+   * a child as `${parent.key}${SEP}${sizeId}` precisely so that grouping is a
+   * string test rather than a second explosion.
+   *
+   * A REFUSAL DRAWS NOTHING. `productionSlices` refuses when the order's tabs
+   * disagree, and `qtyRibbon` prints that sentence in full below.
+   */
+  const sliceGrid = (r: ItemRow) => {
+    if (!orderProd || !r.requirement_basis) return null;
+    const basis = r.requirement_basis as RequirementBasis;
+    const flags = sliceFlagsOf(r);
+
+    const primary = productionSlices(basis, orderProd);
+    if (isRefusal(primary) || primary.length === 0) return null;
+    const expanded = productionSlices(basis, orderProd, undefined, flags.sizeWise);
+
+    /*
+     * A GRID WITH A BLANK REQUIRED FIGURE CANNOT BE CLOSED.
+     *
+     * Items and Pcs left the line on 2026-08-21 and are typed HERE now, so the
+     * requiredness came with them — and AGENTS.md is explicit that requiring a
+     * HIDDEN field is a record that cannot be saved with nothing on screen to say
+     * why. This screen already learned it once: the detail band carried the same
+     * rule for the same two fields before they moved.
+     *
+     * So the caption's chevron stays put and says WHICH row is unanswered,
+     * rather than vanishing — the same shape `canFold` uses one level up.
+     */
+    const blank = primary.find((sl) => {
+      const o = flags.row(sl);
+      if (!(o?.chosen ?? true)) return false; // an unticked row buys nothing
+      const use = consumptionFor(
+        {
+          no_of_items: numOrNull(r.no_of_items),
+          per_pieces: numOrNull(r.per_pieces),
+          excess_pct: numOrNull(r.excess_pct),
+        },
+        r.slices,
+        sl,
+      );
+      return use.no_of_items == null || use.per_pieces == null;
+    });
+
+    const open = !closedSlices.has(r.key) || !!blank;
+    const toggle = () =>
+      setClosedSlices((prev) => {
+        const next = new Set(prev);
+        if (next.has(r.key)) next.delete(r.key);
+        else next.add(r.key);
+        return next;
+      });
+
+    /* Can this row split at all? A tick with no size break-up behind it would
+       refuse the whole line the moment it was ticked, so the box says so and
+       stays disabled instead. */
+    const canSizeWise = orderProd.assortSizes.length > 0;
+
+    const unitKnown = !!r.purchase_uom_id || !!r.consumption_uom_id;
+
+    /**
+     * THE THREE FIGURES A ROW SHOWS (client 2026-08-21: "calculated to final qty
+     * also not a common value, which is also attribute based").
+     *
+     * `calc` is the ratio applied to this slice, `needs` adds the row's own
+     * Excess %, and `final` runs the LINE's MOQ and Round To over that one row.
+     *
+     * ## MOQ AND ROUND TO STAY ON THE LINE, AND THAT IS NOT AN OVERSIGHT
+     *
+     * 0437 settled it with the client on 2026-08-19 with a worked example: a
+     * minimum is a fact about what may be BOUGHT of a material, so six colour
+     * rows each floored at 500 buys 3,000 where one purchase of 500 covers the
+     * lot. Same argument 0418 makes for keeping MOQ off the requirement table.
+     * So a row shows what the line's minimum does to IT, and the line owns the
+     * number.
+     *
+     * The rows therefore need not sum to the line's Final Quantity, and visibly
+     * do not once an MOQ bites — which is honest: the line buys one quantity, and
+     * this says how it lands on each attribute value.
+     */
+    const figuresOf = (sl: ProductionSlice) => {
+      const o = stored(sl);
+      /*
+       * THREE LEVELS, RESOLVED PER FIELD: the size box, then the row it sits
+       * under, then the line. `consumptionFor` returns the same shape it takes,
+       * so composing it twice IS the chain — no second resolution rule to keep
+       * in step with the first.
+       *
+       * A size child's key is (combo, size, country); its parent row's is
+       * (combo, null, country). Without the middle step a typed row figure would
+       * be invisible to its own sizes, which is what made the strip look
+       * unanswerable (screenshot 2465).
+       */
+      const lineDefaults = {
+        no_of_items: numOrNull(r.no_of_items),
+        per_pieces: numOrNull(r.per_pieces),
+        excess_pct: numOrNull(r.excess_pct),
+      };
+      const parent = sl.size_id
+        ? consumptionFor(lineDefaults, r.slices, {
+            combo: sl.combo,
+            size_id: null,
+            country_id: sl.country_id ?? null,
+          })
+        : lineDefaults;
+      const use = consumptionFor(parent, r.slices, sl);
+      const lineInput = {
+        no_of_items: use.no_of_items,
+        per_pieces: use.per_pieces,
+        excess_pct: use.excess_pct ?? 0,
+        decimals: uomDecimals(r.consumption_uom_id),
+      };
+      const withExcess = requirementFor(lineInput, sl);
+      const base = baseRequirementFor(lineInput, sl);
+      const needs = isRefusal(withExcess) ? 0 : withExcess;
+      const q = isRefusal(withExcess)
+        ? null
+        : lineQuantity(
+            [needs],
+            o?.moq ?? numOrNull(r.moq),
+            o?.round_to ?? numOrNull(r.round_to),
+            unitKnown,
+          );
+      return {
+        calc: isRefusal(base) ? 0 : base,
+        needs,
+        final: q && !isRefusal(q) ? q.finalQty : null,
+      };
+    };
+
+    const cellOf = (sl: ProductionSlice, sizeLabel: string | null): BomSliceCell => {
+      const o = stored(sl);
+      const f = figuresOf(sl);
+      return {
+        key: sl.key,
+        sizeLabel,
+        calc: f.calc,
+        needs: f.needs,
+        final: f.final,
+        items: o?.no_of_items != null ? String(o.no_of_items) : "",
+        pieces: o?.per_pieces != null ? String(o.per_pieces) : "",
+        excess: o?.excess_pct != null ? String(o.excess_pct) : "",
+      };
+    };
+
+    /* THE FULL STORED ROW, not `overrideFor`'s narrow view: that returns a
+       `SliceOverride`, which is the two figures the resolution needs and none of
+       the flags 0449 added. */
+    const stored = flags.row;
+    const sizeName = (id: string | null) => orderProd.sizeNames?.[id ?? ""] ?? id ?? "—";
+
+    const rows: BomSliceRow[] = primary.map((sl) => {
+      const o = stored(sl);
+      const ticked = flags.sizeWise(sl);
+      const kids = isRefusal(expanded)
+        ? []
+        : expanded.filter((x) => x.key !== sl.key && x.key.startsWith(`${sl.key}${SLICE_SEP}`));
+      return {
+        key: sl.key,
+        label:
+          basis === "style"
+            ? (sl.style_ref_no ?? sl.label)
+            : basis === "colour"
+              ? (sl.combo ?? sl.label)
+              : sl.label,
+        chosen: o?.chosen ?? true,
+        sizeWise: ticked,
+        specification: o?.specification ?? "",
+        sizeSpec: o?.size_spec ?? "",
+        /* THE ROW KEEPS ITS OWN FIGURES EVEN WHEN TICKED (screenshot 2465).
+           They are what a blank size box inherits, and taking them away removed
+           both the box the operator wanted to type in and the thing the sizes
+           were meant to fall back to. */
+        cell: cellOf(sl, null),
+        sizes: ticked ? kids.map((k) => cellOf(k, sizeName(k.size_id))) : [],
+        canSizeWise,
+      };
+    });
+
+    const axisHead =
+      basis === "style"
+        ? "Style"
+        : basis === "colour"
+          ? "Colour"
+          : basis === "country"
+            ? "Country"
+            : "Scope";
+
+    const caption = (
+      <button
+        type="button"
+        data-row-open
+        onClick={toggle}
+        aria-expanded={open}
+        disabled={!!blank}
+        title={blank ? "Fill in Items and Pcs before closing this" : undefined}
+        className="flex w-full items-center gap-2 border-b border-border bg-surface-muted px-3 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        {open ? (
+          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0", blank && "opacity-40")} />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+        )}
+        <span>
+          {REQUIREMENT_BASIS_LABELS[basis]} &mdash; {rows.length} row
+          {rows.length === 1 ? "" : "s"}
+        </span>
+        {/* NAMES THE ROW rather than just refusing. A control that will not close
+            and does not say why reads as broken. */}
+        {blank && (
+          <span className="ml-auto text-[11px] text-warning">
+            {rows.find((x) => x.key === blank.key)?.label ?? blank.label} needs Items and Pcs
+          </span>
+        )}
+      </button>
+    );
+
+    /* CLOSED RENDERS THE CAPTION AND NOTHING ELSE — never `hidden`. A hidden
+       field is still in the DOM, so Tab and the required-holds would both visit a
+       box the operator cannot see. */
+    if (!open) {
+      return <div className="mt-4 rounded-lg border border-border">{caption}</div>;
+    }
+
+    const byKey = new Map(
+      (isRefusal(expanded) ? primary : [...primary, ...expanded]).map((x) => [x.key, x]),
+    );
+
+    return (
+      <BomSliceGrid
+        caption={caption}
+        axisHead={axisHead}
+        rows={rows}
+        /* WHAT A BLANK BOX WILL USE. The line still CARRIES all three even
+           though it no longer shows them, so an older BOM's figures remain the
+           default until a row types its own. */
+        linePlaceholder={{
+          items: r.no_of_items || "",
+          pieces: r.per_pieces || "",
+          excess: r.excess_pct || "",
+        }}
+        renderColour={(rowKey) => {
+          const sl = byKey.get(rowKey);
+          if (!sl) return null;
+          const o = stored(sl);
+          return (
+            <LookupDialogPicker
+              kind="fabric_color"
+              label="Item Color"
+              options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
+              value={o?.item_color_id ?? null}
+              onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
+              canCreate={masterPerms.canCreate}
+              canEdit={masterPerms.canEdit}
+              compact
+            />
+          );
+        }}
+        onFlag={(rowKey, patch) => {
+          const sl = byKey.get(rowKey);
+          if (!sl) return;
+          setSlice(r.key, sl, patch);
+        }}
+        onSet={(cellKey: string, patch: { items?: string; pieces?: string; excess?: string }) => {
+          const sl = byKey.get(cellKey);
+          if (!sl) return;
+          setSlice(r.key, sl, {
+            ...(patch.items !== undefined ? { no_of_items: numOrNull(patch.items) } : {}),
+            ...(patch.pieces !== undefined ? { per_pieces: numOrNull(patch.pieces) } : {}),
+            ...(patch.excess !== undefined ? { excess_pct: numOrNull(patch.excess) } : {}),
+          });
+        }}
+      />
+    );
+  };
+
   /** Load an order's production rows. Failure leaves `orderProd` null and SAYS
    *  so; a silent null would render as "nothing to plan against". */
   const pullOrder = useCallback(
@@ -859,6 +1368,8 @@ export function MbaMasterScreen({
     setForm({ ...BLANK, amend_date: today(), garment_order_id: orderId ?? null });
     setItems([blankItem(newKey())]);
     setProcs([blankProc(newKey())]);
+    // A new document has sent nothing anywhere.
+    setDcLines([]);
     setPendingCopy(null);
     setDirty(false);
     setMode("edit");
@@ -881,7 +1392,6 @@ export function MbaMasterScreen({
         item_id: c.item_id,
         attribute_id: c.attribute_id,
         item_color_id: c.item_color_id,
-        garment_size_id: c.garment_size_id,
         specification: c.specification ?? "",
         size: c.size ?? "",
         requirement_basis: c.requirement_basis ?? "",
@@ -904,11 +1414,19 @@ export function MbaMasterScreen({
         // `ItemRow.components`. A missing select must read as "no panels", never
         // crash the editor open.
         components: c.components ?? [],
+        // `?? []` for the same reason as `components` above — a service that
+        // does not select them must read as "no overrides", never crash the
+        // editor open.
+        slices: c.slices ?? [],
       })),
     );
+    setDcLines(r.dc_lines ?? []);
     setProcs(
       r.processes.map((p) => ({
         key: newKey(),
+        // CARRIED, never re-minted: this is what a challan already raised
+        // against the row is matched by.
+        row_uid: p.row_uid,
         item_id: p.item_id,
         process_id: p.process_id,
         vendor_id: p.vendor_id,
@@ -966,7 +1484,6 @@ export function MbaMasterScreen({
           item_id: c.item_id ?? null,
           attribute_id: c.attribute_id ?? null,
           item_color_id: c.item_color_id ?? null,
-          garment_size_id: c.garment_size_id ?? null,
           specification: c.specification ?? "",
           size: c.size ?? "",
           requirement_basis: c.requirement_basis ?? "",
@@ -991,9 +1508,15 @@ export function MbaMasterScreen({
           // Dropped by the copy action itself (0436) — a panel belongs to a
           // style, and the source order's styles are not this one's.
           components: [],
+          // A slice names this order's colours and sizes, and a source order's
+          // are not this one's — the same argument `components` makes above.
+          slices: [],
         })),
         procs: res.payload.processes.map((p) => ({
           key: newKey(),
+          // The action already minted a fresh anchor per copied row — a copy has
+          // sent nothing anywhere, so it must not inherit the source's challan.
+          row_uid: p.row_uid ?? crypto.randomUUID(),
           item_id: p.item_id ?? null,
           process_id: p.process_id ?? null,
           vendor_id: p.vendor_id ?? null,
@@ -1026,7 +1549,6 @@ export function MbaMasterScreen({
         item_id: c.item_id,
         attribute_id: c.attribute_id,
         item_color_id: c.item_color_id,
-        garment_size_id: c.garment_size_id,
         specification: c.specification || null,
         size: c.size || null,
         requirement_basis: (c.requirement_basis || null) as RequirementBasis | null,
@@ -1046,9 +1568,11 @@ export function MbaMasterScreen({
         excess_pct: numOrNull(c.excess_pct) ?? 0,
         required_by: c.required_by || null,
         components: c.components,
+        slices: c.slices,
       })),
       processes: procs.map((p) => ({
         sno: 0,
+        row_uid: p.row_uid,
         item_id: p.item_id,
         process_id: p.process_id,
         vendor_id: p.vendor_id,
@@ -1100,6 +1624,56 @@ export function MbaMasterScreen({
   }, [tasks, query, statusFilter]);
 
   /**
+   * HOW MANY ORDERS SIT IN EACH STATE, IN THE ORDER THE WORK SHOULD BE DONE —
+   * not in `BOM_STATUSES` declaration order and never sorted by count.
+   *
+   * `BOM_STATUS_RANK` has said "order of work for the dashboard: what needs
+   * doing, first" since the statuses were extracted, and until now nothing on
+   * screen read it: the list was sorted by it invisibly, and the filter offered
+   * the five states in declaration order. Sorting by count would bury
+   * Recalculate — the one state that means a plan is silently wrong — beneath
+   * Updated on any healthy queue.
+   */
+  const statusCounts = useMemo(
+    () =>
+      [...BOM_STATUSES]
+        .sort((a, b) => BOM_STATUS_RANK[a] - BOM_STATUS_RANK[b])
+        .map((status) => ({
+          status,
+          count: tasks.filter((t) => t.status === status).length,
+        })),
+    [tasks],
+  );
+
+  /**
+   * WHAT THE QUEUE AMOUNTS TO — the one figure a merchandiser wants before
+   * reading any card, and the one the cards cannot show.
+   *
+   * FOUR BRANCHES, BECAUSE THREE OF THEM ARE TRUE AT DIFFERENT TIMES and only
+   * the first is the happy one. An order whose production quantity is refused
+   * (`production_qty` null — no Approval Qty rows) cannot be added to a total,
+   * so it is counted SEPARATELY rather than silently dropped: a sentence that
+   * says "7,150 pieces across 3 orders" while a fourth order sits unplanned and
+   * untotalled is exactly the kind of number that gets believed.
+   */
+  const queueSummary = useMemo(() => {
+    const open = tasks.filter((t) => t.status !== "updated");
+    const totalled = open.filter((t) => t.production_qty != null);
+    const untotalled = open.length - totalled.length;
+    const pieces = totalled.reduce((n, t) => n + (t.production_qty ?? 0), 0);
+
+    if (totalled.length > 0) {
+      return `${fmtNumber(pieces)} pieces across ${totalled.length} order${totalled.length === 1 ? "" : "s"} waiting on a material plan${
+        untotalled > 0 ? ` · ${untotalled} more cannot be totalled yet` : ""
+      }`;
+    }
+    if (untotalled > 0) {
+      return `${untotalled} order${untotalled === 1 ? "" : "s"} waiting on a material plan · none can be totalled yet`;
+    }
+    return tasks.length > 0 ? "Every confirmed order has a current material plan." : null;
+  }, [tasks]);
+
+  /**
    * ONE CARD PER GARMENT ORDER (operator request, 2026-08-17). This list is a
    * work QUEUE — "which confirmed orders still need their accessories planned?"
    * — and it was a `DataTable` of one row per order. The cards carry the same
@@ -1136,17 +1710,60 @@ export function MbaMasterScreen({
    * the strip truncates it and reveals it on hover, so an unanswerable card
    * cannot set the height of its whole row.
    */
+  /**
+   * PRODUCTION LEADS, and the order of the three is the point.
+   *
+   * It was Styles · Production · Delivery at one weight, so nothing was
+   * emphasised and nothing was scannable (client 2026-08-21, screenshot 2440).
+   * The BOM multiplies the production quantity — it is the number this document
+   * is FOR — and a merchandiser going down the queue is going down the
+   * quantities. Delivery is the urgency and holds the right edge, where dates
+   * line up down the grid; the style count is the least of the three and no
+   * longer leads.
+   *
+   * A refusal still prints its sentence where the number would go, and a missing
+   * delivery date is still a dash: "the system tried and cannot answer" and
+   * "nobody has entered one" are different facts, and only the first is a
+   * sentence.
+   */
   const cardStats = (t: BomTaskRow): CardStat[] => [
-    { label: "Styles", value: t.style_count },
     {
       label: "Production",
+      lead: true,
       value:
         t.production_qty != null
           ? fmtNumber(t.production_qty)
           : (t.production_refusal ?? "—"),
     },
-    { label: "Delivery", value: t.delivery_date ? fmtDate(t.delivery_date) : "—" },
+    { label: "Styles", value: t.style_count },
+    {
+      label: "Delivery",
+      value: t.delivery_date ? (
+        <>
+          {fmtDate(t.delivery_date)}
+          <DaysOut iso={t.delivery_date} />
+        </>
+      ) : (
+        "—"
+      ),
+    },
   ];
+
+  /**
+   * THE SENTENCE THAT SAYS WHAT TO DO, on the two states where doing something
+   * is the point.
+   *
+   * `bomStatusHint()` has always answered for all five, and the screen spent it
+   * on a `title=` tooltip — invisible on touch, invisible while scanning. It is
+   * not printed on Pending or Draft because there it only re-words the pill:
+   * three "No material plan yet." lines beside three Pending pills teach the
+   * operator to stop reading the line, and then the one card that says something
+   * else is not read either.
+   */
+  const cardHint = (t: BomTaskRow) =>
+    t.status === "recalculate" || t.status === "unresolved" ? (
+      <span className="text-danger">{bomStatusHint(t.status, t.production_qty)}</span>
+    ) : null;
 
   // ---------------- THE EDITOR ----------------
 
@@ -1341,11 +1958,6 @@ export function MbaMasterScreen({
     );
   };
 
-  /** Pack sizes defined on a material, for that BOM line's pack picker. Empty
-   *  means the material has no conversions — the ~90% bought in the unit they
-   *  are consumed in, or one whose master hasn't been filled in yet. */
-  const packsFor = (itemId: string | null) =>
-    itemId ? data.conversions.filter((c) => c.item_id === itemId && isUsableConversion(c)) : [];
   const packById = (id: string | null) =>
     id ? (data.conversions.find((c) => c.id === id) ?? null) : null;
   /** `decimal_places_allowed` (0309), not `decimal_places` (0224) — the latter is
@@ -1442,7 +2054,18 @@ export function MbaMasterScreen({
         continue;
       }
 
-      const slices = productionSlices(r.requirement_basis as RequirementBasis, orderProd);
+      const rowFlags = sliceFlagsOf(r);
+      const allSlices = productionSlices(
+        r.requirement_basis as RequirementBasis,
+        orderProd,
+        undefined,
+        rowFlags.sizeWise,
+      );
+      /* UNTICKED ROWS ARE DROPPED HERE TOO, and that is not a nicety: the server
+         omits them from the stored requirement, so a screen that still counted
+         them would show a Final Quantity the purchase order is never checked
+         against. Same store, same reading, same answer. */
+      const slices = isRefusal(allSlices) ? allSlices : allSlices.filter(rowFlags.chosen);
       if (isRefusal(slices)) {
         push({ refusal: slices.refused });
         totals.set(r.key, {
@@ -1477,10 +2100,27 @@ export function MbaMasterScreen({
       let baseTotal: number | null = 0;
 
       for (const slice of slices) {
-        const lineInput = {
+        /* THE CONSUMPTION IS THE SLICE'S, FALLING BACK TO THE LINE (0442).
+           This was the line's own figures reused for every slice, which is why
+           a Size-wise line spent the same thread on an XS and a XXL. `slices`
+           on the row holds only what the operator TYPED; everything else still
+           reads the line, per FIELD — see `consumptionFor`.
+           Excess % and the decimals stay the line's: neither is a property of a
+           size, and an excess that varied per slice would not sum to the
+           order's. */
+        const use = consumptionFor(
+          {
           no_of_items: numOrNull(r.no_of_items),
           per_pieces: numOrNull(r.per_pieces),
-          excess_pct: numOrNull(r.excess_pct) ?? 0,
+          excess_pct: numOrNull(r.excess_pct),
+        },
+          r.slices,
+          slice,
+        );
+        const lineInput = {
+          no_of_items: use.no_of_items,
+          per_pieces: use.per_pieces,
+          excess_pct: use.excess_pct ?? 0,
           decimals: uomDecimals(r.consumption_uom_id),
         };
         const baseValue = baseRequirementFor(lineInput, slice);
@@ -1644,6 +2284,13 @@ export function MbaMasterScreen({
        * be advised". And not uppercased: a fixed option list is outside the
        * CAPITALS rule, which governs typed free text.
        *
+       * IT ARRIVES FILLED IN. A new line opens on "Available Item"
+       * (`DEFAULT_MATERIAL_TYPE`, client 2026-08-21) because that is what almost
+       * every trim is; the other two are the exceptions and the operator picks
+       * them. The blank option stays on the list — a default the operator cannot
+       * clear is a constraint wearing a default's clothes, and this column has
+       * never been one.
+       *
        * SECOND ON THE LINE, between Category and Material — where legacy puts it
        * (screenshot 2362). It sat between Component and Supply Type from its
        * restoration until 2026-08-19, when the whole row was re-ordered onto
@@ -1695,11 +2342,24 @@ export function MbaMasterScreen({
           required
         >
           <option value=""></option>
-          {REQUIREMENT_BASES.map((b) => (
+          {/* FOUR, NOT SIX. `size` and `combination` left the menu when the
+              per-row Size-wise tick arrived — see OFFERED_REQUIREMENT_BASES.
+              A line STORED under one of them still renders its own name below,
+              so an older document does not show a blank Attribute. */}
+          {OFFERED_REQUIREMENT_BASES.map((b) => (
             <option key={b} value={b}>
               {REQUIREMENT_BASIS_LABELS[b]}
             </option>
           ))}
+          {r.requirement_basis &&
+            !OFFERED_REQUIREMENT_BASES.includes(
+              r.requirement_basis as (typeof OFFERED_REQUIREMENT_BASES)[number],
+            ) && (
+              <option value={r.requirement_basis}>
+                {REQUIREMENT_BASIS_LABELS[r.requirement_basis as RequirementBasis] ??
+                  r.requirement_basis}
+              </option>
+            )}
         </Select>
       ),
     },
@@ -1818,151 +2478,6 @@ export function MbaMasterScreen({
         />
       ),
     },
-    {
-      header: "Item Color",
-      className: "min-w-[150px]",
-      // THE ORDER'S OWN COLOURS — see `orderColourOptions`, which is this cell
-      // wired the way the Prices tab wires its Combo. An EMPTY cell still means
-      // "takes the garment's colour", which is a decision rather than a gap.
-      cell: (r) => (
-        <LookupDialogPicker
-          kind="fabric_color"
-          label="Item Color"
-          options={orderColourOptions(r.style_ref_no, r.item_color_id)}
-          value={r.item_color_id}
-          onChange={(id) => updItem(r.key, { item_color_id: id })}
-          canCreate={masterPerms.canCreate}
-          canEdit={masterPerms.canEdit}
-          compact
-        />
-      ),
-    },
-    {
-      header: "Size",
-      className: "min-w-[120px]",
-      // The MATERIAL's size — 50MM X 20MM, 12 INCH, 24 LIGNE. NOT the garment
-      // size: a Size-wise line already explodes along that axis, and putting
-      // both meanings on one field is how the two collide.
-      cell: (r) => (
-        <Input
-          uppercase
-          value={r.size}
-          onChange={(e) => updItem(r.key, { size: e.target.value })}
-          className="h-8"
-        />
-      ),
-    },
-    {
-      /**
-       * THE GARMENT SIZE THIS LINE IS FOR (0441) — the axis column, and the one
-       * the explosion fills.
-       *
-       * NOT the "Size" column above it, which is the MATERIAL's measurement (24
-       * LIGNE) and stays on every line whatever the Attribute is: a button is 24
-       * ligne on every garment size it is sewn to. Two meanings, two columns —
-       * the note on `size` says the collision is what to avoid.
-       *
-       * Offered from the order's OWN sizes, resolved through `orderProd`, so it
-       * cannot name a size the order does not carry.
-       */
-      header: "Garment Size",
-      className: "min-w-[120px]",
-      cell: (r) => (
-        <Select
-          value={r.garment_size_id ?? ""}
-          onChange={(e) =>
-            updItem(r.key, { garment_size_id: e.target.value || null })
-          }
-          className="h-8"
-        >
-          {/* BLANK IS A REAL ANSWER — "every size", which is what an order-,
-              style- or colour-wise line means. */}
-          <option value=""></option>
-          {orderSizeOptions.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-    {
-      header: "Style",
-      className: "min-w-[130px]",
-      // Blank means every style on the order — the common case, which is why it
-      // is not required.
-      //
-      // THE UNIT RIDES WITH IT (0423). "1 per piece" on a two-garment Set means
-      // something different from "1 per piece" on a single top, and `per_pieces`
-      // is typed by the operator — so the fact is SHOWN and never computed with.
-      // Turning it into arithmetic would silently double or halve a requirement
-      // the operator thought they had entered.
-      //
-      // IT SITS ABOVE THE CONTROL, NOT UNDER IT, AND THAT IS A LAYOUT RULE RATHER
-      // THAN A PREFERENCE. The runs render on `FIELD_TRACK_32`, which carries
-      // `items-end` so that a wrapped LABEL cannot drop its control below the
-      // row. Bottom-aligning the cell means the LAST element in it is what lands
-      // on the shared baseline — so a note under the control put the note on the
-      // baseline and lifted the `<Select>` ~20px above every other field on the
-      // row. Picking a style visibly knocked the layout crooked (client
-      // 2026-08-20, screenshot 2414).
-      //
-      // Above the control it costs nothing: extra content grows the cell UPWARD
-      // from a fixed bottom edge, so the `<Select>` does not move when a style is
-      // chosen and the note appears in the gap under the label, qualifying it.
-      // **Anything added to a cell in this grid goes above the control.**
-      cell: (r) => {
-        const st = styleOf(r.style_ref_no);
-        return (
-          <div className="space-y-0.5">
-            {st?.unit_kind && (
-              /* "Set", not "Set (multi-garment)": the cell is 140px and the long
-                 form wrapped to two lines, which grew the cell upward far enough
-                 to shove the Style LABEL out of line with its neighbours — the
-                 same misalignment one element along. The full phrase is the
-                 title. */
-              <span
-                /* truncate-reveal: exempt -- a two-word fixed vocabulary, "Set"
-                   or "Piece", which cannot reach 140px; the `truncate` is belt
-                   and braces against a future third value, not a hidden value. */
-                className="block truncate text-[10.5px] leading-tight text-muted-foreground"
-                title={
-                  st.unit_kind.toUpperCase() === "SET"
-                    ? "A set — more than one garment"
-                    : "A single garment"
-                }
-              >
-                {st.unit_kind.toUpperCase() === "SET" ? "Set" : "Piece"}
-              </span>
-            )}
-            <Select
-              value={r.style_ref_no}
-              onChange={(e) =>
-                updItem(r.key, {
-                  style_ref_no: e.target.value,
-                  // The panel belongs to the style. Changing the style must drop
-                  // a component the new one does not declare — the
-                  // cascading-filter rule's "clear a held value ONLY when it
-                  // really is out of scope".
-                  ...(r.component_id &&
-                  !componentsOf(e.target.value).some((c) => c.id === r.component_id)
-                    ? { component_id: null }
-                    : {}),
-                })
-              }
-              className="h-8"
-            >
-              <option value="">All styles</option>
-              {(selectedOrder?.styles ?? []).map((x) => (
-                <option key={x.ref} value={x.ref}>
-                  {x.ref}
-                </option>
-              ))}
-            </Select>
-          </div>
-        );
-      },
-    },
     /* THE COMPONENT CELL WAS HERE AND CAME OUT (client 2026-08-20, "remove
        from only material bom is enough" — the Style Components tab keeps its
        own, which is where a panel list belongs).
@@ -1980,120 +2495,6 @@ export function MbaMasterScreen({
        holding is a field the next save NULLS — the same trap `alternate_uom_id`
        and `required_by` are written up for above. Stored panels survive, and a
        restore is this block again. */
-    {
-      header: "Specification",
-      className: "min-w-[140px]",
-      // CAPS, both halves: `uppercase` uppercases the keystroke AND applies the
-      // CSS transform that fixes rows saved before the rule, while the Zod
-      // schema transforms the write so a data-io import cannot slip past.
-      cell: (r) => (
-        <Input
-          uppercase
-          value={r.specification}
-          onChange={(e) => updItem(r.key, { specification: e.target.value })}
-          className="h-8"
-        />
-      ),
-    },
-    {
-      header: "No. of Items",
-      align: "right",
-      className: "min-w-[6rem]",
-      required: true,
-      // The NUMERATOR of the client's ratio: 2 labels per 1 piece.
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.no_of_items}
-          onChange={(e) => updItem(r.key, { no_of_items: e.target.value })}
-          className="h-8 text-right"
-          required
-        />
-      ),
-    },
-    {
-      header: "Per Pieces",
-      align: "right",
-      className: "min-w-[6rem]",
-      required: true,
-      // The DIVISOR: 1 metre makes 4 pieces. NOT defaulted to 1 anywhere — an
-      // unfinished line must not compute a number that reaches a purchase order.
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.per_pieces}
-          onChange={(e) => updItem(r.key, { per_pieces: e.target.value })}
-          className="h-8 text-right"
-          required
-        />
-      ),
-    },
-    {
-      header: "Excess %",
-      align: "right",
-      className: "min-w-[6rem]",
-      // THE CLIENT'S WORD, and it collides with one on the ORDER. The order's
-      // own Excess % is already inside the production quantity this multiplies,
-      // so the two must never be added together. They are on different screens,
-      // which is what makes the shared name survivable — but the header strip on
-      // the first section states the order's figure explicitly, so an operator
-      // can see that this box is a SECOND buffer rather than the same one.
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          max="100"
-          step="0.01"
-          value={r.excess_pct}
-          onChange={(e) => updItem(r.key, { excess_pct: e.target.value })}
-          className="h-8 text-right"
-        />
-      ),
-    },
-    {
-      header: "Calculated Qty",
-      align: "right",
-      className: "min-w-[8rem]",
-      /**
-       * WHAT THE ORDER CONSUMES, BEFORE THE BUFFER (client 2026-08-20: "two
-       * fields not one — excess will user give, and calculated is based on no of
-       * pcs and no of item, with or without excess value ... it need to show the
-       * count automatically").
-       *
-       * So the pair reads left to right as the operator's own sentence: No. of
-       * Items and Per Pieces make THIS number; Excess % turns it into the one
-       * beside it. Neither is typed.
-       *
-       * NOT THE OTHER COLUMN DIVIDED BY (1 + excess). Every figure here is
-       * ceilinged to the unit's precision, so dividing back out un-rounds a
-       * number that was deliberately rounded and lands just under the honest
-       * one — `baseRequirementFor` computes it from its own multiplication for
-       * that reason, and `check-bom-requirement.mts` has the vector where the
-       * two disagree.
-       *
-       * EQUAL TO THE NEXT CELL WHEN EXCESS % IS BLANK, which is most rows, and
-       * that is not a reason to hide it: the operator is being shown what the
-       * order needs and what the buffer added, and "nothing" is a real answer
-       * for the second.
-       */
-      cell: (r) => derivedQtyCell(lineTotals.get(r.key), (t) => t.calc, false),
-    },
-    {
-      header: "Excess Calculated Qty",
-      align: "right",
-      className: "min-w-[8rem]",
-      // THE FIRST OF TWO DERIVED CELLS, and it is what "Calculated Qty" used to
-      // be MINUS the MOQ (client 2026-08-19). The line's whole requirement —
-      // every slice summed, with the line's own Excess % inside it — BEFORE the
-      // supplier's minimum and the operator's rounding step get their hands on
-      // it. Splitting the old cell in two is the point: the operator can see
-      // what the order actually needs standing beside what will be bought.
-      cell: (r) => derivedQtyCell(lineTotals.get(r.key), (t) => t.excessCalc, false),
-    },
     {
       header: "Round To",
       align: "right",
@@ -2123,45 +2524,24 @@ export function MbaMasterScreen({
         />
       ),
     },
-    {
-      header: "Final Quantity",
-      align: "right",
-      className: "min-w-[8rem]",
-      // THE END OF THE CHAIN, and the figure a purchase order is written from.
-      // Emphasised over Excess Calculated Qty beside it — same tint, heavier
-      // weight — because when the two differ this is the one that gets ordered.
-      cell: (r) => derivedQtyCell(lineTotals.get(r.key), (t) => t.final, true),
-    },
-    {
-      header: "Purchase Pack",
-      className: "min-w-[170px]",
-      // Which cone/gross size this line buys. Options come from the material's
-      // own conversions, so an empty list is the signal to go define them on the
-      // Materials master rather than a dead control.
-      cell: (r) => {
-        const packs = packsFor(r.item_id);
-        return (
-          <Select
-            className="h-8"
-            value={r.uom_conversion_id ?? ""}
-            disabled={packs.length === 0}
-            title={
-              packs.length === 0
-                ? "No conversions defined on this material — add them under Materials ▸ Units of Measure."
-                : undefined
-            }
-            onChange={(e) => updItem(r.key, { uom_conversion_id: e.target.value || null })}
-          >
-            <option value="">{packs.length === 0 ? "No conversions" : "Same as consumption"}</option>
-            {packs.map((c) => (
-              <option key={c.id} value={c.id}>
-                {describeConversion(c, uomName)}
-              </option>
-            ))}
-          </Select>
-        );
-      },
-    },
+    /*
+     * PURCHASE PACK IS OFF THE ITEM ROW (client 2026-08-21: "remove the purchase
+     * pack field from material bom child").
+     *
+     * THE COLUMN WENT, THE FIELD STAYED — the withdrawal pattern this file
+     * already records for `type`, `alternate_uom_id` and `combination`. It is not
+     * tidiness: `writeChildren` DELETES AND REINSERTS every child row, so a value
+     * the form stops CARRYING is a value the next save destroys. `ItemRow`,
+     * `blankItem`, both load paths and the save payload all still carry
+     * `uom_conversion_id`, so the packs already chosen on live BOMs survive an
+     * ordinary edit-and-save of the line.
+     *
+     * AND IT IS STILL READ. `packById` feeds `packUsable` in the line totals, so
+     * a stored pack keeps converting the requirement into a purchase figure —
+     * this removed the way to CHANGE one, not the effect of having one.
+     * `packsFor` and the `describeConversion` import went with the cell; they had
+     * no other reader.
+     */
   ];
 
   /**
@@ -2240,31 +2620,94 @@ export function MbaMasterScreen({
       header: "Qty Out",
       align: "right",
       className: "min-w-[6rem]",
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.qty_out}
-          onChange={(e) => updProc(r.key, { qty_out: e.target.value })}
-          className="h-8 text-right"
-        />
-      ),
+      /*
+       * READ-ONLY ONCE A CHALLAN CARRIES IT (0446). The challan is the legal
+       * document that went out with the lorry; the grid is a view of it. A
+       * typeable box here would let the BOM say 600 while the driver's copy says
+       * 1,000, and the server overwrites it from the challan on save anyway — so
+       * leaving it editable would show the operator a number that silently
+       * reverts.
+       *
+       * `readOnly`, not `disabled`: a disabled input leaves the keyboard contract
+       * (AGENTS.md — `<Input readOnly>` sets tabIndex={-1} itself, which takes it
+       * off Tab and the arrows deliberately) while still being readable and
+       * selectable.
+       */
+      cell: (r) => {
+        const dc = dcByRow.get(r.row_uid);
+        return (
+          <Input
+            type="number"
+            min="0"
+            step="0.001"
+            value={dc ? String(dc.sent_qty ?? "") : r.qty_out}
+            readOnly={!!dc}
+            title={dc ? `Sent under challan ${dc.challan?.code ?? ""}` : undefined}
+            onChange={(e) => updProc(r.key, { qty_out: e.target.value })}
+            className="h-8 text-right"
+          />
+        );
+      },
+    },
+    {
+      header: "Challan",
+      className: "min-w-[7rem]",
+      /* WHICH DOCUMENT SENT THIS, and a way to open it. Without it the only sign
+         a row has gone out is that its Qty Out stopped accepting typing, which
+         reads as a broken field rather than a completed dispatch. */
+      cell: (r) => {
+        const dc = dcByRow.get(r.row_uid);
+        if (!dc) {
+          return <span className="text-[11px] text-muted-foreground">Not sent</span>;
+        }
+        return (
+          <a
+            href={`/purchase/dc/${dc.delivery_challan_id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[12.5px] font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {dc.challan?.code ?? "View"}
+          </a>
+        );
+      },
     },
     {
       header: "Qty In",
       align: "right",
       className: "min-w-[6rem]",
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.qty_in}
-          onChange={(e) => updProc(r.key, { qty_in: e.target.value })}
-          className="h-8 text-right"
-        />
-      ),
+      /*
+       * THE CHALLAN IS AUTHORITATIVE ONCE THERE IS ONE (0446). `recordDcReturn`
+       * writes `dc_line_items.returned_qty`, caps it at what was sent and
+       * recomputes the challan's status; this column then mirrors it.
+       *
+       * TWO FREELY-TYPED NUMBERS WOULD DRIFT, and asymmetrically: this box is
+       * backed by no document, while `returned_qty` is what a GST officer reads.
+       * A grid claiming 960 buttons are back while the challan says none is the
+       * failure worth designing out.
+       *
+       * Still typeable where there is NO challan — planning, and rows that
+       * predate this feature.
+       */
+      cell: (r) => {
+        const dc = dcByRow.get(r.row_uid);
+        return (
+          <Input
+            type="number"
+            min="0"
+            step="0.001"
+            value={dc ? String(dc.returned_qty ?? 0) : r.qty_in}
+            readOnly={!!dc}
+            title={
+              dc
+                ? `Received against challan ${dc.challan?.code ?? ""} — record returns on the challan`
+                : undefined
+            }
+            onChange={(e) => updProc(r.key, { qty_in: e.target.value })}
+            className="h-8 text-right"
+          />
+        );
+      },
     },
     {
       header: "Balance",
@@ -2388,6 +2831,66 @@ export function MbaMasterScreen({
     },
     { header: "Purchase Uom", cell: (r) => <span className="text-xs">{r.purchaseUom}</span> },
   ];
+
+  /*
+   * SEND MATERIAL OUT — one challan per consignment (0446).
+   *
+   * A SECTION-HEADER CONTROL, NOT A ROW ACTION. Rule 55's challan accompanies
+   * the GOODS, so three rows going to one dyer on one lorry are one document;
+   * a per-row button structurally cannot produce a multi-line challan.
+   *
+   * DISABLED WHILE THE FORM IS DIRTY, and that is the important one: this acts on
+   * rows as the DATABASE holds them, and a challan raised against an unsaved
+   * quantity would describe a dispatch nobody agreed to. It says why rather than
+   * being mysteriously grey.
+   */
+  const dcEligible = procs.filter(
+    (r) => r.item_id && r.process_id && r.vendor_id && (numOrNull(r.qty_out) ?? 0) > 0 && !dcByRow.has(r.row_uid),
+  );
+  const dcBlocked = !editId
+    ? "Save this BOM before sending material out"
+    : dirty || isPending
+      ? "Save your changes first — a challan is raised against the saved quantities"
+      : null;
+
+  const dcBar =
+    procs.length > 0 ? (
+      <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-muted px-3 py-2">
+        <span className="text-[11.5px] text-muted-foreground">
+          {dcEligible.length > 0
+            ? `${dcEligible.length} line${dcEligible.length === 1 ? "" : "s"} ready to send out`
+            : "Nothing ready to send out"}
+        </span>
+        {dcBlocked && (
+          <span className="text-[11px] text-warning">{dcBlocked}</span>
+        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="ml-auto"
+          disabled={!!dcBlocked || dcEligible.length === 0}
+          onClick={() => setDcOpen(true)}
+        >
+          Generate Delivery Challan
+        </Button>
+      </div>
+    ) : null;
+
+  const dcByRow = new Map(
+    dcLines
+      .filter((l) => !!l.mba_process_row_uid)
+      .map((l) => [l.mba_process_row_uid as string, l]),
+  );
+
+  const dcCandidates: DcCandidate[] = dcEligible.map((r) => ({
+    rowUid: r.row_uid,
+    vendorId: r.vendor_id as string,
+    vendorName: data.vendors.find((v) => v.id === r.vendor_id)?.name ?? "Processor",
+    materialName: itemName(r.item_id),
+    processName: data.processes.find((p) => p.id === r.process_id)?.name ?? "Job work",
+    qtyOut: numOrNull(r.qty_out) ?? 0,
+  }));
 
   const copyBar = pendingCopy ? (
     <BomCopyConfirm
@@ -2744,17 +3247,52 @@ export function MbaMasterScreen({
                  re-ordered often, and a header named in NO group still renders,
                  in its own run at the end, so a column added later cannot
                  vanish off a screen nobody thought to re-read. */
-              const groups = FIELD_GROUPS.map((g) =>
-                g.flatMap((b) => {
+              /*
+               * STYLE HIDES ITSELF ON A SINGLE-STYLE ORDER (client 2026-08-21:
+               * "in approximately 98% of orders there is only one style mapped
+               * to the PO ... carrying a prominent 280px Style picker on every
+               * accessory row is completely redundant").
+               *
+               * TWO WAYS TO EARN ITS PLACE, and the second is not optional: a
+               * Style-wise line is SPLIT by style, so the field has to be
+               * reachable even where the order carries one — otherwise the basis
+               * names an axis the operator cannot see.
+               *
+               * A HIDDEN FIELD IS NOT RENDERED, never `hidden`. Tab and the
+               * required-holds both walk the DOM, so a CSS-hidden control is a
+               * box the operator can be sent to and cannot see. Same rule the
+               * detail band followed when it closed.
+               *
+               * `style_ref_no` is still carried, saved and round-tripped — this
+               * is a field coming off the SCREEN, not off the record, which is
+               * the withdrawal pattern this file records for Type, Alternate Uom
+               * and Combination.
+               */
+              const groups = FIELD_GROUPS.map((g) => {
+                const cells = g.flatMap((b) => {
                   const col = itemColumns.find((c) => c.header === b.header);
                   return col ? [{ col, size: b.size, weight: b.weight }] : [];
-                }),
-              );
+                });
+                /* A RUN CAN NOW BE EMPTY. Run 2 is Style alone since Item Color,
+                   Size and Specification became sub-grid columns, and Style hides
+                   itself on a single-style order — so on an ordinary order that
+                   run has nothing in it. An empty run would still draw its `py-3`
+                   and its hairline, which is a seam marking a boundary between
+                   nothing and nothing. Dropped below rather than rendered blank. */
+                /* EVERY RUN MUST STILL SUM TO 32 or its last field drops to a
+                   line of its own — the rule the width table above states. Run 2
+                   is four `xl` (8 each); dropping one leaves 24, so the three
+                   survivors are re-spread rather than left short. Size takes the
+                   widest slot for the reason the table gives: a size list is the
+                   longest of the three. */
+                return cells;
+              });
               const named = new Set(FIELD_GROUPS.flat().map((b) => b.header));
               const orphans = itemColumns
                 .filter((c) => !named.has(c.header))
                 .map((col) => ({ col, size: "sm" as FieldSize, weight: "plain" as Weight }));
-              const runs = orphans.length ? [...groups, orphans] : groups;
+              const withCells = groups.filter((g) => g.length > 0);
+              const runs = orphans.length ? [...withCells, orphans] : withCells;
               const t = lineTotals.get(row.key);
 
               return (
@@ -2846,6 +3384,7 @@ export function MbaMasterScreen({
                       </FieldGrid>
                     </div>
                   ))}
+                  {sliceGrid(row)}
                   {qtyRibbon(row, t)}
                 </div>
               );
@@ -2914,6 +3453,7 @@ export function MbaMasterScreen({
       done: procs.some((r) => r.item_id || r.process_id),
       content: (
         <SectionBody title="Processes">
+          {dcBar}
           <ChildGrid<ProcRow>
             columns={procColumns}
             rows={procs}
@@ -2995,50 +3535,95 @@ export function MbaMasterScreen({
   return (
     <>
       <div className="space-y-4">
+        {/* THE PRIMARY ACTION SITS BESIDE "← Back", NOT IN A BAND OF ITS OWN.
+            It was a right-aligned div under the toolbar, so the two buttons this
+            screen has stood 80px apart on two rows with a hole between them,
+            while the toolbar's own contents ended at 40% of the width. `actions`
+            is also the shape `--check toolbar-size` recognises as a header row,
+            so the h-9 rule is enforced here rather than trusted. */}
         <PageHeader
           title="Material BOM"
           description="Every sewing and packing accessory a confirmed order needs, and how much of each."
-        />
-
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterBar
-            search={query}
-            onSearch={setQuery}
-            searchPlaceholder="Search SC No, PO or customer…"
-            activeCount={statusFilter ? 1 : 0}
-            onReset={statusFilter ? () => setStatusFilter("") : undefined}
-            right={`${filtered.length} of ${tasks.length}`}
-          >
-            <div>
-              <label htmlFor="bom-status" className="mb-1 block text-xs text-muted-foreground">
-                Material BOM
-              </label>
-              <Select
-                id="bom-status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as "" | BomStatus)}
-              >
-                <option value="">All</option>
-                {BOM_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {bomStatusText(s)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </FilterBar>
-          <div className="flex flex-1 items-center justify-end gap-2">
-            {perms.canCreate && (
+          actions={
+            perms.canCreate ? (
               <Button size="md" onClick={() => openAdd(null)}>
                 + New Material BOM
               </Button>
-            )}
+            ) : undefined
+          }
+        />
+
+        {/* THE STATUS FACET IS THE ONE EVERY OTHER LIST SCREEN HAS — a <Label>
+            and a <Select> in one cell of the Filters panel (`master-list-shell.tsx`
+            is the reference) — WITH THE COUNTS IN ITS OPTIONS.
+
+            Two shapes were tried and both were wrong, and the reason is the same
+            in each: they were new controls rather than the app's control.
+            First a rail of chips in a band above the list, then the same chips
+            in the panel, then a dropdown of my own on the toolbar row. The
+            client's answer was "i meant inside that filter add this ... check
+            the previous filter from our other child" (2026-08-21). The ask was
+            never a new control; it was the COUNTS, in the facet that was already
+            there.
+
+            What the counts buy is the whole point: a state list that says nothing
+            about whether any rows are in it cannot answer "is anything stale?" —
+            the question a work queue exists to answer — except by choosing
+            Recalculate and looking at an empty list.
+
+            A state with no rows is SHOWN AND NOT CHOOSABLE, never hidden: zero
+            Recalculate is information, and a list that drops its empty states
+            reshuffles itself every time work moves, so the option an operator
+            reaches for is never in the same place twice. The one exception is
+            the option currently SELECTED — disabling that would leave the
+            control showing a value it refuses to offer.
+
+            Order is `BOM_STATUS_RANK`, "what needs doing, first" — the same
+            order the list itself is sorted in, and never by count. */}
+        <FilterBar
+          search={query}
+          onSearch={setQuery}
+          searchPlaceholder="Search SC No, PO or customer…"
+          activeCount={statusFilter ? 1 : 0}
+          onReset={statusFilter ? () => setStatusFilter("") : undefined}
+          right={
+            queueSummary ? (
+              <>
+                {queueSummary} · {filtered.length} of {tasks.length}
+              </>
+            ) : (
+              `${filtered.length} of ${tasks.length}`
+            )
+          }
+        >
+          <div>
+            <Label htmlFor="bom-status">Status</Label>
+            <Select
+              id="bom-status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "" | BomStatus)}
+            >
+              <option value="">All ({tasks.length})</option>
+              {statusCounts.map((c) => (
+                <option
+                  key={c.status}
+                  value={c.status}
+                  disabled={c.count === 0 && c.status !== statusFilter}
+                >
+                  {bomStatusText(c.status)} ({c.count})
+                </option>
+              ))}
+            </Select>
           </div>
-        </div>
+        </FilterBar>
 
         <MobileCardList<BomTaskRow>
-          /* SIX ACROSS (client 2026-08-19). The count also turns the card dense
-             — see `columns` on the component; there is no roomy six-up. */
+          /* SIX ACROSS (client 2026-08-19) — now as a card WIDTH rather than a
+             count: `6` means 15rem tracks, and 6 × 15rem + 5 gaps = 1500px still
+             fits the operator's 1560px pane, so a full queue lays out exactly as
+             it did. What changes is a SHORT queue: three confirmed orders used
+             to leave three of six tracks empty, and now take the width instead.
+             The card sizes its own density from there — see `columns`. */
           columns={6}
           rows={filtered}
           getKey={(t) => t.id}
@@ -3069,6 +3654,13 @@ export function MbaMasterScreen({
             </span>
           )}
           stats={cardStats}
+          /* THE SAME TONE AS THE PILL, AS A STRIPE DOWN THE CARD'S EDGE. The
+             pill is read one card at a time; the stripe is read down the whole
+             grid at once, and this list is already SORTED by `BOM_STATUS_RANK`
+             — a sort nothing on screen could show. Redundant by design: colour
+             locates the work, the word names it. */
+          tone={(t) => bomStatusTone(t.status)}
+          hint={cardHint}
           /* THE CREATED PAIR SHARES THE FOOTER WITH THE ✕ instead of adding a
              second bordered row — AGENTS.md wants it APPENDED to the screen's
              own meta, not substituted for it, and the customer and the figures
@@ -3152,6 +3744,22 @@ export function MbaMasterScreen({
         }}
       />
 
+      {editId && (
+        <DcGenerateSheet
+          open={dcOpen}
+          onClose={() => setDcOpen(false)}
+          amendmentId={editId}
+          candidates={dcCandidates}
+          locations={data.locations ?? []}
+          defaultLocationId={null}
+          /* Reload the record so the "already sent" gate reads the DATABASE
+             rather than an optimistic guess. */
+          onDone={() => {
+            setDcOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
       <BomCopySheet
         open={copyOpen}
         onClose={() => setCopyOpen(false)}

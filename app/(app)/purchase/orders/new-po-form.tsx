@@ -9,7 +9,7 @@ import {
   fetchBomCeiling,
   raiseOverQuantity,
 } from "@/lib/purchase/po-actions";
-import { judgeLine, type BomCeiling } from "@/lib/purchase/bom-ceiling";
+import { blockedMessage, judgeLine, type BomCeiling } from "@/lib/purchase/bom-ceiling";
 import type { PurchaseOrderInput, PoLineInput } from "@/lib/purchase/types";
 import type {
   VendorForPicker,
@@ -155,25 +155,42 @@ export function NewPoForm({
    * (`judgeLine`). Derived per render rather than held in state, so it cannot
    * disagree with the numbers on screen.
    */
-  const overLines = ceiling
-    ? lines
-        .map((line) => ({
-          line,
-          verdict: judgeLine(ceiling, {
-            itemId: line.item_id || null,
-            quantity: parseFloat(line.quantity) || 0,
-          }),
-        }))
-        .flatMap((x) =>
-          x.verdict.kind === "over"
-            ? [{ line: x.line, planned: x.verdict.planned, ordered: x.verdict.ordered }]
-            : [],
-        )
+  const judged = ceiling
+    ? lines.map((line) => ({
+        line,
+        verdict: judgeLine(ceiling, {
+          itemId: line.item_id || null,
+          quantity: parseFloat(line.quantity) || 0,
+        }),
+      }))
     : [];
+
+  const overLines = judged.flatMap((x) =>
+    x.verdict.kind === "over"
+      ? [{ line: x.line, planned: x.verdict.planned, ordered: x.verdict.ordered }]
+      : [],
+  );
+
+  /*
+   * REFUSED, not merely over — an approved budget stands behind the plan
+   * (client 2026-08-21). The server refuses these too and is the real gate; this
+   * is so the operator finds out before a round trip, and so the reason box
+   * stops asking for a justification that will not be accepted.
+   */
+  const blockedLines = judged.flatMap((x) =>
+    x.verdict.kind === "blocked" ? [{ line: x.line, verdict: x.verdict }] : [],
+  );
+
+  const itemName = (id: string | null) =>
+    (id ? items.find((i) => i.id === id)?.name : null) ?? null;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!vendorId) return;
+    /* THE SERVER IS THE GATE; this is so the operator learns before a round
+       trip. Both read the same `judgeLine`, so they cannot disagree about which
+       lines are refused. */
+    if (blockedLines.length > 0) return;
 
     const poLines: PoLineInput[] = lines
       .filter((l) => l.description.trim())
@@ -391,9 +408,12 @@ export function NewPoForm({
                     const c = await fetchBomCeiling(id);
                     setCeiling({
                       byItem: new Map(c.entries),
+                      committedByItem: new Map(c.committed),
                       bomId: c.bomId,
                       bomCode: c.bomCode,
                       unanswered: c.unanswered,
+                      enforced: c.enforced,
+                      budgetCode: c.budgetCode,
                     });
                   });
                 }}
@@ -519,14 +539,18 @@ export function NewPoForm({
                   {verdict && verdict.kind !== "within" && (
                     <p
                       className={
-                        verdict.kind === "over"
-                          ? "w-full text-xs text-warning"
-                          : "w-full text-xs text-muted-foreground"
+                        verdict.kind === "blocked"
+                          ? "w-full text-xs font-medium text-danger"
+                          : verdict.kind === "over"
+                            ? "w-full text-xs text-warning"
+                            : "w-full text-xs text-muted-foreground"
                       }
                     >
-                      {verdict.kind === "over"
-                        ? `BOM plans ${verdict.planned} — this line is ${verdict.variance} over`
-                        : `Not checked — ${verdict.why.toLowerCase()}`}
+                      {verdict.kind === "blocked"
+                        ? blockedMessage(verdict, itemName(line.item_id))
+                        : verdict.kind === "over"
+                          ? `BOM plans ${verdict.planned} — this line is ${verdict.variance} over`
+                          : `Not checked — ${verdict.why.toLowerCase()}`}
                     </p>
                   )}
                 </div>
@@ -549,7 +573,31 @@ export function NewPoForm({
                 plan — but going past it has to be said out loud and approved,
                 exactly as over_budget_confirmations works for rate. Save is
                 gated on the reason, not on the overage. */}
-            {overLines.length > 0 && (
+            {/* REFUSED — an approved budget stands behind the plan. No reason
+                box: asking for a justification that will be refused regardless is
+                the worst available shape, and the over-quantity note cannot
+                authorise this one because it is written only AFTER a PO exists. */}
+            {blockedLines.length > 0 && (
+              <div className="mt-3 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2">
+                <p className="text-sm font-medium text-danger">
+                  {blockedLines.length === 1
+                    ? "1 line is over the approved Material BOM"
+                    : `${blockedLines.length} lines are over the approved Material BOM`}
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {blockedLines.map((b, i) => (
+                    <li key={i} className="text-xs text-danger">
+                      {blockedMessage(b.verdict, itemName(b.line.item_id || null))}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-xs text-danger/85">
+                  Reduce these lines, or revise the budget.
+                </p>
+              </div>
+            )}
+
+            {blockedLines.length === 0 && overLines.length > 0 && (
               <div className="mt-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2">
                 <p className="text-sm font-medium text-warning">
                   {overLines.length === 1
@@ -591,7 +639,12 @@ export function NewPoForm({
                  whole difference between warn-and-record and the hard block
                  that was considered and not chosen: the buyer may proceed, and
                  must say why. */
-              disabled={isPending || !vendorId || (overLines.length > 0 && !overReason.trim())}
+              disabled={
+                isPending ||
+                !vendorId ||
+                blockedLines.length > 0 ||
+                (overLines.length > 0 && !overReason.trim())
+              }
             >
               {isPending ? "Creating…" : "Create PO"}
             </Button>
