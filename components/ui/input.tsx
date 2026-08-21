@@ -89,6 +89,43 @@ function capsByDefault(type: string | undefined, readOnly: boolean | undefined) 
   return !readOnly && !NO_CAPS_TYPES.has(type ?? "text");
 }
 
+/**
+ * THE LAST DAY A DATE FIELD WILL ACCEPT — and the only thing that stops the
+ * year segment taking six digits (client 2026-08-21, screenshot 2438:
+ * Deli.Dt reading `dd-mm-142343`).
+ *
+ * `<input type="date">` DOES NOT CAP ITS YEAR AT FOUR DIGITS. Chrome's year
+ * segment accepts up to six (the HTML date format allows years past 9999), and
+ * `maxLength` does nothing on a date input — it applies to text-entry types
+ * only. So there is no attribute, no CSS and no keystroke handler on the page
+ * that limits it; the segment is browser chrome, and the page cannot even read
+ * which part of it has the caret.
+ *
+ * `max` IS THE ONE THING THAT WORKS, and it works by the DIGIT COUNT of its own
+ * year. Measured in Chrome 2026-08-21, typing `21082026666` into each:
+ *
+ *     plain                      -> "26666-08-21"   checkValidity() TRUE
+ *     min="1000-01-01" only      -> "26666-08-21"   checkValidity() TRUE
+ *     max="9999-12-31"           -> "6666-08-21"    capped at 4 digits
+ *
+ * Two things in that table are worth keeping. `min` DOES NOT HELP — it bounds
+ * validity, not typing, so a lower bound alone leaves the bug exactly as it
+ * was. And the plain field reports itself VALID at year 26666: the browser has
+ * no opinion, `checkValidity()` is true, and nothing downstream would have
+ * flagged it either. That is why this is a silent data bug rather than a
+ * visible one — a `date` column will happily store year 26666.
+ *
+ * Set BEFORE the `{...props}` spread, so a call site that has a real ceiling
+ * ("not after today", "within the order's season") still wins. Any override it
+ * passes is itself a 4-digit year, so the cap survives being narrowed.
+ *
+ * 9999 rather than a plausible business year: this is a TYPO GUARD, not a
+ * calendar. Deciding that an order cannot be delivered after 2100 is a business
+ * rule, and it belongs on the field that has that rule, not on every date box
+ * in the app.
+ */
+export const DATE_MAX = "9999-12-31";
+
 export const Input = forwardRef<
   HTMLInputElement,
   InputHTMLAttributes<HTMLInputElement> & {
@@ -245,6 +282,9 @@ export const Input = forwardRef<
      * that is how a generated value stays hand-overridable.
      */
     tabIndex={tabIndex ?? (readOnly ? -1 : undefined)}
+    /** Four-digit years. See `DATE_MAX` — this is the whole fix, and it has to
+     *  sit above the spread so a call site's own ceiling still wins. */
+    max={props.type === "date" ? props.max ?? DATE_MAX : props.max}
     className={cn(
       // text-base on mobile stops iOS zooming the viewport on focus; text-sm on
       // desktop keeps the dense ERP rhythm. Lives here rather than at ~595 call

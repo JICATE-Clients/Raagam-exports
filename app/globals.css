@@ -43,7 +43,7 @@
    * chrome. Do not soften it back toward --border; if it ever looks heavy the
    * answer is more SPACE around it, not less contrast in it. */
   --border-strong: #9aa4b2;
-  --ring: #4f46e5;
+  --ring: #037bb8; /* matches --primary */
   /* `--row-active`, the tint of the row the keyboard was inside, is GONE
    * (client 2026-08-18: "remove it from application everywhere, no more that
    * grey state in anywhere"). It was reported three times in one day —
@@ -70,18 +70,63 @@
    * its fallback — every focused cell would render SOLID indigo on any engine
    * without color-mix (Chrome <111, Safari <16.2, and the older Android
    * WebViews this PWA installs into). */
-  --cell-active: #eef2ff; /* indigo 50 */
+  --cell-active: #e5f5fd; /* brand blue, 5% */
 
   /* Brand */
-  --primary: #4f46e5; /* indigo 600 */
-  --primary-hover: #4338ca;
+  /**
+   * THE BRAND COLOURS, AS THE CLIENT STATES THEM (2026-08-21): #85c227 and
+   * #0493db, from the Raagam Exports logo. Recorded here so nobody has to
+   * re-sample a JPEG to find them again.
+   *
+   * NEITHER IS `--primary`, AND THAT IS ARITHMETIC RATHER THAN TASTE. A primary
+   * surface carries white text, which needs 4.50:1 to clear WCAG AA — the green
+   * manages 2.16:1 and the blue 3.39:1. Used raw, every "Save" button in the app
+   * would have unreadable text on it. `--primary` below is the SAME BLUE (hue
+   * 200deg, saturation 96%) taken down in lightness until white clears, so the
+   * app reads as the brand's blue without failing on contrast.
+   *
+   * AND IT IS THE BLUE, NOT THE GREEN. A green accent would land on top of
+   * `--success`, which is used in 29 files — every status pill in the app — so a
+   * primary button and an "Active" badge would be the same green. `--info` is
+   * the blue's neighbour and appears in 5, and the app has ALREADY been living
+   * with a blue primary beside it. Adopting the brand blue changes the hue and
+   * not the collision profile; adopting the green would introduce a new one.
+   *
+   * The green keeps the job it has in the logo: it is the roundel, so it is the
+   * favicon, the PWA icons and the maskable background (`generate-pwa-icons.mjs`).
+   */
+  --brand-green: #85c227;
+  --brand-blue: #0493db;
+
+  --primary: #037bb8; /* brand blue, darkened to 4.58:1 on white */
+  --primary-hover: #036ca1;
   --primary-foreground: #ffffff;
   --accent: #0d9488; /* teal accent */
   --accent-foreground: #ffffff;
 
   /* Semantic / traffic-light (T&A dashboard) */
-  --success: #15803d;
-  --success-soft: #dcfce7;
+  /**
+   * THE GREENS ARE THE BRAND'S HUE (client 2026-08-21: "in dashboard i can see
+   * some green color, make it as our brand green color").
+   *
+   * RE-HUED AT MATCHED LUMINANCE, not replaced with #85c227 itself. The brand
+   * green is a light, high-chroma lime: as TEXT it manages 2.16:1 on white, and
+   * these tokens carry the words inside every status pill, which need 4.5. So
+   * each one KEEPS THE RELATIVE LUMINANCE IT ALREADY HAD and only the hue moves
+   * to the logo's 83deg. Every contrast ratio each takes part in is therefore
+   * unchanged to within 0.04 — checked against `--success-soft`, the page and
+   * the dark surface — while the family reads as the brand's green instead of a
+   * stock emerald.
+   *
+   *   --success       #15803d -> #547b19    4.57:1 -> 4.53:1 on its own soft
+   *   --success-soft  #dcfce7 -> #eef8de
+   *   --pos           #16a34a -> #6b9c1f    3.00:1 -> 2.99:1
+   *
+   * Full-strength #85c227 stays where it belongs: `--brand-green`, and the logo
+   * artwork it was taken from.
+   */
+  --success: #547b19;
+  --success-soft: #eef8de;
   --warning: #b45309;
   --warning-soft: #fef3c7;
   --danger: #b91c1c;
@@ -95,13 +140,13 @@
    * dashboard would render SOLID indigo and swallow the indigo icon inside
    * them. Named to match the --success-soft / --warning-soft family, which
    * StatusPill already pairs with its full-strength counterpart. */
-  --primary-soft: #eef2ff; /* indigo 50 */
+  --primary-soft: #eaf7fd; /* brand blue, 4% */
   --accent-soft: #ccfbf1; /* teal 100 */
 
   /* Direction green, for trend sparklines and delta chips. Deliberately NOT
    * --success: that is the *state* green used in pills and needs to stay
    * legible as text; this one only ever paints a 2px stroke or a fill. */
-  --pos: #16a34a;
+  --pos: #6b9c1f;
 
   /* Elevation, two stops: --elev at rest, --elev-hi for cards that lift on
    * hover. Exposed as shadow-elev / shadow-elev-hi in @theme inline below. */
@@ -145,20 +190,22 @@
   /* Lighter than --border, not darker — see the light-mode note. Raised with
    * the light value so the two themes stay equally legible. */
   --border-strong: #4d5666;
-  --ring: #6366f1;
-  /* A tint is a shade in the dark. Not --primary-soft (#1e1b4b, indigo 950):
-   * that is a FILL behind indigo icons, and under 14px of --foreground it
-   * drops body text to a contrast the rest of the app does not ask of it. */
-  --cell-active: #232a45;
+  --ring: #0380be; /* matches --primary */
+  /* A tint is a shade in the dark. Deliberately NOT --primary-soft (#052c40):
+   * that is a FILL behind brand-blue icons, and under 14px of --foreground it
+   * drops body text to a contrast the rest of the app does not ask of it. The
+   * two were #232a45 and #1e1b4b while the accent was indigo; the reasoning is
+   * unchanged, only the hue. */
+  --cell-active: #143545;
 
-  --primary: #6366f1;
-  --primary-hover: #818cf8;
+  --primary: #0380be; /* brand blue; white 4.34:1, surface 4.13:1 — the same balance #6366f1 struck */
+  --primary-hover: #049be6;
   --primary-foreground: #ffffff;
   --accent: #2dd4bf;
   --accent-foreground: #04211d;
 
-  --success: #4ade80;
-  --success-soft: #14321f;
+  --success: #97d636;
+  --success-soft: #21310a;
   --warning: #fbbf24;
   --warning-soft: #3a2c0a;
   --danger: #f87171;
@@ -167,9 +214,9 @@
   --info-soft: #122648;
 
   /* A tint is a shade in the dark — these are the 950s, not the 50s. */
-  --primary-soft: #1e1b4b;
+  --primary-soft: #052c40;
   --accent-soft: #042f2e;
-  --pos: #4ade80;
+  --pos: #97d636;
 
   /* On a near-black canvas a spread shadow reads as haze, so both stops go
    * darker and simpler than their light-mode counterparts. */
@@ -196,6 +243,8 @@
   --color-border-strong: var(--border-strong);
   --color-ring: var(--ring);
 
+  --color-brand-green: var(--brand-green);
+  --color-brand-blue: var(--brand-blue);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);

@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Field, RequiredScope, useRequiredHold } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { dropdownPanelStyle } from "@/components/ui/dropdown-panel";
 import { Sheet } from "@/components/ui/sheet";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Truncated, useOverflow } from "@/components/ui/truncated";
@@ -43,6 +44,20 @@ export type PickerRow = {
   id: string;
   label: string;
   sublabel?: string | null;
+  /**
+   * What the TRIGGER shows once this row is chosen, where that is shorter than
+   * the label — the list, the search and the hover bubble all keep the label.
+   *
+   * The one kind that has one today is Ship Type, whose label is an Incoterm
+   * glossed for the list ("DELIVERED DUTY PAID (DDP)") and whose `short` is the
+   * term the trade actually speaks ("DDP"). See `lookupShortLabel` in
+   * lib/masters/extras-types.ts for when a row gets one and when it must not.
+   *
+   * NOT a general licence to abbreviate. A value the operator cannot read back
+   * is worse than one that clips, so this is only ever for a code that IS the
+   * name of the thing — never a truncation, and never a generated key.
+   */
+  short?: string | null;
   /**
    * Switched off at its master — read it with `isInactive()` (lib/masters/inactive.ts),
    * never by hand, because the schema spells the flag three ways.
@@ -304,7 +319,9 @@ export function DataPicker({
   const [draftCode, setDraftCode] = useState("");
   const [draftName, setDraftName] = useState("");
   const [draftType, setDraftType] = useState("");
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<
+    { top: number; left: number; width: number; vw: number } | null
+  >(null);
 
   // The element the panel measures from — the field input, or the "add" pill.
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -417,7 +434,10 @@ export function DataPicker({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    // `vw` travels with the rest: the panel's ceiling is "how much room is there
+    // to the right of this field", which is a fact about the same measurement
+    // and would otherwise be read during render.
+    setRect({ top: r.bottom + 4, left: r.left, width: r.width, vw: window.innerWidth });
   }, []);
 
   // Track the field while open — an editor Sheet scrolls its own body, so a
@@ -973,12 +993,20 @@ export function DataPicker({
 
   const body: ReactNode = mode === "list" ? list : <>{form}{formFooter}</>;
 
-  const triggerText = open && fine ? query : selected?.label ?? "";
+  // The chosen value's SHORT form where it has one (`FOB`, not
+  // `FREE ON BOARD (FOB)`) — see `PickerRow.short`. The label is still what the
+  // list shows, what the search matches and what the bubble below reveals, so
+  // nothing is lost by the box being narrower than the term is long.
+  const triggerText = open && fine ? query : selected?.short ?? selected?.label ?? "";
 
   // Measured on the input itself, not on a copy of the text: the field's width
   // is a container query away from changing (`@2xl/editor`), so "is this value
   // too long" is a question only the rendered box can answer.
   const { ref: valueRef, overflowing: valueClipped } = useOverflow<HTMLElement>(triggerText);
+
+  // True when the box is showing less than the row says — the other half of
+  // "there is more to read here", beside `valueClipped`.
+  const shortened = !!selected?.short && selected.short !== selected.label;
 
   return (
     <div ref={rootRef} className={cn("relative", className)}>
@@ -1013,7 +1041,11 @@ export function DataPicker({
       <Tooltip
         label={selected?.label ?? ""}
         touch
-        disabled={!selected || open || !valueClipped}
+        // A shortened value is not a clipped one — it fits, so `useOverflow`
+        // reports nothing — but the expansion it dropped is exactly what the
+        // bubble exists to give back. Without this second reason the gloss on a
+        // Ship Type would be reachable only by reopening the list.
+        disabled={!selected || open || (!valueClipped && !shortened)}
         className="relative block w-full"
       >
         <input
@@ -1081,7 +1113,7 @@ export function DataPicker({
            * Entry's Rejection Rule reads "No projection", because blank there
            * is a state of the order rather than an unanswered field.
            */
-          placeholder={selected ? selected.label : (placeholder ?? "")}
+          placeholder={selected ? selected.short ?? selected.label : (placeholder ?? "")}
           // A picker trigger IS a field to the operator. The marker is what
           // makes `gridKeyNav` gate Enter-adds-row on `data-field-empty` — a
           // grid whose first cell is an empty picker used to grow a blank row
@@ -1188,7 +1220,7 @@ export function DataPicker({
                 ? {}
                 : { role: "dialog" as const, "aria-modal": true, "aria-label": `${mode} ${noun}` })}
               onKeyDown={mode === "list" ? undefined : onFormKeyDown}
-              style={{ position: "fixed", top: rect.top, left: rect.left, width: Math.max(rect.width, 260), zIndex: 150 }}
+              style={dropdownPanelStyle(rect, mode === "list" ? "list" : "form")}
               className="overflow-hidden rounded-md border border-border bg-surface shadow-lg"
             >
               {body}

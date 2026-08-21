@@ -308,6 +308,39 @@ export function lookupLabel(
   return `${name} (${code})`;
 }
 
+/**
+ * What a CHOSEN value reads as on the field itself — the abbreviation alone
+ * (`FOB`), with `lookupLabel`'s expansion left to the list and the hover bubble.
+ *
+ * The two are not in tension; they answer different questions. While the
+ * operator is CHOOSING, "delivered duty paid" is what tells DDP from DDU, so the
+ * list shows both (see `CODE_IN_LABEL_KINDS` above). Once chosen, the term is
+ * the one they already speak — and it has to fit a field. Ship Type sits at `xs`
+ * on Order Entry's Logistic tab, two of twelve columns and ~90px, where
+ * `DELIVERED DUTY PAID (DDP)` renders as `DELIVERED D…`: the gloss that exists
+ * to disambiguate had pushed the abbreviation that disambiguates off the end of
+ * the box (client 2026-08-21).
+ *
+ * Returns null wherever there is nothing shorter to say, so the caller falls
+ * back to the full label: a kind whose code is a generated key, and an operator's
+ * own value, whose code `createLookupValue` defaults to the name.
+ *
+ * NOT a second opinion about what the label is — it is the same two fields read
+ * for a narrower purpose. Never store it, for `lookupLabel`'s reason: the
+ * picker's Modify form edits `name`, so a composed string written back would
+ * become the name.
+ */
+export function lookupShortLabel(
+  kind: LookupKind,
+  row: { code?: string | null; name?: string | null },
+): string | null {
+  const name = (row.name ?? "").trim();
+  const code = (row.code ?? "").trim();
+  if (!code || !CODE_IN_LABEL_KINDS.has(kind)) return null;
+  if (name.toUpperCase() === code.toUpperCase()) return null;
+  return code;
+}
+
 export interface ConfigLookup {
   id: string;
   kind: LookupKind;

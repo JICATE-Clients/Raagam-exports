@@ -1,0 +1,11 @@
+{"timestamp":"00:00:08.670","source":"Server","level":"LOG","message":"○ (serwist) \"Serwist is disabled.\""}
+{"timestamp":"00:00:08.676","source":"Server","level":"LOG","message":"○ (serwist) \"Serwist is disabled.\""}
+{"timestamp":"00:00:11.407","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:11.407","source":"Server","level":"LOG","message":"  We detected TypeScript in your project and reconfigured your tsconfig.json file for you."}
+{"timestamp":"00:00:11.407","source":"Server","level":"LOG","message":"  The following suggested values were added to your tsconfig.json. These values can be changed to fit your project's needs:\n"}
+{"timestamp":"00:00:11.408","source":"Server","level":"LOG","message":"  \t- include was updated to add '.next-shot/types/**/*.ts'"}
+{"timestamp":"00:00:11.408","source":"Server","level":"LOG","message":"  \t- include was updated to add '.next-shot/dev/types/**/*.ts'"}
+{"timestamp":"00:00:11.408","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:13.969","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:19.828","source":"Server","level":"LOG","message":"○ Compiling proxy ..."}
+{"timestamp":"00:00:51.505","source":"Server","level":"LOG","message":"○ Compiling /login ..."}

@@ -243,7 +243,32 @@ function enterNestedGrid(row: HTMLElement, e: React.KeyboardEvent<HTMLElement>):
     const wrapper = nested.parentElement;
     const scope =
       wrapper && wrapper !== row && wrapper.closest("[data-grid-row]") === row ? wrapper : nested;
-    const add = scope.querySelector<HTMLElement>(ROW_ADD);
+    /**
+     * A NESTED `ChildGrid` STATES ITS OWN EXTENT — ask it before guessing.
+     *
+     * `nested.parentElement` is the grid's card in `cards` / `inline` mode and
+     * NOT in `responsive` mode, which is the default: there the visible body is
+     * a `<tbody>`, whose parent is the `<table>`, two levels below the card the
+     * "+ Add" actually sits in. So `scope.querySelector` came back null, the
+     * loop skipped the panel, and an empty nested grid had NO keyboard way in at
+     * all — its only affordance is a button and Tab lands on fields, so this
+     * function is the single route. That is the Material Attributes "the first
+     * value was mouse-only" defect (2026-08-05) arriving through another door,
+     * and it is the same blindness `ownAddControl` had: a rule looking for the
+     * button where one of ChildGrid's two layouts does not put it.
+     *
+     * `row.contains(card)` IS LOAD-BEARING. A HAND-ROLLED nested grid has no
+     * card of its own, so `closest` climbs to the OUTER grid's card — which
+     * contains `row` rather than sitting inside it. Without the test, Tab into a
+     * hand-rolled panel would click the outer grid's "+ Add" and add a whole new
+     * outer row. Those grids keep the `wrapper`/`scope` branch, which is what
+     * has always served them.
+     */
+    const card = nested.closest<HTMLElement>("[data-grid-card]");
+    const add =
+      (card && row.contains(card)
+        ? ownDescendants(card, ROW_ADD, "[data-grid-card]")[0]
+        : undefined) ?? scope.querySelector<HTMLElement>(ROW_ADD);
     if (!add || (add instanceof HTMLButtonElement && add.disabled)) continue;
     e.preventDefault();
     e.stopPropagation();
@@ -689,6 +714,41 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
 function ownAddControl(body: HTMLElement): HTMLElement | null {
   const inside = ownDescendants(body, "[data-row-add]", "[data-grid-body]")[0];
   if (inside) return inside;
+  /**
+   * A `ChildGrid` STATES ITS OWN EXTENT, so ask it rather than walking
+   * (client 2026-08-21: "key focus directly moving to the size … first should
+   * work on component section").
+   *
+   * THE WALK BELOW COULD NEVER FIND IT IN `responsive` MODE — the DEFAULT — and
+   * that is the whole of the bug this branch fixes. Responsive renders TWO
+   * `data-grid-body` elements for ONE grid (the table, and the `@lg:hidden` card
+   * list), so the first ancestor that holds the sibling "+ Add" is also the first
+   * that holds both bodies. The walk's own ambiguity bound then fired — "more
+   * than one `data-grid-body`, so a `[data-row-add]` can no longer be attributed
+   * to US" — and returned null against a button that unambiguously IS ours.
+   *
+   * What that cost is not a missing keystroke; it is the WRONG one. Enter at the
+   * end of the last row declines and bubbles (`NO BUTTON, NO CLAIM`, see
+   * `gridKeyNav`), so `enterAdvances` moved to the next field AFTER the grid.
+   * On Style ▸ Components & Sizes, that field is the Sizes box in the other half
+   * of the split section: finishing a component row jumped the cursor out of the
+   * grid entirely, and "+ Add component" was never offered. It was true of every
+   * default-mode grid in the app at once, and invisible to `--check tab-fields`,
+   * which reads source rather than the shape the two layouts make together.
+   *
+   * Tab was RIGHT throughout, which is why this read as a Tab bug: `cycleTab`
+   * finds the button by `isRowAdd` in the ordered focusables and never asks this
+   * function. Enter and Tab disagreeing about where a grid ends is exactly the
+   * divergence AGENTS.md's "all three movement keys read one definition" exists
+   * to prevent — so the fix is one shared answer, not an Enter-side special case.
+   *
+   * `data-grid-card` is the marker `ChildGrid` stamps on the card that holds its
+   * layouts. `ownDescendants` bounded by that marker excludes a NESTED grid's
+   * own "+ Add" (its nearest card is the inner one), which is the distinction the
+   * body count was reaching for and could not express.
+   */
+  const card = body.closest<HTMLElement>("[data-grid-card]");
+  if (card) return ownDescendants(card, "[data-row-add]", "[data-grid-card]")[0] ?? null;
   /**
    * WALKING UP, BUT NEVER PAST A SECOND GRID.
    *
@@ -1516,9 +1576,17 @@ export function ChildGrid<T extends { key: string }>({
    */
   const addBtn =
     !hideAdd && mode !== "across" ? (
-      // `data-row-add` is what Tab drives when this grid is NESTED in another
-      // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
-      // LANDS on it; a button is not a field.
+      // `data-row-add` is the marker every key steers by, and it now buys three
+      // of them: Tab LANDS here (`isRowAdd`, lib/focus.ts — reversed 2026-08-19,
+      // "move to that add button, then on that button need to create"), Enter at
+      // the end of the last row moves here rather than adding outright
+      // (`ownAddControl`), and Tab into a NESTED grid with no rows yet clicks it
+      // (`enterNestedGrid`).
+      //
+      // This comment used to say "Tab still never LANDS on it; a button is not a
+      // field". That was true until 08-19 and is the opposite of the live rule —
+      // left standing on the control it governs, which is how a reversal gets
+      // quietly reverted by the next reader.
       <Button
         type="button"
         variant="outline"
@@ -1619,6 +1687,12 @@ export function ChildGrid<T extends { key: string }>({
           editor pane, so these classes mean here exactly what they meant on the
           old single root. */}
       <div
+        /* THIS GRID'S EXTENT, stated once so `ownAddControl` never has to guess
+           it. A grid is not one `data-grid-body`: `responsive` mode renders TWO
+           — a table and a card list — and CSS shows one. The "+ Add" is a
+           sibling of both, at the end of this card. See `ownAddControl` for what
+           counting bodies instead of grids cost. */
+        data-grid-card
         className={cn(
           "space-y-2 @2xl/editor:space-y-1.5",
           !frameless && GRID_FRAME,

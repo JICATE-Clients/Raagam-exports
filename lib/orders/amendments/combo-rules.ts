@@ -276,6 +276,76 @@ export function declaredColoursFor(
   return out;
 }
 
+/**
+ * ONE PART OF A FABRIC, as the mandatory-field rule needs to see it.
+ *
+ * `color_name` IS THE WIDEST OF THE THREE SPELLINGS ON PURPOSE. The screen holds
+ * a plain `string`, the Zod-parsed payload holds `string | null | undefined`
+ * (`capsTextNullable()` has a default, so the key may be absent), and this rule
+ * has to answer for both callers. Narrowing it to `string | null` here would
+ * compile on the screen and reject the server — which is the exact drift the
+ * one-function convention exists to prevent.
+ */
+export type ComboComponentLike = {
+  coordinate_id: string | null;
+  component_id: string | null;
+  color_name?: string | null;
+};
+
+/** Has this part been answered at all? — the twin of `componentFilled` in
+ *  `actions.ts`, restricted to the three cells this rule governs. */
+function componentSaysSomething(c: ComboComponentLike): boolean {
+  return !!(c.coordinate_id || c.component_id || (c.color_name ?? "").trim());
+}
+
+/**
+ * WHAT IS MISSING FROM THIS PART — empty array means nothing (client
+ * 2026-08-21: "coordinate, component, color set as required field").
+ *
+ * The component half of `structureProblems` above, and it lives here for the
+ * same reason: the cell's `required` prop, the Save button and the server action
+ * must all be able to ask the same question and get the same answer.
+ *
+ * COORDINATE AND COMPONENT ARE ALWAYS REQUIRED. They are what IDENTIFIES a part
+ * — which piece of the garment this is — which is also why `addComp` already
+ * refuses to open a second part while the first names neither.
+ *
+ * COLOUR IS REQUIRED ONLY WHERE A COLOUR APPLIES, and that is not a softening of
+ * the rule. The cell is offered `declaredColoursFor(rows, itemSubType)`, which is
+ * EMPTY on a `printed` fabric and on one whose Fabric Type is still blank — so an
+ * unconditional hold would refuse to release a cell the app has nothing to fill
+ * from, and the only ways out would be free text, Escape, Ctrl+Del or the mouse.
+ * That is the "requiring a hidden field is a record that cannot be saved with
+ * nothing on screen to say why" trap in AGENTS.md, one door along: not hidden,
+ * but unanswerable. Requiredness here is a property of the field FOR A STATE.
+ *
+ * IT ASKS `colourSourceFor`, NEVER THE FOUR LITERALS. The list the cell offers
+ * and the requiredness of the cell are then one decision — re-testing
+ * `=== "printed"` here would compile, run, and drift the first time the palette
+ * rule changed (which it already has once, on 2026-08-20).
+ *
+ * A PART THAT SAYS NOTHING AT ALL IS NOT AN ERROR. `addComp` opens a blank row
+ * for the operator to type into and `componentFilled` (actions.ts) drops it on
+ * save, so reporting it would deaden Save the moment the overlay opened — the
+ * same abstention `structureProblems` makes for a structure naming no category,
+ * and the same guard `quantityProblems` puts on a blank assortment line. The
+ * blank row is still HELD by the cursor, which is the per-field rule and a
+ * different question from whether the document may be saved.
+ */
+export function componentProblems(
+  comp: ComboComponentLike,
+  itemSubType: string | null | undefined,
+): string[] {
+  const problems: string[] = [];
+  if (!componentSaysSomething(comp)) return problems;
+  if (!comp.coordinate_id) problems.push("Coordinate is required");
+  if (!comp.component_id) problems.push("Component is required");
+  if (colourSourceFor(itemSubType) && !(comp.color_name ?? "").trim()) {
+    problems.push("Colour is required");
+  }
+  return problems;
+}
+
 export const fabricTypeLabel = (v: string | null | undefined): string =>
   FABRIC_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "";
 export const itemSubTypeLabel = (v: string | null | undefined): string =>

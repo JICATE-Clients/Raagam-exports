@@ -255,3 +255,59 @@ export function orderValue(
   // on a large order (36000 / 7000 = 5.142857, not 5.14).
   return { grossValue, avgRate: rate(grossValue / qty), unresolved: [] };
 }
+
+/**
+ * The order's value in the books' own currency.
+ *
+ *     INR Value = Gross Value x Exchange Rate
+ *
+ * Client spec 2026-08-21: the Gross Value is captured in the BUYER's currency
+ * (usually USD), the Logistic tab carries the exchange rate, and the product is
+ * "the final sales value of the order" — the figure the Budget phase measures
+ * its target margin against and the one the cost controls are set from.
+ *
+ * ## IT REFUSES WHEREVER THE GROSS VALUE REFUSES, AND ONCE MORE
+ *
+ * The header's rule ("null is an answer, and 0 is not") applies with more force
+ * after a multiplication, because `ex_rate` is `numeric(14,4) NOT NULL DEFAULT
+ * 0` (0126) — the column an operator has not filled in reads as ZERO, and zero
+ * times a real Gross Value is 0.00, which is not "unknown" but "this order is
+ * worth nothing". That is the exact lie 0417 was written to make
+ * unrepresentable for the Gross Value itself; it must not come back in through
+ * the conversion.
+ *
+ * So: no gross value -> null. No usable rate -> null. Never a product with a
+ * missing factor treated as 1, and never 0.
+ *
+ * ## AN ORDER ALREADY IN INR CONVERTS AT 1
+ *
+ * Not a convenience — arithmetic. INR to INR is 1 by definition, so a domestic
+ * order does not wait on a rate nobody should have to type, and cannot be
+ * mis-valued by one typed in error. The check is on the currency the order
+ * NAMES; a blank currency is not assumed to be home.
+ *
+ * ## Why this is not `forexToInr` from `lib/finance/calc.ts`
+ *
+ * It is the same multiplication and the same 2dp rounding, and it deliberately
+ * is not imported. `order-value.ts` is client-safe with exactly one runtime
+ * import (`./style-key`) — see the header — and pulling a finance module into
+ * the garment-order bundle to save one multiply trades a real cost for a
+ * cosmetic one. What must not be duplicated is the REFUSAL contract, and that
+ * lives here, once.
+ */
+export const HOME_CURRENCY = "INR";
+
+export function inrValue(
+  grossValue: number | null,
+  exRate: number | null | undefined,
+  /** The order's `currency_code`. INR converts at 1; blank is not assumed. */
+  currencyCode?: string | null,
+): number | null {
+  if (grossValue == null) return null;
+  const home = (currencyCode ?? "").trim().toUpperCase() === HOME_CURRENCY;
+  const r = home ? 1 : num(exRate);
+  // `> 0` rather than `!= null`: 0 is the column's default and means "not
+  // entered", and a negative rate is not a rate.
+  if (!(r > 0)) return null;
+  return money(grossValue * r);
+}

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, DATE_MAX } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -116,8 +116,12 @@ function MilestoneEditRow({ milestone }: { milestone: TaMilestone }) {
           </option>
         ))}
       </Select>
+      {/* Raw, so it inherits nothing from `Input` — including the four-digit
+          year cap. See `DATE_MAX`. It stays raw for its `h-7 text-xs` density:
+          this sits in a milestone row, not a form. */}
       <input
         type="date"
+        max={DATE_MAX}
         value={actualDate}
         onChange={(e) => setActualDate(e.target.value)}
         className="h-7 rounded border border-border bg-surface px-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

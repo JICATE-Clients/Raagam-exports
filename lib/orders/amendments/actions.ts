@@ -10,6 +10,7 @@ import {
   styleKey,
   type SeededAmendmentChildren,
 } from "./order-seed";
+import { componentProblems } from "./combo-rules";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -240,6 +241,44 @@ function componentFilled(
     c.print_id ||
     c.processed_as_trim
   );
+}
+
+/**
+ * THE MANDATORY CELLS ON A STRUCTURE DETAILS PART — the server's half of the
+ * `required` the overlay puts on Coordinate, Component and Colour (client
+ * 2026-08-21).
+ *
+ * The screen check is a courtesy; this one is the guard. It calls the SAME
+ * `componentProblems` the cells and the Save button call, so the conditional
+ * Colour clause — required only where the fabric's type gives the cell a
+ * palette — cannot be stated one way here and another way there.
+ *
+ * ONLY ROWS THAT SURVIVE `componentFilled`. A part saying nothing at all is
+ * dropped a few lines below by `writeComboTree` rather than refused, and
+ * refusing it here would make a blank row the operator opened and abandoned
+ * into an unsaveable order. `componentProblems` abstains on the same test.
+ *
+ * NOT A COLUMN CONSTRAINT. 0408 leaves all three nullable and that stays true:
+ * `not null` cannot express "required when this fabric's type calls for it",
+ * and it would turn a named refusal into a raw Postgres error on a row the
+ * filter above deliberately kept.
+ */
+function comboTreeProblem(data: AmendmentInput): string | null {
+  for (const combo of data.combos) {
+    for (const st of combo.structures) {
+      for (const c of st.components) {
+        if (!componentFilled(c)) continue;
+        const missing = componentProblems(c, st.item_sub_type);
+        if (missing.length) {
+          const who = clean(combo.combo) ?? "a combo";
+          return `${who}: a part under Structure Details is incomplete — ${missing.join(
+            " · ",
+          )}.`;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function normalizePriceDetails(data: AmendmentInput) {
@@ -793,6 +832,12 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
   if (!(await can("orders", "create"))) return fail("Forbidden");
   const p = amendmentInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  /* Requiredness that Zod cannot state: whether a part's Colour is mandatory
+     depends on the PARENT structure's Fabric Type, and whether the part is
+     checked at all depends on it having said something. Same shape, and the
+     same reason, as `missingRequiredMaterialFields`. */
+  const comboProblem = comboTreeProblem(p.data);
+  if (comboProblem) return fail(comboProblem);
   const s = await createClient();
 
   /**
@@ -883,6 +928,12 @@ export async function updateAmendment(
   if (!(await can("orders", "edit"))) return fail("Forbidden");
   const p = amendmentInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  /* Requiredness that Zod cannot state: whether a part's Colour is mandatory
+     depends on the PARENT structure's Fabric Type, and whether the part is
+     checked at all depends on it having said something. Same shape, and the
+     same reason, as `missingRequiredMaterialFields`. */
+  const comboProblem = comboTreeProblem(p.data);
+  if (comboProblem) return fail(comboProblem);
   const s = await createClient();
   /**
    * NEVER BLANK THE ORDER LINK. `sales_order_id` is nullable on input because a

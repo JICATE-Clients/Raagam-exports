@@ -28,7 +28,7 @@
  * server/client boundary share ONE key rule, and its header argues at length
  * against a second copy. So the runner moves instead of the rule.
  */
-import { orderValue, styleRate } from "../lib/orders/amendments/order-value.ts";
+import { inrValue, orderValue, styleRate } from "../lib/orders/amendments/order-value.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -281,6 +281,51 @@ check(
   "float noise never reaches the gross value",
   orderValue([style(5000)], [price(4.2)]).grossValue,
   21000,
+);
+
+// ---------------------------------------------------------------------------
+// INR Value = Gross Value x Exchange Rate
+//
+// EVERY REFUSAL IS VECTORED, and they matter more than the answer: `ex_rate` is
+// NOT NULL DEFAULT 0, so the untouched column multiplies a real Gross Value to
+// 0.00 — a number that reads as "this order is worth nothing" rather than "no
+// rate yet". That is the lie 0417 removed from the Gross Value itself.
+// ---------------------------------------------------------------------------
+check("INR value multiplies", inrValue(16000, 87.5, "USD"), 1400000);
+check("INR value rounds to paise", inrValue(1234.56, 87.4321, "USD"), 107940.17);
+check("a missing gross value stays missing", inrValue(null, 87.5, "USD"), null);
+check("the column's default 0 refuses, never 0.00", inrValue(16000, 0, "USD"), null);
+check("a blank rate refuses", inrValue(16000, null, "USD"), null);
+check("a negative rate refuses", inrValue(16000, -87.5, "USD"), null);
+check("NaN refuses", inrValue(16000, Number.NaN, "USD"), null);
+// INR to INR is 1 by definition — a domestic order never waits on a rate.
+check("an INR order converts at 1 with no rate typed", inrValue(16000, 0, "INR"), 16000);
+check("an INR order ignores a rate typed in error", inrValue(16000, 87.5, "inr"), 16000);
+// A blank currency is NOT assumed to be home — that would value a USD order
+// whose currency has not been picked yet at its face figure in rupees.
+check("a blank currency is not home", inrValue(16000, 0, null), null);
+// The client's own worked example, converted: 5,000 pcs -> $16,000 -> INR.
+check(
+  "the spec example converts",
+  inrValue(orderValue([style(5000)], [price(3.2)]).grossValue, 88, "USD"),
+  1408000,
+);
+// A refusal upstream is still a refusal here: a style priced per colour with no
+// weights makes the gross null, and null x a good rate must not become 0.
+check(
+  "an unresolved order has no INR value either",
+  inrValue(
+    orderValue(
+      [style(5000)],
+      [
+        { style_ref_no: "S1", price_type: "Color-wise", combo: "WHITE", price: 2.5 },
+        { style_ref_no: "S1", price_type: "Color-wise", combo: "RED", price: 3 },
+      ],
+    ).grossValue,
+    88,
+    "USD",
+  ),
+  null,
 );
 
 console.log(

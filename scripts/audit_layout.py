@@ -2220,6 +2220,69 @@ def check_placeholder_blank(path: Path, code: str, slug: str):
         )
 
 
+# The year-bearing native controls. Each draws a spin-editable year segment that
+# takes SIX digits unless `max` says otherwise; `time` is absent because it has
+# no year to get wrong.
+DATE_YEAR_TYPES = {"date", "datetime-local", "month", "week"}
+DATE_YEAR_EXEMPT = re.compile(r"date-year:\s*exempt\s*--")
+MAX_ATTR = re.compile(r"\bmax\s*=")
+
+
+def check_date_year(path: Path, code: str, slug: str):
+    """A raw `<input type="date">` must cap its year, and only `max` can.
+
+    Chrome's year segment accepts SIX digits -- the HTML date format allows
+    years past 9999 -- and there is no other handle on it: `maxLength` applies
+    to text-entry types only, the segment is browser chrome the page cannot
+    read, and `checkValidity()` returns TRUE for year 26666, so nothing
+    downstream objects either. A `date` column stores it happily. That is the
+    bug the client reported on Order Info's Deli.Dt (2026-08-21, screenshot
+    2438: `dd-mm-142343`).
+
+    `max` with a four-digit year is the whole fix, and it was MEASURED rather
+    than assumed -- `min` alone leaves 26666 exactly as it was, because it
+    bounds validity and not typing. See `DATE_MAX` in components/ui/input.tsx
+    for the table.
+
+    So this check has one target: the RAW lowercase element, which inherits
+    nothing. `<Input type="date">` is not flagged and must not be -- the
+    primitive defaults `max` for all 175 of them, and flagging them would be
+    175 findings for a rule that is already kept.
+
+    The primitive itself is not special-cased, deliberately (the `toolbar-size`
+    lesson: exempting the declaring component is how a check passes while the
+    cause sits untouched). It simply does not match -- its `type` comes from
+    props, so there is no literal `type="date"` to find.
+
+    Opt out with a `date-year: exempt -- <reason>` comment.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in DATE_YEAR_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+    for m in RAW_FIELD_TAG.finditer(code):
+        if m.group(1) != "input":
+            continue
+        tag = _jsx_open_tag(code, m.start())
+        t = TYPE_ATTR.search(tag)
+        if not t or t.group(1).lower() not in DATE_YEAR_TYPES:
+            continue
+        if MAX_ATTR.search(tag):
+            continue
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        yield Finding(
+            "date-year", path, line,
+            f'raw <input type="{t.group(1)}"> has no `max`, so its year segment takes '
+            "six digits (year 26666 reads as VALID and saves); use the <Input> "
+            "primitive, or pass max={DATE_MAX}, or add a "
+            "`date-year: exempt -- <reason>` comment",
+        )
+
+
 CHECKS = {
     "grid-required-mobile": check_grid_required_mobile,
     "cascade-filter": check_cascade_filter,
@@ -2245,6 +2308,7 @@ CHECKS = {
     "grid-single-frame": check_grid_single_frame,
     "grid-caption": check_grid_caption,
     "placeholder-blank": check_placeholder_blank,
+    "date-year": check_date_year,
 }
 
 

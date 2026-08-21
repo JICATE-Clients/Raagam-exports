@@ -214,6 +214,15 @@ export type StyleRuleInput = {
   style_name?: string | null;
   style_date?: string | null;
   unit_kind?: string | null;
+  /**
+   * `number | string` because the two callers hold it differently and neither
+   * should have to convert: the screen carries `form.style_year` as the raw
+   * string its input owns, and `garmentStyleInput` has already coerced it to an
+   * integer by the time `superRefine` runs. `yearProblem` below compares the
+   * TEXT of whatever arrives, which is the only reading that is the same
+   * question for both — "how many digits did someone commit to".
+   */
+  style_year?: number | string | null;
   coordinates?: readonly CoordinateLike[];
   components?: readonly ComponentLike[];
 };
@@ -229,6 +238,35 @@ export type StyleRuleInput = {
  */
 export function styleProblems(input: StyleRuleInput): StyleProblem[] {
   const problems: StyleProblem[] = [];
+
+  /**
+   * A YEAR IS FOUR DIGITS (client 2026-08-21) — the guard half of the rule the
+   * Year field states with `format="year"`.
+   *
+   * BLANK IS NOT A PROBLEM. Year is optional and 2 of the 7 styles in the live
+   * database have none; requiring it here would make those rows unsaveable on
+   * their next edit, which is the "a `required` nothing can answer is not a
+   * stricter rule, it is a stopped screen" trap this file's neighbours already
+   * record. Only a value that IS there and is not four digits fires.
+   *
+   * Tested as text rather than as `>= 1000 && <= 9999` so the rule reads the
+   * same way the input does, and so a coerced `2026.5` cannot slip through a
+   * numeric comparison that would round it into range.
+   *
+   * The shape is `YEAR_RE`'s, restated rather than imported: this file declares
+   * itself pure with "no imports beyond the input type" (see the header), which
+   * is what lets `scripts/check-style-rules.mts` prove it without a database or
+   * a bundler. The two are held together by that vector file, which asserts the
+   * same cases the format spec documents — including the leading zero, whose
+   * whole story is in the comment on `YEAR_RE`.
+   */
+  const yearText = input.style_year == null ? "" : String(input.style_year).trim();
+  if (yearText !== "" && !/^[1-9][0-9]{3}$/.test(yearText)) {
+    problems.push({
+      section: "style",
+      message: `Year must be 4 digits (e.g. 2026) — "${yearText}" is not.`,
+    });
+  }
 
   const limit = coordinateLimit(input.unit_kind);
   if (limit) {

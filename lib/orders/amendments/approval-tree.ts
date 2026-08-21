@@ -251,3 +251,31 @@ export function flattenApprovalTree(tree: ApprovalTree): {
   }
   return rows;
 }
+
+/**
+ * ONE ANSWER FOR A WHOLE COLOUR, or null when the sizes disagree.
+ *
+ * The Approval Qty screen asks per COLOUR, not per size, because that is the
+ * decision being made: on the legacy screen every colour's six sizes read
+ * `2, 2, 2, 2, 2, 2` (client screenshot 2443) — one answer typed six times.
+ * The rows still STORE six values, and `flattenApprovalTree` still writes six;
+ * the single box is a way of writing them, never a replacement for them.
+ *
+ * BLANK IS NOT ZERO, and that is the whole reason this compares TEXT rather
+ * than `Number()`. An untouched size holds "" and a size deliberately set to
+ * nought holds "0"; coercing would call those two uniform and let one box
+ * overwrite a real answer with an assumed one. Approval Qty is not `required`,
+ * so both states are legitimate and have to stay distinguishable.
+ *
+ * `"02"` beside `"2"` reads as MIXED. Numerically equal, textually not — and
+ * the honest answer is to open the sizes and show the operator what is actually
+ * stored rather than silently normalise a value they did not retype.
+ *
+ * Null for an empty list too: a colour with no sizes has nothing to be uniform
+ * about, and its caller has a different thing to say.
+ */
+export function uniformApproval(values: readonly string[]): string | null {
+  if (values.length === 0) return null;
+  const first = values[0].trim();
+  return values.every((v) => v.trim() === first) ? first : null;
+}
