@@ -2,6 +2,11 @@ import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
 import { isUnitKind, type UnitKind } from "@/lib/orders/styles/rules";
 import { styleProcessInput, type ProcessKind } from "./style-processes";
+/* TYPE-ONLY, so the client component is erased at compile time and never
+   reaches the server bundle this file is imported into. The three document
+   kinds are declared once, in the component that renders them; see
+   `AmendmentFile`. */
+import type { AttachmentKind } from "@/components/ui/file-attachments";
 
 // ============================================================================
 // Garment Orders ▸ Garment Order Amendment. Header + 10 sub-tabs.
@@ -499,6 +504,38 @@ export interface AmendmentPackType {
 }
 
 /**
+ * A document attached to the order (0416) — the style JPG, the buyer's original
+ * PDF order sheet, a shade card.
+ *
+ * ## THE BYTES ARE NOT HERE
+ *
+ * `storage_path` is the key inside the PRIVATE `garment-order-docs` bucket,
+ * never a URL. A signed URL expires, so a stored one gives a row that reads
+ * correctly today and 404s next week — 0416's own words. Reads go through
+ * `createSignedUrl`; `getPublicUrl` would hand the buyer's prices to anyone
+ * holding the link, forever, with no login.
+ *
+ * ## `doc_kind` IS THE COMPONENT'S TYPE, IMPORTED
+ *
+ * `AttachmentKind` in `components/ui/file-attachments.tsx` already names the
+ * three values, and the CHECK constraint names them a third time. Re-declaring
+ * them here would be a fourth place for the same list to drift — the failure
+ * `style_processes` above records for `ProcessKind` and solves the same way.
+ */
+export interface AmendmentFile {
+  id: string;
+  amendment_id: string;
+  sno: number;
+  doc_kind: AttachmentKind | null;
+  file_name: string | null;
+  /** The path WITHIN the bucket. Never a URL — see above. */
+  storage_path: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
+/**
  * Quantities tab (0398) — how the order's quantity splits across countries,
  * consignees and delivery dates.
  *
@@ -679,6 +716,7 @@ export interface GarmentOrderAmendment {
   pack_types: AmendmentPackType[];
   quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
+  files: AmendmentFile[];
 }
 
 const nullableText = z.string().optional().nullable();
@@ -867,6 +905,30 @@ export const amendmentApprovalQtyInput = z.object({
 export const amendmentPackTypeInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   pack_type: nullableText,
+});
+
+/**
+ * One attached document (0416).
+ *
+ * `doc_kind` is nullable because the operator picks it AFTER the file lands —
+ * the upload is immediate and the kind is a `<Select>` on the row. A row
+ * mid-answer is not an error, which is the rule every child input here follows;
+ * `not null` would turn "not chosen yet" into a 23502 on save.
+ *
+ * The enum is stated as a Zod literal union rather than imported, because
+ * `AttachmentKind` is a TYPE and Zod needs values. `satisfies` is what keeps the
+ * two from drifting: widen the component's union and this stops compiling.
+ */
+export const amendmentFileInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  doc_kind: z
+    .enum(["sketch", "order_sheet", "approval"] satisfies readonly AttachmentKind[])
+    .nullable()
+    .default(null),
+  file_name: nullableText,
+  storage_path: nullableText,
+  mime_type: nullableText,
+  size_bytes: z.coerce.number().nullable().default(null),
 });
 
 /**
@@ -1084,6 +1146,7 @@ export const amendmentInput = z.object({
   approval_qtys: z.array(amendmentApprovalQtyInput).default([]),
   pack_types: z.array(amendmentPackTypeInput).default([]),
   quantities: z.array(amendmentQuantityInput).default([]),
+  files: z.array(amendmentFileInput).default([]),
 });
 export type AmendmentInput = z.infer<typeof amendmentInput>;
 

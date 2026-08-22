@@ -100,7 +100,11 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         // fails the WHOLE query rather than this branch of it, which is why
         // this lands in the same edit as the migration.
         "quantities:garment_order_amendment_quantities(*, assort_lines:garment_order_amendment_assort_lines(*, sizes:garment_order_amendment_assort_line_sizes(*))), " +
-        "country_sizes:garment_order_amendment_country_sizes(*)",
+        "country_sizes:garment_order_amendment_country_sizes(*), " +
+        // The attached documents (0416) — the style JPG, the buyer's PDF order
+        // sheet, shade cards. Metadata only; the bytes live in the private
+        // `garment-order-docs` bucket and `storage_path` is the key.
+        "files:garment_order_amendment_files(*)",
     )
     .order("created_at", { ascending: false });
 

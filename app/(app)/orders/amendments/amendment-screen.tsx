@@ -96,6 +96,8 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
+import { FileAttachments, type AttachmentRow } from "@/components/ui/file-attachments";
+import { SketchThumbnail } from "@/components/ui/sketch-thumbnail";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -904,6 +906,50 @@ export function AmendmentScreen({
   const [approvalQtys, setApprovalQtys] = useState<ApprovalQtyRow[]>([]);
   const [packTypes, setPackTypes] = useState<PackTypeRow[]>([]);
   const [quantities, setQuantities] = useState<QuantityRow[]>([]);
+
+  /**
+   * THE ATTACHED DOCUMENTS (0416) — the style JPG, the buyer's PDF order sheet,
+   * shade cards. Metadata only; the bytes are already in the private
+   * `garment-order-docs` bucket by the time a row exists here.
+   */
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+
+  /**
+   * WHERE UPLOADS LAND BEFORE THE ORDER HAS AN ID.
+   *
+   * The client's requirement is explicit that files are attached BEFORE the
+   * order is saved (2026-08-12), and `editId` is null until then — so the folder
+   * cannot be the record id on the one path that matters most.
+   *
+   * It does not have to be. `storage_path` is what the row stores and what a
+   * signed URL is minted from; the folder is organisation, not identity.
+   * `PhotoUpload` makes the same call one step further, keying employee photos
+   * by a random filename in a flat folder and never by the employee at all.
+   *
+   * LAZY STATE, NOT A REF. It must survive every re-render of a screen that
+   * re-renders on each keystroke, and a ref does that — but this value is READ
+   * DURING RENDER, to hand `FileAttachments` its folder, and reading a ref in
+   * render is what `react-hooks` refuses ("Cannot access refs during render").
+   * `useState`'s initialiser runs once and the value is render-safe, which is
+   * the same guarantee without the violation.
+   */
+  const [uploadFolder, setUploadFolder] = useState(() => crypto.randomUUID());
+
+  /**
+   * THE SKETCH THE HEADER SHOWS — the FIRST one, where there are several.
+   *
+   * An order can carry more than one drawing (a front and a back, two
+   * colourways), and the header has room for one thumbnail. Taking the first
+   * means the operator controls which by ordering the rows, and the grid's order
+   * is the order they uploaded in — visible, and re-orderable by removing and
+   * re-adding. Picking "the newest" instead would move the reference under them
+   * whenever a second sketch arrived.
+   *
+   * A row with no `storage_path` cannot be shown: the upload is what produces
+   * that value, so its absence means the file never landed.
+   */
+  const sketchPath =
+    attachments.find((f) => f.doc_kind === "sketch" && f.storage_path)?.storage_path ?? null;
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
@@ -1808,6 +1854,12 @@ export function AmendmentScreen({
     // blank form — where they read as data the operator entered.
     setPackTypes([]);
     setQuantities([]);
+    setAttachments([]);
+    /* A FRESH FOLDER PER RECORD. Without this, a new order started after
+       another would upload into the previous one's folder — harmless for
+       retrieval, since `storage_path` is stored per row, and misleading to
+       anyone reading the bucket. */
+    setUploadFolder(crypto.randomUUID());
     setPendingSeed(null);
     setSeeded(false);
     openOneRow();
@@ -1893,6 +1945,20 @@ export function AmendmentScreen({
       packTypes: r.pack_types,
       quantities: r.quantities,
     });
+    /* NOT PART OF `applyRows`, deliberately: that mapping is shared with the
+       ORDER SEED, and an order carries no attachments. Folding files into it
+       would make every seeded amendment clear the documents of the one it was
+       seeded from. */
+    setAttachments(
+      (r.files ?? []).map((f) => ({
+        key: newKey(),
+        doc_kind: f.doc_kind ?? "",
+        file_name: f.file_name ?? "",
+        storage_path: f.storage_path ?? "",
+        mime_type: f.mime_type ?? "",
+        size_bytes: f.size_bytes ?? 0,
+      })),
+    );
     setMode("edit");
   }
 
@@ -2143,6 +2209,17 @@ export function AmendmentScreen({
         size_id: r.size_id,
         qty: r.qty,
         approval_qty: r.approval_qty,
+      })),
+      /* THE ATTACHED DOCUMENTS (0416). `sno` is stamped server-side by
+         `normalizeFiles`, like every other child here — the grid's own order is
+         the array order and nothing on screen types a number. */
+      files: attachments.map((f) => ({
+        sno: 0,
+        doc_kind: f.doc_kind || null,
+        file_name: f.file_name || null,
+        storage_path: f.storage_path || null,
+        mime_type: f.mime_type || null,
+        size_bytes: f.size_bytes ?? null,
       })),
     };
     start(async () => {
@@ -9888,6 +9965,38 @@ export function AmendmentScreen({
           </Field>
         </FieldGrid>
 
+        {/* THE ATTACHED DOCUMENTS, AND THIS IS THE ONLY POSITION THAT WORKS.
+            Two rules meet here and between them they leave one slot.
+
+            `FileAttachments` holds exactly one field-like node — the per-row
+            kind `<Select>` — and its own header says to render the panel AFTER a
+            section's fields, so that Select does not become the section edge
+            ahead of them.
+
+            The styles grid below says it MUST RENDER LAST, because `cycleTab`
+            treats the last field-like node as the edge where Tab hands over to
+            Color/Print Details.
+
+            So: fields, then this, then the grid. Move it below `stylesGrid` and
+            Tab stops leaving Order Info; move it above the `FieldGrid` and it
+            becomes the edge ahead of the header fields.
+
+            WHY HERE AND NOT LOGISTIC. 0416 was written for the Logistic tab and
+            the client's 2026-08-12 words put it there. Order Info is the later
+            instruction: the buyer's PDF belongs beside the PO No it arrived
+            with, and since Style(s) merged into this section on 2026-08-11 the
+            sketch belongs beside the style it depicts. One panel, because those
+            two placements are now one section. */}
+        <FileAttachments
+          rows={attachments}
+          onChange={setAttachments}
+          bucket="garment-order-docs"
+          folder={editId ?? uploadFolder}
+          disabled={!perms.canEdit}
+          label="Order documents"
+          hint="The buyer's PDF order sheet, the style sketch, and any approvals or shade cards production needs to see."
+        />
+
         {/* THE STYLE(S) GRID, AND IT MUST RENDER LAST.
             `cycleTab` (lib/focus.ts) walks the pane's field-like nodes in DOM
             order and treats the last one as the SECTION EDGE — the point where
@@ -10044,6 +10153,16 @@ export function AmendmentScreen({
                 )}
               </span>
             )}
+            {/* THE SKETCH, REACHABLE FROM EVERY SECTION. It is uploaded on Order
+                Info and read while filling Combos and Sizes, which are three and
+                four rail stops away — so without this the operator navigates
+                back, looks, and navigates forward again for every glance.
+
+                Here rather than in a pinned card of its own, for the reason the
+                balance figure beside it is here: a record's header fields are a
+                SECTION, not a band floating above the rail, and `PageHeader` is
+                already the one strip that names this record. */}
+            <SketchThumbnail bucket="garment-order-docs" path={sketchPath} />
             <Button variant="outline" size="md" onClick={() => setMode("list")}>
               ← Back to list
             </Button>

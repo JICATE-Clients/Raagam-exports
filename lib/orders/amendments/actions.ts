@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { amendmentInput, type AmendmentInput } from "./types";
+import { normalizeFileRows } from "./file-rows";
 import {
   seedAmendmentFromOrder,
   styleKey,
@@ -174,6 +175,16 @@ function normalizeDyeings(data: AmendmentInput) {
     }))
     .filter((r) => r.dye_type || r.color_name || r.color_id)
     .map((r, i) => ({ ...r, sno: i + 1 }));
+}
+
+/**
+ * The attached documents (0416). The rule lives in `./file-rows` because this
+ * module is `"use server"` and nothing in it can be reached by a vector — and
+ * its filter differs from every sibling here in a way that invites being
+ * "corrected" into a bug. See that file.
+ */
+function normalizeFiles(data: AmendmentInput) {
+  return normalizeFileRows(data.files);
 }
 
 function normalizePrints(data: AmendmentInput) {
@@ -522,6 +533,13 @@ async function writeChildren(
     // only to the insert side would leave the previous rows in place and add
     // the new ones beside them, doubling the grid on every save.
     ["garment_order_amendment_quantities", normalizeQuantities(data)],
+    /* The attached documents (0416). METADATA ONLY — the delete below drops
+       rows, never objects, and that asymmetry is deliberate: the file uploads
+       the moment it is chosen and the row is written on Save, so a delete that
+       reached into the bucket would make Cancel destroy a file the operator may
+       have no other copy of. Orphaned objects accumulate instead, which
+       `file-attachments.tsx` records as a known, accepted remainder. */
+    ["garment_order_amendment_files", normalizeFiles(data)],
   ];
 
   // Delete-all-then-reinsert each child grid wholesale.
@@ -807,6 +825,7 @@ function headerOnly(data: AmendmentInput) {
     approval_qtys: _aq,
     pack_types: _pt,
     quantities: _qt,
+    files: _files,
     // NOT A COLUMN HERE. `location_id` belongs to the `sales_orders` row this
     // document mints its SC No from; leaving it in the spread would send
     // PostgREST a column `garment_order_amendments` does not have.
