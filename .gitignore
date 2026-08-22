@@ -28,6 +28,12 @@
 # worker deadline, and Turbopack died with a bare "unexpected Turbopack error"
 # naming only app/globals.css (2026-08-18).
 /.next-build/
+# A dev server started with NEXT_DIST_DIR=.next-shot wrote 1,102 files here and
+# they were COMMITTED (35c62eb) - webpack .pack.gz caches, build manifests, a
+# lockfile. Same mistake .next-fold and .next-build above each record; this is
+# the third, and the pattern is always an alternate dist dir that nobody added
+# to this list before running a build into it.
+/.next-shot/
 /out/
 
 # serwist / PWA service worker (generated at build)

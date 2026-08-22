@@ -34,6 +34,12 @@ export interface TaPlanDoc {
   order_no: string | null;
   start_date: string | null;
   style_id: string | null;
+  /**
+   * The TA Style template this plan's ladder was copied from (0453).
+   * PROVENANCE ONLY - the copy is a snapshot, so a later template edit never
+   * reaches the plan. NULL means hand-typed, or the template has been deleted.
+   */
+  ta_style_id: string | null;
   delivery_date: string | null;
   order_qty: number | null;
   proposed_delivery_date: string | null;
@@ -47,6 +53,7 @@ export interface TaPlanDoc {
   sales_order?: { id: string; order_number: string | null } | null;
   shipment?: Ref;
   style?: { id: string; code: string | null; style_name: string | null } | null;
+  ta_style?: { id: string; code: string | null; description: string | null } | null;
   activities: TaPlanActivity[];
 }
 
@@ -72,6 +79,7 @@ export const taPlanDocInput = z.object({
   order_no: nullableText,
   start_date: nullableText,
   style_id: uuidN,
+  ta_style_id: uuidN,
   delivery_date: nullableText,
   order_qty: z.coerce.number().nullable().default(null),
   proposed_delivery_date: nullableText,

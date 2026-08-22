@@ -1,5 +1,6 @@
 /**
- * Vectors for `lib/ta/schedule.ts` — Time & Action backward scheduling.
+ * Vectors for `lib/ta/*` — Time & Action backward scheduling (`schedule.ts`) and
+ * the TA Style template copy (`template.ts`).
  *
  * ## WHAT MAKES A VECTOR EARN ITS PLACE HERE
  *
@@ -30,6 +31,12 @@ import {
   subtractWorkingDays,
   isRefusal,
 } from "../lib/ta/schedule.ts";
+import {
+  applyWarning,
+  templateActivities,
+  templateSummary,
+  type TemplateHeader,
+} from "../lib/ta/template.ts";
 import { dayOfWeek, daysBetween } from "../lib/calendar.ts";
 
 let failed = 0;
@@ -304,6 +311,158 @@ check(
     return isRefusal(r) ? r.refused : r.startDate;
   })(),
   "2026-08-21",
+);
+
+// ---------------------------------------------------------------------------
+// 7. Copying a TA Style template into a plan (0453)
+//
+// The two tables existed for months with nothing connecting them. What the copy
+// must get right is not the arithmetic - there barely is any - but WHAT IT
+// CARRIES and what it refuses.
+// ---------------------------------------------------------------------------
+
+const TPL: TemplateHeader = {
+  id: "t1",
+  code: "TAS-0001",
+  description: "Knit tee, 60 day",
+  lead_days: 5,
+  start_days: 2,
+  activities: [
+    { sno: 10, activity_id: "a-cut", from_activity_id: null, days_required: 1 },
+    { sno: 20, activity_id: "a-sew", from_activity_id: "a-cut", days_required: 6 },
+    { sno: 30, activity_id: "a-pack", from_activity_id: "a-sew", days_required: 2 },
+  ],
+};
+
+const copied = templateActivities(TPL);
+
+check(
+  "the ladder copies in order, keeping each row's predecessor",
+  isRefusal(copied) ? copied.refused : copied.map((r) => [r.activity_id, r.from_activity_id, r.days_required]),
+  [
+    ["a-cut", null, 1],
+    ["a-sew", "a-cut", 6],
+    ["a-pack", "a-sew", 2],
+  ],
+);
+
+/* SNO IS RE-NUMBERED FROM 1. The template's own numbering has gaps (10/20/30 -
+   rows get deleted and the rest are not renumbered), and carrying those across
+   makes every later insert guess a free number in a grid read back sorted by
+   sno. */
+check(
+  "sno is renumbered 1..n, not carried",
+  isRefusal(copied) ? copied.refused : copied.map((r) => r.sno),
+  [1, 2, 3],
+);
+refute(
+  "...the template's gapped numbering is not carried",
+  isRefusal(copied) ? copied.refused : copied.map((r) => r.sno),
+  [10, 20, 30],
+);
+
+/* AN OUT-OF-ORDER TEMPLATE STILL COPIES IN ORDER. `ta_style_activities` is read
+   back sorted, but nothing stops a caller handing rows over unsorted. */
+check(
+  "rows are sorted by sno before copying, not trusted in array order",
+  (() => {
+    const r = templateActivities({
+      ...TPL,
+      activities: [
+        { sno: 30, activity_id: "a-pack", from_activity_id: null, days_required: 2 },
+        { sno: 10, activity_id: "a-cut", from_activity_id: null, days_required: 1 },
+      ],
+    });
+    return isRefusal(r) ? r.refused : r.map((x) => x.activity_id);
+  })(),
+  ["a-cut", "a-pack"],
+);
+
+/* NO DATES COME ACROSS, and that is the design rather than an omission: a
+   template is reusable precisely because it is not tied to one delivery date.
+   Dating the ladder is `backwardSchedule`'s separate, re-runnable job. */
+check(
+  "no row arrives carrying a date",
+  isRefusal(copied) ? null : copied.every((r) => r.start_date === null && r.end_date === null),
+  true,
+);
+
+/* A ROW WITH NO ACTIVITY REFUSES. Copied, it becomes a plan row with an empty
+   Activity cell - which reads as one the PLANNER forgot, so they fill it in and
+   silently diverge from the template they thought they applied. */
+check(
+  "a template row with no activity refuses, naming the row",
+  refusalOf(
+    templateActivities({
+      ...TPL,
+      activities: [
+        { sno: 10, activity_id: "a-cut", from_activity_id: null, days_required: 1 },
+        { sno: 20, activity_id: null, from_activity_id: null, days_required: 3 },
+      ],
+    }),
+  ),
+  "TAS-0001 has a row with no activity (row 2) — fix the template first",
+);
+check(
+  "an empty template refuses rather than clearing the grid",
+  refusalOf(templateActivities({ ...TPL, activities: [] })),
+  "TAS-0001 has no activities to copy",
+);
+
+/* ZERO DAYS IS A REAL ANSWER, unlike a missing activity: two activities can
+   share a date, and the column is `not null default 0`, so a template that never
+   touched the field is ordinary. `backwardSchedule` refuses a NULL later, which
+   is the right place - by then the operator is asking for dates. */
+check(
+  "a zero-day row copies rather than refusing",
+  (() => {
+    const r = templateActivities({
+      ...TPL,
+      activities: [{ sno: 1, activity_id: "a-cut", from_activity_id: null, days_required: 0 }],
+    });
+    return isRefusal(r) ? r.refused : r[0].days_required;
+  })(),
+  0,
+);
+check(
+  "a null days_required lands as 0, not null",
+  (() => {
+    const r = templateActivities({
+      ...TPL,
+      activities: [{ sno: 1, activity_id: "a-cut", from_activity_id: null, days_required: null }],
+    });
+    return isRefusal(r) ? r.refused : r[0].days_required;
+  })(),
+  0,
+);
+
+/* THE CONFIRM NAMES BOTH COUNTS. "Are you sure?" tells the planner nothing they
+   did not know; how many rows go and how many arrive is a decision. */
+check("nothing to warn about on an empty grid", applyWarning(TPL, 0), null);
+check(
+  "the warning names what is lost and what arrives",
+  applyWarning(TPL, 4),
+  "This replaces the 4 activities already on this plan with the 3 from TAS-0001. Any dates typed against them are lost.",
+);
+check(
+  "one row is singular",
+  applyWarning(TPL, 1)?.startsWith("This replaces the 1 activity already"),
+  true,
+);
+
+/* THE SUMMARY REPRODUCES ta-style-screen's OWN FOOTER SUM. lead + start + work,
+   and the two screens must not print different totals for one template. */
+check("the template summary totals as its own screen does", templateSummary(TPL), {
+  activities: 3,
+  workDays: 9,
+  leadDays: 5,
+  startDays: 2,
+  targetDays: 16,
+});
+refute(
+  "...targetDays is not just the work days",
+  templateSummary(TPL).targetDays,
+  9,
 );
 
 console.log(failed === 0 ? "\nOK — every T&A schedule vector holds." : `\n${failed} FAILED`);

@@ -13,6 +13,7 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
 import { today } from "@/lib/calendar";
+import { applyWarning, templateActivities, templateSummary } from "@/lib/ta/template";
 import {
   addWorkingDays,
   backwardSchedule,
@@ -97,6 +98,9 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
   const [orderNo, setOrderNo] = useState("");
   const [startDate, setStartDate] = useState("");
   const [styleId, setStyleId] = useState<string | null>(null);
+  /* WHICH TEMPLATE THE LADDER CAME FROM (0453). Provenance, not a live link:
+     applying COPIES, and a later template edit never reaches this plan. */
+  const [taStyleId, setTaStyleId] = useState<string | null>(null);
   // footer
   const [deliveryDate, setDeliveryDate] = useState("");
   const [orderQty, setOrderQty] = useState("");
@@ -138,6 +142,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
     setOrderNo("");
     setStartDate("");
     setStyleId(null);
+    setTaStyleId(null);
     setDeliveryDate("");
     setOrderQty("");
     setProposedDeliveryDate("");
@@ -158,6 +163,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
     setOrderNo(r.order_no ?? "");
     setStartDate(r.start_date ?? "");
     setStyleId(r.style_id);
+    setTaStyleId(r.ta_style_id);
     setDeliveryDate(r.delivery_date ?? "");
     setOrderQty(r.order_qty != null ? String(r.order_qty) : "");
     setProposedDeliveryDate(r.proposed_delivery_date ?? "");
@@ -192,6 +198,90 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
 
   function patchLine(key: string, patch: Partial<LineRow>) {
     setLines((xs) => xs.map((x) => (x.key === key ? withEnd({ ...x, ...patch }) : x)));
+  };
+
+  /**
+   * THE TEMPLATES THIS PLAN MAY PICK FROM.
+   *
+   * SCOPED TO THE CUSTOMER, THROUGH A BRIDGE THAT IS OFTEN NULL. A plan's party
+   * is a `buyers` row and a template's is a `customers` row - different tables
+   * (see `raagam-two-party-tables`), joined only by `buyers.customer_id` (0380),
+   * which is nullable. Where the bridge resolves the list narrows; where it does
+   * not, every template is offered rather than claiming this party has none. A
+   * filter that silently returned nothing would read as "no templates exist".
+   *
+   * A BLOCKED OR DRAFT TEMPLATE IS NOT OFFERED, except the one this plan already
+   * names - dropping that would show a filled field as empty and blank the FK on
+   * the next save. The standing "Disabled rows" rule, and the service selects
+   * `blocked` precisely so this half is possible.
+   */
+  const templateOptions = useMemo(() => {
+    const wantCustomer = customerId ? (data.buyerCustomer?.[customerId] ?? null) : null;
+    return data.taStyles.filter(
+      (t) =>
+        t.id === taStyleId ||
+        ((!t.blocked && !t.is_draft) &&
+          (wantCustomer == null || t.customer_id == null || t.customer_id === wantCustomer)),
+    );
+  }, [data.taStyles, data.buyerCustomer, customerId, taStyleId]);
+
+  const pickedTemplate = templateOptions.find((t) => t.id === taStyleId) ?? null;
+
+  /**
+   * COPY THE TEMPLATE'S LADDER ONTO THIS PLAN.
+   *
+   * ## IT REPLACES, AND IT SAYS SO FIRST
+   *
+   * A template is a starting point, so replacing is the useful behaviour - but
+   * the rows it replaces may carry dates the planner typed or scheduled. The
+   * confirm names how many go and how many arrive (`applyWarning`); "are you
+   * sure?" would tell them nothing they did not already know.
+   *
+   * ## IT DOES NOT DATE THE LADDER
+   *
+   * A template carries no dates and cannot: it is reusable precisely because it
+   * is not tied to one delivery date. So this fills the SHAPE and "Schedule
+   * back" fills the dates - two operations the planner can see and re-run
+   * independently, rather than one button that does both and cannot be partly
+   * undone.
+   */
+  const applyTemplate = () => {
+    if (!pickedTemplate) return;
+
+    const rows = templateActivities(pickedTemplate);
+    // REFUSES BEFORE IT CLEARS ANYTHING. A template with a row carrying no
+    // activity would otherwise wipe the grid and leave a hole the planner reads
+    // as their own omission.
+    if (isRefusal(rows)) {
+      toastError(rows.refused);
+      return;
+    }
+
+    const filled = lines.filter((l) => l.activity_id || l.days_required || l.start_date);
+    const warn = applyWarning(pickedTemplate, filled.length);
+    if (warn && !window.confirm(warn)) return;
+
+    setLines(
+      rows.map((r) => ({
+        key: newKey(),
+        activity_id: r.activity_id,
+        from_activity_id: r.from_activity_id,
+        details: r.details ?? "",
+        start_date: "",
+        days_required: String(r.days_required ?? 0),
+        end_date: "",
+      })),
+    );
+    // The footer's own figures follow the template, so the two agree the moment
+    // it lands. `target_date` stays empty: it is a DATE, and nothing here has one
+    // until the ladder is scheduled.
+    const sum = templateSummary(pickedTemplate);
+    setNoOfDays(String(sum.workDays));
+    setTargetDate("");
+    success(
+      `${sum.activities} activities from ${pickedTemplate.code ?? "the template"}` +
+        ` — ${sum.workDays} working days. Now set Deliv. Dt and schedule back.`,
+    );
   };
 
   /**
@@ -288,6 +378,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
       proposed_delivery_date: proposedDeliveryDate || null,
       target_date: targetDate || null,
       no_of_days: noOfDays ? Number(noOfDays) : null,
+      ta_style_id: taStyleId,
       activities: lines.map((l) => ({
         sno: 0,
         activity_id: l.activity_id,
@@ -543,6 +634,41 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
             </Field>
             <Field size="sm">
               <RecordPicker label="Style" items={data.styles} value={styleId} onChange={setStyleId} />
+            </Field>
+            {/* THE TEMPLATE, BESIDE THE FIELDS IT FILLS FROM. Picking it changes
+                nothing on its own - Apply is a separate, deliberate press,
+                because it REPLACES the activity grid. The two controls share one
+                field slot so the pair reads as one action rather than a picker
+                whose effect is elsewhere on the screen. */}
+            <Field size="sm">
+              <div className="flex items-center gap-2">
+                <RecordPicker
+                  label="T&A Template"
+                  items={templateOptions.map((t) => ({
+                    id: t.id,
+                    code: t.code,
+                    // The description IS the template's name; its own screen has
+                    // no other. A blank one still has to be pickable.
+                    name: t.description || "(no description)",
+                  }))}
+                  value={taStyleId}
+                  onChange={setTaStyleId}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={applyTemplate}
+                  disabled={!pickedTemplate}
+                  title={
+                    !pickedTemplate
+                      ? "Pick a template first"
+                      : `Replace the activity grid with the ${pickedTemplate.activities.length} activities from ${pickedTemplate.code ?? "this template"}`
+                  }
+                >
+                  Apply
+                </Button>
+              </div>
             </Field>
           </FieldGrid>
         </CardBody>
