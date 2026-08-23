@@ -293,7 +293,7 @@ function ComponentsTab({
                 <input
                   id="is_main_component"
                   type="checkbox"
-                  className="h-4 w-4 rounded border-input"
+                  className="h-4 w-4 rounded border-border"
                   checked={form.is_main_component}
                   onChange={(e) => setForm((f) => ({ ...f, is_main_component: e.target.checked }))}
                 />
@@ -705,7 +705,7 @@ export function FabricConsumptionDetail({
             )}
             {isDraft && canDelete && (
               <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
                 disabled={isPending}
                 onClick={handleDelete}
               >

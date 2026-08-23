@@ -404,7 +404,7 @@ function OrdersTab({
                     type="checkbox"
                     checked={form.with_learning_curve}
                     onChange={(e) => setForm((f) => ({ ...f, with_learning_curve: e.target.checked }))}
-                    className="h-4 w-4 rounded border-input"
+                    className="h-4 w-4 rounded border-border"
                   />
                   With Learning Curve
                 </label>
@@ -413,7 +413,7 @@ function OrdersTab({
                     type="checkbox"
                     checked={form.is_split}
                     onChange={(e) => setForm((f) => ({ ...f, is_split: e.target.checked }))}
-                    className="h-4 w-4 rounded border-input"
+                    className="h-4 w-4 rounded border-border"
                   />
                   Is Split
                 </label>
@@ -577,7 +577,7 @@ export function CapacityPlanningDetail({
             )}
             {isDraft && canDelete && (
               <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
                 disabled={isPending}
                 onClick={handleDelete}
               >

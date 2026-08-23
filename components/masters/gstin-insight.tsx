@@ -62,7 +62,7 @@ export function GstinInsight({
       )}
 
       {panMismatch && (
-        <p className="flex items-center gap-1 text-destructive">
+        <p className="flex items-center gap-1 text-danger">
           <CircleAlert className="h-4 w-4 shrink-0" />
           PAN mismatch — this GSTIN carries <span className="font-mono">{decoded.pan}</span>.
         </p>
