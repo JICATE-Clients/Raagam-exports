@@ -22,10 +22,22 @@
 import {
   assortMode,
   assortSizeWeights,
+  ASSORT_WEIGHT_SELECT,
   type AssortQuantity,
 } from "../lib/orders/assort-weights.ts";
 
 let failed = 0;
+
+/** Asserts a value is NOT something — for the wrong answer a plausible
+ *  implementation gives. Same helper the other suites carry. */
+function refute(label: string, actual: unknown, notExpected: unknown) {
+  if (JSON.stringify(actual) === JSON.stringify(notExpected)) {
+    failed++;
+    console.log(`  FAIL  ${label}\n          must not be ${JSON.stringify(notExpected)}`);
+  } else {
+    console.log(`  ok    ${label}`);
+  }
+}
 
 function check(label: string, actual: unknown, expected: unknown) {
   const a = JSON.stringify(actual);
@@ -155,6 +167,112 @@ const mixed = [
   dest(ASSORT, [line("NAVY", 5, 2, [1, 1])], "TSH-002"),
 ];
 check("each destination uses its own mode", total(mixed), 300 + 5 * 2 * 2);
+
+
+// ---------------------------------------------------------------------------
+// WHICH STYLE A SIZE CELL BELONGS TO (fixed 2026-08-23)
+// ---------------------------------------------------------------------------
+/**
+ * `assortSizeWeights` read `quantities.style_ref_no` alone. Two changes made
+ * that wrong and neither touched this file:
+ *
+ *   - 0433 put a style on the assort LINE (Multiple Style);
+ *   - the client made `quantities.style_ref_no` FREE TEXT on 2026-08-17.
+ *
+ * Live data proved NEITHER column is right on its own — three orders carry junk
+ * on the destination and the real ref on the line; the fourth is the mirror.
+ * These fixtures are those two shapes.
+ *
+ * What it cost downstream: `productionSlices` matches assort rows to targets BY
+ * STYLE, so a mismatch matched nothing and the combination basis refused with
+ * "Size break-up not entered on Quantities ▸ Assort" — on a break-up that was
+ * entered. Safe (a refusal, not a wrong number) and useless.
+ */
+
+console.log("\n§  the style a size cell belongs to");
+
+/** A Multiple Style pack: the LINE names the style, the destination holds junk. */
+const multiStyle = [
+  {
+    style_ref_no: "111", // free text since 2026-08-17
+    assortment_type: { code: "solid", name: "Solid" },
+    assort_lines: [
+      {
+        style_ref_no: "STL/26-27/0007",
+        combo: "NAVY",
+        no_of_cartons: 0,
+        inners_per_carton: 0,
+        sizes: [{ size_id: "sz-m", qty: 500 }],
+      },
+    ],
+  },
+];
+
+/** A Single Style pack: the line names nothing, the destination is the answer. */
+const singleStyle = [
+  {
+    style_ref_no: "STL/26-27/0003",
+    assortment_type: { code: "solid", name: "Solid" },
+    assort_lines: [
+      {
+        style_ref_no: null,
+        combo: "WHITE",
+        no_of_cartons: 0,
+        inners_per_carton: 0,
+        sizes: [{ size_id: "sz-m", qty: 2500 }],
+      },
+    ],
+  },
+];
+
+check(
+  "a multi-style line takes ITS OWN style, not the destination's free text",
+  assortSizeWeights(multiStyle).map((w) => w.style_ref_no),
+  ["STL/26-27/0007"],
+);
+/* THE REGRESSION ITSELF, named. `111` matches no declared style, so every
+   size-wise and combination-grain BOM on that order refuses. */
+refute(
+  "...it does NOT arrive as the destination's free text",
+  assortSizeWeights(multiStyle).map((w) => w.style_ref_no),
+  ["111"],
+);
+check(
+  "a single-style line still falls back to the destination",
+  assortSizeWeights(singleStyle).map((w) => w.style_ref_no),
+  ["STL/26-27/0003"],
+);
+/* `??` NOT `||`: an empty string is a value somebody typed. Falling through it
+   would silently re-attribute the line to the destination. */
+check(
+  "an empty-string ref on the line is kept, not fallen through",
+  assortSizeWeights([
+    {
+      style_ref_no: "STL/26-27/0003",
+      assortment_type: { code: "solid", name: "Solid" },
+      assort_lines: [
+        { style_ref_no: "", combo: "WHITE", no_of_cartons: 0, inners_per_carton: 0,
+          sizes: [{ size_id: "sz-m", qty: 10 }] },
+      ],
+    },
+  ]).map((w) => w.style_ref_no),
+  [""],
+);
+/* THE DATA HALF. The column has existed since 0433; nothing selected it, so the
+   coalesce had nothing to prefer — the same two-halves failure AGENTS.md records
+   for `created_by`. A vector on the mapper cannot catch that, so this asserts the
+   SELECT names it. */
+check(
+  "ASSORT_WEIGHT_SELECT asks for the line's style_ref_no",
+  ASSORT_WEIGHT_SELECT.includes("assort_lines:garment_order_amendment_assort_lines(style_ref_no,"),
+  true,
+);
+/* And the quantities-level ref is still selected, or the fallback breaks. */
+check(
+  "...and still asks for the destination's",
+  ASSORT_WEIGHT_SELECT.startsWith("style_ref_no,"),
+  true,
+);
 
 console.log(
   failed === 0

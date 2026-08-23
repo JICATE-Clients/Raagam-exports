@@ -92,6 +92,24 @@ export default async function OrderDetailPage({
         description={order.buyers?.name ?? undefined}
         actions={
           <>
+            {/* THE TWO PER-ORDER SURFACES BUILT 2026-08-23, as header actions
+                rather than sidebar rows. Each is a view OF this order and has no
+                list to land on, so a sidebar row would need an order picker in
+                front of it. CAD Markers is the opposite shape and DOES get a row
+                (`/orders/cad`): it is a department's queue across the whole book.
+
+                `size="md"`, like the button beside them — this is a header row,
+                and AGENTS.md fixes every control in that band at `h-9`. */}
+            <Link href={`/orders/${orderId}/gos`}>
+              <Button variant="outline" size="md">
+                Order Sheet
+              </Button>
+            </Link>
+            <Link href={`/orders/${orderId}/community`}>
+              <Button variant="outline" size="md">
+                RE-Community
+              </Button>
+            </Link>
             <Link href={`/orders/${orderId}/processes`}>
               <Button variant="outline" size="md">
                 Garment Processes

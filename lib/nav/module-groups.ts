@@ -432,6 +432,22 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // holds `status: "todo"` and a missing route as the SAME fact and
           // fails either way round — a `todo` whose page.tsx exists is an error,
           // which is what stops the label outliving the work.
+          // CAD MARKERS — a DEPARTMENT'S WORK QUEUE, which is why it earns a row
+          // rather than a button on one order (0460, doc/file.md §2).
+          //
+          // The two other screens built alongside it — the Order Sheet and the
+          // RE-Community stream — are PageHeader actions on the order, because
+          // each is a view OF one order and has no list to land on. This is the
+          // opposite shape: a CAD technician opens it in the morning to see which
+          // orders across the whole book are Pending / Draft / Panels unweighed /
+          // Submitted. Reaching that through an order picker would mean choosing
+          // an order before you can see which orders need you.
+          //
+          // Placed immediately BEFORE Fabric BOM because it feeds it: the gram
+          // weights this screen captures are what step 5's consumption is seeded
+          // from. `page.tsx` renders a PageHeader + DataTable and imports no
+          // HubCard, so assertion 8 of check-module-groups.mts is satisfied.
+          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
           { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
           // 6 · FABRIC PLAN — the sourcing and processing path for what step 5
           // requires: yarn purchase, knitting, dyeing, stentering, compacting,
