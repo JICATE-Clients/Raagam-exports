@@ -38,7 +38,10 @@ import {
   isRefusal,
   moqRollup,
   roundUpTo,
+  colourSplits,
   lineQuantity,
+  lineQuantityByColour,
+  panelConsumption,
   productionSlices,
   baseRequirementFor,
   requirementFor,
@@ -1288,6 +1291,276 @@ check("a 0-dp unit still clamps to 2, never to a whole number", fmtQty(2719.2, 0
 check("no trailing zeroes on an exact figure", fmtQty(150, 3), "150");
 check("null is a dash, never a zero", fmtQty(null, 2), "—");
 refute("...and never the string zero", fmtQty(null, 2), "0");
+
+// ---------------------------------------------------------------------------
+// The Combination sheet: panels -> colours -> a minimum per cone (0436 · 0454)
+// ---------------------------------------------------------------------------
+/**
+ * The client's own example, 2026-08-19: a navy body, red sleeves and a yellow
+ * collar on one garment, where "a sleeve might use less thread than the front".
+ *
+ * EVERY VECTOR HERE WAS MADE TO FAIL FIRST. `check-module-groups.mts` records
+ * why that is the standard and not a formality: an assertion nobody has seen
+ * refuse is an assertion nobody knows is connected, and this file's own header
+ * makes the same point about a check that inspects nothing and prints
+ * "0 findings".
+ */
+
+const CMP_FRONT = "aaaaaaa1-0000-0000-0000-000000000001";
+const CMP_SLEEVE = "aaaaaaa1-0000-0000-0000-000000000002";
+const CMP_COLLAR = "aaaaaaa1-0000-0000-0000-000000000003";
+const COL_NAVY = "bbbbbbb1-0000-0000-0000-000000000001";
+const COL_RED = "bbbbbbb1-0000-0000-0000-000000000002";
+
+console.log("\n§  colourSplits — panels arrive at a rate, colours survive it");
+
+/* THE BOUNDARY 0423 AND 0436 BOTH ASSERT. You do not buy sleeve-thread and
+   front-thread; you buy thread. So two panels of ONE colour collapse into one
+   rate and the components are remembered only for the screen's summary. */
+check(
+  "two panels of one colour become ONE split",
+  colourSplits(COL_NAVY, [
+    { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1 },
+    { component_id: CMP_SLEEVE, item_color_id: null, no_of_items: 12, per_pieces: 1 },
+  ]),
+  [
+    {
+      item_color_id: COL_NAVY,
+      component_ids: [CMP_FRONT, CMP_SLEEVE],
+      no_of_items: 37,
+      per_pieces: 1,
+    },
+  ],
+);
+
+/* AND THE RATE IS SUMMED OVER ONE PIECE, so a split can be handed straight to
+   `requirementFor` with `per_pieces: 1`. 2 per piece plus 1 per 2 pieces is 2.5
+   per garment — the number a cone is bought against. */
+check(
+  "a divisor is folded in before the sum, not after",
+  (
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 2, per_pieces: 1 },
+      { component_id: CMP_SLEEVE, item_color_id: null, no_of_items: 1, per_pieces: 2 },
+    ]) as { no_of_items: number }[]
+  )[0].no_of_items,
+  2.5,
+);
+
+check(
+  "two colours are two splits — white thread and navy thread are two purchases",
+  (
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1 },
+      { component_id: CMP_SLEEVE, item_color_id: COL_RED, no_of_items: 12, per_pieces: 1 },
+    ]) as unknown[]
+  ).length,
+  2,
+);
+
+/* A BLANK PANEL COLOUR IS "THE LINE'S", NEVER "NO COLOUR" — the inherit
+   contract 0436 gives the column, and the reason a blank panel merges with one
+   that names the line's colour explicitly rather than standing apart. */
+check(
+  "a blank panel colour resolves to the line's",
+  (
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_COLLAR, item_color_id: null, no_of_items: 8, per_pieces: 1 },
+    ]) as { item_color_id: string | null }[]
+  )[0].item_color_id,
+  COL_NAVY,
+);
+
+/* AN EMPTY ARRAY IS NOT A REFUSAL, and callers must not read it as one: a line
+   with no panels is the ORDINARY line, and 0436 is opt-in per line precisely so
+   that stays true. This is the vector that keeps every pre-0436 line unchanged. */
+check("no panels is an empty list, not a refusal", colourSplits(COL_NAVY, []), []);
+refute("...and emphatically not a refusal", isRefusal(colourSplits(COL_NAVY, [])), true);
+
+/* A BAD PANEL POISONS THE LINE AND NAMES ITSELF. The panels SUM, so dropping a
+   bad one yields a smaller rate that looks entirely reasonable — the partial
+   explosion this module's header opens with. */
+check(
+  "a zero divisor refuses, naming the panel",
+  refusalOf(
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 0, label: "FRONT BODY" },
+    ]),
+  ),
+  "FRONT BODY: pieces must be more than 0",
+);
+check(
+  "a missing quantity refuses too",
+  refusalOf(
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: null, per_pieces: 1, label: "FRONT BODY" },
+    ]),
+  ),
+  "FRONT BODY: enter how many are used",
+);
+
+console.log("\n§  panelConsumption — which ratio wins when both were typed");
+
+/* THE UNAMBIGUOUS CASE: no slice override, so the panels are the only ratio
+   anyone entered and they stand however the open question is settled. */
+check(
+  "with no override, the panel rate is the rate",
+  panelConsumption(
+    { no_of_items: 20, per_pieces: 1 },
+    { no_of_items: 20, per_pieces: 1 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
+  ),
+  { no_of_items: 37, per_pieces: 1 },
+);
+/* THE OVERRIDE IS DETECTED BY COMPARISON WITH THE LINE, not by truthiness — a
+   slice that inherited its figures is NOT an override, and a test for "is there
+   a figure" would call every slice one. */
+check(
+  "an override is detected against the line, per field",
+  panelConsumption(
+    { no_of_items: 24, per_pieces: 1 },
+    { no_of_items: 20, per_pieces: 1 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
+  ),
+  // Provisional while the TODO in `panelConsumption` is open: panels win, which
+  // is 0436 read on its own. Change this vector WITH the rule, never after it.
+  { no_of_items: 37, per_pieces: 1 },
+);
+
+console.log("\n§  lineQuantityByColour — the minimum is a minimum per CONE");
+
+/* THE PROPERTY EVERY PRE-0436 LINE DEPENDS ON. One group must reduce to
+   `lineQuantity` exactly, or this is a second MOQ rule standing beside the
+   first rather than the first with its grouping made explicit. */
+const oneGroup = lineQuantityByColour(
+  [{ item_color_id: null, quantities: [100], baseQuantities: [90] }],
+  550,
+  500,
+  true,
+);
+check("one group reduces to lineQuantity, to the digit", oneGroup, lineQuantity([100], 550, 500, true, [90]));
+check("...and that answer is still MOQ-then-step", oneGroup, {
+  calcQty: 90,
+  excessCalcQty: 100,
+  afterMoq: 550,
+  finalQty: 1000,
+});
+
+/* THE CLIENT'S CASE, 2026-08-22. Navy and red are different SKUs, so an MOQ of
+   500 has to be cleared TWICE. The old rollup answered 500 for this, and a
+   purchase order written for the honest 1,000 would have been refused by the
+   ceiling — a control firing on correct work. */
+const twoColours = lineQuantityByColour(
+  [
+    { item_color_id: COL_NAVY, quantities: [100] },
+    { item_color_id: COL_RED, quantities: [100] },
+  ],
+  500,
+  null,
+  true,
+);
+check("two colours clear the minimum separately", twoColours, {
+  calcQty: 200,
+  excessCalcQty: 200,
+  afterMoq: 1000,
+  finalQty: 1000,
+});
+refute(
+  "...NOT one rollup over the pair, which buys 500 of two things",
+  (twoColours as { finalQty: number }).finalQty,
+  500,
+);
+/* AND THE CONSUMPTION COLUMNS DO NOT MOVE. They are what the order CONSUMES,
+   and consumption does not care that a supplier has a minimum — the separation
+   the four columns exist to keep. */
+check(
+  "the minimum does not touch what the order consumes",
+  (twoColours as { excessCalcQty: number }).excessCalcQty,
+  200,
+);
+
+/* THE STEP GROUPS THE SAME WAY. Rounding the pair once would leave one colour
+   short of an orderable figure, which is the whole reason a step exists. */
+check(
+  "the rounding step applies per colour too",
+  (
+    lineQuantityByColour(
+      [
+        { item_color_id: COL_NAVY, quantities: [120] },
+        { item_color_id: COL_RED, quantities: [130] },
+      ],
+      null,
+      50,
+      true,
+    ) as { finalQty: number }
+  ).finalQty,
+  300,
+);
+refute(
+  "...not one rounding of the sum, which is 250",
+  (
+    lineQuantityByColour(
+      [
+        { item_color_id: COL_NAVY, quantities: [120] },
+        { item_color_id: COL_RED, quantities: [130] },
+      ],
+      null,
+      50,
+      true,
+    ) as { finalQty: number }
+  ).finalQty,
+  250,
+);
+
+/* A REFUSED COLOUR POISONS THE LINE. Answering for navy and dropping red totals
+   less than the order needs and looks exactly like a correct answer. */
+check(
+  "one refused colour refuses the whole line",
+  refusalOf(
+    lineQuantityByColour(
+      [
+        { item_color_id: COL_NAVY, quantities: [100] },
+        { item_color_id: COL_RED, quantities: [null] },
+      ],
+      null,
+      null,
+      true,
+    ),
+  ),
+  "Nothing to total — every line refused",
+);
+refute(
+  "...it does NOT quietly answer 100",
+  (lineQuantityByColour(
+    [
+      { item_color_id: COL_NAVY, quantities: [100] },
+      { item_color_id: COL_RED, quantities: [null] },
+    ],
+    null,
+    null,
+    true,
+  ) as { finalQty?: number }).finalQty,
+  100,
+);
+
+/* NO GROUPS IS UNANSWERABLE, NOT ZERO. 0 reads as "none needed", the one answer
+   this module never intends, and this figure is the one a purchase is written
+   from. */
+check(
+  "no groups refuses rather than totalling 0",
+  refusalOf(lineQuantityByColour([], 500, null, true)),
+  "Nothing to total — every line refused",
+);
+
+/* THE UNIT RULE SURVIVES THE GROUPING. "500" with no unit is 500 of nothing —
+   the blank-supply-type shape the nominated-vendor rule refuses. */
+check(
+  "an MOQ with no unit still refuses, per group",
+  refusalOf(
+    lineQuantityByColour([{ item_color_id: COL_NAVY, quantities: [100] }], 500, null, false),
+  ),
+  "Set a purchase unit before an MOQ can be applied",
+);
 
 console.log(failed === 0 ? "\nAll BOM requirement vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

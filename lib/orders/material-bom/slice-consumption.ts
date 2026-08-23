@@ -83,6 +83,72 @@ export function sliceKey(s: SliceKey): string {
 }
 
 /**
+ * A stored slice row, narrowed to the override the resolver reads.
+ *
+ * ## THIS EXISTS BECAUSE THE INLINE VERSION WAS WRONG TWICE
+ *
+ * `writeChildren` built this shape with an object literal, and the literal named
+ * `combo`, `size_id` and the two figures — dropping `country_id` and
+ * `excess_pct`. Neither omission is visible to `tsc`: the result still satisfies
+ * `SliceOverride`, because every field this drops is optional so that a row
+ * saved before 0449/0450 stays readable.
+ *
+ * So the consequences were silent and total. `sliceKey` reads all three axes, so
+ * an override keyed to USA-M matched NO slice on a country-wise line and the
+ * LINE's figure was stored instead — beside a screen showing the operator's own
+ * number, because the screen passed the full rows to the same `consumptionFor`.
+ * The per-row Wastage % of 0450 was inert on the server for the same reason.
+ *
+ * A literal cannot be tested, which is why this is a function: the vectors in
+ * `check-bom-slices.mts` assert the KEY SET it returns, so a field dropped here
+ * fails a check rather than a purchase order.
+ *
+ * NORMALISING IS THE WHOLE JOB. `mbaItemSliceInput` leaves fields optional, so
+ * they arrive as `string | null | undefined` where `SliceKey` wants
+ * `string | null`; `undefined` would key as "" and quietly match the wrong row.
+ * Done once per line rather than per slice, and here rather than by loosening
+ * the shared type — the screen always supplies these, and a type that admits
+ * `undefined` would stop saying so.
+ */
+export function toOverrides(
+  slices:
+    | readonly {
+        combo?: string | null;
+        size_id?: string | null;
+        country_id?: string | null;
+        no_of_items?: number | null;
+        per_pieces?: number | null;
+        excess_pct?: number | null;
+      }[]
+    | null
+    | undefined,
+): SliceOverride[] {
+  return (slices ?? []).map((sl) => ({
+    combo: sl.combo ?? null,
+    size_id: sl.size_id ?? null,
+    country_id: sl.country_id ?? null,
+    no_of_items: sl.no_of_items ?? null,
+    per_pieces: sl.per_pieces ?? null,
+    excess_pct: sl.excess_pct ?? null,
+  }));
+}
+
+/**
+ * Every field an override carries, so a vector can assert the set rather than
+ * spot-check members. Exported for `check-bom-slices.mts`: the defect this
+ * module now guards against was a MISSING key, and only a whole-set comparison
+ * catches one of those.
+ */
+export const OVERRIDE_FIELDS = [
+  "combo",
+  "size_id",
+  "country_id",
+  "no_of_items",
+  "per_pieces",
+  "excess_pct",
+] as const;
+
+/**
  * The override stored against one slice, or null.
  *
  * FIRST MATCH WINS, and there can only be one: `uq_mba_slice_line_combo_size`

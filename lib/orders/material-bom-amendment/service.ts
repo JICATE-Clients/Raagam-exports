@@ -124,12 +124,14 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
         "excess_pct, rejection_rule_id, customer:customers(id,code,name), " +
         "sales_order:sales_orders(id,order_number)), " +
         "customer:customers(id,code,name), " +
-        // THE CHILD IS EMBEDDED, and this is the step 0436 never took for its
-        // own child: `(*)` does NOT pull nested relations, so a table that is
-        // typed, validated and carried in form state stays invisible without a
-        // line here. `material_bom_amendment_item_components` has been in
-        // exactly that state since 0436 — declared everywhere, selected nowhere.
+        // THE CHILD IS EMBEDDED, and `(*)` does NOT pull nested relations — so a
+        // table that is typed, validated and carried in form state stays
+        // invisible without a line here, reading as "the operator entered none"
+        // rather than as an error. `material_bom_amendment_item_components` sat
+        // in exactly that state from 0436 until 2026-08-22: declared everywhere,
+        // selected nowhere. It is the line below; do not lose it again.
         "items:material_bom_amendment_items(*, " +
+        "components:material_bom_amendment_item_components(*), " +
         "slices:material_bom_amendment_item_slices(*)), " +
         "processes:material_bom_amendment_processes(*), " +
         /* THE CHALLANS RAISED FROM THIS BOM (0446), so the Processes tab can say
@@ -149,7 +151,15 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
       // promise on an embed — the same reason the three children are sorted.
       items: [...(r.items ?? [])]
         .sort((a, b) => a.sno - b.sno)
-        .map((it) => ({ ...it, slices: [...(it.slices ?? [])].sort((x, y) => x.sno - y.sno) })),
+        .map((it) => ({
+          ...it,
+          // The Combination sheet's row order is the requirement's row order —
+          // `colourSplits` is insertion-ordered on purpose — so the panels are
+          // sorted for the same reason the overrides beside them are: PostgREST
+          // makes no ordering promise on an embed.
+          components: [...(it.components ?? [])].sort((x, y) => x.sno - y.sno),
+          slices: [...(it.slices ?? [])].sort((x, y) => x.sno - y.sno),
+        })),
       processes: [...(r.processes ?? [])].sort((a, b) => a.sno - b.sno),
       requirements: [...(r.requirements ?? [])].sort((a, b) => a.sno - b.sno),
     })),
@@ -417,6 +427,27 @@ export type BomOrderStyle = {
   unit_kind: string | null;
   /** The panels this style declares, for the line's Component cell (0423). */
   components: { id: string; code: string | null; name: string; inactive: boolean }[];
+  /**
+   * WHAT COLOUR EACH PANEL IS, ACROSS THIS ORDER'S COMBOS — the Combination
+   * sheet's inherited column, keyed by `component_id`.
+   *
+   * ## IT IS A LIST, AND THAT IS NOT A CONVENIENCE
+   *
+   * A Material BOM panel row belongs to a LINE, and a line spans every combo the
+   * order carries — the colourway is the SLICE axis, resolved later. So "the
+   * garment colour of the front body" has no single answer here: it is NAVY on
+   * the navy combo and WHITE on the white one. Naming one of them would be
+   * picking a combo arbitrarily and printing it as fact.
+   *
+   * So every distinct colour that panel takes is carried, and the sheet shows
+   * them all. That is the honest read of `garment_order_amendment_combo_components`
+   * at this grain, and it is still the thing the operator needs: it is what tells
+   * them the sleeve is contrast on this order at all.
+   *
+   * EMPTY IS A REAL ANSWER — the Combos tab has not declared that panel — and
+   * reads as blank rather than as a dash.
+   */
+  componentColours: Record<string, string[]>;
 };
 
 async function getOrderOptions(): Promise<BomOrderOption[]> {
@@ -461,7 +492,7 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
     ),
   ];
 
-  const [styleRes, compRes] = await Promise.all([
+  const [styleRes, compRes, colourRes] = await Promise.all([
     styleIds.length
       ? s
           .from("garment_styles")
@@ -483,7 +514,67 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
       // from the catalog rather than from memory. Doing that is what found it.
       ? s.from("components").select("id, short_name, inactive")
       : Promise.resolve({ data: [] as unknown[] }),
+    /*
+     * WHAT COLOUR EACH PANEL IS ON THIS ORDER — the Combination sheet's
+     * inherited column (0436).
+     *
+     * NESTED EMBEDS, WHICH IS SAFE HERE AND WAS NOT ABOVE. The note on
+     * `garment_styles` is about an embed PostgREST cannot resolve by FK; these
+     * three tables are a declared parent-child-grandchild chain
+     * (combo -> structure -> component), which is exactly what an embed is for.
+     * `(*)` would not have pulled them — the trap `listMaterialBomAmendments`
+     * records one screen over — so each level is named.
+     *
+     * Unfiltered by order, matching every other read in this function: it feeds
+     * a picker over the whole list, and narrowing per order would mean a query
+     * per row.
+     */
+    s
+      .from("garment_order_amendment_combos")
+      .select(
+        "amendment_id, style_ref_no, " +
+          "structures:garment_order_amendment_combo_structures(" +
+          "components:garment_order_amendment_combo_components(component_id, color_name))",
+      ),
   ]);
+
+  /*
+   * (order, style ref) -> component -> the distinct colours it is cut in.
+   *
+   * KEYED BY THE ORDER TOO. A style ref is unique within an amendment and not
+   * across them, so a flat `style_ref_no` key would let one order's combos
+   * colour another order's panels — the same class of collision `sliceKey`
+   * spells out for the country axis. NUL joins the halves so a ref containing
+   * the separator cannot forge another pair's key.
+   */
+  const colourKey = (amendmentId: string, styleRef: string) =>
+    `${amendmentId}\u0000${(styleRef ?? "").trim().toUpperCase()}`;
+
+  const coloursByStyle = new Map<string, Map<string, Set<string>>>();
+  for (const c of (colourRes.data ?? []) as unknown as {
+    amendment_id: string | null;
+    style_ref_no: string | null;
+    structures:
+      | { components: { component_id: string | null; color_name: string | null }[] | null }[]
+      | null;
+  }[]) {
+    if (!c.amendment_id) continue;
+    const key = colourKey(c.amendment_id, c.style_ref_no ?? "");
+    const byComponent = coloursByStyle.get(key) ?? new Map<string, Set<string>>();
+    for (const st of c.structures ?? []) {
+      for (const comp of st.components ?? []) {
+        const name = (comp.color_name ?? "").trim();
+        // A panel with no colour declared yet contributes NOTHING rather than an
+        // empty string — an empty chip beside two real ones reads as a third
+        // colourway nobody named.
+        if (!comp.component_id || !name) continue;
+        const set = byComponent.get(comp.component_id) ?? new Set<string>();
+        set.add(name.toUpperCase());
+        byComponent.set(comp.component_id, set);
+      }
+    }
+    coloursByStyle.set(key, byComponent);
+  }
 
   const componentById = new Map(
     ((compRes.data ?? []) as { id: string; short_name: string; inactive: boolean }[]).map((c) => [
@@ -531,10 +622,20 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
       .filter((x) => (x.style_ref_no ?? "").trim())
       .map((x) => {
         const st = x.style_id ? structureById.get(x.style_id) : undefined;
+        const colours = coloursByStyle.get(colourKey(o.id, x.style_ref_no ?? ""));
         return {
           ref: x.style_ref_no as string,
           unit_kind: st?.unit_kind ?? null,
           components: st?.components ?? [],
+          /* Sorted, so the sheet's hint does not re-order between renders for
+             no reason the operator can see — a `Set`'s order is insertion order
+             and insertion order here is PostgREST's, which promises nothing. */
+          componentColours: Object.fromEntries(
+            [...(colours ?? new Map<string, Set<string>>())].map(([id, set]) => [
+              id,
+              [...set].sort(),
+            ]),
+          ),
         };
       }),
   }));

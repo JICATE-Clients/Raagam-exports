@@ -10,6 +10,7 @@ import {
   Workflow,
   ChevronRight,
   ChevronDown,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,19 @@ import { NominatedVendorPicker } from "@/components/masters/nominated-vendor-pic
 import { nominatedVendorOptions } from "@/lib/masters/vendor-nominations";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CategoryPicker } from "@/components/masters/lookup-picker";
+import {
+  BomCombinationSheet,
+  type CombinationRow,
+} from "@/components/orders/bom-combination-sheet";
+import { producibleGrains, slicesForAxes } from "@/lib/orders/bom-explosion/compose";
+import {
+  axesOfBasis,
+  basisForAxes,
+  canonicalAxes,
+  labelFor,
+  serializeAxes,
+  type Axis,
+} from "@/lib/orders/bom-explosion/exploder";
 import { BomCopySheet, BomCopyConfirm } from "@/components/orders/bom-copy-sheet";
 import { DcGenerateSheet, type DcCandidate } from "@/components/orders/dc-generate-sheet";
 import {
@@ -69,7 +83,6 @@ import {
   type BomCopySource,
   type MaterialBomAmendment,
   type MbaDcLine,
-  type MbaItemComponent,
   type MbaItemSlice,
 } from "@/lib/orders/material-bom-amendment/types";
 import {
@@ -88,12 +101,16 @@ import {
 } from "@/lib/orders/material-bom-amendment/material-options";
 import {
   baseRequirementFor,
+  colourSplits,
   isRefusal,
   lineQuantity,
+  lineQuantityByColour,
+  panelConsumption,
   productionSlices,
   SLICE_SEP,
   requirementFor,
-  OFFERED_REQUIREMENT_BASES,
+  type ColourQuantities,
+  type ColourSplit,
   type OrderProductionInput,
   type ProductionSlice,
   type RequirementBasis,
@@ -168,6 +185,15 @@ type ItemRow = {
   specification: string;
   size: string;
   requirement_basis: string;
+  /**
+   * THE EXPLOSION GRAIN (0455) — the source of truth since 2026-08-23, and what
+   * the Attribute cell's toggle strip writes.
+   *
+   * NULL is "not chosen yet" and blocks Save; `[]` is the WHOLE ORDER and is a
+   * real answer. Held as `Axis[] | null` rather than a serialized string so the
+   * strip can toggle members without parsing.
+   */
+  requirement_grain: Axis[] | null;
   style_ref_no: string;
   /** The garment panel this material goes on (0423) — descriptive, see MbaItem. */
   component_id: string | null;
@@ -228,14 +254,18 @@ type ItemRow = {
   /**
    * PER-PANEL CONSTRUCTION (0436) — the Combination sheet's rows.
    *
-   * CARRIED BEFORE IT IS EDITABLE, deliberately. The sheet that fills this is
-   * not built yet, but `writeChildren` DELETES AND REINSERTS every child row, so
-   * the moment the table holds data a form that does not carry it is a form that
-   * NULLS it on the next ordinary save. That is the withdrawal pattern this file
-   * already records for `attribute_id`, applied one step earlier: hold the round
-   * trip first, add the editor second.
+   * EDITABLE SINCE 2026-08-22 (`BomCombinationSheet`). It was carried here
+   * unedited for three days first, and that was deliberate rather than
+   * unfinished: `writeChildren` DELETES AND REINSERTS every child row, so the
+   * moment the table holds data a form that does not carry it is a form that
+   * NULLS it on the next ordinary save. Hold the round trip first, add the
+   * editor second.
+   *
+   * `CombinationRow`, not `MbaItemComponent`: the figures are STRINGS in form
+   * state, like every other numeric cell on this screen, because a number cannot
+   * represent a box the operator has just cleared.
    */
-  components: MbaItemComponent[];
+  components: CombinationRow[];
   /**
    * PER-SLICE CONSUMPTION OVERRIDES (0442) — what the operator typed against one
    * of the rows the Attribute explodes this line into. Empty is the ordinary
@@ -283,6 +313,9 @@ const blankItem = (key: string): ItemRow => ({
   specification: "",
   size: "",
   requirement_basis: "",
+  // NULL, never `[]`: an untouched line has not been answered, and `[]` would
+  // silently mean "one bulk row for the whole order".
+  requirement_grain: null,
   style_ref_no: "",
   component_id: null,
   /* OPENS ON "Local" (client 2026-08-21) — see `DEFAULT_SUPPLY_TYPE`. A blank
@@ -670,6 +703,16 @@ export function MbaMasterScreen({
   const [orderProdError, setOrderProdError] = useState<string | null>(null);
   const [loadingOrder, setLoadingOrder] = useState(false);
 
+  /**
+   * WHICH LINE'S COMBINATION SHEET IS OPEN, by row key rather than by index.
+   *
+   * A key, because the grid's rows are added and removed under it: an index
+   * would follow whatever line slid into that position when a row above was
+   * deleted, and the operator would find themselves editing another material's
+   * construction with nothing on screen saying so.
+   */
+  const [comboLineKey, setComboLineKey] = useState<string | null>(null);
+
   const [copyOpen, setCopyOpen] = useState(false);
   const [pendingCopy, setPendingCopy] = useState<{
     items: ItemRow[];
@@ -714,6 +757,21 @@ export function MbaMasterScreen({
   const styleOf = (ref: string) =>
     ref.trim() ? (selectedOrder?.styles ?? []).find((x) => x.ref === ref) : undefined;
   const componentsOf = (ref: string) => styleOf(ref)?.components ?? [];
+
+  /**
+   * The line whose Combination sheet is open, resolved from the key each render.
+   *
+   * NOT HELD IN STATE ALONGSIDE THE KEY. A copy of the row would go stale the
+   * moment the operator typed in the sheet — the rows it edits live in `items`,
+   * and a snapshot taken when the sheet opened would render yesterday's panels
+   * over today's. Resolving here is what makes the sheet a view of the line
+   * rather than a second copy of it.
+   *
+   * `undefined` when the key names a line that has since been removed, which
+   * closes the sheet on the next render rather than leaving it editing an
+   * orphan.
+   */
+  const comboLine = comboLineKey ? items.find((x) => x.key === comboLineKey) : undefined;
 
   /**
    * THE CATEGORY OPTIONS, PREFIXED BY THEIR ITEM CLASS ONLY WHERE THE NAME IS
@@ -1067,8 +1125,32 @@ export function MbaMasterScreen({
       row: (sl: ProductionSlice) => by.get(sliceKey(sl)) ?? null,
       chosen: (sl: ProductionSlice) => by.get(sliceKey(sl))?.chosen ?? true,
       sizeWise: (sl: ProductionSlice) => by.get(sliceKey(sl))?.size_wise ?? false,
+      /* The row's own trim colour (0449). Mirrors `sliceFlags` in actions.ts —
+         the two read the same store the same way, which is what stops the grid
+         colouring a row differently from the row that gets stored. */
+      colour: (sl: ProductionSlice) => by.get(sliceKey(sl))?.item_color_id ?? null,
     };
   };
+
+  /**
+   * A line's Combination-sheet rows as the ENGINE wants them.
+   *
+   * The form holds the figures as strings; `colourSplits` wants numbers and a
+   * label to name in a refusal. Parsed in one place so the screen and the save
+   * payload cannot disagree about what a blank box means — blank is NULL here,
+   * which `colourSplits` refuses on with a sentence, never 0, which would make
+   * an unfinished panel compute.
+   */
+  const panelsOf = (r: ItemRow) =>
+    r.components
+      .filter((c) => !!c.component_id)
+      .map((c) => ({
+        component_id: c.component_id as string,
+        item_color_id: c.item_color_id,
+        no_of_items: c.items.trim() === "" ? null : Number(c.items),
+        per_pieces: c.pieces.trim() === "" ? null : Number(c.pieces),
+        label: componentsOf(r.style_ref_no).find((x) => x.id === c.component_id)?.name ?? null,
+      }));
 
   /**
    * THE ATTRIBUTE'S OWN GRID — legacy's nested sub-row (client 2026-08-21,
@@ -1423,6 +1505,15 @@ export function MbaMasterScreen({
         specification: c.specification ?? "",
         size: c.size ?? "",
         requirement_basis: c.requirement_basis ?? "",
+        /* THE GRAIN WHERE THE ROW HAS ONE, else derived from the legacy basis.
+           0455 backfilled every stored row, so the fallback is for a payload
+           older than the column rather than for live data — and deriving beats
+           defaulting to `[]`, which would rewrite the line as whole-order. */
+        requirement_grain:
+          (c.requirement_grain as Axis[] | null) ??
+          (c.requirement_basis
+            ? axesOfBasis(c.requirement_basis as RequirementBasis)
+            : null),
         style_ref_no: c.style_ref_no ?? "",
         component_id: c.component_id,
         supply_type: c.supply_type ?? "",
@@ -1438,10 +1529,21 @@ export function MbaMasterScreen({
         per_pieces: c.per_pieces != null ? String(c.per_pieces) : "",
         excess_pct: c.excess_pct != null ? String(c.excess_pct) : "",
         required_by: c.required_by ?? "",
-        // `?? []` because the service does not select them yet — see the note on
-        // `ItemRow.components`. A missing select must read as "no panels", never
-        // crash the editor open.
-        components: c.components ?? [],
+        /* `?? []` for the reason `slices` below carries it: a service that does
+           not select a child must read as "none entered", never crash the editor
+           open. That is no longer hypothetical for THIS child — it was in
+           exactly that state from 0436 until the embed was added on 2026-08-22,
+           and it read as "the operator entered no panels" the whole time. */
+        components: (c.components ?? []).map((x) => ({
+          key: newKey(),
+          component_id: x.component_id,
+          item_color_id: x.item_color_id,
+          // A stored figure is a number and the form wants a string; `String(0)`
+          // is "0" and stays visible, which is the point of testing for null
+          // rather than for falsiness.
+          items: x.no_of_items != null ? String(x.no_of_items) : "",
+          pieces: x.per_pieces != null ? String(x.per_pieces) : "",
+        })),
         // `?? []` for the same reason as `components` above — a service that
         // does not select them must read as "no overrides", never crash the
         // editor open.
@@ -1515,6 +1617,13 @@ export function MbaMasterScreen({
           specification: c.specification ?? "",
           size: c.size ?? "",
           requirement_basis: c.requirement_basis ?? "",
+          /* TRAVELS WITH THE RECIPE, exactly as `requirement_basis` beside it
+             does: how a trim SPLITS is a property of the material, not of the
+             order it was copied from. The style ref and the panels do not
+             travel because they name THIS order's rows; a grain names axes. */
+          requirement_grain:
+            (c.requirement_grain as Axis[] | null) ??
+            (c.requirement_basis ? axesOfBasis(c.requirement_basis) : null),
           style_ref_no: "",
           // The panel is a property of THIS order's style, and copy deliberately
           // drops the style ref (a source order's styles are not this one's), so
@@ -1580,6 +1689,7 @@ export function MbaMasterScreen({
         specification: c.specification || null,
         size: c.size || null,
         requirement_basis: (c.requirement_basis || null) as RequirementBasis | null,
+        requirement_grain: c.requirement_grain,
         style_ref_no: c.style_ref_no || null,
         component_id: c.component_id,
         supply_type: c.supply_type || null,
@@ -1595,7 +1705,21 @@ export function MbaMasterScreen({
         per_pieces: numOrNull(c.per_pieces),
         excess_pct: numOrNull(c.excess_pct) ?? 0,
         required_by: c.required_by || null,
-        components: c.components,
+        /* PANELS THAT NAME A PANEL. `mbaItemComponentInput.component_id` is a
+           `uuid()`, so a blank row — the one a grid opens with — would fail the
+           parse with a raw Zod message rather than a sentence. Dropping it here
+           is the same call `normalizeItems` makes for an untouched line, and the
+           row is untouched by definition: the required hold on the cells means
+           anything half-typed has already been refused at the caret. */
+        components: c.components
+          .filter((x) => !!x.component_id)
+          .map((x, i) => ({
+            sno: i + 1,
+            component_id: x.component_id as string,
+            item_color_id: x.item_color_id,
+            no_of_items: numOrNull(x.items) ?? 0,
+            per_pieces: numOrNull(x.pieces) ?? 0,
+          })),
         slices: c.slices,
       })),
       processes: procs.map((p) => ({
@@ -2063,9 +2187,14 @@ export function MbaMasterScreen({
     for (const r of items) {
       if (!r.item_id) continue;
       const material = itemName(r.item_id);
-      const basisLabel = r.requirement_basis
-        ? REQUIREMENT_BASIS_LABELS[r.requirement_basis as RequirementBasis]
-        : "—";
+      /* NAMED FROM THE GRAIN, so a composed one reads "Style Ref No / Order
+         Color / Order Size / Country" rather than the dash it would get from a
+         `requirement_basis` it does not have. */
+      const basisLabel = r.requirement_grain
+        ? labelFor(r.requirement_grain)
+        : r.requirement_basis
+          ? REQUIREMENT_BASIS_LABELS[r.requirement_basis as RequirementBasis]
+          : "—";
 
       const push = (over: Partial<ReqRow>) =>
         out.push({
@@ -2088,7 +2217,20 @@ export function MbaMasterScreen({
       const uomLabel = uomName(r.consumption_uom_id);
       const uomDp = uomDecimals(r.consumption_uom_id);
 
-      if (!r.requirement_basis) {
+      /*
+       * THE GRAIN, RESOLVED EXACTLY AS THE SERVER RESOLVES IT (0455).
+       *
+       * `requirementRows` in actions.ts runs these same three lines. That is not
+       * duplication for its own sake — it is the one thing this module keeps
+       * getting wrong: a screen that computed slices from `requirement_basis`
+       * while the server computed them from the grain would draw one set of rows
+       * and store another, and the stored one is what a purchase order is
+       * checked against. Same store, same reading, same answer.
+       */
+      const rowGrain: Axis[] | null =
+        r.requirement_grain ??
+        (r.requirement_basis ? axesOfBasis(r.requirement_basis as RequirementBasis) : null);
+      if (!rowGrain) {
         push({ refusal: "Choose how this material splits" });
         totals.set(r.key, {
           calc: null,
@@ -2102,12 +2244,13 @@ export function MbaMasterScreen({
       }
 
       const rowFlags = sliceFlagsOf(r);
-      const allSlices = productionSlices(
-        r.requirement_basis as RequirementBasis,
-        orderProd,
-        undefined,
-        rowFlags.sizeWise,
-      );
+      /* TWO PATHS, THE SAME TWO THE SERVER TAKES. A grain with a legacy name
+         keeps the per-row Size-wise tick, which can be MIXED and which an axis
+         set cannot express; a composed grain never had one and is composed. */
+      const rowBasis = basisForAxes(rowGrain);
+      const allSlices = rowBasis
+        ? productionSlices(rowBasis, orderProd, undefined, rowFlags.sizeWise)
+        : slicesForAxes(rowGrain, orderProd);
       /* UNTICKED ROWS ARE DROPPED HERE TOO, and that is not a nicety: the server
          omits them from the stored requirement, so a screen that still counted
          them would show a Final Quantity the purchase order is never checked
@@ -2134,6 +2277,45 @@ export function MbaMasterScreen({
         !!pack &&
         isUsableConversion(pack) &&
         (!r.consumption_uom_id || pack.base_uom_id === r.consumption_uom_id);
+
+      /* THE COMBINATION SHEET'S SPLITS (0436), derived ONCE per line and from
+         the SAME function the server calls on save. Two derivations of "what do
+         these panels come to" is how a screen comes to display one figure and
+         store another — the divergence this module has already shipped once,
+         for `consumptionFor`. */
+      const splits = colourSplits(r.item_color_id, panelsOf(r));
+      if (isRefusal(splits)) {
+        push({ refusal: splits.refused });
+        totals.set(r.key, {
+          calc: null,
+          excessCalc: null,
+          final: null,
+          refusal: splits.refused,
+          uom: uomLabel,
+          decimals: uomDp,
+        });
+        continue;
+      }
+      /* ONE PASS PER (SLICE x TRIM COLOUR). No panels means one nameless split
+         and exactly the rows this screen drew before 0436. */
+      const rowSplits: (ColourSplit | null)[] = splits.length ? splits : [null];
+
+      /* PER TRIM COLOUR, because the supplier's minimum is a minimum per CONE
+         (client 2026-08-22) — navy and red each clear it on their own. Keyed by
+         the colour id, "" for the line's own, so a single-colour line has one
+         bucket and `lineQuantityByColour` reduces to what `lineQuantity`
+         returned. */
+      const colourTotals = new Map<string, { qty: number; base: number }>();
+      const addTo = (colour: string | null, qty: number, base: number) => {
+        const k = colour ?? "";
+        const at = colourTotals.get(k);
+        if (at) {
+          at.qty += qty;
+          at.base += base;
+        } else {
+          colourTotals.set(k, { qty, base });
+        }
+      };
 
       // A LINE TOTAL REFUSES IF ANY SLICE DOES. Summing the slices that answered
       // gives a smaller number that reads as correct — the partial-sum failure
@@ -2165,43 +2347,87 @@ export function MbaMasterScreen({
           r.slices,
           slice,
         );
-        const lineInput = {
-          no_of_items: use.no_of_items,
-          per_pieces: use.per_pieces,
-          excess_pct: use.excess_pct ?? 0,
-          decimals: uomDecimals(r.consumption_uom_id),
-        };
-        const baseValue = baseRequirementFor(lineInput, slice);
-        if (isRefusal(baseValue)) baseTotal = null;
-        else if (baseTotal != null) baseTotal += baseValue;
-        const value = requirementFor(lineInput, slice);
-        const refused = isRefusal(value);
-        const qty = refused ? null : value;
-        if (refused) {
-          lineTotal = null;
-          lineRefusal ??= value.refused;
-        } else if (lineTotal != null) {
-          lineTotal += qty as number;
+        for (const split of rowSplits) {
+          /* THE PANEL RATE WHERE THERE ARE PANELS, composed with the slice's own
+             override by `panelConsumption` — the ONE place that trade rule
+             lives, so the screen and the server cannot answer it differently. */
+          const ratio = split
+            ? panelConsumption(
+                use,
+                {
+                  no_of_items: numOrNull(r.no_of_items),
+                  per_pieces: numOrNull(r.per_pieces),
+                },
+                split,
+              )
+            : { no_of_items: use.no_of_items, per_pieces: use.per_pieces };
+
+          const lineInput = {
+            no_of_items: ratio.no_of_items,
+            per_pieces: ratio.per_pieces,
+            excess_pct: use.excess_pct ?? 0,
+            decimals: uomDecimals(r.consumption_uom_id),
+          };
+          const baseValue = baseRequirementFor(lineInput, slice);
+          if (isRefusal(baseValue)) baseTotal = null;
+          else if (baseTotal != null) baseTotal += baseValue;
+          const value = requirementFor(lineInput, slice);
+          const refused = isRefusal(value);
+          const qty = refused ? null : value;
+          if (refused) {
+            lineTotal = null;
+            lineRefusal ??= value.refused;
+          } else if (lineTotal != null) {
+            lineTotal += qty as number;
+          }
+          /* GATED ON THE QUANTITY ALONE, never on the base beside it.
+             `lineTotal` counts a slice whose `requirementFor` answered; if this
+             bucket skipped that slice because `baseRequirementFor` refused, the
+             per-colour sums would come to LESS than the line total and the
+             minimum would be cleared against an understated figure — the
+             partial-sum failure `order-value.ts` records, arriving through the
+             one column that is not the answer.
+             The two functions are documented to refuse in exactly the same
+             cases, which is precisely why this must not be written as if they
+             do: `baseTotal` has already gone null for the whole line, so the
+             base column is unanswerable and 0 here is never read. */
+          if (!refused) {
+            addTo(
+              split ? split.item_color_id : (rowFlags.colour(slice) ?? r.item_color_id),
+              qty as number,
+              isRefusal(baseValue) ? 0 : baseValue,
+            );
+          }
+          push({
+            slice: slice.label,
+            /* THE PANEL'S COLOUR WINS where there are panels — the same
+               precedence the stored row takes, and for the same reason: a panel
+               says "the sleeve is stitched in red", a slice says "the USA rows
+               ship in black", and letting the second re-colour the first would
+               make the Combination sheet lie about what is bought. */
+            colour: split
+              ? (colourName(split.item_color_id) ?? colourOf(r, slice))
+              : colourOf(r, slice),
+            production: slice.qty,
+            required: qty,
+            refusal: refused ? value.refused : null,
+            purchase:
+              qty != null && packUsable && pack
+                ? toPurchaseQty(qty, pack, uomPrecision(uomDecimals(pack.alt_uom_id)))
+                : null,
+            purchaseUom: packUsable && pack ? uomName(pack.alt_uom_id) : "—",
+            purchaseDecimals: packUsable && pack ? uomDecimals(pack.alt_uom_id) : null,
+          });
         }
-        push({
-          slice: slice.label,
-          colour: colourOf(r, slice),
-          production: slice.qty,
-          required: qty,
-          refusal: refused ? value.refused : null,
-          purchase:
-            qty != null && packUsable && pack
-              ? toPurchaseQty(qty, pack, uomPrecision(uomDecimals(pack.alt_uom_id)))
-              : null,
-          purchaseUom: packUsable && pack ? uomName(pack.alt_uom_id) : "—",
-          purchaseDecimals: packUsable && pack ? uomDecimals(pack.alt_uom_id) : null,
-        });
       }
 
-      // MOQ AND ROUND TO ARE APPLIED TO THE LINE, never to a slice. A colour
-      // explosion makes six rows for one material; an MOQ of 500 per row orders
-      // 3,000 of something the order needs 100 of, and six rows each rounded up
-      // to the next 500 buys the rounding error six times. `lineQuantity` owns
+      // MOQ AND ROUND TO ARE APPLIED PER TRIM COLOUR, never to a slice. A
+      // COLOURWAY explosion makes six rows for one material; an MOQ of 500 per
+      // row orders 3,000 of something the order needs 100 of, and six rows each
+      // rounded up to the next 500 buys the rounding error six times. A TRIM
+      // colour is the other case — navy thread and red thread are two things to
+      // buy, so each clears the minimum on its own (client 2026-08-22).
+      // `lineQuantityByColour` owns the grouping; `lineQuantity` beneath it owns
       // the order the two run in — MOQ first, and 0437's header records the
       // worked example where the two orders differ by nearly double.
       const unitKnown = !!r.purchase_uom_id || !!r.consumption_uom_id;
@@ -2216,12 +2442,27 @@ export function MbaMasterScreen({
         });
         continue;
       }
-      const chain = lineQuantity(
-        [lineTotal],
+      /* ONE GROUP WHERE THERE ARE NO PANELS — the whole line, which is exactly
+         what was passed before. `colourTotals` is empty only when the line
+         produced no answered slice at all, and the fallback keeps that on the
+         path `lineQuantityByColour` already refuses rather than reading as 0. */
+      const groups: ColourQuantities[] = colourTotals.size
+        ? [...colourTotals].map(([id, v]) => ({
+            item_color_id: id || null,
+            quantities: [v.qty],
+            /* NULL WHERE THE BASE REFUSED ANYWHERE ON THE LINE. The two columns
+               must be summed over the same slice set — the reason they are
+               accumulated in one pass — so a base that could not be answered
+               makes the whole "Calculated Qty" unanswerable rather than a
+               partial sum that reads as correct. */
+            baseQuantities: [baseTotal == null ? null : v.base],
+          }))
+        : [{ item_color_id: null, quantities: [lineTotal], baseQuantities: [baseTotal] }];
+      const chain = lineQuantityByColour(
+        groups,
         numOrNull(r.moq),
         numOrNull(r.round_to),
         unitKnown,
-        [baseTotal],
       );
       totals.set(
         r.key,
@@ -2386,40 +2627,90 @@ export function MbaMasterScreen({
     },
     {
       header: "Attribute",
-      className: "min-w-[130px]",
-      // The legacy "Attribute" column. It is what decides whether this material
-      // is bought once for the order, once per colour, or once per size — so it
-      // is a CHECKed enum, not the free `material_attribute` lookup that used to
-      // sit here and whose one live row is the word "STYLE" (0418).
+      /* Wider than the 130px it was: a grain reads "Style Ref No / Order Color /
+         Order Size", which is the client's own wording for #19 and is the point
+         of the column. */
+      className: "min-w-[200px]",
+      /*
+       * THE EXPLOSION GRAIN (0455) — what decides whether this material is bought
+       * once for the order, once per colour, once per size, or per some
+       * combination of those. A CHECKed value, never the free
+       * `material_attribute` lookup that used to sit here and whose one live row
+       * is the word "STYLE" (0418).
+       *
+       * ## WHY A SELECT AND NOT THE SPEC'S TOGGLE STRIP
+       *
+       * The 2026-08-23 spec asked for a row of axis toggles — `[Style Ref ✓]
+       * [Colour _] [Size ✓] [Country _]` — reasoning that a dropdown of 28
+       * strings is unreadable. It is; but the dedup makes this NINE options
+       * carrying the client's own labels, not 28. And a toggle strip fails on two
+       * counts that are not style preferences:
+       *
+       *  1. **IT CANNOT SAY "WHOLE ORDER".** That grain is the ABSENCE of every
+       *     axis, so it renders as four unchecked boxes — byte-identical to a
+       *     line nobody has answered yet. NULL and `[]` are different states
+       *     (0455 spends a paragraph on it), and the most common answer is the
+       *     one the strip cannot distinguish from silence.
+       *  2. **IT TAKES A REQUIRED FIELD OFF THE KEYBOARD.** Tab lands on fields
+       *     and nothing else, so buttons in a grid row carry `tabIndex={-1}` —
+       *     which would make the one mandatory cell on the line mouse-only.
+       *     Checkboxes would keep it reachable at the cost of four tab stops per
+       *     line, and still fail (1).
+       *
+       * A `<Select>` is one field, one tab stop, native keyboard, and the
+       * selected option IS the resolved label the spec wanted displayed. The
+       * strip's real benefit — seeing the axes — is what the label already says.
+       *
+       * ## THE OPTIONS ARE DERIVED, NEVER LISTED
+       *
+       * `producibleGrains()` comes from the composer's own plan table, so a grain
+       * the engine cannot produce can never be offered. A hand-kept menu beside
+       * the thing it describes is how `lib/reports/catalog.ts` records its worst
+       * bug, and how the nav list and the landing grid fell out of sync.
+       */
       required: true,
-      cell: (r) => (
-        <Select
-          value={r.requirement_basis}
-          onChange={(e) => updItem(r.key, { requirement_basis: e.target.value })}
-          className="h-8"
-          required
-        >
-          <option value=""></option>
-          {/* FOUR, NOT SIX. `size` and `combination` left the menu when the
-              per-row Size-wise tick arrived — see OFFERED_REQUIREMENT_BASES.
-              A line STORED under one of them still renders its own name below,
-              so an older document does not show a blank Attribute. */}
-          {OFFERED_REQUIREMENT_BASES.map((b) => (
-            <option key={b} value={b}>
-              {REQUIREMENT_BASIS_LABELS[b]}
-            </option>
-          ))}
-          {r.requirement_basis &&
-            !OFFERED_REQUIREMENT_BASES.includes(
-              r.requirement_basis as (typeof OFFERED_REQUIREMENT_BASES)[number],
-            ) && (
-              <option value={r.requirement_basis}>
-                {REQUIREMENT_BASIS_LABELS[r.requirement_basis as RequirementBasis] ??
-                  r.requirement_basis}
+      cell: (r) => {
+        /* THE OPTION VALUE IS PREFIXED, because `serializeAxes([])` is the empty
+           string and so is "nothing chosen". Without the prefix the whole-order
+           grain and an unanswered line would be the same DOM value, which is
+           exactly the NULL-vs-[] conflation this column exists to avoid. */
+        const asValue = (axes: Axis[]) => `g:${serializeAxes(axes)}`;
+        const current = r.requirement_grain;
+        /* A STORED GRAIN THE MENU NO LONGER OFFERS STILL RENDERS ITS OWN NAME,
+           the same courtesy the basis menu extended to `size` and `combination`
+           after they left it: an older document must not show a blank
+           Attribute. */
+        const offered = producibleGrains();
+        const extra =
+          current && !offered.some((g) => serializeAxes(g) === serializeAxes(current))
+            ? [current]
+            : [];
+        return (
+          <Select
+            value={current ? asValue(current) : ""}
+            onChange={(e) => {
+              const picked = [...offered, ...extra].find((g) => asValue(g) === e.target.value);
+              updItem(r.key, {
+                requirement_grain: picked ? canonicalAxes(picked) : null,
+                /* THE LEGACY NAME IS KEPT IN STEP. `requirement_basis` still has
+                   its column, its CHECK and its readers, and eight of the nine
+                   grains have a name; a composed one clears it rather than
+                   leaving the previous answer behind to contradict the grain. */
+                requirement_basis: picked ? (basisForAxes(picked) ?? "") : "",
+              });
+            }}
+            className="h-8"
+            required
+          >
+            <option value=""></option>
+            {[...offered, ...extra].map((g) => (
+              <option key={asValue(g)} value={asValue(g)}>
+                {labelFor(g)}
               </option>
-            )}
-        </Select>
-      ),
+            ))}
+          </Select>
+        );
+      },
     },
     {
       header: "Supply Type",
@@ -2512,13 +2803,55 @@ export function MbaMasterScreen({
        * was. The Attribute option keeps its `(Color + Size)` qualifier, which is
        * the only thing telling the two apart — do not shorten that label.
        */
+      /*
+       * THE BUTTON SHARES THIS CELL RATHER THAN TAKING A COLUMN OF ITS OWN.
+       *
+       * The doc above records that "Combination" already means two things on
+       * this row — this free-text box and the Attribute's `combination` value —
+       * and that the collision is why the box was withdrawn once. A THIRD column
+       * called Combination would make that worse; putting the sheet's opener
+       * inside the column that already carries the word makes the box and the
+       * construction one subject, which is what they are.
+       *
+       * The count is the affordance. A gear that looks identical whether a line
+       * has three panels or none tells the operator nothing, and the panels are
+       * what change the line's ratio — so a line carrying them has to say so
+       * from the grid, without being opened.
+       */
       cell: (r) => (
-        <Input
-          uppercase
-          value={r.combination}
-          onChange={(e) => updItem(r.key, { combination: e.target.value })}
-          className="h-8"
-        />
+        <div className="flex items-center gap-1">
+          <Input
+            uppercase
+            value={r.combination}
+            onChange={(e) => updItem(r.key, { combination: e.target.value })}
+            className="h-8 min-w-0 flex-1"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            /* `sm` because this is a GRID row, not the header band — dense on
+               purpose and internally consistent with the "+ Add line" beside it.
+               The header row's `md` rule (AGENTS.md) is about the band above a
+               list. */
+            size="sm"
+            className="h-8 shrink-0 px-2"
+            /* OFF THE TAB PATH. Tab lands on FIELDS and nothing else, and this
+               is a button in a grid row — the same treatment the row's own
+               Remove ✕ carries, for the same reason. The mouse still reaches it
+               and so does a screen reader; it is reordered out of the typing
+               path, never removed from the document. */
+            tabIndex={-1}
+            aria-label={`Combination panels — ${itemName(r.item_id)}`}
+            title="Per-panel construction (thread colour and consumption)"
+            onClick={() => setComboLineKey(r.key)}
+          >
+            {r.components.length ? (
+              <span className="tabular-nums text-xs">{r.components.length}</span>
+            ) : (
+              <Layers className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       ),
     },
     {
@@ -3823,6 +4156,45 @@ export function MbaMasterScreen({
             setDcOpen(false);
             router.refresh();
           }}
+        />
+      )}
+      {/*
+        * THE COMBINATION SHEET (0436), rendered from the line it belongs to.
+        *
+        * Mounted only while a line is chosen, so its `useMemo` over the panel
+        * rows does no work on a screen where nobody has opened it — and so a
+        * line deleted while the sheet was somehow open cannot leave a surface
+        * editing rows that no longer have a parent.
+        */}
+      {comboLine && (
+        <BomCombinationSheet
+          open
+          onClose={() => setComboLineKey(null)}
+          lineLabel={itemName(comboLine.item_id)}
+          /* "" and not a dash: the sheet reads it to decide WHY the component
+             list is empty, and "—" is not a style ref. */
+          styleLabel={comboLine.style_ref_no || ""}
+          /* The line's own ratio, so the operator can see what the panels are
+             about to stand in for. Blank halves stay blank — an unfinished line
+             showing "0 / 0" would read as a rate it does not have. */
+          lineRatio={
+            comboLine.no_of_items || comboLine.per_pieces
+              ? `${comboLine.no_of_items || "—"} / ${comboLine.per_pieces || "—"}`
+              : ""
+          }
+          lineColourName={colourName(comboLine.item_color_id) ?? ""}
+          rows={comboLine.components}
+          onChange={(next) => updItem(comboLine.key, { components: next })}
+          /* NARROWED HERE, per the cascading-picker rule — this layer is what
+             knows which style the line names. `componentsOf` returns the panels
+             that style declares and nothing else. */
+          components={componentsOf(comboLine.style_ref_no)}
+          componentColours={styleOf(comboLine.style_ref_no)?.componentColours ?? {}}
+          /* The SAME palette the line's own Item Color cell offers, passed as a
+             function so each row's held value survives the narrowing. Two
+             derivations of "this order's colours" would be two answers. */
+          colours={(held) => orderColourOptions(comboLine.style_ref_no, held)}
+          newKey={newKey}
         />
       )}
       <BomCopySheet

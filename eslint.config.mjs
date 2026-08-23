@@ -9,6 +9,17 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    /* THE ALTERNATE DIST DIRS TOO. `.gitignore` names three of these and
+       records why each was added; ESLint 9's flat config does NOT read
+       .gitignore, so a build run with NEXT_DIST_DIR — which is how this repo
+       builds without clobbering the running dev server — leaves output ESLint
+       then tries to lint. It does not merely lint it slowly: the run DIES on
+       the first file Next has since cleaned up, with an ENOENT naming a
+       `.js` under `.next-build/server/app`, so `npm run lint` is unusable for
+       as long as the directory exists. */
+    ".next-build/**",
+    ".next-shot/**",
+    ".next-fold/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

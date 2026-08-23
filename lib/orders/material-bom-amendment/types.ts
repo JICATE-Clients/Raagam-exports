@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { REQUIREMENT_BASES } from "@/lib/orders/material-bom/requirement";
+import { AXES, canonicalAxes, type Axis } from "@/lib/orders/bom-explosion/exploder";
 import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
@@ -179,6 +180,18 @@ export interface MbaItem {
   size: string | null;
   /** 'order' | 'colour' | 'size'. */
   requirement_basis: string | null;
+  /**
+   * THE EXPLOSION GRAIN AS A SET OF AXES (0455), and the source of truth since
+   * 2026-08-23. `requirement_basis` above is kept and still written wherever the
+   * grain has one of the six legacy names — eight of the nine producible grains
+   * do — so nothing that reads it stops working.
+   *
+   * NULL is "not chosen yet" and REFUSES; `[]` is the WHOLE ORDER, which is a
+   * real answer. The two must not be conflated: a default of `[]` would make
+   * every new line silently mean "one bulk row for the order" and delete the
+   * refusal that tells the operator to answer.
+   */
+  requirement_grain: string[] | null;
   /** Which style this line is for; null = every style. By VALUE (0407). */
   style_ref_no: string | null;
   /**
@@ -325,7 +338,11 @@ export interface MbaRequirement {
   item_line_id: string;
   item_id: string | null;
   sno: number;
-  basis: string;
+  /** The LEGACY grain name. NULLABLE since 0456: a composed grain has no name
+   *  among the six, and `requirement_grain` beside it is the provenance. */
+  basis: string | null;
+  /** The grain that produced this row (0456), canonical. */
+  requirement_grain: string[] | null;
   style_ref_no: string | null;
   combo: string | null;
   size_id: string | null;
@@ -486,6 +503,24 @@ export const mbaItemInput = z
     specification: capsTextNullable(),
     size: capsTextNullable(),
     requirement_basis: z.enum(REQUIREMENT_BASES).nullable().default(null),
+    /**
+     * THE GRAIN, CANONICALISED IN THE SCHEMA rather than in the action.
+     *
+     * `chk_mba_item_grain_canonical` compares the stored array against
+     * `mba_canonical_grain()`, so a payload that arrives unsorted or with a
+     * repeat is rejected by Postgres with a constraint name nobody can read.
+     * Canonicalising here means the form and the database agree by construction
+     * — the same argument AGENTS.md makes for putting the CAPITALS transform in
+     * Zod rather than in the action.
+     *
+     * `z.enum(AXES)` and not `z.string()`: an unknown axis must fail with a
+     * sentence naming the field, not sail through to a CHECK violation.
+     */
+    requirement_grain: z
+      .array(z.enum(AXES))
+      .nullable()
+      .default(null)
+      .transform((v) => (v === null ? null : canonicalAxes(v as Axis[]))),
     style_ref_no: nullableText,
     component_id: uuidN,
     supply_type: nullableText,
@@ -540,7 +575,10 @@ export const mbaItemInput = z
         message: "Pieces must be more than 0",
       });
     }
-    if (!v.requirement_basis) {
+    /* THE GRAIN SATISFIES IT TOO, and `[]` is a real answer — so this tests for
+       NULL, not for emptiness. `!v.requirement_grain?.length` would refuse the
+       whole-order grain, which is the one an operator picks most often. */
+    if (!v.requirement_basis && v.requirement_grain === null) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["requirement_basis"],
@@ -556,12 +594,25 @@ export const mbaItemInput = z
      * half a spreadsheet import meets first.
      */
     /* ONE OVERRIDE PER SLICE, mirroring `uq_mba_slice_line_combo_size`. The
-       index COALESCEs both keys because a NULL never collides in Postgres; here
-       `?? ""` does the same job, and the two must agree or the form accepts a
-       pair the database then refuses with a constraint name nobody can read. */
+       index COALESCEs every key because a NULL never collides in Postgres; here
+       `?? ""` does the same job, and the two must agree.
+
+       ## THREE AXES, AND THE THIRD WAS MISSING UNTIL 2026-08-23
+
+       The index gained `country_id` in 0449 — which even asserts it, "the slice
+       key does not include country_id — USA-M and CH-M would collide" — and this
+       mirror of it did not. The drift ran the OPPOSITE way to the one the
+       original note feared: not the form accepting a pair the database refuses,
+       but the form REFUSING a pair the database allows. Two destinations at one
+       size are a legitimate, ordinary country-wise entry, and typing a figure
+       against the second produced "This slice already has an override on the
+       line" and blocked Save with no way forward.
+
+       Kept in step with `sliceKey` in `slice-consumption.ts`, which reads the
+       same three axes: a mirror that names fewer is a mirror that is wrong. */
     const seenSlice = new Set<string>();
     for (const [i, sl] of (v.slices ?? []).entries()) {
-      const key = `${sl.combo ?? ""}:${sl.size_id ?? ""}`;
+      const key = `${sl.combo ?? ""}:${sl.size_id ?? ""}:${sl.country_id ?? ""}`;
       if (seenSlice.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

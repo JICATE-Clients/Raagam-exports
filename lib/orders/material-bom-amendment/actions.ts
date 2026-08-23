@@ -13,15 +13,25 @@ import {
 import { getOrderProduction } from "./service";
 import {
   basisFingerprint,
+  colourSplits,
   isRefusal,
+  panelConsumption,
   productionSlices,
   requirementFor,
   totalProductionOf,
+  type ColourSplit,
   type OrderProductionInput,
   type RequirementBasis,
 } from "@/lib/orders/material-bom/requirement";
 import {
+  axesOfBasis,
+  basisForAxes,
+  type Axis,
+} from "@/lib/orders/bom-explosion/exploder";
+import { slicesForAxes } from "@/lib/orders/bom-explosion/compose";
+import {
   consumptionFor,
+  toOverrides,
   liveOverrides,
   sliceKey,
   type SliceKey,
@@ -67,6 +77,11 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
       specification: clean(c.specification),
       size: clean(c.size),
       requirement_basis: c.requirement_basis ?? null,
+      /* THE GRAIN (0455), and this literal is the whole write. `component_id`
+         and `round_to` each have a comment above recording what an omission
+         here costs: no type error, no null written over a value — the value
+         simply never leaves the browser. */
+      requirement_grain: c.requirement_grain ?? null,
       style_ref_no: clean(c.style_ref_no),
       // 0423's column. It was declared on the table, offered by the grid and
       // accepted by `mbaItemInput`, and then dropped HERE — this literal names
@@ -98,6 +113,12 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
          along on the row is the only pairing that cannot drift; the parent
          insert strips it again. */
       slices: c.slices ?? [],
+      /* THE PANELS RIDE ALONG TOO (0436), and for the identical reason the
+         overrides above do: this function DROPS empty rows, so
+         `normalizeItems(data)[i]` is not `data.items[i]` and pairing the panels
+         by position afterwards would put one material's construction on
+         another's. Stripped again at the parent insert, the same way. */
+      components: c.components ?? [],
     }))
     .filter(
       (c) =>
@@ -109,6 +130,7 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
         c.specification ||
         c.size ||
         c.requirement_basis ||
+        c.requirement_grain != null ||
         c.supply_type ||
         c.vendor_id ||
         c.purchase_uom_id ||
@@ -244,7 +266,23 @@ function requirementRows(
     // A line with no material is scaffolding, not a requirement.
     if (!line.item_id) continue;
 
+    /*
+     * THE GRAIN IS THE SOURCE OF TRUTH (0455), the basis its fallback.
+     *
+     * A payload older than the column carries only `requirement_basis`, and
+     * `axesOfBasis` is the one mapping between them — the same one 0455's
+     * backfill used, so a row loaded from the database and a row arriving from
+     * an old client resolve identically.
+     */
     const basis = line.requirement_basis as RequirementBasis | null;
+    const grain: Axis[] | null =
+      (line.requirement_grain as Axis[] | null) ?? (basis ? axesOfBasis(basis) : null);
+    /* THE LEGACY NAME FOR THIS GRAIN, or null where it has none. Eight of the
+       nine producible grains have one; `{style_ref, colour, size, country}` is
+       the client's #16 and does not, which is why 0456 made the column
+       nullable rather than widening its CHECK. */
+    const asBasis = grain ? basisForAxes(grain) : null;
+
     const common = {
       item_line_id: line.id,
       item_id: line.item_id,
@@ -253,13 +291,19 @@ function requirementRows(
       consumption_uom_id: line.consumption_uom_id,
       uom_conversion_id: line.uom_conversion_id,
       purchase_uom_id: line.purchase_uom_id,
+      // THE PROVENANCE, on every row of the line including the refusals: a
+      // stored row must be re-derivable from its own columns (0418).
+      requirement_grain: grain,
     };
 
-    if (!basis) {
+    if (!grain) {
       out.push({
         ...common,
         sno: ++sno,
-        basis: "order",
+        /* NULL, not "order". `basis` became nullable in 0456, and claiming the
+           whole-order grain on a line that has answered NOTHING is a lie in a
+           provenance column — the row already says why in `refusal_reason`. */
+        basis: null,
         combo: null,
         size_id: null,
         slice_label: "Whole order",
@@ -276,17 +320,30 @@ function requirementRows(
     }
 
     const flags = sliceFlags(line.slices);
-    /* THE TICK REACHES THE ENGINE AS A PREDICATE (0449). A ticked row splits
-       itself into sizes; `expandBySize` reproduces the old `size` and
-       `combination` bases exactly, which is asserted as an equivalence. */
-    const slices = productionSlices(basis, order, undefined, (sl) => flags.sizeWise(sl));
+    /*
+     * TWO PATHS, AND THE SPLIT IS ABOUT THE PER-ROW TICK RATHER THAN ABOUT AGE.
+     *
+     * A grain with a legacy name goes down `productionSlices` WITH the tick
+     * predicate, because the 0449 tick is per ROW and can be MIXED — some rows
+     * split into sizes and others not, which `check-bom-requirement.mts` asserts
+     * ("a mixed tick splits only the row that asked"). An axis set is
+     * all-or-nothing by construction and cannot express that, so routing every
+     * line through the composer would silently drop a shipped feature.
+     *
+     * A grain with NO legacy name has never had per-row ticks — it was not
+     * expressible before the set model — so there is nothing to lose, and
+     * `slicesForAxes` composes it.
+     */
+    const slices = asBasis
+      ? productionSlices(asBasis, order, undefined, (sl) => flags.sizeWise(sl))
+      : slicesForAxes(grain, order);
     if (isRefusal(slices)) {
       // One row carrying the refusal, so the document states WHY rather than
       // simply having fewer rows than the operator expects.
       out.push({
         ...common,
         sno: ++sno,
-        basis,
+        basis: asBasis,
         combo: null,
         size_id: null,
         slice_label: "—",
@@ -295,6 +352,42 @@ function requirementRows(
         per_pieces: line.per_pieces ?? 0,
         required_qty: null,
         refusal_reason: slices.refused,
+        purchase_qty: null,
+      });
+      continue;
+    }
+
+    /*
+     * THE COMBINATION SHEET'S SPLITS (0436), derived ONCE per line.
+     *
+     * The panels do not vary by slice — a front body is a front body on every
+     * size — so re-deriving them inside the loop would be the same answer N
+     * times and one more place for two derivations to drift apart.
+     *
+     * AN EMPTY ARRAY IS NOT A REFUSAL and `colourSplits` says so in as many
+     * words: a line with no panels is the ORDINARY line and its own ratio
+     * applies. That is 0436's opt-in half, and it is what keeps every line
+     * written before it producing byte-identical rows.
+     */
+    const splits = colourSplits(line.item_color_id ?? null, line.components ?? []);
+    if (isRefusal(splits)) {
+      /* A BAD PANEL POISONS THE LINE rather than skipping a row. The panels SUM
+         into one rate, so dropping a bad one yields a smaller rate that looks
+         entirely reasonable — the partial-explosion failure `requirement.ts`
+         opens its header with. `colourSplits` names the offending panel in its
+         sentence, which is why the label is carried rather than re-worded. */
+      out.push({
+        ...common,
+        sno: ++sno,
+        basis: asBasis,
+        combo: null,
+        size_id: null,
+        slice_label: "—",
+        basis_qty: 0,
+        no_of_items: line.no_of_items ?? 0,
+        per_pieces: line.per_pieces ?? 0,
+        required_qty: null,
+        refusal_reason: splits.refused,
         purchase_qty: null,
       });
       continue;
@@ -311,17 +404,12 @@ function requirementRows(
       isUsableConversion(conv) &&
       (!line.consumption_uom_id || conv.base_uom_id === line.consumption_uom_id);
 
-    /* `mbaItemSliceInput` leaves `combo` optional, so it arrives as
-       `string | null | undefined` where `SliceKey` wants `string | null`.
-       Normalised ONCE per line rather than per slice, and here rather than by
-       loosening the shared type — the screen always supplies a combo, and a type
-       that admits `undefined` would stop saying so. */
-    const overrides = (line.slices ?? []).map((sl) => ({
-      combo: sl.combo ?? null,
-      size_id: sl.size_id ?? null,
-      no_of_items: sl.no_of_items ?? null,
-      per_pieces: sl.per_pieces ?? null,
-    }));
+    /* NORMALISED BY `toOverrides`, NOT BY A LITERAL HERE. That literal named
+       four of the six fields and dropped `country_id` and `excess_pct` — both
+       optional on `SliceOverride`, so `tsc` never said a word, and an override
+       on a country-wise line silently stopped resolving. The rule now has one
+       home and one set of vectors; see `toOverrides`. */
+    const overrides = toOverrides(line.slices);
 
     for (const slice of slices) {
       /*
@@ -369,63 +457,105 @@ function requirementRows(
           })
         : line;
       const use = consumptionFor(parent, overrides, slice);
-      const value = requirementFor(
-        {
-          no_of_items: use.no_of_items,
-          per_pieces: use.per_pieces,
-          /* THE RESOLVED BUFFER (0450), not the line's — it is per attribute
-             value now, and `consumptionFor` composes it per field beside the
-             ratio. Falling back to `line.excess_pct` happens inside there. */
-          excess_pct: use.excess_pct ?? 0,
-          decimals: line.consumption_uom_id
-            ? (packs.uomDecimals.get(line.consumption_uom_id) ?? null)
-            : null,
-        },
-        slice,
-      );
 
-      const refused = isRefusal(value);
-      const qty = refused ? null : value;
+      /*
+       * ONE ROW PER (SLICE x TRIM COLOUR) — the grain 0454 widened
+       * `uq_mba_req_slice` to hold.
+       *
+       * A line with no panels has ONE nameless split here and produces exactly
+       * the row it always produced. A line whose Combination sheet names navy on
+       * the body and red on the sleeves produces two, because those are two
+       * things to buy. The panels themselves never reach a row: `colourSplits`
+       * has already collapsed them onto colour, which is 0423's assertion and
+       * 0436's header both, still standing.
+       */
+      const rowSplits: (ColourSplit | null)[] = splits.length ? splits : [null];
 
-      out.push({
-        ...common,
-        sno: ++sno,
-        basis,
-        // The slice's own style wins: a line marked "every style" still produces
-        // per-style rows when the order splits by colour.
-        style_ref_no: slice.style_ref_no ?? line.style_ref_no,
-        combo: slice.combo,
-        size_id: slice.size_id,
-        // 0444. NULL on every basis but country-wise, and NULL is a value there
-        // — "every destination". In `uq_mba_req_slice`, so omitting it here
-        // would let two destinations collide on an otherwise identical key.
-        country_id: slice.country_id ?? null,
-        /* 0436 added this column and the slice path never wrote it. A per-row
-           trim colour changes what is BOUGHT — two colours under one line are two
-           purchases — so it has to reach the stored row. Falls back to the
-           line's own, which is what every row meant before 0449. */
-        item_color_id: flags.colour(slice) ?? line.item_color_id ?? null,
-        slice_label: slice.label,
-        basis_qty: slice.qty,
-        // THE RESOLVED FIGURES, not the line's. 0418 stores the inputs beside
-        // the answer as its provenance, so a row that was computed from an
-        // override has to record the override — otherwise the stored row cannot
-        // be re-derived from its own columns.
-        no_of_items: use.no_of_items ?? 0,
-        per_pieces: use.per_pieces ?? 0,
-        required_qty: qty,
-        refusal_reason: refused ? value.refused : null,
-        purchase_qty:
-          qty != null && packUsable && conv
-            ? toPurchaseQty(
-                qty,
-                conv,
-                uomPrecision(
-                  conv.alt_uom_id ? (packs.uomDecimals.get(conv.alt_uom_id) ?? null) : null,
-                ),
-              )
-            : null,
-      });
+      for (const split of rowSplits) {
+        /* THE PANEL RATE WHERE THERE ARE PANELS. How it composes with a slice
+           override typed on the same line is a TRADE rule, not an arithmetic
+           one, and it lives in `panelConsumption` rather than inline here — two
+           opt-ins landed on this line independently and neither document says
+           which wins. */
+        const ratio = split
+          ? panelConsumption(use, line, split)
+          : { no_of_items: use.no_of_items, per_pieces: use.per_pieces };
+
+        const value = requirementFor(
+          {
+            no_of_items: ratio.no_of_items,
+            per_pieces: ratio.per_pieces,
+            /* THE RESOLVED BUFFER (0450), not the line's — it is per attribute
+               value now, and `consumptionFor` composes it per field beside the
+               ratio. Falling back to `line.excess_pct` happens inside there.
+               NOT per panel: a wastage buffer is a property of how the material
+               is CUT, and 0436 gave the sheet a ratio and a colour, not a third
+               figure. */
+            excess_pct: use.excess_pct ?? 0,
+            decimals: line.consumption_uom_id
+              ? (packs.uomDecimals.get(line.consumption_uom_id) ?? null)
+              : null,
+          },
+          slice,
+        );
+
+        const refused = isRefusal(value);
+        const qty = refused ? null : value;
+
+        out.push({
+          ...common,
+          sno: ++sno,
+          basis: asBasis,
+          // The slice's own style wins: a line marked "every style" still
+          // produces per-style rows when the order splits by colour.
+          style_ref_no: slice.style_ref_no ?? line.style_ref_no,
+          combo: slice.combo,
+          size_id: slice.size_id,
+          // 0444. NULL on every basis but country-wise, and NULL is a value
+          // there — "every destination". In `uq_mba_req_slice`, so omitting it
+          // here would let two destinations collide on an otherwise identical
+          // key.
+          country_id: slice.country_id ?? null,
+          /*
+           * THE TRIM COLOUR, and it is in `uq_mba_req_slice` since 0454.
+           *
+           * WHERE PANELS EXIST THEY ARE AUTHORITATIVE, and the slice's own
+           * colour tick (0449) does not reach past them. The two answer
+           * different questions — a panel says "the sleeve is stitched in red",
+           * a slice says "the USA rows ship in black" — and letting the slice
+           * silently re-colour a panel would make the Combination sheet lie
+           * about what is being bought, which is the one thing it exists to
+           * state. `colourSplits` has already resolved a blank panel to the
+           * line's own colour, so `split.item_color_id` is never a half-answer.
+           *
+           * With no panels this is exactly what it was: the slice's tick, then
+           * the line's, which is what every row meant before 0449.
+           */
+          item_color_id: split
+            ? split.item_color_id
+            : (flags.colour(slice) ?? line.item_color_id ?? null),
+          slice_label: slice.label,
+          basis_qty: slice.qty,
+          // THE RESOLVED FIGURES, not the line's. 0418 stores the inputs beside
+          // the answer as its provenance, so a row computed from an override —
+          // or from a panel rate — has to record the figure it used, otherwise
+          // the stored row cannot be re-derived from its own columns.
+          no_of_items: ratio.no_of_items ?? 0,
+          per_pieces: ratio.per_pieces ?? 0,
+          required_qty: qty,
+          refusal_reason: refused ? value.refused : null,
+          purchase_qty:
+            qty != null && packUsable && conv
+              ? toPurchaseQty(
+                  qty,
+                  conv,
+                  uomPrecision(
+                    conv.alt_uom_id ? (packs.uomDecimals.get(conv.alt_uom_id) ?? null) : null,
+                  ),
+                )
+              : null,
+        });
+      }
     }
   }
   return out;
@@ -521,10 +651,15 @@ async function writeChildren(
   if (items.length) {
     const { data: inserted, error } = await s
       .from("material_bom_amendment_items")
-      // `slices` rides on the row to survive the filter (see `normalizeItems`)
-      // and is stripped here: it is a CHILD table, not a column, and PostgREST
-      // refuses an unknown key.
-      .insert(items.map(({ slices: _slices, ...r }) => ({ ...r, amendment_id: amendmentId })))
+      // `slices` and `components` ride on the row to survive the filter (see
+      // `normalizeItems`) and are stripped here: both are CHILD tables, not
+      // columns, and PostgREST refuses an unknown key.
+      .insert(
+        items.map(({ slices: _slices, components: _components, ...r }) => ({
+          ...r,
+          amendment_id: amendmentId,
+        })),
+      )
       .select("id, sno");
     if (error) return fail(error.message);
     // Match ids back by `sno`, which `normalizeItems` has just made unique and
@@ -547,6 +682,54 @@ async function writeChildren(
       .from("material_bom_amendment_processes")
       .insert(processes.map((r) => ({ ...r, amendment_id: amendmentId })));
     if (error) return fail(error.message);
+  }
+
+  /*
+   * THE COMBINATION SHEET'S PANELS (0436), written at last.
+   *
+   * Keyed through `savedItems` for the reason the overrides below are:
+   * `item_line_id` is a uuid Postgres assigns during the line insert above, and
+   * matching by insertion order would pair one material's construction with
+   * another's — `.select()` makes no ordering promise.
+   *
+   * NO DELETE PASS, and that is not an omission. `writeChildren` has already
+   * deleted every `material_bom_amendment_items` row for this amendment and the
+   * child carries `on delete cascade`, so the old panels went with their
+   * parents. The standing warning on this file is about the opposite mistake — a
+   * table on the insert side and not the delete side doubles on every save.
+   *
+   * A ROW WITH NO PANEL IS NOT A ROW. `component_id` is NOT NULL in the column
+   * and 0436 asserts it: a panel row naming no panel IS the line's own ratio,
+   * which already has a home on the line itself. The figures are NOT filtered
+   * beside it — `mbaItemComponentInput` requires both, so a half-typed panel
+   * fails validation with a sentence rather than being silently dropped here.
+   *
+   * THIS LITERAL IS THE WHOLE WRITE. The comments on `component_id` and
+   * `round_to` in `normalizeItems` record what that costs when a column is left
+   * out of one: no type error, no null written over a value — the value simply
+   * never leaves the browser.
+   */
+  if (savedItems.length) {
+    const componentRows = savedItems.flatMap((line) =>
+      (line.components ?? [])
+        .filter((c) => !!c.component_id)
+        .map((c, j) => ({
+          item_line_id: line.id,
+          sno: j + 1,
+          component_id: c.component_id,
+          // NULL is "the line's own Item Color", never "no colour" — the same
+          // inherit-vs-zero contract the overrides carry.
+          item_color_id: c.item_color_id ?? null,
+          no_of_items: c.no_of_items,
+          per_pieces: c.per_pieces,
+        })),
+    );
+    if (componentRows.length) {
+      const { error } = await s
+        .from("material_bom_amendment_item_components")
+        .insert(componentRows);
+      if (error) return fail(error.message);
+    }
   }
 
   /*
@@ -623,11 +806,47 @@ async function writeChildren(
           per_pieces: sl.per_pieces ?? null,
         }));
       const kept = live && !isRefusal(live) ? liveOverrides(typed, live) : typed;
+      /*
+       * EVERY COLUMN THE ROW HAS, and this literal is the whole write.
+       *
+       * It named FOUR of eleven until 2026-08-23 — `chosen`, `size_wise`,
+       * `item_color_id`, `specification`, `size_spec`, `excess_pct` and
+       * `country_id` were all gathered by the filter above, USED to decide the
+       * row was worth keeping, and then dropped one line later. So everything
+       * 0449 and 0450 added round-tripped as a blank: an operator unticked a
+       * destination, saved, reopened the line and found it ticked again.
+       *
+       * Worse than a value lost, because the FILTER reads them. A row kept
+       * solely because `chosen === false` was written with nothing on it but a
+       * combo and a size — an empty override row that then occupied its slot in
+       * `uq_mba_slice_line_combo_size`.
+       *
+       * `moq` and `round_to` are absent DELIBERATELY: 0452 dropped both columns
+       * (a minimum belongs to the material, not to one destination of it), and
+       * naming a dropped column here would fail the whole insert. They survive
+       * in `mbaItemSliceInput` and in `MbaItemSlice` as the withdrawal pattern
+       * this file records for `alternate_uom_id` — carried so a stored value is
+       * not destroyed, never written.
+       *
+       * The comments on `component_id` and `round_to` in `normalizeItems` say
+       * what this shape costs when it is wrong: no type error, no null written
+       * over a value, the value simply never leaves the browser.
+       */
       return kept.map((sl, j) => ({
-          item_line_id: line.id,
-          sno: j + 1,
-          combo: sl.combo ?? null,
-          size_id: sl.size_id ?? null,
+        item_line_id: line.id,
+        sno: j + 1,
+        combo: sl.combo ?? null,
+        size_id: sl.size_id ?? null,
+        country_id: sl.country_id ?? null,
+        // Legacy's two ticks (0449). `chosen` DEFAULTS TRUE, so writing it is
+        // what makes an unticked row survive a save at all.
+        chosen: sl.chosen ?? true,
+        size_wise: sl.size_wise ?? false,
+        item_color_id: sl.item_color_id ?? null,
+        specification: sl.specification ?? null,
+        size_spec: sl.size_spec ?? null,
+        // NULL means "inherit the line's" for all three — never 0, never 1.
+        excess_pct: sl.excess_pct ?? null,
         no_of_items: sl.no_of_items ?? null,
         per_pieces: sl.per_pieces ?? null,
       }));
@@ -864,6 +1083,13 @@ export async function copyMaterialBomFrom(
     specification: (c.specification as string) ?? null,
     size: (c.size as string) ?? null,
     requirement_basis: (c.requirement_basis as RequirementBasis) ?? null,
+    /* THE GRAIN TRAVELS WITH THE RECIPE (0455), like the basis beside it: how a
+       trim splits is a property of the material. Derived from the basis where a
+       source row predates the column, never defaulted to `[]` — that would copy
+       a line in as "one bulk row for the order". */
+    requirement_grain:
+      (c.requirement_grain as Axis[] | null) ??
+      (c.requirement_basis ? axesOfBasis(c.requirement_basis as RequirementBasis) : null),
     style_ref_no: null,
     // The PANEL goes with the style ref, and for the same reason (0423): a
     // component belongs to a style, the source order's styles are not this
