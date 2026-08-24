@@ -883,7 +883,7 @@ export function FabricPlanScreen({
 
   const columns: Column<FabricPlanTaskRow>[] = [
     {
-      header: "SC No",
+      header: "RE No",
       cell: (t) => (
         <button
           type="button"
@@ -952,7 +952,7 @@ export function FabricPlanScreen({
           <Input
             uppercase={false}
             className="w-64"
-            placeholder="Search SC No, PO or customer…"
+            placeholder="Search RE No, PO or customer…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

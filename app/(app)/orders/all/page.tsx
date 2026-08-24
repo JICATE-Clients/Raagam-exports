@@ -73,7 +73,7 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
  */
 const columns: Column<OrderWithBuyer>[] = [
   {
-    header: "SC No",
+    header: "RE No",
     cell: (row) => (
       <Link
         href={`/orders/${row.id}`}

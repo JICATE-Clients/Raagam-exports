@@ -189,7 +189,7 @@ function OrdersTab({
   const columns: Column<OrderRow>[] = [
     { header: "S No",      cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
     { header: "Plan No",   cell: (r) => <span className="tabular-nums text-sm">{r.plan_no}</span> },
-    { header: "SC No",     cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
+    { header: "RE No",     cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
     { header: "Customer",  cell: (r) => <span className="text-sm">{r.customer_name ?? "--"}</span> },
     { header: "Style",     cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
     { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.order_qty}</span> },
@@ -285,7 +285,7 @@ function OrdersTab({
                 />
               </div>
               <div>
-                <Label>SC No</Label>
+                <Label>RE No</Label>
                 <Input
                   value={form.sc_no}
                   onChange={(e) => setForm((f) => ({ ...f, sc_no: e.target.value }))}
@@ -404,7 +404,7 @@ function OrdersTab({
                     type="checkbox"
                     checked={form.with_learning_curve}
                     onChange={(e) => setForm((f) => ({ ...f, with_learning_curve: e.target.checked }))}
-                    className="h-4 w-4 rounded border-input"
+                    className="h-4 w-4 rounded border-border"
                   />
                   With Learning Curve
                 </label>
@@ -413,7 +413,7 @@ function OrdersTab({
                     type="checkbox"
                     checked={form.is_split}
                     onChange={(e) => setForm((f) => ({ ...f, is_split: e.target.checked }))}
-                    className="h-4 w-4 rounded border-input"
+                    className="h-4 w-4 rounded border-border"
                   />
                   Is Split
                 </label>
@@ -577,7 +577,7 @@ export function CapacityPlanningDetail({
             )}
             {isDraft && canDelete && (
               <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
                 disabled={isPending}
                 onClick={handleDelete}
               >

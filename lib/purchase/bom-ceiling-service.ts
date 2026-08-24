@@ -42,6 +42,9 @@ const EMPTY: BomCeiling = {
 type ReqRow = {
   item_id: string | null;
   item_line_id: string | null;
+  /** The TRIM's colour (0436). Part of how the minimum groups — see the rollup
+   *  below — not decoration. */
+  item_color_id: string | null;
   required_qty: number | null;
   purchase_qty: number | null;
   refusal_reason: string | null;
@@ -113,7 +116,14 @@ export async function bomCeilingForOrder(
   const [{ data: reqRows }, { data: lineRows }] = await Promise.all([
     s
       .from("material_bom_amendment_requirements")
-      .select("item_id, item_line_id, required_qty, purchase_qty, refusal_reason")
+      /* `item_color_id` is SELECTED, not merely present on the table. The
+         created-by sweep in AGENTS.md is the same shape: a hand-written select
+         that names the neighbours and not the column leaves code that reads as
+         correct with nothing to resolve. Here it would silently collapse navy
+         and red back into one minimum. */
+      .select(
+        "item_id, item_line_id, item_color_id, required_qty, purchase_qty, refusal_reason",
+      )
       .eq("amendment_id", bom.id),
     s
       .from("material_bom_amendment_items")
@@ -126,11 +136,36 @@ export async function bomCeilingForOrder(
   );
 
   /*
-   * Summed per MATERIAL, carrying the tail parameters of every LINE that fed it.
-   * `Math.max` on both: the largest minimum is the one a single purchase has to
-   * clear, and the coarsest step is the one that leaves an orderable figure.
+   * Summed per MATERIAL **AND TRIM COLOUR**, carrying the tail parameters of
+   * every LINE that fed it. `Math.max` on both: the largest minimum is the one a
+   * single purchase has to clear, and the coarsest step is the one that leaves
+   * an orderable figure.
+   *
+   * ## THE COLOUR IN THE KEY IS WHAT KEEPS THIS CONTROL HONEST (2026-08-22)
+   *
+   * `lineQuantityByColour` clears the supplier minimum per CONE COLOUR, because
+   * navy thread and red thread are two things to buy. If the ceiling kept
+   * summing to the material first, the two would disagree in the one direction
+   * that hurts: needing 100 navy and 100 red against an MOQ of 500, the BOM
+   * tells the operator to buy 1,000 and a ceiling of `max(200, 500) = 500`
+   * refuses the purchase order written for it.
+   *
+   * That is the failure this file was already corrected for once — a ceiling
+   * built from the pre-MOQ sum "made the control fire on correct work". A
+   * control that refuses the figure its own BOM asked for is not a control.
+   *
+   * ONE COLOUR REDUCES TO THE OLD BEHAVIOUR EXACTLY: a material bought in a
+   * single colour has one group, and `max(qty, moq)` then rounds once, as
+   * before. Nothing bought today changes.
    */
-  const raw = new Map<string, { qty: number; moq: number; step: number }>();
+  /* NUL, so it cannot occur in a uuid — the same choice `SLICE_SEP` makes in
+     requirement.ts, and for the same reason: a key built by concatenation must
+     not be forgeable by its own parts. */
+  const KEY_SEP = "\u0000";
+  const raw = new Map<
+    string,
+    { itemId: string; qty: number; moq: number; step: number }
+  >();
   let unanswered = 0;
 
   for (const r of (reqRows ?? []) as ReqRow[]) {
@@ -144,8 +179,13 @@ export async function bomCeilingForOrder(
     // a comparison and is not.
     const qty = Number(r.purchase_qty ?? r.required_qty);
     const line = r.item_line_id ? lines.get(r.item_line_id) : undefined;
-    const prev = raw.get(r.item_id);
-    raw.set(r.item_id, {
+    /* NULL IS A VALUE — "the line's own colour" — so it is normalised into the
+       key rather than skipped. Skipping it would fold every uncoloured row of a
+       material into whichever colour happened to be read first. */
+    const key = `${r.item_id}${KEY_SEP}${r.item_color_id ?? ""}`;
+    const prev = raw.get(key);
+    raw.set(key, {
+      itemId: r.item_id,
       qty: (prev?.qty ?? 0) + qty,
       moq: Math.max(prev?.moq ?? 0, Number(line?.moq ?? 0) || 0),
       step: Math.max(prev?.step ?? 0, Number(line?.round_to ?? 0) || 0),
@@ -153,13 +193,18 @@ export async function bomCeilingForOrder(
   }
 
   const byItem = new Map<string, number>();
-  for (const [itemId, v] of raw) {
+  for (const v of raw.values()) {
     // MOQ FIRST, THEN THE STEP — the client's order, settled 2026-08-19 with a
     // worked example (needs 100, MOQ 550, step 500 gives 1,000 this way and 550
     // the other, and only the first is a figure a supplier can pack) and
     // restated 2026-08-21. `lineQuantity` in requirement.ts owns the same
     // sequence for the grid; if one moves, both move.
-    byItem.set(itemId, roundUpTo(Math.max(v.qty, v.moq), v.step || null));
+    const final = roundUpTo(Math.max(v.qty, v.moq), v.step || null);
+    /* SUMMED BACK TO THE MATERIAL, because a PO line names an item and not a
+       colour — the ceiling has to be expressed in the units the thing it judges
+       is written in. The per-colour minimums have already been cleared above,
+       which is the whole point of doing it in two steps. */
+    byItem.set(v.itemId, (byItem.get(v.itemId) ?? 0) + final);
   }
 
   /*

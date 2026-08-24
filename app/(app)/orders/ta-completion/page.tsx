@@ -25,7 +25,7 @@ const columns: Column<TaCompletionRow>[] = [
     ),
   },
   {
-    header: "SC No",
+    header: "RE No",
     cell: (row) => (
       <span className="font-mono text-xs">
         {row.sales_orders?.order_number ?? "—"}

@@ -44,6 +44,16 @@ export type AssortQuantity = {
   assortment_type?: { code: string | null; name: string | null } | null;
   assort_lines?:
     | {
+        /**
+         * THE LINE'S OWN STYLE (0433, Multiple Style — a style per LINE).
+         *
+         * Optional because a Single Style pack leaves it null and the
+         * destination's ref is the answer there. Declared here at all because
+         * without it this type could not express the multi-style case, and the
+         * select below could not ask for it — which is exactly the state it was
+         * in until 2026-08-23.
+         */
+        style_ref_no?: string | null;
         combo: string | null;
         no_of_cartons: number | null;
         inners_per_carton?: number | null;
@@ -87,9 +97,39 @@ export function assortMode(q: AssortQuantity): "solid" | "assort" {
 /**
  * Every size cell of every destination, in pieces.
  *
- * THE STYLE IS THE DESTINATION'S, not the line's. On a Single Style pack the
- * line stores no ref at all and takes the destination's — which is why reading
- * `assort_lines.style_ref_no` raw yields null and pairs with nothing.
+ * ## THE STYLE IS THE LINE'S, FALLING BACK TO THE DESTINATION'S
+ *
+ * This read `q.style_ref_no` alone, and the comment here justified it: "on a
+ * Single Style pack the line stores no ref at all and takes the destination's —
+ * which is why reading `assort_lines.style_ref_no` raw yields null and pairs
+ * with nothing." That was TRUE and became HALF true, twice over:
+ *
+ *  - 0433 made Multiple Style real, and a multi-style pack carries the ref on
+ *    the LINE. Reading the destination's there attributes every size cell of
+ *    every style to whatever the destination row happens to hold.
+ *  - The client made `quantities.style_ref_no` FREE TEXT on 2026-08-17. So what
+ *    the destination holds is now often not a style ref at all.
+ *
+ * Measured on the live database, 2026-08-23 — neither column is right alone:
+ *
+ *     quantities_ref        assort_line_ref     which is correct
+ *     111 / 123 / 12        STL/26-27/0007…     the LINE
+ *     STL/26-27/0003        null                the DESTINATION
+ *
+ * What it cost: `productionSlices`' size and combination branches match assort
+ * rows to targets by style, so a mismatch matched NOTHING and the whole basis
+ * refused — with a sentence blaming the wrong tab ("Size break-up not entered on
+ * Quantities ▸ Assort") on 3 of 4 live orders. Safe, because this module refuses
+ * rather than inventing a number, and useless, because the break-up WAS entered.
+ *
+ * `??` and not `||`: an empty-string ref is a value somebody typed, and falling
+ * through it to the destination would silently re-attribute the line.
+ *
+ * THE SELECT HAD TO CHANGE WITH IT. `ASSORT_WEIGHT_SELECT` never asked for the
+ * line's ref, so the column existed, the code read as correct, and the value
+ * never arrived — the same two-halves failure AGENTS.md records under
+ * "Created Date / Created User", where the column half passing said nothing
+ * about whether the value came back.
  *
  * ROWS ARE NOT FILTERED OR SUMMED HERE. A caller that wants a total sums them; a
  * caller that wants the size curve needs each cell. Collapsing early is how the
@@ -108,7 +148,7 @@ export function assortSizeWeights(
       // differently.
       const factor = mode === "solid" ? 1 : cartons * inners;
       return (l.sizes ?? []).map((z) => ({
-        style_ref_no: q.style_ref_no,
+        style_ref_no: l.style_ref_no ?? q.style_ref_no,
         combo: l.combo,
         size_id: z.size_id,
         qty: factor * (Number(z.qty) || 0),
@@ -124,5 +164,8 @@ export function assortSizeWeights(
 export const ASSORT_WEIGHT_SELECT =
   "style_ref_no,country_id,assortment_type_id," +
   "assortment_type:config_lookups!garment_order_amendment_quantities_assortment_type_id_fkey(code,name)," +
-  "assort_lines:garment_order_amendment_assort_lines(combo,no_of_cartons,inners_per_carton," +
+  // `style_ref_no` FIRST on the line, and it is the half that was missing: the
+  // column has existed since 0433 and nothing selected it, so the coalesce above
+  // had nothing to prefer.
+  "assort_lines:garment_order_amendment_assort_lines(style_ref_no,combo,no_of_cartons,inners_per_carton," +
   "sizes:garment_order_amendment_assort_line_sizes(size_id,qty))";

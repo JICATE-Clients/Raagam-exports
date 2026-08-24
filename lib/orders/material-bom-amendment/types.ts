@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { REQUIREMENT_BASES } from "@/lib/orders/material-bom/requirement";
+import { AXES, canonicalAxes, type Axis } from "@/lib/orders/bom-explosion/exploder";
 import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
@@ -179,6 +180,18 @@ export interface MbaItem {
   size: string | null;
   /** 'order' | 'colour' | 'size'. */
   requirement_basis: string | null;
+  /**
+   * THE EXPLOSION GRAIN AS A SET OF AXES (0455), and the source of truth since
+   * 2026-08-23. `requirement_basis` above is kept and still written wherever the
+   * grain has one of the six legacy names — eight of the nine producible grains
+   * do — so nothing that reads it stops working.
+   *
+   * NULL is "not chosen yet" and REFUSES; `[]` is the WHOLE ORDER, which is a
+   * real answer. The two must not be conflated: a default of `[]` would make
+   * every new line silently mean "one bulk row for the order" and delete the
+   * refusal that tells the operator to answer.
+   */
+  requirement_grain: string[] | null;
   /** Which style this line is for; null = every style. By VALUE (0407). */
   style_ref_no: string | null;
   /**
@@ -290,6 +303,14 @@ export interface MbaItemSlice {
   size_id: string | null;
   /** The destination (0449) — part of the key, not decoration. */
   country_id: string | null;
+  /** Legacy's Combination: the garment part typed in the popup (0463). NULL on
+   *  every row that is not a combination split, which is most of them. Part of
+   *  the key — see `SliceKey` for why leaving it out silently mixes TOP with
+   *  BOTTOM. */
+  combination: string | null;
+  /** Which style this override is for (0464). Part of the key: without it every
+   *  style on a style-basis line shared one typed figure. */
+  style_ref_no: string | null;
   chosen: boolean;
   size_wise: boolean;
   item_color_id: string | null;
@@ -325,7 +346,11 @@ export interface MbaRequirement {
   item_line_id: string;
   item_id: string | null;
   sno: number;
-  basis: string;
+  /** The LEGACY grain name. NULLABLE since 0456: a composed grain has no name
+   *  among the six, and `requirement_grain` beside it is the provenance. */
+  basis: string | null;
+  /** The grain that produced this row (0456), canonical. */
+  requirement_grain: string[] | null;
   style_ref_no: string | null;
   combo: string | null;
   size_id: string | null;
@@ -450,6 +475,20 @@ export const mbaItemSliceInput = z.object({
   /** The destination — PART OF THE KEY since 0449, or two countries' same-size
    *  rows resolve to each other. */
   country_id: uuidN,
+  /** Legacy's Combination — a garment part TYPED in the popup (0463), free text
+   *  and deliberately not `combo` above, which is the colourway by name and is
+   *  joined on by the composer. `capsTextNullable` rather than `nullableText`
+   *  because the transform belongs in the schema: `lib/data-io` parses with
+   *  these same schemas and writes straight to Postgres, so an action-level
+   *  `.toUpperCase()` would miss every import path that ever gets added. */
+  combination: capsTextNullable(),
+  /** Which style (0464) — PART OF THE KEY, or two styles on one line resolve to
+   *  each other's figure. `nullableText` and NOT `capsTextNullable`: a style ref
+   *  is matched by EQUALITY against `sales_order_*.style_ref_no` and against
+   *  `material_bom_amendment_requirements.style_ref_no`, neither of which is
+   *  re-cased, so upper-casing it here would be this module inventing a spelling
+   *  the rest of Orders does not use. */
+  style_ref_no: nullableText,
   /** Legacy's "Choose" tick. FALSE means this row buys none of the material. */
   chosen: z.coerce.boolean().default(true),
   /** Legacy's "Size wise" tick — splits THIS row into its sizes. */
@@ -472,6 +511,78 @@ export const mbaItemSliceInput = z.object({
     .default(null),
 });
 
+/**
+ * WHAT A MATERIAL LINE CANNOT BE SAVED WITHOUT — declared ONCE.
+ *
+ * AGENTS.md's "Mandatory fields" rule is that `required` is stated once and four
+ * enforcers read it: the red `*`, the cursor hold, the Save button and the server
+ * action. This is the shape `missingRequiredMaterialFields` in
+ * `lib/masters/material-types.ts` already uses, and it is here for the same
+ * reason — the Zod `superRefine` below and the screen's "+ Add material" gate ask
+ * the same question, and two copies of it would answer differently the first time
+ * one was edited.
+ *
+ * ## THE FIGURES ARRIVE ALREADY PARSED
+ *
+ * The screen holds `no_of_items` and `per_pieces` as STRINGS (a number cannot
+ * represent a box the operator has just cleared), the payload holds them as
+ * numbers. Taking `number | null` means the caller does the one conversion it
+ * already does anyway, rather than this function guessing which shape it has.
+ *
+ * ## GATED ON A MATERIAL BEING NAMED
+ *
+ * An entirely blank row is how a grid opens and is dropped by `normalizeItems`
+ * before it reaches the database; refusing it would make an untouched line block
+ * Save. So a row with no `item_id` is missing NOTHING — which is also what lets
+ * the "+ Add material" gate use this without refusing the very first line.
+ */
+export type ItemRequiredCheck = {
+  category_id: string | null;
+  item_id: string | null;
+  requirement_grain?: readonly string[] | null;
+  requirement_basis?: string | null;
+  no_of_items: number | null;
+  per_pieces: number | null;
+};
+
+export function missingItemFields(
+  v: ItemRequiredCheck,
+): { path: string; label: string; message: string }[] {
+  if (!v.item_id) return [];
+  const out: { path: string; label: string; message: string }[] = [];
+
+  /* CATEGORY (client 2026-08-24). It was already the field that NARROWS the
+     Material picker — `materialsFor(category_id, …)` — so a line naming a
+     material almost always has one; almost is what this closes. */
+  if (!v.category_id) {
+    out.push({ path: "category_id", label: "Category", message: "Choose a category" });
+  }
+  if (v.no_of_items == null || v.no_of_items <= 0) {
+    out.push({
+      path: "no_of_items",
+      label: "No. of Items",
+      message: "Enter how many are used per piece",
+    });
+  }
+  // Not defaulted to 1 anywhere — in the column (0418), in the input, or in the
+  // engine. A default makes an unfinished line compute, and the number it
+  // produces goes onto a real purchase order.
+  if (v.per_pieces == null || v.per_pieces <= 0) {
+    out.push({ path: "per_pieces", label: "Per Pieces", message: "Pieces must be more than 0" });
+  }
+  /* THE GRAIN SATISFIES IT, and `[]` is a real answer (the whole order) — so
+     this tests for NULL, not for emptiness. `!grain?.length` would refuse the
+     answer an operator picks most often. */
+  if (!v.requirement_basis && (v.requirement_grain ?? null) === null) {
+    out.push({
+      path: "requirement_basis",
+      label: "Attribute",
+      message: "Choose how this material splits",
+    });
+  }
+  return out;
+}
+
 export const mbaItemInput = z
   .object({
     sno: z.coerce.number().int().nonnegative().default(0),
@@ -486,6 +597,24 @@ export const mbaItemInput = z
     specification: capsTextNullable(),
     size: capsTextNullable(),
     requirement_basis: z.enum(REQUIREMENT_BASES).nullable().default(null),
+    /**
+     * THE GRAIN, CANONICALISED IN THE SCHEMA rather than in the action.
+     *
+     * `chk_mba_item_grain_canonical` compares the stored array against
+     * `mba_canonical_grain()`, so a payload that arrives unsorted or with a
+     * repeat is rejected by Postgres with a constraint name nobody can read.
+     * Canonicalising here means the form and the database agree by construction
+     * — the same argument AGENTS.md makes for putting the CAPITALS transform in
+     * Zod rather than in the action.
+     *
+     * `z.enum(AXES)` and not `z.string()`: an unknown axis must fail with a
+     * sentence naming the field, not sail through to a CHECK violation.
+     */
+    requirement_grain: z
+      .array(z.enum(AXES))
+      .nullable()
+      .default(null)
+      .transform((v) => (v === null ? null : canonicalAxes(v as Axis[]))),
     style_ref_no: nullableText,
     component_id: uuidN,
     supply_type: nullableText,
@@ -521,31 +650,11 @@ export const mbaItemInput = z
    * it here would make an untouched blank line block Save.
    */
   .superRefine((v, ctx) => {
-    if (!v.item_id) return;
-
-    if (v.no_of_items == null || v.no_of_items <= 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["no_of_items"],
-        message: "Enter how many are used per piece",
-      });
-    }
-    // Not defaulted to 1 anywhere — in the column (0418), in the input, or in the
-    // engine. A default makes an unfinished line compute, and the number it
-    // produces goes onto a real purchase order.
-    if (v.per_pieces == null || v.per_pieces <= 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["per_pieces"],
-        message: "Pieces must be more than 0",
-      });
-    }
-    if (!v.requirement_basis) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["requirement_basis"],
-        message: "Choose how this material splits",
-      });
+    /* EVERY REQUIRED FIELD COMES FROM `missingItemFields`, so this action and the
+       screen's "+ Add material" gate cannot disagree about what a finished line
+       is. The four checks that used to be written out here moved there whole. */
+    for (const m of missingItemFields(v)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [m.path], message: m.message });
     }
 
     /**
@@ -556,12 +665,25 @@ export const mbaItemInput = z
      * half a spreadsheet import meets first.
      */
     /* ONE OVERRIDE PER SLICE, mirroring `uq_mba_slice_line_combo_size`. The
-       index COALESCEs both keys because a NULL never collides in Postgres; here
-       `?? ""` does the same job, and the two must agree or the form accepts a
-       pair the database then refuses with a constraint name nobody can read. */
+       index COALESCEs every key because a NULL never collides in Postgres; here
+       `?? ""` does the same job, and the two must agree.
+
+       ## THREE AXES, AND THE THIRD WAS MISSING UNTIL 2026-08-23
+
+       The index gained `country_id` in 0449 — which even asserts it, "the slice
+       key does not include country_id — USA-M and CH-M would collide" — and this
+       mirror of it did not. The drift ran the OPPOSITE way to the one the
+       original note feared: not the form accepting a pair the database refuses,
+       but the form REFUSING a pair the database allows. Two destinations at one
+       size are a legitimate, ordinary country-wise entry, and typing a figure
+       against the second produced "This slice already has an override on the
+       line" and blocked Save with no way forward.
+
+       Kept in step with `sliceKey` in `slice-consumption.ts`, which reads the
+       same three axes: a mirror that names fewer is a mirror that is wrong. */
     const seenSlice = new Set<string>();
     for (const [i, sl] of (v.slices ?? []).entries()) {
-      const key = `${sl.combo ?? ""}:${sl.size_id ?? ""}`;
+      const key = `${sl.combo ?? ""}:${sl.size_id ?? ""}:${sl.country_id ?? ""}`;
       if (seenSlice.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

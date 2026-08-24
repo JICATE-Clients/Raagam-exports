@@ -372,7 +372,7 @@ export function MaterialRateDetail({
             )}
             {isDraft && canDelete && (
               <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
                 disabled={isPending}
                 onClick={handleDelete}
               >

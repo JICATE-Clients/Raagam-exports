@@ -366,7 +366,7 @@ export function StyleProcessSheet({
           description is `name` (288px), a unit is `code` (144px) and a quantity
           is `num` (72px). Still six fields and still the legacy header's six
           facts; only the ruler changed. */}
-      <div className="mb-4 rounded-md border bg-muted/30 p-3">
+      <div className="mb-4 rounded-md border bg-surface-muted/30 p-3">
         <FieldRow>
           <Field label="Style Ref No" w="term">
             <Input readOnly value={header.styleRefNo} className="h-8" />

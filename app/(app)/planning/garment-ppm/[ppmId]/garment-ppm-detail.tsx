@@ -159,7 +159,7 @@ function PacksTab({
 
   const columns: Column<PackRow>[] = [
     { header: "S No",            cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
-    { header: "SC No",           cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
+    { header: "RE No",           cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
     { header: "Order No",        cell: (r) => <span className="text-sm">{r.order_no ?? "--"}</span> },
     { header: "Pack",            cell: (r) => <span className="text-sm">{r.pack ?? "--"}</span> },
     { header: "Assortment Type", cell: (r) => <span className="text-sm">{r.assortment_type ?? "--"}</span> },
@@ -228,7 +228,7 @@ function PacksTab({
                 />
               </div>
               <div>
-                <Label>SC No</Label>
+                <Label>RE No</Label>
                 <Input
                   value={form.sc_no}
                   onChange={(e) => setForm((f) => ({ ...f, sc_no: e.target.value }))}
@@ -847,7 +847,7 @@ function ProcessingTab({
                 <Input
                   readOnly
                   value={fmtMoney(poValuePreview)}
-                  className="bg-muted text-muted-foreground"
+                  className="bg-surface-muted text-muted-foreground"
                 />
               </div>
             </div>
@@ -1328,7 +1328,7 @@ export function GarmentPpmDetail({
               <dd className="font-medium">{ppm.customer_name ?? "--"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">SC No</dt>
+              <dt className="text-xs text-muted-foreground">RE No</dt>
               <dd>{ppm.sc_no ?? "--"}</dd>
             </div>
             <div>
@@ -1395,7 +1395,7 @@ export function GarmentPpmDetail({
             )}
             {isDraft && canDelete && (
               <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
                 disabled={isPending}
                 onClick={handleDelete}
               >

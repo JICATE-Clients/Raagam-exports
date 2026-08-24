@@ -48,7 +48,7 @@ const columns: Column<MaterialBomRow>[] = [
     cell: (r) => <span className="text-sm">{r.customer_name ?? "—"}</span>,
   },
   {
-    header: "SC No",
+    header: "RE No",
     cell: (r) => <span className="text-sm">{r.order_code ?? "—"}</span>,
   },
   {

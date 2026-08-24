@@ -421,7 +421,7 @@ export function NewPoForm({
                 <option value=""></option>
                 {orders.map((o) => (
                   <option key={o.id} value={o.id}>
-                    {o.order_number ?? "(no SC No)"}
+                    {o.order_number ?? "(no RE No)"}
                   </option>
                 ))}
               </Select>

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { amendmentInput, type AmendmentInput } from "./types";
+import { normalizeFileRows } from "./file-rows";
 import {
   seedAmendmentFromOrder,
   styleKey,
@@ -28,24 +29,53 @@ const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null
 
 // ---- Phase 2 (0128) child normalizers ----
 
+  /**
+   * NO `season` AND NO `style_year` ON THE LINE, and this is a decision rather
+   * than an omission (0462).
+   *
+   * Both were added by 0461 and dropped unused, because the screen already
+   * carries two EXPLICIT client instructions against them:
+   *
+   *   * Season, 2026-08-11 — "They stay in the header ... they belong here and
+   *     NOT ON THE STYLE ROWS, where they have never been." It is also the
+   *     second facet narrowing the Style picker, a job it only has at order
+   *     level.
+   *   * Year, 2026-08-14, withdrawn from the order entirely — "the year is
+   *     already defined on the linked Style Master, so re-typing it on the
+   *     order was a second place to state one fact."
+   *
+   * So "the whole Style entry on the line" is FIVE fields, not seven. Read
+   * 0462 before adding either back.
+   */
 function normalizeStyles(data: AmendmentInput) {
   return data.styles
     .map((r) => ({
       style_ref_no: clean(r.style_ref_no),
       style_id: r.style_id,
+      // The Style master's header fields, merged onto the line (0461).
+      approved_sample_id: r.approved_sample_id,
       article_no: clean(r.article_no),
       style_category: clean(r.style_category),
+      style_category_id: r.style_category_id,
       style_description: clean(r.style_description),
       order_unit_id: r.order_unit_id,
       plan_unit_id: r.plan_unit_id,
       po_qty: Number(r.po_qty) || 0,
       description: clean(r.description),
     }))
+    /* THE FOUR NEW FIELDS ARE IN THE KEEP TEST TOO (0461), and leaving them out
+       is the quiet way this breaks: a line an operator started by answering
+       Season or Approved Sample and nothing else would be judged blank and
+       dropped, taking any sizes, coordinates and components filed under it with
+       it (those normalizers read the styles this one returns). A row is blank
+       only when it answers NOTHING. */
     .filter(
       (r) =>
         r.style_ref_no ||
         r.style_id ||
+        r.approved_sample_id ||
         r.article_no ||
+        r.style_category_id ||
         r.order_unit_id ||
         r.plan_unit_id ||
         r.po_qty ||
@@ -94,6 +124,116 @@ function normalizeStyleSizes(
     .filter((r) => live.has(styleKey(r.style_ref_no)))
     .filter((r) => {
       const k = JSON.stringify([styleKey(r.style_ref_no), r.size_id]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .map((r) => {
+      const k = styleKey(r.style_ref_no);
+      const n = (perStyle.get(k) ?? 0) + 1;
+      perStyle.set(k, n);
+      return { ...r, sno: n };
+    });
+}
+
+/**
+ * The per-style Coordinate list (0461) — what a component is a part of.
+ *
+ * The same four passes as `normalizeStyleSizes`, and the simplest of the three
+ * because a coordinate carries nothing but itself:
+ *
+ * - **Drop the blank**, which is the row the seeded grid opened with.
+ * - **Drop the orphans**, judged against the very styles being inserted in this
+ *   pass — not against what is in the database, which this save replaces.
+ * - **De-duplicate on (style, coordinate)**, which is `uq_goa_style_coords_
+ *   coordinate` column for column. Listing PIECES twice under one style says
+ *   nothing the first row did not.
+ * - **Renumber `sno` per style**, so each line's list reads 1..n on its own.
+ *
+ * NO CAP HERE. `coordinateLimit` (Piece = 1, Set = 2..4) is enforced on the
+ * grid's "+ Add", where it can be explained. Refusing at save time would fail
+ * the whole document with nothing on screen to say which line was over.
+ */
+function normalizeStyleCoordinates(
+  data: AmendmentInput,
+  styles: ReturnType<typeof normalizeStyles>,
+) {
+  const live = new Set(styles.map((r) => styleKey(r.style_ref_no)).filter(Boolean));
+  const seen = new Set<string>();
+  const perStyle = new Map<string, number>();
+  return data.style_coordinates
+    .map((r) => ({
+      style_ref_no: clean(r.style_ref_no),
+      coordinate_id: r.coordinate_id,
+    }))
+    .filter((r) => r.coordinate_id)
+    .filter((r) => live.has(styleKey(r.style_ref_no)))
+    .filter((r) => {
+      const k = JSON.stringify([styleKey(r.style_ref_no), r.coordinate_id]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .map((r) => {
+      const k = styleKey(r.style_ref_no);
+      const n = (perStyle.get(k) ?? 0) + 1;
+      perStyle.set(k, n);
+      return { ...r, sno: n };
+    });
+}
+
+/**
+ * The per-style Component list (0457) — the Style master's other child, merged
+ * into Order Info beside the sizes.
+ *
+ * DELIBERATELY THE SAME FOUR PASSES as `normalizeStyleSizes` above, in the same
+ * order, because it is the same question asked of a different child:
+ *
+ * - **Drop the half-answered.** A row naming neither a coordinate nor a
+ *   component nor a structure is the blank the operator is standing in. Note
+ *   the test is ANY answer, not all three: the Style master lets a component be
+ *   entered before its structure is decided, and requiring the triple here
+ *   would silently discard work the master accepts.
+ * - **Drop the orphans**, judged against the very styles being inserted in this
+ *   pass — not against what is in the database, which this save is about to
+ *   replace wholesale.
+ * - **De-duplicate on (style, coordinate, component, fabric category)**, which
+ *   is `uq_goa_style_components_part` COLUMN FOR COLUMN. That is not a
+ *   coincidence to be tidied: when the two disagreed on the BOM combination
+ *   sheet, the Zod guard refused legitimate two-destination rows while the
+ *   index was fine. `fabric_category_id` is in both keys so a FRONT BODY in two
+ *   fabrics — a contrast yoke — survives.
+ * - **Renumber `sno` per style**, so each line's list reads 1..n on its own.
+ *
+ * `comp_type` and `item_id` ride through unread. Neither has a cell, and both
+ * are copied in by the seed from `garment_style_components`; dropping them here
+ * would NULL a value the master stated on the order's first save.
+ */
+function normalizeStyleComponents(
+  data: AmendmentInput,
+  styles: ReturnType<typeof normalizeStyles>,
+) {
+  const live = new Set(styles.map((r) => styleKey(r.style_ref_no)).filter(Boolean));
+  const seen = new Set<string>();
+  const perStyle = new Map<string, number>();
+  return data.style_components
+    .map((r) => ({
+      style_ref_no: clean(r.style_ref_no),
+      coordinate_id: r.coordinate_id,
+      component_id: r.component_id,
+      fabric_category_id: r.fabric_category_id,
+      comp_type: clean(r.comp_type),
+      item_id: r.item_id,
+    }))
+    .filter((r) => r.coordinate_id || r.component_id || r.fabric_category_id)
+    .filter((r) => live.has(styleKey(r.style_ref_no)))
+    .filter((r) => {
+      const k = JSON.stringify([
+        styleKey(r.style_ref_no),
+        r.coordinate_id,
+        r.component_id,
+        r.fabric_category_id,
+      ]);
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
@@ -174,6 +314,16 @@ function normalizeDyeings(data: AmendmentInput) {
     }))
     .filter((r) => r.dye_type || r.color_name || r.color_id)
     .map((r, i) => ({ ...r, sno: i + 1 }));
+}
+
+/**
+ * The attached documents (0416). The rule lives in `./file-rows` because this
+ * module is `"use server"` and nothing in it can be reached by a vector — and
+ * its filter differs from every sibling here in a way that invites being
+ * "corrected" into a bug. See that file.
+ */
+function normalizeFiles(data: AmendmentInput) {
+  return normalizeFileRows(data.files);
 }
 
 function normalizePrints(data: AmendmentInput) {
@@ -508,6 +658,12 @@ async function writeChildren(
     // decides the order of the writes — the dependency is resolved above, by
     // handing `normalizeStyleSizes` the very rows being inserted.
     ["garment_order_amendment_style_sizes", normalizeStyleSizes(data, styleRows)],
+    // What a component is a part of (0461). Same dependency and the same
+    // resolution as the sizes above: handed the rows being inserted.
+    ["garment_order_amendment_style_coordinates", normalizeStyleCoordinates(data, styleRows)],
+    // The Style master's component list, merged into Order Info (0457). Same
+    // dependency and the same resolution as the sizes above.
+    ["garment_order_amendment_style_components", normalizeStyleComponents(data, styleRows)],
     // Same dependency and the same resolution as the sizes above: handed the
     // rows being inserted, not asked to re-derive them.
     ["garment_order_amendment_style_processes", normalizeStyleProcesses(data, styleRows)],
@@ -522,6 +678,13 @@ async function writeChildren(
     // only to the insert side would leave the previous rows in place and add
     // the new ones beside them, doubling the grid on every save.
     ["garment_order_amendment_quantities", normalizeQuantities(data)],
+    /* The attached documents (0416). METADATA ONLY — the delete below drops
+       rows, never objects, and that asymmetry is deliberate: the file uploads
+       the moment it is chosen and the row is written on Save, so a delete that
+       reached into the bucket would make Cancel destroy a file the operator may
+       have no other copy of. Orphaned objects accumulate instead, which
+       `file-attachments.tsx` records as a known, accepted remainder. */
+    ["garment_order_amendment_files", normalizeFiles(data)],
   ];
 
   // Delete-all-then-reinsert each child grid wholesale.
@@ -798,6 +961,11 @@ function headerOnly(data: AmendmentInput) {
     // (`garment_order_amendment_style_sizes` / `..._style_processes`), never
     // columns on the header. See the note above — they are why it exists.
     style_sizes: _ss,
+    // 0461, and the fourth member of the same family.
+    style_coordinates: _scoord,
+    // 0457, and the third member of the same family: the Style master's
+    // component list, keyed off the styles above rather than a header column.
+    style_components: _scomp,
     style_processes: _sp,
     dyeings: _dy,
     prints: _pr,
@@ -807,6 +975,7 @@ function headerOnly(data: AmendmentInput) {
     approval_qtys: _aq,
     pack_types: _pt,
     quantities: _qt,
+    files: _files,
     // NOT A COLUMN HERE. `location_id` belongs to the `sales_orders` row this
     // document mints its SC No from; leaving it in the spread would send
     // PostgREST a column `garment_order_amendments` does not have.
@@ -816,6 +985,8 @@ function headerOnly(data: AmendmentInput) {
   void _loc;
   void _st;
   void _ss;
+  void _scoord;
+  void _scomp;
   void _sp;
   void _dy;
   void _pr;

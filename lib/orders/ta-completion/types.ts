@@ -14,7 +14,7 @@ export interface TaCompletion {
 }
 
 export const taCompletionInput = z.object({
-  order_id: z.string().uuid("Select the SC No"),
+  order_id: z.string().uuid("Select the RE No"),
   customer_id: z.string().uuid().nullable().default(null),
   order_no: z.string().optional().nullable(),
   completion_date: z.string().min(1, "Date is required"),

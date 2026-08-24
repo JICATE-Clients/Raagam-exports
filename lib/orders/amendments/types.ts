@@ -2,6 +2,11 @@ import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
 import { isUnitKind, type UnitKind } from "@/lib/orders/styles/rules";
 import { styleProcessInput, type ProcessKind } from "./style-processes";
+/* TYPE-ONLY, so the client component is erased at compile time and never
+   reaches the server bundle this file is imported into. The three document
+   kinds are declared once, in the component that renders them; see
+   `AmendmentFile`. */
+import type { AttachmentKind } from "@/components/ui/file-attachments";
 
 // ============================================================================
 // Garment Orders ▸ Garment Order Amendment. Header + 10 sub-tabs.
@@ -246,13 +251,49 @@ export interface AmendmentStyle {
   sno: number;
   style_ref_no: string | null;
   style_id: string | null;
+  /**
+   * THE STYLE MASTER'S OWN HEADER FIELDS, ON THE ORDER (0461, client
+   * 2026-08-23). `pickStyle` seeds them; the order may then differ from the
+   * style without rewriting history for every other order pointing at it.
+   */
+  approved_sample_id: string | null;
   article_no: string | null;
+  /**
+   * THE CATEGORY NAME, and `style_category_id` beside it is the row.
+   *
+   * The text has been here since the tab was built and is what the order seed
+   * populates. It is a DISPLAY CACHE: the id is the truth, and both are written
+   * from the picker's one `onChange` so they cannot disagree. It is not dropped
+   * because `writeChildren` rewrites this table wholesale — absent from the
+   * payload means NULLED, not frozen.
+   */
   style_category: string | null;
+  style_category_id: string | null;
   style_description: string | null;
   order_unit_id: string | null;
   plan_unit_id: string | null;
   po_qty: number;
   description: string | null;
+}
+
+/**
+ * Order Info ▸ Styles Details ▸ one COORDINATE of one style line (0461).
+ *
+ * A COMPONENT IS A PART OF ONE OF THESE — the Style master says so in the one
+ * hint line that survived its de-clutter sweep, and its Component grid narrows
+ * on it. Until this table existed the order's Coordinate cell had nothing on the
+ * order to scope by and offered the whole `items` GAR master.
+ *
+ * Keyed by `style_ref_no` for the reason the sizes, the processes and the
+ * components all record, and read back by the same pass.
+ */
+export interface AmendmentStyleCoordinate {
+  id: string;
+  amendment_id: string;
+  style_ref_no: string | null;
+  sno: number;
+  /** `items` of item class GAR (0396) — PIECES, TOP, BOTTOM. */
+  coordinate_id: string | null;
 }
 
 /**
@@ -271,6 +312,52 @@ export interface AmendmentStyleSize {
   sno: number;
   /** `config_lookups` kind 'size' — the same rows `garment_style_sizes` uses. */
   size_id: string | null;
+}
+
+/**
+ * Order Info ▸ Styles Details ▸ one COMPONENT of one style line (0457).
+ *
+ * THE STYLE MASTER'S "Components & Sizes" SECTION, ON THE ORDER (client
+ * 2026-08-23: "we can style as separate child now but we need to merge it with
+ * order entry … component and size also will come inside that order info").
+ * Sizes were already here (`AmendmentStyleSize` above, 0407); this is the other
+ * half, and it is the same three cells the Style master shows — Coordinate,
+ * Component, Structure.
+ *
+ * Keyed by `style_ref_no` for exactly the reason the sizes and the processes
+ * are, and read back by the same pass: `writeChildren` reinserts `..._styles`
+ * wholesale, so an id would dangle.
+ *
+ * `pickStyle` SEEDS these from `garment_style_components` — so the order starts
+ * from what the style declares and can then differ from it, which is the whole
+ * point of the order holding its own rows. Editing the master instead would
+ * rewrite every other order already pointing at that style.
+ */
+export interface AmendmentStyleComponent {
+  id: string;
+  amendment_id: string;
+  style_ref_no: string | null;
+  sno: number;
+  /** "Coordinate" — `items` of class GAR (0396). PIECES, TOP, BOTTOM. */
+  coordinate_id: string | null;
+  /** "Component" — the `components` master (0396). FRONT BODY, COLLAR. */
+  component_id: string | null;
+  /** "Structure" on screen — a fabric CATEGORY (0405), not the knit family. */
+  fabric_category_id: string | null;
+  /**
+   * "Type" — the fabric structure implied by the category, filled by
+   * `componentTypeForCategory` on the Structure cell's change.
+   *
+   * STORED AND NOT SHOWN, exactly as on the Style master, which withdrew the
+   * cell on 2026-08-18 and kept the column. It has to stay in the row shape and
+   * in the payload, not merely in the table: `writeChildren` rewrites this grid
+   * wholesale, so a field dropped from the payload is NULLED on the next save
+   * rather than frozen.
+   */
+  comp_type: string | null;
+  /** "Fabric" — withdrawn as a cell on the master 2026-08-11, stored for the
+   *  same reason `comp_type` is. */
+  item_id: string | null;
 }
 
 /**
@@ -499,6 +586,38 @@ export interface AmendmentPackType {
 }
 
 /**
+ * A document attached to the order (0416) — the style JPG, the buyer's original
+ * PDF order sheet, a shade card.
+ *
+ * ## THE BYTES ARE NOT HERE
+ *
+ * `storage_path` is the key inside the PRIVATE `garment-order-docs` bucket,
+ * never a URL. A signed URL expires, so a stored one gives a row that reads
+ * correctly today and 404s next week — 0416's own words. Reads go through
+ * `createSignedUrl`; `getPublicUrl` would hand the buyer's prices to anyone
+ * holding the link, forever, with no login.
+ *
+ * ## `doc_kind` IS THE COMPONENT'S TYPE, IMPORTED
+ *
+ * `AttachmentKind` in `components/ui/file-attachments.tsx` already names the
+ * three values, and the CHECK constraint names them a third time. Re-declaring
+ * them here would be a fourth place for the same list to drift — the failure
+ * `style_processes` above records for `ProcessKind` and solves the same way.
+ */
+export interface AmendmentFile {
+  id: string;
+  amendment_id: string;
+  sno: number;
+  doc_kind: AttachmentKind | null;
+  file_name: string | null;
+  /** The path WITHIN the bucket. Never a URL — see above. */
+  storage_path: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
+/**
  * Quantities tab (0398) — how the order's quantity splits across countries,
  * consignees and delivery dates.
  *
@@ -669,6 +788,8 @@ export interface GarmentOrderAmendment {
   style_prices: AmendmentStylePrice[];
   styles: AmendmentStyle[];
   style_sizes: AmendmentStyleSize[];
+  style_coordinates: AmendmentStyleCoordinate[];
+  style_components: AmendmentStyleComponent[];
   style_processes: AmendmentStyleProcess[];
   dyeings: AmendmentDyeing[];
   prints: AmendmentPrint[];
@@ -679,6 +800,7 @@ export interface GarmentOrderAmendment {
   pack_types: AmendmentPackType[];
   quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
+  files: AmendmentFile[];
 }
 
 const nullableText = z.string().optional().nullable();
@@ -691,13 +813,32 @@ export const amendmentStyleInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   style_ref_no: nullableText,
   style_id: uuidN,
+  // The Style master's header fields, merged onto the order (0461). Season and
+  // Year are deliberately NOT among them — see 0462 and the note in
+  // `normalizeStyles`.
+  approved_sample_id: uuidN,
   article_no: nullableText,
+  // The name and the row it resolves to. See `AmendmentStyle` above: the id is
+  // the truth, the text is a cache, both written from one event.
   style_category: nullableText,
+  style_category_id: uuidN,
   style_description: nullableText,
   order_unit_id: uuidN,
   plan_unit_id: uuidN,
   po_qty: num,
   description: nullableText,
+});
+
+/**
+ * Order Info ▸ Styles Details ▸ Coordinates (0461).
+ *
+ * Flat and keyed by `style_ref_no`, the same shape the sizes and the components
+ * take — the screen nests these under their style row and flattens on submit.
+ */
+export const amendmentStyleCoordinateInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  style_ref_no: nullableText,
+  coordinate_id: uuidN,
 });
 
 /**
@@ -716,6 +857,29 @@ export const amendmentStyleSizeInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   style_ref_no: nullableText,
   size_id: uuidN,
+});
+
+/**
+ * Order Info ▸ Styles Details ▸ Components (0457).
+ *
+ * Flat and keyed by `style_ref_no`, the same shape `amendmentStyleSizeInput`
+ * takes and for the same reason — the screen nests these under their style row
+ * and flattens on submit.
+ *
+ * `comp_type` and `item_id` are here even though neither has a cell. Both are
+ * carried through so the seed from `garment_style_components` can round-trip
+ * them; leaving them out would let a save NULL a value the master stated, which
+ * is what `writeChildren`'s wholesale rewrite does to anything absent from the
+ * payload.
+ */
+export const amendmentStyleComponentInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  style_ref_no: nullableText,
+  coordinate_id: uuidN,
+  component_id: uuidN,
+  fabric_category_id: uuidN,
+  comp_type: nullableText,
+  item_id: uuidN,
 });
 
 export const amendmentDyeingInput = z.object({
@@ -867,6 +1031,30 @@ export const amendmentApprovalQtyInput = z.object({
 export const amendmentPackTypeInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   pack_type: nullableText,
+});
+
+/**
+ * One attached document (0416).
+ *
+ * `doc_kind` is nullable because the operator picks it AFTER the file lands —
+ * the upload is immediate and the kind is a `<Select>` on the row. A row
+ * mid-answer is not an error, which is the rule every child input here follows;
+ * `not null` would turn "not chosen yet" into a 23502 on save.
+ *
+ * The enum is stated as a Zod literal union rather than imported, because
+ * `AttachmentKind` is a TYPE and Zod needs values. `satisfies` is what keeps the
+ * two from drifting: widen the component's union and this stops compiling.
+ */
+export const amendmentFileInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  doc_kind: z
+    .enum(["sketch", "order_sheet", "approval"] satisfies readonly AttachmentKind[])
+    .nullable()
+    .default(null),
+  file_name: nullableText,
+  storage_path: nullableText,
+  mime_type: nullableText,
+  size_bytes: z.coerce.number().nullable().default(null),
 });
 
 /**
@@ -1066,6 +1254,18 @@ export const amendmentInput = z.object({
   styles: z.array(amendmentStyleInput).default([]),
   style_sizes: z.array(amendmentStyleSizeInput).default([]),
   /**
+   * The per-style Coordinate list (0461) — what a component is a part of.
+   * Ordered before the components deliberately: it is what scopes their
+   * Coordinate cell, and the same order the Style master reads them in.
+   */
+  style_coordinates: z.array(amendmentStyleCoordinateInput).default([]),
+  /**
+   * The per-style Component list (0457) — the Style master's other child,
+   * merged into Order Info beside the sizes. Same flat, `style_ref_no`-keyed
+   * shape, nested under the style row on screen and flattened on submit.
+   */
+  style_components: z.array(amendmentStyleComponentInput).default([]),
+  /**
    * The per-style Process list (0411). Flat and keyed by `style_ref_no`, the
    * same shape `style_sizes` takes and for the same reason — the screen nests
    * these under their style row and flattens on submit.
@@ -1084,6 +1284,7 @@ export const amendmentInput = z.object({
   approval_qtys: z.array(amendmentApprovalQtyInput).default([]),
   pack_types: z.array(amendmentPackTypeInput).default([]),
   quantities: z.array(amendmentQuantityInput).default([]),
+  files: z.array(amendmentFileInput).default([]),
 });
 export type AmendmentInput = z.infer<typeof amendmentInput>;
 

@@ -309,7 +309,7 @@ function ItemsTab({
                 <Input
                   readOnly
                   value={fmtMoney((parseFloat(form.qty) || 0) * (parseFloat(form.rate) || 0))}
-                  className="bg-muted text-muted-foreground"
+                  className="bg-surface-muted text-muted-foreground"
                 />
               </div>
             </div>
@@ -512,7 +512,7 @@ export function PurchasePpmDetail({
             )}
             {isDraft && canDelete && (
               <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
                 disabled={isPending}
                 onClick={handleDelete}
               >

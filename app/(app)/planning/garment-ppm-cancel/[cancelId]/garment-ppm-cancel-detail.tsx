@@ -160,7 +160,7 @@ function StylesTab({
     { header: "Style Ref",  cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
     { header: "Style",      cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
     { header: "Article",    cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
-    { header: "SC No",      cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
+    { header: "RE No",      cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
     { header: "Order No",   cell: (r) => <span className="text-sm">{r.order_no ?? "--"}</span> },
     { header: "UOM",        cell: (r) => <span className="text-xs text-muted-foreground">{r.uom_id ?? "--"}</span> },
     { header: "Cancel Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm font-medium">{fmtNumber(r.cancel_qty)}</span> },
@@ -257,7 +257,7 @@ function StylesTab({
                 />
               </div>
               <div>
-                <Label>SC No</Label>
+                <Label>RE No</Label>
                 <Input
                   value={form.sc_no}
                   onChange={(e) => setForm((f) => ({ ...f, sc_no: e.target.value }))}
@@ -500,7 +500,7 @@ export function GarmentPpmCancelDetail({
             )}
             {isDraft && canDelete && (
               <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
                 disabled={isPending}
                 onClick={handleDelete}
               >

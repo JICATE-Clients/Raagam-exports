@@ -102,7 +102,7 @@ export default async function ExportDetailPage({
             <CardTitle>XML Preview</CardTitle>
           </CardHeader>
           <CardBody>
-            <pre className="text-xs overflow-auto max-h-96 whitespace-pre-wrap break-all bg-muted/40 rounded p-3">
+            <pre className="text-xs overflow-auto max-h-96 whitespace-pre-wrap break-all bg-surface-muted/40 rounded p-3">
               {exp.xml_content.slice(0, 2000)}
               {exp.xml_content.length > 2000 && (
                 "\n\n… (truncated — download for full content)"

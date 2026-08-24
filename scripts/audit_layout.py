@@ -2283,6 +2283,207 @@ def check_date_year(path: Path, code: str, slug: str):
         )
 
 
+# ---------------------------------------------------------------------------
+# color-token -- a Tailwind colour utility must name a token that EXISTS
+# ---------------------------------------------------------------------------
+
+COLOR_TOKEN_EXEMPT = re.compile(r"color-token:\s*exempt\b[^\n]*\S", re.I)
+
+#: Utility prefixes that take a COLOUR. `shadow` is deliberately absent: its
+#: common values are sizes (`shadow-sm`), and a coloured shadow is rare enough
+#: here that including it would be noise for no signal.
+COLOR_PREFIXES = (
+    "bg", "text", "border", "ring", "fill", "stroke", "divide",
+    "outline", "accent", "caret", "decoration", "placeholder",
+    "from", "via", "to",
+)
+
+#: Values these prefixes take that are NOT colours. Without this the check
+#: reports `text-sm` 1873 times.
+NON_COLOUR_VALUES = {
+    # sizes and the type scale
+    "xs", "sm", "base", "md", "lg", "xl", "2xl", "3xl", "4xl", "5xl", "6xl",
+    "7xl", "8xl", "9xl",
+    # text alignment / wrapping / decoration
+    "left", "center", "right", "justify", "start", "end", "wrap", "nowrap",
+    "balance", "pretty", "ellipsis", "clip", "truncate", "underline",
+    "overline", "line", "through",
+    # border / divide sides and styles
+    "t", "r", "b", "l", "x", "y", "s", "e",
+    "solid", "dashed", "dotted", "double", "hidden", "collapse", "separate",
+    # backgrounds that are not colours
+    "cover", "contain", "fixed", "local", "scroll", "repeat", "no", "origin",
+    "top", "bottom", "middle", "auto", "clip",
+    # keywords shared across prefixes
+    "none", "inherit", "current", "transparent", "initial", "unset",
+    # ring / outline
+    "inset", "offset",
+    # bg-gradient-to-br and friends are DIRECTIONS, not colours
+    "gradient",
+    # tailwind's two bare colours, which are real utilities
+    "white", "black",
+}
+
+#: A prefix only counts at a word boundary. Without this, `to-` matches inside
+#: `auto-update`, `auto-reload` and `auto-generated`, which the prototype found
+#: 39 times -- enough noise to make the check unreadable.
+#: Attributes whose VALUE is an identifier rather than a class list.
+ATTR_NOT_CLASS = re.compile(r'(?:^|[^A-Za-z])(?:id|htmlFor|name|key|href|for)[ ]*[:=][ ]*["{`]?[^"`]*$')
+
+COLOR_UTIL = re.compile(
+    r"(?:^|[\s\"'`{(\[:])((?:" + "|".join(COLOR_PREFIXES) + r")-[a-z][a-z0-9/\[\]#.-]*)"
+)
+
+_DECLARED_TOKENS: dict[str, set[str]] = {}
+_COLOR_TOKEN_MUTE = False
+
+
+def _repo_root_of(path: Path) -> Path | None:
+    """Walk UP from a source file until `app/globals.css` is beside us.
+
+    NOT arithmetic on the slug. The first cut derived the root by walking up
+    `len(Path(slug).parts) - 1` levels, which is off by one -- `slug` counts the
+    FILENAME too -- so it landed one directory short, found no globals.css, and
+    every colour utility in the repo looked undeclared. Searching for the file
+    cannot be off by one.
+    """
+    here = path.parent
+    for _ in range(12):
+        if (here / "app" / "globals.css").is_file():
+            return here
+        if here.parent == here:
+            break
+        here = here.parent
+    return None
+
+
+def declared_color_tokens(root: Path) -> set[str]:
+    """The `--color-*` names `app/globals.css` declares, cached.
+
+    Tailwind v4 generates a colour utility for each of these and for NOTHING
+    else, which is the whole basis of this check: a class naming any other
+    token compiles to no CSS at all.
+
+    Cached at module level because `check_*` runs per FILE -- 645 of them -- and
+    re-reading and re-parsing globals.css each time would be 645 reads for one
+    unchanging answer.
+    """
+    key = str(root)
+    if key in _DECLARED_TOKENS:
+        return _DECLARED_TOKENS[key]
+    try:
+        css = (root / "app" / "globals.css").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        css = ""
+    tokens = set(re.findall(r"--color-([a-z0-9-]+)\s*:", css))
+    # AN EMPTY ANSWER IS NEVER CACHED. The first cut memoised it, so one bad
+    # root on the first file disabled the check for all 1,192 -- and it reported
+    # `0 findings`, which reads exactly like a clean repo. That is the blind
+    # check this file has been caught shipping three times.
+    if tokens:
+        _DECLARED_TOKENS[key] = tokens
+    return tokens
+
+
+def check_color_token(path: Path, code: str, slug: str):
+    """A colour utility must name a token globals.css declares, or it is dead CSS.
+
+    Tailwind v4 builds its colour utilities from `--color-*`. A class naming a
+    token that does not exist -- `bg-destructive`, `bg-muted`, `bg-card` --
+    generates NO CSS. Nothing errors, nothing warns, and the element simply has
+    no colour.
+
+    ## IT IS WORSE THAN NOTHING, BECAUSE `cn()` IS `twMerge`
+
+    `twMerge` resolves conflicts by class NAME, not by whether the class
+    resolves. So a `<Button className="bg-destructive ...">` with no `variant`
+    has its working `bg-primary text-primary-foreground` STRIPPED -- twMerge
+    treats the later className as an override -- and replaced with three
+    classes that compile to nothing. Thirteen Planning delete buttons rendered
+    with no background and no text colour at all, which is worse than if the
+    className had never been written (2026-08-23).
+
+    The same shape is already recorded for `bg-muted` / `bg-card` /
+    `bg-secondary`: shadcn habits carried in from other projects, where the
+    tokens are real. Here they are not.
+
+    ## THE PREFIX MUST BE ANCHORED
+
+    `to-`, `from-` and `via-` are gradient stops, and they match inside ordinary
+    words: `auto-update`, `auto-reload`, `auto-generated`. The prototype for
+    this check found 39 such hits before anchoring. A leading boundary is what
+    makes the output readable.
+
+    A utility carrying a DIGIT is Tailwind's own palette (`amber-500`,
+    `blue-600`) or an arbitrary value, and is skipped -- this check knows the
+    project's tokens, not Tailwind's.
+
+    Opt out with a `color-token: exempt -- <reason>` comment.
+    """
+    if not code:
+        return
+    root = _repo_root_of(path)
+    declared = declared_color_tokens(root) if root else set()
+    if not declared:
+        # NOTHING TO CHECK AGAINST IS NOT A CLEAN BILL, AND IT MUST NOT BE
+        # SILENT. Reporting every class as undeclared would bury the repo; a
+        # bare `return` is worse -- it prints `0 findings`, which reads exactly
+        # like a clean run. This check already shipped that way once (the root
+        # was derived one directory short, the empty answer was cached, and all
+        # 1,192 files came back clean). So it says so, once.
+        global _COLOR_TOKEN_MUTE
+        if not _COLOR_TOKEN_MUTE:
+            _COLOR_TOKEN_MUTE = True
+            yield Finding(
+                "color-token", path, 1,
+                "could not read app/globals.css, so no colour token could be "
+                "verified -- this check did NOT run; 0 findings here means "
+                "nothing",
+            )
+        return
+
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in COLOR_TOKEN_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+
+    for m in COLOR_UTIL.finditer(code):
+        util = m.group(1)
+        # AN `id` IS NOT A className. `budget-screen.tsx` prefixes its field ids
+        # `bg-` for "budget" -- `htmlFor="bg-rate"`, `id="bg-remark"` -- and a
+        # scan that reads any `bg-*` token reported three of them as dead CSS.
+        # The nearest attribute name is what tells them apart.
+        before = code[max(0, m.start() - 24):m.start()]
+        if ATTR_NOT_CLASS.search(before):
+            continue
+        prefix, _, value = util.partition("-")
+        # Drop the opacity modifier: `bg-danger/40` names the token `danger`.
+        value = value.split("/", 1)[0]
+        if not value or any(ch.isdigit() for ch in value):
+            continue
+        if "[" in value or "(" in value or "." in value:
+            continue  # arbitrary value: bg-[#fff], bg-[var(--x)]
+        if value in NON_COLOUR_VALUES:
+            continue
+        # A compound like `border-t` on the `border` prefix is a side, not a
+        # token; its first segment carries that.
+        if value.split("-", 1)[0] in NON_COLOUR_VALUES:
+            continue
+        if value in declared:
+            continue
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        yield Finding(
+            "color-token", path, line,
+            f"`{util}` names no token globals.css declares, so it compiles to NO "
+            f"CSS -- and `cn()` is twMerge, which still strips the variant class "
+            f"it appears to override. Use a declared token ({', '.join(sorted(declared)[:4])}, "
+            f"...) or a Button `variant`, or add a `color-token: exempt -- <reason>` comment",
+        )
+
 CHECKS = {
     "grid-required-mobile": check_grid_required_mobile,
     "cascade-filter": check_cascade_filter,
@@ -2309,6 +2510,7 @@ CHECKS = {
     "grid-caption": check_grid_caption,
     "placeholder-blank": check_placeholder_blank,
     "date-year": check_date_year,
+    "color-token": check_color_token,
 }
 
 

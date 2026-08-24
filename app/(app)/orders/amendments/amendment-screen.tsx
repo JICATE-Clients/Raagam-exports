@@ -87,7 +87,13 @@ import {
   type MasterFullScreenHandle,
 } from "@/components/masters/master-full-screen";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
-import { Field, FieldGrid, FieldRow, FIELD_TRACK, RequiredScope } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
+import { MultiSelect } from "@/components/ui/multi-select";
+// `sortBySize` / `sizeFamily`: the Style master orders and bands its Sizes
+// dropdown with these, and Order Info now draws the same control — a second
+// ordering would put S/M/L in one order on one screen and another elsewhere.
+import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
+import { capsName } from "@/lib/validation/formats";
 import { Truncated } from "@/components/ui/truncated";
 import { PriceMatrix } from "@/components/orders/price-matrix";
 import { reshapeRates } from "@/lib/orders/amendments/price-modes";
@@ -96,11 +102,23 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
+import { FileAttachments, type AttachmentRow } from "@/components/ui/file-attachments";
+import { SketchThumbnail } from "@/components/ui/sketch-thumbnail";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { isInactive } from "@/lib/masters/inactive";
+// The Style master's own rules, imported rather than re-derived: Order Info now
+// writes the same two children that screen does (0457), and a second copy of
+// either question is how `comp_type` came to have four wrong readings.
+import {
+  componentRowStarted,
+  componentTypeForCategory,
+  coordinateLimit,
+  filledCoordinates,
+} from "@/lib/orders/styles/rules";
+import { componentsForCoordinate } from "@/lib/masters/component-coordinates";
 import { previewOrderNumber } from "@/lib/orders/actions";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
@@ -223,12 +241,50 @@ interface Props {
  * only door that reaches the table without passing through this shape.
  */
 type SizeRow = { key: string; size_id: string | null };
+/** Order Info ▸ Styles Details ▸ one COORDINATE of the style line (0461).
+ *  A component is a part of one of these, which is what makes this list the
+ *  scope for the Components grid's Coordinate cell. */
+type StyleCoordRow = { key: string; coordinate_id: string | null };
+/**
+ * Order Info ▸ Styles Details ▸ one COMPONENT of the style line (0457).
+ *
+ * THE STYLE MASTER'S OTHER CHILD, MERGED INTO ORDER ENTRY (client 2026-08-23:
+ * "we can style as separate child now but we need to merge it with order entry
+ * … component and size also will come inside that order info"). Sizes were
+ * already a cell of this row; this is the half that had nowhere to live.
+ *
+ * The three cells are the Style master's three visible cells and no more —
+ * Coordinate, Component, Structure. `comp_type` and `item_id` are carried
+ * without a cell, exactly as the master carries them: `writeChildren` rewrites
+ * this grid wholesale, so a field the row cannot hold is a value the first save
+ * NULLS rather than freezes.
+ */
+type StyleComponentRow = {
+  key: string;
+  coordinate_id: string | null;
+  component_id: string | null;
+  fabric_category_id: string | null;
+  /** Derived from the Structure cell, never typed. Stored, not shown. */
+  comp_type: string;
+  /** "Fabric" — withdrawn as a cell on the master 2026-08-11. Stored, not shown. */
+  item_id: string | null;
+};
 type StyleRow = {
   key: string;
   style_ref_no: string;
   style_id: string | null;
+  /**
+   * THE STYLE MASTER'S HEADER FIELDS, ON THE LINE (0461, client 2026-08-23).
+   * `pickStyle` seeds them and the operator may then differ from the style —
+   * a re-run against a new season, or a different approved sample — without
+   * editing a master every other order also points at.
+   */
+  approved_sample_id: string | null;
   article_no: string;
+  /** The category NAME. A display cache — `style_category_id` is the row, and
+   *  both are written from the picker's one event so they cannot disagree. */
   style_category: string;
+  style_category_id: string | null;
   style_description: string;
   order_unit_id: string | null;
   plan_unit_id: string | null;
@@ -236,6 +292,15 @@ type StyleRow = {
   description: string;
   /** The style's size set, listed under the row. Order IS the data. */
   sizes: SizeRow[];
+  /** What its components are parts OF (0461), nested for the same reason. */
+  coordinates: StyleCoordRow[];
+  /**
+   * The style's component list (0457), nested for the same reason `sizes` is:
+   * a part cannot outlive the line it belongs to, and the payload key is the
+   * flat `style_components` because `writeChildren` reinserts `..._styles`
+   * wholesale and an id would dangle.
+   */
+  components: StyleComponentRow[];
   /**
    * The line's Process list (0411), edited in a sheet off the Process button.
    *
@@ -532,6 +597,40 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
     if (list) list.push(row);
     else sizesByStyle.set(k, [row]);
   }
+  /* THE COORDINATES (0461), regrouped exactly as the sizes above are, and for
+     the same reasons: `styleKey` rather than `===` (rows saved before the
+     CAPITALS rule are not upper-cased), and a coordinate whose style is no
+     longer on the document is DROPPED rather than shown loose. */
+  const coordsByStyle = new Map<string, StyleCoordRow[]>();
+  for (const x of src.styleCoordinates ?? []) {
+    const k = styleKey(x.style_ref_no);
+    const list = coordsByStyle.get(k);
+    const row: StyleCoordRow = { key: newKey(), coordinate_id: x.coordinate_id };
+    if (list) list.push(row);
+    else coordsByStyle.set(k, [row]);
+  }
+  /* THE COMPONENTS (0457), regrouped exactly as the sizes above are.
+
+     Same key, same comparison and the same drop rule: `styleKey` rather than
+     `===`, because rows saved before the CAPITALS rule are not upper-cased in
+     the database and a case-sensitive match would silently lose every part of
+     an older order. A component whose style is no longer on the document has
+     nowhere to render; the normalizer cannot have written one. */
+  const componentsByStyle = new Map<string, StyleComponentRow[]>();
+  for (const x of src.styleComponents ?? []) {
+    const k = styleKey(x.style_ref_no);
+    const list = componentsByStyle.get(k);
+    const row: StyleComponentRow = {
+      key: newKey(),
+      coordinate_id: x.coordinate_id,
+      component_id: x.component_id,
+      fabric_category_id: x.fabric_category_id,
+      comp_type: txt(x.comp_type),
+      item_id: x.item_id,
+    };
+    if (list) list.push(row);
+    else componentsByStyle.set(k, [row]);
+  }
   /* Same grouping as the sizes above, and for the same reason: the rows arrive
      flat and keyed by `style_ref_no`, and the grid needs them under their line.
      A process whose style is not on the order has nowhere to render; the
@@ -567,14 +666,18 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       key: newKey(),
       style_ref_no: txt(x.style_ref_no),
       style_id: x.style_id,
+      approved_sample_id: x.approved_sample_id,
       article_no: txt(x.article_no),
       style_category: txt(x.style_category),
+      style_category_id: x.style_category_id,
       style_description: txt(x.style_description),
       order_unit_id: x.order_unit_id,
       plan_unit_id: x.plan_unit_id,
       po_qty: num(x.po_qty),
       description: txt(x.description),
       sizes: sizesByStyle.get(styleKey(x.style_ref_no)) ?? [],
+      coordinates: coordsByStyle.get(styleKey(x.style_ref_no)) ?? [],
+      components: componentsByStyle.get(styleKey(x.style_ref_no)) ?? [],
       processes: processesByStyle.get(styleKey(x.style_ref_no)) ?? [],
     })),
     dyeings: src.dyeings.map((x): DyeingRow => ({
@@ -904,6 +1007,50 @@ export function AmendmentScreen({
   const [approvalQtys, setApprovalQtys] = useState<ApprovalQtyRow[]>([]);
   const [packTypes, setPackTypes] = useState<PackTypeRow[]>([]);
   const [quantities, setQuantities] = useState<QuantityRow[]>([]);
+
+  /**
+   * THE ATTACHED DOCUMENTS (0416) — the style JPG, the buyer's PDF order sheet,
+   * shade cards. Metadata only; the bytes are already in the private
+   * `garment-order-docs` bucket by the time a row exists here.
+   */
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+
+  /**
+   * WHERE UPLOADS LAND BEFORE THE ORDER HAS AN ID.
+   *
+   * The client's requirement is explicit that files are attached BEFORE the
+   * order is saved (2026-08-12), and `editId` is null until then — so the folder
+   * cannot be the record id on the one path that matters most.
+   *
+   * It does not have to be. `storage_path` is what the row stores and what a
+   * signed URL is minted from; the folder is organisation, not identity.
+   * `PhotoUpload` makes the same call one step further, keying employee photos
+   * by a random filename in a flat folder and never by the employee at all.
+   *
+   * LAZY STATE, NOT A REF. It must survive every re-render of a screen that
+   * re-renders on each keystroke, and a ref does that — but this value is READ
+   * DURING RENDER, to hand `FileAttachments` its folder, and reading a ref in
+   * render is what `react-hooks` refuses ("Cannot access refs during render").
+   * `useState`'s initialiser runs once and the value is render-safe, which is
+   * the same guarantee without the violation.
+   */
+  const [uploadFolder, setUploadFolder] = useState(() => crypto.randomUUID());
+
+  /**
+   * THE SKETCH THE HEADER SHOWS — the FIRST one, where there are several.
+   *
+   * An order can carry more than one drawing (a front and a back, two
+   * colourways), and the header has room for one thumbnail. Taking the first
+   * means the operator controls which by ordering the rows, and the grid's order
+   * is the order they uploaded in — visible, and re-orderable by removing and
+   * re-adding. Picking "the newest" instead would move the reference under them
+   * whenever a second sketch arrived.
+   *
+   * A row with no `storage_path` cannot be shown: the upload is what produces
+   * that value, so its absence means the file never landed.
+   */
+  const sketchPath =
+    attachments.find((f) => f.doc_kind === "sketch" && f.storage_path)?.storage_path ?? null;
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
@@ -917,14 +1064,18 @@ export function AmendmentScreen({
     key: newKey(),
     style_ref_no: "",
     style_id: null,
+    approved_sample_id: null,
     article_no: "",
     style_category: "",
+    style_category_id: null,
     style_description: "",
     order_unit_id: null,
     plan_unit_id: null,
     po_qty: "",
     description: "",
     sizes: [],
+    coordinates: [],
+    components: [],
     processes: [],
   });
   const blankDyeing = (section: "yarn" | "fabric"): DyeingRow => ({
@@ -1244,8 +1395,14 @@ export function AmendmentScreen({
    * size grid picks from, which is what makes a size created here immediately
    * available there and vice versa.
    */
+  /* SORTED, like the Style master's (`sortBySize`) — 2026-08-23. It was
+     insertion order here, which was invisible while the sizes were a handful of
+     seeded pickers and is the first thing an operator sees now that the same
+     gridded dropdown draws them. One ordering, one declaration: two screens
+     showing the same size master in two orders is the drift the shared helper
+     exists to stop. */
   const sizeOpts = useMemo(
-    () => lookups.filter((l) => l.kind === "size"),
+    () => sortBySize(lookups.filter((l) => l.kind === "size"), (l) => l.name),
     [lookups],
   );
 
@@ -1271,6 +1428,57 @@ export function AmendmentScreen({
         (l) => l.kind === "item_class" && (l.code ?? "").toUpperCase() === "FABRIC",
       )?.id ?? null,
     [lookups],
+  );
+  /**
+   * The `fabric_structure` lookup rows — Circular Knit / Flat Knit / Woven.
+   *
+   * NOT A PICKER (0415 took the last one off this screen, and nothing here asks
+   * the operator the knit family directly). It is the second hop of a
+   * DERIVATION: a component names a fabric CATEGORY, the category names its
+   * family, and `compTypeFor` turns that into the `comp_type` this screen now
+   * stores alongside the Style master. `familyCodeOf` below makes the same two
+   * hops for the GSM rule and reads `lookups` directly; this memo is the same
+   * fact shaped as `{id, name}` because that is what the shared rule takes.
+   */
+  const fabricStructureOpts = useMemo(
+    () =>
+      lookups
+        .filter((l) => l.kind === "fabric_structure")
+        .map((l) => ({ id: l.id, name: l.name })),
+    [lookups],
+  );
+  /**
+   * Style Category offers GARMENT categories (0394/0461) — the same list the
+   * Style master's own cell does.
+   *
+   * Scoped HERE rather than in the service, exactly as `structureItems` below
+   * scopes the FABRIC ones: this is the layer that knows which class the cell
+   * means. `inactive` rides along rather than being filtered in SQL, so a
+   * switched-off category the order already names still resolves.
+   *
+   * DECLARED WITH THE OTHER MEMOS AND NOT BESIDE ITS CELL, which is not tidiness
+   * — this component returns early in list mode, so a `useMemo` written down
+   * beside `styleColumns` is a hook called conditionally. eslint caught it;
+   * every other option list on this screen is up here for the same reason.
+   */
+  const garmentClassId = useMemo(
+    () =>
+      lookups.find(
+        (l) => l.kind === "item_class" && (l.code ?? "").toUpperCase() === "GAR",
+      )?.id ?? null,
+    [lookups],
+  );
+  const styleCategoryItems = useMemo(
+    () =>
+      data.categories
+        .filter((c) => !garmentClassId || c.item_class_id === garmentClassId)
+        .map((c) => ({
+          id: c.id,
+          code: c.short_name,
+          name: c.name ?? c.short_name ?? "(unnamed category)",
+          inactive: isInactive(c),
+        })),
+    [data.categories, garmentClassId],
   );
   const structureItems = useMemo(
     () =>
@@ -1808,6 +2016,12 @@ export function AmendmentScreen({
     // blank form — where they read as data the operator entered.
     setPackTypes([]);
     setQuantities([]);
+    setAttachments([]);
+    /* A FRESH FOLDER PER RECORD. Without this, a new order started after
+       another would upload into the previous one's folder — harmless for
+       retrieval, since `storage_path` is stored per row, and misleading to
+       anyone reading the bucket. */
+    setUploadFolder(crypto.randomUUID());
     setPendingSeed(null);
     setSeeded(false);
     openOneRow();
@@ -1883,6 +2097,8 @@ export function AmendmentScreen({
     applyRows({
       styles: r.styles,
       styleSizes: r.style_sizes,
+      styleCoordinates: r.style_coordinates,
+      styleComponents: r.style_components,
       styleProcesses: r.style_processes,
       dyeings: r.dyeings,
       prints: r.prints,
@@ -1893,6 +2109,20 @@ export function AmendmentScreen({
       packTypes: r.pack_types,
       quantities: r.quantities,
     });
+    /* NOT PART OF `applyRows`, deliberately: that mapping is shared with the
+       ORDER SEED, and an order carries no attachments. Folding files into it
+       would make every seeded amendment clear the documents of the one it was
+       seeded from. */
+    setAttachments(
+      (r.files ?? []).map((f) => ({
+        key: newKey(),
+        doc_kind: f.doc_kind ?? "",
+        file_name: f.file_name ?? "",
+        storage_path: f.storage_path ?? "",
+        mime_type: f.mime_type ?? "",
+        size_bytes: f.size_bytes ?? 0,
+      })),
+    );
     setMode("edit");
   }
 
@@ -1956,8 +2186,11 @@ export function AmendmentScreen({
         sno: 0,
         style_ref_no: r.style_ref_no || null,
         style_id: r.style_id,
+        // The Style master's header fields, merged onto the line (0461).
+        approved_sample_id: r.approved_sample_id,
         article_no: r.article_no || null,
         style_category: r.style_category || null,
+        style_category_id: r.style_category_id,
         style_description: r.style_description || null,
         order_unit_id: r.order_unit_id,
         plan_unit_id: r.plan_unit_id,
@@ -1981,6 +2214,38 @@ export function AmendmentScreen({
           sno: 0,
           style_ref_no: r.style_ref_no || null,
           size_id: z.size_id,
+        })),
+      ),
+      /* THE COORDINATES (0461), flattened exactly as `style_sizes` above and
+         just as deliberately unfiltered: `normalizeStyleCoordinates` drops the
+         blank, the orphaned and the duplicated. */
+      style_coordinates: styles.flatMap((r) =>
+        r.coordinates.map((c) => ({
+          sno: 0,
+          style_ref_no: r.style_ref_no || null,
+          coordinate_id: c.coordinate_id,
+        })),
+      ),
+      /* THE COMPONENTS (0457), flattened exactly as `style_sizes` above.
+
+         UNFILTERED HERE ON PURPOSE, the same call the sizes and the processes
+         both make: `normalizeStyleComponents` drops the blank, the orphaned and
+         the duplicated, and it is the copy `lib/data-io` would also pass
+         through. A second filter here would be a second answer to one question.
+
+         `comp_type` and `item_id` are sent even though neither has a cell.
+         Leave them out and the first save NULLS what the seed copied off the
+         Style master — `writeChildren` rewrites this grid wholesale, so absent
+         is not the same as frozen. */
+      style_components: styles.flatMap((r) =>
+        r.components.map((c) => ({
+          sno: 0,
+          style_ref_no: r.style_ref_no || null,
+          coordinate_id: c.coordinate_id,
+          component_id: c.component_id,
+          fabric_category_id: c.fabric_category_id,
+          comp_type: c.comp_type || null,
+          item_id: c.item_id,
         })),
       ),
       /* Flattened like `style_sizes` above, and just as deliberately unfiltered:
@@ -2144,6 +2409,17 @@ export function AmendmentScreen({
         qty: r.qty,
         approval_qty: r.approval_qty,
       })),
+      /* THE ATTACHED DOCUMENTS (0416). `sno` is stamped server-side by
+         `normalizeFiles`, like every other child here — the grid's own order is
+         the array order and nothing on screen types a number. */
+      files: attachments.map((f) => ({
+        sno: 0,
+        doc_kind: f.doc_kind || null,
+        file_name: f.file_name || null,
+        storage_path: f.storage_path || null,
+        mime_type: f.mime_type || null,
+        size_bytes: f.size_bytes ?? null,
+      })),
     };
     start(async () => {
       const res = editId
@@ -2182,7 +2458,7 @@ export function AmendmentScreen({
   if (mode === "list") {
     const columns: Column<GarmentOrderAmendment>[] = [
       /* "Code" WITHDRAWN 2026-08-21 (client): the internal amendment code is not
-         how anyone refers to an order — SC No is, and it sits in the next
+         how anyone refers to an order — RE No is, and it sits in the next
          column. Display only: `code` is still generated, still stored, still
          selected, and still the fallback identity below; dropping a COLUMN from
          a list is not the withdrawal that drops a FIELD from a form, where the
@@ -2190,11 +2466,11 @@ export function AmendmentScreen({
          row either — the code cell was one of two ways to open the record, and
          the other, RowActions' Edit, is untouched. */
       {
-        // "SC No", the same name the editor's field carries (see the SCNo Field
+        // "RE No", the same name the editor's field carries (see the RE No Field
         // in Order Info). It read "Order #" here — one value under two names,
         // and this is the number the whole business tracks an order by, so the
         // list and the record have to call it the same thing.
-        header: "SC No",
+        header: "RE No",
         cell: (r) => (
           <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>
         ),
@@ -2469,8 +2745,17 @@ export function AmendmentScreen({
     updateStyle(key, {
       style_id: id,
       style_ref_no: s?.code ?? "",
+      /* THE MASTER'S HEADER FIELDS COME IN WITH THE STYLE (0461). Same rule as
+         the sizes and the components below: copied ON THE PICK so the operator
+         never retypes what the style already states, and editable afterwards so
+         the order can differ from it. `""` / null on a CLEARED style, never the
+         previous style's answers left standing. */
+      approved_sample_id: s?.approved_sample_id ?? null,
       article_no: s?.article_no ?? "",
+      /* The name and the row it resolves to, both off the same master row so
+         they cannot disagree — see `StyleRow`. */
       style_category: s?.style_category ?? "",
+      style_category_id: s?.style_category_id ?? null,
       style_description: s?.style_description ?? "",
       // Frozen columns, neither on screen — see the note above. `?? null` rather
       // than `?? ""`: these are FK columns to `uoms`, and "" is not a uuid.
@@ -2486,6 +2771,46 @@ export function AmendmentScreen({
       sizes: (s?.sizes ?? []).map((z) => ({
         key: newKey(),
         size_id: z.size_id,
+      })),
+      /*
+       * AND THE COORDINATES (0461) — what those components are parts OF.
+       *
+       * REPLACED, NOT MERGED, for the reason spelled out on the components
+       * below: a style's coordinate list is a DEFINITION of the garment, not an
+       * accumulation, so merging the coordinates of the style being swapped away
+       * with the ones being swapped in describes no garment at all.
+       */
+      coordinates: (s?.coordinates ?? []).map((c) => ({
+        key: newKey(),
+        coordinate_id: c.coordinate_id,
+      })),
+      /*
+       * THE COMPONENTS COME IN WITH THE STYLE TOO (0457).
+       *
+       * Same rule and the same `newKey()` reasoning as the sizes directly
+       * above: the master's list is the starting point, copied on the PICK so
+       * the operator never retypes what the style already states.
+       *
+       * REPLACED, NOT MERGED, and this is the one place this seed differs from
+       * the three additive ones below. A style's component list is a
+       * DEFINITION of a garment, not an accumulation of one: merging the parts
+       * of the style being swapped away with the parts of the style being
+       * swapped in gives a garment with two collars, and nothing downstream
+       * could tell which half was meant. The structures / prices / combos
+       * seeds are additive because those tabs describe the ORDER, which
+       * legitimately holds a little of each style on it; this list describes
+       * ONE line, and re-pointing that line replaces what it is.
+       *
+       * `comp_type` and `item_id` ride along under no cell — see
+       * `StyleComponentRow`.
+       */
+      components: (s?.components ?? []).map((c) => ({
+        key: newKey(),
+        coordinate_id: c.coordinate_id,
+        component_id: c.component_id,
+        fabric_category_id: c.fabric_category_id,
+        comp_type: c.comp_type ?? "",
+        item_id: c.item_id,
       })),
     });
 
@@ -2623,11 +2948,6 @@ export function AmendmentScreen({
       xs.map((x) => (x.key === styleKeyId ? { ...x, sizes: fn(x.sizes) } : x)),
     );
 
-  const setSize = (styleKeyId: string, sizeKey: string, id: string | null) =>
-    mutSizes(styleKeyId, (zs) =>
-      zs.map((z) => (z.key === sizeKey ? { ...z, size_id: id } : z)),
-    );
-
   /**
    * Add a blank size row — and DECLINE while the last one is still blank.
    *
@@ -2651,6 +2971,114 @@ export function AmendmentScreen({
     if (row && row.sizes.length && !row.sizes[row.sizes.length - 1].size_id) return false;
     mutSizes(styleKeyId, (zs) => [...zs, { key: newKey(), size_id: null }]);
   };
+
+  /**
+   * ORDER INFO ▸ STYLES DETAILS ▸ COORDINATES (0461) — the same three mutators
+   * the sizes and the components have, one level in.
+   */
+  const mutCoords = (
+    styleKeyId: string,
+    fn: (xs: StyleCoordRow[]) => StyleCoordRow[],
+  ) =>
+    setStyles((xs) =>
+      xs.map((x) => (x.key === styleKeyId ? { ...x, coordinates: fn(x.coordinates) } : x)),
+    );
+
+  /**
+   * Add a blank coordinate row — and DECLINE while the last one is still blank.
+   *
+   * `return false` is `ChildGrid`'s decline protocol: it stops Enter stacking
+   * blanks, and lets that Enter ESCALATE to the outer Styles grid so "Enter,
+   * Enter" walks out of a finished list and on to the next style.
+   *
+   * IT ALSO DECLINES AT THE STYLE'S COORDINATE LIMIT. `coordinateLimit` is the
+   * Style master's own rule — Piece is one coordinate, Set is several — read
+   * through the picked style's `unit_kind`, which is the SAME value the Order
+   * Unit cell prints. NULL means no rule to apply: every style created before
+   * 2026-08-10 has no `unit_kind`, and the rule stays silent on those rather
+   * than declaring historical records invalid.
+   */
+  const addStyleCoordinate = (styleKeyId: string) => {
+    const row = styles.find((x) => x.key === styleKeyId);
+    if (!row) return false;
+    const last = row.coordinates[row.coordinates.length - 1];
+    if (last && !last.coordinate_id) return false;
+    const cap = coordinateLimit(
+      row.style_id ? (styleById.get(row.style_id)?.unit_kind ?? null) : null,
+    );
+    if (cap && filledCoordinates(row.coordinates) >= cap.max) return false;
+    mutCoords(styleKeyId, (cs) => [...cs, { key: newKey(), coordinate_id: null }]);
+  };
+
+  /**
+   * ORDER INFO ▸ STYLES DETAILS ▸ COMPONENTS (0457) — the same three mutators
+   * the sizes above have, one level in.
+   */
+  const mutComponents = (
+    styleKeyId: string,
+    fn: (xs: StyleComponentRow[]) => StyleComponentRow[],
+  ) =>
+    setStyles((xs) =>
+      xs.map((x) =>
+        x.key === styleKeyId ? { ...x, components: fn(x.components) } : x,
+      ),
+    );
+
+  const patchComponent = (
+    styleKeyId: string,
+    compKey: string,
+    patch: Partial<StyleComponentRow>,
+  ) =>
+    mutComponents(styleKeyId, (cs) =>
+      cs.map((c) => (c.key === compKey ? { ...c, ...patch } : c)),
+    );
+
+  /**
+   * Add a blank component row — and DECLINE while the last one is still blank.
+   *
+   * `return false` is `ChildGrid`'s decline protocol, and it does the same two
+   * things here that `addSize`'s did: it stops Enter stacking blank rows, and it
+   * lets that Enter ESCALATE to the outer Styles grid so "Enter, Enter" walks
+   * out of a finished component list and on to the next style.
+   *
+   * A ROW IS "STARTED" IF IT NAMES ANY OF THE THREE, which is the same test
+   * `normalizeStyleComponents` drops on. Testing only the Coordinate would let
+   * an operator who filled Component first stack a second blank on top of it.
+   */
+  const addStyleComponent = (styleKeyId: string) => {
+    const row = styles.find((x) => x.key === styleKeyId);
+    const last = row?.components[row.components.length - 1];
+    if (last && !last.coordinate_id && !last.component_id && !last.fabric_category_id) {
+      return false;
+    }
+    mutComponents(styleKeyId, (cs) => [
+      ...cs,
+      {
+        key: newKey(),
+        coordinate_id: null,
+        component_id: null,
+        fabric_category_id: null,
+        comp_type: "",
+        item_id: null,
+      },
+    ]);
+  };
+
+  /**
+   * "Type" — the knit family the picked Structure implies, filled on the change.
+   *
+   * `componentTypeForCategory` is the Style master's own function, imported
+   * rather than re-derived: this screen now writes the same column that screen
+   * does, and two derivations of one value is how `comp_type` came to have FOUR
+   * wrong readings (see the Style master's Components grid).
+   *
+   * NULL MEANS LEAVE THE CELL ALONE — a category whose master record names no
+   * structure must not blank a Type that arrived with the seed. ON THE CHANGE,
+   * never in an effect: an effect keyed on the category would also fire when a
+   * saved order is OPENED and overwrite every stored Type on load.
+   */
+  const compTypeFor = (categoryId: string | null) =>
+    componentTypeForCategory(categoryId, data.categories, fabricStructureOpts);
 
   const addDyeing = (section: "yarn" | "fabric") =>
     setDyeings((xs) => [...xs, blankDyeing(section)]);
@@ -3208,6 +3636,15 @@ export function AmendmentScreen({
    * `style-master-screen.tsx` uses for the same reason.
    */
   const styleColumns: ChildGridColumn<StyleRow>[] = [
+    /* THE ORDER OF THIS ARRAY IS THE ORDER OF THE ROW, and it was re-sequenced
+       for option B (client 2026-08-24). The first SEVEN share one line of the
+       14-column track and read as the master's own run — the style's identity,
+       then the commercial number, then the drill-in — and Description comes LAST
+       because it takes the whole second line.
+
+       Re-sequencing is safe and always has been: every consumer resolves by
+       `header` (the folded-row filter, the Description span) rather than by
+       index, precisely so this array can be reordered without a hunt. */
     /* STYLE REF NO IS NO LONGER TYPED — IT IS THE PICKED STYLE'S CODE.
        Withdrawn as a column 2026-08-11 (client): it is system-generated, so
        asking for it was asking the operator to invent a key. The FIELD stays
@@ -3258,6 +3695,121 @@ export function AmendmentScreen({
         );
       },
     },
+    /* PLAN UNIT WITHDRAWN 2026-08-11 (client): Order Unit (PCS/SET) suffices.
+       The COLUMN and its stored rows are untouched, and `plan_unit_id` stays in
+       the row shape, in `toRows` and in the save payload — `writeChildren`
+       deletes and reinserts a grid wholesale, so a field dropped from the
+       payload is nulled on the next save rather than frozen. `pickStyle` keeps
+       seeding it from the style's one `unit_id`, which is where it came from
+       when it was on screen.
+
+       ORDER UNIT'S OWN `order_unit_id` IS FROZEN THE SAME WAY, and for the same
+       reason — the column, its rows, the row shape, `toRows`, the save payload
+       and `pickStyle`'s seeding all stay exactly as they were. What changed is
+       only what the CELL above reads. It could not have been repurposed even if
+       we wanted to: it is a uuid FK to `uoms`, and `uoms` has no piece row to
+       point at. */
+    /*
+     * THE STYLE MASTER'S OWN FIELDS, ON THE LINE (client 2026-08-23, screenshot
+     * 2471). Five of the master's seven — Season and Year are NOT here, on two
+     * standing client instructions; 0462 carries them in full.
+     *
+     * IN THE MASTER'S READING ORDER, deliberately: Approved Sample No and Style
+     * Description sit either side of Style in Style Details, then Article No.
+     * and Style Category come from General. An operator moving between the two
+     * screens reads the same run of fields in the same sequence.
+     *
+     * ALL `xs`, like the cells around them, and the row simply WRAPS — this
+     * body is a `FieldRow` (flex), so ten cells lay out on two lines with no
+     * track arithmetic to get wrong. `xs` is deliberate and is NOT the masters
+     * field width: a child-grid row is a table line rendered as fields.
+     */
+    {
+      header: "Approved Sample No",
+      cell: (r) => (
+        /* NOT `required` — `samples` has ZERO approved rows in this database,
+           and a required field with an empty picker is a record that cannot be
+           saved with nothing on screen to fix it. That is the exact call the
+           Style master made on 2026-08-13 for its copy of this field. */
+        <RecordPicker
+          label="Approved Sample No"
+          compact
+          items={samplesForCustomer(r.approved_sample_id)}
+          value={r.approved_sample_id}
+          onChange={(id) => updateStyle(r.key, { approved_sample_id: id })}
+        />
+      ),
+    },
+    {
+      header: "Style Category",
+      cell: (r) => (
+        /* THE ID IS THE TRUTH, THE NAME IS A CACHE, and both are written HERE —
+           one event, so they cannot disagree. `style_category` (text) has been
+           stored since the tab was built and is what the order seed populates;
+           it stays in the payload because `writeChildren` rewrites this grid
+           wholesale, so dropping it would NULL it on the next save rather than
+           freeze it.
+
+           A `RecordPicker` and not the master's `CategoryPicker`: that control's
+           inline "+ Add" opens the class-aware quick-create sheet, which is a
+           masters affordance every other picker on this screen withholds. */
+        <RecordPicker
+          label="Style Category"
+          compact
+          items={styleCategoryItems}
+          value={r.style_category_id}
+          onChange={(id) =>
+            updateStyle(r.key, {
+              style_category_id: id,
+              style_category:
+                styleCategoryItems.find((o) => o.id === id)?.name ?? "",
+            })
+          }
+        />
+      ),
+    },
+    /* "STYLE DESCRIPTION" WAS A CELL HERE FOR ONE DAY AND IS WITHDRAWN (client
+       2026-08-24: "Description, style description remove one ... I can see two
+       description").
+
+       IT WAS THE SAME ANSWER TWICE ON ONE ROW, and the note it replaced argued
+       the opposite — that the two are distinct because `pickStyle` seeds them
+       from different columns. That is true of the COLUMNS and false of what the
+       operator sees, which is what matters: the line's Description is seeded
+       `s.description ?? s.style_description`, so on every style that carries no
+       separate remark BOTH boxes show the style's description, side by side,
+       and editing either leaves the other stale.
+
+       THE LINE'S "Description" IS THE ONE THAT SURVIVES, and it is the older
+       and the better answer. It has been on this row since the tab was built,
+       its own seeding note records that it already stands for "the two fields
+       legacy shows as Style Description", and on an ORDER a per-line remark is
+       the useful field — the style's own description belongs to the style and is
+       one click away on the master.
+
+       THE COLUMN AND ITS VALUES STAY, and on a CHILD grid that is not the same
+       edit as a header withdrawal: `writeChildren` deletes and reinserts this
+       grid wholesale, so `style_description` must remain in `StyleRow`, in
+       `toRows`, in `pickStyle`'s seeding and in the save payload or the next
+       save NULLS it rather than freezing it. Same treatment `article_no` had
+       until yesterday, and `plan_unit_id` still has. */
+    {
+      header: "Article No.",
+      /* STORED SINCE THE TAB WAS BUILT AND NEVER SHOWN. `article_no` has been in
+         the row shape, in `toRows` and in the payload throughout — seeded by
+         `pickStyle`, frozen when the derived sub-line was withdrawn on
+         2026-08-14. This is the first cell it has had, which is why the change
+         needed no migration.
+
+         CAPITALS come from the primitive: `Input` capitalises unless a call
+         site opts out, and an article number is a stored VALUE, not prose. */
+      cell: (r) => (
+        <Input
+          value={r.article_no}
+          onChange={(e) => updateStyle(r.key, { article_no: e.target.value })}
+        />
+      ),
+    },
     {
       header: "Order Unit",
       /*
@@ -3291,20 +3843,6 @@ export function AmendmentScreen({
          `quantityColumns`, where the same thing had happened five times. */
       cell: (r) => <Input readOnly value={unitTextOf(r)} />,
     },
-    /* PLAN UNIT WITHDRAWN 2026-08-11 (client): Order Unit (PCS/SET) suffices.
-       The COLUMN and its stored rows are untouched, and `plan_unit_id` stays in
-       the row shape, in `toRows` and in the save payload — `writeChildren`
-       deletes and reinserts a grid wholesale, so a field dropped from the
-       payload is nulled on the next save rather than frozen. `pickStyle` keeps
-       seeding it from the style's one `unit_id`, which is where it came from
-       when it was on screen.
-
-       ORDER UNIT'S OWN `order_unit_id` IS FROZEN THE SAME WAY, and for the same
-       reason — the column, its rows, the row shape, `toRows`, the save payload
-       and `pickStyle`'s seeding all stay exactly as they were. What changed is
-       only what the CELL above reads. It could not have been repurposed even if
-       we wanted to: it is a uuid FK to `uoms`, and `uoms` has no piece row to
-       point at. */
     {
       header: "PO Qty",
       align: "right",
@@ -3317,15 +3855,6 @@ export function AmendmentScreen({
           className="text-right"
           value={r.po_qty}
           onChange={(e) => updateStyle(r.key, { po_qty: e.target.value })}
-        />
-      ),
-    },
-    {
-      header: "Description",
-      cell: (r) => (
-        <Input
-          value={r.description}
-          onChange={(e) => updateStyle(r.key, { description: e.target.value })}
         />
       ),
     },
@@ -3383,11 +3912,24 @@ export function AmendmentScreen({
         );
       },
     },
-    /* THE ROW IS FIVE FIELDS AGAIN: Style · Order Unit · PO Qty · Description ·
-       Process, with Sizes still `full` on its own line below. The withdrawal
-       note recorded the arithmetic both ways — five cells occupy 10 of the 12
-       columns and four occupy 8 — and in the only way that matters it is
-       unchanged: Sizes still cannot share their line and still wraps beneath. */
+    {
+      header: "Description",
+      cell: (r) => (
+        <Input
+          value={r.description}
+          onChange={(e) => updateStyle(r.key, { description: e.target.value })}
+        />
+      ),
+    },
+    /* THE ROW IS EIGHT CELLS ON A FOURTEEN-COLUMN TRACK (2026-08-24, option B):
+       the seven above share line one at `xs` (7 x 2 = 14) and Description takes
+       line two whole. The composition line — Coordinates 3 · Components 8 ·
+       Sizes 3 — is rendered by `componentsAndSizes` into the same grid.
+
+       THIS NOTE USED TO SAY "FIVE FIELDS", and the arithmetic it recorded was
+       about a 12-column track this row never actually had: the body was a flex
+       `FieldRow`, so no `col-span` on it resolved at all. Both facts changed in
+       the same edit — the track is real now, and the count is eight. */
   ];
 
   /**
@@ -8044,154 +8586,502 @@ export function AmendmentScreen({
   const ADD_BUTTON_W = "min-w-[6.75rem]";
 
   /**
-   * THIS LAYOUT IS `ChildGrid`'s `across` MODE NOW (2026-08-17).
+   * `sizeGrid` WAS HERE AND IS GONE (client 2026-08-23, screenshot 2472: "same
+   * ui like this … replace with it").
    *
-   * Everything below — the `FIELD_TRACK` body, a fixed span per size, the ✕ in the
-   * row, "+ Add size" inside `data-grid-body`, no ordinal — was hand-rolled here
-   * because no mode expressed it. The Style master then asked for the same layout
-   * ("row design instead of column based", screenshot 2321), so rather than copy
-   * these ~90 lines a second time the shape moved into the primitive. Read the
-   * `across` prop in `child-grid.tsx`; it cites the reasoning written here.
+   * It was a hand-rolled list of Size pickers laid ACROSS the line — its own
+   * `data-grid-body`, a fixed span per size, a ✕ per size and, after 2026-08-20,
+   * no "+ Add" at all. The sizes are now the Style master's `<MultiSelect>`
+   * (see `componentsAndSizes`), which is the same control, on the same data,
+   * drawn by the primitive.
    *
-   * THIS COPY IS DELIBERATELY LEFT STANDING (operator's call). It is a NESTED grid
-   * inside a card row, with its own `enterNestedGrid` hand-off and its own
-   * `addSize` decline, on a screen the client has signed off — not worth the risk
-   * for a change nobody asked for. Migrate it when this grid is next touched for
-   * its own reasons, and delete this note with it.
+   * WHAT IS WORTH KEEPING FROM IT is one lesson and one warning:
+   *
+   *   - The 08-14 density complaint it answered is REAL and this replacement
+   *     answers it better: one line per size was ~248px inside a cell whose
+   *     siblings are 32px. A wrapping tick grid behind one box is that fixed
+   *     without the line growing at all.
+   *   - `ADD_BUTTON_W` above still exists and is now read by ONE caller. Its
+   *     whole note is about a width floor tuned by eye to one of two buttons
+   *     being wrong by luck; that lesson is needed again the moment a second Add
+   *     button appears beside the styles grid's.
+   *
+   * `across` MODE IN `child-grid.tsx` CAME OUT OF THIS CODE and is still live —
+   * the Style master's own history note points at the reasoning that used to be
+   * written here. Deleting the copy does not delete the mode.
    */
-  const sizeGrid = (r: StyleRow) => (
-    /* NO HEADING AND NO `pl-4` — the `<Field size="full">` around this owns
-       both (client 2026-08-12, screenshot 154120: "+ Add size" sat ~7px below
-       every other control on the row). That Field carried `label="Sizes"` until
-       2026-08-20; it is unlabelled now, so this grid is the whole of what the
-       line draws.
 
-       Both were right when this grid rendered BELOW the row: it needed its own
-       caption and an indent to read as nested. As a CELL it needs neither, and
-       keeping them cost the alignment twice over — a hand-rolled `text-xs`
-       caption is not the same height as `Field`'s label, so the content beneath
-       started lower than its neighbours, and `pl-4` pushed it right of a label
-       that was no longer indented with it. One field, one label, drawn by the
-       primitive: LAYOUT.md §3's whole point. */
-    <div>
-      {/**
-        * ACROSS, NOT DOWN (client 2026-08-14).
-        *
-        * This was the whole density complaint measured. The list rendered one
-        * size per line at 36px + a 32px Add button, so six sizes was ~248px —
-        * inside a cell whose five siblings are 32px tall, on a screen the client
-        * was comparing unfavourably with a legacy one that does the same row in
-        * ~170px. Laid across, six sizes take ONE line of the ~1080px the cell
-        * now spans.
-        *
-        * A FIXED WIDTH PER ITEM, not `flex-1`: they have to line up in columns
-        * as they wrap, and an unsized item absorbs the row's slack — the same
-        * failure `hugsContent` records about a grid column left without a
-        * `width` (a single Colour dropdown rendered ~1080px wide).
-        *
-        * ↑/↓ NOW WALK THE LIST LEFT TO RIGHT, and that is a real change worth
-        * stating. It stays coherent because this is a ONE-DIMENSIONAL list whose
-        * DOM order and visual order agree — unlike the 2026-07-25 defect, where
-        * ↓ crossed out of a row's own cells into a nested panel's and landed on
-        * the wrong line entirely. Nothing here crosses a boundary.
-        *
-        * ALL FOUR MARKERS ARE UNCHANGED — see the block above `stylesGrid` for
-        * what each one buys. In particular `+ Add size` stays INSIDE
-        * `data-grid-body`: `enterNestedGrid` looks for it there, and moving it
-        * out is what would break Tab's only way into an empty size list.
-        */}
-      {/* THE SAME TRACK AS THE FIELDS ABOVE, not a second opinion about layout:
-          `FIELD_TRACK` is the exported constant `FieldGrid` itself lays down, so
-          a size cell at `col-span-2` lands exactly under Style, Order Unit, PO
-          Qty, Description and Process — six to a line, at identical widths and
-          gutters.
+  /**
+   * The components offerable beside a Coordinate cell, on Order Info's own
+   * Components grid (0457).
+   *
+   * `componentsForCoordinate` IS THE RULE and is not re-derived here — it is the
+   * same function the Style master's identical cell calls, and it owns three
+   * decisions this call site must not second-guess: a BLANK coordinate offers
+   * EVERYTHING (deliberately the opposite of the nominated-vendor rule — read
+   * the reasoning there before "fixing" it); the row's own value always survives
+   * the filter; and it matches by NAME, because a coordinate is an `items` row
+   * while the Components master stores plain text.
+   *
+   * IT NARROWS NOTHING TODAY — every component in the live master has
+   * `all_coordinates = true` — and that is the design, not a gap. What made it
+   * possible to call at all is the DATA half: `getComponentPickerRows` now
+   * selects `all_coordinates` and the declared coordinate names, which it did
+   * not before this grid existed. Calling the helper against rows that carry
+   * neither is the shape AGENTS.md records twice (the item-report filter bar,
+   * the `created_by` sweep): the rule looks wired, and the narrowing silently
+   * never happens.
+   *
+   * DISTINCT FROM `scopedComponents` ABOVE, which narrows the COMBOS overlay to
+   * the parts the picked style declares. There the style is the authority and
+   * the overlay describes it; here this grid is what declares them.
+   */
+  /**
+   * The approved samples this ORDER's customer has (0461).
+   *
+   * NARROWED ON THE SCREEN, NOT IN SQL — `getApprovedSampleRows` carries
+   * `customer_id` and filters nothing, because the Customer is a header field
+   * the operator is still choosing and a service filter would fix the list to
+   * whichever customer was selected when the page was fetched. Same rule the
+   * Style master's identical cell follows.
+   *
+   * A sample with NO customer stays offered (legacy rows predate 0422), and the
+   * one the row already holds always survives — the standing "Disabled rows"
+   * argument: a value dropped from the list renders a filled cell as empty and
+   * blanks the FK on the next save.
+   *
+   * THE LIST IS EMPTY IN THIS DATABASE, which is why the cell is not `required`.
+   */
+  const samplesForCustomer = (held: string | null) => {
+    const want = form.customer_id;
+    if (!want) return data.samples;
+    return data.samples.filter(
+      (x) => x.customer_id === want || x.customer_id === null || x.id === held,
+    );
+  };
 
-          `FieldGrid` cannot be used instead, and the reason is the whole point
-          of this change: it would need a `<Field>` per size, and `Field` always
-          draws a label line — 14px of `&nbsp;` above every one — which is the
-          height the size list was moved here to get rid of.
+  const componentOptions = (coordinateId: string | null, held: string | null) =>
+    componentsForCoordinate(data.componentRows, {
+      coordinateId,
+      coordinates: data.coordinates,
+      currentValue: held,
+    });
 
-          `@lg/section:col-span-2` is the contract's own vocabulary rather than a
-          hand-rolled grid, which is why `--check screen-grid` leaves it alone
-          (it flags a bare `grid-cols-*`, and the 12 lives inside the constant). */}
-      <div
-        data-grid-body
-        className={FIELD_TRACK}
-        onKeyDown={(e) => gridKeyNav(e)}
-      >
-        {r.sizes.map((z) => (
-          /* NO ORDINAL (client 2026-08-14). It numbered the sizes 1..n down the
-             left of each cell, which was worth its 20px while the list ran
-             vertically and the number was the only thing telling two identical
-             dropdowns apart. Laid across, the sizes read in order by position
-             and the number restated it -- and `sno` is stored from the array
-             index at save, so nothing depended on it being drawn. */
-          <div
-            key={z.key}
-            data-grid-row
-            className="flex items-center gap-1.5 @lg/section:col-span-2"
-          >
-            <div className="min-w-0 flex-1">
-              <LookupDialogPicker
-                kind="size"
-                label="Size"
+  /**
+   * ORDER INFO ▸ STYLES DETAILS ▸ COMPONENTS — THE STYLE MASTER'S OWN GRID
+   * (client 2026-08-23, screenshots 2471 · 2472: "i need this all with that
+   * section same ui like this now its different replace with it").
+   *
+   * SECOND GENERATION, AND THE FIRST ONE IS WHY THIS IS A `ChildGrid`. The merge
+   * landed the same DATA under a hand-rolled row: a `FieldRow` of three
+   * `w="term"` cells with the column titles printed as `Field` labels on row 0,
+   * a ghost ✕ and an outline "+ Add". Every part of that was defensible on its
+   * own — it is what the Combos ▸ Structure Details row does, and it was copied
+   * from there — and the result was a grid that did not look like the grid the
+   * operator had just been using on the Style master: no bordered card, no `#`
+   * column, no header band. Same fields, different furniture, one workflow.
+   *
+   * SO IT IS THE PRIMITIVE, IN ITS DEFAULT TABLE LAYOUT, with exactly the props
+   * `style-master-screen.tsx` passes its Components grid — `columns`, `rows`,
+   * `seedRow`, `onAdd`, `onRemove`, `addLabel`. Not a copy of that grid's LOOK:
+   * the same component, so the `#` band, the frame, the ✕ and the "+ Add" inside
+   * the card all come from one place and cannot drift apart again.
+   *
+   * IT IS ALSO ~90 LINES SHORTER, and that is the real argument. The hand-rolled
+   * version had to stamp `data-grid-body`, `data-grid-row`, `data-row-remove`
+   * and `data-row-add` itself and wire `gridKeyNav` by hand; `ChildGrid` does
+   * all four. Every marker the keyboard contract depends on is now the
+   * primitive's problem, which is the whole reason ~22 hand-rolled grids are
+   * recorded in AGENTS.md as a standing hazard rather than a style choice.
+   *
+   * NO CAPTION — the section names it, and a caption would cost the grid a band
+   * that the Sizes panel beside it does not have, so the two halves would start
+   * at different heights. Same call the master makes.
+   */
+  /**
+   * The coordinates offerable on a Components row (0461).
+   *
+   * THE ORDER'S OWN LIST, falling back to the whole GAR master while that list
+   * is empty. The fallback is the same call `componentsForCoordinate` makes for
+   * a blank coordinate and is deliberately the OPPOSITE of the nominated-vendor
+   * rule: there the approval list IS the constraint and a full list is a
+   * compliance hole; here the grid above simply has not been filled in yet, and
+   * an empty dropdown would read as a broken screen.
+   *
+   * THE ROW'S OWN VALUE ALWAYS SURVIVES — the standing "Disabled rows"
+   * argument: a coordinate dropped from the list renders a filled cell as empty
+   * and blanks the FK on the next save.
+   */
+  const coordinateOptions = (r: StyleRow, held: string | null) => {
+    const ids = new Set(r.coordinates.map((c) => c.coordinate_id).filter(Boolean) as string[]);
+    if (ids.size === 0) return data.coordinates;
+    return data.coordinates.filter((o) => ids.has(o.id) || o.id === held);
+  };
+
+  const componentColumns = (
+    r: StyleRow,
+  ): ChildGridColumn<StyleComponentRow>[] => [
+    /*
+     * NO `required` ON ANY COLUMN, AND THAT IS DELIBERATE RATHER THAN A MISS.
+     * `ChildGridColumn.required` draws a star in the HEADER, which is a claim
+     * about the column — every row must answer this. Requiredness here is a
+     * property of the ROW (`componentRowStarted`): a blank row the operator has
+     * just added is allowed to be blank, and a started one is not. A header star
+     * would say the first case is an error, and the hold would disagree with it.
+     * The Style master resolves it the same way, and its screenshot shows the
+     * three headers unstarred while `2471`'s Coordinate column IS starred —
+     * because there the column really is unconditional.
+     */
+    {
+      header: "Coordinate",
+      cell: (c) => (
+        <RecordPicker
+          label="Coordinate"
+          compact
+          required={componentRowStarted(c)}
+          /* THE ORDER'S OWN COORDINATES, once it has any (0461) — the grid
+             above this one. A component is a PART OF a coordinate, so offering
+             the whole GAR master here would let a PO file a sleeve under a
+             coordinate the garment does not have.
+
+             THIS REPLACES THE UNSCOPED LIST, and only because the scope now
+             exists on the order. Until 0461 there was nothing on the line to
+             narrow by, and the cell deliberately offered everything rather than
+             narrowing against the STYLE MASTER's list — which is what the Combos
+             overlay does, and would have meant the order could only ever restate
+             what the style already said.
+
+             `coordinateOptions` falls back to the full master while the
+             coordinate grid is empty, which is the "a blank parent offers
+             everything" half of `componentsForCoordinate`'s rule and not an
+             exception to it: an empty dropdown on a row the operator has just
+             added reads as a broken screen.
+
+             A `RecordPicker` and not the master's `ItemPicker`: that control
+             withholds "+ Add" on purpose, because creating a GARMENT does not
+             give the style that coordinate. */
+          items={coordinateOptions(r, c.coordinate_id)}
+          value={c.coordinate_id}
+          onChange={(id) =>
+            patchComponent(r.key, c.key, {
+              coordinate_id: id,
+              /* CLEAR A COMPONENT THAT FALLS OUT OF SCOPE, AND ONLY THEN — the
+                 cascading-filter rule's second clause. Narrowing the coordinate
+                 around a component that is still offered under it keeps it. */
+              ...(c.component_id &&
+              !componentOptions(id, null).some((o) => o.id === c.component_id)
+                ? { component_id: null }
+                : {}),
+            })
+          }
+        />
+      ),
+    },
+    {
+      header: "Component",
+      cell: (c) => (
+        <RecordPicker
+          label="Component"
+          compact
+          required={componentRowStarted(c)}
+          items={componentOptions(c.coordinate_id, c.component_id)}
+          value={c.component_id}
+          onChange={(id) => patchComponent(r.key, c.key, { component_id: id })}
+        />
+      ),
+    },
+    {
+      header: "Structure",
+      cell: (c) => (
+        /* A FABRIC CATEGORY — SINGLE JERSEY, 1X1 LYCRA RIB (0405), not the knit
+           family one level up. `structureItems` is the same list the Combos
+           overlay's Structure cell offers, so the two cannot disagree about what
+           a structure is.
+
+           NOT REQUIRED, matching the master: a component can be named before the
+           fabric it is cut from is decided, and holding the cursor here would
+           refuse an order for an answer the buyer has not given yet.
+
+           PICKING IT FILLS THE HIDDEN "Type" beside it — a FETCH, not a
+           correlation: `categories.fabric_structure_id` is declared on the
+           Category master. `?? c.comp_type` is what makes a category with no
+           structure LEAVE the value alone rather than blank one that arrived
+           with the seed, and it runs ON THE CHANGE, never in an effect — an
+           effect keyed on the category would fire when a saved order is OPENED
+           and overwrite every stored Type on load. */
+        <RecordPicker
+          label="Structure"
+          compact
+          items={structureItems}
+          value={c.fabric_category_id}
+          onChange={(id) =>
+            patchComponent(r.key, c.key, {
+              fabric_category_id: id,
+              comp_type: compTypeFor(id) ?? c.comp_type,
+            })
+          }
+        />
+      ),
+    },
+  ];
+
+  /**
+   * ORDER INFO ▸ STYLES DETAILS ▸ COORDINATES (client 2026-08-23, screenshot
+   * 2471).
+   *
+   * WHAT A COMPONENT IS A PART OF. The Style master lists these first and its
+   * Components grid narrows on them; the order had no such list, so its
+   * Coordinate cell offered the whole GAR master and a PO could file a sleeve
+   * under a coordinate the garment does not have. This is that list, and wiring
+   * it is what turned `coordinateOptions` from a pass-through into a scope.
+   *
+   * THE MASTER'S OWN PROPS, for the reason the Components grid beside it takes
+   * them: `narrow` (one short column — this is the one grid where column COUNT
+   * really is the right test), `frameless` (it sits inside the style row's card
+   * and a second border would be the "too much frames" the client cut back on
+   * 2026-08-18), `seedRow` so Tab has a field to land on.
+   *
+   * `hideAdd` AT THE STYLE'S LIMIT, not a silent decline. `coordinateLimit` is
+   * the Style master's rule — Piece is one coordinate, Set is several — read
+   * through the picked style's `unit_kind`, the same value the Order Unit cell
+   * prints. `addStyleCoordinate` refuses too, which is what stops the KEYBOARD
+   * getting past a hidden button; the two agree because both read the one
+   * function.
+   */
+  const coordinatesGrid = (r: StyleRow) => {
+    const cap = coordinateLimit(
+      r.style_id ? (styleById.get(r.style_id)?.unit_kind ?? null) : null,
+    );
+    return (
+      <ChildGrid<StyleCoordRow>
+        narrow
+        frameless
+        columns={[
+          {
+            header: "Coordinate",
+            cell: (c) => (
+              /* NOT `required`. On the master it is required once a component
+                 row is started, because there a coordinate is what a component
+                 hangs off. Here the grid is a list in its own right and its
+                 seeded blank row is the state an operator opens on — a hold
+                 there would fire on a field nobody has looked at. What the
+                 blank row costs is nothing: `normalizeStyleCoordinates` drops
+                 it. */
+              <RecordPicker
+                label="Coordinate"
                 compact
-                options={sizeOpts}
-                value={z.size_id}
-                usedIds={r.sizes.filter((x) => x.key !== z.key).map((x) => x.size_id).filter(Boolean) as string[]}
-                onChange={(id) => setSize(r.key, z.key, id)}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
+                /* The whole GAR master, minus the ones this style already
+                   lists: picking the same coordinate twice says nothing the
+                   first row did not, and `uq_goa_style_coords_coordinate`
+                   refuses it at save time. Offering it and then failing the
+                   save is the shape a `usedIds` list exists to prevent. */
+                items={data.coordinates.filter(
+                  (o) =>
+                    o.id === c.coordinate_id ||
+                    !r.coordinates.some(
+                      (x) => x.key !== c.key && x.coordinate_id === o.id,
+                    ),
+                )}
+                value={c.coordinate_id}
+                onChange={(id) =>
+                  mutCoords(r.key, (cs) =>
+                    cs.map((x) => (x.key === c.key ? { ...x, coordinate_id: id } : x)),
+                  )
+                }
               />
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              data-row-remove
-              className="shrink-0 text-muted-foreground hover:text-danger"
-              onClick={() => mutSizes(r.key, (zs) => zs.filter((x) => x.key !== z.key))}
-              aria-label={`Remove size ${sizeLabel(z.size_id) || "(unset)"}`}
-            >
-              <Trash2 className="h-4 w-4 shrink-0" />
-            </Button>
-          </div>
-        ))}
-        {/* EMPTY-AND-EXPLAIN, never a silent blank. Only once a style has been
-            picked: before that there is nothing to have fetched, and the line
-            would be scolding the operator for not having answered yet. */}
-        {r.style_id && r.sizes.length === 0 && (
-          /* Its own line, not one cell of six — a sentence squeezed into a
-             176px column would wrap to four lines and cost more height than the
-             list it is explaining. */
-          <p className="text-xs text-muted-foreground @lg/section:col-span-12">
-            This style has no sizes recorded. Fill them on the Style master and pick the
-            style again.
-          </p>
-        )}
-        {/* "+ Add size" WAS HERE AND CAME OUT (client 2026-08-20).
-            `pickStyle` already seeds this list from the style master, which is
-            the same "avoid duplicate data entry" the fabrics seed was built for
-            on 08-12 — so a hand-add here was a second way to state something the
-            Style master is authoritative for, and the two could disagree.
+            ),
+          },
+        ]}
+        rows={r.coordinates}
+        hideAdd={!!cap && filledCoordinates(r.coordinates) >= cap.max}
+        seedRow
+        onAdd={() => addStyleCoordinate(r.key)}
+        onRemove={(c) =>
+          mutCoords(r.key, (cs) => cs.filter((x) => x.key !== c.key))
+        }
+        addLabel="+ Add coordinate"
+      />
+    );
+  };
 
-            THE SIZES ARE STILL EDITABLE, and that is the point of removing only
-            the add: each row keeps its ✕ (`data-row-remove`, so Ctrl+Del still
-            reaches it), so an operator drops a size this order does not run.
-            What they can no longer do is invent one that the style does not
-            declare. A size that genuinely belongs to the style is added ON the
-            style, and flows back in on the next pick.
+  /**
+   * COMPONENTS AND SIZES, SIDE BY SIDE — the Style master's section, verbatim
+   * (client 2026-08-23, screenshot 2472).
+   *
+   * A 6/6 `FieldGrid`: the parts on the left, what they are cut in on the right.
+   * The master's own note calls that reading "left is what the garment is made
+   * of, right is what it is made in", and it is why this is one line of the
+   * style row rather than two — the previous cut stacked Sizes above Components
+   * as two `full` lines, which is the same content and a different shape.
+   *
+   * A NESTED `FieldGrid`, because the row's body is a `FieldRow` — a flex line,
+   * where `size` resolves to a `col-span-*` that has no track to land on. The
+   * spans only mean anything inside `@container/section` + `FIELD_TRACK`, which
+   * is exactly what `FieldGrid` establishes. `w-full` on the wrapper is what
+   * makes the pair take the whole line in the flex row above it; that is stated
+   * rather than inherited, because the old `size="full"` was relying on a
+   * col-span in a container that has no columns.
+   */
+  /**
+   * COORDINATES · COMPONENTS · SIZES — three cells of the style row's OWN
+   * fourteen-column track (client 2026-08-24, option B of the alignment
+   * proposal).
+   *
+   * A FRAGMENT, NOT A GRID OF ITS OWN. These sat inside a nested `FieldGrid` in
+   * a wrapper cell until now, which meant two tracks and two places to disagree
+   * about one row. Returned loose, they are cells of the SAME grid as the seven
+   * fields above them — so the left edge of Coordinates lands under the left
+   * edge of Style and stays there at every width. That is the whole point of the
+   * change: the row had no track at all before, and a nested one would only have
+   * aligned these three with each other.
+   *
+   * 3 + 8 + 3 = 14, and the shares are not equal because the three are not
+   * alike. Components is the only real TABLE — three pickers and a remove
+   * button per line — while Coordinates is one short dropdown and Sizes is a
+   * single box whose control caps itself at 280px however much width it is
+   * given. Equal shares is what the previous cut did (`lg` x 3 = 18 of 12), and
+   * it left Sizes wrapping onto a line of its own with six columns empty.
+   */
+  const componentsAndSizes = (r: StyleRow) => (
+    <>
+      {/* COORDINATES FIRST — the master's order, and the order the data flows
+          in: this list is what scopes the Coordinate cell in the grid beside it,
+          so reading them the other way round would mean meeting the narrowed
+          control before the thing that narrows it.
 
-            Nothing keyboard-side needs a change: `ownAddControl` returns null
-            for a grid with no reachable "+ Add", so Enter off the last size
-            declines here and escalates to the Styles grid — which is exactly
-            what `addSize`'s decline used to buy. The one thing that DID need
-            changing is the empty-state sentence above, which said "Add them
-            here": a sentence naming a control that no longer exists is worse
-            than no sentence. */}
-      </div>
-    </div>
+          `sm` (3) — it is `narrow` and single-column, so anything wider reserves
+          width it does not draw in. It was `lg` (6) while these three shared a
+          12-column grid of their own. */}
+      <Field label="" size="sm">
+        {coordinatesGrid(r)}
+      </Field>
+      {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
+          unlabelled `<Field size>` around it is the sanctioned way to give it
+          one (LAYOUT.md §3, "a not-field that SHARES its row"). `label=""`
+          rather than no label: it RESERVES the label row, so the table's header
+          band starts level with the Sizes control beside it instead of ~16px
+          above it.
+
+          `xl` (8) — the widest of the three, because it is the only one holding
+          a table. Three 176px pickers plus a remove button need ~600px, which is
+          what 8 of 14 gives it here. */}
+      <Field label="" size="xl">
+        <ChildGrid<StyleComponentRow>
+          columns={componentColumns(r)}
+          rows={r.components}
+          /* OPENS ON A ROW rather than on a bare button. `ChildGrid`'s own note
+             is the reason and it is the keyboard contract, not a preference: Tab
+             lands on FIELDS, so a grid whose only affordance is "+ Add" has
+             nothing to tab into and nothing to stand on and press Enter. The
+             master passes it for the same reason. */
+          seedRow
+          onAdd={() => addStyleComponent(r.key)}
+          onRemove={(c) =>
+            mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
+          }
+          addLabel="+ Add component"
+        />
+      </Field>
+
+      {/**
+        * SIZES ARE CHOSEN, NOT LISTED — and this REVERSES two decisions, so
+        * both are named rather than left for the next reader to discover.
+        *
+        * What stood here was a row of Size pickers laid ACROSS the line
+        * (`sizeGrid`, client 2026-08-14: one per line was ~248px of a 32px row),
+        * seeded by `pickStyle`, each with a ✕ and NO "+ Add" (client
+        * 2026-08-20: a hand-add was "a second way to state something the Style
+        * master is authoritative for").
+        *
+        * BOTH REASONS EXPIRED IN THE SAME INSTRUCTION. The 08-14 density
+        * complaint is answered better by this control than by the across
+        * layout — fifty sizes are a wrapping tick grid behind one box, not a
+        * line that grows. And 08-20's premise is the exact premise the merge
+        * retires: the Style master is no longer the only place a style's sizes
+        * are stated, so "go and add it there, then pick the style again" is the
+        * trip this whole change removes. It is the same argument that gave the
+        * Components grid beside it a "+ Add component".
+        *
+        * SO THE FULL SIZE MASTER IS OFFERED, with inline create, exactly as on
+        * the Style master. `pickStyle` still seeds the style's own sizes, so
+        * nothing is retyped in the ordinary case; what changes is that an order
+        * running a size the style has not recorded is now enterable instead of
+        * blocked.
+        *
+        * PICK-ONCE COMES FREE: a set cannot hold a duplicate, so the shape rules
+        * out the L, L, M, M the old grid needed `usedIds` to prevent.
+        * `normalizeStyleSizes` still de-dupes server-side, which is the guard
+        * that matters for anything writing past the screen.
+        */}
+      {/* `sm` (3). The trigger caps itself at 280px and the PANEL is sized
+          independently (40rem), so width beyond the cap buys nothing here — see
+          `triggerClassName` / `panelClassName` below. */}
+      <Field label="" size="sm">
+        <MultiSelect
+          label="Sizes"
+          /* FRAMED, to match the Components table across the row — the same
+             `GRID_FRAME` that grid draws, so the two cannot drift. A bordered
+             table on the left and a bare label-and-input on the right reads as
+             something that failed to render, not as a deliberate difference
+             (client 2026-08-18, on the master). */
+          framed
+          /* Sizes are 2-5 characters, which is the whole case for the wrapping
+             tick grid: ~40 visible at once instead of 8, and ↑/↓ move a row
+             while ←/→ move a cell. */
+          gridded
+          /* BANDS, DERIVED FROM THE NAMES. At fifty-plus sizes one label stops
+             meaning one thing — `M` is Medium AND `3M` is three months — and a
+             flat list has nothing to tell them apart however well it is sorted.
+             Derived rather than read from Size Groups because there is ONE size
+             group in this database; see `size-order.ts`. */
+          groupBy={(o) => sizeFamily(o.label)}
+          options={sizeOpts.map((o) => ({
+            id: o.id,
+            label: o.name,
+            inactive: isInactive(o),
+          }))}
+          values={r.sizes.map((z) => z.size_id).filter(Boolean) as string[]}
+          /* Rows are REUSED where the id survives, never rebuilt wholesale: a
+             fresh `key` on every tick would remount the row and throw away
+             anything it is carrying. Order IS the data here — `sno` is stamped
+             from this array at save — so the order sizes were ticked in is the
+             order they store in. */
+          onChange={(next) =>
+            mutSizes(r.key, (zs) => {
+              const held = new Map(
+                zs.filter((z) => z.size_id).map((z) => [z.size_id as string, z]),
+              );
+              return next.map((sid) => held.get(sid) ?? { key: newKey(), size_id: sid });
+            })
+          }
+          /* grid-caption: exempt -- placeholder-blank: exempt -- this names a
+             CAUSE ELSEWHERE, the stated survivor of both rules: an operator
+             facing an empty list otherwise cannot tell a broken dropdown from a
+             Sizes master nobody has filled in yet, and the fix is on a different
+             screen. */
+          emptyLabel="No sizes in the Sizes master yet"
+          /* A SIZE TYPED HERE IS STORED IN THE SIZES MASTER, not kept as loose
+             text on this order — the standing icon-field rule. `createLookupValue`
+             is the shared door: it checks `masters:create` server-side (the gate
+             below only hides the affordance) and parses through the Lookup
+             master's own Zod schema, so `capsName()` applies and "xxl" is stored
+             as "XXL". Hence the label comes back from the transform, not from
+             what was typed. */
+          onCreate={
+            masterPerms.canCreate
+              ? async (name) => {
+                  const res = await createLookupValue("size", name, null);
+                  return res.ok
+                    ? { id: res.id, label: capsName().parse(name) }
+                    : { error: res.error };
+                }
+              : undefined
+          }
+        />
+      </Field>
+    </>
   );
+
 
   const stylesGrid = (
     <>
@@ -8473,36 +9363,41 @@ export function AmendmentScreen({
               * rejected.
               */}
             {/**
-              * FIVE FIELDS ON THE LINE, THEN SIZES ACROSS ITS OWN (client
-              * 2026-08-14). All `xs` on `FieldGrid`'s standard 12-column track.
+              * SEVEN FIELDS ON ONE LINE, ON A FOURTEEN-COLUMN TRACK (client
+              * 2026-08-24, choosing option B of the alignment proposal).
               *
-              * THE SIZE LIST WAS THE COMPLAINT, and the note this replaces
-              * predicted it: "if that becomes the complaint, the answer is to
-              * move the list behind a button like Process — NOT to widen one
-              * cell again." Half right. Widening one cell was indeed the wrong
-              * answer, and had already been tried as a hand-rolled 14-column
-              * track and reverted: with no sizes entered the cell holds one
-              * "+ Add size" button, so the surplus read as a HOLE rather than as
-              * room. A cell sized for its fullest state is empty space in its
-              * commonest one.
+              * THE ROW HAD NO TRACK AT ALL, and that was the real defect rather
+              * than the wrong spans. This was a `FieldRow` — `flex flex-wrap` —
+              * so every `col-span-*` the cells carried landed on nothing: the
+              * fields sized to their content and wrapped wherever they ran out
+              * of width, which is why nothing lined up down the card from one
+              * style row to the next. Two generations of notes here reasoned
+              * about "the five xs cells occupy 10 of 12", which is how a
+              * `FieldGrid` behaves and not this.
               *
-              * But the list did not have to hide behind a button either. Given
-              * the WHOLE width it lays ACROSS instead of down, so six sizes take
-              * one line rather than six — and stay visible, which is what the
-              * legacy screen does and what the client meant by user-friendly.
+              * FOURTEEN AND NOT TWELVE, because the line carries SEVEN fields
+              * and the smallest span is `xs` (2): twelve columns top out at six.
+              * 7 x 2 = 14 exactly. That is the same arithmetic — and the same
+              * constant — that `Orders ▸ Style ▸ Style Details` was given on
+              * 2026-08-17 for its own seven, so the order line and the Style
+              * master now lay their header out on one track. The fields keep
+              * `xs` rather than needing a new size.
               *
-              * `full` (`col-span-12`) is what does it: the five `xs` cells
-              * occupy 10 of 12, so Sizes cannot share their line and wraps to
-              * its own. No custom track, no surplus — the span map already had
-              * the answer.
+              * A FIELD ON THIS TRACK IS ~155px, against LAYOUT.md §3's ~280px,
+              * and `FIELD_TRACK_14`'s own note calls that out: legible for a
+              * date, a code or a Select, tight for free text. That is why
+              * Description is NOT on this line — it takes the next one whole.
               *
-              * `xs` here is deliberate and is NOT the masters field width. That
-              * rule governs a masters FORM; a child-grid row is a table line
-              * rendered as fields, and its width is set by how many columns the
-              * line carries. Do not "correct" these to `sm` — four per row is
-              * the layout the client rejected twice.
+              * A 14-COL TRACK WAS TRIED ON THIS ROW ONCE AND REVERTED, and the
+              * reason does not apply here: it was hand-rolled to widen the
+              * SIZES cell, and "a cell sized for its fullest state is a hole in
+              * its commonest one". The fourteenth column is spent on fitting the
+              * seven fields, not on padding one cell.
+              *
+              * THE THREE LINES EACH SUM TO 14 — 7x2, then Description whole,
+              * then 3 + 8 + 3. An under-filled row is the defect that ships.
               */}
-            <FieldRow>
+            <FieldGrid cols={14}>
               {/* A FOLDED ROW SHOWS ONLY ITS STYLE. Anchored on the header, not
                   on index 0 — these columns have been reordered more than once,
                   and `filter` fails loudly if Style is renamed where `slice(0,1)`
@@ -8514,64 +9409,82 @@ export function AmendmentScreen({
                     label={col.header}
                     required={col.required}
                     size="xs"
+                    /* DESCRIPTION TAKES THE LINE, the other seven share one.
+                       It is the only free-text box on the row, and ~155px of a
+                       14-col track is the width `FIELD_TRACK_14` itself warns is
+                       "tight for free text".
+
+                       `col-span-full` AND NOT `col-span-14`: `full` resolves to
+                       `1 / -1`, so it fills whatever track it lands on and
+                       cannot silently produce no CSS the way a span past the
+                       default scale can. `cn` is twMerge, so this beats the
+                       `xs` span above it rather than sitting beside it.
+
+                       Anchored on the HEADER, like the folded-row filter below
+                       and for the same reason: these columns have been reordered
+                       more than once, and a header match fails loudly where an
+                       index would quietly widen the wrong cell. */
+                    className={
+                      col.header === "Description"
+                        ? "@lg/section:col-span-full"
+                        : undefined
+                    }
                   >
                     {col.cell(r, i)}
                   </Field>
                 ))}
               {/**
-                * SIZES TAKES ITS OWN LINE, LAST (client 2026-08-14).
+                * COMPONENTS AND SIZES, ON ONE LINE OF THEIR OWN, LAST (client
+                * 2026-08-23, screenshots 2471 · 2472 — "same ui like this").
                 *
-                * It sat SECOND, right after Style, because that is where its
-                * data comes from — and it was the tallest thing on the screen:
-                * a 248px cell wedged between five 32px ones, which is what made
-                * one style row ~425px against the legacy screen's ~170px.
+                * THREE GENERATIONS, and each one is here because the next reader
+                * will otherwise read this as arbitrary:
                 *
-                * `full` is `col-span-12`. The five `xs` cells above occupy 10 of
-                * the 12, so this cannot share their line and wraps to its own —
-                * the effect comes out of the span map rather than a second
-                * track. A hand-rolled 14-column track was built for exactly this
-                * once and reverted, because a cell sized for its fullest state
-                * is a hole in its commonest one; a full-width line has no such
-                * surplus, since the sizes lay across it.
+                *   1. Sizes SECOND, right after Style, because that is where its
+                *      data comes from — and it was the tallest thing on screen:
+                *      a 248px cell wedged between five 32px ones, which made one
+                *      style row ~425px against the legacy screen's ~170px.
+                *   2. Sizes LAST and laid ACROSS its own line (2026-08-14), then
+                *      Components stacked under it as a second full line when the
+                *      Style master was merged in (2026-08-23).
+                *   3. This: ONE line holding both, 6/6, the Style master's own
+                *      section. Gen 2 was the same content in a different shape
+                *      from the screen the operator had just come from.
                 *
-                * LAST, NOT SECOND, and that is also what the row's Tab order
-                * needs: `tabFieldsIn` walks a row in DOM ORDER, so the sizes
-                * are reached after the cells rather than between them. The note
-                * above `sizeGrid` said this was the arrangement all along — it
-                * described the pre-08-12 layout and is true again.
+                *   4. This: THREE cells of the row's own 14-column track —
+                *      Coordinates 3, Components 8, Sizes 3 — so they line up
+                *      under the fields above them rather than inside a grid of
+                *      their own. Gen 3 nested a second `FieldGrid` here and gave
+                *      each half `lg` (6): three of those is 18, so Sizes wrapped
+                *      alone and left six columns empty.
                 *
-                * NO COUNT IN THE LABEL (client 2026-08-14). It read "Sizes (4)",
-                * which earned its place while the list was a 180px cell that
-                * could not show four sizes at once — the number said what the
-                * cell could not. On a full-width line every size is visible, so
-                * the count restates what is already on screen, one word to the
-                * left of the answer.
+                * NO WRAPPER CELL AT ALL NOW. `componentsAndSizes` returns the
+                * three `<Field>`s as a fragment straight into this grid, which
+                * is what makes them share the track. A wrapper would have needed
+                * its own span and its own inner track — two places to disagree
+                * about one row.
                 *
-                * AND NOW NO LABEL AT ALL (client 2026-08-20, screenshot 2413).
-                * Withdrawing "+ Add size" the same day emptied this line on a
-                * style not yet picked, and what was left was the word "Sizes"
-                * standing over nothing — the under-filled row the de-clutter
-                * pass calls the defect that ships. The label is OMITTED rather
-                * than set to `""`: `Field` documents the two as different
-                * things, and `""` keeps the label ROW to align a control with
-                * its neighbours, which is the 14px of blank this is removing.
-                * The sizes still name themselves — each is a Size picker, and
-                * the empty state below says what to do when there are none.
+                * LAST IS ALSO THE ROW'S TAB ORDER, not a visual preference:
+                * `tabFieldsIn` walks a row in DOM ORDER, so both grids are
+                * reached once the five cells are done rather than between a cell
+                * and its neighbour. They stay INSIDE the row, which is what makes
+                * them part of it for Tab while the arrows keep to the row's own
+                * cells (`ownDescendants`) — the one place the two keys read
+                * different axes on purpose.
                 */}
               {isOpen ? (
-                <Field key="__sizes" size="full">
-                  {sizeGrid(r)}
-                </Field>
+                componentsAndSizes(r)
               ) : (
                 /* `label=""` rather than no label: `Field` renders a `&nbsp;` in
                    that case precisely to reserve the label line, so the summary
                    sits level with the Style box beside it instead of 14px above
-                   it. `xl` (8 of 12) beside Style's 2 fills the line.
+                   it. `full` (12) beside Style's 2 fills the 14-column line
+                   exactly; it was `xl` (8) while the track was 12.
 
                    `Truncated` because a long summary must stay READABLE, not
                    merely clipped — the standing rule that an ellipsis is a
                    promise the rest is reachable. */
-                <Field key="__summary" label="" size="xl">
+                <Field key="__summary" label="" size="full">
                   <div className="flex min-h-8 items-center">
                     <Truncated className="text-sm text-muted-foreground">
                       {summary || "Not filled in yet"}
@@ -8582,7 +9495,7 @@ export function AmendmentScreen({
                   </div>
                 </Field>
               )}
-            </FieldRow>
+            </FieldGrid>
           </div>
           );
         }}
@@ -9660,7 +10573,7 @@ export function AmendmentScreen({
               hold on it would cage the operator. The requiredness moved to
               Unit and Date, the two fields the number is built from — the same
               shape a composed name uses (AGENTS.md, "Mandatory fields"). */}
-          <Field label="SCNo" size="xs" htmlFor="hd-scno">
+          <Field label="RE No" size="xs" htmlFor="hd-scno">
             <Input
               id="hd-scno"
               readOnly
@@ -9888,6 +10801,38 @@ export function AmendmentScreen({
           </Field>
         </FieldGrid>
 
+        {/* THE ATTACHED DOCUMENTS, AND THIS IS THE ONLY POSITION THAT WORKS.
+            Two rules meet here and between them they leave one slot.
+
+            `FileAttachments` holds exactly one field-like node — the per-row
+            kind `<Select>` — and its own header says to render the panel AFTER a
+            section's fields, so that Select does not become the section edge
+            ahead of them.
+
+            The styles grid below says it MUST RENDER LAST, because `cycleTab`
+            treats the last field-like node as the edge where Tab hands over to
+            Color/Print Details.
+
+            So: fields, then this, then the grid. Move it below `stylesGrid` and
+            Tab stops leaving Order Info; move it above the `FieldGrid` and it
+            becomes the edge ahead of the header fields.
+
+            WHY HERE AND NOT LOGISTIC. 0416 was written for the Logistic tab and
+            the client's 2026-08-12 words put it there. Order Info is the later
+            instruction: the buyer's PDF belongs beside the PO No it arrived
+            with, and since Style(s) merged into this section on 2026-08-11 the
+            sketch belongs beside the style it depicts. One panel, because those
+            two placements are now one section. */}
+        <FileAttachments
+          rows={attachments}
+          onChange={setAttachments}
+          bucket="garment-order-docs"
+          folder={editId ?? uploadFolder}
+          disabled={!perms.canEdit}
+          label="Order documents"
+          hint="The buyer's PDF order sheet, the style sketch, and any approvals or shade cards production needs to see."
+        />
+
         {/* THE STYLE(S) GRID, AND IT MUST RENDER LAST.
             `cycleTab` (lib/focus.ts) walks the pane's field-like nodes in DOM
             order and treats the last one as the SECTION EDGE — the point where
@@ -10044,6 +10989,16 @@ export function AmendmentScreen({
                 )}
               </span>
             )}
+            {/* THE SKETCH, REACHABLE FROM EVERY SECTION. It is uploaded on Order
+                Info and read while filling Combos and Sizes, which are three and
+                four rail stops away — so without this the operator navigates
+                back, looks, and navigates forward again for every glance.
+
+                Here rather than in a pinned card of its own, for the reason the
+                balance figure beside it is here: a record's header fields are a
+                SECTION, not a band floating above the rail, and `PageHeader` is
+                already the one strip that names this record. */}
+            <SketchThumbnail bucket="garment-order-docs" path={sketchPath} />
             <Button variant="outline" size="md" onClick={() => setMode("list")}>
               ← Back to list
             </Button>

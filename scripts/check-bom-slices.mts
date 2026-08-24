@@ -26,9 +26,12 @@ import {
   liveOverrides,
   overrideFor,
   sliceKey,
+  toOverrides,
+  OVERRIDE_FIELDS,
   type SliceOverride,
 } from "../lib/orders/material-bom/slice-consumption.ts";
 import { requirementFor } from "../lib/orders/material-bom/requirement.ts";
+import { mbaItemInput } from "../lib/orders/material-bom-amendment/types.ts";
 
 let failed = 0;
 
@@ -40,6 +43,17 @@ function check(label: string, actual: unknown, expected: unknown) {
   } else {
     failed++;
     console.log(`  FAIL  ${label}\n          got  ${a}\n          want ${e}`);
+  }
+}
+
+/** Asserts a value is NOT something — for the wrong answer a plausible
+ *  implementation gives. The same helper the requirement vectors carry. */
+function refute(label: string, actual: unknown, notExpected: unknown) {
+  if (JSON.stringify(actual) === JSON.stringify(notExpected)) {
+    failed++;
+    console.log(`  FAIL  ${label}\n          must not be ${JSON.stringify(notExpected)}`);
+  } else {
+    console.log(`  ok    ${label}`);
   }
 }
 
@@ -60,6 +74,193 @@ const ov = (
 ): SliceOverride => ({ combo, size_id, no_of_items, per_pieces });
 
 const at = (combo: string | null, size_id: string | null) => ({ combo, size_id });
+
+// ---------------------------------------------------------------------------
+// The SAVE PATH — what the server actually stores (fixed 2026-08-23)
+// ---------------------------------------------------------------------------
+/**
+ * Three defects shipped together in `7c8b6b4`, all in `writeChildren`'s
+ * neighbourhood and all of the same shape: a literal that names fewer fields
+ * than the thing it describes. None produced a type error, and two of them made
+ * the screen and the server disagree about a figure a purchase order is checked
+ * against.
+ *
+ * The column half is proved against the live catalog (a rolled-back round trip,
+ * 2026-08-23: all 13 writable columns stored and read back). What is asserted
+ * HERE is the half that is pure — the override lookup and the duplicate guard.
+ */
+
+console.log("\n§  the save path: an override must resolve on the axes it was keyed by");
+
+/*
+ * DEFECT 2. `actions.ts` normalised each stored override into a literal naming
+ * `combo`, `size_id` and the two figures — dropping `country_id` and
+ * `excess_pct`. `sliceKey` reads all three axes, so on a country-wise line the
+ * operator's figure was accepted, saved, redrawn by the same `consumptionFor`
+ * on screen, and NEVER reached the stored requirement.
+ *
+ * These vectors describe the normalisation's SHAPE rather than calling it (it is
+ * inline in the action): an override missing its destination must not answer a
+ * destination row. Break the shape and the first two fail.
+ */
+const LINE_D = { no_of_items: 2, per_pieces: 1, excess_pct: 1 };
+const US_D = "aaaaaaaa-0000-4000-8000-000000000001";
+
+/**
+ * THE REAL NORMALISER, not a copy of its shape.
+ *
+ * `toOverrides` is what `writeChildren` calls, so these vectors fail if the
+ * shipped function drops a field. Testing a locally-rebuilt literal would have
+ * asserted the RULE while leaving the code free to break it — which is exactly
+ * the state this defect shipped in.
+ */
+const carried = toOverrides([
+  { combo: "WHITE", size_id: null, country_id: US_D, no_of_items: 9, per_pieces: null, excess_pct: 12 },
+]);
+/** What the inline literal built before the fix — two axes dropped. */
+const dropped = carried.map((o) => ({
+  combo: o.combo,
+  size_id: o.size_id,
+  no_of_items: o.no_of_items,
+  per_pieces: o.per_pieces,
+}));
+
+/*
+ * THE WHOLE KEY SET, not a spot-check. The defect was a MISSING key, and a
+ * vector that reads `o.country_id` only proves the one field it names — the next
+ * field to be dropped would sail past it. Comparing the sorted key list is what
+ * makes "every field arrives" a single assertion that cannot rot.
+ */
+check(
+  "toOverrides emits every field an override carries",
+  Object.keys(carried[0]).sort(),
+  [...OVERRIDE_FIELDS].sort(),
+);
+check(
+  "...and undefined is normalised to null, never left to key as \"\"",
+  toOverrides([{ combo: "WHITE" }])[0],
+  {
+    combo: "WHITE",
+    size_id: null,
+    country_id: null,
+    combination: null,
+    style_ref_no: null,
+    no_of_items: null,
+    per_pieces: null,
+    excess_pct: null,
+  },
+);
+check("a null store is an empty list, never a throw", toOverrides(null), []);
+
+const usaRow = { combo: "WHITE", size_id: null, country_id: US_D };
+
+check(
+  "a carried override answers its own destination row",
+  consumptionFor(LINE_D, carried, usaRow).no_of_items,
+  9,
+);
+check(
+  "...and its wastage reaches the server too (0450)",
+  consumptionFor(LINE_D, carried, usaRow).excess_pct,
+  12,
+);
+/* THE REGRESSION ITSELF. With the destination dropped the override keys as ""
+   and matches nothing, so the LINE's figure is stored instead — silently, and
+   beside a screen showing 9. */
+check(
+  "an override stripped of its destination silently falls back to the line",
+  consumptionFor(LINE_D, dropped, usaRow).no_of_items,
+  2,
+);
+refute(
+  "...which is NOT the figure the operator typed",
+  consumptionFor(LINE_D, dropped, usaRow).no_of_items,
+  9,
+);
+check(
+  "and a stripped excess_pct falls back to the line's, never the row's",
+  consumptionFor(LINE_D, dropped, usaRow).excess_pct,
+  1,
+);
+
+/* THE FIX MUST NOT OVER-REACH EITHER: carrying the destination must not make an
+   override answer a DIFFERENT one. That is the collision 0449 added the axis to
+   prevent, and it stays prevented. */
+const CH_D = "aaaaaaaa-0000-4000-8000-000000000002";
+check(
+  "USA's override still does not answer CH",
+  consumptionFor(LINE_D, carried, { combo: "WHITE", size_id: null, country_id: CH_D }).no_of_items,
+  2,
+);
+
+console.log("\n§  the save path: two destinations at one size are not duplicates");
+
+/*
+ * DEFECT 3. `mbaItemInput`'s duplicate guard keyed on `${combo}:${size_id}`
+ * while `uq_mba_slice_line_combo_size` has keyed on all THREE axes since 0449 —
+ * which that migration even asserts ("USA-M and CH-M would collide").
+ *
+ * The drift ran the OPPOSITE way to the one its own comment feared: not the form
+ * accepting a pair the database refuses, but the form REFUSING a pair the
+ * database allows. A country-wise line with a figure against two destinations at
+ * one size could not be saved at all.
+ */
+const sliceOf = (over: Record<string, unknown>) => ({
+  combo: "WHITE",
+  size_id: null,
+  country_id: null,
+  no_of_items: 5,
+  ...over,
+});
+const lineWith = (slices: unknown[]) => ({
+  item_id: "11111111-1111-4111-8111-111111111111",
+  /* CATEGORY IS REQUIRED SINCE 2026-08-24 (client). The fixture carries one
+     because these vectors are about the SLICE rules — a line refused for a
+     missing category would make them pass or fail for a reason that has nothing
+     to do with what they assert. That is the same trap the malformed-uuid draft
+     of these vectors fell into. */
+  category_id: "22222222-2222-4222-8222-222222222222",
+  no_of_items: 2,
+  per_pieces: 1,
+  requirement_basis: "country",
+  slices,
+});
+
+const twoDestinations = mbaItemInput.safeParse(lineWith([
+  sliceOf({ country_id: US_D }),
+  sliceOf({ country_id: CH_D }),
+]));
+check("two destinations at one size SAVE", twoDestinations.success, true);
+
+/* AND A REAL DUPLICATE IS STILL REFUSED, with the sentence rather than a
+   Postgres constraint name. Widening a key must not disarm the guard. */
+const realDuplicate = mbaItemInput.safeParse(lineWith([
+  sliceOf({ country_id: US_D }),
+  sliceOf({ country_id: US_D }),
+]));
+check("the same destination twice is still refused", realDuplicate.success, false);
+/* AND FOR THE RIGHT REASON. `success === false` alone is a false green — the
+   first draft of this vector passed because its uuids were malformed, not
+   because the guard fired. So every refusal here names the issue it expects. */
+const dupMsg = (r: typeof realDuplicate) =>
+  r.success ? [] : r.error.issues.map((i) => i.message);
+check(
+  "...and it says so in words",
+  realDuplicate.success
+    ? null
+    : realDuplicate.error.issues.some((i) => i.message === "This slice already has an override on the line"),
+  true,
+);
+/* The no-destination case is unchanged: two rows with a null country are still
+   one slice, because a NULL is a value and two nulls collide (the index
+   COALESCEs it to a sentinel for exactly that reason). */
+const twoNulls = mbaItemInput.safeParse(lineWith([sliceOf({}), sliceOf({})]));
+check("two rows with no destination are still one slice", twoNulls.success, false);
+check(
+  "...and that too is the duplicate guard, not a malformed fixture",
+  dupMsg(twoNulls).includes("This slice already has an override on the line"),
+  true,
+);
 
 console.log("\n§1  No override — the line's figures reach every slice");
 
@@ -138,11 +339,97 @@ check(
   consumptionFor(LINE, [ov(null, null, 8, 1)], at("WHITE", null)),
   LINE,
 );
-// THREE AXES SINCE 0449 — the destination joined combo and size. The trailing
-// empty segment is a basis with no destination axis, and it must be PRESENT
-// rather than trimmed: dropping it would make "NAVY:M" and "NAVY:M:USA" differ
-// only by a suffix, and a future fourth axis would collide with this one.
-check("the key normalises every half", sliceKey(at(" navy ", M)), `NAVY:${M}:`);
+// FIVE AXES SINCE 0464 — the style joined combo, size, the destination and the
+// typed combination. Every trailing empty segment must be PRESENT rather than
+// trimmed: dropping them would make "NAVY:M" and "NAVY:M:USA" differ only by a
+// suffix, and the next axis added would collide with this one.
+check("the key normalises every half", sliceKey(at(" navy ", M)), `NAVY:${M}:::`);
+
+// ---------------------------------------------------------------------------
+// THE COLLISION 0463 EXISTS TO PREVENT.
+//
+// A combination row is created by typing a NAME in the Combination popup, and
+// carries no combo, no size and no country of its own. So before the axis was
+// part of the key, TOP and BOTTOM both keyed as "::" — and `overrideFor` is a
+// `.find()`, so the first row would have answered for both, on the figure a
+// purchase order is written from.
+//
+// Verified by making it FAIL first: with `combination` removed from `sliceKey`,
+// both keys are "::" and the two checks below report equal keys and TOP's
+// figure answering BOTTOM's row.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// THE COLLISION 0464 FIXED, AND IT WAS LIVE.
+//
+// A style-basis row carries `style_ref_no` and nothing else — combo, size and
+// country are all NULL (`productionSlices`, the `basis === "style"` branch). So
+// before 0464 every style on the line keyed as ":::" and a figure typed against
+// one answered for all of them, on the number a purchase order is written from.
+// Invisible on a single-style order, which is why it survived since 0440.
+//
+// Verified by making it FAIL first: with `style_ref_no` removed from
+// `sliceKey`, the two keys are equal and STYLE B reports STYLE A's 5.
+// ---------------------------------------------------------------------------
+const ST_A = { combo: null, size_id: null, country_id: null, style_ref_no: "STL/26-27/0001" };
+const ST_B = { combo: null, size_id: null, country_id: null, style_ref_no: "STL/26-27/0002" };
+
+check("two styles on one line are two keys", sliceKey(ST_A) !== sliceKey(ST_B), true);
+check("a style ref normalises like every other half", sliceKey({ ...ST_A, style_ref_no: " stl/26-27/0001 " }), sliceKey(ST_A));
+check(
+  "one style's figure does not answer the other's row",
+  overrideFor([{ ...ST_A, no_of_items: 5, per_pieces: 1 }], ST_B),
+  null,
+);
+check(
+  "...and it still answers its own",
+  overrideFor([{ ...ST_A, no_of_items: 5, per_pieces: 1 }], ST_A)?.no_of_items,
+  5,
+);
+// THE TWO AXES ARE INDEPENDENT. A style-wise line split by garment part is the
+// cross product, and all four rows must be distinguishable — this is the case
+// the 0463 column made reachable, so it is the case most likely to regress.
+check(
+  "style x combination is four distinct keys",
+  new Set([
+    sliceKey({ ...ST_A, combination: "TOP" }),
+    sliceKey({ ...ST_A, combination: "BOTTOM" }),
+    sliceKey({ ...ST_B, combination: "TOP" }),
+    sliceKey({ ...ST_B, combination: "BOTTOM" }),
+  ]).size,
+  4,
+);
+check(
+  "the same part on another style is not the same row",
+  overrideFor([{ ...ST_A, combination: "TOP", no_of_items: 5, per_pieces: 1 }], {
+    ...ST_B,
+    combination: "TOP",
+  }),
+  null,
+);
+
+const TOP = { combo: null, size_id: null, country_id: null, combination: "TOP" };
+const BOTTOM = { combo: null, size_id: null, country_id: null, combination: "BOTTOM" };
+
+check("two garment parts on one line are two keys", sliceKey(TOP) !== sliceKey(BOTTOM), true);
+check("a typed name normalises like every other half", sliceKey({ ...TOP, combination: " top " }), sliceKey(TOP));
+check(
+  "one part's figure does not answer the other's row",
+  overrideFor(
+    [{ ...TOP, no_of_items: 4, per_pieces: 1 }],
+    BOTTOM,
+  ),
+  null,
+);
+check(
+  "...and it still answers its own",
+  overrideFor([{ ...TOP, no_of_items: 4, per_pieces: 1 }], TOP)?.no_of_items,
+  4,
+);
+check(
+  "a plain slice is not a combination row",
+  sliceKey({ combo: null, size_id: null, country_id: null }) !== sliceKey(TOP),
+  true,
+);
 
 console.log("\n§5  overrideFor returns the row, or null");
 

@@ -15,7 +15,7 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 const columns: Column<AcceptedOrderRow>[] = [
   {
-    header: "SC No / Order No",
+    header: "RE No / Order No",
     cell: (row) => (
       <Link
         href={`/orders/${row.id}/processes`}

@@ -35,6 +35,10 @@ export type SliceOverride = {
   size_id: string | null;
   /** The destination, part of the key since 0449 — see `SliceKey`. */
   country_id?: string | null;
+  /** The typed garment part, part of the key since 0463 — see `SliceKey`. */
+  combination?: string | null;
+  /** Which style, part of the key since 0464 — see `SliceKey`. */
+  style_ref_no?: string | null;
   no_of_items: number | null;
   per_pieces: number | null;
   /** The wastage buffer for this row (0450). NULL inherits the line's. */
@@ -57,6 +61,39 @@ export type SliceKey = {
    * here is the two stores disagreeing about what one row is.
    */
   country_id?: string | null;
+  /**
+   * THE TYPED GARMENT PART, AND IT IS PART OF THE KEY (0463).
+   *
+   * Exactly the 0449 argument one axis along, and sharper. A combination row is
+   * created by typing a NAME in the Combination popup and carries no combo, no
+   * size and no country of its own — so TOP and BOTTOM both key as `::` and the
+   * first one found would answer for both. `overrideFor` is a `.find()`, so the
+   * wrong figure would be returned silently, on the number a purchase order is
+   * written from.
+   *
+   * NOT `combo`, which is the colourway by name and is joined on by the composer
+   * — see the header of `bom-combination-sheet.tsx` for why conflating the two
+   * is the failure mode rather than a tidy-up.
+   */
+  combination?: string | null;
+  /**
+   * WHICH STYLE, AND IT IS PART OF THE KEY (0464).
+   *
+   * The third instance of one shape, and it was a LIVE defect rather than a
+   * refinement. A style-basis row carries `style_ref_no` and nothing else — combo,
+   * size and country are all NULL (`productionSlices`, the `basis === "style"`
+   * branch) — so every style on the line keyed as ":::" and one typed figure
+   * answered for all of them:
+   *
+   *     key(style A) = ":::"   key(style B) = ":::"   B resolves to A's 5
+   *
+   * `uq_mba_req_slice` has carried `style_ref_no` since the style basis existed,
+   * so this is the override store catching up with the requirement store — the
+   * same sentence 0449 wrote about `country_id`, and 0463 about `combination`.
+   * Three in one family is why `OVERRIDE_FIELDS` is asserted as a SET: only a
+   * whole-set comparison catches a MISSING key.
+   */
+  style_ref_no?: string | null;
 };
 
 /** The line's own figures, which every slice falls back to. */
@@ -79,8 +116,80 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
  * two different questions resolving to one stored answer.
  */
 export function sliceKey(s: SliceKey): string {
-  return `${norm(s.combo)}:${s.size_id ?? ""}:${s.country_id ?? ""}`;
+  return `${norm(s.combo)}:${s.size_id ?? ""}:${s.country_id ?? ""}:${norm(s.combination)}:${norm(s.style_ref_no)}`;
 }
+
+/**
+ * A stored slice row, narrowed to the override the resolver reads.
+ *
+ * ## THIS EXISTS BECAUSE THE INLINE VERSION WAS WRONG TWICE
+ *
+ * `writeChildren` built this shape with an object literal, and the literal named
+ * `combo`, `size_id` and the two figures — dropping `country_id` and
+ * `excess_pct`. Neither omission is visible to `tsc`: the result still satisfies
+ * `SliceOverride`, because every field this drops is optional so that a row
+ * saved before 0449/0450 stays readable.
+ *
+ * So the consequences were silent and total. `sliceKey` reads all three axes, so
+ * an override keyed to USA-M matched NO slice on a country-wise line and the
+ * LINE's figure was stored instead — beside a screen showing the operator's own
+ * number, because the screen passed the full rows to the same `consumptionFor`.
+ * The per-row Wastage % of 0450 was inert on the server for the same reason.
+ *
+ * A literal cannot be tested, which is why this is a function: the vectors in
+ * `check-bom-slices.mts` assert the KEY SET it returns, so a field dropped here
+ * fails a check rather than a purchase order.
+ *
+ * NORMALISING IS THE WHOLE JOB. `mbaItemSliceInput` leaves fields optional, so
+ * they arrive as `string | null | undefined` where `SliceKey` wants
+ * `string | null`; `undefined` would key as "" and quietly match the wrong row.
+ * Done once per line rather than per slice, and here rather than by loosening
+ * the shared type — the screen always supplies these, and a type that admits
+ * `undefined` would stop saying so.
+ */
+export function toOverrides(
+  slices:
+    | readonly {
+        combo?: string | null;
+        size_id?: string | null;
+        country_id?: string | null;
+        combination?: string | null;
+        style_ref_no?: string | null;
+        no_of_items?: number | null;
+        per_pieces?: number | null;
+        excess_pct?: number | null;
+      }[]
+    | null
+    | undefined,
+): SliceOverride[] {
+  return (slices ?? []).map((sl) => ({
+    combo: sl.combo ?? null,
+    size_id: sl.size_id ?? null,
+    country_id: sl.country_id ?? null,
+    combination: sl.combination ?? null,
+    style_ref_no: sl.style_ref_no ?? null,
+    no_of_items: sl.no_of_items ?? null,
+    per_pieces: sl.per_pieces ?? null,
+    excess_pct: sl.excess_pct ?? null,
+  }));
+}
+
+/**
+ * Every field an override carries, so a vector can assert the set rather than
+ * spot-check members. Exported for `check-bom-slices.mts`: the defect this
+ * module now guards against was a MISSING key, and only a whole-set comparison
+ * catches one of those.
+ */
+export const OVERRIDE_FIELDS = [
+  "combo",
+  "size_id",
+  "country_id",
+  "combination",
+  "style_ref_no",
+  "no_of_items",
+  "per_pieces",
+  "excess_pct",
+] as const;
 
 /**
  * The override stored against one slice, or null.

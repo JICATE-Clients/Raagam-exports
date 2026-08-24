@@ -328,9 +328,9 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
     { header: "Ctn To", cell: (r) => <Input className="h-8" value={r.ctn_to} onChange={(e) => updateLine(r.key, { ctn_to: e.target.value })} /> },
     { header: "Ctns", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.ctns} onChange={(e) => updateLine(r.key, { ctns: e.target.value })} /> },
     {
-      header: "SC No",
+      header: "RE No",
       className: "min-w-[180px]",
-      cell: (r) => <RecordPicker label="SC No" compact identity="code" items={orderItems} value={r.sc_no_id} onChange={(id) => updateLine(r.key, { sc_no_id: id })} />,
+      cell: (r) => <RecordPicker label="RE No" compact identity="code" items={orderItems} value={r.sc_no_id} onChange={(id) => updateLine(r.key, { sc_no_id: id })} />,
     },
     { header: "PO No", cell: (r) => <Input className="h-8" uppercase value={r.po_no} onChange={(e) => updateLine(r.key, { po_no: e.target.value })} /> },
     {

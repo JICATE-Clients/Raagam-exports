@@ -546,13 +546,55 @@ body {
  * over the re-revealed visibility for the toolbar.
  */
 @media print {
-  body * {
+  /*
+   * THE HIDE IS SCOPED TO PAGES THAT HAVE SOMETHING TO REVEAL (2026-08-23).
+   *
+   * This was `body *`, unconditionally. `.report-print-area` is carried by
+   * exactly TWO files in the app — `components/reports/report-view.tsx` and
+   * `components/orders/gos-print-styles.tsx` — so every OTHER printable page hid
+   * its whole body and re-revealed nothing. The logistics document pages
+   * (`app/(app)/logistics/[shipmentId]/documents/[docType]/`), which exist to be
+   * printed, came out BLANK.
+   *
+   * Measured, not argued: printed through headless Chrome, that configuration
+   * produces a 1,112-byte PDF with ZERO embedded fonts. And it is invisible to a
+   * page-count check, because `visibility: hidden` PRESERVES LAYOUT — the blank
+   * version still spans the same number of pages as the real one. Font count and
+   * byte size are what tell content from an empty shell.
+   *
+   * `:has()` makes the rule relational: a page that declares a print area still
+   * isolates it exactly as before, and a page that declares none is left alone.
+   * Chrome 105+ / Safari 15.4+ / Firefox 121+ — fine for a desktop-printed
+   * internal ERP, and the failure mode if it were ever unsupported is the old
+   * behaviour rather than something new.
+   */
+  body:has(.report-print-area) * {
     visibility: hidden;
   }
   .report-print-area,
   .report-print-area * {
     visibility: visible;
   }
+  /*
+   * KEEP THE INK. Print engines strip backgrounds, borders and shadows by
+   * default to save toner, which takes the header fills and cell rules off a
+   * size matrix and leaves an unreadable grid of numbers. Declared for the whole
+   * print context rather than per component, so a sheet added later inherits it.
+   */
+  html {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /*
+   * KNOWN, DELIBERATELY NOT CHANGED HERE (2026-08-23): an absolutely positioned
+   * element does not paginate — a report longer than one page is CLIPPED rather
+   * than continued. Removing `absolute` alone makes it worse, not better: the
+   * area then sits inside `main`'s `overflow-y-auto` under an `h-screen`
+   * ancestor, which is one page tall in print and clips the same way. Fixing it
+   * needs the ancestor height/overflow reset as well, and testing against a real
+   * multi-page report. `gos-print-styles.tsx` does exactly that for its own
+   * sheet and stays in normal flow; copy that shape when someone takes this on.
+   */
   .report-print-area {
     position: absolute;
     left: 0;

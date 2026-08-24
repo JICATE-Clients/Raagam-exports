@@ -69,6 +69,7 @@
     "scripts/check-assort-weights.mts",
     "scripts/check-bom-slices.mts",
     "scripts/check-ta-schedule.mts",
+    "scripts/check-amendment-files.mts",
     "scripts/check-approval-tree.mts",
     "scripts/check-assort-style.mts",
     "scripts/mine-name-vocabularies.mts",

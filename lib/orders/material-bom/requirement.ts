@@ -140,6 +140,19 @@ export const OFFERED_REQUIREMENT_BASES = [
   "country",
 ] as const satisfies readonly RequirementBasis[];
 
+/**
+ * BASES WHOSE ROWS ARE ALREADY ONE PER SIZE, so the per-row "Size wise" tick has
+ * nothing left to add and must stand down (see `productionSlices`).
+ *
+ * Kept as a literal here rather than derived from `axesOfBasis` in
+ * `lib/orders/bom-explosion/exploder.ts`, which would be the single declaration:
+ * that module imports this one for `RequirementBasis`, so reading it back would
+ * be an import cycle. The two are held together by a vector instead —
+ * `check-bom-explosion.mts` asserts that the tick is a no-op on exactly the
+ * bases whose axis set contains `size`, so they cannot drift apart silently.
+ */
+const SIZE_IS_ALREADY_THE_GRAIN = new Set<RequirementBasis>(["size", "combination"]);
+
 /** What the screen prints when a figure cannot be produced. Never an empty
  *  string: a blank cell and a refused cell must not look alike. */
 export type Refusal = { refused: string };
@@ -344,8 +357,76 @@ export function colourSplits(
   return [...byColour.values()];
 }
 
+/**
+ * ONE PANEL SPLIT'S FINAL RATIO, after the slice's own overrides have resolved.
+ *
+ * ## TWO OPT-INS CAN NOW SIT ON ONE LINE, AND NOTHING SAYS WHICH WINS
+ *
+ * A Material BOM line can carry BOTH of these, and each was designed alone:
+ *
+ *   - PANELS (0436) — the Combination sheet. Front body 25m, sleeves 12m,
+ *     collar 8m, summed by `colourSplits` into a rate per garment.
+ *     0436: *"a line that enters component rows here takes its ratio from them
+ *     instead."*
+ *   - A SLICE OVERRIDE (0442) — a figure typed against one (combo, size,
+ *     country) cell, because an XXL seam is longer than an XS one.
+ *     0442: the override replaces the line's figures, per FIELD.
+ *
+ * Both documents say "the line's ratio, replaced". Together they are two rival
+ * answers to one question, and by the time this is called `consumptionFor` has
+ * already collapsed the override chain into `resolved` — so this is the only
+ * place the collision can be settled.
+ *
+ * ## THIS IS A TRADE RULE, NOT AN ARITHMETIC ONE — SEE THE TODO
+ *
+ * The engine cannot derive it. An override typed against XXL means "this
+ * GARMENT consumes more", and whether that scales every seam, replaces the
+ * construction outright, or is a data-entry conflict to refuse is a question
+ * about how thread is actually bought.
+ *
+ * A LINE WITH NO OVERRIDE ON THIS SLICE IS NOT THE AMBIGUOUS CASE. There
+ * `resolved` is the line's own figures and the panels are the only ratio typed,
+ * so the panel rate stands however the TODO is settled — which is why the guard
+ * below is a comparison against the line, not a truthiness test.
+ */
+export function panelConsumption(
+  /** The line's figures with every slice override already composed in, per
+   *  field (`consumptionFor`). */
+  resolved: { no_of_items: number | null; per_pieces: number | null },
+  /** The line's OWN figures, before any override — what `resolved` is compared
+   *  against to tell "the operator typed something here" from "it inherited". */
+  line: { no_of_items: number | null; per_pieces: number | null },
+  /** This colour's panel rate: items per ONE piece, `per_pieces` always 1. */
+  split: ColourSplit,
+): { no_of_items: number | null; per_pieces: number | null } {
+  const overridden =
+    num(resolved.no_of_items) !== num(line.no_of_items) ||
+    num(resolved.per_pieces) !== num(line.per_pieces);
+
+  if (!overridden) {
+    // The unambiguous case: panels are the only ratio anyone typed.
+    return { no_of_items: split.no_of_items, per_pieces: split.per_pieces };
+  }
+
+  // TODO(raagam): decide how a slice override composes with a panel rate.
+  // Provisional — panels win, which is 0436 read on its own and the reason a
+  // line with panels "takes its ratio from them instead". Replace this return
+  // with the rule the trade actually uses; the three candidates are written up
+  // in the doc comment above.
+  return { no_of_items: split.no_of_items, per_pieces: split.per_pieces };
+}
+
+
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
-const comboKey = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
+/**
+ * A colourway's comparison form. EXPORTED since the composer
+ * (`lib/orders/bom-explosion/compose.ts`) has to match assort rows to a slice by
+ * combo, and a second `trim().toUpperCase()` written there would be a second
+ * definition of what "the same colourway" means — the exact drift AGENTS.md
+ * records under Nominated vendors, where two spellings compiled, ran and matched
+ * nothing. `styleKey` is shared from its own module for the same reason.
+ */
+export const comboKey = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
 
 /** Joins the two halves of a colour key. A control character, so a style or
  *  combo containing the separator cannot forge another pair's key. */
@@ -713,6 +794,33 @@ export function productionSlices(
 ): ProductionSlice[] | Refusal {
   const primary = primarySlices(basis, order, rule);
   if (isRefusal(primary) || !sizeWise) return primary;
+
+  /*
+   * THE TICK ADDS THE SIZE AXIS, SO ADDING IT TWICE MUST DO NOTHING.
+   *
+   * `size` and `combination` are already one row PER SIZE. Splitting those rows
+   * by size again crossed the axis with itself: a `combination` line with a
+   * ticked row produced "WHITE · S · S", "WHITE · S · M", "WHITE · M · S",
+   * "WHITE · M · M" — a size against a size, with the colourway's quantity
+   * divided across the four.
+   *
+   * IT DID NOT FAIL QUIETLY, IT FAILED UNREADABLY. Every pair of those rows is
+   * identical on (style_ref_no, combo, size_id, country_id), so
+   * `uq_mba_req_slice` refuses the second insert and the SAVE dies with a
+   * constraint name — on a screen that has already drawn the doubled rows.
+   *
+   * Reachable because the two bases did not leave the system when they left the
+   * MENU on 2026-08-21: `OFFERED_REQUIREMENT_BASES` is four, but `size` and
+   * `combination` remain live values in the CHECK constraint and are documented
+   * to keep resolving for rows stored under them, while the tick is a per-slice
+   * flag stored independently of the basis.
+   *
+   * The idempotence is the whole reason the grain is modelled as a SET
+   * (`lib/orders/bom-explosion/exploder.ts`): `canonicalAxes` de-duplicates, so
+   * `{style_ref, colour, size}` + size is itself and this cannot be expressed.
+   * Stated here as well because `productionSlices` is the function that runs.
+   */
+  if (SIZE_IS_ALREADY_THE_GRAIN.has(basis)) return primary;
 
   const targets = targetsOf(order, rule);
   if (isRefusal(targets)) return targets;
@@ -1324,6 +1432,88 @@ export function lineQuantity(
     finalQty: roundUpTo(roll.afterMoq, step),
   };
 }
+
+/**
+ * MOQ AND THE ROUNDING STEP, APPLIED PER TRIM COLOUR (0436, client 2026-08-22).
+ *
+ * A line whose Combination sheet names navy thread on the body and red on the
+ * sleeves is buying TWO THINGS. `moqRollup`'s standing rule — the minimum is a
+ * minimum per ORDER, never per requirement row — is about the COLOURWAY
+ * explosion, where six rows are six sizes of the same white thread and a per-row
+ * MOQ of 500 orders 3,000 of something the order needs 100 of. That reasoning
+ * does not reach a trim colour: a supplier's minimum is a minimum per CONE, so
+ * navy and red each have to clear it on their own.
+ *
+ * The distinction the code could not previously draw is the one 0436 supplies.
+ * A requirement row now carries `item_color_id`, so a colourway row and a
+ * trim-colour row stop looking alike — before it, both were "a row of this line"
+ * and grouping by either would have grouped by both.
+ *
+ * ## ONE GROUP REDUCES TO `lineQuantity`, EXACTLY
+ *
+ * That property is what keeps every line written before 0436 unchanged: a line
+ * with no panels has one group — its own Item Color — and this returns what
+ * `lineQuantity` returned, to the digit. So this is not a second MOQ rule
+ * standing beside the first; it is the first, with the grouping made explicit.
+ *
+ * ## A REFUSED COLOUR POISONS THE LINE
+ *
+ * The module header's partial-explosion rule, applied one level down. A line
+ * that answers for navy and refuses for red totals less than the order needs and
+ * looks exactly like a correct answer — the failure that gets believed rather
+ * than reported. So the refusal travels instead, carrying the sentence that
+ * already names what to go and fix.
+ */
+export type ColourQuantities = {
+  /** NULL is the line's own Item Color; only the caller can resolve a name. */
+  item_color_id: string | null;
+  /** This colour's slice figures — `requirementFor`'s answers, refusals dropped
+   *  to null by the caller exactly as `lineQuantity` expects them. */
+  quantities: readonly (number | null)[];
+  /** The same slices before the line's Wastage %. Optional for the reason
+   *  `lineQuantity`'s own parameter is optional. */
+  baseQuantities?: readonly (number | null)[];
+};
+
+export function lineQuantityByColour(
+  groups: readonly ColourQuantities[],
+  moq: number | null,
+  roundTo: number | null,
+  unitKnown: boolean,
+): LineQuantity | Refusal {
+  /* NOT "0 across the board". No groups means the caller produced no slices at
+     all — the same unanswerable state `moqRollup` refuses on — and 0 reads as
+     "none needed", which is the one answer this module never intends. */
+  if (groups.length === 0) {
+    return { refused: "Nothing to total — every line refused" };
+  }
+
+  const parts: LineQuantity[] = [];
+  for (const g of groups) {
+    const one = lineQuantity(g.quantities, moq, roundTo, unitKnown, g.baseQuantities);
+    if (isRefusal(one)) return one;
+    parts.push(one);
+  }
+
+  const total = (pick: (p: LineQuantity) => number) =>
+    parts.reduce((a, p) => a + pick(p), 0);
+
+  return {
+    /* THE FIRST TWO SIMPLY SUM. They are what the order CONSUMES, and
+       consumption does not care that a supplier has a minimum — the same
+       separation `lineQuantity` states for `baseQuantities` one function up. */
+    calcQty: total((p) => p.calcQty),
+    excessCalcQty: total((p) => p.excessCalcQty),
+    /* THESE TWO ARE WHERE THE GROUPING BITES: each colour cleared the minimum
+       and the step on its own before being added, so the sum is what the
+       purchase really costs rather than what a single rollup would have said.
+       `bomCeilingForOrder` groups the same way, or the ceiling would refuse a
+       PO written for the figure this very function told the operator to buy. */
+    afterMoq: total((p) => p.afterMoq),
+    finalQty: total((p) => p.finalQty),
+  };
+}
+
 
 // ---------------------------------------------------------------------------
 // Staleness

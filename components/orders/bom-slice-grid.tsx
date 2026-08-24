@@ -80,6 +80,16 @@ export interface BomSliceCell {
 export interface BomSliceRow {
   key: string;
   label: string;
+  /**
+   * LEGACY'S COMBINATION (0463) — the garment part this row is a split for, or
+   * null on a line that has none.
+   *
+   * NOT part of `label`. The label is the AXIS value (a style ref, a colourway,
+   * a country) and the combination is a second axis crossed with it, so joining
+   * them into one string would make "TEST · STL/26-27/0007" the row's name and
+   * leave nothing to sort, group or read a single part by.
+   */
+  combination?: string | null;
   chosen: boolean;
   sizeWise: boolean;
   specification: string;
@@ -135,6 +145,22 @@ const BOX =
 const COLS =
   "grid-cols-[2rem_minmax(104px,1fr)_2.75rem_minmax(112px,1fr)_minmax(88px,1fr)_minmax(80px,1fr)_3.75rem_3.75rem_3.5rem_4.5rem_4.5rem_4.75rem]";
 
+/**
+ * THE SAME TRACK WITH COMBINATION IN FRONT (0463).
+ *
+ * A SECOND CONSTANT RATHER THAN A COMPUTED ONE, because Tailwind's compiler only
+ * emits classes it can see as literals — a template string built at runtime
+ * produces a class name that never reaches the stylesheet, and the grid silently
+ * collapses to one column. That is the same reason `FIELD_TRACK_*` are literals
+ * on the screen next door.
+ *
+ * IT LEADS, ahead of the axis, because the combination is the coarser grouping:
+ * the operator reads "TEST, and within it these styles". Putting it after the
+ * axis would interleave the two parts of one style and read as noise.
+ */
+const COLS_COMBO =
+  "grid-cols-[2rem_minmax(96px,1fr)_minmax(104px,1fr)_2.75rem_minmax(112px,1fr)_minmax(88px,1fr)_minmax(80px,1fr)_3.75rem_3.75rem_3.5rem_4.5rem_4.5rem_4.75rem]";
+
 const TICK =
   "h-3.5 w-3.5 rounded border-border accent-primary disabled:opacity-40";
 
@@ -170,6 +196,14 @@ export function BomSliceGrid({
 }) {
   if (rows.length === 0) return null;
 
+  /* IT ONLY DISPLAYS AFTER VALUES ARE GIVEN (client 2026-08-24: "that
+     combination is only display after give that value not static field").
+     Read off the ROWS rather than passed in as a flag, so the column cannot be
+     shown with nothing in it or hidden with something in it — the two states a
+     separate prop would let drift apart. */
+  const hasCombination = rows.some((r) => !!(r.combination ?? "").trim());
+  const cols = hasCombination ? COLS_COMBO : COLS;
+
   return (
     <div className="mt-4 rounded-lg border border-border">
       {caption}
@@ -180,8 +214,11 @@ export function BomSliceGrid({
           file's own. The precedent and its warning are at
           `ta-department-assign-screen.tsx:184-201`. */}
       <div data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
-        <div className={cn("grid border-b border-border-strong bg-surface-muted", COLS)}>
+        <div className={cn("grid border-b border-border-strong bg-surface-muted", cols)}>
           <div className={cn("flex min-h-8 items-center justify-center px-1", T_LABEL)}>✓</div>
+          {hasCombination && (
+            <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>Combination</div>
+          )}
           <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>{axisHead}</div>
           <div className={cn("flex min-h-8 items-center justify-center px-1 text-center", T_LABEL)}>
             Size
@@ -210,7 +247,7 @@ export function BomSliceGrid({
           <div key={row.key} className="border-b border-border last:border-b-0">
             <div
               data-grid-row
-              className={cn("grid", COLS, !row.chosen && "opacity-45")}
+              className={cn("grid", cols, !row.chosen && "opacity-45")}
             >
               <div className="flex min-h-9 items-center justify-center">
                 <input
@@ -221,6 +258,19 @@ export function BomSliceGrid({
                   className={TICK}
                 />
               </div>
+              {hasCombination && (
+                /* READ-ONLY HERE. The name is typed in the Combination popup and
+                   this is where it is READ — a second editable copy would be two
+                   places to rename a part from, and the rename would have to
+                   re-key every stored row to keep its figures. Blank rather than
+                   a dash on a row that is not a combination split: a dash would
+                   read as "this part is called —". */
+                <div className="flex min-h-9 items-center px-2">
+                  <Truncated className="text-[13px] text-muted-foreground">
+                    {(row.combination ?? "").trim()}
+                  </Truncated>
+                </div>
+              )}
               <div className="flex min-h-9 items-center px-2">
                 <Truncated className="text-[13px] text-foreground">{row.label}</Truncated>
               </div>
