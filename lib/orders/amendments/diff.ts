@@ -164,6 +164,8 @@ type QtyRow = Children["approvalQtys"][number];
 type QuantityRow = Children["quantities"][number];
 type PackTypeRow = NonNullable<Children["packTypes"]>[number];
 type StyleSizeRow = NonNullable<Children["styleSizes"]>[number];
+type StyleComponentRow = NonNullable<Children["styleComponents"]>[number];
+type StyleCoordinateRow = NonNullable<Children["styleCoordinates"]>[number];
 type CountryRow = NonNullable<Children["countrySizes"]>[number];
 
 const styleName = (r: { style_ref_no: string | null }) => r.style_ref_no?.trim() || "(no style)";
@@ -194,6 +196,22 @@ const STYLES: TabSpec<StyleRow> = {
     { field: "plan_unit_id", label: "Stock Unit (plan)" },
     { field: "po_qty", label: "PO Qty" },
     { field: "description", label: "Description" },
+    /*
+     * THE STYLE MASTER'S HEADER FIELDS, MERGED ONTO THE LINE (0461).
+     *
+     * They are editable on the ORDER now, so a change to any of them is an
+     * amendment an approver has to see — the same sentence the two frozen unit
+     * columns above earn their place with. Before the merge these could only
+     * change on the master, where it is not an amendment at all.
+     *
+     * `style_category_id` AND NOT `style_category`: the text is a display cache
+     * written from the picker's own event, so diffing both would report one
+     * change twice — "Style Category: <uuid> → <uuid>" beside "Style Category:
+     * KNITTED → WOVEN". The id is the field that decides; the label below says
+     * what the operator calls it.
+     */
+    { field: "approved_sample_id", label: "Approved Sample No" },
+    { field: "style_category_id", label: "Style Category" },
   ],
 };
 
@@ -485,6 +503,69 @@ const STYLE_SIZES: TabSpec<StyleSizeRow> = {
   fields: [],
 };
 
+/**
+ * Order Info ▸ Styles Details ▸ Components (0457) — ADDED / REMOVED ONLY.
+ *
+ * IT IS IN THE DIFF BECAUSE IT IS NOW EDITABLE ON THE ORDER. Before the merge a
+ * component list could only be changed on the Style master, where it is not an
+ * amendment at all; now a PO can drop a pocket or move a collar to a contrast
+ * fabric, and an approver reading the amendment has to see it. A column that is
+ * written but not diffed is a change an amendment silently fails to report —
+ * the sentence the two frozen unit columns above already earn their place with.
+ *
+ * NOTHING LEFT TO REPORT A CHANGE *TO*, which is why `fields` is empty. THE KEY
+ * IS THE UNIQUE INDEX, column for column (`uq_goa_style_components_part`): a
+ * part is identified by its style, its coordinate, its component AND its
+ * fabric, because the same FRONT BODY in single jersey and in 1x1 rib is two
+ * legitimate rows. With the fabric in the key there is no field that can change
+ * without becoming a different part — so "jersey → rib" reports as one removed
+ * and one added, which is exactly what happened.
+ *
+ * KEYING ON THE PAIR AND CALLING THE FABRIC A FIELD WAS THE TEMPTING VERSION
+ * and it is wrong for the reason STYLE_SIZES records: a key narrower than the
+ * data collapses two real rows into one, and dropping the jersey front body
+ * would then read as no change at all because the rib one still matches.
+ *
+ * `comp_type` and `item_id` are deliberately absent. Both are hidden on both
+ * screens and `comp_type` is DERIVED from the fabric already in the key, so a
+ * line reporting it would restate the row it hangs off.
+ *
+ * The style is `norm`'d, matching `styleKey` — rows saved before the CAPITALS
+ * rule are not upper-cased in the database.
+ */
+const STYLE_COMPONENTS: TabSpec<StyleComponentRow> = {
+  tab: "styleComponents",
+  label: "Style(s) — Components",
+  key: (r) =>
+    `${norm(r.style_ref_no)}|${r.coordinate_id ?? ""}|${r.component_id ?? ""}|${r.fabric_category_id ?? ""}`,
+  rowLabel: styleName,
+  fields: [],
+};
+
+/**
+ * Order Info ▸ Styles Details ▸ Coordinates (0461) — ADDED / REMOVED ONLY.
+ *
+ * A coordinate row holds no field but the coordinate itself, so the coordinate
+ * IS the key and there is nothing left to report a change TO — the same shape
+ * STYLE_SIZES, PRINTS, STRUCTURES and PACK_TYPES have, for the same reason.
+ * Swapping TOP for BOTTOM on a line is one removed and one added, which is
+ * exactly what happened; calling it "Coordinate: TOP → BOTTOM" would need a key
+ * to hang it off, and the only candidate is `sno`, a row's POSITION — so
+ * re-ordering a list would report changes nobody made.
+ *
+ * KEYED ON THE STYLE AS WELL, for the trap STYLE_SIZES documents: two styles on
+ * one PO both listing TOP is normal, and keying on the coordinate alone would
+ * collapse them — dropping TOP from the first would then read as no change at
+ * all, because the second still has it.
+ */
+const STYLE_COORDINATES: TabSpec<StyleCoordinateRow> = {
+  tab: "styleCoordinates",
+  label: "Style(s) — Coordinates",
+  key: (r) => `${norm(r.style_ref_no)}|${r.coordinate_id ?? ""}`,
+  rowLabel: styleName,
+  fields: [],
+};
+
 const COUNTRY_SIZES: TabSpec<CountryRow> = {
   tab: "countrySizes",
   label: "Country/Sizewise",
@@ -505,6 +586,8 @@ export function diffAmendment(
   return [
     diffTab(STYLES, before.styles, after.styles),
     diffTab(STYLE_SIZES, before.styleSizes ?? [], after.styleSizes ?? []),
+    diffTab(STYLE_COORDINATES, before.styleCoordinates ?? [], after.styleCoordinates ?? []),
+    diffTab(STYLE_COMPONENTS, before.styleComponents ?? [], after.styleComponents ?? []),
     diffTab(DYEINGS, before.dyeings, after.dyeings),
     diffTab(PRINTS, before.prints, after.prints),
     diffTab(STRUCTURES, before.structures, after.structures),

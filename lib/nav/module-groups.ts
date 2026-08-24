@@ -662,7 +662,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // still shows how many orders are behind it. Nothing needed changing
           // for that: the map is keyed by href, and `GroupHub` reads it for a
           // child exactly as `ModuleHub` did for the standalone row.
-          { href: "/orders/all", label: "All Orders", description: "Every order raised, with its SC No, buyer, value and status" },
+          { href: "/orders/all", label: "All Orders", description: "Every order raised, with its RE No, buyer, value and status" },
         ],
       },
     ],

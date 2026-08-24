@@ -49,7 +49,7 @@ export default async function GarmentPpmDetailPage({
     <div className="space-y-4">
       <PageHeader
         title={ppm.code ?? "Garment PPM"}
-        description={`Customer: ${ppm.customer_name ?? "\u2014"} \u00b7 SC No: ${ppm.sc_no ?? "\u2014"} \u00b7 ${fmtDate(ppm.ppm_date)}`}
+        description={`Customer: ${ppm.customer_name ?? "\u2014"} \u00b7 RE No: ${ppm.sc_no ?? "\u2014"} \u00b7 ${fmtDate(ppm.ppm_date)}`}
         actions={
           <StatusPill tone={ppmStatusTone(ppm.status)}>
             {PPM_STATUS_LABELS[ppm.status]}

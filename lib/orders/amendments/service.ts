@@ -14,6 +14,10 @@ import type { ProcessOption } from "./style-processes";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import type { GarmentOrderAmendment } from "./types";
 import type { Deactivatable } from "@/lib/masters/inactive";
+import type { ComponentScopeRow } from "@/lib/masters/component-coordinates";
+/* TYPE ONLY — erased at compile time, so naming it here does not pull the
+   Style master's server module into this bundle. See `getApprovedSampleRows`. */
+import type { SamplePickerRow } from "@/lib/orders/styles/service";
 import type { MixingShare } from "./combo-rules";
 import { listCompositionsForPicker, type CompositionPickerRow } from "@/lib/masters/composition-service";
 import { withCreators } from "@/lib/created-by";
@@ -83,6 +87,11 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         "style_prices:garment_order_amendment_style_prices(*), " +
         "styles:garment_order_amendment_styles(*), " +
         "style_sizes:garment_order_amendment_style_sizes(*), " +
+        // The coordinates a component is filed under (0461), and the
+        // Style master's component list (0457), both merged into Order Info.
+        "style_coordinates:garment_order_amendment_style_coordinates(*), " +
+        // The Style master's component list, merged into Order Info (0457).
+        "style_components:garment_order_amendment_style_components(*), " +
         "style_processes:garment_order_amendment_style_processes(*), " +
         "dyeings:garment_order_amendment_dyeings(*), " +
         "prints:garment_order_amendment_prints(*), " +
@@ -134,6 +143,8 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     style_prices: bySno(r.style_prices),
     styles: bySno(r.styles),
     style_sizes: bySno(r.style_sizes),
+    style_coordinates: bySno(r.style_coordinates),
+    style_components: bySno(r.style_components),
     style_processes: bySno(r.style_processes),
     dyeings: bySno(r.dyeings),
     prints: bySno(r.prints),
@@ -397,12 +408,34 @@ export type StylePickerRow = {
    * belong to it. Flattening to two independent lists would offer a collar
    * under a coordinate that has none.
    */
+  /**
+   * THE STYLE MASTER'S HEADER FIELDS (0461), carried so `pickStyle` can seed the
+   * order line with them. `style_category_id` sits beside the `style_category`
+   * NAME above: the order stores both, and the id is the one a picker resolves.
+   */
+  approved_sample_id: string | null;
+  style_category_id: string | null;
+  /** What a component is a part of (0461) — `garment_style_coordinates`. */
+  coordinates: { sno: number; coordinate_id: string | null }[];
   components: {
     sno: number;
     coordinate_id: string | null;
     component_id: string | null;
     /** The component's Structure — a fabric CATEGORY (0405). */
     fabric_category_id: string | null;
+    /**
+     * "Type" and "Fabric" — neither has a cell on either screen, and both are
+     * carried BECAUSE OF THAT (0457).
+     *
+     * `pickStyle` copies this list onto the order, and Order Info's Components
+     * grid writes it back on every save through a wholesale delete-and-reinsert.
+     * A field the copy cannot express is a value the order's first save NULLS
+     * rather than freezes — which is the difference between hiding a column and
+     * destroying it, and the reason the Style master's own row shape carries
+     * both under withdrawn cells.
+     */
+    comp_type: string | null;
+    item_id: string | null;
   }[];
 };
 
@@ -423,6 +456,10 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     .from("garment_styles")
     .select(
       "id, code, style_name, article_no, style_description, description, customer_id, season, unit_kind, unit_id, blocked, " +
+        // 0461 merged the master's header fields onto the order line, so the
+        // pick has to carry them. `style_category_id` beside the embedded
+        // NAME: the order stores both, the id being the one a picker resolves.
+        "approved_sample_id, style_category_id, " +
         // `categories`, NOT `config_lookups`. 0394 repointed
         // `garment_styles.style_category_id` at the Garment master and left the
         // constraint NAME unchanged, so this embed kept naming a relationship
@@ -439,7 +476,11 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
         // break visible instead of emptying the picker.
         "sizes:garment_style_sizes(sno, size_id), " +
         // The style's own parts, for the Combos ▸ Detail pickers (2026-08-12).
-        "components:garment_style_components(sno, coordinate_id, component_id, fabric_category_id)",
+        "components:garment_style_components(sno, coordinate_id, component_id, fabric_category_id, comp_type, item_id), " +
+        // What a component is a part of (0461). A CHILD EMBED, so it fails
+        // the same wholesale way the category one did: one unresolvable name
+        // and the whole query returns nothing.
+        "coordinates:garment_style_coordinates(sno, coordinate_id)",
     )
     .order("created_at", { ascending: false });
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — the same rule commit 37fcde8
@@ -459,6 +500,9 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     unit_kind: string | null;
     unit_id: string | null;
     blocked: boolean;
+    approved_sample_id: string | null;
+    style_category_id: string | null;
+    coordinates?: { sno: number | null; coordinate_id: string | null }[] | null;
     category?: { name: string } | null;
     sizes?: { sno: number | null; size_id: string | null }[] | null;
     components?: {
@@ -466,6 +510,8 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
       coordinate_id: string | null;
       component_id: string | null;
       fabric_category_id: string | null;
+      comp_type: string | null;
+      item_id: string | null;
     }[] | null;
   }[]).map((r) => ({
     id: r.id,
@@ -483,9 +529,17 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     // Sorted HERE rather than in the query: PostgREST cannot order an embedded
     // resource independently of its parent, and the size list is the one thing
     // on this row whose ORDER is the data (2, 3, 4 ... 14, not 10 before 2).
+    approved_sample_id: r.approved_sample_id,
+    style_category_id: r.style_category_id,
     sizes: [...(r.sizes ?? [])]
       .sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0))
       .map((x) => ({ sno: x.sno ?? 0, size_id: x.size_id })),
+    // Sorted here for the same reason the sizes are: PostgREST cannot order an
+    // embedded resource independently of its parent, and a coordinate list is
+    // read in the order it was entered.
+    coordinates: [...(r.coordinates ?? [])]
+      .sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0))
+      .map((x) => ({ sno: x.sno ?? 0, coordinate_id: x.coordinate_id })),
     components: [...(r.components ?? [])]
       .sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0))
       .map((x) => ({
@@ -493,6 +547,8 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
         coordinate_id: x.coordinate_id,
         component_id: x.component_id,
         fabric_category_id: x.fabric_category_id,
+        comp_type: x.comp_type,
+        item_id: x.item_id,
       })),
   }));
 }
@@ -617,10 +673,24 @@ export type AmendmentFormData = {
    * dead end ("Pick a Structure first") this replaced.
    */
   compositions: CompositionPickerRow[];
+  /**
+   * Approved samples for the style line's "Approved Sample No" (0461).
+   *
+   * `customer_id` rides along so the cell can narrow to the order's customer;
+   * see `getApprovedSampleRows`. Empty in this database, which is why the field
+   * is optional.
+   */
+  samples: SamplePickerRow[];
   /** A COORDINATE IS A GARMENT (0396) — `items` of class GAR. */
   coordinates: PickerRow[];
-  /** The `components` master (0228/0396), not the empty lookup kind. */
-  componentRows: PickerRow[];
+  /**
+   * The `components` master (0228/0396), not the empty lookup kind.
+   *
+   * `ComponentScopeRow` rides along so Order Info's Components grid can narrow
+   * Component by the Coordinate beside it — see `getComponentPickerRows`. Still
+   * a `PickerRow`, so nothing that only wanted id/name had to change.
+   */
+  componentRows: (PickerRow & ComponentScopeRow)[];
 };
 
 /**
@@ -656,16 +726,97 @@ async function getCoordinateRows(): Promise<PickerRow[]> {
   );
 }
 
-/** The `components` master — it spells its label `short_name` and its flag `inactive`. */
-async function getComponentPickerRows(): Promise<PickerRow[]> {
+/**
+ * Approved samples for the "Approved Sample No" cell (0461).
+ *
+ * THE LIST IS EMPTY IN THIS DATABASE — `samples` has no rows with
+ * `status = 'approved'`, and that is why the field is OPTIONAL on both screens.
+ * The Style master made its copy optional on 2026-08-13 for exactly this
+ * reason: a required field with an empty picker is a record that cannot be
+ * saved and nothing on screen to fix it with.
+ *
+ * `customer_id` RIDES ALONG AND IS NOT FILTERED IN SQL. 0422 gave `samples` a
+ * customer so the field can narrow to the order's own; the narrowing happens on
+ * the SCREEN, keyed on a Customer the operator is still choosing. Filtering here
+ * would fix the list to whichever customer was selected when the page was
+ * fetched — the same "narrow at the layer that knows the parent" call the
+ * cascading-picker rule makes everywhere else.
+ *
+ * Deliberately a LOCAL copy of the Style master's `getApprovedSampleRows`
+ * rather than an import: that module is `server-only` and its export would drag
+ * the whole style service into this bundle for one twelve-line query. The label
+ * shape is kept identical on purpose — two screens showing one sample list
+ * should read the same.
+ */
+async function getApprovedSampleRows(): Promise<SamplePickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("samples")
+    .select("id, code, type, created_at, customer_id")
+    .eq("status", "approved")
+    .order("created_at", { ascending: false });
+  return ((data ?? []) as {
+    id: string;
+    code: string | null;
+    type: string;
+    created_at: string;
+    customer_id: string | null;
+  }[]).map((r) => ({
+    id: r.id,
+    code: r.code ?? r.type,
+    name: `${r.code ?? r.type} — ${r.type}, ${r.created_at.slice(0, 10)}`,
+    customer_id: r.customer_id,
+  }));
+}
+
+/**
+ * The `components` master — it spells its label `short_name` and its flag
+ * `inactive`.
+ *
+ * IT CARRIES ITS COORDINATE SCOPE TOO (0457), and that is the DATA HALF of the
+ * cascading-picker rule rather than decoration. Order Info ▸ Styles Details ▸
+ * Components has a Coordinate cell beside a Component cell, and narrowing the
+ * second by the first is `componentsForCoordinate` — which cannot answer
+ * without `all_coordinates` and the declared coordinate names. Selecting
+ * `id, short_name, inactive` and calling the helper anyway is exactly the shape
+ * AGENTS.md records twice: the rule appears wired, the column half passes, and
+ * the narrowing silently never happens (`getItemReportFilterOptions` selecting
+ * `id, name`; the `created_by` sweep).
+ *
+ * It narrows nothing TODAY — every component in the live master has
+ * `all_coordinates = true` — and that is the design, not a gap. It starts
+ * working the moment an operator unticks that box and lists a component's
+ * sections, with no screen edit.
+ *
+ * The return is still assignable to `PickerRow`, so the Combos overlay's
+ * `scopedComponents` and every other existing reader is untouched.
+ */
+async function getComponentPickerRows(): Promise<(PickerRow & ComponentScopeRow)[]> {
   const s = await createClient();
   const { data } = await s
     .from("components")
-    .select("id, short_name, inactive")
+    .select("id, short_name, inactive, all_coordinates, coordinates:component_coordinates(coordinate)")
     .order("short_name");
-  return ((data ?? []) as { id: string; short_name: string | null; inactive: boolean | null }[]).map(
-    (c) => ({ id: c.id, code: null, name: c.short_name ?? "(unnamed)", inactive: c.inactive ?? false }),
-  );
+  return ((data ?? []) as {
+    id: string;
+    short_name: string | null;
+    inactive: boolean | null;
+    all_coordinates: boolean | null;
+    coordinates: { coordinate: string | null }[] | null;
+  }[]).map((c) => ({
+    id: c.id,
+    code: null,
+    name: c.short_name ?? "(unnamed)",
+    inactive: c.inactive ?? false,
+    // `all_coordinates` is NOT NULL with default true in 0228, so the coalesce
+    // is for the shape PostgREST hands back, not for a row that could be null.
+    // Defaulting the OTHER way would hide every component behind an empty
+    // coordinate list — see `componentAllowsCoordinate`'s third case.
+    all_coordinates: c.all_coordinates ?? true,
+    coordinate_names: (c.coordinates ?? [])
+      .map((x) => x.coordinate ?? "")
+      .filter(Boolean),
+  }));
 }
 
 /**
@@ -906,6 +1057,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     categories,
     fabrics,
     compositions,
+    samples,
     coordinates,
     componentRows,
     processes,
@@ -928,6 +1080,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     listCategories(),
     getFabricRows(),
     listCompositionsForPicker(),
+    getApprovedSampleRows(),
     getCoordinateRows(),
     getComponentPickerRows(),
     getProcessRows(),
@@ -954,6 +1107,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     categories,
     fabrics,
     compositions,
+    samples,
     coordinates,
     componentRows,
     processes,

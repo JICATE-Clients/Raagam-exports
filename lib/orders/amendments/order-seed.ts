@@ -20,6 +20,8 @@ import type {
   AmendmentPackType,
   AmendmentStyleProcess,
   AmendmentStyleSize,
+  AmendmentStyleComponent,
+  AmendmentStyleCoordinate,
   AmendmentComboStructure,
   AmendmentComboComponent,
   AmendmentAssortLine,
@@ -149,6 +151,26 @@ export interface SeededAmendmentChildren {
    * stored rows had no way back onto the screen.
    */
   styleSizes?: Seeded<AmendmentStyleSize>[];
+  /**
+   * Order Info ▸ Styles Details ▸ Coordinates (0461).
+   *
+   * Same standing as the sizes and the components: the ORDER SEED never fills
+   * it — an order carries no coordinate list of its own, and `pickStyle` copies
+   * them in from `garment_style_coordinates` when a style is chosen. It is in
+   * this type so `applyRows` can map a SAVED document through the same shape.
+   */
+  styleCoordinates?: Seeded<AmendmentStyleCoordinate>[];
+  /**
+   * Order Info ▸ Styles Details ▸ Components (0457).
+   *
+   * Same standing as the sizes directly above, and for the same two reasons.
+   * The ORDER SEED never fills it — an order carries no component list of its
+   * own, and `pickStyle` copies the parts in from `garment_style_components`
+   * when a style is chosen. It is in this type all the same, because
+   * `applyRows` maps a SAVED document through the same shape; without it a
+   * saved component list would have no way back onto the screen.
+   */
+  styleComponents?: Seeded<AmendmentStyleComponent>[];
   /** Style(s) ▸ Process (0411). Keyed by `style_ref_no`, like the sizes. */
   styleProcesses?: Seeded<AmendmentStyleProcess>[];
   /** Still seeded and still diffed (scripts/check-amendment-diff.mts), but the
@@ -214,6 +236,8 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   approvalQtys: [],
   packTypes: [],
   styleSizes: [],
+  styleCoordinates: [],
+  styleComponents: [],
   styleProcesses: [],
   quantities: [],
   countrySizes: [],
@@ -373,7 +397,15 @@ export async function seedAmendmentFromOrder(
       // `categories`, not `config_lookups` — 0394 repointed style_category_id and
       // kept the constraint name, so the old embed named a relationship that no
       // longer exists and failed the whole seed query (same defect as service.ts).
-      .select("id, style_name, article_no, style_description, category:categories!style_category_id(name)")
+      .select(
+        "id, style_name, article_no, style_description, style_category_id, " +
+          // 0461 merged the master's header fields onto the order line, so the
+          // seed has to carry them or an order seeded from a style would open
+          // with them blank where `pickStyle` fills them on every other route.
+          // Season and Year are NOT among them — see 0462.
+          "approved_sample_id, " +
+          "category:categories!style_category_id(name)",
+      )
       .eq("blocked", false),
     s.from("color_card_colors").select("id, name"),
     s
@@ -392,6 +424,11 @@ export async function seedAmendmentFromOrder(
     style_name: string | null;
     article_no: string | null;
     style_description: string | null;
+    /* 0461 merged the master's header fields onto the order line. `category` is
+       the NAME and `style_category_id` is the row it resolves to — the order
+       stores both, and they come off this one record so they cannot disagree. */
+    approved_sample_id: string | null;
+    style_category_id: string | null;
     category: { name: string | null } | null;
   };
   const styleMasters = (styleRows ?? []) as unknown as StyleMaster[];
@@ -557,8 +594,13 @@ export async function seedAmendmentFromOrder(
       sno: styles.length + 1,
       style_ref_no: r.style_ref_no ?? r.style_no ?? null,
       style_id: master?.id ?? null,
+      approved_sample_id: master?.approved_sample_id ?? null,
       article_no: master?.article_no ?? null,
+      /* THE NAME AND THE ROW IT RESOLVES TO (0461). The text has always been
+         seeded from the embed; the id is what a picker can resolve, and both
+         come off the same master row here so they cannot disagree. */
       style_category: master?.category?.name ?? null,
+      style_category_id: master?.style_category_id ?? null,
       style_description: master?.style_description ?? null,
       // Units and PO qty are amendment-side decisions with no order-side
       // column to read — the operator sets them.

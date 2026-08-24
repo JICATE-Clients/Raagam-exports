@@ -140,7 +140,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
   }
 
   const columns: Column<ApprovalQueueRow>[] = [
-    { header: "SC No", cell: (r) => <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span> },
+    { header: "RE No", cell: (r) => <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span> },
     { header: "SC Dt", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.sales_order?.ship_date ?? null)}</span> },
     { header: "Order No", cell: (r) => <span className="text-sm">{r.po_no ?? "—"}</span> },
     { header: "Customer", cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span> },
@@ -225,7 +225,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
       <FilterBar
         search={search}
         onSearch={setSearch}
-        searchPlaceholder="Search SC No, customer, order no, amendment no…"
+        searchPlaceholder="Search RE No, customer, order no, amendment no…"
         activeCount={activeCount}
         dateFilter={dt.bind}
         onReset={() => {

@@ -83,13 +83,45 @@ check("identical price rows", changeCount(diffAmendment(same1, same1)), 0);
 
 // Every tab is still reported, so a caller can render stable badges.
 //
-// THE COUNT IS THE ASSERTION, and it is meant to be edited deliberately. It is
-// what caught 0407 adding a "Style(s) — Sizes" tab: a child grid that saves but
-// is never diffed is a change an amendment silently fails to report, and an
-// approver signing off on a document whose size list changed under them is the
-// failure this number exists to make impossible. Raise it only alongside the
-// `diffTab` call that earned it.
-check("all twelve tabs are always returned", diffAmendment(EMPTY, EMPTY).length, 12);
+// THE ASSERTION IS THE LIST, NOT THE COUNT, and that is a deliberate upgrade
+// (2026-08-23). It used to be `.length === 12`, and the reasoning was sound —
+// it is what caught 0407 adding a "Style(s) — Sizes" tab, because a child grid
+// that saves but is never diffed is a change an amendment silently fails to
+// report, and an approver signing off on a document whose list changed under
+// them is the failure this exists to make impossible.
+//
+// What a COUNT cannot catch is a tab arriving under the wrong name, or two
+// `diffTab` calls swapped: twelve is still twelve. Naming them fails on both,
+// and it fails READABLY — the diff prints which name moved instead of "expected
+// 12, actual 13". Same lesson the combo vectors record about asserting who got
+// NAMED rather than how many rows came back.
+//
+// Still meant to be edited deliberately: add a line here only alongside the
+// `diffTab` call that earned it, and in the same order `diffAmendment` returns.
+check(
+  "every tab is always returned, in order",
+  diffAmendment(EMPTY, EMPTY).map((t) => t.tab),
+  [
+    "styles",
+    "styleSizes",
+    // 0458 — what a component is a part of. Ordered before the components for
+    // the reason the schema is: it is what scopes their Coordinate cell.
+    "styleCoordinates",
+    // 0457 — the Style master's component list, merged into Order Info and so
+    // amendable on the order for the first time.
+    "styleComponents",
+    "dyeings",
+    "prints",
+    "structures",
+    "combos",
+    "comboStructures",
+    "prices",
+    "approvalQtys",
+    "quantities",
+    "packTypes",
+    "countrySizes",
+  ],
+);
 
 // ---------- a changed value ----------
 const before = seed({ priceDetails: [price("TSH-001", "FOB", 4.5)] });

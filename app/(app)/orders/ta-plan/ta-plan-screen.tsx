@@ -432,7 +432,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
       { header: "Date", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.plan_date)}</span> },
       { header: "Customer", cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span> },
       {
-        header: "SC No",
+        header: "RE No",
         cell: (r) => <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>,
       },
       { header: "Style", cell: (r) => <span className="text-sm">{r.style?.style_name ?? "—"}</span> },
@@ -616,7 +616,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
                   name is the customer, so without it several orders for one buyer
                   are indistinguishable in the list. */}
               <RecordPicker
-                label="SC No"
+                label="RE No"
                 identity="code"
                 items={data.orders.map((o) => ({ id: o.id, code: o.order_number, name: o.order_number ?? "—" }))}
                 value={orderId}

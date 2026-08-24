@@ -1063,7 +1063,7 @@ export function MaterialBomDetail({
               <dd className="font-medium">{bom.customer_name ?? "--"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">SC No</dt>
+              <dt className="text-xs text-muted-foreground">RE No</dt>
               <dd>{bom.order_code ?? "--"}</dd>
             </div>
             <div>

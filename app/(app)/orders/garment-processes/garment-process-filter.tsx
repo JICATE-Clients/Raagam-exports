@@ -42,7 +42,7 @@ export function GarmentProcessFilter({ orders, current }: Props) {
       <CardBody>
         <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <RecordPicker
-            label="Order (SC No)"
+            label="Order (RE No)"
             identity="code"
             items={orders}
             value={orderId}

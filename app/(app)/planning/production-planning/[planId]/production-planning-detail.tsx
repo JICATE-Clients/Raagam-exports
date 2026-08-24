@@ -192,7 +192,7 @@ function OrdersTab({
     { header: "S No",      cell: (r) => <span className="tabular-nums text-sm">{r.sno}</span> },
     { header: "Plan No",   cell: (r) => <span className="text-sm">{r.plan_no ?? "--"}</span> },
     { header: "WO No",     cell: (r) => <span className="text-sm">{r.wo_no ?? "--"}</span> },
-    { header: "SC No",     cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
+    { header: "RE No",     cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
     { header: "Customer",  cell: (r) => <span className="text-sm">{r.customer_name ?? "--"}</span> },
     { header: "Style",     cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
     { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.order_qty}</span> },
@@ -295,7 +295,7 @@ function OrdersTab({
                 />
               </div>
               <div>
-                <Label>SC No</Label>
+                <Label>RE No</Label>
                 <Input
                   value={form.sc_no}
                   onChange={(e) => setForm((f) => ({ ...f, sc_no: e.target.value }))}

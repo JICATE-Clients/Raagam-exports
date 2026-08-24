@@ -61,7 +61,7 @@ export function BomCopySheet({
         <Input uppercase={false}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search SC No or customer…"
+          placeholder="Search RE No or customer…"
           aria-label="Search orders to copy from"
         />
 

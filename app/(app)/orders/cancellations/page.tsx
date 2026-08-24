@@ -25,7 +25,7 @@ const columns: Column<CancellationRow>[] = [
     ),
   },
   {
-    header: "SC No",
+    header: "RE No",
     cell: (row) => (
       <span className="font-mono text-xs">
         {row.sales_orders?.order_number ?? "—"}
@@ -83,7 +83,7 @@ export default async function OrderCancellationsPage() {
     <div className="space-y-4">
       <PageHeader
         title="Garment Order Cancellation"
-        description="Cancel a confirmed order — pick the SC No, and the order's status is flipped to Cancelled."
+        description="Cancel a confirmed order — pick the RE No, and the order's status is flipped to Cancelled."
         actions={
           <Link href="/orders">
             <Button variant="outline" size="md">

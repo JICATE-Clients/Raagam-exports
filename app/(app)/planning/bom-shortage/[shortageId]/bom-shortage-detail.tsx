@@ -446,7 +446,7 @@ export function BomShortageDetail({
               <dd className="font-medium">{shortage.customer_name ?? "--"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">SC No</dt>
+              <dt className="text-xs text-muted-foreground">RE No</dt>
               <dd>{shortage.order_code ?? "--"}</dd>
             </div>
             <div>

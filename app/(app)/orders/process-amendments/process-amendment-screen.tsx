@@ -200,7 +200,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
     { header: "Date", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.amend_date)}</span> },
     { header: "Customer", cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span> },
     {
-      header: "SC No",
+      header: "RE No",
       cell: (r) => <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>,
     },
     { header: "Order No", cell: (r) => <span className="text-sm">{r.order_no ?? "—"}</span> },
@@ -338,7 +338,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
               />
             </Field>
             <Field size="sm">
-              <RecordPicker label="SC No" items={orderItems} value={orderId} onChange={onPickOrder} />
+              <RecordPicker label="RE No" items={orderItems} value={orderId} onChange={onPickOrder} />
             </Field>
             <Field label="Amend S No" size="sm" htmlFor="gpa-sno">
               <Input

@@ -80,7 +80,7 @@ export function NewCompletionForm({ orders, buyers }: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!orderId) {
-      toastError("Select the SC No");
+      toastError("Select the RE No");
       return;
     }
     startTransition(async () => {
@@ -153,7 +153,7 @@ export function NewCompletionForm({ orders, buyers }: Props) {
               <Field size="sm">
                 <RecordPicker
                   id="gcm-order"
-                  label="SC No"
+                  label="RE No"
                   identity="code"
                   items={orderItems}
                   value={orderId}
