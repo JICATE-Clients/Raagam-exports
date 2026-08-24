@@ -2955,8 +2955,20 @@ export function MbaMasterScreen({
     },
     {
       header: "Combination",
-      /* Narrower now the free-text box has gone: the cell holds one button. */
-      className: "min-w-[90px]",
+      /* THE SAME WIDTH AS CONSUMPTION UOM (client 2026-08-24: "combination field
+         ... size also same as consumption field size"), which is the width both
+         Uom cells carry.
+
+         It had been narrowed to 90px when the free-text box came out, on the
+         reasoning that the cell now holds one button and needs less. That is
+         true of the CONTENT and wrong about the ROW: `FIELD_GROUPS` already
+         gives all three of these cells the same `xs` track, so a third cell
+         asking for 40px less than its two neighbours under-fills its share and
+         the run stops settling evenly — the defect the de-clutter rule says is
+         the one that actually ships. Matching the neighbour is also what makes
+         the button land under the same left edge as the boxes above and below
+         it. */
+      className: "min-w-[130px]",
       /**
        * ONE CONTROL, AND THE FREE-TEXT BOX IS THE ONE THAT WENT
        * (client 2026-08-24, screenshot 2473: "in combination i can see two
