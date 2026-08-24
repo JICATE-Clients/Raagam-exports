@@ -555,7 +555,27 @@ export function DataPicker({
       return onAddOverride((newId) => commit(newId));
     }
     setDraftCode("");
-    setDraftName("");
+    /*
+     * THE TYPED TEXT BECOMES THE NAME (client 2026-08-24: "allow manual free
+     * entry in item color field").
+     *
+     * This used to clear the draft, so an operator who typed NAVY, found nothing,
+     * and clicked "+ Add item color" met an EMPTY box and had to type NAVY a
+     * second time. The list is a search field, so what they typed is already the
+     * name they mean — carrying it across is what makes the field behave like
+     * free entry without becoming free text.
+     *
+     * AND IT CANNOT BECOME FREE TEXT. `item_color_id` and its siblings are uuid
+     * FKs into `config_lookups`; a typed string has nowhere to be stored. Two
+     * vocabularies for one colour is also the failure AGENTS.md records under
+     * Nominated vendors — matching a thread to a garment colour is only
+     * expressible as equality while both come from ONE list. So the typed value
+     * is turned INTO a row rather than stored beside one.
+     *
+     * Trimmed, because a trailing space is not part of a name and would make
+     * "NAVY " and "NAVY" two rows that read identically in every list.
+     */
+    setDraftName(query.trim());
     setDraftType("");
     setMode("add");
   }
@@ -883,10 +903,23 @@ export function DataPicker({
               e.preventDefault();
               startAdd();
             }}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary hover:bg-surface-muted"
+            className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary hover:bg-surface-muted"
           >
             <Plus className="h-4 w-4 shrink-0" />
-            Add {noun.toLowerCase()}
+            {/* NAMES WHAT IT WILL CREATE. With a search typed, this row is the
+                operator's "free entry": `startAdd` seeds the Add form's Name
+                with it, so the label has to say so or the button still reads as
+                "open an empty dialog". Falls back to the plain noun when nothing
+                is typed, which is the ordinary browse-then-add case.
+
+                `min-w-0` + truncate because the label is no longer a fixed
+                phrase: it now carries whatever was typed, and a long one would
+                otherwise push the keyboard-shortcut hint out of the row.
+                truncate-reveal: exempt -- the untruncated text is the search box
+                immediately above this row, still on screen and still focused. */}
+            <span className="truncate">
+              {query.trim() ? `Add "${query.trim()}"` : `Add ${noun.toLowerCase()}`}
+            </span>
           </button>
           <div className="flex-1" />
           {/* The shortcuts are the keyboard path to the row icons, which Tab

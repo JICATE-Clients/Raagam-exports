@@ -1,37 +1,70 @@
 "use client";
 
 /**
- * Material BOM ▸ a line's COMBINATION sheet — one construction per garment panel.
+ * THE COMBINATION POPUP — S No AND A TYPED NAME, AND NOTHING ELSE.
  *
- * Client, 2026-08-19, and it is the sentence 0436 was written from:
+ * Client, 2026-08-24, with the legacy dialog beside ours:
  *
- *     "This allows the user to specify different thread colours or materials for
- *      individual Components (e.g. front, back, sleeve). It must allow for
- *      different Construction values (consumption rates) for each part, as a
- *      sleeve might use less thread than the front of the garment."
+ *     "we need to redesign the combination screen just with the legacy ...
+ *      inside screen Combination Details inside only S No, Combination — these
+ *      fields only. That S No is automatic and Combination free text."
  *
- * So a navy body, red sleeves and a yellow collar are three thread colours on
- * one line, and the front seam consumes more than the collar does. The panels
- * are how the rate is ARRIVED AT; what survives into a purchase is COLOUR —
- * `colourSplits()` collapses same-coloured panels into one rate, because you do
- * not buy sleeve-thread and front-thread, you buy thread.
+ * and again, on being shown this sheet as it then stood (screenshot 2481):
  *
- * ## IT IS OPT-IN PER LINE, AND IT IS NOT AN ATTRIBUTE
+ *     "i told this screen only going to be get sno and combination field as
+ *      free text update it"
  *
- * The button opens on every line whatever the Attribute says (client
- * 2026-08-22). That is 0436's own design and it is deliberate twice over:
+ * So the popup collects NAMES. The operator types TOP, BOTTOM, NECK RIB, presses
+ * Done, and the LINE splits — one sub-row per name, exactly the way picking an
+ * Attribute value splits it. The figures each part needs (Item Color,
+ * Specification, No of Items, No of Pcs, Allowance) are filled in that split,
+ * out in the listing, and deliberately not here.
  *
- *   - making the panels a `requirement_basis` would force EVERY line onto the
- *     choice, which is the row multiplication 0423 was right to refuse — you
- *     need one collar interlining per garment whichever panel it is cut for;
- *   - `requirement_basis` already HAS a `combination` value meaning colour x
- *     size (0420), and it was withdrawn from the Attribute menu on 2026-08-21
- *     when the client settled that the Attribute picks ONE axis. Gating this
- *     sheet on it would put a third meaning on a word that already carries two.
+ * ## IT ONLY DISPLAYS AFTER VALUES ARE GIVEN (client 2026-08-24)
  *
- * A line with no rows here behaves exactly as it always did — its own
- * `no_of_items` / `per_pieces` apply to the whole garment. That is what makes
- * this safe over lines already saved.
+ *     "that combination is only display after give that value not static field"
+ *
+ * A line with no combinations is the ORDINARY line: no split rows, its own single
+ * ratio applies, and nothing about it changes. That is the same opt-in-per-line
+ * property 0436 was built with ("a line with no panels is the ordinary line"),
+ * and it is what lets this be added without re-meaning a single existing row.
+ *
+ * ## WHAT THIS REPLACED, AND WHY THE OLD REASONING IS KEPT
+ *
+ * Until 2026-08-24 this sheet was a per-panel CONSTRUCTION editor: Component (an
+ * FK into the components master) / Garment Color / Trim Color / No. of Items /
+ * Per Pieces, summed by `colourSplits` into a rate per trim colour. That design
+ * was put to the client on 2026-08-23 against legacy's name list and explicitly
+ * chosen — "'Combination' IS the Per-Panel Construction ... mapping contrast
+ * components to specific dyed trim colors and distinct consumption rates" — and
+ * the ruling was reversed the following day in favour of legacy.
+ *
+ * The superseded reasoning is recorded rather than deleted, the way 0431 kept
+ * 0402's. A later reader comparing this to the panel editor is looking at a
+ * decision that was made twice, not at an unfinished port.
+ *
+ * ONE CLAIM IN THAT RULING WAS WRONG, and it is corrected here so it does not
+ * get quoted forward: reverting to a name list does NOT "silently un-read
+ * `colourSplits`". Item Color rides on the SPLIT ROW (0449), so trim colour
+ * still reaches a requirement row and MOQ-per-cone-colour still groups the way
+ * `bomCeilingForOrder` needs — it reads slices instead of components. The real
+ * exposure was elsewhere, and it is the one below.
+ *
+ * ## THE NAME IS NOT `combo`, AND THAT IS THE WHOLE TRAP (0463)
+ *
+ * `material_bom_amendment_item_slices` already has a `combo` column and it means
+ * something else — 0442 says so in the column comment itself: "the colourway BY
+ * NAME ... a name on the Combos tab, not a lookup row". Three things join on it:
+ * the option list narrows to the ORDER's combos for the line's style, `colourOf`
+ * reads it as the garment colour on a colour-wise line, and `compose.ts` matches
+ * assort rows to a slice through `comboKey`.
+ *
+ * A colourway is CHOSEN from a controlled list; a Combination is TYPED. Putting a
+ * typed TOP into a column the composer joins on by name does not error — it
+ * silently matches nothing, which is the drift AGENTS.md records under Nominated
+ * vendors, where two spellings of one supply type compiled, ran and matched
+ * nothing. So 0463 gives Combination its own column beside `combo`, and both
+ * survive on one row: a RED/WHITE colourway split TOP/BOTTOM.
  *
  * ## Why a `Sheet`, and why that is not a style choice
  *
@@ -59,19 +92,15 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Field, FieldRow } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
-import { Truncated } from "@/components/ui/truncated";
-import { colourSplits, isRefusal } from "@/lib/orders/material-bom/requirement";
-import { fmtNumber } from "@/lib/format";
 
 /**
- * One panel row as the FORM holds it.
+ * One typed combination as the FORM holds it.
  *
- * THE FIGURES ARE STRINGS, matching every other numeric cell on this screen
- * (`moq`, `round_to`, the slice grid's boxes). A number in form state cannot
- * represent "the operator has cleared the box and is about to retype it", so it
- * fights the caret; the parse happens once, at the payload boundary.
+ * There is no `sno` here on purpose: `ChildGrid` numbers its own rows, so a
+ * serial carried in state would be a second copy of a fact the grid already
+ * renders — and one that goes wrong the moment a middle row is removed. The
+ * stored `sno` is assigned from array order at the payload boundary.
  */
 export type CombinationRow = {
   /**
@@ -81,66 +110,59 @@ export type CombinationRow = {
    * the moment a saved line was reopened and added to.
    */
   key: string;
-  component_id: string | null;
-  /** NULL is "the line's own Item Color", never "no colour" — the inherit
-   *  contract 0436 gives the column. */
-  item_color_id: string | null;
-  items: string;
-  pieces: string;
+  combination: string;
 };
 
-/** A row the operator has begun — what makes its cells mandatory, and what
- *  stops "+ Add panel" stacking a second blank one. */
+/** A row the operator has begun — what stops "+ Add" stacking a second blank
+ *  one, and what the payload boundary keeps. */
 export function combinationRowStarted(r: CombinationRow): boolean {
-  return !!r.component_id || !!r.item_color_id || !!r.items.trim() || !!r.pieces.trim();
+  return !!r.combination.trim();
+}
+
+/**
+ * The stored form of a typed name.
+ *
+ * EXACT TEXT, NOT CASE-FOLDED, because that is what the unique index compares:
+ * `coalesce(combination, '')` in `uq_mba_slice_line_combo_size` (0463). Folding
+ * case here would make the screen reject a pair the database accepts — one layer
+ * refusing what the other allows is as wrong as the reverse, and the duplicate
+ * rule exists to keep the two halves agreeing.
+ *
+ * It needs no `toUpperCase()` of its own: `Input` capitalises every keystroke by
+ * default (AGENTS.md, CAPITALS), so a typed name is already in capitals and two
+ * spellings of one part cannot differ by case in the first place.
+ */
+export function combinationKey(name: string): string {
+  return name.trim();
 }
 
 export function BomCombinationSheet({
   open,
   onClose,
-  lineLabel,
-  styleLabel,
+  categoryLabel,
+  typeLabel,
+  itemLabel,
+  attributeLabel,
   lineRatio,
-  lineColourName,
   rows,
   onChange,
-  components,
-  componentColours,
-  colours,
   newKey,
   readOnly = false,
 }: {
   open: boolean;
   onClose: () => void;
-  /** The material this construction belongs to, for the sheet title. */
-  lineLabel: string;
-  /** The style the line names, or "" where it names none. */
-  styleLabel: string;
-  /** The line's own ratio, shown so the operator can see what the panels replace. */
+  /* THE LINE, READ-ONLY, IN LEGACY'S OWN ORDER — Category, Type, Item,
+     Attribute, and the line's figure. The sheet covers the screen, so once it is
+     open there is nothing else left to say which line these names belong to. */
+  categoryLabel: string;
+  typeLabel: string;
+  /** The material this belongs to. Also the sheet title. */
+  itemLabel: string;
+  attributeLabel: string;
+  /** The line's own ratio, shown so the operator can see what the split refines. */
   lineRatio: string;
-  /** What a blank Trim Color inherits, NAMED rather than left to be guessed. */
-  lineColourName: string;
   rows: CombinationRow[];
   onChange: (next: CombinationRow[]) => void;
-  /**
-   * THIS LINE'S STYLE'S OWN PANELS, already narrowed by the parent (0421 · 0423).
-   *
-   * Scoped there rather than here, per the cascading-picker rule: the screen is
-   * what knows which style the line names and which components it declares. A
-   * sheet handed the whole components master would offer a collar on a style
-   * that has none — and `garment_style_components` is the only thing that knows
-   * it does not.
-   */
-  components: PickerItem[];
-  /** `component_id` -> the garment colours that panel is cut in on this order.
-   *  A LIST, because a BOM line spans every combo — see `BomOrderStyle`. */
-  componentColours: Record<string, string[]>;
-  /**
-   * The order's own palette, narrowed by the parent the same way the line's Item
-   * Color cell is (client 2026-08-20). Takes the held value so a colour already
-   * chosen survives a narrowing — the rule under "Disabled rows".
-   */
-  colours: (held: string | null) => PickerItem[];
   newKey: () => string;
   readOnly?: boolean;
 }) {
@@ -148,167 +170,63 @@ export function BomCombinationSheet({
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
 
   /**
-   * WHAT THIS SHEET ADDS UP TO, through the engine that will actually store it.
+   * THE FIRST REPEATED NAME, or null.
    *
-   * `colourSplits` is the same function `requirementRows` calls on save, so the
-   * summary cannot drift from the requirement. That divergence is not
-   * hypothetical here: this module already shipped a line whose screen composed
-   * its figures one way and whose server stored them another, and the stored one
-   * is what a purchase order is checked against.
+   * Not a nicety: `uq_mba_slice_line_combo_size` (0463) keys a split row on the
+   * combination, so a second TOP is a unique violation — and an unguarded one
+   * surfaces at Save as a raw Postgres constraint string, a stack trace where a
+   * sentence belongs. That is the failure `ManageConfig.dupCheck` was added to
+   * this repo to stop.
    *
-   * It is also the only place the operator watches the collapse happen — two
-   * panels of one colour become one rate — which is what tells them the sheet is
-   * a construction and not a shopping list.
+   * Answered SYNCHRONOUSLY, in the same render as the keystroke, because the
+   * rows are already here — the reason AGENTS.md gives for preferring
+   * `useDuplicateName` over the async `useDuplicateCheck` on a screen that holds
+   * its own rows. There is nothing to ask a server.
    */
-  const summary = useMemo(() => {
-    const parsed = rows
-      .filter((r) => !!r.component_id)
-      .map((r) => ({
-        component_id: r.component_id as string,
-        item_color_id: r.item_color_id,
-        no_of_items: r.items.trim() === "" ? null : Number(r.items),
-        per_pieces: r.pieces.trim() === "" ? null : Number(r.pieces),
-        label: components.find((c) => c.id === r.component_id)?.name ?? "A panel",
-      }));
-    /* NULL as the fallback colour, deliberately: a blank panel stays blank here
-       so the summary can print "Same as line" rather than resolving it to a name
-       the operator never chose. The SERVER resolves it to the line's colour,
-       which is where that decision belongs — the stored row has to carry a
-       colour, and a summary does not. */
-    return colourSplits(null, parsed);
-  }, [rows, components]);
-
-  const colourNameOf = (id: string | null) =>
-    id ? (colours(id).find((c) => c.id === id)?.name ?? "—") : lineColourName || "Line colour";
+  const duplicate = useMemo(() => {
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const k = combinationKey(r.combination);
+      if (!k) continue;
+      if (seen.has(k)) return k;
+      seen.add(k);
+    }
+    return null;
+  }, [rows]);
 
   const columns: ChildGridColumn<CombinationRow>[] = [
     {
-      header: "Component",
-      width: "14rem",
+      header: "Combination",
+      /* The row IS this field, so it gets the room. There is no second column to
+         share the width with, and a garment part is a phrase ("NECK RIB",
+         "FRONT PLACKET"), not a code. */
+      width: "24rem",
       required: true,
       cell: (r) => (
-        <RecordPicker
-          label=""
-          items={components}
-          value={r.component_id}
-          onChange={(id) => patch(r.key, { component_id: id })}
+        <Input
+          value={r.combination}
           disabled={readOnly}
           /* DECLARED TWICE ON PURPOSE. `ChildGridColumn.required` draws the
              header `*` and wraps the cell in a scope, but the stacked-cards
              layout renders a row WITHOUT that wrap — so a column declaring it
              beside a control that does not ships a star with nothing behind it.
-             That is the exact star/hold divergence AGENTS.md's "Mandatory
-             fields" section exists to make impossible, and four screens in this
-             repo each rediscovered it independently. */
-          required={combinationRowStarted(r)}
-          /* Empty-and-explain, two ways. An empty list means the STYLE declares
-             no panels — a real and fixable state — and a bare "— Select —"
-             would report it as "the master has none", a different and more
-             alarming thing to tell an operator. */
-          placeholder={
-            components.length
-              ? "— Select Component —"
-              : styleLabel
-                ? "This style declares no components"
-                : "Name a style on the line first"
-          }
-          compact
-        />
-      ),
-    },
-    {
-      header: "Garment Color",
-      width: "12rem",
-      /**
-       * INHERITED, NEVER TYPED — the Combos tab owns it
-       * (`garment_order_amendment_combo_components.color_name`).
-       *
-       * A SECOND PLACE TO STATE IT WOULD BE A RIVAL RECORD of what colour the
-       * sleeve is, and the two would agree only until one of them was edited.
-       * That is why 0436 has no garment-colour column and this cell is text.
-       *
-       * IT IS A LIST BECAUSE THE QUESTION HAS NO SINGLE ANSWER HERE. A BOM panel
-       * row belongs to a LINE, and a line spans every combo the order carries —
-       * the front body is NAVY on the navy colourway and WHITE on the white one.
-       * Printing one of them would be picking a combo arbitrarily and showing it
-       * as fact.
-       */
-      cell: (r) => {
-        const names = r.component_id ? (componentColours[r.component_id] ?? []) : [];
-        return (
-          <span className="text-sm text-muted-foreground">
-            {/* Blank, not a dash: the Combos tab has simply not declared this
-                panel yet, and a form cell is not a table cell (the de-clutter
-                rule, 2026-08-17). */}
-            {names.length ? <Truncated text={names.join(", ")} /> : null}
-          </span>
-        );
-      },
-    },
-    {
-      header: "Trim Color",
-      width: "14rem",
-      /**
-       * WHICH THREAD GOES ON THIS PANEL — the one thing here that changes what is
-       * BOUGHT, which is why it survives into a requirement row while the panel
-       * beside it does not (0436 · 0454).
-       *
-       * NOT `required`. Blank means "the line's own Item Color", which is the
-       * ORDINARY case — the parts differ only in how much they consume — and the
-       * placeholder names it so the inheritance is visible rather than implied.
-       * Requiring it would put the cursor hold on the common answer.
-       */
-      cell: (r) => (
-        <RecordPicker
-          label=""
-          items={colours(r.item_color_id)}
-          value={r.item_color_id}
-          onChange={(id) => patch(r.key, { item_color_id: id })}
-          disabled={readOnly}
-          placeholder={lineColourName ? `Same as line (${lineColourName})` : "Same as the line"}
-          compact
-        />
-      ),
-    },
-    {
-      header: "No. of Items",
-      align: "right",
-      width: "8rem",
-      required: true,
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.items}
-          disabled={readOnly}
-          required={combinationRowStarted(r)}
-          aria-label="Number of items on this panel"
-          onChange={(e) => patch(r.key, { items: e.target.value })}
-          className="h-8 text-right"
-        />
-      ),
-    },
-    {
-      header: "Per Pieces",
-      align: "right",
-      width: "8rem",
-      required: true,
-      /* NEVER DEFAULTED TO 1 — not in the column (0436 CHECKs it `> 0`), not in
-         `mbaItemComponentInput`, not here. A default makes an unfinished panel
-         compute, and the rate it produces is summed into a figure a purchase
-         order is written from. 0418 states the same rule for the line itself. */
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.pieces}
-          disabled={readOnly}
-          required={combinationRowStarted(r)}
-          aria-label="Pieces this panel's items cover"
-          onChange={(e) => patch(r.key, { pieces: e.target.value })}
-          className="h-8 text-right"
+             That is the star/hold divergence AGENTS.md's "Mandatory fields"
+             section exists to make impossible, and four screens in this repo
+             each rediscovered it independently.
+
+             UNCONDITIONAL, unlike the panel editor this replaced. That one gated
+             on "has the operator begun this row?", which had four other cells to
+             answer it; here the row is the one field, so the same gate would
+             read `required={!!r.combination}` — true only once it is filled,
+             which is precisely when a hold has nothing left to do. Escape still
+             leaves, as it does under every hold. */
+          required
+          aria-label="Combination name"
+          /* NOT `uppercase`-flagged: `Input` capitalises by default since
+             2026-08-18, and `combinationKey` depends on that being true. */
+          onChange={(e) => patch(r.key, { combination: e.target.value })}
+          placeholder="e.g. TOP"
+          className="h-8"
         />
       ),
     },
@@ -318,31 +236,36 @@ export function BomCombinationSheet({
     <Sheet
       open={open}
       onClose={onClose}
-      /* `lg` for the reason the Process sheet records at length: at `sm` the
-         `ChildGrid` inside falls back to stacked cards and drops its column
-         headers, so five labelled cells render as five unlabelled boxes. A
-         surface's size is a function of what is ON it, not of how it was opened.
-         `fullBleed` removes the reading-width inset; the two answer different
-         questions and this surface needs both answered. */
+      /* `lg`, and `sm` is not the tempting alternative it looks like. A surface's
+         size is a function of what is ON it, and one text column wants less
+         width than five cells did — but `Sheet` offers only `sm` and `lg`, and
+         at `sm` the `ChildGrid` inside falls back to stacked cards and drops its
+         column headers. That would leave the one field on this screen as an
+         unlabelled box, which is worse than a dialog wider than it needs. */
       size="lg"
-      fullBleed
       /* Above the BOM's own editor overlay — this opens from a grid cell inside
          it, and a nested sheet needs the higher base to stack reliably. */
       zIndexBase={120}
-      title={lineLabel ? `Combination — ${lineLabel}` : "Combination"}
+      title={itemLabel ? `Combination — ${itemLabel}` : "Combination"}
       footer={<SubSheetFooter onDone={onClose} parent="material BOM" />}
     >
-      {/* THE LINE, READ-ONLY. The sheet covers the screen, so once it is open
-          there is nothing left to say which of the grid's lines these panels
-          belong to. `readOnly` and not `disabled`: `Input` sets `tabIndex={-1}`
-          on a readOnly field itself, so these leave the Tab path without a
-          per-screen opt-out. */}
+      {/* `readOnly` and not `disabled`: `Input` sets `tabIndex={-1}` on a
+          readOnly field itself, so these leave the Tab path without a per-screen
+          opt-out, and Tab goes straight to the one field that is typed here. */}
       <FieldRow>
-        <Field label="Material" w="name">
-          <Input value={lineLabel} readOnly />
+        <Field label="Category" w="term">
+          <Input value={categoryLabel} readOnly />
         </Field>
-        <Field label="Style" w="term">
-          <Input value={styleLabel} readOnly />
+        <Field label="Type" w="term">
+          <Input value={typeLabel} readOnly />
+        </Field>
+        <Field label="Item" w="name">
+          <Input value={itemLabel} readOnly />
+        </Field>
+      </FieldRow>
+      <FieldRow>
+        <Field label="Attribute" w="term">
+          <Input value={attributeLabel} readOnly />
         </Field>
         <Field label="Line Ratio" w="range">
           <Input value={lineRatio} readOnly />
@@ -360,41 +283,19 @@ export function BomCombinationSheet({
              visible instead of being papered over by a cursor jump. */
           const last = rows[rows.length - 1];
           if (last && !combinationRowStarted(last)) return false;
-          onChange([
-            ...rows,
-            { key: newKey(), component_id: null, item_color_id: null, items: "", pieces: "" },
-          ]);
+          onChange([...rows, { key: newKey(), combination: "" }]);
         }}
         onRemove={(row) => onChange(rows.filter((r) => r.key !== row.key))}
-        addLabel="+ Add panel"
+        addLabel="+ Add combination"
         hideRemove={readOnly}
       />
 
-      {/* WHAT THE PANELS COME TO, through the engine that stores them. Not
-          decoration: it is where the operator sees two panels of one colour
-          collapse into one rate, which is the difference between this sheet and
-          a shopping list. A refusal is PRINTED — `colourSplits` names the panel
-          it is about — because a summary that silently vanishes when one row is
-          half-typed reads as "nothing to say". */}
-      {rows.length > 0 && (
-        <div className="mt-3 text-sm">
-          {isRefusal(summary) ? (
-            <span className="text-destructive">{summary.refused}</span>
-          ) : summary.length ? (
-            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-muted-foreground">
-              <span className="font-medium text-foreground">Per garment:</span>
-              {summary.map((s) => (
-                <span key={s.item_color_id ?? ""}>
-                  {colourNameOf(s.item_color_id)} {fmtNumber(s.no_of_items)}
-                  <span className="text-xs">
-                    {" "}
-                    ({s.component_ids.length}{" "}
-                    {s.component_ids.length === 1 ? "panel" : "panels"})
-                  </span>
-                </span>
-              ))}
-            </div>
-          ) : null}
+      {/* NAMES THE REPEAT rather than saying "duplicate found". The operator has
+          a list in front of them, and the whole job of the message is to say
+          which line to look at. */}
+      {duplicate && (
+        <div className="mt-3 text-sm text-destructive">
+          {duplicate} is listed twice — each combination can appear once on a line.
         </div>
       )}
     </Sheet>

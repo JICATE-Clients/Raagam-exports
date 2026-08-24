@@ -139,7 +139,16 @@ check(
 check(
   "...and undefined is normalised to null, never left to key as \"\"",
   toOverrides([{ combo: "WHITE" }])[0],
-  { combo: "WHITE", size_id: null, country_id: null, no_of_items: null, per_pieces: null, excess_pct: null },
+  {
+    combo: "WHITE",
+    size_id: null,
+    country_id: null,
+    combination: null,
+    style_ref_no: null,
+    no_of_items: null,
+    per_pieces: null,
+    excess_pct: null,
+  },
 );
 check("a null store is an empty list, never a throw", toOverrides(null), []);
 
@@ -205,6 +214,12 @@ const sliceOf = (over: Record<string, unknown>) => ({
 });
 const lineWith = (slices: unknown[]) => ({
   item_id: "11111111-1111-4111-8111-111111111111",
+  /* CATEGORY IS REQUIRED SINCE 2026-08-24 (client). The fixture carries one
+     because these vectors are about the SLICE rules — a line refused for a
+     missing category would make them pass or fail for a reason that has nothing
+     to do with what they assert. That is the same trap the malformed-uuid draft
+     of these vectors fell into. */
+  category_id: "22222222-2222-4222-8222-222222222222",
   no_of_items: 2,
   per_pieces: 1,
   requirement_basis: "country",
@@ -324,11 +339,97 @@ check(
   consumptionFor(LINE, [ov(null, null, 8, 1)], at("WHITE", null)),
   LINE,
 );
-// THREE AXES SINCE 0449 — the destination joined combo and size. The trailing
-// empty segment is a basis with no destination axis, and it must be PRESENT
-// rather than trimmed: dropping it would make "NAVY:M" and "NAVY:M:USA" differ
-// only by a suffix, and a future fourth axis would collide with this one.
-check("the key normalises every half", sliceKey(at(" navy ", M)), `NAVY:${M}:`);
+// FIVE AXES SINCE 0464 — the style joined combo, size, the destination and the
+// typed combination. Every trailing empty segment must be PRESENT rather than
+// trimmed: dropping them would make "NAVY:M" and "NAVY:M:USA" differ only by a
+// suffix, and the next axis added would collide with this one.
+check("the key normalises every half", sliceKey(at(" navy ", M)), `NAVY:${M}:::`);
+
+// ---------------------------------------------------------------------------
+// THE COLLISION 0463 EXISTS TO PREVENT.
+//
+// A combination row is created by typing a NAME in the Combination popup, and
+// carries no combo, no size and no country of its own. So before the axis was
+// part of the key, TOP and BOTTOM both keyed as "::" — and `overrideFor` is a
+// `.find()`, so the first row would have answered for both, on the figure a
+// purchase order is written from.
+//
+// Verified by making it FAIL first: with `combination` removed from `sliceKey`,
+// both keys are "::" and the two checks below report equal keys and TOP's
+// figure answering BOTTOM's row.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// THE COLLISION 0464 FIXED, AND IT WAS LIVE.
+//
+// A style-basis row carries `style_ref_no` and nothing else — combo, size and
+// country are all NULL (`productionSlices`, the `basis === "style"` branch). So
+// before 0464 every style on the line keyed as ":::" and a figure typed against
+// one answered for all of them, on the number a purchase order is written from.
+// Invisible on a single-style order, which is why it survived since 0440.
+//
+// Verified by making it FAIL first: with `style_ref_no` removed from
+// `sliceKey`, the two keys are equal and STYLE B reports STYLE A's 5.
+// ---------------------------------------------------------------------------
+const ST_A = { combo: null, size_id: null, country_id: null, style_ref_no: "STL/26-27/0001" };
+const ST_B = { combo: null, size_id: null, country_id: null, style_ref_no: "STL/26-27/0002" };
+
+check("two styles on one line are two keys", sliceKey(ST_A) !== sliceKey(ST_B), true);
+check("a style ref normalises like every other half", sliceKey({ ...ST_A, style_ref_no: " stl/26-27/0001 " }), sliceKey(ST_A));
+check(
+  "one style's figure does not answer the other's row",
+  overrideFor([{ ...ST_A, no_of_items: 5, per_pieces: 1 }], ST_B),
+  null,
+);
+check(
+  "...and it still answers its own",
+  overrideFor([{ ...ST_A, no_of_items: 5, per_pieces: 1 }], ST_A)?.no_of_items,
+  5,
+);
+// THE TWO AXES ARE INDEPENDENT. A style-wise line split by garment part is the
+// cross product, and all four rows must be distinguishable — this is the case
+// the 0463 column made reachable, so it is the case most likely to regress.
+check(
+  "style x combination is four distinct keys",
+  new Set([
+    sliceKey({ ...ST_A, combination: "TOP" }),
+    sliceKey({ ...ST_A, combination: "BOTTOM" }),
+    sliceKey({ ...ST_B, combination: "TOP" }),
+    sliceKey({ ...ST_B, combination: "BOTTOM" }),
+  ]).size,
+  4,
+);
+check(
+  "the same part on another style is not the same row",
+  overrideFor([{ ...ST_A, combination: "TOP", no_of_items: 5, per_pieces: 1 }], {
+    ...ST_B,
+    combination: "TOP",
+  }),
+  null,
+);
+
+const TOP = { combo: null, size_id: null, country_id: null, combination: "TOP" };
+const BOTTOM = { combo: null, size_id: null, country_id: null, combination: "BOTTOM" };
+
+check("two garment parts on one line are two keys", sliceKey(TOP) !== sliceKey(BOTTOM), true);
+check("a typed name normalises like every other half", sliceKey({ ...TOP, combination: " top " }), sliceKey(TOP));
+check(
+  "one part's figure does not answer the other's row",
+  overrideFor(
+    [{ ...TOP, no_of_items: 4, per_pieces: 1 }],
+    BOTTOM,
+  ),
+  null,
+);
+check(
+  "...and it still answers its own",
+  overrideFor([{ ...TOP, no_of_items: 4, per_pieces: 1 }], TOP)?.no_of_items,
+  4,
+);
+check(
+  "a plain slice is not a combination row",
+  sliceKey({ combo: null, size_id: null, country_id: null }) !== sliceKey(TOP),
+  true,
+);
 
 console.log("\n§5  overrideFor returns the row, or null");
 

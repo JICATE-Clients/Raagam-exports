@@ -229,6 +229,8 @@ function sliceFlags(
     combo?: string | null;
     size_id?: string | null;
     country_id?: string | null;
+    combination?: string | null;
+    style_ref_no?: string | null;
     chosen?: boolean;
     size_wise?: boolean;
     item_color_id?: string | null;
@@ -241,6 +243,15 @@ function sliceFlags(
         combo: sl.combo ?? null,
         size_id: sl.size_id ?? null,
         country_id: sl.country_id ?? null,
+        // PART OF THE KEY SINCE 0463. Omitting it here would not fail to
+        // compile — `SliceKey` makes it optional so a pre-0463 caller still
+        // reads — it would silently key every combination row as if it had no
+        // name, so TOP's ticks would answer for BOTTOM's.
+        combination: sl.combination ?? null,
+        // And the same for the style (0464): without it every style-basis row
+        // keys alike, so one row's Choose / Size-wise ticks answer for all of
+        // them.
+        style_ref_no: sl.style_ref_no ?? null,
       }),
       sl,
     );
@@ -788,12 +799,22 @@ async function writeChildren(
             sl.size_wise === true ||
             sl.item_color_id != null ||
             !!sl.specification ||
-            !!sl.size_spec,
+            !!sl.size_spec ||
+            /* A COMBINATION ROW IS NOT EMPTY WHEN IT IS ONLY A NAME (0463).
+               This filter is what keeps the slice table a SPARSE store of things
+               the operator actually typed, and every other clause tests a figure
+               or a flag — so a freshly typed TOP, which has nothing but a name
+               until the listing is filled in, was dropped here and the name
+               never reached the database. The popup would have appeared to work
+               and forgotten everything on save. */
+            !!(sl.combination ?? "").trim(),
         )
         .map((sl) => ({
           combo: sl.combo ?? null,
           size_id: sl.size_id ?? null,
           country_id: sl.country_id ?? null,
+          combination: sl.combination ?? null,
+          style_ref_no: sl.style_ref_no ?? null,
           chosen: sl.chosen ?? true,
           size_wise: sl.size_wise ?? false,
           item_color_id: sl.item_color_id ?? null,
@@ -838,6 +859,14 @@ async function writeChildren(
         combo: sl.combo ?? null,
         size_id: sl.size_id ?? null,
         country_id: sl.country_id ?? null,
+        // Legacy's Combination (0463): the garment part typed in the popup. Part
+        // of `uq_mba_slice_line_combo_size`, so omitting it here would not merely
+        // lose the name — every combination row on a line would collide on the
+        // key and the insert would fail outright.
+        combination: sl.combination ?? null,
+        // Which style (0464). Part of `uq_mba_slice_line_combo_size`, so omitting
+        // it would collapse every style's row onto one key and fail the insert.
+        style_ref_no: sl.style_ref_no ?? null,
         // Legacy's two ticks (0449). `chosen` DEFAULTS TRUE, so writing it is
         // what makes an unticked row survive a save at all.
         chosen: sl.chosen ?? true,
