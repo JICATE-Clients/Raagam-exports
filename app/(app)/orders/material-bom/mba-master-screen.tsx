@@ -213,6 +213,14 @@ type ItemRow = {
    *  qualifier is the only thing telling them apart — do not shorten it. Nothing
    *  has ever consulted this string. */
   combination: string;
+  /**
+   * "Send out" — this material goes out for a process (0466).
+   *
+   * A BOOLEAN, not a string, unlike every numeric on this row: those are held as
+   * text because a number cannot represent a just-cleared box, and a checkbox
+   * has no cleared state to represent.
+   */
+  send_out: boolean;
   moq: string;
   /* `alternate_uom_id` above is now CARRIED AND NEVER SHOWN (client
      2026-08-19). Its cell came off the grid a second time — withdrawn as "UI
@@ -336,6 +344,10 @@ const blankItem = (key: string): ItemRow => ({
   alternate_uom_id: null,
   uom_conversion_id: null,
   combination: "",
+  // 0466. Off by default: most trims are bought and sewn on, and defaulting it
+  // on would put every material back on the Processes tab, which is the screen
+  // this column exists to shorten.
+  send_out: false,
   moq: "",
   round_to: "",
   no_of_items: "",
@@ -617,23 +629,47 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * six colour rows each floored at 500 buys 3,000 where one purchase of 500
    * covers the lot. They apply ONCE, to the line's rolled-up total.
    *
-   * ELEVEN FIELDS, STILL SUMMING TO 32 — 3+3+6+3+2+2+2+3+4+2+2. Every run must
+   * TWELVE FIELDS, STILL SUMMING TO 32 — 3+2+6+3+2+2+2+2+4+2+2+2. Every run must
    * make the track exactly or its last field drops to a line of its own, and the
    * width went to the two names that need it: Material holds a slashed spec and
    * Vendor holds a company name.
+   *
+   * "SEND OUT" TOOK ITS TWO COLUMNS FROM Type AND Supply Type (0466), which is
+   * the only place they could come from. The spans are coarse — 2/3/4/6/8/12 —
+   * so a new `xs` cell needs exactly 2 freed, and the run was already exactly
+   * full at eleven. Material and Vendor were left alone deliberately: the
+   * paragraph above says the width went to them because they hold long values,
+   * and halving either to pay for a checkbox would undo a decision the client
+   * signed off on 2026-08-21.
+   *
+   * BOTH DONORS SURVIVE THE CUT because they are dropdowns over short
+   * vocabularies — Type is "To be advised" / "To be developed", Supply Type is
+   * Nominated / Local / Import — and a picker that clips gets the reveal bubble
+   * every truncated value in this app gets. Their `min-w-[110px]` /
+   * `min-w-[120px]` on `itemColumns` do NOT fight this: `renderMobileRow` passes
+   * only `DENSE` and `WEIGHT_CLASS` to the `Field`, never `col.className`, so
+   * those minimums bind `ChildGrid`'s TABLE layout and this grid is
+   * `forceCards`. Checked before the spans were changed, not assumed.
+   *
+   * IT SITS LAST rather than beside Material, so the identity run
+   * (Category · Type · Material · Attribute) reads unbroken and the row ends on
+   * the question the Processes tab asks. If the client wants it caught earlier
+   * while entering, it is a one-line move — the renderer matches by HEADER, so
+   * order here is presentation and nothing else depends on it.
    */
   [
     { header: "Category", size: "sm", weight: "key" },
-    { header: "Type", size: "sm", weight: "quiet" },
+    { header: "Type", size: "xs", weight: "quiet" },
     { header: "Material", size: "lg", weight: "key" },
     { header: "Attribute", size: "sm", weight: "key" },
     { header: "Purchase Uom", size: "xs", weight: "auto" },
     { header: "Consumption Uom", size: "xs", weight: "auto" },
     { header: "Combination", size: "xs", weight: "quiet" },
-    { header: "Supply Type", size: "sm", weight: "plain" },
+    { header: "Supply Type", size: "xs", weight: "plain" },
     { header: "Vendor", size: "md", weight: "plain" },
     { header: "MOQ", size: "xs", weight: "plain" },
     { header: "Round To", size: "xs", weight: "plain" },
+    { header: "Send out", size: "xs", weight: "plain" },
   ],
 ];
 
@@ -1698,6 +1734,7 @@ export function MbaMasterScreen({
         alternate_uom_id: c.alternate_uom_id,
         uom_conversion_id: c.uom_conversion_id,
         combination: c.combination ?? "",
+        send_out: c.send_out ?? false,
         moq: c.moq != null ? String(c.moq) : "",
         round_to: c.round_to != null ? String(c.round_to) : "",
         no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -1815,6 +1852,7 @@ export function MbaMasterScreen({
           alternate_uom_id: c.alternate_uom_id ?? null,
           uom_conversion_id: c.uom_conversion_id ?? null,
           combination: c.combination ?? "",
+          send_out: c.send_out ?? false,
           moq: c.moq != null ? String(c.moq) : "",
           round_to: c.round_to != null ? String(c.round_to) : "",
           no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -1884,6 +1922,7 @@ export function MbaMasterScreen({
         alternate_uom_id: c.alternate_uom_id,
         uom_conversion_id: c.uom_conversion_id,
         combination: c.combination || null,
+        send_out: c.send_out,
         moq: numOrNull(c.moq),
         round_to: numOrNull(c.round_to),
         no_of_items: numOrNull(c.no_of_items),
@@ -3149,6 +3188,53 @@ export function MbaMasterScreen({
         />
       ),
     },
+    {
+      /**
+       * "SEND OUT" — THIS MATERIAL GOES OUT FOR A PROCESS (client 2026-08-25:
+       * "while adding material they give any tick box that selected item will
+       * only list in process tab"). 0466.
+       *
+       * DECLARED HERE, WHILE THE MATERIAL IS BEING ENTERED, which is the whole
+       * point of the field and the reason it is not on the Processes tab: the
+       * operator knows a button is going to be dyed at the moment they add the
+       * button, and the tab is then a work list rather than a directory of every
+       * trim on the BOM.
+       *
+       * THE TAB READS A UNION — ticked OR already carrying a process row — and
+       * that is what makes this safe rather than merely short. See `procGroups`
+       * for the argument in full; the short version is that un-ticking can never
+       * hide a row, so it can never take one out of the save payload, so it can
+       * never trip `writeChildren`'s refusal to drop a row already dispatched
+       * under a delivery challan.
+       *
+       * A RAW `<input type="checkbox">` because this repo has no Checkbox
+       * primitive; every tick in it is written this way. `accent-primary` and
+       * `h-4 w-4` are the house metrics (`packing-advice-screen.tsx`'s
+       * "Mult. Pack" is the closest twin); the slice grid one level down uses a
+       * smaller `TICK` because it is denser, which this row is not.
+       *
+       * IT STAYS ON THE KEYBOARD AXIS. `ROW_FIELDS` counts a checkbox on purpose
+       * (`child-grid.tsx`, client 2026-07-28 — excluding one made every arrow key
+       * dead on a tick-box cell), so no `data-focus-optional` here: the operator
+       * reaches it with ←/→ like any other cell and Space ticks it.
+       *
+       * `aria-label` because the header text does not reach the control in the
+       * card layout — the same gap `document-no-format-master-screen.tsx` closes
+       * on its own tick columns.
+       */
+      header: "Send out",
+      align: "center",
+      className: "min-w-[5rem]",
+      cell: (r) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-border accent-primary"
+          aria-label="Send out for a process"
+          checked={r.send_out}
+          onChange={(e) => updItem(r.key, { send_out: e.target.checked })}
+        />
+      ),
+    },
     /*
      * PURCHASE PACK IS OFF THE ITEM ROW (client 2026-08-21: "remove the purchase
      * pack field from material bom child").
@@ -3214,9 +3300,56 @@ export function MbaMasterScreen({
    * or remove it.
    */
   const procGroups = (() => {
+    /* ONLY THE MATERIALS THAT ACTUALLY HAVE A PROCESS (client 2026-08-25:
+       "sometimes that chosen item need to do give any process").
+
+       The first cut listed EVERY material on the BOM with an empty grid under
+       each. That was legacy's nesting without legacy's premise: its outer grid
+       is a CHOSEN SUBSET — the blank row at the bottom of screenshot 2484 is how
+       an item is added to it — because most trims are bought and sewn on, and
+       only a few are sent out to be dyed or washed. An eleven-material BOM
+       therefore opened on eleven empty boxes, and the two that mattered were
+       indistinguishable from the nine that did not.
+
+       A GROUP EXISTS BECAUSE A ROW EXISTS. There is no second "which materials
+       are listed" state to keep in step with `procs` — adding a material adds
+       its first process row, and removing the last row removes the group. Two
+       sources of that truth is exactly the drift this file keeps recording;
+       deriving it costs nothing and cannot desync.
+
+       ORDERED BY THE BOM, not by when a process was added, so the Processes tab
+       reads down in the same order as the Items grid above it. */
+    const withProcess = new Set(
+      procs.map((pr) => pr.item_id).filter((v): v is string => !!v),
+    );
     const seen = new Set<string>();
     const groups = items
-      .filter((x) => !!x.item_id && !seen.has(x.item_id) && seen.add(x.item_id) !== null)
+      /* TICKED **OR** CARRYING A ROW — a UNION, and the "or" is the whole safety
+         argument (0466, client 2026-08-25: "while adding material they give any
+         tick box that selected item will only list in process tab").
+
+         THE NOTE ABOVE ARGUES AGAINST A SECOND SOURCE OF TRUTH, and it is right
+         about the failure it names — two states free to disagree about what is
+         displayed. A union cannot disagree: a row ALWAYS shows, whatever the
+         flag says. What the flag adds is the one state deriving cannot express,
+         *decided but not yet filled in* — the to-do that makes this tab a work
+         list instead of a record of finished work. Both halves earn their place;
+         deleting either loses something.
+
+         AND IT IS WHY UN-TICKING NEEDS NO GUARD. `writeChildren` deletes and
+         reinserts every process row and REFUSES a save that drops one already
+         dispatched under a challan — testing the raw payload, not the screen.
+         Under a union, un-ticking cannot remove a row from this list, so it
+         cannot remove one from the payload, so it cannot trip that refusal or
+         quietly delete an un-dispatched row. There is nothing to confirm and
+         nothing to lose. */
+      .filter(
+        (x) =>
+          !!x.item_id &&
+          (withProcess.has(x.item_id) || x.send_out) &&
+          !seen.has(x.item_id) &&
+          seen.add(x.item_id) !== null,
+      )
       .map((x) => ({
         id: x.item_id as string,
         label: itemName(x.item_id),
@@ -3227,6 +3360,28 @@ export function MbaMasterScreen({
     return orphans.length
       ? [...groups, { id: null as string | null, label: "Not on this BOM", rows: orphans }]
       : groups;
+  })();
+
+  /** BOM materials with no process yet — what the "+ Add" picker offers. A
+   *  material already listed is not offered again: its own "+ Add process" is
+   *  how a second stage is added to it. */
+  const procAddable = (() => {
+    /* "TAKEN" NOW MEANS LISTED, WHICH IS THE UNION (0466) — carrying a row OR
+       ticked. Testing rows alone would offer a material that is already on the
+       tab waiting for its first process, and adding it a second time would put
+       a second empty group under the same heading. */
+    const taken = new Set(procs.map((pr) => pr.item_id).filter((v): v is string => !!v));
+    const seen = new Set<string>();
+    return items
+      .filter(
+        (x) =>
+          !!x.item_id &&
+          !taken.has(x.item_id) &&
+          !x.send_out &&
+          !seen.has(x.item_id) &&
+          seen.add(x.item_id) !== null,
+      )
+      .map((x) => ({ id: x.item_id as string, code: null, name: itemName(x.item_id) }));
   })();
 
   /**
@@ -4059,6 +4214,11 @@ export function MbaMasterScreen({
                   requirement_basis: last.requirement_basis || null,
                   no_of_items: numOrNull(last.no_of_items),
                   per_pieces: numOrNull(last.per_pieces),
+                  /* THE FIGURES ARE USUALLY HERE, NOT ON THE LINE. Items and Pcs
+                     are typed in the attribute's sub-grid (2026-08-21), so a gate
+                     reading only the line's two boxes refused a line the operator
+                     had finished — see `missingItemFields`. */
+                  slices: last.slices,
                 });
                 if (missing.length) {
                   toastError(
@@ -4087,7 +4247,30 @@ export function MbaMasterScreen({
       key: "processes",
       label: "Processes",
       icon: Workflow,
-      done: procs.some((r) => r.item_id || r.process_id),
+      /**
+       * EVERY LISTED MATERIAL HAS A PROCESS — not "any row exists anywhere"
+       * (0466).
+       *
+       * It was `procs.some(r => r.item_id || r.process_id)`, which lit the dot
+       * as soon as ONE row existed on the whole document — orphans included —
+       * so a BOM with four materials sent out and one process named read as
+       * finished. That was defensible while the tab listed every material and
+       * "done" could only ever mean "somebody started"; with the tab now listing
+       * a DECLARED set, there is a real question to answer and this is it.
+       *
+       * ADVISORY, NEVER A BLOCK, and that comes free rather than being enforced:
+       * the `processes` section declares no fields to `sectionValidity`, so it
+       * cannot produce a problem or kill Save. Deliberate — an operator may tick
+       * materials while entering them and name the processes later, and
+       * `is_draft` exists for parking exactly that.
+       *
+       * AN EMPTY LIST IS DONE. `every` on nothing is true, which is the right
+       * answer: a BOM whose trims are all bought ready-to-use has no processes
+       * to name and is not unfinished for it.
+       */
+      done: procGroups.every((g) =>
+        g.rows.some((r) => r.process_id || (r.stage ?? "").trim()),
+      ),
       content: (
         <SectionBody title="Processes">
           {/*
@@ -4101,16 +4284,20 @@ export function MbaMasterScreen({
             * needs in order to be fixable, and dropping it from the definition
             * would take it off the payload too.
             */}
-          {procGroups.length === 0 ? (
-            /* EMPTY-AND-EXPLAIN, naming the tab to fix it on. A process is
-               raised against one of this BOM's materials, so with none entered
-               there is nothing to nest under — and "no processes" would report
-               that as the wrong problem. */
+          {/* THE EMPTY STATE IS THE ORDINARY ONE, and it says so. A BOM whose
+              trims are all bought ready-to-use needs no processes at all, so
+              this must read as "nothing to do here", not as "something is
+              missing". The two causes are distinguished because they have
+              different fixes: no materials at all is fixed on another tab; no
+              processes is fixed by the picker below, or by leaving it alone. */}
+          {procGroups.length === 0 && (
             <p className="text-xs text-muted-foreground">
-              Add a material on the Material BOM tab first — a process is sent out
-              against one of this BOM&apos;s materials.
+              {items.some((x) => !!x.item_id)
+                ? "No material is sent out for processing. Add one below if a trim has to be dyed, washed or printed before it is used."
+                : "Add a material on the Material BOM tab first — a process is sent out against one of this BOM's materials."}
             </p>
-          ) : (
+          )}
+          {procGroups.length > 0 && (
             procGroups.map((g, gi) => (
               <div key={g.id ?? "__orphans"} className="mt-3 rounded-lg border border-border first:mt-0">
                 {/* The parent row. Numbered like legacy's S No, and the count is
@@ -4188,6 +4375,57 @@ export function MbaMasterScreen({
                 />
               </div>
             ))
+          )}
+
+          {/* ADD A MATERIAL TO THE LIST — legacy's blank outer row (screenshot
+              2484), as a picker rather than a row because there is nothing to
+              type: the choice is always one of the BOM's own materials.
+
+              CHOOSING ONE CREATES ITS FIRST PROCESS ROW, which is what makes the
+              group appear — the group is derived from `procs`, so there is no
+              separate list to add to. It also means the operator lands on
+              something they can fill in rather than on an empty container.
+
+              `value={null}` ALWAYS: this picker performs an action, it does not
+              hold a value. Nothing is stored against it, so it resets itself.
+
+              It hides when there is nothing left to offer, rather than
+              disabling: an empty picker on a BOM whose every material already
+              has a process is a control with no purpose, and each material's own
+              "+ Add process" is how a second stage gets added. */}
+          {procAddable.length > 0 && (
+            <div className="mt-3 w-[280px]">
+              <RecordPicker
+                label=""
+                items={procAddable}
+                value={null}
+                /* IT TICKS THE MATERIAL TOO (0466). Sending a material out from
+                   here IS the decision "Send out" records, so leaving the box
+                   un-ticked on the Items tab would make the two halves of the
+                   union describe the same material differently — the tab listing
+                   it because it has a row, the line saying it never goes out.
+
+                   THIS IS WHAT KEEPS THEM CONSISTENT BY CONSTRUCTION, and it is
+                   why the tick is not a gate: an operator who never visits the
+                   Items grid can still send a material out, and the flag follows
+                   them rather than having to be remembered. After this the two
+                   can only differ by an explicit un-tick — which the union
+                   already makes harmless.
+
+                   Both updates in one handler; `setItems`/`mutProcs` are
+                   functional updates, so they compose without either reading the
+                   other's stale state. */
+                onChange={(id) => {
+                  if (!id) return;
+                  mutProcs((xs) => [...xs, { ...blankProc(newKey()), item_id: id }]);
+                  setItems((xs) =>
+                    xs.map((x) => (x.item_id === id ? { ...x, send_out: true } : x)),
+                  );
+                }}
+                placeholder="+ Send a material out for processing"
+                compact
+              />
+            </div>
           )}
         </SectionBody>
       ),

@@ -96,6 +96,17 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
       alternate_uom_id: c.alternate_uom_id ?? null,
       uom_conversion_id: c.uom_conversion_id ?? null,
       combination: clean(c.combination),
+      /* 0466 — "Send out". Named here for the reason `round_to` below and
+         `component_id` above both record: this literal is the whole write, so a
+         column left out of it dies at the server boundary with no type error.
+
+         NOT ADDED TO THE BLANK-ROW FILTER BELOW, deliberately. `false` is the
+         default and a row carrying nothing but an un-ticked box is not a line
+         the operator entered; a row that is only TICKED is not one either — it
+         names no material, so the Processes tab could not list it and the
+         requirement could not price it. Everything real about a line is already
+         in that OR-chain. */
+      send_out: c.send_out ?? false,
       moq: c.moq ?? null,
       // 0437. Named here for the reason the comment on `component_id`
       // above records: this literal is the whole write, so a column left
@@ -1167,6 +1178,14 @@ export async function copyMaterialBomFrom(
     // order's are not this one's (0442).
     slices: [],
     components: [],
+    /* TRAVELS WITH THE RECIPE (0466), like `round_to` below and unlike the
+       panels above. Whether a trim goes out to be dyed is a property of the
+       MATERIAL and the way it is made up — a button that needs dyeing needs it
+       whichever order buys it — not of the source order's styles or colours.
+       The process ROWS come across too (see `processes` below), so a copy that
+       dropped this would arrive with the plan intact and the line un-ticked,
+       reading as though nobody had decided to send it. */
+    send_out: (c.send_out as boolean) ?? false,
     moq: numOrNull(c.moq),
     // TRAVELS WITH THE RECIPE (0437). A rounding step is a property of how this
     // material is BOUGHT — a gross of buttons is a gross whichever order needs
