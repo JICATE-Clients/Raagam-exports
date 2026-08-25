@@ -105,6 +105,11 @@ export default async function OrderDetailPage({
                 Order Sheet
               </Button>
             </Link>
+            <Link href={`/orders/${orderId}/requirement`}>
+              <Button variant="outline" size="md">
+                Requirement
+              </Button>
+            </Link>
             <Link href={`/orders/${orderId}/community`}>
               <Button variant="outline" size="md">
                 RE-Community

@@ -70,6 +70,7 @@
     "scripts/check-bom-slices.mts",
     "scripts/check-ta-schedule.mts",
     "scripts/check-amendment-files.mts",
+    "scripts/check-requirement-sheet.mts",
     "scripts/check-approval-tree.mts",
     "scripts/check-assort-style.mts",
     "scripts/mine-name-vocabularies.mts",

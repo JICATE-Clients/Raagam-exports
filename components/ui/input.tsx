@@ -206,6 +206,56 @@ export const Input = forwardRef<
   const noSpinners =
     props.type === "number" &&
     "[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [appearance:textfield]";
+
+  /**
+   * ↑/↓ MOVE THE CURSOR. THEY DO NOT STEP THE VALUE (client 2026-08-25: "I can't
+   * type the number, it's only updating using the arrow with point numbers
+   * only", screenshot 2486 — a BOM Items cell reading 0.059).
+   *
+   * ## THE SPINNER BLOCK ABOVE FIXED THE MOUSE AND LEFT THE KEYBOARD
+   *
+   * It hides Chrome's, Safari's and Firefox's steppers, and its own comment
+   * says "removing it costs nothing — ↑/↓ inside a grid MOVE the cursor, so the
+   * arrows were never the way a number got typed here anyway". The first half is
+   * true and the second is the assumption that was wrong: `appearance` is CSS
+   * and the browser's keyboard stepping is not. So the stepper became invisible
+   * and kept working.
+   *
+   * What that costs is worse than the mis-click it replaced. `gridKeyNav` moves
+   * the caret down a column on ↓ — the documented way to walk a grid — and the
+   * browser ALSO stepped the cell being left, by `step` (0.001 on a consumption
+   * figure). Every pass through a numeric column nudged it, silently, with the
+   * screen showing a plausible number the whole way. 0.059 is fifty-nine
+   * keystrokes of navigation, not a typed figure, and it is the quantity a
+   * purchase order is written from.
+   *
+   * ## `preventDefault` ONLY, NEVER `stopPropagation`
+   *
+   * The default action is the step; the event still has to reach `gridKeyNav`
+   * on the grid body and `lib/focus.ts` above it, or this would fix a nudged
+   * value by breaking movement altogether — trading a wrong number for a cage.
+   * That distinction is the whole fix.
+   *
+   * ONE PLACE, for the reason the spinner block gives: 325 `<Input
+   * type="number">` across 125 files, zero raw `<input type="number">` in the
+   * tree, and `ValidatedInput` wraps this one — so the ~22 hand-rolled grids are
+   * covered without being edited. AGENTS.md is explicit that a keyboard
+   * complaint is never answered per screen.
+   *
+   * ALT IS LEFT ALONE, matching `gridKeyNav`, which returns early on `altKey`
+   * so Alt+↓ can reach `arrowOpensPicker`. A modifier chord belongs to the layer
+   * above this one.
+   */
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (
+      props.type === "number" &&
+      !e.altKey &&
+      (e.key === "ArrowUp" || e.key === "ArrowDown")
+    ) {
+      e.preventDefault();
+    }
+    props.onKeyDown?.(e);
+  };
   const hold = useRequiredHold(
     !readOnly &&
       !props.disabled &&
@@ -320,6 +370,13 @@ export const Input = forwardRef<
         : onChange
     }
     {...props}
+    /* AFTER the spread, deliberately. `onKeyDown` wraps and then CALLS
+       `props.onKeyDown`, so a call site's handler still runs — but if the spread
+       came last it would replace this one outright and the field would silently
+       start stepping again. The guard being un-overridable is the point: the
+       spinner block above is set before the spread precisely so a call site CAN
+       opt back in, and this is the opposite case. */
+    onKeyDown={onKeyDown}
   />
   );
 });

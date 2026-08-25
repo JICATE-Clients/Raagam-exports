@@ -226,6 +226,15 @@ export interface MbaItem {
    *  with legacy's row, so `REQUIREMENT_BASIS_LABELS.combination` keeps its
    *  "(Color + Size)" qualifier as the only thing distinguishing the two. */
   combination: string | null;
+  /**
+   * "Send out" — this material goes out for a process (0466).
+   *
+   * A DECLARATION MADE WHILE THE MATERIAL IS ENTERED, and the one state the
+   * Processes tab cannot derive: *decided, not yet filled in*. That tab lists a
+   * material when it is ticked OR when it already carries a process row — a
+   * UNION, never ticked-only, so un-ticking can never hide a row.
+   */
+  send_out: boolean;
   moq: number | null;
   /** Round the post-MOQ figure UP to the next multiple of this (0437).
    *  NULL = no rounding asked for, which is every row before 0437. */
@@ -556,6 +565,19 @@ export type ItemRequiredCheck = {
   requirement_basis?: string | null;
   no_of_items: number | null;
   per_pieces: number | null;
+  /**
+   * THE LINE'S SLICE ROWS, because since 2026-08-21 that is where the two
+   * figures are actually TYPED — see `missingItemFields`.
+   *
+   * Optional so a caller that genuinely has no slices (an import, a copy being
+   * validated before its order is known) still type-checks and still gets the
+   * line-level answer.
+   */
+  slices?: readonly {
+    chosen?: boolean;
+    no_of_items?: number | null;
+    per_pieces?: number | null;
+  }[];
 };
 
 export function missingItemFields(
@@ -570,7 +592,39 @@ export function missingItemFields(
   if (!v.category_id) {
     out.push({ path: "category_id", label: "Category", message: "Choose a category" });
   }
-  if (v.no_of_items == null || v.no_of_items <= 0) {
+  /*
+   * THE FIGURES MAY BE ON THE SLICES, AND ASKING ONLY THE LINE WAS A BUG
+   * (client 2026-08-25, screenshot 2487: "after give the required field value
+   * after also its still asking for the value fields").
+   *
+   * Items and Pcs LEFT THE LINE on 2026-08-21 and are typed in the attribute's
+   * sub-grid — `bom-slice-grid.tsx`, the cells whose header carries the red star.
+   * This function kept asking `v.no_of_items`, which is now blank on a perfectly
+   * finished line, so a line reading Items 2 / Pcs 1 on screen was reported as
+   * missing both. It blocked "+ Add material" AND, through the `superRefine`
+   * below, SAVE — the operator could not finish the document at all.
+   *
+   * The resolution order is `consumptionFor`'s: a slice's own figure, else the
+   * line's. So the line is answered when it holds the figure itself, OR when
+   * every CHOSEN slice holds one — a blank line with one blank slice among five
+   * is still unfinished, and `sliceGrid`'s own caption refuses to close over
+   * exactly that row.
+   *
+   * `chosen` DEFAULTS TRUE (0449): an unticked row buys none of this material,
+   * so it is not required to carry a figure and must not be able to block a save
+   * by staying blank.
+   *
+   * WHY NOT ASK THE ENGINE. `consumptionFor` needs the ORDER's production slices
+   * to know which rows exist, and this runs inside a Zod schema on the server
+   * with no order in hand. Asking "does every stored slice carry a figure" is the
+   * half that can be answered here; the per-slice completeness against the
+   * order's real axes stays where it already is, on the grid.
+   */
+  const chosenSlices = (v.slices ?? []).filter((sl) => sl.chosen ?? true);
+  const slicesAnswer = (pick: (sl: (typeof chosenSlices)[number]) => number | null | undefined) =>
+    chosenSlices.length > 0 && chosenSlices.every((sl) => (pick(sl) ?? 0) > 0);
+
+  if ((v.no_of_items == null || v.no_of_items <= 0) && !slicesAnswer((sl) => sl.no_of_items)) {
     out.push({
       path: "no_of_items",
       label: "No. of Items",
@@ -580,7 +634,7 @@ export function missingItemFields(
   // Not defaulted to 1 anywhere — in the column (0418), in the input, or in the
   // engine. A default makes an unfinished line compute, and the number it
   // produces goes onto a real purchase order.
-  if (v.per_pieces == null || v.per_pieces <= 0) {
+  if ((v.per_pieces == null || v.per_pieces <= 0) && !slicesAnswer((sl) => sl.per_pieces)) {
     out.push({ path: "per_pieces", label: "Per Pieces", message: "Pieces must be more than 0" });
   }
   /* THE GRAIN SATISFIES IT, and `[]` is a real answer (the whole order) — so
@@ -637,6 +691,10 @@ export const mbaItemInput = z
     alternate_uom_id: uuidN,
     uom_conversion_id: uuidN,
     combination: nullableText,
+    /* 0466. `z.coerce.boolean().default(false)`, the shape `mbaItemSliceInput`'s
+       own two booleans take — the default is what keeps every line written
+       before this column valid. */
+    send_out: z.coerce.boolean().default(false),
     moq: numN,
     round_to: numN,
     no_of_items: numN,

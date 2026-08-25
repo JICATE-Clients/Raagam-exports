@@ -31,7 +31,7 @@ import {
   type SliceOverride,
 } from "../lib/orders/material-bom/slice-consumption.ts";
 import { requirementFor } from "../lib/orders/material-bom/requirement.ts";
-import { mbaItemInput } from "../lib/orders/material-bom-amendment/types.ts";
+import { mbaItemInput, missingItemFields } from "../lib/orders/material-bom-amendment/types.ts";
 
 let failed = 0;
 
@@ -545,6 +545,70 @@ check(
   consumptionFor(LINE, [ovC(null, L, 9)], atC(USA, L)),
   LINE,
 );
+
+console.log("\n§9  missingItemFields reads the figures where they are TYPED");
+
+// ---------------------------------------------------------------------------
+// Items and Pcs LEFT THE LINE on 2026-08-21 and are typed on the slice rows.
+// The check kept asking the line, so a finished line reported both as missing —
+// blocking "+ Add material" AND, through mbaItemInput's superRefine, SAVE
+// (client 2026-08-25, screenshot 2487).
+//
+// Verified by making it FAIL first: with the `slicesAnswer` clauses removed,
+// the first two vectors below report "No. of Items, Per Pieces".
+// ---------------------------------------------------------------------------
+const ITEM = "11111111-1111-4111-8111-111111111111";
+const CAT = "22222222-2222-4222-8222-222222222222";
+const base = {
+  category_id: CAT,
+  item_id: ITEM,
+  requirement_grain: [] as readonly string[],
+  requirement_basis: null,
+  no_of_items: null,
+  per_pieces: null,
+};
+const labels = (v: Parameters<typeof missingItemFields>[0]) =>
+  missingItemFields(v).map((m) => m.label);
+
+check(
+  "figures on the slice finish the line",
+  labels({ ...base, slices: [{ no_of_items: 2, per_pieces: 1 }] }),
+  [],
+);
+check(
+  "...and on the line, as before",
+  labels({ ...base, no_of_items: 2, per_pieces: 1 }),
+  [],
+);
+check(
+  "neither is still unfinished, and says so",
+  labels(base),
+  ["No. of Items", "Per Pieces"],
+);
+check(
+  "ONE blank slice among several still blocks",
+  labels({ ...base, slices: [{ no_of_items: 2, per_pieces: 1 }, { no_of_items: null, per_pieces: 1 }] }),
+  ["No. of Items"],
+);
+check(
+  "an UNTICKED blank row buys nothing, so it cannot block",
+  labels({
+    ...base,
+    slices: [{ no_of_items: 2, per_pieces: 1 }, { chosen: false, no_of_items: null, per_pieces: null }],
+  }),
+  [],
+);
+check(
+  "a blank LINE is still answered by every chosen slice",
+  labels({ ...base, slices: [{ chosen: true, no_of_items: 3, per_pieces: 2 }] }),
+  [],
+);
+check(
+  "zero is not a figure — a rate of 0 buys nothing",
+  labels({ ...base, slices: [{ no_of_items: 0, per_pieces: 1 }] }),
+  ["No. of Items"],
+);
+check("a line naming no material is never unfinished", labels({ ...base, item_id: null }), []);
 
 console.log(
   failed === 0

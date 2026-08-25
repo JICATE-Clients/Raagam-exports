@@ -4,7 +4,7 @@
  * A raw `<style>` rather than a Tailwind class soup or an edit to
  * `app/globals.css`. Two reasons, and the first is the one that matters:
  * @page, break-before and the ancestor selectors below cannot be written as
- * utility classes at all, and every rule here is scoped to `.gos-sheet`, so
+ * utility classes at all, and every rule here is scoped to `.doc-sheet`, so
  * shipping it beside the component keeps the whole print contract in one file
  * instead of half of it in a global nobody reads.
  *
@@ -38,8 +38,23 @@
  * ERP printed from a desktop browser; there is no supported browser here
  * without it.
  */
-export function GosPrintStyles() {
-  return <style dangerouslySetInnerHTML={{ __html: CSS }} />;
+/**
+ * ONE STYLESHEET, ONE PER DOCUMENT SCOPE.
+ *
+ * The rules below are authored against a neutral `.doc-` prefix and rewritten to
+ * the caller's scope, so the Garment Order Sheet and the Accessories Requirement
+ * share one contract instead of two copies drifting apart. Everything that was
+ * hard-won here — undoing the shell's `h-screen`, releasing `overflow`,
+ * re-revealing past globals.css's blanket hide — is the same problem for every
+ * printed document in this app, and solving it twice is how one of them silently
+ * stops paginating.
+ *
+ * `scope` is the class the document's root carries: `gos` -> `.gos-sheet`,
+ * `req` -> `.req-sheet`.
+ */
+export function DocumentPrintStyles({ scope = "gos" }: { scope?: string }) {
+  const css = CSS.replaceAll(".doc-", `.${scope}-`);
+  return <style dangerouslySetInnerHTML={{ __html: css }} />;
 }
 
 const CSS = `
@@ -53,7 +68,7 @@ const CSS = `
  * against white. The chrome around it (toolbar, page background) stays on the
  * theme tokens, so the app still looks like itself.
  */
-.gos-sheet {
+.doc-sheet {
   background: #ffffff;
   color: #111827;
   --gos-rule: #d4d4d8;
@@ -67,24 +82,24 @@ const CSS = `
   print-color-adjust: exact;
 }
 
-.gos-sheet table { border-collapse: collapse; width: 100%; }
-.gos-sheet th, .gos-sheet td {
+.doc-sheet table { border-collapse: collapse; width: 100%; }
+.doc-sheet th, .doc-sheet td {
   border: 1px solid var(--gos-rule);
   padding: 3px 6px;
   vertical-align: top;
 }
-.gos-sheet thead th {
+.doc-sheet thead th {
   background: var(--gos-fill);
   font-weight: 600;
   text-align: left; /* color-token: exempt -- a CSS declaration inside a stylesheet, not a Tailwind utility class */
   white-space: nowrap;
 }
-.gos-sheet tfoot td { background: var(--gos-fill); font-weight: 700; }
-.gos-num { text-align: right; font-variant-numeric: tabular-nums; } /* color-token: exempt -- a CSS declaration inside a stylesheet, not a Tailwind utility class */
+.doc-sheet tfoot td { background: var(--gos-fill); font-weight: 700; }
+.doc-num { text-align: right; font-variant-numeric: tabular-nums; } /* color-token: exempt -- a CSS declaration inside a stylesheet, not a Tailwind utility class */
 
 /* A wide matrix scrolls INSIDE its own box on screen; the page body never
    scrolls sideways. In print it is released — see the print block. */
-.gos-scroll { overflow-x: auto; }
+.doc-scroll { overflow-x: auto; }
 
 @page { size: A4 portrait; margin: 10mm; }
 
@@ -100,8 +115,8 @@ const CSS = `
    *    this document. Sidebar, topbar, mobile nav, install prompt, bug
    *    reporter, the page's own toolbar — none of them named.
    */
-  :is(body:has(.gos-sheet), body:has(.gos-sheet) *:has(.gos-sheet))
-    > *:not(:has(.gos-sheet)):not(.gos-sheet) {
+  :is(body:has(.doc-sheet), body:has(.doc-sheet) *:has(.doc-sheet))
+    > *:not(:has(.doc-sheet)):not(.doc-sheet) {
     display: none !important;
   }
 
@@ -111,7 +126,7 @@ const CSS = `
    *    the difference between a sheet that paginates and a sheet that stops at
    *    the bottom of page one.
    */
-  :is(body:has(.gos-sheet), body:has(.gos-sheet) *:has(.gos-sheet)) {
+  :is(body:has(.doc-sheet), body:has(.doc-sheet) *:has(.doc-sheet)) {
     display: block !important;
     position: static !important;
     height: auto !important;
@@ -133,9 +148,9 @@ const CSS = `
    *    borrowing that class, whose companion rule pins it 'position: absolute'
    *    — which is exactly what stops a long document from paginating.
    */
-  .gos-sheet, .gos-sheet * { visibility: visible !important; }
+  .doc-sheet, .doc-sheet * { visibility: visible !important; }
 
-  .gos-sheet {
+  .doc-sheet {
     box-shadow: none !important;
     border: 0 !important;
     border-radius: 0 !important; /* color-token: exempt -- a CSS declaration inside a stylesheet, not a Tailwind utility class */
@@ -146,15 +161,15 @@ const CSS = `
 
   /* A table released from its scroll box: in print there is nowhere to scroll
      to, so a clipped column is a column nobody ever sees. */
-  .gos-scroll { overflow: visible !important; }
+  .doc-scroll { overflow: visible !important; }
 
   /* One style per sheet. A style split across a fold is two half-directives. */
-  .gos-style + .gos-style { break-before: page; }
-  .gos-keep { break-inside: avoid; }
-  .gos-sheet tr { break-inside: avoid; }
+  .doc-style + .doc-style { break-before: page; }
+  .doc-keep { break-inside: avoid; }
+  .doc-sheet tr { break-inside: avoid; }
   /* A table that does span a fold repeats its own headings, or page two is a
      grid of numbers with no size above them. */
-  .gos-sheet thead { display: table-header-group; }
-  .gos-sheet tfoot { display: table-footer-group; }
+  .doc-sheet thead { display: table-header-group; }
+  .doc-sheet tfoot { display: table-footer-group; }
 }
 `;
