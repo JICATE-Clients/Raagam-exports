@@ -1,6 +1,6 @@
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { isRefusal, type GosPanel, type GosSheet, type GosStyle } from "@/lib/orders/gos/types";
-import { GosPrintStyles } from "./gos-print-styles";
+import { DocumentPrintStyles } from "./document-print-styles";
 
 /**
  * THE GARMENT ORDER SHEET, as it prints.
@@ -42,7 +42,7 @@ export function GosSheetDocument({ sheet }: { sheet: GosSheet }) {
 
   return (
     <article className="gos-sheet mx-auto max-w-[210mm] rounded-lg p-8 shadow-elev print:max-w-none">
-      <GosPrintStyles />
+      <DocumentPrintStyles scope="gos" />
 
       {/* ---- masthead ---- */}
       <header className="gos-keep mb-4 border-b-2 border-[var(--gos-rule-strong)] pb-3">

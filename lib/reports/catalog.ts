@@ -13,6 +13,7 @@
 import {
   ArrowLeftRight,
   Boxes,
+  ClipboardList,
   PackageCheck,
   TrendingUp,
   type LucideIcon,
@@ -49,6 +50,27 @@ export const REPORTS: ReportDefinition[] = [
     description: "Ordered against received against what actually reached stock",
     icon: PackageCheck,
     module: "reports",
+  },
+  /*
+   * A DOCUMENT, NOT AN ANALYSIS - and it is listed here anyway, deliberately.
+   *
+   * The four entries around it answer "what moved across the whole book" and
+   * open with filters. This one is a per-order sheet that is signed and handed
+   * to a supplier, so it lives on the order (`/orders/<id>/requirement`) beside
+   * the Garment Order Sheet.
+   *
+   * It is in this catalog because that is where people LOOKED for it. A
+   * document nobody can find is a document nobody uses, and the cost of the
+   * entry is one card plus a chooser that asks which order - far less than the
+   * cost of the operator giving up. The chooser exists precisely because a
+   * per-order document has no list to land on.
+   */
+  {
+    slug: "accessories-requirement",
+    label: "Accessories Requirement",
+    description: "Trims and packing to buy for one order - print, PDF or Excel",
+    icon: ClipboardList,
+    module: "orders",
   },
   {
     slug: "shipment-pnl",

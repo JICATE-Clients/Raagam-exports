@@ -34,6 +34,7 @@
     "check:cad-weights": "npx --yes tsx scripts/check-cad-weights.mts",
     "check:ta-schedule": "npx --yes tsx scripts/check-ta-schedule.mts",
     "check:amendment-files": "npx --yes tsx scripts/check-amendment-files.mts",
+    "check:requirement-sheet": "npx --yes tsx scripts/check-requirement-sheet.mts",
     "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",
     "check:assort-style": "npx --yes tsx scripts/check-assort-style.mts",
     "check:size-order": "node --experimental-strip-types scripts/check-size-order.mts",
