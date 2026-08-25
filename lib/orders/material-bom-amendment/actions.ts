@@ -147,7 +147,25 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
 
 function normalizeProcesses(data: MaterialBomAmendmentInput) {
   return data.processes
-    .filter((p) => p.item_id || p.process_id || p.vendor_id || p.qty_out != null)
+    .filter(
+      (p) =>
+        p.item_id ||
+        p.process_id ||
+        p.vendor_id ||
+        p.qty_out != null ||
+        /* LEGACY'S FIVE COUNT AS CONTENT (0465). Every clause above names part of
+           the lifecycle, so a row an operator filled in from the legacy side —
+           a Stage and a Loss %, no vendor and no quantity yet — was dropped here
+           and the typed work vanished on save. The same omission was found in
+           the slice store's own emptiness test for the same reason: a filter
+           written when one family of fields existed does not know about the
+           next. */
+        !!(p.stage ?? "").trim() ||
+        !!(p.for_scope ?? "").trim() ||
+        !!(p.description ?? "").trim() ||
+        p.loss_pct != null ||
+        !!(p.notes ?? "").trim(),
+    )
     .map((p, i) => ({
       item_id: p.item_id ?? null,
       process_id: p.process_id ?? null,
@@ -155,6 +173,14 @@ function normalizeProcesses(data: MaterialBomAmendmentInput) {
       qty_out: p.qty_out ?? null,
       qty_in: p.qty_in ?? null,
       status: p.status ?? "planned",
+      /* NAMED HERE, for the reason the `row_uid` comment below states: this
+         literal IS the whole write, so a column missing from it is lost at the
+         server boundary with no type error to catch it (0465). */
+      stage: p.stage ?? null,
+      for_scope: p.for_scope ?? null,
+      description: p.description ?? null,
+      loss_pct: p.loss_pct ?? null,
+      notes: p.notes ?? null,
       /* 0446. Named in this literal for the reason `component_id` above records:
          this is the whole write, so a column left out of it dies at the server
          boundary with no type error — and this one carries the link to a challan
@@ -1165,6 +1191,16 @@ export async function copyMaterialBomFrom(
       qty_out: null,
       qty_in: null,
       status: "planned" as const,
+      /* LEGACY'S FIVE COME ACROSS (0465), unlike the quantities above, and the
+         difference is what a copy IS. Stage, For, Descriptions, Loss % and Notes
+         describe the processing PLAN — how this trim gets dyed — which is
+         precisely the thing being copied. Quantities and status describe the
+         source order's actual movements, which are not. */
+      stage: (p.stage as string) ?? null,
+      for_scope: (p.for_scope as string) ?? null,
+      description: (p.description as string) ?? null,
+      loss_pct: (p.loss_pct as number) ?? null,
+      notes: (p.notes as string) ?? null,
       /* A FRESH ANCHOR, NEVER THE SOURCE'S (0446). Carrying it across would
          point this new order's row at a Delivery Challan raised for a DIFFERENT
          order — and the partial unique index would then refuse the copy's own

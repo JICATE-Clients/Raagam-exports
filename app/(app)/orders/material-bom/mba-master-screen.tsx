@@ -60,7 +60,6 @@ import {
   type Axis,
 } from "@/lib/orders/bom-explosion/exploder";
 import { BomCopySheet, BomCopyConfirm } from "@/components/orders/bom-copy-sheet";
-import { DcGenerateSheet, type DcCandidate } from "@/components/orders/dc-generate-sheet";
 import {
   BomSliceGrid,
   type BomSliceCell,
@@ -78,12 +77,10 @@ import {
   DEFAULT_MATERIAL_TYPE,
   DEFAULT_SUPPLY_TYPE,
   MATERIAL_TYPE_OPTIONS,
-  PROCESS_STATUS_OPTIONS,
   REQUIREMENT_BASIS_LABELS,
   SUPPLY_TYPE_OPTIONS,
   type BomCopySource,
   type MaterialBomAmendment,
-  type MbaDcLine,
   type MbaItemSlice,
 } from "@/lib/orders/material-bom-amendment/types";
 import {
@@ -121,7 +118,6 @@ import {
   overrideFor,
   sliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
-import { processVerdict } from "@/lib/orders/material-bom/process-return";
 import {
   isUsableConversion,
   toPurchaseQty,
@@ -292,6 +288,15 @@ type ProcRow = {
   qty_out: string;
   qty_in: string;
   status: string;
+  /* LEGACY'S FIVE (0465), beside the lifecycle rather than instead of it.
+     `loss` is a STRING like every other numeric box on this screen: a number in
+     form state cannot represent "the operator has just cleared the box", so it
+     fights the caret. The parse happens once, at the payload boundary. */
+  stage: string;
+  forScope: string;
+  description: string;
+  loss: string;
+  notes: string;
 };
 
 type HeaderForm = {
@@ -352,6 +357,11 @@ const blankProc = (key: string): ProcRow => ({
   vendor_id: null,
   qty_out: "",
   qty_in: "",
+  stage: "",
+  forScope: "",
+  description: "",
+  loss: "",
+  notes: "",
   status: "planned",
 });
 
@@ -675,8 +685,6 @@ export function MbaMasterScreen({
   /* The challans already raised from this BOM, keyed by the process row's own
      anchor (0446). Reloaded with the record, so it is the DATABASE's view of
      what has gone out — never the form's. */
-  const [dcLines, setDcLines] = useState<MbaDcLine[]>([]);
-  const [dcOpen, setDcOpen] = useState(false);
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
@@ -853,6 +861,33 @@ export function MbaMasterScreen({
    */
   const materialsFor = (categoryId: string | null, currentValue: string | null) =>
     materialsForCategory(data.items, { categoryId, currentValue });
+
+  /**
+   * THE MATERIALS THIS BOM ACTUALLY CARRIES — the Processes tab's own list.
+   *
+   * A process row names a material that is being SENT OUT to be dyed or washed,
+   * so it can only ever be one of the materials this BOM buys. Legacy makes that
+   * structural: its Processes tab LISTS the item and nests the process rows under
+   * it, with nothing to pick (screenshot 2484). Ours offered
+   * `materialsFor(null, …)` — the whole accessory master, and the comment on that
+   * cell said so — so an operator could raise a dyeing row against a button this
+   * order has never heard of, and nothing downstream would object: the row saves,
+   * a Delivery Challan can be generated from it, and the material it names has no
+   * requirement, no quantity and no vendor on this document.
+   *
+   * This is the cascading-picker rule, and the narrowing belongs at the CALLER
+   * because this layer is the only one that knows which lines the BOM has (client
+   * 2026-08-24: "now planning screen only need to listed select").
+   *
+   * THE HELD VALUE ALWAYS SURVIVES, the rule under "Disabled rows": a process row
+   * saved before its material was removed from the Items grid would otherwise
+   * show an empty field and blank the FK on the next save — silent data loss
+   * dressed up as tidiness. It stays pickable-back rather than vanishing.
+   */
+  const procMaterialOptions = (held: string | null) => {
+    const onBom = new Set(items.map((x) => x.item_id).filter((v): v is string => !!v));
+    return materialsFor(null, held).filter((o) => onBom.has(o.id) || o.id === held);
+  };
 
   /**
    * Changing the Category drops a Material the new one no longer offers —
@@ -1620,7 +1655,6 @@ export function MbaMasterScreen({
     setItems([blankItem(newKey())]);
     setProcs([blankProc(newKey())]);
     // A new document has sent nothing anywhere.
-    setDcLines([]);
     setPendingCopy(null);
     setDirty(false);
     setMode("edit");
@@ -1688,7 +1722,6 @@ export function MbaMasterScreen({
         slices: c.slices ?? [],
       })),
     );
-    setDcLines(r.dc_lines ?? []);
     setProcs(
       r.processes.map((p) => ({
         key: newKey(),
@@ -1699,6 +1732,14 @@ export function MbaMasterScreen({
         process_id: p.process_id,
         vendor_id: p.vendor_id,
         qty_out: p.qty_out != null ? String(p.qty_out) : "",
+        stage: p.stage ?? "",
+        forScope: p.for_scope ?? "",
+        description: p.description ?? "",
+        // `String(0)` is "0" and stays visible, which is why this tests for null
+        // rather than falsiness — a process that genuinely loses nothing must
+        // read as 0, not as unanswered.
+        loss: p.loss_pct != null ? String(p.loss_pct) : "",
+        notes: p.notes ?? "",
         qty_in: p.qty_in != null ? String(p.qty_in) : "",
         status: p.status ?? "planned",
       })),
@@ -1797,6 +1838,11 @@ export function MbaMasterScreen({
           process_id: p.process_id ?? null,
           vendor_id: p.vendor_id ?? null,
           qty_out: "",
+          stage: "",
+          forScope: "",
+          description: "",
+          loss: "",
+          notes: "",
           qty_in: "",
           status: "planned",
         })),
@@ -1869,6 +1915,11 @@ export function MbaMasterScreen({
         process_id: p.process_id,
         vendor_id: p.vendor_id,
         qty_out: numOrNull(p.qty_out),
+        stage: p.stage.trim() || null,
+        for_scope: p.forScope.trim() || null,
+        description: p.description.trim() || null,
+        loss_pct: numOrNull(p.loss),
+        notes: p.notes.trim() || null,
         qty_in: numOrNull(p.qty_in),
         status: p.status as "planned" | "sent" | "part_received" | "received",
       })),
@@ -3145,20 +3196,139 @@ export function MbaMasterScreen({
     requiredByItem.set(it.item_id, (requiredByItem.get(it.item_id) ?? 0) + t.excessCalc);
   }
 
+  /**
+   * THE PROCESSES TAB, GROUPED BY MATERIAL — legacy's shape (screenshot 2484).
+   *
+   * Legacy lists the ITEM as a parent row and hangs the process rows under it.
+   * That is not decoration: it is what makes "a process is raised against one of
+   * this BOM's materials" structural rather than a rule someone has to check. Our
+   * flat grid asked for the material with a picker, and until today that picker
+   * offered the whole accessory master.
+   *
+   * THE LAST GROUP IS FOR ORPHANS, and it is the half that is easy to leave out.
+   * A process row whose material has since been deleted from the Items grid
+   * belongs to no group — and `writeChildren` deletes and reinserts every child,
+   * so a row the form stops SHOWING is still a row the form still SAVES. Leaving
+   * it ungrouped would make it invisible and un-editable while quietly persisting
+   * for ever. It gets a named bucket instead, so the operator can see it and fix
+   * or remove it.
+   */
+  const procGroups = (() => {
+    const seen = new Set<string>();
+    const groups = items
+      .filter((x) => !!x.item_id && !seen.has(x.item_id) && seen.add(x.item_id) !== null)
+      .map((x) => ({
+        id: x.item_id as string,
+        label: itemName(x.item_id),
+        rows: procs.filter((pr) => pr.item_id === x.item_id),
+      }));
+    const onBom = new Set(groups.map((g) => g.id));
+    const orphans = procs.filter((pr) => !pr.item_id || !onBom.has(pr.item_id));
+    return orphans.length
+      ? [...groups, { id: null as string | null, label: "Not on this BOM", rows: orphans }]
+      : groups;
+  })();
+
+  /**
+   * LEGACY'S FIVE ON ONE LINE (client 2026-08-24: "make the 5 field in single
+   * row in process").
+   *
+   * THE ROW MUST SUM TO THE TRACK, which is `FieldGrid`'s house 12 — under-fill
+   * it and the last field drops to a line of its own, which is the de-clutter
+   * rule's "defect that ships". `FIELD_SPAN` maps xs=2, sm=3, so:
+   *
+   *     Stage 2 + Process 3 + Descriptions 3 + Loss % 2 + Notes 2  = 12
+   *
+   * The width goes to the two that hold phrases — a process name ("TRIMS
+   * DYEING") and a description — while Stage, Loss % and Notes take the narrow
+   * slot. Notes is the compromise: it is free text and would happily take more,
+   * but a sixth column's worth of room has to come from somewhere and the two
+   * above it are the ones an operator reads to identify the row.
+   *
+   * THE ORPHAN BUCKET CARRIES SIX, so it cannot use these numbers: it also shows
+   * Material, the only way to put a stranded row back on a material that still
+   * exists. Six fields at xs is 12 exactly, so that case is uniform instead —
+   * one rule per shape rather than one shape squeezed to fit the other's.
+   */
+  const PROC_ROW_SPAN: Record<string, FieldSize> = {
+    Stage: "xs",
+    Process: "sm",
+    Descriptions: "sm",
+    "Loss %": "xs",
+    Notes: "xs",
+  };
+  const procFieldSize = (header: string, withMaterial: boolean): FieldSize =>
+    withMaterial ? "xs" : (PROC_ROW_SPAN[header] ?? "xs");
+
   const procColumns: ChildGridColumn<ProcRow>[] = [
+    /* THE SIX LIFECYCLE CELLS CAME OUT (client 2026-08-24: "just maintain the
+       legacy only remove the lifecycle fields"), leaving legacy's five and
+       nothing else on the row.
+
+       THIS REVERSES THE SAME DAY'S "keep the lifecycle and add legacy's five
+       fields nested". Both instructions are recorded rather than one being
+       tidied away, because the argument for keeping them is real and will be
+       made again: Vendor / Qty Out / Challan / Qty In / Balance / Status are
+       0459's grey-to-processed chain, they are what `chain.ts` walks, and they
+       came from doc/file.md §6. Restoring them needs a new client decision.
+
+       WHAT THIS COSTS, STATED SO IT IS NOT REDISCOVERED AS A BUG: `dcEligible`
+       requires `vendor_id` and `qty_out > 0`, and both were typed HERE. With no
+       cell to type them in, no row can become eligible and **Generate Delivery
+       Challan can never fire from this screen again**. The bar is left in place
+       and now reads "Nothing ready to send out" permanently. That is deliberate
+       for the moment — removing the bar as well is a second deletion, and one
+       the client has not asked for.
+
+       THE COLUMNS WENT, THE FIELDS STAYED. `vendor_id`, `qty_out`, `qty_in` and
+       `status` are still in `ProcRow`, `blankProc`, both load paths, the copy
+       and `mbaProcessInput`, and no DB column was dropped. `writeChildren`
+       DELETES AND REINSERTS every process row, so a value the form stops
+       CARRYING is one the next ordinary save DESTROYS — and these carry the link
+       to Rule 55 documents that have already left the building. Restoring the
+       cells is this block again; nothing downstream has to change. */
     {
       header: "Material",
       className: "min-w-[160px]",
       cell: (r) => (
         <RecordPicker
           label="Material"
-          // Accessories only, same as the Items grid. No Category cell on this
-          // row to cascade from, so it stays the full accessory list with each
-          // option prefixed by its class.
-          items={materialsFor(null, r.item_id)}
+          /* THIS BOM's MATERIALS ONLY — see `procMaterialOptions`. It used to be
+             the whole accessory master, which let a process row name a material
+             the order does not buy. */
+          items={procMaterialOptions(r.item_id)}
           value={r.item_id}
           onChange={(id) => updProc(r.key, { item_id: id })}
+          /* EMPTY-AND-EXPLAIN, never a bare "— Select —". An empty list here has
+             exactly one cause and it is fixable, so it says which tab to go to;
+             reporting it as "no materials" would read as a broken master. */
+          placeholder={
+            items.some((x) => !!x.item_id)
+              ? "— Select Material —"
+              : "Add a material on the Material BOM tab first"
+          }
           compact
+        />
+      ),
+    },
+    {
+      /* STAGE COMES BEFORE PROCESS, which is legacy's order and reads correctly:
+         the stage is WHAT the material becomes ("DYED") and the process is HOW
+         ("TRIMS DYEING"). */
+      header: "Stage",
+      className: "min-w-[130px]",
+      /* FREE TEXT, THOUGH LEGACY RENDERS A DROPDOWN. The only value ever
+         observed is "DYED" (screenshot 2484), and one sighting is not a
+         vocabulary — this repo has already paid for inventing one, when a seeded
+         word list "corrected" a Packing Accessories name to COTTON and the
+         client had the feature removed two days later (AGENTS.md, Near misses).
+         It becomes a picker the moment the client supplies the list; the column
+         is text either way, so nothing has to be re-stored. */
+      cell: (r) => (
+        <Input
+          value={r.stage}
+          onChange={(e) => updProc(r.key, { stage: e.target.value })}
+          className="h-8"
         />
       ),
     },
@@ -3175,192 +3345,73 @@ export function MbaMasterScreen({
         />
       ),
     },
+    /* THE "For" CELL WAS HERE AND CAME OUT (client 2026-08-24: "legacy only have
+       5 fields ... S No Stage / Process / Descriptions / Loss % / Notes").
+
+       It IS visible in screenshot 2484, between Process and Descriptions, with
+       "Process wise" selected — which is why it was built. The client has since
+       said the tab carries five fields and not listed it, so it is not one the
+       operators use. The later instruction wins.
+
+       THE COLUMN WENT, THE FIELD STAYED. `for_scope` is still in `ProcRow`,
+       `blankProc`, both load paths, the copy and `mbaProcessInput`, and 0465's
+       column is untouched. That is not tidiness deferred: `writeChildren`
+       DELETES AND REINSERTS every process row, so a value the form stops
+       CARRYING is a value the next ordinary save DESTROYS. The same removal was
+       done this way for the Combination box (2026-08-24), the Component cell
+       (2026-08-20) and Purchase Pack (2026-08-21), and each says so.
+
+       Restoring it is this block again — nothing downstream has to change. */
     {
-      header: "Vendor",
+      header: "Descriptions",
       className: "min-w-[150px]",
-      // The processor. Same nominated-vendor rule as the items grid — a customer
-      // who nominates their trim suppliers nominates their dyers too.
+      /* Legacy's cell reads "Click", which in that UI usually opens a
+         sub-dialog. Until that dialog has been seen this holds the text
+         directly, which is the honest floor: whatever it turns out to summarise,
+         nothing stored here has to be undone. */
       cell: (r) => (
-        <NominatedVendorPicker
-          {...vendorRule}
-          supplyType="Nominated"
-          value={r.vendor_id}
-          onChange={(id) => updProc(r.key, { vendor_id: id })}
-          compact
+        <Input
+          value={r.description}
+          onChange={(e) => updProc(r.key, { description: e.target.value })}
+          className="h-8"
         />
       ),
     },
     {
-      header: "Qty Out",
+      header: "Loss %",
       align: "right",
       className: "min-w-[6rem]",
-      /*
-       * READ-ONLY ONCE A CHALLAN CARRIES IT (0446). The challan is the legal
-       * document that went out with the lorry; the grid is a view of it. A
-       * typeable box here would let the BOM say 600 while the driver's copy says
-       * 1,000, and the server overwrites it from the challan on save anyway — so
-       * leaving it editable would show the operator a number that silently
-       * reverts.
-       *
-       * `readOnly`, not `disabled`: a disabled input leaves the keyboard contract
-       * (AGENTS.md — `<Input readOnly>` sets tabIndex={-1} itself, which takes it
-       * off Tab and the arrows deliberately) while still being readable and
-       * selectable.
-       */
-      cell: (r) => {
-        const dc = dcByRow.get(r.row_uid);
-        return (
-          <Input
-            type="number"
-            min="0"
-            step="0.001"
-            value={dc ? String(dc.sent_qty ?? "") : r.qty_out}
-            readOnly={!!dc}
-            title={dc ? `Sent under challan ${dc.challan?.code ?? ""}` : undefined}
-            onChange={(e) => updProc(r.key, { qty_out: e.target.value })}
-            className="h-8 text-right"
-          />
-        );
-      },
-    },
-    {
-      header: "Challan",
-      className: "min-w-[7rem]",
-      /* WHICH DOCUMENT SENT THIS, and a way to open it. Without it the only sign
-         a row has gone out is that its Qty Out stopped accepting typing, which
-         reads as a broken field rather than a completed dispatch. */
-      cell: (r) => {
-        const dc = dcByRow.get(r.row_uid);
-        if (!dc) {
-          return <span className="text-[11px] text-muted-foreground">Not sent</span>;
-        }
-        return (
-          <a
-            href={`/purchase/dc/${dc.delivery_challan_id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[12.5px] font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {dc.challan?.code ?? "View"}
-          </a>
-        );
-      },
-    },
-    {
-      header: "Qty In",
-      align: "right",
-      className: "min-w-[6rem]",
-      /*
-       * THE CHALLAN IS AUTHORITATIVE ONCE THERE IS ONE (0446). `recordDcReturn`
-       * writes `dc_line_items.returned_qty`, caps it at what was sent and
-       * recomputes the challan's status; this column then mirrors it.
-       *
-       * TWO FREELY-TYPED NUMBERS WOULD DRIFT, and asymmetrically: this box is
-       * backed by no document, while `returned_qty` is what a GST officer reads.
-       * A grid claiming 960 buttons are back while the challan says none is the
-       * failure worth designing out.
-       *
-       * Still typeable where there is NO challan — planning, and rows that
-       * predate this feature.
-       */
-      cell: (r) => {
-        const dc = dcByRow.get(r.row_uid);
-        return (
-          <Input
-            type="number"
-            min="0"
-            step="0.001"
-            value={dc ? String(dc.returned_qty ?? 0) : r.qty_in}
-            readOnly={!!dc}
-            title={
-              dc
-                ? `Received against challan ${dc.challan?.code ?? ""} — record returns on the challan`
-                : undefined
-            }
-            onChange={(e) => updProc(r.key, { qty_in: e.target.value })}
-            className="h-8 text-right"
-          />
-        );
-      },
-    },
-    {
-      header: "Balance",
-      align: "right",
-      className: "min-w-[8rem]",
-      /**
-       * DERIVED, never stored: two columns and their difference kept in three
-       * places is two chances for them to disagree.
-       *
-       * THE VERDICT ABOVE IT ANSWERS A DIFFERENT QUESTION, and the difference is
-       * the whole point (`lib/orders/material-bom/process-return.ts`). The
-       * balance says how much is still AT THE VENDOR. The line above says
-       * whether what came BACK still covers the order — measured against the
-       * requirement, never against what was sent.
-       *
-       * Send 1,000 to cover 940 and get 960 back and you are whole; send 1,000
-       * to cover 990 and get 960 back and you are short by 30. Identical
-       * balances, opposite verdicts. A `qty_in < qty_out` test calls both of
-       * them short, which raises an alarm on every ordinary dye job — dye loss
-       * is normal and expected — and an alarm that fires on healthy rows is one
-       * the operator learns to ignore.
-       *
-       * ABOVE THE CONTROL, per this file's own layout rule: the runs carry
-       * `items-end`, so anything added BELOW would land on the shared baseline
-       * and lift the cell out of line with its neighbours.
-       *
-       * IT NEVER BLOCKS. Nothing here withholds the material that did arrive —
-       * the shortfall is stated and left on screen, because the wastage buffer
-       * was bought to absorb exactly this.
-       */
-      cell: (r) => {
-        const out = numOrNull(r.qty_out);
-        const verdict = r.item_id
-          ? processVerdict(
-              { qty_out: out, qty_in: numOrNull(r.qty_in), sent_on: null },
-              requiredByItem.get(r.item_id) ?? null,
-            )
-          : null;
-        const note =
-          verdict == null || (!isRefusal(verdict) && verdict.state === "planned")
-            ? null
-            : isRefusal(verdict)
-              ? { text: verdict.refused, tone: "text-muted-foreground" }
-              : verdict.state === "short"
-                ? { text: `Short ${fmtNumber(verdict.shortfall)}`, tone: "text-danger" }
-                : { text: "Covered", tone: "text-muted-foreground" };
-        return (
-          <div className="space-y-0.5">
-            {note && (
-              <Truncated className={`block text-[10.5px] leading-tight ${note.tone}`}>
-                {note.text}
-              </Truncated>
-            )}
-            {out == null ? (
-              <span className="text-xs text-muted-foreground">—</span>
-            ) : (
-              <span className="tabular-nums text-sm">{fmtNumber(out - (numOrNull(r.qty_in) ?? 0))}</span>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      header: "Status",
-      className: "min-w-[120px]",
+      /* STORED AND SHOWN, AND IT COMPUTES NOTHING (0465). Said here as well as
+         in the column comment because a percentage beside a quantity reads as
+         live: a merchandiser will assume the Requirement tab already accounts
+         for it. Wiring it into `requirementFor` changes every purchase on a BOM
+         carrying a process, and the loss COMPOUNDS along a chain
+         (`prev_row_uid`), so two stages at 5% is not 10%. That needs its own
+         decision and its own vectors. */
       cell: (r) => (
-        <Select
-          value={r.status}
-          onChange={(e) => updProc(r.key, { status: e.target.value })}
-          className="h-8"
-        >
-          {PROCESS_STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
+        <Input
+          type="number"
+          min="0"
+          max="100"
+          step="0.01"
+          value={r.loss}
+          onChange={(e) => updProc(r.key, { loss: e.target.value })}
+          className="h-8 text-right"
+        />
       ),
     },
+    {
+      header: "Notes",
+      className: "min-w-[160px]",
+      cell: (r) => (
+        <Input
+          value={r.notes}
+          onChange={(e) => updProc(r.key, { notes: e.target.value })}
+          className="h-8"
+        />
+      ),
+    },
+
   ];
 
   const reqColumns: Column<ReqRow>[] = [
@@ -3409,82 +3460,33 @@ export function MbaMasterScreen({
   ];
 
   /*
-   * WHICH ROWS ALREADY HAVE A CHALLAN — DECLARED BEFORE ITS FIRST READER.
+   * THE DELIVERY CHALLAN ENTRY POINT CAME OUT (client 2026-08-24: "remove the
+   * bar too"), and it is a deletion with a reason rather than a cleanup.
    *
-   * This was 30 lines FURTHER DOWN, after the button's JSX, and `dcEligible`
-   * below reads it. `Array.prototype.filter` runs its predicate immediately, so
-   * that was a temporal dead zone: `ReferenceError: Cannot access 'dcByRow'
-   * before initialization`, thrown during render.
+   * It followed directly from removing the lifecycle cells the same day. The
+   * challan is raised from `dcEligible`, which required a VENDOR and a positive
+   * QTY OUT — both typed in cells that no longer exist — so the bar could never
+   * become enabled again and read "Nothing ready to send out" for ever. A
+   * control that can never activate is worse than an absent one: it reads as
+   * broken software rather than as a decision.
    *
-   * IT SURVIVED BECAUSE THE PREDICATE SHORT-CIRCUITS. `dcByRow` is the fifth
-   * test, so the crash needs a row carrying a material AND a process AND a
-   * vendor AND a positive Qty Out — which is exactly a row ready to be
-   * dispatched, the one case the Delivery Challan feature exists for. Every
-   * other row returns false before reaching it, and the screen looks fine.
+   * ## WHAT IS GONE AND WHAT IS EMPHATICALLY NOT
    *
-   * Latent rather than reported only because the BOM tables hold no rows yet.
-   * Found by the process-chain lane while reading this file, 2026-08-23; it has
-   * been here since 7c8b6b4.
+   * Gone: the bar, `dcEligible`, `dcCandidates`, `dcByRow`, and the
+   * `DcGenerateSheet` it opened — all UI, all on THIS screen.
+   *
+   * Untouched: `material_bom_amendment_processes` and every column on it,
+   * `mbaProcessInput`, the `dc_lines` the service still loads, `row_uid` (the
+   * anchor a raised challan is matched by, 0446), `lib/orders/process-chain`,
+   * `lib/orders/material-bom/process-return`, and the delivery-challan module
+   * itself. Challans already issued still resolve, and `check:process-chain`
+   * still covers the logic.
+   *
+   * So this removes a WAY IN, not a capability. Restoring it needs the lifecycle
+   * cells back (see the note in `procColumns`) and this block, and nothing in
+   * between has to be rebuilt — which is the whole reason the fields kept their
+   * round trip when the columns went.
    */
-  const dcByRow = new Map(
-    dcLines
-      .filter((l) => !!l.mba_process_row_uid)
-      .map((l) => [l.mba_process_row_uid as string, l]),
-  );
-
-  /*
-   * SEND MATERIAL OUT — one challan per consignment (0446).
-   *
-   * A SECTION-HEADER CONTROL, NOT A ROW ACTION. Rule 55's challan accompanies
-   * the GOODS, so three rows going to one dyer on one lorry are one document;
-   * a per-row button structurally cannot produce a multi-line challan.
-   *
-   * DISABLED WHILE THE FORM IS DIRTY, and that is the important one: this acts on
-   * rows as the DATABASE holds them, and a challan raised against an unsaved
-   * quantity would describe a dispatch nobody agreed to. It says why rather than
-   * being mysteriously grey.
-   */
-  const dcEligible = procs.filter(
-    (r) => r.item_id && r.process_id && r.vendor_id && (numOrNull(r.qty_out) ?? 0) > 0 && !dcByRow.has(r.row_uid),
-  );
-  const dcBlocked = !editId
-    ? "Save this BOM before sending material out"
-    : dirty || isPending
-      ? "Save your changes first — a challan is raised against the saved quantities"
-      : null;
-
-  const dcBar =
-    procs.length > 0 ? (
-      <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-muted px-3 py-2">
-        <span className="text-[11.5px] text-muted-foreground">
-          {dcEligible.length > 0
-            ? `${dcEligible.length} line${dcEligible.length === 1 ? "" : "s"} ready to send out`
-            : "Nothing ready to send out"}
-        </span>
-        {dcBlocked && (
-          <span className="text-[11px] text-warning">{dcBlocked}</span>
-        )}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="ml-auto"
-          disabled={!!dcBlocked || dcEligible.length === 0}
-          onClick={() => setDcOpen(true)}
-        >
-          Generate Delivery Challan
-        </Button>
-      </div>
-    ) : null;
-
-  const dcCandidates: DcCandidate[] = dcEligible.map((r) => ({
-    rowUid: r.row_uid,
-    vendorId: r.vendor_id as string,
-    vendorName: data.vendors.find((v) => v.id === r.vendor_id)?.name ?? "Processor",
-    materialName: itemName(r.item_id),
-    processName: data.processes.find((p) => p.id === r.process_id)?.name ?? "Job work",
-    qtyOut: numOrNull(r.qty_out) ?? 0,
-  }));
 
   const copyBar = pendingCopy ? (
     <BomCopyConfirm
@@ -4088,53 +4090,105 @@ export function MbaMasterScreen({
       done: procs.some((r) => r.item_id || r.process_id),
       content: (
         <SectionBody title="Processes">
-          {dcBar}
-          <ChildGrid<ProcRow>
-            columns={procColumns}
-            rows={procs}
-            forceCards
-            flatRows
-            /* Same fold as the Items grid above — see it for the reasoning. */
-            foldRows
-            canFold={(row) => !!row.item_id}
-            renderFoldedRow={(row, i) => {
-              const material = procColumns.find((c) => c.header === "Material")!;
-              const summary = [
-                data.processes.find((p) => p.id === row.process_id)?.name,
-                row.qty_out.trim() ? `out ${row.qty_out.trim()}` : null,
-                row.qty_in.trim() ? `in ${row.qty_in.trim()}` : null,
-              ]
-                .filter(Boolean)
-                .join("  ·  ");
-              return (
-                <FieldGrid>
-                  <Field label={material.header} required={material.required} size="md">
-                    {material.cell(row, i)}
-                  </Field>
-                  <Field label="" size="xl">
-                    <div className="flex min-h-8 items-center">
-                      <Truncated className="text-sm text-muted-foreground">
-                        {summary || "No process named yet"}
-                      </Truncated>
-                    </div>
-                  </Field>
-                </FieldGrid>
-              );
-            }}
-            renderMobileRow={(row, i) => (
-              <FieldGrid>
-                {procColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
-                    {c.cell(row, i)}
-                  </Field>
-                ))}
-              </FieldGrid>
-            )}
-            seedRow
-            onAdd={() => mutProcs((xs) => [...xs, blankProc(newKey())])}
-            onRemove={(r) => mutProcs((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add process"
-          />
+          {/*
+            * ONE GRID PER MATERIAL, not one flat list (client 2026-08-24: "keep
+            * the lifecycle and add legacy's five fields nested").
+            *
+            * The material is the GROUP HEADING and so is not a field on the row —
+            * legacy has no material picker on its process line because the
+            * nesting already says which item the line belongs to. `procColumns`
+            * keeps its Material column regardless: it is what the orphan bucket
+            * needs in order to be fixable, and dropping it from the definition
+            * would take it off the payload too.
+            */}
+          {procGroups.length === 0 ? (
+            /* EMPTY-AND-EXPLAIN, naming the tab to fix it on. A process is
+               raised against one of this BOM's materials, so with none entered
+               there is nothing to nest under — and "no processes" would report
+               that as the wrong problem. */
+            <p className="text-xs text-muted-foreground">
+              Add a material on the Material BOM tab first — a process is sent out
+              against one of this BOM&apos;s materials.
+            </p>
+          ) : (
+            procGroups.map((g, gi) => (
+              <div key={g.id ?? "__orphans"} className="mt-3 rounded-lg border border-border first:mt-0">
+                {/* The parent row. Numbered like legacy's S No, and the count is
+                    the affordance a bare heading lacks — a material with no
+                    processes reads as deliberate rather than unfinished. */}
+                <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-1.5 text-[11px] text-muted-foreground">
+                  <span className="tabular-nums">{gi + 1}</span>
+                  <Truncated className="text-[13px] text-foreground">{g.label}</Truncated>
+                  <span className="ml-auto">
+                    {g.rows.length} {g.rows.length === 1 ? "process" : "processes"}
+                  </span>
+                </div>
+                <ChildGrid<ProcRow>
+                  columns={procColumns}
+                  rows={g.rows}
+                  forceCards
+                  flatRows
+                  foldRows
+                  canFold={(row) => !!row.process_id}
+                  renderFoldedRow={(row) => {
+                    /* The material is the heading, so the folded line spends its
+                       width on what distinguishes one process from another. */
+                    const summary = [
+                      row.stage.trim() || null,
+                      data.processes.find((pp) => pp.id === row.process_id)?.name,
+                      row.loss.trim() ? `loss ${row.loss.trim()}%` : null,
+                      /* Quantities are no longer on the row, so the folded line
+                         summarises what IS: the stage, the process and the loss. */
+                    ]
+                      .filter(Boolean)
+                      .join("  ·  ");
+                    return (
+                      <FieldGrid>
+                        <Field label="" size="xl">
+                          <div className="flex min-h-8 items-center">
+                            <Truncated className="text-sm text-muted-foreground">
+                              {summary || "No process named yet"}
+                            </Truncated>
+                          </div>
+                        </Field>
+                      </FieldGrid>
+                    );
+                  }}
+                  renderMobileRow={(row, i) => (
+                    <FieldGrid>
+                      {procColumns
+                        /* MATERIAL IS THE HEADING — except in the orphan bucket,
+                           where it is the only way to put the row back on a
+                           material that still exists. */
+                        .filter((c) => c.header !== "Material" || g.id === null)
+                        .map((c, ci) => (
+                          <Field
+                            key={ci}
+                            label={c.header}
+                            required={c.required}
+                            size={procFieldSize(c.header, g.id === null)}
+                          >
+                            {c.cell(row, i)}
+                          </Field>
+                        ))}
+                    </FieldGrid>
+                  )}
+                  /* NO `seedRow`. One blank row per material would put a card
+                     under every line the moment the tab opened — eleven
+                     materials, eleven empty forms. `normalizeProcesses` drops
+                     them, so nothing would be stored; it is the screen that
+                     would be unreadable. */
+                  onAdd={() =>
+                    g.id === null
+                      ? false
+                      : mutProcs((xs) => [...xs, { ...blankProc(newKey()), item_id: g.id }])
+                  }
+                  onRemove={(r) => mutProcs((xs) => xs.filter((x) => x.key !== r.key))}
+                  addLabel="+ Add process"
+                />
+              </div>
+            ))
+          )}
         </SectionBody>
       ),
     },
@@ -4384,22 +4438,6 @@ export function MbaMasterScreen({
         }}
       />
 
-      {editId && (
-        <DcGenerateSheet
-          open={dcOpen}
-          onClose={() => setDcOpen(false)}
-          amendmentId={editId}
-          candidates={dcCandidates}
-          locations={data.locations ?? []}
-          defaultLocationId={null}
-          /* Reload the record so the "already sent" gate reads the DATABASE
-             rather than an optimistic guess. */
-          onDone={() => {
-            setDcOpen(false);
-            router.refresh();
-          }}
-        />
-      )}
       {/*
         * THE COMBINATION POPUP (0463), rendered from the line it belongs to.
         *

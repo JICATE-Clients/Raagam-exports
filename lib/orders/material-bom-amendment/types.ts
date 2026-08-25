@@ -337,6 +337,19 @@ export interface MbaProcess {
   qty_out: number | null;
   qty_in: number | null;
   status: string;
+  /* LEGACY'S FIVE (0465). They sit beside the lifecycle above rather than
+     replacing it — the client's explicit call, since `chain.ts` walks the
+     lifecycle and a Delivery Challan is raised from it. */
+  /** What the material becomes at this step ("DYED"). */
+  stage: string | null;
+  /** Legacy's "For". A dropdown there, text here — one observed value is not a
+   *  vocabulary; see the column comment. */
+  for_scope: string | null;
+  description: string | null;
+  /** DISPLAYED, NOT COMPUTED. Nothing reads this into a quantity yet, and
+   *  wiring it would change every purchase on a BOM carrying a process. */
+  loss_pct: number | null;
+  notes: string | null;
 }
 
 /** One stored requirement row. Written by the server, never by the form. */
@@ -730,6 +743,18 @@ export const mbaProcessInput = z.object({
   status: z
     .enum(["planned", "sent", "part_received", "received"])
     .default("planned"),
+  /* LEGACY'S FIVE (0465). `capsName` / `capsTextNullable` rather than plain
+     `nullableText`: the transform belongs in the SCHEMA, because `lib/data-io`
+     parses with these same schemas and writes straight to Postgres, so an
+     action-level `.toUpperCase()` would miss any import path added later.
+     AGENTS.md states this under CAPITALS. */
+  stage: capsTextNullable(),
+  for_scope: capsTextNullable(),
+  description: capsTextNullable(),
+  /** Bounded 0-100 and NULLABLE. NULL is "not asked"; 0 is "this process loses
+   *  nothing" — different claims, and a default would assert the second. */
+  loss_pct: z.coerce.number().min(0).max(100).nullable().default(null),
+  notes: capsTextNullable(),
 });
 
 export const materialBomAmendmentInput = z.object({
