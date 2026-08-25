@@ -2528,6 +2528,44 @@ export function AmendmentScreen({
              into the delete confirmation, and naming a column the operator can
              no longer see asks them to confirm against nothing. */
           label={r.sales_order?.order_number ?? r.code}
+          /*
+           * THE REQUIREMENT SHEET, REACHED FROM THE ROW THAT ALREADY ANSWERS
+           * WHETHER IT EXISTS (2026-08-25).
+           *
+           * The Material BOM column beside it says `Pending` / `Recorded`, and
+           * whoever reads that is exactly the person who then wants the sheet.
+           * Without this they leave for Orders ▸ All Orders and re-find the same
+           * order there, because THIS list does not link to `/orders/<id>` at all
+           * — its eye is `RowActions`' record-view overlay, not navigation.
+           *
+           * ## A DISABLED ITEM SAYS WHY IN ITS OWN LABEL
+           *
+           * `DropdownItem` has no `title` and no hint slot, so a greyed row
+           * reading “Requirement sheet” teaches nothing — the operator clicks,
+           * nothing happens, and the feature reads as broken. The label carries
+           * the reason instead. Opening it anyway would land on a sheet that
+           * correctly refuses, which is a wasted trip the row can prevent.
+           *
+           * The route keys on the SALES ORDER, like `/gos` beside it: the floor
+           * asks for “the sheet for HO/RE/26-27/0009”, and the document resolves
+           * the current BOM itself.
+           */
+          menu={(() => {
+            const pending = (bomStatus[r.id]?.status ?? "pending") === "pending";
+            const soId = r.sales_order_id;
+            return [
+              {
+                label: !soId
+                  ? "Requirement sheet — no order number yet"
+                  : pending
+                    ? "Requirement sheet — no Material BOM yet"
+                    : "Requirement sheet",
+                icon: ClipboardList,
+                disabled: !soId || pending,
+                onClick: () => router.push(`/orders/${soId}/requirement`),
+              },
+            ];
+          })()}
           onEdit={() => openEdit(r)}
           canEdit={perms.canEdit}
           onDelete={() => del(r)}
