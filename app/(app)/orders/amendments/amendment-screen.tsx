@@ -2554,6 +2554,16 @@ export function AmendmentScreen({
             const pending = (bomStatus[r.id]?.status ?? "pending") === "pending";
             const soId = r.sales_order_id;
             return [
+              /* THE ORDER SHEET NEEDS NO GATE HERE. It prints an entered garment
+                 order, and every row on this list IS one — so unlike the
+                 requirement beneath it there is no state in which opening this
+                 lands on a refusal. */
+              {
+                label: soId ? "Order sheet" : "Order sheet — no order number yet",
+                icon: FileText,
+                disabled: !soId,
+                onClick: () => router.push(`/orders/${soId}/gos`),
+              },
               {
                 label: !soId
                   ? "Requirement sheet — no order number yet"

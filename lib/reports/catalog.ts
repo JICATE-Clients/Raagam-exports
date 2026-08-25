@@ -14,6 +14,7 @@ import {
   ArrowLeftRight,
   Boxes,
   ClipboardList,
+  FileText,
   PackageCheck,
   TrendingUp,
   type LucideIcon,
@@ -65,6 +66,13 @@ export const REPORTS: ReportDefinition[] = [
    * cost of the operator giving up. The chooser exists precisely because a
    * per-order document has no list to land on.
    */
+  {
+    slug: "order-sheet",
+    label: "Garment Order Sheet",
+    description: "Styles, structures and components for one order - print, PDF or Excel",
+    icon: FileText,
+    module: "orders",
+  },
   {
     slug: "accessories-requirement",
     label: "Accessories Requirement",
