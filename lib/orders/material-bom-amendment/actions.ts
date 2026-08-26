@@ -302,6 +302,79 @@ function sliceFlags(
   };
 }
 
+/**
+ * THE SLICES THIS LINE ACTUALLY HAS, for `liveOverrides` to adjudicate against.
+ *
+ * ## IT IS THE UNION OF THE PRIMARY AND EXPANDED SETS, AND ONE CALL IS A BUG
+ *
+ * `liveOverrides` is a DELETE on the way out, so whatever is left out of the set
+ * handed to it is not filtered, it is destroyed. This call site left out the
+ * SIZE CHILDREN of a ticked row: it asked `productionSlices(basis, order)` with
+ * no `sizeWise` predicate, so a ticked row's children were never in the live set,
+ * every size-level override matched nothing, and none of them was written.
+ * Measured before this fix: 1 size figure typed in, 0 kept. The operator ticks
+ * Size-wise, types XS/S/M, saves, and the figures are gone.
+ *
+ * PASSING THE TICK ALONE IS THE FIX THAT LOOKS RIGHT AND IS NOT. It does not
+ * widen the set, it MOVES it — `productionSlices` REPLACES a ticked primary with
+ * its children (`out.push(...kids)`, never both), so the parent's own figures are
+ * dropped instead. That trades one casualty for the other, and the parent's
+ * figures are the ones the client requires to survive: "THE ROW KEEPS ITS OWN
+ * FIGURES EVEN WHEN TICKED" (screenshot 2465). Both sets, therefore — which is
+ * exactly what the grid draws (`sliceGrid`, two calls, deliberately).
+ *
+ * Duplicates are free: `liveOverrides` keys the set through `sliceKey`, so an
+ * unticked row appearing in both collapses to one entry.
+ *
+ * ## NULL MEANS UNKNOWN, AND UNKNOWN KEEPS EVERYTHING
+ *
+ * Every refusal path returns null rather than an empty array, and the caller
+ * reads null as "do not filter". That is this file's existing argument at the
+ * call site — *"the live set is UNKNOWN, not empty ... keeping them is the
+ * recoverable direction"* — and it has to hold for the EXPANDED call too. A
+ * union that treated a refused expansion as an empty contribution would silently
+ * delete every size figure while reading exactly like this fix.
+ *
+ * ## THAT REFUSAL PATH HAS NO VECTOR, AND THIS IS WHY
+ *
+ * Stated rather than left to be assumed tested, because a guard nobody exercises
+ * reads exactly like a guard nobody needs. The two refusal branches below are
+ * implemented and commented; NOTHING ASSERTS THEM.
+ *
+ * The obstacle is structural, not laziness. A vector would have to call
+ * `liveSlicesFor`, and this file carries `"use server"` — every export from such
+ * a file must be an async server action, so a synchronous helper cannot be
+ * exported for a script to import. That was CHECKED rather than assumed: every
+ * `"use server"` file under lib/ exports async functions and nothing else, with
+ * zero counter-examples. Exporting a sync helper from one to satisfy a test
+ * would be the test dictating the architecture.
+ *
+ * Two ways to cover it later, both deliberately NOT taken during a release
+ * freeze because each MOVES CODE rather than adding an assertion:
+ *
+ *   - move `liveSlicesFor` into `slice-consumption.ts`, where its siblings and
+ *     their vectors already live — cleanest, and the one to prefer;
+ *   - or a new plain module under `lib/orders/material-bom/` that both this file
+ *     and a vector import.
+ *
+ * Until then the claim "a refused expanded set keeps every override" rests on
+ * reading, not on running. The vector to write first is the one that would have
+ * caught the bug: a refused expansion must keep 3 of 3, never 2 of 3.
+ */
+function liveSlicesFor(
+  basis: RequirementBasis | null,
+  order: OrderProductionInput | null,
+  slices: MbaItemInput["slices"],
+): SliceKey[] | null {
+  if (!order || !basis) return null;
+  const primary = productionSlices(basis, order);
+  if (isRefusal(primary)) return null;
+  const flags = sliceFlags(slices);
+  const expanded = productionSlices(basis, order, undefined, (sl) => flags.sizeWise(sl));
+  if (isRefusal(expanded)) return null;
+  return [...primary, ...expanded];
+}
+
 function requirementRows(
   items: ItemRowWithId[],
   order: OrderProductionInput,
@@ -819,7 +892,10 @@ async function writeChildren(
        * DIFFERENT tab is incomplete. Keeping them is the recoverable direction.
        */
       const basis = line.requirement_basis as RequirementBasis | null;
-      const live = order && basis ? productionSlices(basis, order) : null;
+      /* THE UNION OF THE PRIMARY AND EXPANDED ROWS — see `liveSlicesFor`. This
+         was a single tickless call, and every size-level override the operator
+         typed was dropped at save because of it. */
+      const live = liveSlicesFor(basis, order, line.slices);
       /* "NOTHING TO SAY" IS NO LONGER "BOTH FIGURES NULL" (0449). A row now also
          carries the Choose and Size-wise ticks and three descriptive fields, and
          `chosen` defaults TRUE — so an unticked row is emphatically not empty and
@@ -863,7 +939,10 @@ async function writeChildren(
           no_of_items: sl.no_of_items ?? null,
           per_pieces: sl.per_pieces ?? null,
         }));
-      const kept = live && !isRefusal(live) ? liveOverrides(typed, live) : typed;
+      /* `liveSlicesFor` has already resolved every refusal to null, and null is
+         "unknown" rather than "empty" — so this reads as keep-everything, which
+         is the recoverable direction the block comment above argues for. */
+      const kept = live ? liveOverrides(typed, live) : typed;
       /*
        * EVERY COLUMN THE ROW HAS, and this literal is the whole write.
        *

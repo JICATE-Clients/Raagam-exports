@@ -321,6 +321,11 @@ export function colourSplits(
   // Insertion-ordered, so the sheet's row order is the requirement's row order.
   // A Map keyed by the resolved colour is what merges two panels of one colour.
   const byColour = new Map<string, ColourSplit>();
+  /* Which (panel, colour) pairs have already been counted — see the guard in the
+     loop. A Set rather than a look at `component_ids`, because that array is the
+     screen's summary and reading arithmetic off a display field is how the two
+     come to mean different things. */
+  const seen = new Set<string>();
 
   for (const c of components) {
     const items = num(c.no_of_items);
@@ -340,6 +345,45 @@ export function colourSplits(
 
     const colour = c.item_color_id ?? lineColourId ?? null;
     const key = colour ?? "";
+
+    /*
+     * THE SAME PANEL LISTED TWICE FOR ONE COLOUR IS ONE PANEL COUNTED TWICE.
+     *
+     * Summing is this function's whole job — front body plus sleeves is one
+     * thread rate — and the premise underneath it is that each row is a
+     * DISTINCT panel. Hand it the same panel twice and the sum silently
+     * doubles: not a crash, not a dash, just a rate that reads entirely
+     * reasonably and buys twice what the order needs. That is the failure the
+     * module header opens with, one level down from where it warns about it.
+     *
+     * ## IT IS A REFUSAL BECAUSE NOTHING ELSE CATCHES IT
+     *
+     * `material_bom_amendment_item_components` carries a PK on `id` and three
+     * FKs and NO unique key over (item_line_id, component_id, item_color_id) —
+     * checked against the live catalogue on 2026-08-25 — so a duplicate is
+     * representable, insertable and invisible. And the caller cannot be trusted
+     * to have de-duplicated: the screen's surviving caller synthesises this list
+     * rather than reading the panel store (see `panelConsumption`'s header), and
+     * it synthesises one entry PER PRODUCTION SLICE, so a two-part line over two
+     * colourways hands four "panels" here of which two are TOP and two BOTTOM.
+     * Measured against the real functions: the rate came to 8 where the honest
+     * per-part figure is 4, and the line total to 8,000 against an honest 2,000.
+     *
+     * ## WHAT IT DELIBERATELY DOES NOT REFUSE
+     *
+     * The same panel in two DIFFERENT colours — a front body stitched in navy
+     * and topstitched in red — is two things to buy and is 0436's own case, so
+     * the identity is the PAIR. That also bounds the guard honestly: a caller
+     * that fans a panel out across slices AND sets a different Item Color on
+     * each row produces distinct pairs and passes. It catches the shape that
+     * actually occurs, not every shape that could.
+     */
+    const ident = `${c.component_id}${SEP}${key}`;
+    if (seen.has(ident)) {
+      return { refused: `${who}: listed twice for one colour — enter each panel once` };
+    }
+    seen.add(ident);
+
     const at = byColour.get(key);
     if (at) {
       at.no_of_items += items / pieces;
@@ -377,17 +421,106 @@ export function colourSplits(
  * already collapsed the override chain into `resolved` — so this is the only
  * place the collision can be settled.
  *
- * ## THIS IS A TRADE RULE, NOT AN ARITHMETIC ONE — SEE THE TODO
+ * ## SETTLED: THE OVERRIDE WINS (client 2026-08-25)
  *
- * The engine cannot derive it. An override typed against XXL means "this
- * GARMENT consumes more", and whether that scales every seam, replaces the
- * construction outright, or is a data-entry conflict to refuse is a question
- * about how thread is actually bought.
+ * Strict precedence, in the client's own order:
+ *
+ *     Tier 1  manual slice override
+ *     Tier 2  combination / panel rate
+ *     Tier 3  the line's standard bulk default
+ *
+ * **This REVERSES the "panels win" that stood here provisionally**, so a reader
+ * who finds that rule quoted elsewhere is holding something this supersedes.
+ *
+ * THIS IS A TRADE RULE AND THE ENGINE COULD NOT DERIVE IT. Three candidates were
+ * live and the doc that recorded them is worth keeping straight, because two of
+ * them were rejected rather than never considered:
+ *
+ *   - **replace the construction outright — CHOSEN.** The override supplies the
+ *     ratio and the panel rate stands down.
+ *   - *scale every seam* — rejected. An override would have multiplied the panel
+ *     rate rather than replacing it.
+ *   - *refuse as a data-entry conflict* — rejected, and it was this module's own
+ *     instinct: the house rule is to refuse rather than emit a plausible number.
+ *
+ * The client's reason is about the planner, not the arithmetic: overrides are
+ * how an exceptional floor circumstance gets entered — five extra high-contrast
+ * zippers on one size curve because the sewing risk is higher there, or test
+ * pieces for a quality gate — and an engine that overwrites an explicit manual
+ * figure leaves the planner fighting it during high-velocity data entry.
+ *
+ * ## THE RATIO ONLY. THE PANEL SPLIT SURVIVES INTACT
+ *
+ * "Replace the construction" is about the NUMBER, and the code makes that
+ * separation structural rather than a matter of care. Panels do two jobs, and
+ * this function is only in the second:
+ *
+ *   - `colourSplits` divides the line into one row per TRIM COLOUR. That runs in
+ *     the caller, before this is reached, and its result feeds the row's
+ *     `item_color_id`, `lineQuantityByColour`'s per-cone MOQ grouping, the PO
+ *     ceiling and the grey→DC→dyed path (0445-0448). Nothing here can reach any
+ *     of it.
+ *   - this returns `{ no_of_items, per_pieces }` and nothing else. It cannot
+ *     remove a row, merge two colours, or change what is bought — only how much.
+ *
+ * So an override on a two-colour line still produces two rows — and gets the
+ * SAME rate on each, which is the second half of the ruling.
+ *
+ * ## SAME RATE EVERY COLOUR, AND THE MULTIPLICATION WAS CHOSEN
+ *
+ * An override has no colour axis (`sliceKey` is combo/size/country/combination/
+ * style), so one cannot say "navy 3, red 1". The same overridden rate therefore
+ * reaches every trim colour and the line's total multiplies by the colour count.
+ * This was raised as an open consequence and PUT TO THE CLIENT WITH THE
+ * MULTIPLICATION VISIBLE (2026-08-25), against their worked example: a 2/pc line
+ * over WHITE 300 / NAVY 200 with 4/pc typed once gives 1,200 + 800 = 2,000, one
+ * figure moving both colours. They chose it.
+ *
+ * The reading that won is **"this line's RATE is wrong, fix it"**, not "this
+ * COLOUR needs more". Two alternatives lost and are named so the argument is not
+ * had again: a PER-COLOUR override was rejected as a schema and UI change rather
+ * than an arithmetic one (a new axis, the unique index, new grid cells), and
+ * REFUSING on multi-colour lines was rejected because it blocks a planner with a
+ * legitimate whole-line correction. Both are pinned negatively by vectors — the
+ * rate is not apportioned between colours and not scaled against the panel.
+ *
+ * ## NOTHING EXERCISES THIS RULE TODAY, AND THAT IS MEASURED (2026-08-25)
+ *
+ * The rule above is implemented and correct; it currently changes no number,
+ * because the collision it settles cannot presently occur. Do not read a green
+ * suite as evidence that a live BOM has been re-planned.
+ *
+ * **0463 retired the 0436 panel store**: the screen sends `components: []` on
+ * every line as an instruction to keep none (mba-master-screen.tsx, "THE 0436
+ * COMPONENT STORE IS RETIRED (0463) and this is what empties it"), the table
+ * holds 0 rows, and the per-panel editor that filled it was replaced by the
+ * Combination popup — which writes to the SLICE store, keyed on `combination`
+ * since 0463.
+ *
+ * Two consequences:
+ *
+ *  - **On the server this function is unreachable.** `requirementRows` builds
+ *    its splits from `line.components`, which is always empty, so `colourSplits`
+ *    returns `[]`, `rowSplits` is `[null]` and the panel branch never runs. The
+ *    tier-1-over-tier-2 rule therefore governs nothing on the path that STORES a
+ *    requirement until a panel store feeds it again.
+ *  - **On the screen the surviving caller was not passing panels.** It
+ *    synthesised the list from slice rows carrying a combination name, one entry
+ *    per (name x production slice), so `colourSplits` summed a part's rate once
+ *    per colourway. Measured end to end against these functions on a two-part,
+ *    two-colour line: the screen totalled 8,000, the server stored 1,000, and the
+ *    honest figure is 2,000. That path is being removed.
+ *
+ * The ruling is implemented here anyway, and deliberately: the rule belongs
+ * where the collision is settled, not in whichever caller happens to revive
+ * panels. Reviving one is then a caller change with the arithmetic already
+ * decided and pinned by vectors.
  *
  * A LINE WITH NO OVERRIDE ON THIS SLICE IS NOT THE AMBIGUOUS CASE. There
  * `resolved` is the line's own figures and the panels are the only ratio typed,
- * so the panel rate stands however the TODO is settled — which is why the guard
- * below is a comparison against the line, not a truthiness test.
+ * so the panel rate stands — which is why the guard below is a comparison
+ * against the line, not a truthiness test. A truthiness test would call every
+ * inheriting slice an override and hand tier 1 to a figure nobody typed.
  */
 export function panelConsumption(
   /** The line's figures with every slice override already composed in, per
@@ -404,16 +537,27 @@ export function panelConsumption(
     num(resolved.per_pieces) !== num(line.per_pieces);
 
   if (!overridden) {
-    // The unambiguous case: panels are the only ratio anyone typed.
+    // TIER 2. Panels are the only ratio anyone typed, so they supply it.
     return { no_of_items: split.no_of_items, per_pieces: split.per_pieces };
   }
 
-  // TODO(raagam): decide how a slice override composes with a panel rate.
-  // Provisional — panels win, which is 0436 read on its own and the reason a
-  // line with panels "takes its ratio from them instead". Replace this return
-  // with the rule the trade actually uses; the three candidates are written up
-  // in the doc comment above.
-  return { no_of_items: split.no_of_items, per_pieces: split.per_pieces };
+  /*
+   * TIER 1 — the manual override, and the panel rate stands down (client
+   * 2026-08-25). `split` is deliberately unread from here on.
+   *
+   * `resolved` RATHER THAN THE RAW OVERRIDE, and the difference is the whole
+   * reason this takes a composed value: `consumptionFor` has already resolved
+   * the chain PER FIELD, so an operator who typed only `no_of_items` against XXL
+   * gets their figure over the line's own `per_pieces` — "more zippers, same
+   * per-piece". Reading an override row directly here would hand back a null
+   * `per_pieces` and refuse the slice, which is the failure that composition
+   * exists to avoid.
+   *
+   * IT IS NOT DIVIDED BY, SCALED AGAINST OR BLENDED WITH `split`. "Scale every
+   * seam" was a live candidate and was rejected; anything that multiplies the
+   * two is that rejected rule arriving by the back door.
+   */
+  return { no_of_items: resolved.no_of_items, per_pieces: resolved.per_pieces };
 }
 
 

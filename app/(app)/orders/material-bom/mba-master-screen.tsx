@@ -99,16 +99,13 @@ import {
 } from "@/lib/orders/material-bom-amendment/material-options";
 import {
   baseRequirementFor,
-  colourSplits,
   isRefusal,
   lineQuantity,
   lineQuantityByColour,
-  panelConsumption,
   productionSlices,
   SLICE_SEP,
   requirementFor,
   type ColourQuantities,
-  type ColourSplit,
   type OrderProductionInput,
   type ProductionSlice,
   type RequirementBasis,
@@ -1303,20 +1300,171 @@ export function MbaMasterScreen({
     return [...plain, ...kept, ...fresh];
   };
 
-  const combinationSplitsOf = (r: ItemRow) =>
-    r.slices
-      .filter((sl) => !!(sl.combination ?? "").trim())
-      .map((sl) => ({
-        /* THE NAME IS THE IDENTITY. `colourSplits` uses `component_id` only to
-           group by and to name in a refusal — it never dereferences it — so the
-           same string reaching both halves is all that is required, and renaming
-           the field in the engine would touch its vectors for no gain. */
-        component_id: (sl.combination as string).trim(),
-        item_color_id: sl.item_color_id,
-        no_of_items: sl.no_of_items,
-        per_pieces: sl.per_pieces,
-        label: (sl.combination as string).trim(),
-      }));
+  /*
+   * `combinationSplitsOf` WAS HERE, AND IT WAS FEEDING A PANEL ENGINE WITH
+   * SOMETHING THAT IS NOT PANELS (removed 2026-08-25, measured).
+   *
+   * It mapped every `r.slices` row carrying a combination NAME into a
+   * `BomLineComponent` and handed the list to `colourSplits`, whose contract is
+   * the panels of ONE GARMENT — front body 25m, sleeves 12m, collar 8m — summed
+   * into a rate per garment. But since 0463 the grid crosses each name with
+   * every production slice, so those rows are (name x colourway) pairs: TOP
+   * appeared once per colourway and its rate was summed that many times.
+   *
+   * The line's rate was then multiplied by the slice quantities again in the
+   * totals loop, which is legitimate — so the error was a clean factor of "how
+   * many slices this line explodes into". Measured against the real functions,
+   * a 2/1 line with WHITE 300 / NAVY 200 and TOP 3/1 + BOTTOM 1/1:
+   *
+   *     panel path 4,000  |  honest 2,000  |  what the server stores 1,000
+   *
+   * TWO SEPARATE FAULTS, AND ONLY ONE OF THEM IS THIS FILE'S. The 0436
+   * component store is retired — `components: []` goes up on every save (see
+   * the payload) and both tables are empty — so the server never had a panel
+   * split to apply and the screen was the only place this ran. Removing it puts
+   * the screen back on the line's own ratio, which is the figure a purchase
+   * order is actually checked against: same store, same reading, same answer,
+   * the invariant this loop states twice above.
+   *
+   * WHAT IS STILL WRONG, AND IS NOT FIXED HERE: neither side crosses its slices
+   * by combination, so the figures typed in the Combination grid reach nothing.
+   * `sliceKey` carries `combination` (0463) while this loop iterates RAW
+   * `productionSlices`, which mention none — so `consumptionFor` matches no
+   * combination row and falls back to the line, exactly as `requirementRows` in
+   * actions.ts does. Crossing them HERE alone would make the screen print 2,000
+   * beside a stored 1,000, which is worse than both being 1,000: the screen
+   * would be showing a number nothing is checked against. It needs the screen
+   * and the server changed together and is written up for that lane.
+   */
+
+  /**
+   * WHAT A SLICE CONSUMES — THREE LEVELS, RESOLVED PER FIELD: the size box, then
+   * the row it sits under, then the line.
+   *
+   * `consumptionFor` returns the same shape it takes, so composing it twice IS
+   * the chain — there is no second resolution rule to keep in step with the
+   * first. A size child's key is (combo, size, country) and its parent row's is
+   * (combo, null, country), so without the middle step a figure typed on a row
+   * is invisible to its own sizes (screenshot 2465).
+   *
+   * ## IT IS A FUNCTION BECAUSE THE THIRD COPY OF IT WAS WRONG
+   *
+   * `requirementRows` in actions.ts carries this chain and its comment asserts
+   * *"The screen resolves identically; two rules would be two answers"*. That
+   * was true of `figuresOf`, which draws the per-row strip, and NOT of the line
+   * totals loop, which resolved ONE level and skipped the parent row entirely.
+   * So a figure typed against a colourway appeared in the row strip, was stored
+   * by the server, and was missing from the Excess Calculated Qty and Final
+   * Quantity above it — the two figures `bom-ceiling.ts` writes a purchase order
+   * against. Three copies of one rule, and the divergence hid in the copy that
+   * feeds the money.
+   */
+  const consumptionChain = (r: ItemRow, slice: ProductionSlice) => {
+    const lineDefaults = {
+      no_of_items: numOrNull(r.no_of_items),
+      per_pieces: numOrNull(r.per_pieces),
+      excess_pct: numOrNull(r.excess_pct),
+    };
+    const parent = slice.size_id
+      ? consumptionFor(lineDefaults, r.slices, {
+          combo: slice.combo,
+          size_id: null,
+          country_id: slice.country_id ?? null,
+        })
+      : lineDefaults;
+    return consumptionFor(parent, r.slices, slice);
+  };
+
+  /**
+   * WHY THIS LINE'S COMBINATION SHEET CANNOT BE OPENED, or null when it can.
+   *
+   * ONE DERIVATION, read by the button's `disabled` and by the sentence that
+   * explains it. Stating the gate twice is how a control comes to sit greyed out
+   * beside a tooltip promising it is available — the "one fact, two places"
+   * defect this file already records for `consumptionFor`.
+   *
+   * ## THE SPEC'S GATE NAMES A GRAIN THIS SCREEN CANNOT OFFER
+   *
+   * The spec says the cell is "disabled by default" and enables only on a
+   * combination grain, naming two: *Style for Combination* and *Style for Colour
+   * for Combination*. Read against the STORED vocabulary those are
+   * `{style_ref, trim_colour}` and `{style_ref, colour, trim_colour}` —
+   * `AXIS_LABELS.trim_colour` is literally the word "Combination", and
+   * `exploder.ts` says so in prose: *"`trim_colour` IS THE CLIENT'S
+   * 'Combination'"*.
+   *
+   * **`requirement_basis = 'combination'` is the decoy, not the switch.** It
+   * means colour x size (0420); `labelFor` renders it "Style Ref No / Order
+   * Color / Order Size" and `REQUIREMENT_BASIS_LABELS` renders it "Combination
+   * (Color + Size)", a qualifier types.ts says exists *precisely* to tell it
+   * apart from this cell. Gating on it would grey the button out on eight of the
+   * nine grains — "Whole order" among them — where `crossCombinations` visibly
+   * still crosses every typed name into every slice and `colourSplits` still
+   * takes the line's ratio from them. That is disabling correct work.
+   *
+   * **But no offered grain declares `trim_colour` either**, and that is
+   * deliberate rather than an oversight: `ORDER_AXES` excludes it because the
+   * panels are a property of the BOM LINE and `colourSplits` (0436) applies them
+   * to every slice DOWNSTREAM, so passing the axis to the composer would be a
+   * second place the trim colour divides rows. `producibleGrains()` is derived
+   * from those plans, so the menu cannot offer one. Enforcing the axis today
+   * disables the button on EVERY line and takes 0436 off the screen entirely —
+   * the feature deleted by the gate meant to tidy it.
+   *
+   * So the enforced half is the half that is reachable and unarguable: **an
+   * unanswered Attribute**. It satisfies "disabled by default" exactly — a new
+   * line has no grain — and it disables nothing that works, because such a line
+   * has no requirement rows at all (the Requirement section already refuses it
+   * with the same sentence) and the sheet would open with a blank Attribute in
+   * its own header.
+   *
+   * ## AND THAT IS WHERE THE CLIENT LEFT IT (2026-08-25)
+   *
+   * Tightening it further was put to the client as a choice between the only two
+   * readings the stored vocabulary supports, and BOTH WERE DECLINED:
+   *
+   *   - *literal* — enable only on a grain declaring `trim_colour`, which is what
+   *     the spec literally says. Refused because it cannot be SATISFIED today:
+   *     `ORDER_AXES` offers no such grain, so the gate disables every line in the
+   *     system and takes 0436 off the screen. It becomes reachable only if
+   *     `trim_colour` ever joins the composer's axes — and that is a change to
+   *     `ORDER_AXES` / `producibleGrains()` with 0436's downstream application to
+   *     re-argue first, not a change to make here.
+   *   - *implicit* — read the spec's two names as `{style_ref}` and
+   *     `{style_ref, colour}`, on the reasoning that panels are a property of a
+   *     style's construction rather than of a size or a destination. Coherent,
+   *     and refused anyway: it disables combinations on "Whole order" and on the
+   *     matrix grains, where they work TODAY and where live rows may already
+   *     exist — stranding rows behind a gate is the exact failure the block below
+   *     exists to prevent.
+   *
+   * So a reader who finds the spec's wording beside this weaker gate is NOT
+   * looking at an unfinished job. Restoring either reading needs a NEW client
+   * decision taken against the consequence named above, not a tidy-up.
+   *
+   * ## A LINE THAT ALREADY HOLDS COMBINATIONS STAYS OPENABLE
+   *
+   * Clearing the Attribute back to blank must not strand the rows behind it.
+   * They are still in `combinations`, still crossed into `slices` by
+   * `slicesWithCombinations`, and still SAVED — `writeChildren` reinserts
+   * whatever the form carries — so a disabled button would leave the operator
+   * looking at a count they can neither open nor empty. That is the call
+   * AGENTS.md makes under "Disabled rows" for the FK a record already holds: the
+   * one row that survives is the one already chosen, because dropping it is
+   * silent data loss dressed up as tidiness. It also means the count badge is
+   * never drawn on a disabled button — a blocked line has none by construction.
+   */
+  const combinationsBlocked = (r: ItemRow): string | null => {
+    if (r.combinations.length > 0) return null;
+    /* NULL IS THE UNANSWERED STATE AND `[]` IS "WHOLE ORDER" — the distinction
+       0455 spends a paragraph on, and the reason this reads the array's
+       PRESENCE rather than its length. An empty set is a chosen grain, so a
+       whole-order line opens; only a line nobody has answered is blocked. */
+    if (!r.requirement_grain) {
+      return "Choose an Attribute first — a combination splits what it divides";
+    }
+    return null;
+  };
 
   /**
    * THE ATTRIBUTE'S OWN GRID — legacy's nested sub-row (client 2026-08-21,
@@ -1392,6 +1540,134 @@ export function MbaMasterScreen({
     const primary = crossCombinations(primaryRaw);
     const expanded = isRefusal(expandedRaw) ? expandedRaw : crossCombinations(expandedRaw);
 
+    /**
+     * FIGURES THE CURRENT ATTRIBUTE DOES NOT REACH — one derivation, read by
+     * the count and by the sentence beside it, so the two cannot disagree.
+     *
+     * ## WHAT WAS REPORTED, AND WHAT IS ACTUALLY THERE (measured 2026-08-25)
+     *
+     * The report was: a planner types overrides at the Colour grain, switches
+     * the Attribute to Whole Order, and *"the old numbers remain visible with no
+     * indicator"*, so they believe those figures are still inflating the totals.
+     * The client asked for the stale CELL to be greyed with a strike-through.
+     *
+     * Half of that is real and the visible half is not. Run against the real
+     * engine on a two-colour order carrying two colour-grain overrides:
+     *
+     *     grain "colour" -> 2 rows, using 9/1 and 4/1   (the typed figures)
+     *     grain "order"  -> 1 row,  using 2/1           (the LINE's ratio)
+     *
+     * So the bypass is real: the figures stop counting, exactly as reported.
+     * But there is no stale cell to mark. The rows are `productionSlices()`, not
+     * storage — the header above says so — so collapsing the axes DRAWS ONE ROW
+     * and the colour rows are simply absent. Greying a cell that does not render
+     * is an indicator for a state that never reaches the screen.
+     *
+     * **AND THE REAL HAZARD IS THE OPPOSITE OF THE ONE REPORTED.** Measured on
+     * the same fixture, `liveOverrides` — the filter the SAVE path runs — keeps
+     * 0 of those 2 rows against a whole-order live set. The figures are not
+     * lingering and inflating anything; they are invisible, inert, and the next
+     * ordinary save DELETES them. That is why this says something rather than
+     * marking something, and why it warns about saving.
+     *
+     * ## WHY IT ASKS WHAT THE GRID DRAWS, NOT WHAT THE SAVE WILL KEEP
+     *
+     * Mirroring the save path exactly is the tempting version and it is wrong
+     * twice over. `requirementRows` builds its live set as
+     * `productionSlices(basis, order)` with NO size-wise tick, so it also drops
+     * every SIZE-level override of a ticked row — measured, 0 of 1 kept — which
+     * is a defect in that file, not a state to warn about here. A label that
+     * mirrored it would fire on figures the operator typed correctly under the
+     * grain they are looking at: a warning on correct work, which is the failure
+     * the combination gate above refused. So the question asked here is the one
+     * the screen can answer with certainty — *is there a row for this?* — and
+     * the sentence says a save "can" discard them rather than predicting it.
+     *
+     * A REFUSED EXPANSION SHOWS NOTHING. The live set is then UNKNOWN, not
+     * empty, and `liveOverrides`' own header gives that argument for the same
+     * reason: unknown must not vote to condemn.
+     *
+     * A NAME STRUCK FROM THE COMBINATION POPUP IS EXCLUDED. Its slices are
+     * dropped deliberately at the payload boundary (`slicesWithCombinations`:
+     * *"a name REMOVED from the popup takes its slices with it"*), so counting
+     * them here would warn about a deletion the operator just asked for.
+     */
+    const drawn = isRefusal(expanded)
+      ? null
+      : new Set([...primary, ...expanded].map(sliceKey));
+    const liveNames = new Set(comboNames);
+    const bypassed = drawn
+      ? r.slices.filter((sl) => {
+          if (drawn.has(sliceKey(sl))) return false;
+          const name = (sl.combination ?? "").trim();
+          if (name !== "" && !liveNames.has(name)) return false;
+          /* "TYPED" AS THE SERVER DEFINES IT — the same clause list
+             `requirementRows` filters on, because a row it would not have stored
+             is not a figure anyone can lose. `chosen === false` and
+             `size_wise === true` are on it for the reason 0449 gives: an
+             unticked row is emphatically not empty. */
+          return (
+            sl.no_of_items != null ||
+            sl.per_pieces != null ||
+            sl.excess_pct != null ||
+            sl.moq != null ||
+            sl.round_to != null ||
+            sl.chosen === false ||
+            sl.size_wise === true ||
+            sl.item_color_id != null ||
+            !!sl.specification ||
+            !!sl.size_spec
+          );
+        })
+      : [];
+
+    /**
+     * ADVISORY, AND DELIBERATELY NOT ANY OF THE THREE THINGS IT COULD BE.
+     *
+     * Not a HOLD: it carries no `data-dup-error` and nothing focusable, so it
+     * cannot refuse a key or move where Tab lands. AGENTS.md is explicit that an
+     * advisory stays plain amber text — and these figures may be exactly what
+     * the planner wants back when they switch the Attribute again, which is the
+     * opposite of an error.
+     *
+     * Not a DISABLED control: there is nothing to disable, and a stale value the
+     * operator can neither correct nor clear is the stranding failure the
+     * combination gate above refuses in its own comment.
+     *
+     * Not a TOOLTIP: the client asked for one, and a tooltip needs something to
+     * hover. There is no bypassed cell on screen — that is the finding — so the
+     * sentence is simply printed. It also keeps this away from
+     * `lib/reload-guard.ts`: a bubble that registers there permanently blocks
+     * the silent auto-update on the route.
+     *
+     * The tokens are `qtyRibbon`'s, one screen down, because this is the same
+     * kind of statement in the same place; `bg-warning-soft` / `text-warning` are
+     * the real ones (`bg-muted` and friends compile to nothing here).
+     */
+    const bypassNotice = bypassed.length ? (
+      <div className="mt-2 flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
+        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          {/* "Bypassed" IS THE CLIENT'S OWN WORD, kept so they can recognise
+              their request. The rest is in this screen's vocabulary: the
+              operator has never seen the words "axis grain" — the column is
+              called Attribute.
+
+              IT NAMES THE STATE AND NOT THE CURE, deliberately. "Switch the
+              Attribute back to reach them" was written first and is only true
+              of the reported cause; the SAME state arises when a colourway
+              leaves the order, and there no Attribute puts those rows back. A
+              sentence that is right in the common case and wrong in the other
+              is how this module's bugs have arrived, so it says the two things
+              that hold in both: not counted, and a save can discard them. */}
+          Bypassed &mdash; {bypassed.length} typed{" "}
+          {bypassed.length === 1 ? "figure sits" : "figures sit"} outside this
+          Attribute and {bypassed.length === 1 ? "is" : "are"} not counted here.
+          Saving can discard {bypassed.length === 1 ? "it" : "them"}.
+        </span>
+      </div>
+    ) : null;
+
     /*
      * A GRID WITH A BLANK REQUIRED FIGURE CANNOT BE CLOSED.
      *
@@ -1407,15 +1683,11 @@ export function MbaMasterScreen({
     const blank = primary.find((sl) => {
       const o = flags.row(sl);
       if (!(o?.chosen ?? true)) return false; // an unticked row buys nothing
-      const use = consumptionFor(
-        {
-          no_of_items: numOrNull(r.no_of_items),
-          per_pieces: numOrNull(r.per_pieces),
-          excess_pct: numOrNull(r.excess_pct),
-        },
-        r.slices,
-        sl,
-      );
+      /* THE SAME CHAIN AS EVERYWHERE ELSE. These are PRIMARY rows, which carry
+         no size, so the chain reduces to the single call this used to make —
+         routed through it anyway, because "the copy that happens to agree" is
+         how the totals loop came to be the copy that did not. */
+      const use = consumptionChain(r, sl);
       return use.no_of_items == null || use.per_pieces == null;
     });
 
@@ -1457,30 +1729,9 @@ export function MbaMasterScreen({
      */
     const figuresOf = (sl: ProductionSlice) => {
       const o = stored(sl);
-      /*
-       * THREE LEVELS, RESOLVED PER FIELD: the size box, then the row it sits
-       * under, then the line. `consumptionFor` returns the same shape it takes,
-       * so composing it twice IS the chain — no second resolution rule to keep
-       * in step with the first.
-       *
-       * A size child's key is (combo, size, country); its parent row's is
-       * (combo, null, country). Without the middle step a typed row figure would
-       * be invisible to its own sizes, which is what made the strip look
-       * unanswerable (screenshot 2465).
-       */
-      const lineDefaults = {
-        no_of_items: numOrNull(r.no_of_items),
-        per_pieces: numOrNull(r.per_pieces),
-        excess_pct: numOrNull(r.excess_pct),
-      };
-      const parent = sl.size_id
-        ? consumptionFor(lineDefaults, r.slices, {
-            combo: sl.combo,
-            size_id: null,
-            country_id: sl.country_id ?? null,
-          })
-        : lineDefaults;
-      const use = consumptionFor(parent, r.slices, sl);
+      // THE SAME CHAIN THE LINE TOTALS AND THE SERVER READ — see
+      // `consumptionChain`, and why it is a function rather than a third copy.
+      const use = consumptionChain(r, sl);
       const lineInput = {
         no_of_items: use.no_of_items,
         per_pieces: use.per_pieces,
@@ -1598,8 +1849,16 @@ export function MbaMasterScreen({
     /* CLOSED RENDERS THE CAPTION AND NOTHING ELSE — never `hidden`. A hidden
        field is still in the DOM, so Tab and the required-holds would both visit a
        box the operator cannot see. */
+    /* THE NOTICE SHOWS IN BOTH STATES. A collapsed section is exactly where a
+       bypassed figure is easiest to forget — the caption names the Attribute and
+       its row count, both of which look entirely correct. */
     if (!open) {
-      return <div className="mt-4 rounded-lg border border-border">{caption}</div>;
+      return (
+        <>
+          <div className="mt-4 rounded-lg border border-border">{caption}</div>
+          {bypassNotice}
+        </>
+      );
     }
 
     const byKey = new Map(
@@ -1607,55 +1866,58 @@ export function MbaMasterScreen({
     );
 
     return (
-      <BomSliceGrid
-        caption={caption}
-        axisHead={axisHead}
-        rows={rows}
-        /* THE PRECISION THE THREE DERIVED COLUMNS WERE CEILINGED TO. Without it
-           the grid printed them through `fmtNumber`, whose bare `toLocaleString`
-           caps at three fraction digits and rounds to NEAREST — so a six-decimal
-           unit showed LESS than the stored requirement. See `fmtQty`. */
-        decimals={uomDecimals(r.consumption_uom_id)}
-        /* WHAT A BLANK BOX WILL USE. The line still CARRIES all three even
-           though it no longer shows them, so an older BOM's figures remain the
-           default until a row types its own. */
-        linePlaceholder={{
-          items: r.no_of_items || "",
-          pieces: r.per_pieces || "",
-          excess: r.excess_pct || "",
-        }}
-        renderColour={(rowKey) => {
-          const sl = byKey.get(rowKey);
-          if (!sl) return null;
-          const o = stored(sl);
-          return (
-            <LookupDialogPicker
-              kind="fabric_color"
-              label="Item Color"
-              options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
-              value={o?.item_color_id ?? null}
-              onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
-              canCreate={masterPerms.canCreate}
-              canEdit={masterPerms.canEdit}
-              compact
-            />
-          );
-        }}
-        onFlag={(rowKey, patch) => {
-          const sl = byKey.get(rowKey);
-          if (!sl) return;
-          setSlice(r.key, sl, patch);
-        }}
-        onSet={(cellKey: string, patch: { items?: string; pieces?: string; excess?: string }) => {
-          const sl = byKey.get(cellKey);
-          if (!sl) return;
-          setSlice(r.key, sl, {
-            ...(patch.items !== undefined ? { no_of_items: numOrNull(patch.items) } : {}),
-            ...(patch.pieces !== undefined ? { per_pieces: numOrNull(patch.pieces) } : {}),
-            ...(patch.excess !== undefined ? { excess_pct: numOrNull(patch.excess) } : {}),
-          });
-        }}
-      />
+      <>
+        <BomSliceGrid
+          caption={caption}
+          axisHead={axisHead}
+          rows={rows}
+          /* THE PRECISION THE THREE DERIVED COLUMNS WERE CEILINGED TO. Without it
+             the grid printed them through `fmtNumber`, whose bare `toLocaleString`
+             caps at three fraction digits and rounds to NEAREST — so a six-decimal
+             unit showed LESS than the stored requirement. See `fmtQty`. */
+          decimals={uomDecimals(r.consumption_uom_id)}
+          /* WHAT A BLANK BOX WILL USE. The line still CARRIES all three even
+             though it no longer shows them, so an older BOM's figures remain the
+             default until a row types its own. */
+          linePlaceholder={{
+            items: r.no_of_items || "",
+            pieces: r.per_pieces || "",
+            excess: r.excess_pct || "",
+          }}
+          renderColour={(rowKey) => {
+            const sl = byKey.get(rowKey);
+            if (!sl) return null;
+            const o = stored(sl);
+            return (
+              <LookupDialogPicker
+                kind="fabric_color"
+                label="Item Color"
+                options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
+                value={o?.item_color_id ?? null}
+                onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
+                canCreate={masterPerms.canCreate}
+                canEdit={masterPerms.canEdit}
+                compact
+              />
+            );
+          }}
+          onFlag={(rowKey, patch) => {
+            const sl = byKey.get(rowKey);
+            if (!sl) return;
+            setSlice(r.key, sl, patch);
+          }}
+          onSet={(cellKey: string, patch: { items?: string; pieces?: string; excess?: string }) => {
+            const sl = byKey.get(cellKey);
+            if (!sl) return;
+            setSlice(r.key, sl, {
+              ...(patch.items !== undefined ? { no_of_items: numOrNull(patch.items) } : {}),
+              ...(patch.pieces !== undefined ? { per_pieces: numOrNull(patch.pieces) } : {}),
+              ...(patch.excess !== undefined ? { excess_pct: numOrNull(patch.excess) } : {}),
+            });
+          }}
+        />
+        {bypassNotice}
+      </>
     );
   };
 
@@ -2508,27 +2770,12 @@ export function MbaMasterScreen({
         isUsableConversion(pack) &&
         (!r.consumption_uom_id || pack.base_uom_id === r.consumption_uom_id);
 
-      /* THE COMBINATION SHEET'S SPLITS (0436), derived ONCE per line and from
-         the SAME function the server calls on save. Two derivations of "what do
-         these panels come to" is how a screen comes to display one figure and
-         store another — the divergence this module has already shipped once,
-         for `consumptionFor`. */
-      const splits = colourSplits(r.item_color_id, combinationSplitsOf(r));
-      if (isRefusal(splits)) {
-        push({ refusal: splits.refused });
-        totals.set(r.key, {
-          calc: null,
-          excessCalc: null,
-          final: null,
-          refusal: splits.refused,
-          uom: uomLabel,
-          decimals: uomDp,
-        });
-        continue;
-      }
-      /* ONE PASS PER (SLICE x TRIM COLOUR). No panels means one nameless split
-         and exactly the rows this screen drew before 0436. */
-      const rowSplits: (ColourSplit | null)[] = splits.length ? splits : [null];
+      /* ONE PASS PER SLICE. There was a second, nested pass per TRIM COLOUR
+         here, over `colourSplits(r.item_color_id, combinationSplitsOf(r))` — see
+         the block where that helper used to live for what it was summing and
+         what it cost. The 0436 panel store it read is retired, so the pass had
+         nothing legitimate left to add and was multiplying the line's rate by
+         the number of colourways. */
 
       /* PER TRIM COLOUR, because the supplier's minimum is a minimum per CONE
          (client 2026-08-22) — navy and red each clear it on their own. Keyed by
@@ -2560,95 +2807,77 @@ export function MbaMasterScreen({
       let baseTotal: number | null = 0;
 
       for (const slice of slices) {
-        /* THE CONSUMPTION IS THE SLICE'S, FALLING BACK TO THE LINE (0442).
-           This was the line's own figures reused for every slice, which is why
-           a Size-wise line spent the same thread on an XS and a XXL. `slices`
-           on the row holds only what the operator TYPED; everything else still
-           reads the line, per FIELD — see `consumptionFor`.
+        /* THE CONSUMPTION IS THE SLICE'S, FALLING BACK TO THE ROW IT SITS UNDER
+           AND THEN THE LINE (0442). This was the line's own figures reused for
+           every slice, which is why a Size-wise line spent the same thread on an
+           XS and a XXL. `slices` on the row holds only what the operator TYPED;
+           everything else still reads upward, per FIELD.
+           It resolved ONE level here until 2026-08-25, while the row strip and
+           the server both resolved three — see `consumptionChain`.
            Excess % and the decimals stay the line's: neither is a property of a
            size, and an excess that varied per slice would not sum to the
            order's. */
-        const use = consumptionFor(
-          {
-          no_of_items: numOrNull(r.no_of_items),
-          per_pieces: numOrNull(r.per_pieces),
-          excess_pct: numOrNull(r.excess_pct),
-        },
-          r.slices,
-          slice,
-        );
-        for (const split of rowSplits) {
-          /* THE PANEL RATE WHERE THERE ARE PANELS, composed with the slice's own
-             override by `panelConsumption` — the ONE place that trade rule
-             lives, so the screen and the server cannot answer it differently. */
-          const ratio = split
-            ? panelConsumption(
-                use,
-                {
-                  no_of_items: numOrNull(r.no_of_items),
-                  per_pieces: numOrNull(r.per_pieces),
-                },
-                split,
-              )
-            : { no_of_items: use.no_of_items, per_pieces: use.per_pieces };
-
-          const lineInput = {
-            no_of_items: ratio.no_of_items,
-            per_pieces: ratio.per_pieces,
-            excess_pct: use.excess_pct ?? 0,
-            decimals: uomDecimals(r.consumption_uom_id),
-          };
-          const baseValue = baseRequirementFor(lineInput, slice);
-          if (isRefusal(baseValue)) baseTotal = null;
-          else if (baseTotal != null) baseTotal += baseValue;
-          const value = requirementFor(lineInput, slice);
-          const refused = isRefusal(value);
-          const qty = refused ? null : value;
-          if (refused) {
-            lineTotal = null;
-            lineRefusal ??= value.refused;
-          } else if (lineTotal != null) {
-            lineTotal += qty as number;
-          }
-          /* GATED ON THE QUANTITY ALONE, never on the base beside it.
-             `lineTotal` counts a slice whose `requirementFor` answered; if this
-             bucket skipped that slice because `baseRequirementFor` refused, the
-             per-colour sums would come to LESS than the line total and the
-             minimum would be cleared against an understated figure — the
-             partial-sum failure `order-value.ts` records, arriving through the
-             one column that is not the answer.
-             The two functions are documented to refuse in exactly the same
-             cases, which is precisely why this must not be written as if they
-             do: `baseTotal` has already gone null for the whole line, so the
-             base column is unanswerable and 0 here is never read. */
-          if (!refused) {
-            addTo(
-              split ? split.item_color_id : (rowFlags.colour(slice) ?? r.item_color_id),
-              qty as number,
-              isRefusal(baseValue) ? 0 : baseValue,
-            );
-          }
-          push({
-            slice: slice.label,
-            /* THE PANEL'S COLOUR WINS where there are panels — the same
-               precedence the stored row takes, and for the same reason: a panel
-               says "the sleeve is stitched in red", a slice says "the USA rows
-               ship in black", and letting the second re-colour the first would
-               make the Combination sheet lie about what is bought. */
-            colour: split
-              ? (colourName(split.item_color_id) ?? colourOf(r, slice))
-              : colourOf(r, slice),
-            production: slice.qty,
-            required: qty,
-            refusal: refused ? value.refused : null,
-            purchase:
-              qty != null && packUsable && pack
-                ? toPurchaseQty(qty, pack, uomPrecision(uomDecimals(pack.alt_uom_id)))
-                : null,
-            purchaseUom: packUsable && pack ? uomName(pack.alt_uom_id) : "—",
-            purchaseDecimals: packUsable && pack ? uomDecimals(pack.alt_uom_id) : null,
-          });
+        const use = consumptionChain(r, slice);
+        /* THE SLICE'S OWN RATIO, and nothing composed on top of it. A panel
+           rate used to be folded in here by `panelConsumption`, inside a second
+           loop over the trim colours; with the 0436 store retired there are no
+           panels to fold, and the thing being folded was the line's own rate
+           counted once per colourway. */
+        const lineInput = {
+          no_of_items: use.no_of_items,
+          per_pieces: use.per_pieces,
+          excess_pct: use.excess_pct ?? 0,
+          decimals: uomDecimals(r.consumption_uom_id),
+        };
+        const baseValue = baseRequirementFor(lineInput, slice);
+        if (isRefusal(baseValue)) baseTotal = null;
+        else if (baseTotal != null) baseTotal += baseValue;
+        const value = requirementFor(lineInput, slice);
+        const refused = isRefusal(value);
+        const qty = refused ? null : value;
+        if (refused) {
+          lineTotal = null;
+          lineRefusal ??= value.refused;
+        } else if (lineTotal != null) {
+          lineTotal += qty as number;
         }
+        /* GATED ON THE QUANTITY ALONE, never on the base beside it.
+           `lineTotal` counts a slice whose `requirementFor` answered; if this
+           bucket skipped that slice because `baseRequirementFor` refused, the
+           per-colour sums would come to LESS than the line total and the
+           minimum would be cleared against an understated figure — the
+           partial-sum failure `order-value.ts` records, arriving through the
+           one column that is not the answer.
+           The two functions are documented to refuse in exactly the same
+           cases, which is precisely why this must not be written as if they
+           do: `baseTotal` has already gone null for the whole line, so the
+           base column is unanswerable and 0 here is never read. */
+        if (!refused) {
+          addTo(
+            /* THE SLICE'S TRIM COLOUR, which is where it was always typed. The
+               branch above it read a PANEL's colour and won the tie, on the
+               reasoning that "a panel says the sleeve is stitched in red". That
+               precedence is not lost so much as unreachable: the panel store is
+               retired, and the trim colour a Combination row carries is stored
+               on the slice row itself, which is what `rowFlags.colour` reads. */
+            rowFlags.colour(slice) ?? r.item_color_id,
+            qty as number,
+            isRefusal(baseValue) ? 0 : baseValue,
+          );
+        }
+        push({
+          slice: slice.label,
+          colour: colourOf(r, slice),
+          production: slice.qty,
+          required: qty,
+          refusal: refused ? value.refused : null,
+          purchase:
+            qty != null && packUsable && pack
+              ? toPurchaseQty(qty, pack, uomPrecision(uomDecimals(pack.alt_uom_id)))
+              : null,
+          purchaseUom: packUsable && pack ? uomName(pack.alt_uom_id) : "—",
+          purchaseDecimals: packUsable && pack ? uomDecimals(pack.alt_uom_id) : null,
+        });
       }
 
       // MOQ AND ROUND TO ARE APPLIED PER TRIM COLOUR, never to a slice. A
@@ -3097,35 +3326,59 @@ export function MbaMasterScreen({
        * the panels are what change the line's ratio — so a line carrying them
        * says so from the grid, without being opened.
        */
-      cell: (r) => (
-        <div className="flex items-center">
-          <Button
-            type="button"
-            variant="outline"
-            /* `sm` because this is a GRID row, not the header band — dense on
-               purpose and internally consistent with the "+ Add line" beside it.
-               The header row's `md` rule (AGENTS.md) is about the band above a
-               list. */
-            size="sm"
-            className="h-8 shrink-0 px-2"
-            /* OFF THE TAB PATH. Tab lands on FIELDS and nothing else, and this
-               is a button in a grid row — the same treatment the row's own
-               Remove ✕ carries, for the same reason. The mouse still reaches it
-               and so does a screen reader; it is reordered out of the typing
-               path, never removed from the document. */
-            tabIndex={-1}
-            aria-label={`Combinations — ${itemName(r.item_id)}`}
-            title="Combination (garment parts this line splits into)"
-            onClick={() => setComboLineKey(r.key)}
+      cell: (r) => {
+        // ONE READING, TWO CONSUMERS — see `combinationsBlocked` for the gate
+        // itself and for why the spec's grain half is not the enforced half.
+        const blocked = combinationsBlocked(r);
+        return (
+          /* THE REASON HANGS ON THE CELL, NOT ON THE BUTTON, and that is the
+             whole point of the wrapper carrying it: `Button` sets
+             `disabled:pointer-events-none`, so a `title` written on a disabled
+             one is a sentence nobody can ever hover — the browser suppresses the
+             hover before the tooltip exists. Put on the parent it answers in both
+             states — the button has no title of its own, so an enabled one falls
+             through to this same string. A disabled control that says nothing is
+             worse than the bug it was added to fix. */
+          <div
+            className="flex items-center"
+            title={blocked ?? "Combination (garment parts this line splits into)"}
           >
-            {r.combinations.length ? (
-              <span className="tabular-nums text-xs">{r.combinations.length}</span>
-            ) : (
-              <Layers className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-      ),
+            <Button
+              type="button"
+              variant="outline"
+              /* `sm` because this is a GRID row, not the header band — dense on
+                 purpose and internally consistent with the "+ Add line" beside
+                 it. The header row's `md` rule (AGENTS.md) is about the band
+                 above a list. */
+              size="sm"
+              className="h-8 shrink-0 px-2"
+              /* OFF THE TAB PATH. Tab lands on FIELDS and nothing else, and this
+                 is a button in a grid row — the same treatment the row's own
+                 Remove ✕ carries, for the same reason. The mouse still reaches
+                 it and so does a screen reader; it is reordered out of the
+                 typing path, never removed from the document. */
+              tabIndex={-1}
+              disabled={!!blocked}
+              /* THE REASON IS IN THE NAME TOO. A `title` is mouse-only, and the
+                 button stays in the accessibility tree when disabled — so the
+                 screen reader gets the same sentence rather than "Combinations,
+                 dimmed" with no way to learn why. */
+              aria-label={
+                blocked
+                  ? `Combinations — ${itemName(r.item_id)} (${blocked})`
+                  : `Combinations — ${itemName(r.item_id)}`
+              }
+              onClick={() => setComboLineKey(r.key)}
+            >
+              {r.combinations.length ? (
+                <span className="tabular-nums text-xs">{r.combinations.length}</span>
+              ) : (
+                <Layers className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        );
+      },
     },
     {
       header: "MOQ",

@@ -120,6 +120,33 @@ export function sliceKey(s: SliceKey): string {
 }
 
 /**
+ * The five axes `sliceKey` is built from, as data — so `liveOverrides` can ask
+ * which of them a live set actually SPEAKS (see its header).
+ *
+ * IT MUST STAY IN STEP WITH `sliceKey` BY HAND, so `check-bom-slices.mts`
+ * asserts the set rather than trusting this comment. An axis added to the key
+ * and not to this list would be silently un-muteable — the same whole-set
+ * argument `OVERRIDE_FIELDS` records one field along, and the same family of
+ * defect 0449, 0463 and 0464 each arrived as.
+ */
+export const KEY_AXES = ["combo", "size_id", "country_id", "combination", "style_ref_no"] as const;
+
+export type KeyAxis = (typeof KEY_AXES)[number];
+
+/**
+ * One axis of a slice, read EXACTLY as `sliceKey` reads it — the id axes raw,
+ * the name axes normalised. "" means the axis carries nothing.
+ *
+ * Reading it any other way is how two halves of one rule drift apart: a `combo`
+ * of "  white " is a value here only because `sliceKey` trims and upper-cases it
+ * too, and an axis judged "unexpressed" while the key still distinguishes it
+ * would mute a comparison that has to happen.
+ */
+function axisValue(s: SliceKey, a: KeyAxis): string {
+  return a === "size_id" || a === "country_id" ? (s[a] ?? "") : norm(s[a]);
+}
+
+/**
  * A stored slice row, narrowed to the override the resolver reads.
  *
  * ## THIS EXISTS BECAUSE THE INLINE VERSION WAS WRONG TWICE
@@ -244,11 +271,172 @@ export function consumptionFor(
  * looked at, not changed — dropping on load would destroy a figure because
  * somebody opened a screen, and a size removed by mistake and put back would
  * lose its consumption in between.
+ *
+ * ## IT ADJUDICATES ONLY ON THE AXES THE LIVE SET ACTUALLY EXPRESSES (2026-08-25)
+ *
+ * A live set does not always speak every axis of `sliceKey`, and an axis it
+ * cannot speak must not be allowed to vote a row down. So each override is
+ * PROJECTED onto the axes the live set does express and judged there; the axes
+ * it does express are still compared in full.
+ *
+ * The rule arrived one axis at a time and was generalised on the second, which
+ * is worth knowing because both instances were live data loss:
+ *
+ *  - **`combination` is not the ORDER's to speak.** A garment part is typed on
+ *    the LINE, in the Combination popup, so a live set built from
+ *    `productionSlices` names no combination at all — and every stored
+ *    combination row then matched nothing and was DROPPED. Not ignored: this
+ *    filter runs on the way out, so the rows were never written. Measured on a
+ *    two-part, two-colour line, 5 typed rows in and 1 kept.
+ *  - **A GRAIN COLLAPSE MUTES THE AXIS IT BYPASSES.** Type WHITE=7 and NAVY=4
+ *    under Colour-wise, then switch the line's Attribute to Whole order: the
+ *    live set collapses to a single keyless slice, every colour-keyed figure
+ *    matched nothing, and at save 0 of 2 were written. The operator changed a
+ *    dropdown and lost their typing, with the line's own ratio silently left in
+ *    its place.
+ *
+ * **CLIENT RULING, 2026-08-25: KEEP THEM.** Three options were put — keep,
+ * prompt before discarding, or refuse the save — and keep was chosen. The
+ * reasoning accepted with it: a grain change is the operator's own toggle on the
+ * same order rather than a change to the order; the figures become live again
+ * the moment the grain returns; and this module's own principle is that keeping
+ * them is the recoverable direction. A bypassed figure is still ADVISORY on
+ * screen — `mba-master-screen.tsx` warns that figures outside the current
+ * Attribute are not counted — so nothing is kept silently.
+ *
+ * The caller had already written the same sentence for a different case:
+ * *"the live set is UNKNOWN, not empty — filtering against it would delete every
+ * override the operator has entered because a DIFFERENT tab is incomplete.
+ * Keeping them is the recoverable direction."* Unknown along one axis is unknown
+ * in exactly that way, so the axis stands down rather than voting to delete.
+ *
+ * WHAT IT IS NOT: a hole in the client's rule that the grid follows the order
+ * exactly. Every axis the live set DOES speak is still adjudicated in full, so a
+ * figure typed against a colourway that has left the ORDER is still dropped
+ * while the grain is colour-wise — that case is pinned by its own vector, and it
+ * is the one that would have made this generalisation wrong. And it
+ * SELF-DISABLES: the moment a caller crosses its slices by combination, or ticks
+ * a row so the set carries sizes, that axis is expressed again and the full
+ * five-way comparison applies.
+ *
+ * ## THE CALLER STILL MUST PASS EVERY SLICE THE GRID DRAWS
+ *
+ * The projection above is a safety net, not a licence. A caller that hands over
+ * a partial set no longer DELETES what it left out — the missing axis is muted
+ * and those rows survive dormant — but the cleanup the client asked for stops
+ * happening on that axis, and a genuinely stale row then lives forever.
+ *
+ * The precondition was violated at the save path and it cost real typing. It
+ * asked `productionSlices(basis, order)` with no `sizeWise` predicate, so a
+ * ticked row's size children were never in the live set and every size-level
+ * override was dropped: 1 typed in, 0 kept.
+ *
+ * AND THE OBVIOUS REPAIR IS THE WRONG ONE. Passing the tick alone does not widen
+ * the set, it MOVES it — `productionSlices` REPLACES a ticked row with its
+ * children rather than emitting both — so the parent's own figures are dropped
+ * instead, and those are the ones the client requires to survive a tick ("THE
+ * ROW KEEPS ITS OWN FIGURES EVEN WHEN TICKED", screenshot 2465). Measured
+ * against the real function: 2 of 3 kept either way, one casualty traded for the
+ * other. **The live set has to be the UNION of the primary and expanded sets**,
+ * which is what the grid already renders and what `liveSlicesFor` in
+ * `material-bom-amendment/actions.ts` now builds.
  */
+/**
+ * THE OVERRIDES `liveOverrides` IS ABOUT TO DROP — the same partition, from the
+ * other side, so a screen can SAY what is being discarded (2026-08-25).
+ *
+ * ## THE BYPASS THIS EXISTS FOR IS NOT ABOUT THE ORDER CHANGING
+ *
+ * `liveOverrides` drops a stale row on the client's own instruction — the grid
+ * follows the order exactly, so a size removed from Quantities takes its
+ * override with it. That is a change to the ORDER, and the operator made it.
+ *
+ * The case nobody decided is a change to the LINE. Switch a line's Attribute
+ * from Colour-wise to Whole order and the live set collapses from
+ * `WHITE::::S1` / `NAVY::::S1` to a single `::::` — so every colour-keyed
+ * figure the operator typed matches nothing, `consumptionFor` quietly inherits
+ * the line's own ratio in its place, and at save these rows are not written.
+ * Measured against these functions: 2 typed, 2 resolving, 0 kept. The operator
+ * changed a dropdown and lost their typing, with a plausible number left in its
+ * place — the shape this module's header calls the failure that gets believed
+ * rather than reported.
+ *
+ * ## WHY IT IS A SEPARATE FUNCTION AND NOT A FLAG ON THE FILTER
+ *
+ * The answer is a LIST, because the only useful thing to say names the rows —
+ * "3 figures typed against WHITE, NAVY and BLACK will be discarded" is a warning
+ * an operator can act on, and a boolean is one they can only ignore. It also
+ * keeps `liveOverrides` returning exactly what gets written: a filter that
+ * returned two arrays would put the caller one destructuring mistake away from
+ * saving the rows it meant to drop.
+ *
+ * ADVISORY, NEVER A HOLD. This reports; it decides nothing and refuses nothing.
+ * A grain change is legitimate — that is the whole point of the Attribute — so
+ * a screen that blocked it would cage the operator on a correct action. The
+ * warning belongs beside the dropdown, and building it is ScreenOwner's.
+ */
+export function orphanedOverrides<T extends SliceKey>(
+  overrides: readonly T[] | null | undefined,
+  slices: readonly SliceKey[],
+): T[] {
+  const kept = new Set(liveOverrides(overrides, slices));
+  /* THE COMPLEMENT OF THE FILTER, never a second copy of its test. The
+     combination axis stands down inside `liveOverrides` (see its header), and a
+     re-implemented predicate here would be a second definition of "live" — the
+     drift this file already records for `sliceKey` and `toOverrides`. Identity
+     is safe: both walk the same array and return the same objects. */
+  return (overrides ?? []).filter((o) => !kept.has(o));
+}
+
 export function liveOverrides<T extends SliceKey>(
   overrides: readonly T[] | null | undefined,
   slices: readonly SliceKey[],
 ): T[] {
   const live = new Set(slices.map(sliceKey));
-  return (overrides ?? []).filter((o) => live.has(sliceKey(o)));
+  /* Asked of the SLICES, never of the overrides: the question is what the live
+     set is able to adjudicate, and the stored rows are the thing being judged.
+     Asking it of the overrides would let a stored row vote itself alive. */
+  /*
+   * ## THE UNTICKED LINE KEEPS ITS SIZE FIGURES, AND THAT IS A CLIENT DECISION
+   *
+   * The size axis is expressed only while some row on the line is ticked
+   * Size-wise. With no tick anywhere, `productionSlices` returns the primary
+   * rows unchanged, BOTH HALVES OF THE UNION ARE IDENTICAL, and size falls into
+   * `mute` below — so figures typed under a tick SURVIVE the untick instead of
+   * being filtered away.
+   *
+   * That is the one case where a genuinely stale row is kept rather than tidied,
+   * and it is deliberate. It was argued the other way first, on solid grounds: a
+   * size is OBTAINABLE from an order (unlike a garment part, which is why
+   * `combination` is muted unconditionally), so an unexpressed size axis is
+   * arguably a caller defect rather than an unknowable, and excusing it lets
+   * stale size rows live indefinitely. The client was shown that trade and chose
+   * to keep the figures (2026-08-25):
+   *
+   *     "If an operator painstakingly types size-wise figures, accidentally
+   *      unticks the size, and watches their data instantly vaporize, it causes
+   *      severe frustration... re-ticking the size restores their exact state."
+   *
+   * THE FIGURES ARE DORMANT, NOT ACTIVE — and that half is what makes keeping
+   * them safe. On an unticked line no size rows are drawn at all, so the stored
+   * figures are invisible to the operator and reach NOTHING: not consumption,
+   * not the MOQ rollup, not budget costing. They are inert until a tick brings
+   * their rows back, at which point the axis is expressed again, this excuse
+   * stands down, and they are adjudicated in full like any other row.
+   *
+   * So a reader finding a size override on a line with no tick is NOT looking at
+   * an uncleaned state leak. Deleting it "for tidiness" is the exact data loss
+   * the client refused, and restoring that needs a new decision, not a cleanup.
+   */
+  const mute = KEY_AXES.filter((a) => !slices.some((s) => axisValue(s, a) !== ""));
+  if (mute.length === 0) return (overrides ?? []).filter((o) => live.has(sliceKey(o)));
+  return (overrides ?? []).filter((o) => {
+    /* PROJECT THE ROW ONTO THE AXES THE LIVE SET SPEAKS, then ask the ordinary
+       question. Nulling a muted axis is not "ignore this row" — every remaining
+       axis is still compared in full, which is what keeps a dead colourway dead
+       while a collapsed grain is excused. */
+    const projected: SliceKey = { ...o };
+    for (const a of mute) projected[a] = null;
+    return live.has(sliceKey(projected));
+  });
 }
