@@ -61,6 +61,22 @@ export const BLOCKED_REASONS: Record<BlockedReason, string> = {
   pack_no_data: "Pack Ref No is not on the order yet — there is no packing reference to split by",
 };
 
+/**
+ * THE SAME REASON, SHORT ENOUGH FOR A DROPDOWN ROW.
+ *
+ * A second wording of one fact, which this codebase normally refuses — so it is
+ * keyed off the SAME `BlockedReason` union rather than written beside it. Adding
+ * a code without a short form is a type error, which is what stops the two
+ * drifting into disagreement. The long form is what a refusal prints; this is
+ * what fits after a label in an option row.
+ */
+export const BLOCKED_SHORT: Record<BlockedReason, string> = {
+  order_no_constant: "one BOM is one order",
+  combination_downstream: "set on the material line",
+  colour_needs_style: "a colour needs its style",
+  pack_no_data: "not on the order yet",
+};
+
 /** One row of the client's list. */
 export type ClientGrainRow = {
   /** The client's own S.No, so a conversation about "#19" resolves here. */

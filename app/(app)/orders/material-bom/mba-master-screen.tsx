@@ -52,6 +52,11 @@ import {
 } from "@/components/orders/bom-combination-sheet";
 import { producibleGrains, slicesForAxes } from "@/lib/orders/bom-explosion/compose";
 import {
+  BLOCKED_SHORT,
+  CLIENT_GRAIN_MATRIX,
+  EXTRA_SERVED,
+} from "@/lib/orders/bom-explosion/client-matrix";
+import {
   axesOfBasis,
   basisForAxes,
   canonicalAxes,
@@ -3160,20 +3165,50 @@ export function MbaMasterScreen({
            exactly the NULL-vs-[] conflation this column exists to avoid. */
         const asValue = (axes: Axis[]) => `g:${serializeAxes(axes)}`;
         const current = r.requirement_grain;
+        const offered = producibleGrains();
         /* A STORED GRAIN THE MENU NO LONGER OFFERS STILL RENDERS ITS OWN NAME,
            the same courtesy the basis menu extended to `size` and `combination`
            after they left it: an older document must not show a blank
            Attribute. */
-        const offered = producibleGrains();
         const extra =
           current && !offered.some((g) => serializeAxes(g) === serializeAxes(current))
             ? [current]
             : [];
+
+        /*
+         * THE MENU IS THE CLIENT'S OWN 22-ROW LIST, NUMBERED (2026-08-26).
+         *
+         * It used to be `producibleGrains()` alone — nine rows, in our wording.
+         * The operator holds a printed legacy list of 22 numbered Attributes,
+         * and the two could not be matched up: a row we serve under another
+         * name ("Order No" IS "Whole order") read as missing, and a row nothing
+         * can build ("Pack Ref No") read as forgotten. The client reported
+         * exactly that — "i can't find that 22 attribute in material bom".
+         *
+         * So every one of the 22 is listed, in their words and under their
+         * S.No, and the fourteen that cannot be served are DISABLED with the
+         * reason on the row. An operator hunting #19 now finds it and learns
+         * why, instead of concluding it was missed.
+         *
+         * OUR NAME RIDES ALONG WHERE IT DIFFERS — "1. Order No (Whole order)".
+         * The read-only Attribute cell and the Combination sheet header both
+         * render `labelFor`, so showing only the client's wording here would
+         * put two names for one grain on one screen. That is the drift this
+         * module already refuses for labels and bases.
+         *
+         * THE NINTH GRAIN IS APPENDED, NOT DROPPED. `EXTRA_SERVED` is the grain
+         * the client's list omits by mistake and keeps by decision; listing it
+         * after the 22 is what stops "make the menu match the list" quietly
+         * deleting it. `check-bom-explosion` asserts the pairing.
+         */
+        const pickable = new Map<string, Axis[]>();
+        for (const g of [...offered, ...extra]) pickable.set(asValue(g), g);
+
         return (
           <Select
             value={current ? asValue(current) : ""}
             onChange={(e) => {
-              const picked = [...offered, ...extra].find((g) => asValue(g) === e.target.value);
+              const picked = pickable.get(e.target.value);
               updItem(r.key, {
                 requirement_grain: picked ? canonicalAxes(picked) : null,
                 /* THE LEGACY NAME IS KEPT IN STEP. `requirement_basis` still has
@@ -3187,7 +3222,32 @@ export function MbaMasterScreen({
             required
           >
             <option value=""></option>
-            {[...offered, ...extra].map((g) => (
+            {CLIENT_GRAIN_MATRIX.map((row) => {
+              if (row.axes === null) {
+                /* DISABLED, NOT ABSENT. The operator must be able to find the
+                   row they are looking for and read why it is not available —
+                   an option that is simply missing is indistinguishable from
+                   one nobody implemented, which is the report this fixed. */
+                return (
+                  <option key={`c${row.sno}`} value="" disabled>
+                    {`${row.sno}. ${row.label} — ${BLOCKED_SHORT[row.blocked!]}`}
+                  </option>
+                );
+              }
+              const ours = labelFor(row.axes);
+              const suffix = ours === row.label ? "" : ` (${ours})`;
+              return (
+                <option key={`c${row.sno}`} value={asValue(row.axes)}>
+                  {`${row.sno}. ${row.label}${suffix}`}
+                </option>
+              );
+            })}
+            {EXTRA_SERVED.map((e) => (
+              <option key={asValue(e.axes)} value={asValue(e.axes)}>
+                {labelFor(e.axes)}
+              </option>
+            ))}
+            {extra.map((g) => (
               <option key={asValue(g)} value={asValue(g)}>
                 {labelFor(g)}
               </option>
