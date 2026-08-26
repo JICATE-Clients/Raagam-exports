@@ -220,7 +220,13 @@ type ItemRow = {
    *  has ever consulted this string. */
   combination: string;
   /**
-   * "Send out" — this material goes out for a process (0466).
+   * SHOWN AS "Process" — this material goes out for one (0466).
+   *
+   * The COLUMN was renamed on 2026-08-26 and the FIELD was not: `send_out` is
+   * the database column (0466), it is what `writeChildren` reads and what the
+   * Processes tab's union tests, so renaming the field would be a migration and
+   * a rewrite to change a word on a header. The label lives at the column
+   * definition; this is the value behind it.
    *
    * A BOOLEAN, not a string, unlike every numeric on this row: those are held as
    * text because a number cannot represent a just-cleared box, and a checkbox
@@ -675,7 +681,7 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
     { header: "Vendor", size: "md", weight: "plain" },
     { header: "MOQ", size: "xs", weight: "plain" },
     { header: "Round To", size: "xs", weight: "plain" },
-    { header: "Send out", size: "xs", weight: "plain" },
+    { header: "Process", size: "xs", weight: "plain" },
   ],
 ];
 
@@ -3747,14 +3753,34 @@ export function MbaMasterScreen({
        * card layout — the same gap `document-no-format-master-screen.tsx` closes
        * on its own tick columns.
        */
-      header: "Send out",
+      /*
+       * "PROCESS", NOT "SEND OUT" (client 2026-08-26: rename it so it reads as a
+       * yes-or-no about a process).
+       *
+       * The tick has always meant "does this material go out for a process?" —
+       * dyeing, washing, printing — and "Send out" named the LOGISTICS of that
+       * answer rather than the question. The operator ticking it is deciding
+       * whether the item belongs on the Processes tab, so the column is now
+       * named after the thing being decided.
+       *
+       * THE WORD IS USED TWICE ON THIS SCREEN AND THAT IS TOLERABLE HERE. The
+       * Processes tab has its own "Process" column — a picker naming WHICH
+       * process — so one word covers "does it need one" and "which one". They
+       * are on different tabs and never appear in one grid, and the `aria-label`
+       * below carries the fuller question for anyone who cannot see the tab they
+       * are on. Worth knowing rather than worth renaming: this module has been
+       * bitten before by one word meaning three things ("Combination"), and the
+       * check that matters is that a reader can always tell which is meant from
+       * the surface they are looking at.
+       */
+      header: "Process",
       align: "center",
       className: "min-w-[5rem]",
       cell: (r) => (
         <input
           type="checkbox"
           className="h-4 w-4 rounded border-border accent-primary"
-          aria-label="Send out for a process"
+          aria-label="Needs a process — send this material out for dyeing, washing or printing"
           checked={r.send_out}
           onChange={(e) => updItem(r.key, { send_out: e.target.checked })}
         />
@@ -4929,11 +4955,11 @@ export function MbaMasterScreen({
                 label=""
                 items={procAddable}
                 value={null}
-                /* IT TICKS THE MATERIAL TOO (0466). Sending a material out from
-                   here IS the decision "Send out" records, so leaving the box
-                   un-ticked on the Items tab would make the two halves of the
-                   union describe the same material differently — the tab listing
-                   it because it has a row, the line saying it never goes out.
+                /* IT TICKS THE MATERIAL TOO (0466). Adding a process here IS the
+                   decision the Items tab's "Process" tick records, so leaving
+                   that box un-ticked would make the two halves of the union
+                   describe the same material differently — the tab listing it
+                   because it has a row, the line saying it needs no process.
 
                    THIS IS WHAT KEEPS THEM CONSISTENT BY CONSTRUCTION, and it is
                    why the tick is not a gate: an operator who never visits the
