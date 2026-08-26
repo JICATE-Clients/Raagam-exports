@@ -36,6 +36,12 @@ import {
   type Axis,
 } from "@/lib/orders/bom-explosion/exploder";
 import {
+  CLIENT_GRAIN_MATRIX,
+  EXTRA_SERVED,
+  blockedRows,
+  servedRows,
+} from "@/lib/orders/bom-explosion/client-matrix";
+import {
   productionSlices,
   isRefusal as isEngineRefusal,
   REQUIREMENT_BASES,
@@ -650,6 +656,81 @@ refute("...and is emphatically not nameless", basisForAxes([]), null);
 const named = producibleGrains().filter((g) => basisForAxes(g) !== null);
 check("six producible grains carry a legacy name", named.length, 6);
 check("...and three do not", producibleGrains().length - named.length, 3);
+
+/* -------------------------------------------------------------------------
+   THE CLIENT'S 22-ROW ATTRIBUTE LIST
+
+   `client-matrix.ts` claims a mapping from the client's numbered list onto the
+   grains this engine produces. A mapping table is worth exactly what the
+   assertion behind it is worth - the lesson `PLANS` records one file over - so
+   every claim it makes is re-derived here against the real `producibleGrains()`.
+
+   The assertion that earns its place is the LAST one: it is what makes deleting
+   a working grain to "match the client's list" fail a check rather than a
+   purchase order.
+   ------------------------------------------------------------------------- */
+
+check("the client's list is 22 rows", CLIENT_GRAIN_MATRIX.length, 22);
+
+/* NUMBERED 1..22 WITH NO GAPS AND NO REPEATS. The whole point of carrying the
+   client's own S.No is that a conversation about "#19" resolves to one row; a
+   duplicated or missing number silently breaks that. */
+check(
+  "S.No runs 1..22 exactly once each",
+  CLIENT_GRAIN_MATRIX.map((r) => r.sno).sort((a, b) => a - b),
+  Array.from({ length: 22 }, (_, i) => i + 1),
+);
+
+/* EVERY ROW ANSWERS, one way or the other. A row with neither a grain nor a
+   reason is the state that file exists to make impossible - it reads as
+   "handled" in a table and does nothing on screen. */
+check(
+  "no row is left unanswered",
+  CLIENT_GRAIN_MATRIX.filter((r) => r.axes === null && r.blocked === null).length,
+  0,
+);
+check(
+  "and no row claims both a grain and a blocker",
+  CLIENT_GRAIN_MATRIX.filter((r) => r.axes !== null && r.blocked !== null).length,
+  0,
+);
+
+check("eight of the client's rows are served", servedRows().length, 8);
+check("...and fourteen are blocked", blockedRows().length, 14);
+
+/* EVERY BLOCKED ROW SAYS SOMETHING OF ITS OWN. A refusal that does not name its
+   cause sends the operator to the wrong screen. */
+for (const r of blockedRows()) {
+  check(`#${r.sno} names a reason`, r.reason.length > 20, true);
+}
+
+/* EVERY SERVED ROW IS REALLY PRODUCIBLE - asserted against the engine's own plan
+   table, not against a second copy of it. This is the claim that would rot
+   first: a plan removed from `PLANS` leaves this table pointing at a grain
+   nothing can build, and the screen would offer it. */
+const producibleKeys = new Set(producibleGrains().map((g) => serializeAxes(g)));
+for (const r of servedRows()) {
+  check(
+    `#${r.sno} "${r.label}" is a grain the engine produces`,
+    producibleKeys.has(serializeAxes(r.axes as Axis[])),
+    true,
+  );
+}
+
+/* NO TWO SERVED ROWS ARE THE SAME GRAIN. Two client rows resolving to one grain
+   would put one option in the dropdown twice under two names. */
+const servedKeys = servedRows().map((r) => serializeAxes(r.axes as Axis[]));
+check("no two served rows collapse onto one grain", new Set(servedKeys).size, servedKeys.length);
+
+/* THE ENGINE SERVES NINE AND THE CLIENT NAMED EIGHT - and the ninth is kept.
+   `producibleGrains()` must be EXACTLY the served rows plus `EXTRA_SERVED`:
+   nothing offered that no row claims, and nothing claimed that is not offered.
+   MADE TO FAIL FIRST by emptying `EXTRA_SERVED`, which reported the
+   {style_ref, colour, size, country} grain as unaccounted for. */
+const accounted = new Set([...servedKeys, ...EXTRA_SERVED.map((e) => serializeAxes(e.axes))]);
+check("every producible grain is accounted for", [...producibleKeys].filter((k) => !accounted.has(k)), []);
+check("...and nothing accounted for is unproducible", [...accounted].filter((k) => !producibleKeys.has(k)), []);
+check("the ninth grain is retained by decision, not by accident", EXTRA_SERVED.length, 1);
 
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
