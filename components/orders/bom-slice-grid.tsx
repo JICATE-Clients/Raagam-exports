@@ -109,8 +109,16 @@ export interface BomSliceRow {
   cell: BomSliceCell;
   /** The size boxes, when the row is ticked. */
   sizes: BomSliceCell[];
-  /** False where the order has no size break-up for this row to split by. */
-  canSizeWise: boolean;
+  /**
+   * WHY THIS ROW CANNOT SPLIT ITSELF BY SIZE, or null when it can.
+   *
+   * A REASON AND NOT A BOOLEAN, because the box's `disabled` and its own tooltip
+   * are one fact and there is now more than one cause: an order carrying no size
+   * break-up, and an Attribute the requirement cannot store a per-row tick
+   * against. A boolean beside a hard-coded sentence made the second cause read as
+   * the first.
+   */
+  sizeWiseWhyNot: string | null;
 }
 
 export interface BomSliceFlagPatch {
@@ -173,6 +181,8 @@ export function BomSliceGrid({
   renderColour,
   linePlaceholder,
   decimals,
+  finalDecimals,
+  finalUnit,
 }: {
   caption: ReactNode;
   axisHead: string;
@@ -193,6 +203,19 @@ export function BomSliceGrid({
    * `fmtQty`. Optional, and `uomPrecision` floors an absent one at 2 decimals.
    */
   decimals?: number | null;
+  /**
+   * `decimal_places_allowed` of the PURCHASE unit, where the line names a pack.
+   *
+   * THE FINAL COLUMN IS NOT IN THE SAME UNIT AS THE TWO BESIDE IT. Calc and
+   * + Exc are what the row CONSUMES; Final is what is BOUGHT, because the MOQ
+   * and the rounding step that produced it are properties of the purchase
+   * (0451). Absent means the line names no pack and all three share `decimals`,
+   * which is every row written before this.
+   */
+  finalDecimals?: number | null;
+  /** The purchase unit's name, appended to the Final heading. Null on a line
+   *  with no pack, where the heading is already unambiguous. */
+  finalUnit?: string | null;
 }) {
   if (rows.length === 0) return null;
 
@@ -240,7 +263,13 @@ export function BomSliceGrid({
           <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>Exc %</div>
           <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>Calc</div>
           <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>+ Exc</div>
-          <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>Final</div>
+          {/* THE UNIT IS IN THE HEADING BECAUSE THE COLUMN CHANGED UNITS. Three
+              figures in a row, the last one in cones and the first two in
+              metres, with one unlabelled heading over all three, is how a
+              converted quantity gets read as a consumption quantity. */}
+          <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>
+            {finalUnit ? `Final (${finalUnit})` : "Final"}
+          </div>
         </div>
 
         {rows.map((row) => (
@@ -278,13 +307,15 @@ export function BomSliceGrid({
                 <input
                   type="checkbox"
                   checked={row.sizeWise}
-                  disabled={!row.chosen || !row.canSizeWise}
+                  disabled={!row.chosen || !!row.sizeWiseWhyNot}
                   aria-label={`Split ${row.label} by size`}
-                  title={
-                    !row.canSizeWise
-                      ? "This order has no size break-up on Quantities ▸ Assort to split by"
-                      : undefined
-                  }
+                  /* THE REASON COMES FROM THE CALLER, and it used to be one
+                     hard-coded sentence beside a boolean. There is more than one
+                     cause now — an order with no size break-up, and an Attribute
+                     the requirement cannot store a per-row tick against — and a
+                     fixed sentence made the second read as the first, sending the
+                     operator to the Assort tab to fix nothing. */
+                  title={row.sizeWiseWhyNot ?? undefined}
                   onChange={(e) => onFlag(row.key, { size_wise: e.target.checked })}
                   className={TICK}
                 />
@@ -365,7 +396,9 @@ export function BomSliceGrid({
                       Final Quantity carries. */}
                   <div className="flex min-h-9 items-center justify-end border-l border-border bg-accent-soft/50 px-2">
                     <span className="tabular-nums text-[12.5px] font-semibold text-accent">
-                      {row.chosen && row.cell.final != null ? fmtQty(row.cell.final, decimals) : "—"}
+                      {row.chosen && row.cell.final != null
+                        ? fmtQty(row.cell.final, finalDecimals ?? decimals)
+                        : "—"}
                     </span>
                   </div>
               </>

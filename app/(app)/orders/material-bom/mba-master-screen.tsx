@@ -1840,7 +1840,33 @@ export function MbaMasterScreen({
     /* Can this row split at all? A tick with no size break-up behind it would
        refuse the whole line the moment it was ticked, so the box says so and
        stays disabled instead. */
-    const canSizeWise = orderProd.assortSizes.length > 0;
+    /*
+     * WHY A ROW CANNOT SPLIT ITSELF BY SIZE — one derivation, three consequences:
+     * the box's disabled state, its tooltip, and what the save will actually keep.
+     *
+     * THE ORDER'S BREAK-UP COMES FIRST, being the older and stronger refusal: with
+     * no assort rows a tick refuses the whole line the moment it is set.
+     *
+     * THE ATTRIBUTE IS THE NEW ONE, and it was live-and-useless until now.
+     * `slicesForAxes` takes NO tick predicate — deliberately, see the two-path
+     * comment above — so `requirementRows` cannot store a per-row tick against a
+     * composed grain. The box was enabled anyway, so ticking it wrote a
+     * `size_wise` the next save discarded: a control that looks live, changes
+     * nothing, and leaves the screen and the store describing one row differently.
+     *
+     * BOTH SENTENCES OFF ONE TEST, so they can never both show or both be wrong: a
+     * composed grain either already names Order Size — `{style_ref, size}` and
+     * `{size, country}` come out of the composer pre-expanded, so their rows ARE
+     * size rows — or it does not, and the operator needs a different Attribute.
+     */
+    const sizeWiseWhyNot =
+      orderProd.assortSizes.length === 0
+        ? "This order has no size break-up on Quantities ▸ Assort to split by"
+        : asBasis
+          ? null
+          : grainNames("size")
+            ? "This Attribute already splits every row by Order Size"
+            : "Pick an Attribute that names Order Size to split these rows by size";
 
     const unitKnown = !!r.purchase_uom_id || !!r.consumption_uom_id;
     /* THE SAME PACK THE LINE TOTAL AND THE PER-SLICE COLUMN READ. A row's Final
@@ -1936,17 +1962,28 @@ export function MbaMasterScreen({
         /* Its own column, never folded into `label` — the label is the AXIS
            value and this is a second axis crossed with it. */
         combination: sl.combination,
-        /* KEYED OFF THE GRAIN, not the legacy basis, so a composed grain names its
-           rows the same way its named cousin does. `{style_ref}` and
-           `{style_ref, trim_colour}` are one style column either way; reading the
-           basis meant a nameless grain silently fell through to `sl.label`. The
-           STYLE test comes first for the same reason it did before: a grain naming
-           both style and colour is keyed on the style. */
-        label: grainNames("style_ref")
-          ? (sl.style_ref_no ?? sl.label)
-          : grainNames("colour")
-            ? (sl.combo ?? sl.label)
-            : sl.label,
+        /*
+         * THE ENGINE'S OWN LABEL, DERIVED FROM NOTHING HERE.
+         *
+         * This switched on the basis, and both branches had to go rather than be
+         * ported onto the grain:
+         *
+         *  - the STYLE branch was a no-op. `primarySlices` emits
+         *    `style_ref_no: style || null` beside `label: style || "(no style
+         *    ref)"`, so `sl.style_ref_no ?? sl.label` re-derived its own input.
+         *  - the COLOUR branch was LOSSY. A colour row is labelled
+         *    `multiStyle ? "TSH-001 · WHITE" : "WHITE"` — deliberately, because
+         *    `axesOfBasis("colour")` is `{style_ref, colour}` precisely so that
+         *    one style's white cannot absorb another's. Printing `sl.combo`
+         *    alone throws the style away, so a two-style order drew TWO ROWS
+         *    BOTH READING "WHITE" — and the caption's "… needs Items and Pcs"
+         *    hint then named a row the operator could not pick out.
+         *
+         * A composed grain has no basis to switch on at all, so the choice was
+         * between inventing a third naming rule and using the one the refusal
+         * sentences, the Requirement tab and the server already print.
+         */
+        label: sl.label,
         chosen: o?.chosen ?? true,
         sizeWise: ticked,
         specification: o?.specification ?? "",
@@ -1957,7 +1994,7 @@ export function MbaMasterScreen({
            were meant to fall back to. */
         cell: cellOf(sl, null),
         sizes: ticked ? kids.map((k) => cellOf(k, sizeName(k.size_id))) : [],
-        canSizeWise,
+        sizeWiseWhyNot,
       };
     });
 
@@ -4506,9 +4543,14 @@ export function MbaMasterScreen({
                  the pane next door. */
               const t = lineTotals.get(row.key);
               const name = row.item_id ? itemName(row.item_id) : null;
-              const basis = row.requirement_basis
-                ? REQUIREMENT_BASIS_LABELS[row.requirement_basis as RequirementBasis]
-                : null;
+              /* THE GRAIN, THROUGH THE SAME `grainLabel` THE CELL AND THE CAPTION
+                 READ. This was `REQUIREMENT_BASIS_LABELS[row.requirement_basis]`,
+                 which is the legacy six-name alias — blank on the eight grains
+                 that have no legacy name — so a folded line on any Combination
+                 Attribute showed NO ATTRIBUTE AT ALL in the rail. That is the
+                 summary the operator scans twenty lines of, and it is the same
+                 root cause as the grid that would not draw beneath it. */
+              const basis = row.requirement_grain ? grainLabel(row.requirement_grain) : null;
               const ratio =
                 row.no_of_items.trim() && row.per_pieces.trim()
                   ? `${row.no_of_items.trim()} per ${row.per_pieces.trim()}`
