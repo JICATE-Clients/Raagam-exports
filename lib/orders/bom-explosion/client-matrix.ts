@@ -233,3 +233,32 @@ export function clientLabelFor(axes: readonly Axis[], labelFor: (a: readonly Axi
   const hit = CLIENT_GRAIN_MATRIX.find((r) => [...r.axes].sort().join("+") === key);
   return hit ? hit.label : labelFor(axes);
 }
+
+/**
+ * THE COMBINATION RULE, IN ONE SENTENCE EACH WAY.
+ *
+ * The Attribute cell explains the rule and the Combination button explains its
+ * own refusal, and those are the same fact told from two places — so they are
+ * declared once here rather than typed twice on a screen. A tooltip that says
+ * "pick a Combination attribute" while the button refuses for some other reason
+ * is worse than no tooltip: it sends the operator to change a field that was
+ * already right.
+ *
+ * `namesCombination` is the ONE test. The screen's gate and the tooltip both
+ * call it, so neither can decide the question differently — the same "one
+ * derivation, two consumers" rule the Attribute gate itself is built on.
+ */
+export function namesCombination(axes: readonly Axis[] | null | undefined): boolean {
+  return !!axes && axes.includes("trim_colour");
+}
+
+/** Shown while the chosen Attribute does NOT name a Combination — and it is what
+ *  the disabled Combination button says too. */
+export const COMBINATION_LOCKED_HINT =
+  "Pick an Attribute with Combination in it to map panel colours";
+
+/** Shown while it does. It says what to do NEXT rather than restating the state:
+ *  the operator can see which Attribute they picked, and what they cannot see is
+ *  that a button three cells along has just become live. */
+export const COMBINATION_UNLOCKED_HINT =
+  "Combination is on — use the Combination button on this row to map panel colours";

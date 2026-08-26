@@ -53,8 +53,11 @@ import {
 import { producibleGrains, slicesForAxes } from "@/lib/orders/bom-explosion/compose";
 import {
   CLIENT_GRAIN_MATRIX,
+  COMBINATION_LOCKED_HINT,
+  COMBINATION_UNLOCKED_HINT,
   EXTRA_SERVED,
   clientLabelFor,
+  namesCombination,
 } from "@/lib/orders/bom-explosion/client-matrix";
 import {
   axesOfBasis,
@@ -1508,8 +1511,13 @@ export function MbaMasterScreen({
      * rows the operator has already typed behind a disabled button. Same call
      * AGENTS.md makes under "Disabled rows" for a held FK.
      */
-    if (!r.requirement_grain.includes("trim_colour")) {
-      return "Pick an Attribute with Combination in it to map panel colours";
+    /* `namesCombination` and the sentence both come from `client-matrix`, so the
+       Attribute cell's tooltip and this refusal cannot answer the question
+       differently — a hint that says "pick a Combination attribute" while the
+       button is refusing for another reason sends the operator to change a
+       field that was already right. */
+    if (!namesCombination(r.requirement_grain)) {
+      return COMBINATION_LOCKED_HINT;
     }
     return null;
   };
@@ -3371,8 +3379,33 @@ export function MbaMasterScreen({
           pickable.set(asValue(g), g);
         }
 
+        /*
+         * THE TOOLTIP THAT SAYS WHAT THE ATTRIBUTE UNLOCKS (client 2026-08-26).
+         *
+         * Five of the client's rows differ from five others ONLY in whether the
+         * Combination button goes live — "Style / Combination" plans exactly what
+         * "Style" plans. So the one consequence of this choice is invisible from
+         * this cell: it happens to a button three columns away. This says so.
+         *
+         * BOTH SENTENCES AND THE TEST COME FROM `client-matrix`, the same ones
+         * `combinationsBlocked` reads, so the cell and the button cannot answer
+         * the question differently.
+         *
+         * `title`, deliberately, and not the `Truncated` bubble: that one is for
+         * a value clipped by its box and must never register with
+         * `lib/reload-guard.ts` — an ungated flag there permanently blocks the
+         * silent auto-update on this route. A native tooltip carries no such
+         * risk, adds no DOM, and cannot take focus. It is advisory only: nothing
+         * here holds the cursor or refuses a key, because every one of these
+         * Attributes is a legitimate choice.
+         */
+        const grainHint = namesCombination(current)
+          ? COMBINATION_UNLOCKED_HINT
+          : COMBINATION_LOCKED_HINT;
+
         return (
           <Select
+            title={grainHint}
             value={current ? asValue(current) : ""}
             onChange={(e) => {
               const picked = pickable.get(e.target.value);

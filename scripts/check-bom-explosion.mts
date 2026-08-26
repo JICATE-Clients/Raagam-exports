@@ -37,7 +37,10 @@ import {
 } from "@/lib/orders/bom-explosion/exploder";
 import {
   CLIENT_GRAIN_MATRIX,
+  COMBINATION_LOCKED_HINT,
+  COMBINATION_UNLOCKED_HINT,
   EXTRA_SERVED,
+  namesCombination,
   blockedRows,
   servedRows,
 } from "@/lib/orders/bom-explosion/client-matrix";
@@ -805,6 +808,34 @@ check(
   namesTrimColour.map((r) => r.sno),
   [5, 10, 11, 12, 13],
 );
+
+/*
+ * THE ATTRIBUTE TOOLTIP AND THE BUTTON'S REFUSAL ARE ONE FACT.
+ *
+ * The cell explains the rule, the button explains its own refusal, and both read
+ * `namesCombination` and the two sentences from `client-matrix`. Asserted
+ * because the failure is silent and directional: a tooltip saying "pick a
+ * Combination attribute" beside a button refusing for some OTHER reason sends
+ * the operator to change a field that was already right.
+ */
+for (const r of CLIENT_GRAIN_MATRIX) {
+  check(
+    `#${r.sno} agrees with its own axes about Combination`,
+    namesCombination(r.axes),
+    r.axes.includes("trim_colour"),
+  );
+}
+/* NULL IS NOT A COMBINATION — an unanswered line must take the LOCKED sentence,
+   not crash and not read as unlocked. `combinationsBlocked` answers "choose an
+   Attribute first" ahead of this, but the tooltip has no such ordering and asks
+   the question directly. */
+check("an unanswered grain does not name a Combination", namesCombination(null), false);
+check("...nor does an empty one", namesCombination([]), false);
+/* THE TWO SENTENCES ARE DIFFERENT AND BOTH SAY SOMETHING. Two identical hints
+   would render the tooltip useless while looking wired up. */
+refute("the two hints are not the same sentence", COMBINATION_LOCKED_HINT, COMBINATION_UNLOCKED_HINT);
+check("the locked hint names the thing to pick", COMBINATION_LOCKED_HINT.includes("Combination"), true);
+check("the unlocked hint names the button", COMBINATION_UNLOCKED_HINT.includes("button"), true);
 
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
