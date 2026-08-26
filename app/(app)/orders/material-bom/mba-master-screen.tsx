@@ -782,6 +782,22 @@ export function MbaMasterScreen({
    * of them.
    */
   const [closedSlices, setClosedSlices] = useState<Set<string>>(new Set());
+  /*
+   * WHICH COMBINATION BANDS ARE SHUT, keyed `${lineKey}\u0000${name}`.
+   *
+   * THE SHUT SET, NOT THE OPEN ONE — the same choice `approval-qty-lines` makes
+   * and for the same reason: open is the ABSENCE of a decision, so a combination
+   * added later arrives open rather than hidden behind a set nobody updated.
+   */
+  const [shutGroups, setShutGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (lineKey: string, name: string) =>
+    setShutGroups((prev) => {
+      const next = new Set(prev);
+      const k = `${lineKey}\u0000${name}`;
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
   /* The challans already raised from this BOM, keyed by the process row's own
      anchor (0446). Reloaded with the record, so it is the DATABASE's view of
@@ -2007,6 +2023,7 @@ export function MbaMasterScreen({
     const cellOf = (sl: ProductionSlice, sizeLabel: string | null): BomSliceCell => {
       const o = stored(sl);
       const f = figuresOf(sl);
+      const use = consumptionChain(r, sl);
       return {
         key: sl.key,
         sizeLabel,
@@ -2014,6 +2031,13 @@ export function MbaMasterScreen({
         needs: f.needs,
         final: f.final,
         refusal: f.refusal,
+        /* THE SAME `consumptionChain` CALL `blank` MAKES, so the red star, the
+           cursor hold and the section's refusal to close are one derivation with
+           three consumers. Conditional, never always: a blank box the LINE
+           already answers is not unfilled, and holding the cursor there would
+           cage the operator on a finished row. */
+        itemsRequired: use.no_of_items == null,
+        piecesRequired: use.per_pieces == null,
         items: o?.no_of_items != null ? String(o.no_of_items) : "",
         pieces: o?.per_pieces != null ? String(o.per_pieces) : "",
         excess: o?.excess_pct != null ? String(o.excess_pct) : "",
@@ -2026,17 +2050,70 @@ export function MbaMasterScreen({
     const stored = flags.row;
     const sizeName = (id: string | null) => orderProd.sizeNames?.[id ?? ""] ?? id ?? "—";
 
-    const rows: BomSliceRow[] = primary.map((sl) => {
+    /*
+     * ## THE BANDS — a combination named ONCE above its run
+     *
+     * IDENTITY MODE FIRST, and it is the reported case: with ONE axis value the
+     * axis is constant, so the combination becomes the row's own name and a band
+     * would only repeat the row beneath it. `groupHead` stays null throughout and
+     * nothing folds — there is nothing to fold TO.
+     *
+     * OTHERWISE ONE BAND PER RUN. `crossCombinations` is name-major, so the runs
+     * are already consecutive: this is a scan, never a regroup, and
+     * `check-bom-slices` asserts that rather than trusting it. A head is simply
+     * the first row whose name differs from the one before.
+     */
+    /** The same trim the crossing and `combinationNames` apply, so a name here
+     *  and a name in a stored key cannot differ by a space. */
+    const norm = (v: string | null | undefined) => (v ?? "").trim();
+    const axisValues = new Set(primary.map((sl) => sl.label)).size;
+    const bandMode = axisValues > 1 && comboNames.length > 0;
+    const rows: BomSliceRow[] = primary.map((sl, i) => {
       const o = stored(sl);
       const ticked = flags.sizeWise(sl);
       const kids = isRefusal(expanded)
         ? []
         : expanded.filter((x) => x.key !== sl.key && x.key.startsWith(`${sl.key}${SLICE_SEP}`));
+      const name = (sl.combination ?? "").trim();
+      const opensGroup =
+        bandMode && name !== "" && (i === 0 || norm(primary[i - 1]?.combination) !== name);
+      /* THE RUN THIS BAND HEADS — counted here because the band reports on rows
+         the component never sees as a set. An UNTICKED row is not unanswered:
+         it buys none of this material, which is an answer. */
+      const run = opensGroup ? primary.filter((x) => norm(x.combination) === name) : [];
+      const runUnanswered = run.filter((x) => {
+        const u = consumptionChain(r, x);
+        return flags.chosen(x) && (u.no_of_items == null || u.per_pieces == null);
+      }).length;
       return {
         key: sl.key,
         /* Its own column, never folded into `label` — the label is the AXIS
            value and this is a second axis crossed with it. */
         combination: sl.combination,
+        groupKey: bandMode && name !== "" ? name : null,
+        groupHead: opensGroup
+          ? {
+              key: name,
+              name,
+              rows: run.length,
+              unanswered: runUnanswered,
+              /* NULL WHILE ANY CHOSEN ROW IS UNANSWERED. A partial sum of a
+                 half-typed group is a figure somebody would act on. */
+              needs:
+                runUnanswered > 0
+                  ? null
+                  : run.reduce((t, x) => {
+                      const f = figuresOf(x);
+                      return t + (flags.chosen(x) && f.needs != null ? f.needs : 0);
+                    }, 0),
+              /* A GROUP HOLDING AN UNANSWERED REQUIRED CELL CANNOT CLOSE — the
+                 same rule the caption applies to the whole grid, per group.
+                 Hiding a required blank is a record that cannot be saved with
+                 nothing on screen to say why. */
+              whyNotClose:
+                runUnanswered > 0 ? "Fill in Items and Pcs before closing this" : null,
+            }
+          : null,
         /*
          * THE ENGINE'S OWN LABEL, DERIVED FROM NOTHING HERE.
          *
@@ -2179,6 +2256,17 @@ export function MbaMasterScreen({
               />
             );
           }}
+          /* THE SHUT SET, SCOPED TO THIS LINE. One `shutGroups` across the
+             screen would fold "TOP" on every material at once — the names repeat
+             across lines and the fold is a per-line reading decision. */
+          shutGroups={
+            new Set(
+              [...shutGroups]
+                .filter((k) => k.startsWith(`${r.key}\u0000`))
+                .map((k) => k.slice(r.key.length + 1)),
+            )
+          }
+          onToggleGroup={(name) => toggleGroup(r.key, name)}
           onFlag={(rowKey, patch) => {
             const sl = byKey.get(rowKey);
             if (!sl) return;
