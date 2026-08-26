@@ -440,3 +440,71 @@ export function liveOverrides<T extends SliceKey>(
     return live.has(sliceKey(projected));
   });
 }
+
+/**
+ * THE DISTINCT COMBINATION NAMES A LINE CARRIES.
+ *
+ * A "combination" is a garment part the line splits into — TOP, BOTTOM, SLEEVE.
+ * The names are not a stored list of their own: they are the distinct
+ * `combination` values on the line's slice rows (0463), which is why this reads
+ * them rather than taking a list.
+ *
+ * Trimmed and de-duplicated, blanks dropped: a half-typed row carries "" and
+ * must not become a panel named nothing, which would cross every production row
+ * against an empty name and double the grid.
+ */
+export function combinationNames(
+  slices: readonly { combination?: string | null }[] | null | undefined,
+): string[] {
+  return Array.from(
+    new Set((slices ?? []).map((s) => norm(s.combination)).filter((n) => n !== "")),
+  );
+}
+
+/**
+ * CROSS PRODUCTION ROWS BY THE LINE'S COMBINATION NAMES.
+ *
+ * ## WHY THIS IS SHARED AND NOT A SCREEN DETAIL
+ *
+ * `sliceKey` has carried `combination` since 0463, so a typed override is
+ * identified partly by which garment part it belongs to. The SCREEN crossed its
+ * production rows by the line's names, so its rows carried a `combination` and
+ * resolved those overrides. The SERVER did not — `requirementRows` built slices
+ * straight from `productionSlices`, every row keyed with `combination: ""`, and
+ * so **no combination override matched anything on the way to storage**.
+ *
+ * The result was the worst shape a defect can take here: the screen showed the
+ * figure the operator typed, and the STORED requirement — the one a purchase
+ * order is checked against — carried a different one. Measured on a two-part,
+ * two-colour line at ratio 2/1 with TOP=3 and BOTTOM=1 typed on both colourways:
+ * the screen and the honest answer are 2,000, the server stored 1,000. Nothing
+ * on screen said so, because the screen was right.
+ *
+ * So the crossing is one function with two callers, which is the only shape that
+ * makes the two agree by construction rather than by both being maintained.
+ *
+ * ## A LINE WITH NO NAMES IS `null`, NOT `""`
+ *
+ * `null` means "this line has no combinations" and reaches `sliceKey`'s coalesce
+ * as the same value every pre-0463 row already has — so nothing stored before
+ * this existed moves, and the rows are returned unmultiplied rather than crossed
+ * against a single empty name.
+ *
+ * ## THE UI KEY IS NOT THIS FUNCTION'S BUSINESS
+ *
+ * The screen also prefixes its own row key with the name, because a size child
+ * is found again by `startsWith` and the parent's key must stay a PREFIX of its
+ * children's. That is a rendering concern and stays at the call site; what is
+ * shared is the axis that identifies a STORED row.
+ */
+export function crossCombinations<T extends object>(
+  rows: readonly T[],
+  names: readonly string[],
+): (T & { combination: string | null })[] {
+  if (names.length === 0) {
+    return rows.map((sl) => ({ ...sl, combination: null as string | null }));
+  }
+  return names.flatMap((name) =>
+    rows.map((sl) => ({ ...sl, combination: name as string | null })),
+  );
+}

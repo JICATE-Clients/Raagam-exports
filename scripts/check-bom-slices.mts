@@ -22,7 +22,9 @@
  * Run: `npm run check:bom-slices`.
  */
 import {
+  combinationNames,
   consumptionFor,
+  crossCombinations,
   liveOverrides,
   orphanedOverrides,
   overrideFor,
@@ -842,6 +844,84 @@ check(
   ["No. of Items"],
 );
 check("a line naming no material is never unfinished", labels({ ...base, item_id: null }), []);
+
+/* -------------------------------------------------------------------------
+   §7  THE COMBINATION CROSSING — the screen and the server share one
+
+   `sliceKey` has carried `combination` since 0463, so an override typed against
+   a garment part is identified partly BY that part. The screen crossed its rows
+   by the line's names and the SERVER DID NOT, so every row `requirementRows`
+   built keyed as "" and no combination override matched on the way to storage.
+
+   The screen was RIGHT, which is what made it dangerous: the operator saw the
+   figure they typed while the STORED requirement carried another, and a purchase
+   order is checked against the stored one.
+
+   MADE TO FAIL FIRST: the resolution vectors below return the line's own 2 when
+   the row is uncrossed, and 3 once it carries its name.
+   ------------------------------------------------------------------------- */
+console.log("\n§7  combination crossing");
+
+check("no names leaves the rows alone", crossCombinations([{ k: 1 }, { k: 2 }], []).length, 2);
+/* NULL, NOT "" — the value every pre-0463 row already coalesces to, so nothing
+   already stored moves. */
+check(
+  "...and marks them null, not with a blank name",
+  crossCombinations([{ k: 1 }], []).map((r) => r.combination),
+  [null],
+);
+check("two names double the rows", crossCombinations([{ k: 1 }, { k: 2 }], ["TOP", "BOT"]).length, 4);
+check(
+  "...and each row carries the name it was crossed by",
+  crossCombinations([{ k: 1 }], ["TOP", "BOT"]).map((r) => r.combination),
+  ["TOP", "BOT"],
+);
+
+/* THE NAMES ARE READ OFF THE SLICES, trimmed and de-duplicated. A half-typed row
+   carries "" and must never become a panel named nothing — that would cross
+   every production row against an empty name and double the grid. */
+check(
+  "names are distinct, trimmed, and blanks dropped",
+  combinationNames([
+    { combination: "TOP" },
+    { combination: " TOP " },
+    { combination: "" },
+    { combination: null },
+    { combination: "BOT" },
+  ]),
+  ["TOP", "BOT"],
+);
+
+/* THE RESOLUTION, which is the whole point. */
+const comboOverrides = toOverrides([
+  { combo: "WHITE", combination: "TOP", no_of_items: 3, per_pieces: 1 },
+]);
+const uncrossedRow = { combo: "WHITE", size_id: null, country_id: null, style_ref_no: null };
+check(
+  "an UNCROSSED row misses the override — the defect, stated",
+  consumptionFor({ no_of_items: 2, per_pieces: 1 }, comboOverrides, uncrossedRow).no_of_items,
+  2,
+);
+check(
+  "...and a crossed row finds it",
+  consumptionFor(
+    { no_of_items: 2, per_pieces: 1 },
+    comboOverrides,
+    crossCombinations([uncrossedRow], ["TOP"])[0],
+  ).no_of_items,
+  3,
+);
+/* AND IT DOES NOT LEAK ACROSS PARTS — one typed figure must not reprice every
+   panel on the line. */
+check(
+  "a different part keeps the line's own rate",
+  consumptionFor(
+    { no_of_items: 2, per_pieces: 1 },
+    comboOverrides,
+    crossCombinations([uncrossedRow], ["BOT"])[0],
+  ).no_of_items,
+  2,
+);
 
 console.log(
   failed === 0

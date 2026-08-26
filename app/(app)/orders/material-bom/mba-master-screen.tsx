@@ -120,7 +120,9 @@ import {
   type RequirementBasis,
 } from "@/lib/orders/material-bom/requirement";
 import {
+  combinationNames,
   consumptionFor,
+  crossCombinations,
   overrideFor,
   sliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
@@ -1585,22 +1587,25 @@ export function MbaMasterScreen({
      * "this line has no combinations" and reaches `sliceKey`'s coalesce as the
      * same value a pre-0463 row has, so nothing that was already stored moves.
      */
-    const comboNames = Array.from(
-      new Set(r.combinations.map((c) => c.combination.trim()).filter((n) => n !== "")),
-    );
-    const crossCombinations = <T extends ProductionSlice>(rows: readonly T[]) =>
-      comboNames.length === 0
-        ? rows.map((sl) => ({ ...sl, combination: null as string | null }))
-        : comboNames.flatMap((name) =>
-            rows.map((sl) => ({
-              ...sl,
-              key: `${name}${SLICE_SEP}${sl.key}`,
-              combination: name as string | null,
-            })),
-          );
+    /* THE NAMES, from the same helper the server derives them with. */
+    const comboNames = combinationNames(r.combinations);
+    /* THE CROSSING COMES FROM `slice-consumption` — the same function
+       `requirementRows` calls on the server. It was a local closure here and
+       nothing at all there, which is exactly how the screen came to display
+       2,000 while the save stored 1,000. */
+    const crossHere = <T extends ProductionSlice>(rows: readonly T[]) =>
+      crossCombinations(rows, comboNames).map((sl) =>
+        /* THE UI KEY IS PREFIXED HERE AND NOWHERE ELSE. A size child is minted
+           as `${parent.key}${SLICE_SEP}${sizeId}` and found again by
+           `startsWith`, so the parent's key must stay a PREFIX of its children's
+           — which is why the name goes in FRONT, and why both sets are crossed
+           the same way. What identifies a STORED row is `sliceKey`, built from
+           the row's fields, and it is unaffected by this string. */
+        sl.combination === null ? sl : { ...sl, key: `${sl.combination}${SLICE_SEP}${sl.key}` },
+      );
 
-    const primary = crossCombinations(primaryRaw);
-    const expanded = isRefusal(expandedRaw) ? expandedRaw : crossCombinations(expandedRaw);
+    const primary = crossHere(primaryRaw);
+    const expanded = isRefusal(expandedRaw) ? expandedRaw : crossHere(expandedRaw);
 
     /**
      * FIGURES THE CURRENT ATTRIBUTE DOES NOT REACH — one derivation, read by

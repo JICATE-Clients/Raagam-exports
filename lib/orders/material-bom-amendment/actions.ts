@@ -30,7 +30,9 @@ import {
 } from "@/lib/orders/bom-explosion/exploder";
 import { slicesForAxes } from "@/lib/orders/bom-explosion/compose";
 import {
+  combinationNames,
   consumptionFor,
+  crossCombinations,
   toOverrides,
   liveOverrides,
   sliceKey,
@@ -532,7 +534,32 @@ function requirementRows(
        home and one set of vectors; see `toOverrides`. */
     const overrides = toOverrides(line.slices);
 
-    for (const slice of slices) {
+    /*
+     * CROSSED BY THE LINE'S COMBINATION NAMES — the half that was missing.
+     *
+     * `sliceKey` has carried `combination` since 0463, so an override typed
+     * against a garment part is identified partly BY that part. These rows came
+     * straight from `productionSlices` and carried no combination at all, so
+     * every one of them keyed as `""` and **no combination override ever
+     * matched on the way to storage**.
+     *
+     * That is the shape of defect this module fears most, because the screen was
+     * RIGHT: it crosses its own rows (`crossCombinations`, mba-master-screen),
+     * so it resolved the overrides and displayed the operator's figure, while
+     * the requirement written here carried another. Measured on a two-part,
+     * two-colour line at 2/1 with TOP=3 and BOTTOM=1 typed on both colourways —
+     * screen 2,000, honest 2,000, STORED 1,000 — and a purchase order is checked
+     * against the stored one.
+     *
+     * ONE FUNCTION, TWO CALLERS. `crossCombinations` now lives beside `sliceKey`
+     * in `slice-consumption.ts` and the screen calls the same one, so the two
+     * agree by construction rather than by both being maintained. A line with no
+     * names is returned unmultiplied with `combination: null`, which is the value
+     * every pre-0463 row already coalesces to — so nothing already stored moves.
+     */
+    const slicesByCombination = crossCombinations(slices, combinationNames(line.slices));
+
+    for (const slice of slicesByCombination) {
       /*
        * AN UNTICKED "CHOOSE" ROW IS OMITTED, NOT REFUSED (0449).
        *
