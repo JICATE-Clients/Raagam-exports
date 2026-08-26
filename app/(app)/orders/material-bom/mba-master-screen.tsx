@@ -54,6 +54,7 @@ import { producibleGrains, slicesForAxes } from "@/lib/orders/bom-explosion/comp
 import {
   CLIENT_GRAIN_MATRIX,
   EXTRA_SERVED,
+  clientLabelFor,
 } from "@/lib/orders/bom-explosion/client-matrix";
 import {
   axesOfBasis,
@@ -109,6 +110,7 @@ import {
   productionSlices,
   SLICE_SEP,
   requirementFor,
+  toPurchaseSlices,
   type ColourQuantities,
   type OrderProductionInput,
   type ProductionSlice,
@@ -1458,6 +1460,19 @@ export function MbaMasterScreen({
    * silent data loss dressed up as tidiness. It also means the count badge is
    * never drawn on a disabled button — a blocked line has none by construction.
    */
+  /**
+   * THE ONE NAME A GRAIN IS SHOWN BY, everywhere on this screen.
+   *
+   * The menu, the read-only Attribute cell and the Combination sheet header all
+   * read this, so they cannot drift into naming one grain three ways. It resolves
+   * the CLIENT's wording and falls back to the engine's `labelFor` for a grain
+   * their list does not name — the ninth grain, and any older stored value.
+   *
+   * `labelFor` stays the engine's own name and is still what refusal sentences
+   * are built from; this is the operator's. Two audiences, one lookup each.
+   */
+  const grainLabel = (axes: readonly Axis[]) => clientLabelFor(axes, labelFor);
+
   const combinationsBlocked = (r: ItemRow): string | null => {
     if (r.combinations.length > 0) return null;
     /* NULL IS THE UNANSWERED STATE AND `[]` IS "WHOLE ORDER" — the distinction
@@ -1466,6 +1481,35 @@ export function MbaMasterScreen({
        whole-order line opens; only a line nobody has answered is blocked. */
     if (!r.requirement_grain) {
       return "Choose an Attribute first — a combination splits what it divides";
+    }
+    /*
+     * ## AND THE ATTRIBUTE MUST NAME A COMBINATION (client, 2026-08-26)
+     *
+     * THIS IS THE TIGHTER GATE THAT WAS REFUSED ON 08-25, AND WHAT CHANGED IS
+     * THE MENU, NOT THE CLIENT'S MIND. It was declined then for a reason that
+     * was true then: `producibleGrains()` offered no grain declaring
+     * `trim_colour`, so enforcing the axis would have disabled this button on
+     * EVERY line in the system and taken 0436 off the screen. The client's own
+     * 22 rows now include five that name it — "Style / Combination" and its
+     * variants — so the gate has something to be satisfied BY, and the same
+     * decision comes out the other way. The refusal comment above records the
+     * older reasoning; both are correct at their own dates.
+     *
+     * THIS IS ALSO WHAT TELLS THE FIVE PAIRS APART. "Style / Combination" plans
+     * exactly the rows "Style" plans — `orderAxesOf` strips the token and
+     * `colourSplits` applies the panels per line — so nothing in the GRID
+     * distinguishes them. The button is the differentiator the client named:
+     * picking a Combination attribute is the key that unlocks panel mapping for
+     * that trim, and the rows not multiplying is expected, because the panels
+     * have not been configured yet.
+     *
+     * The `combinations.length > 0` escape above still comes FIRST, and it has
+     * to: changing the Attribute away from a Combination one must never strand
+     * rows the operator has already typed behind a disabled button. Same call
+     * AGENTS.md makes under "Disabled rows" for a held FK.
+     */
+    if (!r.requirement_grain.includes("trim_colour")) {
+      return "Pick an Attribute with Combination in it to map panel colours";
     }
     return null;
   };
@@ -1710,6 +1754,10 @@ export function MbaMasterScreen({
     const canSizeWise = orderProd.assortSizes.length > 0;
 
     const unitKnown = !!r.purchase_uom_id || !!r.consumption_uom_id;
+    /* THE SAME PACK THE LINE TOTAL AND THE PER-SLICE COLUMN READ. A row's Final
+       is the line's MOQ and step run over ONE row, so it has to be in the unit
+       those two are typed in — cones where the line names a cone. */
+    const rowPack = packOf(r);
 
     /**
      * THE THREE FIGURES A ROW SHOWS (client 2026-08-21: "calculated to final qty
@@ -1752,6 +1800,13 @@ export function MbaMasterScreen({
             o?.moq ?? numOrNull(r.moq),
             o?.round_to ?? numOrNull(r.round_to),
             unitKnown,
+            undefined,
+            /* THE MINIMUM AND THE STEP ARE PURCHASE FACTS (0451), so they run
+               over the purchase figure. Undefined where no pack is named, and
+               `lineQuantity` then behaves exactly as it did. */
+            rowPack.usable
+              ? toPurchaseSlices([needs], rowPack.pack, rowPack.decimals)
+              : undefined,
           );
       return {
         calc: isRefusal(base) ? 0 : base,
@@ -1880,6 +1935,11 @@ export function MbaMasterScreen({
              caps at three fraction digits and rounds to NEAREST — so a six-decimal
              unit showed LESS than the stored requirement. See `fmtQty`. */
           decimals={uomDecimals(r.consumption_uom_id)}
+          /* THE FINAL COLUMN IS THE PURCHASE ONE. Calc and + Exc are metres;
+             Final is cones. Three figures side by side in two units need the
+             second unit NAMED, or the row reads as one number that jumped. */
+          finalDecimals={rowPack.usable ? rowPack.decimals : undefined}
+          finalUnit={rowPack.uom}
           /* WHAT A BLANK BOX WILL USE. The line still CARRIES all three even
              though it no longer shows them, so an older BOM's figures remain the
              default until a row types its own. */
@@ -2586,25 +2646,45 @@ export function MbaMasterScreen({
     const moq = numOrNull(r.moq);
     const step = numOrNull(r.round_to);
     const moqBit = moq != null && moq > 0;
-    const stepBit = step != null && step > 0 && t.final !== t.excessCalc;
+    /* ASKED OF THE FIGURE THE STEP ACTUALLY MOVED. It used to compare `final`
+       against `excessCalc`, which are now in DIFFERENT UNITS once a pack is
+       named — 12 CONE against 20,000 MTR is unequal for the wrong reason, and
+       the badge would have claimed the step bit on every converted line. */
+    const stepBit = step != null && step > 0;
+    /* THE UNIT CHANGES HERE, AND IT IS SAID OUT LOUD. Everything left of this
+       is what the order consumes; everything right of it is what is bought.
+       0451: the minimum and the step are properties of the PURCHASE. Silent
+       would be worse than absent — the reader would take the MOQ as having been
+       compared against the metres, which is precisely the bug being fixed. */
+    const converted =
+      t.needsPurchase != null && t.finalUom !== t.uom ? t.needsPurchase : null;
+    /* BOTH IN THE PURCHASE UNIT, or both in the consumption one. Never one of
+       each. */
+    const needsForMoq = converted ?? t.excessCalc;
 
     return (
       <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-2 rounded-md bg-surface-muted px-3 py-2">
         <Figure label="Order needs" value={t.excessCalc} unit={t.uom} decimals={t.decimals} />
+        {converted != null && (
+          <Step label={`= ${fmtQty(converted, t.finalDecimals)} ${t.finalUom}`} />
+        )}
         {moqBit && (
           <Step
             /* DIMMED, NOT DROPPED, when the order already needs more than the
-               supplier's minimum — see the header. */
-            faded={t.excessCalc >= (moq as number)}
-            label={`MOQ ${fmtNumber(moq as number)}${t.excessCalc >= (moq as number) ? " · not binding" : ""}`}
+               supplier's minimum — see the header. Compared against the figure
+               in the MOQ'S OWN UNIT: a minimum is typed in the unit the material
+               is bought in, so on a line naming a pack that is the converted
+               figure and never the metres beside it. */
+            faded={needsForMoq >= (moq as number)}
+            label={`MOQ ${fmtNumber(moq as number)} ${t.finalUom}${needsForMoq >= (moq as number) ? " · not binding" : ""}`}
           />
         )}
         {stepBit && <Step label={`round up to ${fmtNumber(step as number)}`} />}
         <div className="ml-auto flex flex-col items-end rounded-md bg-accent-soft px-3 py-1">
           <span className="text-[9px] uppercase tracking-wider text-accent/85">Final quantity</span>
           <span className="text-lg font-semibold tabular-nums leading-tight text-accent">
-            {fmtQty(t.final, t.decimals)}
-            <span className="ml-1 text-[10px] font-normal opacity-80">{t.uom}</span>
+            {fmtQty(t.final, t.finalDecimals)}
+            <span className="ml-1 text-[10px] font-normal opacity-80">{t.finalUom}</span>
           </span>
         </div>
       </div>
@@ -2618,6 +2698,36 @@ export function MbaMasterScreen({
    *  round-up the client rejected. `uomPrecision` clamps it either way. */
   const uomDecimals = (id: string | null) =>
     data.uoms.find((u) => u.id === id)?.decimal_places_allowed ?? null;
+
+  /**
+   * THE LINE'S PACK, AND WHETHER IT MAY BE USED — resolved ONCE.
+   *
+   * Three places need this and they must not drift: the per-slice purchase
+   * column, the line's Final Quantity, and the row strip's own Final. The
+   * predicate was written out by hand in the first of those and the other two
+   * did without it, which is how the MOQ came to run in metres on a grid whose
+   * ceiling ran it in cones.
+   *
+   * The pack must convert INTO the unit this line is consumed in. A cone of
+   * metres against a line counted in pieces yields a number and a category
+   * error — so the purchase figure declines while the requirement stands.
+   */
+  const packOf = (r: ItemRow) => {
+    const pack = packById(r.uom_conversion_id);
+    const usable =
+      !!pack &&
+      isUsableConversion(pack) &&
+      (!r.consumption_uom_id || pack.base_uom_id === r.consumption_uom_id);
+    return {
+      pack,
+      usable,
+      /* `decimal_places_allowed` of the ALTERNATIVE unit — a purchase quantity
+         is rounded and printed by the pack's precision, never the consumption
+         unit's. `toPurchaseQty` takes the two separately for this reason. */
+      decimals: usable && pack ? uomDecimals(pack.alt_uom_id) : null,
+      uom: usable && pack ? uomName(pack.alt_uom_id) : null,
+    };
+  };
 
   /**
    * The Requirement tab, computed live from the SAME functions the server uses
@@ -2670,6 +2780,20 @@ export function MbaMasterScreen({
        the label so the ribbon prints them at the precision `ceilToPrecision`
        rounded them to — see `fmtQty`. */
     decimals: number | null;
+    /* THE UNIT `final` IS IN, WHICH IS NOT `uom` ONCE A PACK IS NAMED. `calc`
+       and `excessCalc` are what the order CONSUMES (metres); `final` is what is
+       BOUGHT (cones), because the MOQ and the rounding step are properties of
+       the purchase — 0437's own title, and what `bomCeilingForOrder` has always
+       compared a PO against. Equal to `uom` / `decimals` on a line with no pack,
+       which is why nothing already on screen moves. */
+    finalUom: string;
+    finalDecimals: number | null;
+    /* `excessCalc` IN THE PURCHASE UNIT, before the minimum — what the ribbon
+       prints as the conversion hop, and the figure the "is this MOQ binding?"
+       badge compares against. Comparing a minimum in cones against a
+       requirement in metres is the defect this file was corrected for; the
+       badge is where it would quietly return. */
+    needsPurchase: number | null;
   };
 
   const { reqRows, lineTotals } = useMemo((): {
@@ -2687,7 +2811,7 @@ export function MbaMasterScreen({
          Color / Order Size / Country" rather than the dash it would get from a
          `requirement_basis` it does not have. */
       const basisLabel = r.requirement_grain
-        ? labelFor(r.requirement_grain)
+        ? grainLabel(r.requirement_grain)
         : r.requirement_basis
           ? REQUIREMENT_BASIS_LABELS[r.requirement_basis as RequirementBasis]
           : "—";
@@ -2735,6 +2859,9 @@ export function MbaMasterScreen({
           refusal: "Choose how this material splits",
           uom: uomLabel,
           decimals: uomDp,
+          finalUom: uomLabel,
+          finalDecimals: uomDp,
+          needsPurchase: null,
         });
         continue;
       }
@@ -2761,18 +2888,15 @@ export function MbaMasterScreen({
           refusal: slices.refused,
           uom: uomLabel,
           decimals: uomDp,
+          finalUom: uomLabel,
+          finalDecimals: uomDp,
+          needsPurchase: null,
         });
         continue;
       }
 
-      const pack = packById(r.uom_conversion_id);
-      // The pack must convert INTO the unit this line is consumed in. A cone of
-      // metres against a line counted in pieces yields a number and a category
-      // error — so the purchase figure refuses while the requirement stands.
-      const packUsable =
-        !!pack &&
-        isUsableConversion(pack) &&
-        (!r.consumption_uom_id || pack.base_uom_id === r.consumption_uom_id);
+      // ONE definition, three readers — see `packOf`.
+      const { pack, usable: packUsable } = packOf(r);
 
       /* ONE PASS PER SLICE. There was a second, nested pass per TRIM COLOUR
          here, over `colourSplits(r.item_color_id, combinationSplitsOf(r))` — see
@@ -2786,15 +2910,26 @@ export function MbaMasterScreen({
          the colour id, "" for the line's own, so a single-colour line has one
          bucket and `lineQuantityByColour` reduces to what `lineQuantity`
          returned. */
-      const colourTotals = new Map<string, { qty: number; base: number }>();
+      /* `qtys` IS THE SLICE LIST, NOT A THIRD RUNNING TOTAL, and that is what
+         makes the grid agree with the ceiling to the digit. The purchase figure
+         is one `toPurchaseQty` PER SLICE, each rounded to the pack unit's own
+         precision, then summed — because `bomCeilingForOrder` sums the STORED
+         `purchase_qty` rows, which are exactly that. Converting the sum instead
+         is more accurate and disagrees, and a control that disagrees with the
+         screen that fed it is a control the operator learns to dismiss. */
+      const colourTotals = new Map<
+        string,
+        { qty: number; base: number; qtys: number[] }
+      >();
       const addTo = (colour: string | null, qty: number, base: number) => {
         const k = colour ?? "";
         const at = colourTotals.get(k);
         if (at) {
           at.qty += qty;
           at.base += base;
+          at.qtys.push(qty);
         } else {
-          colourTotals.set(k, { qty, base });
+          colourTotals.set(k, { qty, base, qtys: [qty] });
         }
       };
 
@@ -2902,6 +3037,9 @@ export function MbaMasterScreen({
           refusal: lineRefusal,
           uom: uomLabel,
           decimals: uomDp,
+          finalUom: uomLabel,
+          finalDecimals: uomDp,
+          needsPurchase: null,
         });
         continue;
       }
@@ -2913,6 +3051,14 @@ export function MbaMasterScreen({
         ? [...colourTotals].map(([id, v]) => ({
             item_color_id: id || null,
             quantities: [v.qty],
+            /* THE MINIMUM AND THE STEP RUN OVER THESE. Absent where the line
+               names no usable pack, and `lineQuantity` then falls back to the
+               consumption figures — the same fallback `bomCeilingForOrder`
+               takes with `purchase_qty ?? required_qty`, so the two agree in
+               that case too. */
+            purchaseQuantities: packUsable
+              ? toPurchaseSlices(v.qtys, pack, uomDecimals(pack?.alt_uom_id ?? null))
+              : undefined,
             /* NULL WHERE THE BASE REFUSED ANYWHERE ON THE LINE. The two columns
                must be summed over the same slice set — the reason they are
                accumulated in one pass — so a base that could not be answered
@@ -2937,6 +3083,9 @@ export function MbaMasterScreen({
               refusal: chain.refused,
               uom: uomLabel,
               decimals: uomDp,
+              finalUom: uomLabel,
+              finalDecimals: uomDp,
+              needsPurchase: null,
             }
           : {
               calc: chain.calcQty,
@@ -2945,6 +3094,13 @@ export function MbaMasterScreen({
               refusal: null,
               uom: uomLabel,
               decimals: uomDp,
+              /* THE PACK'S UNIT WHERE THERE IS ONE. `packUsable` is the same
+                 guard the per-slice purchase column uses, so the label and the
+                 figure can never come from different units. */
+              finalUom: packUsable && pack ? uomName(pack.alt_uom_id) : uomLabel,
+              finalDecimals:
+                packUsable && pack ? uomDecimals(pack.alt_uom_id) : uomDp,
+              needsPurchase: chain.purchaseQty,
             },
       );
     }
@@ -3267,12 +3423,12 @@ export function MbaMasterScreen({
             })}
             {EXTRA_SERVED.map((e) => (
               <option key={asValue(e.axes)} value={asValue(e.axes)}>
-                {labelFor(e.axes)}
+                {grainLabel(e.axes)}
               </option>
             ))}
             {extra.map((g) => (
               <option key={asValue(g)} value={asValue(g)}>
-                {labelFor(g)}
+                {grainLabel(g)}
               </option>
             ))}
           </Select>
@@ -4208,12 +4364,17 @@ export function MbaMasterScreen({
                       <span className="text-[10px] font-medium text-warning">Needs attention</span>
                     ) : t?.final != null ? (
                       <>
+                        {/* `fmtQty`, NOT `fmtNumber`: the latter is a bare
+                            `toLocaleString` and caps at three fraction digits
+                            while rounding to NEAREST, so a six-decimal pack unit
+                            printed LESS than the stored figure — see `fmtQty`'s
+                            own header. Same reason the ribbon uses it. */}
                         <span className="block text-[12px] font-semibold tabular-nums text-accent">
-                          {fmtNumber(t.final)}
+                          {fmtQty(t.final, t.finalDecimals)}
                         </span>
-                        {t.uom && t.uom !== "—" && (
+                        {t.finalUom && t.finalUom !== "—" && (
                           <span className="block text-[9px] tracking-wide text-muted-foreground">
-                            {t.uom}
+                            {t.finalUom}
                           </span>
                         )}
                       </>
@@ -4416,10 +4577,10 @@ export function MbaMasterScreen({
                     {t?.final != null && (
                       <span className="ml-auto shrink-0 text-right">
                         <span className="text-base font-semibold tabular-nums text-accent">
-                          {fmtNumber(t.final)}
+                          {fmtQty(t.final, t.finalDecimals)}
                         </span>{" "}
                         <span className="text-[10px] tracking-wide text-muted-foreground">
-                          {t.uom}
+                          {t.finalUom}
                         </span>
                       </span>
                     )}
@@ -5038,7 +5199,7 @@ export function MbaMasterScreen({
              `labelFor` reads the stored axis set, so a grain shown here can
              never disagree with the grain shown in the grid. */
           attributeLabel={
-            comboLine.requirement_grain ? labelFor(comboLine.requirement_grain) : ""
+            comboLine.requirement_grain ? grainLabel(comboLine.requirement_grain) : ""
           }
           /* The line's own ratio, so the operator can see what the split
              refines. Blank halves stay blank — an unfinished line showing

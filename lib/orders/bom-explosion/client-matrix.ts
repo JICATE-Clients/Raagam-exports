@@ -193,3 +193,43 @@ export function blockedRows(): (ClientGrainRow & { reason: string })[] {
     reason: BLOCKED_REASONS[r.blocked as BlockedReason],
   }));
 }
+
+/**
+ * THE ONE OPERATOR-FACING NAME FOR A GRAIN (client, 2026-08-26: drop the
+ * brackets, "standardise both the select dropdown and the read-only Attribute
+ * cell to render a single, clean, operator-facing name").
+ *
+ * The menu briefly showed both names — "Order No (Whole order)" — so that the
+ * dropdown and the read-only cell could not disagree while one used the client's
+ * words and the other used `labelFor`. That fixed the disagreement by printing
+ * it, and on the four-token rows it ran to 60 characters inside a grid cell.
+ *
+ * So the two are standardised on the CLIENT'S name instead, and this is the one
+ * function that resolves it. `labelFor` is deliberately NOT changed: it is the
+ * ENGINE's naming, it appears inside refusal sentences ("Style Ref No / Country
+ * is not a split this order can be exploded by yet"), and several vectors assert
+ * those strings exactly. Two names for two audiences, one lookup each, neither
+ * guessing at the other.
+ *
+ * FALLS BACK to `labelFor` for a grain the client's list does not name — the
+ * ninth grain, and any stored value from before this table. Never blank: a grain
+ * with no name would render an empty Attribute cell on a line that has answered.
+ *
+ * ## IT IS FOR A STORED GRAIN, NOT FOR THE MENU
+ *
+ * The menu iterates the matrix and prints each row's OWN `label`, because two
+ * rows can share one axis set: #18 "Pack" and #19 "Pack Ref No" are both
+ * `{pack}`, so resolving the menu through here would print "Pack" twice and lose
+ * "Pack Ref No" entirely. Caught by probe rather than by reading.
+ *
+ * The same collision has one unavoidable consequence in the other direction: a
+ * STORED `{pack}` reads back as "Pack", whichever of the two was picked. That is
+ * as good as it gets while the schema has one pack axis, it costs nothing today
+ * (both refuse, so neither can reach a saved requirement), and splitting them is
+ * the first job if `pack` ever gains data.
+ */
+export function clientLabelFor(axes: readonly Axis[], labelFor: (a: readonly Axis[]) => string): string {
+  const key = [...axes].sort().join("+");
+  const hit = CLIENT_GRAIN_MATRIX.find((r) => [...r.axes].sort().join("+") === key);
+  return hit ? hit.label : labelFor(axes);
+}

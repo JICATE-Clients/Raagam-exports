@@ -775,5 +775,36 @@ check("every producible grain is accounted for", [...producibleKeys].filter((k) 
 check("...and nothing accounted for is unproducible", [...accounted].filter((k) => !producibleKeys.has(k)), []);
 check("the ninth grain is retained by decision, not by accident", EXTRA_SERVED.length, 1);
 
+/*
+ * THE COMBINATION BUTTON'S GATE (client 2026-08-26).
+ *
+ * The screen enables the Combination cell only where the chosen grain names
+ * `trim_colour`, and that is the ONLY thing distinguishing five of the client's
+ * rows from five others — "Style / Combination" plans exactly what "Style"
+ * plans. So the set of rows that unlock the button is asserted here rather than
+ * left to a predicate in a 5,000-line screen: if the matrix stops marking a row
+ * `downstream`, or a row gains the token by a copy-paste, the count moves and
+ * this fails.
+ *
+ * `downstream` and "names trim_colour" must be the SAME set. They are two
+ * statements of one fact — the flag is what the matrix documents, the token is
+ * what the screen tests — and a row carrying one without the other would either
+ * enable a button on a grain with no panels or disable it on one with them.
+ */
+const namesTrimColour = CLIENT_GRAIN_MATRIX.filter((r) => r.axes.includes("trim_colour"));
+check("five client rows unlock the Combination button", namesTrimColour.length, 5);
+check(
+  "...and they are exactly the rows marked downstream",
+  namesTrimColour.map((r) => r.sno),
+  CLIENT_GRAIN_MATRIX.filter((r) => r.downstream).map((r) => r.sno),
+);
+/* AND NO OTHER ROW DOES. Named individually rather than counted, because a
+   count of five is satisfied by the wrong five. */
+check(
+  "the unlocking rows are #5, #10, #11, #12, #13",
+  namesTrimColour.map((r) => r.sno),
+  [5, 10, 11, 12, 13],
+);
+
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
