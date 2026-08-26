@@ -650,6 +650,15 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * width went to the two names that need it: Material holds a slashed spec and
    * Vendor holds a company name.
    *
+   * ^ SUPERSEDED 2026-08-26, and kept because being RIGHT was not the problem.
+   * That arrangement summed to 32 exactly as required and still could not be
+   * read: 2/32 is ~98px, a clear ✕ inside the control takes ~30 of it, and Type
+   * rendered as `A…` with Supply Type as `L…`. The two-line `Purchase Uom` /
+   * `Consumption Uom` labels beside them made the header band two heights, which
+   * is the crookedness the client actually pointed at. The run now BREAKS into
+   * 32 + 16 — see the note on the array below. The sums here are still the
+   * arithmetic the next person needs; what they are no longer is sufficient.
+   *
    * "SEND OUT" TOOK ITS TWO COLUMNS FROM Type AND Supply Type (0466), which is
    * the only place they could come from. The spans are coarse — 2/3/4/6/8/12 —
    * so a new `xs` cell needs exactly 2 freed, and the run was already exactly
@@ -673,19 +682,59 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * while entering, it is a one-line move — the renderer matches by HEADER, so
    * order here is presentation and nothing else depends on it.
    */
+  /*
+   * TWO RUNS, NOT ONE — 32 + 16 (client 2026-08-26, screenshot 231823:
+   * "align the field size, this section looks unaligned").
+   *
+   * TWELVE FIELDS NEVER FITTED. The note above records the squeeze honestly and
+   * then accepted it: "SEND OUT TOOK ITS TWO COLUMNS FROM Type AND Supply Type
+   * … BOTH DONORS SURVIVE THE CUT because they are dropdowns over short
+   * vocabularies, and a picker that clips gets the reveal bubble". On screen at
+   * 2/32 those two are ~98px with a clear ✕ inside them, so the value itself is
+   * about 60px: Type rendered as `A…` and Supply Type as `L…`. A reveal bubble
+   * is a rescue for an occasional long value, not a substitute for a field that
+   * can never show any value at all.
+   *
+   * IT ALSO EXPLAINS THE RAGGED TOP EDGE, which is what the client actually
+   * pointed at. `Purchase Uom` and `Consumption Uom` do not fit on one line at
+   * 98px, so those two labels wrapped to two lines while the other ten stayed on
+   * one. Every control still sat on the same baseline — the inputs were never
+   * misaligned — but the LABEL BAND above them was two heights, and a row whose
+   * headers start at two different y positions reads as crooked even when every
+   * box beneath it is level.
+   *
+   * SO THE ROW BREAKS INSTEAD OF THE FIELDS. Run 1 is what the material IS plus
+   * how it is measured; run 2 is the purchase controls. Every field is `md`
+   * (~196px) except Material (`lg`, the long slashed spec) and Combination
+   * (`xs`, an icon button with no value to show) — so the widths repeat down the
+   * section instead of stepping twelve different ways, which is the "aligned"
+   * the client asked for.
+   *
+   * THE COST IS A SECOND LINE PER MATERIAL, and it is the trade being made
+   * deliberately: this grid was dense on purpose and a long BOM now scrolls
+   * further. Reverting is this array and nothing else — but eleven of the twelve
+   * fields have to lose width again for it, so it is a choice between scrolling
+   * and clipping, not a bug either way.
+   *
+   *   run 1  4+4+6+4+4+4+2+4 = 32
+   *   run 2  4+4+4+4         = 16   (the tail of the form, left-aligned)
+   */
   [
-    { header: "Category", size: "sm", weight: "key" },
-    { header: "Type", size: "xs", weight: "quiet" },
+    { header: "Category", size: "md", weight: "key" },
+    { header: "Type", size: "md", weight: "quiet" },
     { header: "Material", size: "lg", weight: "key" },
-    { header: "Attribute", size: "sm", weight: "key" },
-    { header: "Purchase Uom", size: "xs", weight: "auto" },
-    { header: "Consumption Uom", size: "xs", weight: "auto" },
+    { header: "Attribute", size: "md", weight: "key" },
+    { header: "Purchase Uom", size: "md", weight: "auto" },
+    { header: "Consumption Uom", size: "md", weight: "auto" },
+    // An icon button, not a value — the only field with nothing to clip.
     { header: "Combination", size: "xs", weight: "quiet" },
-    { header: "Supply Type", size: "xs", weight: "plain" },
+    { header: "Supply Type", size: "md", weight: "plain" },
+  ],
+  [
     { header: "Vendor", size: "md", weight: "plain" },
-    { header: "MOQ", size: "xs", weight: "plain" },
-    { header: "Round To", size: "xs", weight: "plain" },
-    { header: "Process", size: "xs", weight: "plain" },
+    { header: "MOQ", size: "md", weight: "plain" },
+    { header: "Round To", size: "md", weight: "plain" },
+    { header: "Process", size: "md", weight: "plain" },
   ],
 ];
 
@@ -1907,7 +1956,29 @@ export function MbaMasterScreen({
       };
       const withExcess = requirementFor(lineInput, sl);
       const base = baseRequirementFor(lineInput, sl);
-      const needs = isRefusal(withExcess) ? 0 : withExcess;
+      /*
+       * A REFUSAL IS NOT ZERO, AND THIS COERCED IT TO ZERO TWICE.
+       *
+       * `requirementFor` refuses an unanswered slice by name — "Enter how many
+       * are used per piece" — and both figures turned that sentence into the
+       * digit 0, which `fmtQty` then printed. So every row of a fresh grid
+       * claimed `0`, `0`, and the `+ Exc` one is the loudest cell on the row
+       * (`font-medium text-info` on `bg-info-soft/40`): the most eye-catching
+       * value in the grid was a number nobody computed.
+       *
+       * The engine says so one line above its own refusal — "0 is not 'no
+       * material needed' … a half-filled one carries 0" — and
+       * `check-bom-slices.mts` asserts "zero is not a figure — a rate of 0 buys
+       * nothing". This was the one place that did not honour it.
+       *
+       * NULL, AND THE RENDER NEEDS NO CHANGE: `fmtQty(null)` already prints an
+       * em dash, which is what `Final` has always shown for this state. A DASH
+       * AND NOT A BLANK, deliberately — LAYOUT.md draws that line at the table
+       * edge: "in a table a dash is right and stays right, because a column of
+       * blanks is ambiguous with a column that failed to load". The blank rule
+       * is for form fields, which have a box saying "a value goes here".
+       */
+      const needs = isRefusal(withExcess) ? null : withExcess;
       const q = isRefusal(withExcess)
         ? null
         : lineQuantity(
@@ -1924,9 +1995,12 @@ export function MbaMasterScreen({
               : undefined,
           );
       return {
-        calc: isRefusal(base) ? 0 : base,
+        calc: isRefusal(base) ? null : base,
         needs,
         final: q && !isRefusal(q) ? q.finalQty : null,
+        /* THE SENTENCE, CARRIED so a cell can say why it is empty rather than
+           leaving three dashes to be read as "nothing needed". */
+        refusal: isRefusal(withExcess) ? withExcess.refused : null,
       };
     };
 
@@ -1939,6 +2013,7 @@ export function MbaMasterScreen({
         calc: f.calc,
         needs: f.needs,
         final: f.final,
+        refusal: f.refusal,
         items: o?.no_of_items != null ? String(o.no_of_items) : "",
         pieces: o?.per_pieces != null ? String(o.per_pieces) : "",
         excess: o?.excess_pct != null ? String(o.excess_pct) : "",

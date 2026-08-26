@@ -67,14 +67,27 @@ export interface BomSliceCell {
    *   calc   the ratio applied to this slice, before any buffer
    *   needs  the same with this row's Excess % — what it actually consumes
    *   final  after the line's MOQ and Round To, which stay per LINE (see below)
+   *
+   * ALL THREE ARE NULLABLE, and `calc` and `needs` became so on 2026-08-26.
+   * They were `number`, and the caller coerced a REFUSAL to 0 to satisfy that —
+   * so an unanswered row printed `0`, `0` as though somebody had computed them.
+   * Null is the honest value and `fmtQty` already renders it as an em dash.
    */
-  calc: number;
-  needs: number;
+  calc: number | null;
+  needs: number | null;
   final: number | null;
   items: string;
   pieces: string;
   /** The wastage buffer for this row (0450) - legacy's per-sub-row Allowance %. */
   excess: string;
+  /**
+   * WHY THIS CELL HAS NO FIGURES, verbatim from `sliceRequirement`, or null when
+   * it has them. Three dashes on their own read as "nothing needed"; the
+   * sentence is what turns them into "not answered yet, and here is what is
+   * missing". Rendered as a `title` rather than as text — the grid has no room
+   * for a sentence per row and `qtyRibbon` already prints one below it.
+   */
+  refusal: string | null;
 }
 
 export interface BomSliceRow {
@@ -386,7 +399,14 @@ export function BomSliceGrid({
                       {row.chosen ? fmtQty(row.cell.calc, decimals) : "—"}
                     </span>
                   </div>
-                  <div className="flex min-h-9 items-center justify-end border-l border-border bg-info-soft/40 px-2">
+                  {/* THE SENTENCE ON THE LOUDEST CELL. Three dashes read as
+                      "nothing needed"; `title` turns them into "not answered
+                      yet, and here is what is missing" without spending a row on
+                      a sentence `qtyRibbon` already prints in full below. */}
+                  <div
+                    className="flex min-h-9 items-center justify-end border-l border-border bg-info-soft/40 px-2"
+                    title={row.chosen ? (row.cell.refusal ?? undefined) : undefined}
+                  >
                     <span className="tabular-nums text-[12.5px] font-medium text-info">
                       {row.chosen ? fmtQty(row.cell.needs, decimals) : "—"}
                     </span>
@@ -420,8 +440,17 @@ export function BomSliceGrid({
                     <div className="flex justify-between gap-1.5 pb-0.5 text-[11px] text-muted-foreground">
                       <span>{c.sizeLabel}</span>
                       {/* Above the box, not in it: it is what the typed figure is
-                          judged against — `approval-qty-lines`' own rule. */}
-                      <span className="tabular-nums opacity-75">{fmtQty(c.needs, decimals)}</span>
+                          judged against — `approval-qty-lines`' own rule.
+
+                          NOTHING WHERE THERE IS NO FIGURE, and this is the one
+                          place the blank rule beats the dash rule: an annotation
+                          has no column to keep aligned, so fourteen dashes in a
+                          strip are noise where fourteen blanks are silence. It
+                          printed a bare `0` until 2026-08-26 — the caller
+                          coerced a refusal to zero and nothing here guarded it. */}
+                      <span className="tabular-nums opacity-75">
+                        {c.needs == null ? "" : fmtQty(c.needs, decimals)}
+                      </span>
                     </div>
                     <div className="flex divide-x divide-border rounded border border-border">
                       <Input
