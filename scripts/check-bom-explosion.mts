@@ -877,5 +877,58 @@ for (const r of CLIENT_GRAIN_MATRIX.filter((x) => x.foldedInto !== undefined)) {
   check(`#${r.sno}'s target is offered`, target?.foldedInto, undefined);
 }
 
+/*
+ * EVERY ATTRIBUTE THE MENU OFFERS MUST REACH A SURFACE.
+ *
+ * The nested Attribute grid — the ONLY place No. of Items and Per Pieces can be
+ * typed since 2026-08-21 — used to be gated on `requirement_basis`, the six-name
+ * legacy alias. `basisForAxes` returns null for every other grain, the gate read
+ * the stored "" as falsy, and the grid returned null: no rows, no caption, no
+ * sentence. SIXTEEN of the twenty-two Attributes were dead that way, and the
+ * screen still demanded the figure they had nowhere to enter.
+ *
+ * So the rule is not "does this grain have a legacy name" — most do not, and that
+ * is fine — but "is there a path that produces rows or NAMES a refusal". Anything
+ * else is a dead end the operator cannot diagnose.
+ *
+ * MADE TO FAIL FIRST by reinstating the old test — a grain with no legacy name
+ * resolving to nothing rather than falling through to `slicesForAxes`. It reports
+ * SIXTEEN dead Attributes, which is 22 minus the six that carry a legacy name
+ * (#1, #2, #6, #7, #9, #14) and is the exact scale of what was broken.
+ *
+ * Eight of those sixteen were the real loss — the five naming `trim_colour`, #8
+ * `Style / Order Size`, #16 `Country / Country Size` and the ninth grain: all
+ * PRODUCIBLE, all silently unusable. The other eight (the four
+ * `colour`-without-`style` rows and the four remaining `pack` rows) are refused
+ * either way, and legitimately, because they refuse BY NAME — which is the whole
+ * distinction this vector draws.
+ */
+for (const row of [
+  ...menuRows().map((r) => ({ what: `#${r.sno} "${r.label}"`, axes: r.axes })),
+  ...EXTRA_SERVED.map((e) => ({ what: "the ninth grain", axes: e.axes })),
+]) {
+  const out = basisForAxes(row.axes)
+    ? productionSlices(basisForAxes(row.axes) as RequirementBasis, ORDER)
+    : slicesForAxes(row.axes, ORDER);
+  /* ROWS OR A SENTENCE — never null, never silence. */
+  const reaches = isRefusal(out) ? out.refused.length > 10 : out.length > 0;
+  check(`${row.what} reaches a surface`, reaches, true);
+}
+
+/* AND THE NAMELESS ONES REALLY DO PRODUCE — the half the old gate killed. Named
+   individually rather than counted, because a count is satisfied by the wrong
+   set, and these eight are the exact Attributes that were dead. */
+for (const axes of [
+  ["trim_colour"],
+  ["style_ref", "trim_colour"],
+  ["style_ref", "size"],
+  ["size", "country"],
+  ["style_ref", "colour", "size", "country"],
+] as Axis[][]) {
+  check(`${labelFor(axes)} has no legacy name`, basisForAxes(axes), null);
+  const out = slicesForAxes(axes, ORDER);
+  check(`...and still produces rows`, isRefusal(out) ? 0 : out.length > 0, true);
+}
+
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

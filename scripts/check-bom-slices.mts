@@ -923,6 +923,53 @@ check(
   2,
 );
 
+
+/*
+ * THE THREE CALLERS MUST CROSS THE SAME WAY.
+ *
+ * `crossCombinations` has three readers — `requirementRows` on the server, the
+ * screen's nested Attribute grid, and the screen's line totals. Each builds slices
+ * for the same line, so any one of them skipping the crossing puts a different
+ * number in front of the operator from the one that is stored.
+ *
+ * BOTH DIRECTIONS HAVE NOW HAPPENED. The screen's GRID crossed while the server
+ * did not, so a typed combination figure never reached storage (screen 2,000,
+ * stored 1,000). That was fixed on the server — and the screen's TOTALS still did
+ * not cross, so the mirror image appeared: the save held 2,000 while the ribbon
+ * showed 1,000.
+ *
+ * This asserts the arithmetic all three must agree on, so a caller that forgets is
+ * a failing check rather than a figure nobody can reconcile.
+ *
+ * MADE TO FAIL FIRST by dropping the crossing from either side: the uncrossed
+ * total is 1 row at the line's own rate, the crossed total is one row per name at
+ * each name's own rate.
+ */
+const twoParts = combinationNames([{ combination: "TOP" }, { combination: "BOT" }]);
+const wholeOrder = [{ combo: null, size_id: null, country_id: null, style_ref_no: null }];
+
+check("two names turn one whole-order row into two", crossCombinations(wholeOrder, twoParts).length, 2);
+/* AND EACH CARRIES ITS OWN TYPED RATE — the point of crossing at all. TOP was
+   typed 3, BOT 1, and the line's own rate is 2. */
+const partRates = toOverrides([
+  { combination: "TOP", no_of_items: 3, per_pieces: 1 },
+  { combination: "BOT", no_of_items: 1, per_pieces: 1 },
+]);
+check(
+  "...and each resolves its own figure, not the line's",
+  crossCombinations(wholeOrder, twoParts).map(
+    (sl) => consumptionFor({ no_of_items: 2, per_pieces: 1 }, partRates, sl).no_of_items,
+  ),
+  [3, 1],
+);
+/* THE UNCROSSED READING, stated so the two numbers sit beside each other: one row
+   at the line's rate. 1 x 2 = 2 against the crossed 3 + 1 = 4, which on a 500-piece
+   order is 1,000 against 2,000 — the figures both bugs produced. */
+check(
+  "an uncrossed row answers with the line's rate alone",
+  wholeOrder.map((sl) => consumptionFor({ no_of_items: 2, per_pieces: 1 }, partRates, sl).no_of_items),
+  [2],
+);
 console.log(
   failed === 0
     ? "\nOK — every BOM slice vector holds."

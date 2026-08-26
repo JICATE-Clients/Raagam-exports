@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
 import {
@@ -1344,15 +1345,23 @@ export function MbaMasterScreen({
    * order is actually checked against: same store, same reading, same answer,
    * the invariant this loop states twice above.
    *
-   * WHAT IS STILL WRONG, AND IS NOT FIXED HERE: neither side crosses its slices
-   * by combination, so the figures typed in the Combination grid reach nothing.
-   * `sliceKey` carries `combination` (0463) while this loop iterates RAW
-   * `productionSlices`, which mention none — so `consumptionFor` matches no
-   * combination row and falls back to the line, exactly as `requirementRows` in
-   * actions.ts does. Crossing them HERE alone would make the screen print 2,000
-   * beside a stored 1,000, which is worse than both being 1,000: the screen
-   * would be showing a number nothing is checked against. It needs the screen
-   * and the server changed together and is written up for that lane.
+   * WHAT WAS STILL WRONG HERE IS NOW FIXED, AND THE WARNING ABOVE IT EARNED ITS
+   * KEEP. This block used to end: "neither side crosses its slices by combination
+   * ... crossing them HERE alone would make the screen print 2,000 beside a stored
+   * 1,000, which is worse than both being 1,000: the screen would be showing a
+   * number nothing is checked against. It needs the screen and the server changed
+   * together."
+   *
+   * The server was taught first (`requirementRows`, actions.ts) and this loop was
+   * not — so the predicted divergence happened in the mirror image: the SAVE held
+   * 2,000 and this ribbon showed 1,000. Both cross now, through the one
+   * `crossCombinations` in `slice-consumption.ts` that `sliceGrid` also calls, so
+   * there is no longer a side to change alone.
+   *
+   * The lesson the old paragraph was right about stands: crossing is not a screen
+   * decision or a server decision, it is the definition of what a slice IS once
+   * `sliceKey` carries `combination` (0463). Any future caller that builds slices
+   * and skips the crossing re-opens this by itself.
    */
 
   /**
@@ -1554,13 +1563,73 @@ export function MbaMasterScreen({
    * disagree, and `qtyRibbon` prints that sentence in full below.
    */
   const sliceGrid = (r: ItemRow) => {
-    if (!orderProd || !r.requirement_basis) return null;
-    const basis = r.requirement_basis as RequirementBasis;
+    if (!orderProd) return null;
+
+    /*
+     * ## IT RESOLVES FROM THE GRAIN, AND GATING ON THE LEGACY BASIS WAS A DEAD END
+     *
+     * This read `if (!r.requirement_basis) return null`, and `requirement_basis` is
+     * NOT the Attribute — it is the six-name legacy alias, written by the Attribute
+     * `<Select>` as `basisForAxes(picked) ?? ""`. `basisForAxes` resolves only the
+     * six sets in `BASIS_AXES`, so EVERY OTHER GRAIN STORED `""`, the gate read it
+     * as falsy, and this function returned null: no grid, no caption, no sentence.
+     *
+     * That is the surface where No. of Items and Per Pieces are typed — they left
+     * the Items row on 2026-08-21 and exist nowhere else. So picking one of those
+     * Attributes produced a screen that DEMANDS a figure and offers nowhere to put
+     * it: the yellow "Enter how many are used per piece" from `sliceRequirement`,
+     * permanently, with no box on the page (client 2026-08-26, screenshots 2499 /
+     * 2501).
+     *
+     * SIXTEEN OF THE TWENTY-TWO ATTRIBUTES WERE DEAD THIS WAY — every grain naming
+     * `trim_colour` (the five "Combination" rows), `Style / Order Size`,
+     * `Country / Country Size`, and the retained ninth grain. Only #1, #2, #6, #7,
+     * #9 and #14 have a legacy name and therefore ever drew. It predates "enable
+     * all" and that change made it visible by adding five nameless rows.
+     *
+     * THE ANSWER WAS ALREADY WRITTEN TWICE and neither copy was read from here:
+     * `lineTotals` below does exactly this, and so does `requirementRows` on the
+     * server. Both resolve the grain, try for a legacy name, and fall back to
+     * `slicesForAxes` when there is none.
+     */
+    const grain: Axis[] | null =
+      r.requirement_grain ??
+      (r.requirement_basis ? axesOfBasis(r.requirement_basis as RequirementBasis) : null);
+    /* THE ONE SILENT RETURN LEFT, and it is silent because the line has answered
+       NOTHING: the Requirement section already refuses it by name ("Choose how this
+       material splits") and the Attribute cell carries a red `*`. A second sentence
+       here would say the same thing twice about a field one cell away. */
+    if (!grain) return null;
+
+    const asBasis = basisForAxes(grain);
+    /* ONE TEST, THREE READERS — the row label, the column head and nothing else may
+       ask "which axis is this grain keyed on". Written once so the head cannot come
+       to name a column the label does not fill. */
+    const grainNames = (a: Axis) => grain.includes(a);
     const flags = sliceFlagsOf(r);
 
-    const primaryRaw = productionSlices(basis, orderProd);
+    const primaryRaw = asBasis
+      ? productionSlices(asBasis, orderProd)
+      : slicesForAxes(grain, orderProd);
+    /* A REFUSAL DRAWS NOTHING, and that is checked rather than assumed: `qtyRibbon`
+       renders `t.refusal` in full immediately after this grid, so the operator gets
+       the sentence and not a gap.
+
+       THE LENGTH TEST IS UNREACHABLE TODAY. Every branch of the engine either
+       yields at least one row or refuses — verified across `primarySlices`,
+       `expandBySize` and `refineByCountry`. It stays as a guard, and is written
+       down as dead so a later reader does not treat "no rows, no refusal" as a
+       live state worth designing for. */
     if (isRefusal(primaryRaw) || primaryRaw.length === 0) return null;
-    const expandedRaw = productionSlices(basis, orderProd, undefined, flags.sizeWise);
+
+    /* THE TICK GOES ONLY TO A NAMED BASIS, which is the server's rule verbatim: the
+       0449 size tick is per ROW and can be MIXED across a grain, and an axis set is
+       all-or-nothing by construction, so routing a composed grain through the
+       predicate would silently drop a shipped feature. A nameless grain has never
+       had per-row ticks, so there is nothing to expand and `primaryRaw` stands. */
+    const expandedRaw = asBasis
+      ? productionSlices(asBasis, orderProd, undefined, flags.sizeWise)
+      : primaryRaw;
 
     /*
      * THE COMBINATION IS A SECOND AXIS, CROSSED WITH THE ATTRIBUTE'S (0463).
@@ -1867,12 +1936,17 @@ export function MbaMasterScreen({
         /* Its own column, never folded into `label` — the label is the AXIS
            value and this is a second axis crossed with it. */
         combination: sl.combination,
-        label:
-          basis === "style"
-            ? (sl.style_ref_no ?? sl.label)
-            : basis === "colour"
-              ? (sl.combo ?? sl.label)
-              : sl.label,
+        /* KEYED OFF THE GRAIN, not the legacy basis, so a composed grain names its
+           rows the same way its named cousin does. `{style_ref}` and
+           `{style_ref, trim_colour}` are one style column either way; reading the
+           basis meant a nameless grain silently fell through to `sl.label`. The
+           STYLE test comes first for the same reason it did before: a grain naming
+           both style and colour is keyed on the style. */
+        label: grainNames("style_ref")
+          ? (sl.style_ref_no ?? sl.label)
+          : grainNames("colour")
+            ? (sl.combo ?? sl.label)
+            : sl.label,
         chosen: o?.chosen ?? true,
         sizeWise: ticked,
         specification: o?.specification ?? "",
@@ -1887,14 +1961,17 @@ export function MbaMasterScreen({
       };
     });
 
-    const axisHead =
-      basis === "style"
-        ? "Style"
-        : basis === "colour"
-          ? "Colour"
-          : basis === "country"
-            ? "Country"
-            : "Scope";
+    /* SAME ORDER AS `label` ABOVE, and it has to be: the head names the column the
+       label fills, so testing the axes in a different order would title a column of
+       style refs "Colour". "Scope" stays the fallback — it is what the whole-order
+       row ("Whole order") and a country-less composed grain both need. */
+    const axisHead = grainNames("style_ref")
+      ? "Style"
+      : grainNames("colour")
+        ? "Colour"
+        : grainNames("country")
+          ? "Country"
+          : "Scope";
 
     const caption = (
       <button
@@ -1912,7 +1989,12 @@ export function MbaMasterScreen({
           <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         )}
         <span>
-          {REQUIREMENT_BASIS_LABELS[basis]} &mdash; {rows.length} row
+          {/* THE ATTRIBUTE'S OWN NAME, through the same `grainLabel` the Attribute
+              cell and the Combination sheet header read. It was
+              `REQUIREMENT_BASIS_LABELS[basis]`, which is undefined for a composed
+              grain — so a caption that survived the old gate would have printed
+              nothing where its name belongs. One vocabulary, one lookup. */}
+          {grainLabel(grain)} &mdash; {rows.length} row
           {rows.length === 1 ? "" : "s"}
         </span>
         {/* NAMES THE ROW rather than just refusing. A control that will not close
@@ -2894,11 +2976,29 @@ export function MbaMasterScreen({
       const allSlices = rowBasis
         ? productionSlices(rowBasis, orderProd, undefined, rowFlags.sizeWise)
         : slicesForAxes(rowGrain, orderProd);
+      /*
+       * CROSSED BY THE LINE'S COMBINATION NAMES, exactly as the server crosses and
+       * as `sliceGrid` crosses — one derivation, three readers.
+       *
+       * This loop did NOT cross, and once `requirementRows` learned to, the two
+       * disagreed in the direction that hides: a line with two combination names
+       * SAVED two requirement rows while this ribbon totalled one. That is the same
+       * screen-says-one-thing-storage-says-another shape the crossing was added to
+       * close, arriving from the other side because only one of the two callers was
+       * taught. Both are taught now, and `crossCombinations` is the single function
+       * all three go through.
+       *
+       * BEFORE THE `chosen` FILTER, because a crossed row inherits its parent's tick
+       * — the combination is a second axis ON the slice, not a slice of its own.
+       */
+      const crossed = isRefusal(allSlices)
+        ? allSlices
+        : crossCombinations(allSlices, combinationNames(r.combinations));
       /* UNTICKED ROWS ARE DROPPED HERE TOO, and that is not a nicety: the server
          omits them from the stored requirement, so a screen that still counted
          them would show a Final Quantity the purchase order is never checked
          against. Same store, same reading, same answer. */
-      const slices = isRefusal(allSlices) ? allSlices : allSlices.filter(rowFlags.chosen);
+      const slices = isRefusal(crossed) ? crossed : crossed.filter(rowFlags.chosen);
       if (isRefusal(slices)) {
         push({ refusal: slices.refused });
         totals.set(r.key, {
@@ -3764,11 +3864,27 @@ export function MbaMasterScreen({
        * never trip `writeChildren`'s refusal to drop a row already dispatched
        * under a delivery challan.
        *
-       * A RAW `<input type="checkbox">` because this repo has no Checkbox
-       * primitive; every tick in it is written this way. `accent-primary` and
-       * `h-4 w-4` are the house metrics (`packing-advice-screen.tsx`'s
-       * "Mult. Pack" is the closest twin); the slice grid one level down uses a
-       * smaller `TICK` because it is denser, which this row is not.
+       * IT IS A `<Toggle>`, NOT A RAW TICK (client 2026-08-25: make it read as a
+       * yes/no question). This comment used to say "a raw `<input
+       * type="checkbox">` because this repo has no Checkbox primitive" — that
+       * was true when it was written and stopped being true when
+       * `components/ui/toggle.tsx` landed for the Garment Order header, where
+       * Pack and Multi Style are the same shape of answer. A switch "carries its
+       * state in its shape and its colour", where a tick makes the eye find the
+       * box and then read the word; on a row of twenty cells that is the whole
+       * difference between scanning and reading.
+       *
+       * NOTHING ABOUT THE KEYS CHANGED, and that is why the swap is cheap:
+       * `Toggle` is a real `<input type="checkbox">` underneath (`sr-only`, with
+       * the switch drawn by its siblings) precisely so `isFieldLike` still
+       * matches it. A `<button role="switch">` would have been skipped by Tab,
+       * by Enter-advance and by the grid arrows.
+       *
+       * THE HEADER STAYS THE ONE WORD. The client's phrasing in the recording
+       * was "Use Process" / "Use Piece Process"; the 08-26 instruction that
+       * renamed it asked only that it "read as a yes-or-no about a process", and
+       * with a switch in the cell it now does. A three-word header on an `xs`
+       * cell wraps, and the fuller question is on the control's `ariaLabel`.
        *
        * IT STAYS ON THE KEYBOARD AXIS. `ROW_FIELDS` counts a checkbox on purpose
        * (`child-grid.tsx`, client 2026-07-28 — excluding one made every arrow key
@@ -3803,12 +3919,10 @@ export function MbaMasterScreen({
       align: "center",
       className: "min-w-[5rem]",
       cell: (r) => (
-        <input
-          type="checkbox"
-          className="h-4 w-4 rounded border-border accent-primary"
-          aria-label="Needs a process — send this material out for dyeing, washing or printing"
+        <Toggle
+          ariaLabel="Needs a process — send this material out for dyeing, washing or printing"
           checked={r.send_out}
-          onChange={(e) => updItem(r.key, { send_out: e.target.checked })}
+          onChange={(send_out) => updItem(r.key, { send_out })}
         />
       ),
     },
@@ -3963,34 +4077,34 @@ export function MbaMasterScreen({
 
   /**
    * LEGACY'S FIVE ON ONE LINE (client 2026-08-24: "make the 5 field in single
-   * row in process").
+   * row in process") — NOW THREE, see the Descriptions/Notes removal below.
    *
    * THE ROW MUST SUM TO THE TRACK, which is `FieldGrid`'s house 12 — under-fill
    * it and the last field drops to a line of its own, which is the de-clutter
-   * rule's "defect that ships". `FIELD_SPAN` maps xs=2, sm=3, so:
+   * rule's "defect that ships". `FIELD_SPAN` maps xs=2, sm=3, md=4, lg=6, so:
    *
-   *     Stage 2 + Process 3 + Descriptions 3 + Loss % 2 + Notes 2  = 12
+   *     Stage 3 + Process 6 + Loss % 3  = 12
    *
-   * The width goes to the two that hold phrases — a process name ("TRIMS
-   * DYEING") and a description — while Stage, Loss % and Notes take the narrow
-   * slot. Notes is the compromise: it is free text and would happily take more,
-   * but a sixth column's worth of room has to come from somewhere and the two
-   * above it are the ones an operator reads to identify the row.
+   * The width goes to the one that holds a phrase — a process name ("TRIMS
+   * DYEING"). **Loss % is `sm` and not the `xs` a bare percentage would want**
+   * because its cell carries the loss CONFIGURATION opener beside the number;
+   * at `xs` the button and the figure share ~70px and the box stops being
+   * typeable. Narrowing it back is only safe if that opener goes too.
    *
-   * THE ORPHAN BUCKET CARRIES SIX, so it cannot use these numbers: it also shows
-   * Material, the only way to put a stranded row back on a material that still
-   * exists. Six fields at xs is 12 exactly, so that case is uniform instead —
-   * one rule per shape rather than one shape squeezed to fit the other's.
+   * THE ORPHAN BUCKET CARRIES FOUR, so it cannot use these numbers: it also
+   * shows Material, the only way to put a stranded row back on a material that
+   * still exists. Four fields at sm is 12 exactly, so that case is uniform
+   * instead — one rule per shape rather than one shape squeezed to fit the
+   * other's. **Both numbers moved when the two columns went**; changing the
+   * column list without re-deriving both is how the last cell wraps.
    */
   const PROC_ROW_SPAN: Record<string, FieldSize> = {
-    Stage: "xs",
-    Process: "sm",
-    Descriptions: "sm",
-    "Loss %": "xs",
-    Notes: "xs",
+    Stage: "sm",
+    Process: "lg",
+    "Loss %": "sm",
   };
   const procFieldSize = (header: string, withMaterial: boolean): FieldSize =>
-    withMaterial ? "xs" : (PROC_ROW_SPAN[header] ?? "xs");
+    withMaterial ? "sm" : (PROC_ROW_SPAN[header] ?? "sm");
 
   const procColumns: ChildGridColumn<ProcRow>[] = [
     /* THE SIX LIFECYCLE CELLS CAME OUT (client 2026-08-24: "just maintain the
@@ -4094,21 +4208,28 @@ export function MbaMasterScreen({
        (2026-08-20) and Purchase Pack (2026-08-21), and each says so.
 
        Restoring it is this block again — nothing downstream has to change. */
-    {
-      header: "Descriptions",
-      className: "min-w-[150px]",
-      /* Legacy's cell reads "Click", which in that UI usually opens a
-         sub-dialog. Until that dialog has been seen this holds the text
-         directly, which is the honest floor: whatever it turns out to summarise,
-         nothing stored here has to be undone. */
-      cell: (r) => (
-        <Input
-          value={r.description}
-          onChange={(e) => updProc(r.key, { description: e.target.value })}
-          className="h-8"
-        />
-      ),
-    },
+    /* DESCRIPTIONS AND NOTES CAME OFF THE GRID (client 2026-08-25, the recording
+       after the one that added them): "remove both fields completely — operators
+       entering trims at high speeds never use free-text notes, and they only add
+       horizontal clutter to an already dense grid."
+
+       THIS REVERSES 0465, APPLIED THE DAY BEFORE on the same client's "keep the
+       lifecycle and add legacy's five fields nested". The later instruction
+       wins, and both are recorded rather than one being tidied away — the
+       argument for legacy parity is real and will be made again.
+
+       DESCRIPTION IS NOT GONE, IT MOVED. The same instruction says a descriptive
+       field belongs inside the LOSS configuration, naming the contract class
+       (contract dyeing, logo engraving) — so it is reached from the Loss % cell
+       below rather than standing as a column of its own.
+
+       THE COLUMNS WENT, THE FIELDS STAYED — the fourth time on this screen
+       (`for_scope`, the six lifecycle cells, Combination, and now these). Both
+       are still in `ProcRow`, `blankProc`, both load paths, the copy and
+       `mbaProcessInput`, and 0465's columns are untouched. That is not tidiness
+       deferred: `writeChildren` DELETES AND REINSERTS every process row, so a
+       value the form stops CARRYING is a value the next ordinary save DESTROYS.
+       Restoring either cell is one block; nothing downstream has to change. */
     {
       header: "Loss %",
       align: "right",
@@ -4132,18 +4253,6 @@ export function MbaMasterScreen({
         />
       ),
     },
-    {
-      header: "Notes",
-      className: "min-w-[160px]",
-      cell: (r) => (
-        <Input
-          value={r.notes}
-          onChange={(e) => updProc(r.key, { notes: e.target.value })}
-          className="h-8"
-        />
-      ),
-    },
-
   ];
 
   const reqColumns: Column<ReqRow>[] = [
