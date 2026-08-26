@@ -55,6 +55,7 @@ import {
   CLIENT_GRAIN_MATRIX,
   COMBINATION_LOCKED_HINT,
   COMBINATION_UNLOCKED_HINT,
+  menuRows,
   EXTRA_SERVED,
   clientLabelFor,
   namesCombination,
@@ -3452,29 +3453,49 @@ export function MbaMasterScreen({
                 and it is the only reason enabling these is not a way to ship a
                 wrong number. Do not re-enable anything here without checking
                 that the grain still refuses rather than collapsing. */}
-            {CLIENT_GRAIN_MATRIX.map((row) => {
-              const ours = labelFor(row.axes);
-              /* OUR NAME RIDES ALONG WHERE IT DIFFERS. The read-only Attribute
-                 cell and the Combination sheet header both render `labelFor`,
-                 so the client's wording alone would put two names for one grain
-                 on one screen — the drift this module refuses for labels. */
-              const suffix = ours === row.label ? "" : ` (${ours})`;
-              return (
-                <option key={`c${row.sno}`} value={asValue(row.axes)}>
-                  {`${row.label}${suffix}`}
+            {/*
+              ONE LIST, DE-DUPLICATED BY VALUE — and it has to be built rather
+              than concatenated from three maps.
+
+              A `<Select>` here renders through `Combobox`, which keys its rows
+              by OPTION VALUE. Three sources fed this menu — the client's 22, the
+              ninth grain, and a stored grain the menu no longer offers — and any
+              two of them can name the SAME grain. #18 "Pack" and #19 "Pack Ref
+              No" are both {pack}, so React reported *"two children with the same
+              key, `g:pack`"* and warned that children may be duplicated or
+              omitted: a menu that can silently drop or swap a row, which is how
+              a click lands on an Attribute nobody chose (client 2026-08-26).
+
+              The `extra` tail could collide the same way and was one stored
+              `{pack}` away from doing it — it tested `offered`, which is
+              `producibleGrains()` and does NOT contain the client's refusing
+              rows. Building one keyed list makes the whole class impossible
+              instead of fixing the one instance that was reported.
+
+              LABELS ARE THE CLIENT'S ALONE. The engine's name used to ride along
+              in brackets — "Order No (Whole order)" — and the client had it
+              removed; the read-only cell and the sheet header now resolve the
+              same name through `grainLabel`, so there is nothing left to
+              disagree with.
+            */}
+            {(() => {
+              const seen = new Set<string>();
+              const opts: { value: string; label: string }[] = [];
+              const push = (axes: readonly Axis[], label: string) => {
+                const value = asValue(axes as Axis[]);
+                if (seen.has(value)) return;
+                seen.add(value);
+                opts.push({ value, label });
+              };
+              for (const row of menuRows()) push(row.axes, row.label);
+              for (const e of EXTRA_SERVED) push(e.axes, grainLabel(e.axes));
+              for (const g of extra) push(g, grainLabel(g));
+              return opts.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
-              );
-            })}
-            {EXTRA_SERVED.map((e) => (
-              <option key={asValue(e.axes)} value={asValue(e.axes)}>
-                {grainLabel(e.axes)}
-              </option>
-            ))}
-            {extra.map((g) => (
-              <option key={asValue(g)} value={asValue(g)}>
-                {grainLabel(g)}
-              </option>
-            ))}
+              ));
+            })()}
           </Select>
         );
       },

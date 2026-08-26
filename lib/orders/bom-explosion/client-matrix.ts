@@ -119,6 +119,26 @@ export type ClientGrainRow = {
    * five of the client's 22 pair off with five others this way.
    */
   downstream?: boolean;
+  /**
+   * THE S.No OF THE ROW THIS ONE IS THE SAME GRAIN AS — so it is NOT offered.
+   *
+   * The client's list distinguishes "Pack" from "Pack Ref No"; this schema has
+   * ONE `pack` axis and no pack-TYPE axis, so both mean `{pack}` and both
+   * serialize to the same option value. Two options with one value is not a
+   * cosmetic problem: the menu is keyed by value, so React reported
+   * *"Encountered two children with the same key, `g:pack`"* and warns that
+   * children may be **duplicated or omitted** — which is how a click on one
+   * option can land on another, several rows away.
+   *
+   * So the duplicate is folded rather than listed, and the row stays in the
+   * matrix because the client's list has it and because the moment `pack` gains
+   * a real column these are the two rows to split apart.
+   *
+   * Reported by the client 2026-08-26 with the console error attached, after I
+   * documented the collision as harmless and did not act on it. It was not
+   * harmless: nothing that makes a menu drop or swap its rows is.
+   */
+  foldedInto?: number;
 };
 
 /**
@@ -157,7 +177,7 @@ export const CLIENT_GRAIN_MATRIX: ClientGrainRow[] = [
   { sno: 15, label: "Country / Order Color", axes: ["colour", "country"], blocked: "colour_needs_style" },
   { sno: 16, label: "Country / Country Size", axes: ["size", "country"], blocked: null },
   { sno: 17, label: "Country / Order Color / Order Size", axes: ["colour", "size", "country"], blocked: "colour_needs_style" },
-  { sno: 18, label: "Pack", axes: ["pack"], blocked: "pack_no_data" },
+  { sno: 18, label: "Pack", axes: ["pack"], blocked: "pack_no_data", foldedInto: 19 },
   { sno: 19, label: "Pack Ref No", axes: ["pack"], blocked: "pack_no_data" },
   { sno: 20, label: "Pack Ref No / Order Color", axes: ["colour", "pack"], blocked: "pack_no_data" },
   { sno: 21, label: "Pack Ref No / Order Size", axes: ["size", "pack"], blocked: "pack_no_data" },
@@ -262,3 +282,19 @@ export const COMBINATION_LOCKED_HINT =
  *  that a button three cells along has just become live. */
 export const COMBINATION_UNLOCKED_HINT =
   "Combination is on — use the Combination button on this row to map panel colours";
+
+/**
+ * THE ROWS THE ATTRIBUTE MENU ACTUALLY OFFERS.
+ *
+ * The matrix minus the folded duplicates. A function rather than a note on the
+ * screen, because "remember to skip #18" is exactly the kind of rule that
+ * survives one reader: the menu is keyed by option value, and two rows sharing a
+ * value made React report `g:pack` twice and warn that children may be
+ * duplicated or omitted — a menu that can silently drop or swap a row.
+ *
+ * `check-bom-explosion` asserts that what this returns has no repeated value, so
+ * a future collision fails a check instead of a dropdown.
+ */
+export function menuRows(): ClientGrainRow[] {
+  return CLIENT_GRAIN_MATRIX.filter((r) => r.foldedInto === undefined);
+}

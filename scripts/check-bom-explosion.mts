@@ -38,6 +38,7 @@ import {
 import {
   CLIENT_GRAIN_MATRIX,
   COMBINATION_LOCKED_HINT,
+  menuRows,
   COMBINATION_UNLOCKED_HINT,
   EXTRA_SERVED,
   namesCombination,
@@ -836,6 +837,45 @@ check("...nor does an empty one", namesCombination([]), false);
 refute("the two hints are not the same sentence", COMBINATION_LOCKED_HINT, COMBINATION_UNLOCKED_HINT);
 check("the locked hint names the thing to pick", COMBINATION_LOCKED_HINT.includes("Combination"), true);
 check("the unlocked hint names the button", COMBINATION_UNLOCKED_HINT.includes("button"), true);
+
+/*
+ * THE MENU'S OPTION VALUES MUST BE UNIQUE.
+ *
+ * A `<Select>` renders through `Combobox`, which keys its rows by option VALUE.
+ * Two rows naming one grain therefore produce two children with one key, and
+ * React's own warning says such children may be *duplicated or omitted* — a menu
+ * that can silently drop or swap a row, which is how a click lands on an
+ * Attribute nobody chose. Reported by the client 2026-08-26 with the console
+ * error attached: `g:pack`, from #18 "Pack" and #19 "Pack Ref No", which this
+ * file had already documented as a harmless collision. It was not harmless.
+ *
+ * MADE TO FAIL FIRST by clearing #18's `foldedInto`, which reports g:pack twice.
+ */
+const menuValues = menuRows().map((r) => serializeAxes(r.axes));
+check("no two offered rows share a grain", new Set(menuValues).size, menuValues.length);
+/* AND THE NINTH GRAIN DOES NOT COLLIDE WITH ONE EITHER — it is appended to the
+   same list from a different source, which is exactly how the first collision
+   arrived. */
+const withExtra = [...menuValues, ...EXTRA_SERVED.map((e) => serializeAxes(e.axes))];
+check("...nor with the ninth grain", new Set(withExtra).size, withExtra.length);
+
+/* A FOLDED ROW IS STILL IN THE MATRIX, and still means what it meant. Folding is
+   a MENU decision: the row keeps its axes so a stored value still resolves, and
+   keeps its S.No so "#18" still names something. */
+check("one row is folded away", CLIENT_GRAIN_MATRIX.length - menuRows().length, 1);
+for (const r of CLIENT_GRAIN_MATRIX.filter((x) => x.foldedInto !== undefined)) {
+  const target = CLIENT_GRAIN_MATRIX.find((x) => x.sno === r.foldedInto);
+  check(`#${r.sno} folds into a row that exists`, !!target, true);
+  /* AND INTO ONE THAT MEANS THE SAME THING. Folding a row into a DIFFERENT grain
+     would hide an option and silently redirect anyone looking for it. */
+  check(
+    `#${r.sno} folds into the same grain`,
+    serializeAxes(target?.axes ?? []),
+    serializeAxes(r.axes),
+  );
+  /* THE TARGET IS NOT ITSELF FOLDED, or both vanish from the menu. */
+  check(`#${r.sno}'s target is offered`, target?.foldedInto, undefined);
+}
 
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
