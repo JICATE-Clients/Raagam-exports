@@ -684,19 +684,31 @@ check(
 /* EVERY ROW ANSWERS, one way or the other. A row with neither a grain nor a
    reason is the state that file exists to make impossible - it reads as
    "handled" in a table and does nothing on screen. */
+/* EVERY ROW IS EXPRESSIBLE. Since "enable all" every row carries real axes —
+   `blocked` now says whether the engine can BUILD it, not whether it can be
+   named. A row with no axes could not be stored at all, so the menu would
+   accept the click and write NULL. */
 check(
-  "no row is left unanswered",
-  CLIENT_GRAIN_MATRIX.filter((r) => r.axes === null && r.blocked === null).length,
+  "every row carries real axes",
+  CLIENT_GRAIN_MATRIX.filter((r) => !Array.isArray(r.axes)).length,
   0,
 );
-check(
-  "and no row claims both a grain and a blocker",
-  CLIENT_GRAIN_MATRIX.filter((r) => r.axes !== null && r.blocked !== null).length,
-  0,
-);
+/* AND EVERY ROW'S AXES ARE AXES. A typo here compiles (the array is typed) but
+   `parseAxes` would refuse the stored value on the way back. */
+for (const r of CLIENT_GRAIN_MATRIX) {
+  check(
+    `#${r.sno} names only real axes`,
+    r.axes.every((a) => (AXES as readonly string[]).includes(a)),
+    true,
+  );
+}
 
-check("eight of the client's rows are served", servedRows().length, 8);
-check("...and fourteen are blocked", blockedRows().length, 14);
+check("thirteen of the client's rows produce", servedRows().length, 13);
+check("...and nine refuse", blockedRows().length, 9);
+/* FIVE OF THE THIRTEEN CARRY `trim_colour` and produce their base grain's rows.
+   Counted so that reclassifying one back to "blocked" — the mistake this file
+   already made once — fails here rather than silently removing an option. */
+check("five produce via the line, not the order", CLIENT_GRAIN_MATRIX.filter((r) => r.downstream).length, 5);
 
 /* EVERY BLOCKED ROW SAYS SOMETHING OF ITS OWN. A refusal that does not name its
    cause sends the operator to the wrong screen. */
@@ -709,18 +721,49 @@ for (const r of blockedRows()) {
    first: a plan removed from `PLANS` leaves this table pointing at a grain
    nothing can build, and the screen would offer it. */
 const producibleKeys = new Set(producibleGrains().map((g) => serializeAxes(g)));
+/* COMPARED AT ORDER LEVEL, because that is the grain the engine plans by.
+   `trim_colour` is stripped by `orderAxesOf` on its way in (asserted in §9), so
+   testing the raw axes would fail all five `downstream` rows and read as five
+   missing options. */
 for (const r of servedRows()) {
   check(
     `#${r.sno} "${r.label}" is a grain the engine produces`,
-    producibleKeys.has(serializeAxes(r.axes as Axis[])),
+    producibleKeys.has(serializeAxes(orderAxesOf(r.axes))),
     true,
   );
 }
 
+/*
+ * THE ASSERTION THAT MAKES "ENABLE ALL" SAFE.
+ *
+ * Every row the matrix calls blocked must REFUSE when the engine is asked for
+ * it — not return rows. A refusal prints a sentence the operator can act on; a
+ * silent collapse to a coarser grain returns a smaller row count and a total
+ * that looks entirely correct, which is the partial-explosion failure
+ * `requirement.ts` opens its header with.
+ *
+ * MADE TO FAIL FIRST, and it genuinely did: before `compose.ts` learned to
+ * refuse a dropped axis, `["trim_colour"]` PRODUCED 1 ROW rather than refusing,
+ * because `orderAxesOf` stripped the token and matched the whole-order plan.
+ * Five of the client's rows would have shipped that number.
+ */
+/* THE FULL FIXTURE §4 ALREADY BUILDS — a real order with combos, sizes,
+   approvals and countries. Asking these grains of an EMPTY order would prove
+   nothing: everything refuses for want of data, so the collapse this guards
+   against would hide inside a refusal that happens to be right. */
+for (const r of blockedRows()) {
+  const out = slicesForAxes(r.axes, ORDER);
+  check(`#${r.sno} "${r.label}" REFUSES rather than collapsing`, isRefusal(out), true);
+}
+
 /* NO TWO SERVED ROWS ARE THE SAME GRAIN. Two client rows resolving to one grain
    would put one option in the dropdown twice under two names. */
-const servedKeys = servedRows().map((r) => serializeAxes(r.axes as Axis[]));
-check("no two served rows collapse onto one grain", new Set(servedKeys).size, servedKeys.length);
+const servedKeys = servedRows().map((r) => serializeAxes(orderAxesOf(r.axes)));
+/* THE FIVE `downstream` ROWS DELIBERATELY DUPLICATE five others at order level —
+   #10 "Style / Combination" plans exactly what #6 "Style" plans. So the distinct
+   count is 13 - 5 = 8, and asserting THAT rather than uniqueness is what keeps
+   the duplication intentional instead of merely tolerated. */
+check("the thirteen cover eight distinct order grains", new Set(servedKeys).size, 8);
 
 /* THE ENGINE SERVES NINE AND THE CLIENT NAMED EIGHT - and the ninth is kept.
    `producibleGrains()` must be EXACTLY the served rows plus `EXTRA_SERVED`:

@@ -52,7 +52,6 @@ import {
 } from "@/components/orders/bom-combination-sheet";
 import { producibleGrains, slicesForAxes } from "@/lib/orders/bom-explosion/compose";
 import {
-  BLOCKED_SHORT,
   CLIENT_GRAIN_MATRIX,
   EXTRA_SERVED,
 } from "@/lib/orders/bom-explosion/client-matrix";
@@ -3201,8 +3200,20 @@ export function MbaMasterScreen({
          * after the 22 is what stops "make the menu match the list" quietly
          * deleting it. `check-bom-explosion` asserts the pairing.
          */
+        /* EVERY OPTION IN THE MENU MUST RESOLVE BACK TO ITS AXES, including the
+           fourteen the engine will refuse — the row is selectable now, so a map
+           built only from `offered` would accept the click, find nothing, and
+           store NULL. The line would silently return to "no Attribute chosen"
+           instead of showing the refusal the operator needs to read. */
         const pickable = new Map<string, Axis[]>();
-        for (const g of [...offered, ...extra]) pickable.set(asValue(g), g);
+        for (const g of [
+          ...CLIENT_GRAIN_MATRIX.map((row) => row.axes),
+          ...EXTRA_SERVED.map((e) => e.axes),
+          ...offered,
+          ...extra,
+        ]) {
+          pickable.set(asValue(g), g);
+        }
 
         return (
           <Select
@@ -3222,23 +3233,35 @@ export function MbaMasterScreen({
             required
           >
             <option value=""></option>
+            {/* ALL 22 ARE SELECTABLE AND NONE IS NUMBERED (client 2026-08-26:
+                "enable all and remove that serial numbers from ui").
+
+                The S.No was there so an operator could match the menu against
+                their printed legacy list, and the fourteen unbuildable rows were
+                DISABLED so the menu could not promise what the engine cannot
+                do. Both were overruled, and the second one only became safe the
+                same day: until `compose.ts` was fixed, a grain naming
+                `trim_colour` lost that token inside `orderAxesOf` and quietly
+                matched the plan for what was left, so picking "Combination"
+                returned the WHOLE-ORDER rows — one line, a total that looked
+                right, and nothing saying half the question had been dropped.
+
+                Now every one of the 22 either produces its rows or REFUSES with
+                a sentence the Requirement section prints. That is the engine's
+                standing contract — empty-and-explain, never a silent fallback —
+                and it is the only reason enabling these is not a way to ship a
+                wrong number. Do not re-enable anything here without checking
+                that the grain still refuses rather than collapsing. */}
             {CLIENT_GRAIN_MATRIX.map((row) => {
-              if (row.axes === null) {
-                /* DISABLED, NOT ABSENT. The operator must be able to find the
-                   row they are looking for and read why it is not available —
-                   an option that is simply missing is indistinguishable from
-                   one nobody implemented, which is the report this fixed. */
-                return (
-                  <option key={`c${row.sno}`} value="" disabled>
-                    {`${row.sno}. ${row.label} — ${BLOCKED_SHORT[row.blocked!]}`}
-                  </option>
-                );
-              }
               const ours = labelFor(row.axes);
+              /* OUR NAME RIDES ALONG WHERE IT DIFFERS. The read-only Attribute
+                 cell and the Combination sheet header both render `labelFor`,
+                 so the client's wording alone would put two names for one grain
+                 on one screen — the drift this module refuses for labels. */
               const suffix = ours === row.label ? "" : ` (${ours})`;
               return (
                 <option key={`c${row.sno}`} value={asValue(row.axes)}>
-                  {`${row.sno}. ${row.label}${suffix}`}
+                  {`${row.label}${suffix}`}
                 </option>
               );
             })}
