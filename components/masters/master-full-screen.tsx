@@ -723,23 +723,32 @@ export function MasterFullScreen({
              * refuses to shrink below its content, so without it a long record
              * pushes the footer back off the bottom and the gap returns.
              *
-             * AND IT BLEEDS THROUGH THE SHELL'S BOTTOM PADDING (client
-             * 2026-08-14). Filling the scrollport is not the same as reaching
-             * the screen: `<main>` is `p-4 pb-20 md:pb-6`, so a card that ends
-             * exactly at its scrollport still floats 24px above the desktop
-             * viewport edge — the footer read as a detached bar with a strip of
-             * page under it, which is the 08-10 complaint again, one padding
-             * short. `-mb-6` gives the flex item that 24px back (a negative
-             * margin shrinks its outer contribution, so `flex-1` resolves 24px
-             * taller) and the bottom border and radius come off, because a
-             * rounded corner sitting ON the screen edge is what makes a docked
-             * panel look dropped rather than docked.
+             * THE BLEED IS WITHDRAWN (client 2026-08-27, screenshot 2513: "I can
+             * see one fine white line for that Next button bar — can we make it
+             * curved, plain, without the bar").
              *
-             * md ONLY, and that is the whole reason the shell's padding is
-             * asymmetric: below md the 80px is clearance for `MobileNav`'s
-             * floating bar, so bleeding there would slide Save underneath it.
+             * What stood here, and why it is being reversed rather than tidied
+             * away: on 2026-08-14 the card gained `md:-mb-6 md:rounded-b-none
+             * md:border-b-0`, so it ate the shell's 24px bottom padding and met
+             * the viewport edge with squared corners — "a rounded corner sitting
+             * ON the screen edge is what makes a docked panel look dropped
+             * rather than docked". That was an answer to a REAL complaint (the
+             * footer floating with a strip of page beneath it), and it worked;
+             * what it also did was turn the footer into a full-width band welded
+             * to the bottom of the window, which is what now reads as a bar.
+             *
+             * The two complaints pull opposite ways and the client has now seen
+             * both, so the later call stands: the card is a card again, rounded
+             * on all four corners, and the footer is the last thing inside it
+             * rather than a rail across the screen. The 24px of page beneath is
+             * the same 24px every other page has, which is what makes it read as
+             * a card sitting on the page rather than a panel that fell short.
+             *
+             * If the footer ever looks detached again, the fix is NOT to bleed it
+             * back: it is that the card is not filling its scrollport, which
+             * `flex-1 min-h-0` above is what guarantees.
              */
-            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border md:-mb-6 md:rounded-b-none md:border-b-0",
+            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border",
       )}
     >
       {/* topbar — OVERLAY ONLY. A route already has browser Back, a breadcrumb
@@ -990,7 +999,27 @@ export function MasterFullScreen({
           orphaned halfway up (client 2026-08-04). */}
       <div
         className={cn(
-          "border-t border-border bg-surface px-4 py-3",
+          /**
+           * NO TOP BORDER (client 2026-08-27, screenshot 2513) — the "fine white
+           * line" is this rule, and dropping it is what turns a bar back into the
+           * bottom of a card. Same surface as the pane above, so the two read as
+           * one sheet with the buttons resting on it.
+           *
+           * THE SEPARATION IS NOW SPACE, WHICH IS THE HOUSE ANSWER. `--border-strong`
+           * records it in globals.css for the row-divider case — "if it ever looks
+           * heavy the answer is more SPACE around it, not less contrast in it" —
+           * and this is the same trade read the other way: the footer keeps its
+           * `py-3`, and the pane above ends on its own `py-5`, so ~32px of white
+           * separates the last field from the buttons without a line.
+           *
+           * WHAT TO WATCH. A line also told the operator that content SCROLLS
+           * UNDER the footer. Without it a long section can slide text right up
+           * to the buttons with no visual break. That is the cost the client
+           * accepted by asking for it plain; if it bites, the answer is a shadow
+           * that appears only while the pane is scrolled — not the border back,
+           * which is exactly the bar that was objected to.
+           */
+          "bg-surface px-4 py-3",
           /**
            * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
            * filling its scrollport rather than a separate decision.
