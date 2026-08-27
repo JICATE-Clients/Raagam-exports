@@ -1813,14 +1813,22 @@ export function ChildGrid<T extends { key: string }>({
         {mode === "responsive" && (
         <div
           className={cn(
-            /* NO BORDER ON THE TABLE EITHER (client 2026-08-27, screenshot
-               2515: "still the framed layout appearing"). Removing `GRID_FRAME`
-               took the card WRAPPING a grid; `responsive` mode drew a second
-               one of its own around the table, so the Components grid still
-               came out boxed and the change looked like it had not landed.
-               The header rule and the row rules are what structure a table —
-               an outline around them is the frame, not the structure. */
-            "hidden overflow-x-auto",
+            /* THE TABLE KEEPS ITS OWN FRAME, and this is the second half of a
+               correction (client 2026-08-27, screenshot 2516: "now the table is
+               not closed — add the close frame box").
+
+               It was removed with `GRID_FRAME` a few minutes earlier, on
+               "still the framed layout appearing" (2515). That went one border
+               too far: a TABLE has a header rule and a rule under every row, so
+               with no outline the bottom row's rule reads as the last of a
+               series and the shape has no end — it looks unfinished rather than
+               flat. A card around a two-field list was decoration; the frame
+               around a table is what closes it.
+
+               The two other frames stay gone, and that is the distinction: no
+               card WRAPPING the grid, no box per ROW, and no grey fill in the
+               header — the outline is the only one left. */
+            "hidden overflow-x-auto rounded-lg border border-border",
             // See `narrow`: the cap would otherwise push this below @lg and the
             // grid would render as cards. See `wideTable` for the other end —
             // and note @lg is 512px here, not the 1024 the viewport name suggests.

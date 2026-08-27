@@ -89,7 +89,7 @@ import {
   type MasterFullScreenHandle,
 } from "@/components/masters/master-full-screen";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
-import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope } from "@/components/ui/field";
 import { MultiSelect } from "@/components/ui/multi-select";
 // `sortBySize` / `sizeFamily`: the Style master orders and bands its Sizes
 // dropdown with these, and Order Info now draws the same control — a second
@@ -9419,6 +9419,52 @@ export function AmendmentScreen({
 
   const componentsAndSizes = (r: StyleRow) => (
     <>
+      {/*
+        * SPLIT IN TWO (client 2026-08-27, screenshot 124618: "add split screen -
+        * coordinate and size in one, and that three-field centre section in
+        * another one side").
+        *
+        * WAS THREE CELLS, NOW TWO PANES. Coordinate | Components | Sizes put the
+        * table in the MIDDLE, so the two short controls that describe the style
+        * sat on opposite sides of it with the widest thing on the screen between
+        * them. They belong together: the Coordinate list is what scopes the
+        * Coordinate column inside Components, and Sizes is the other axis of the
+        * same style.
+        *
+        * 6 + 8 = 14, and COMPONENTS DOES NOT MOVE. It keeps `xl` and the exact
+        * width it had; only the left pane grows from 3 to 6 by absorbing Sizes
+        * from the right. That is what makes this a re-grouping rather than a
+        * re-proportioning - nothing about the table changes.
+        *
+        * STILL CELLS OF THE STYLE ROW'S OWN TRACK, which is the 2026-08-24
+        * decision this must not undo: the panes are two spans of the same
+        * fourteen columns the seven fields above use, so the left edge of
+        * Coordinate still lands under the left edge of Style. A nested
+        * `FieldGrid` here would be a second track and a second place to
+        * disagree - the note that removed one already says so.
+        *
+        * SIDE BY SIDE INSIDE THE PANE, NOT STACKED (client 2026-08-27,
+        * screenshot 2516: "coordinate and size on the same row, not the next
+        * row"). The first cut used `space-y-3`, which put Sizes on the line
+        * BELOW Coordinate and left the pane twice as tall as the table beside
+        * it — grouping them had turned into stacking them.
+        *
+        * `grid-cols-2` splits the pane's six columns into three and three,
+        * which is the width each of these two had when they were separate cells
+        * of the outer track. So they end up their original size, next to each
+        * other, with the table on the other side of the split — which is what
+        * the request actually asks for.
+        *
+        * `items-start` because they are different heights: Coordinate carries a
+        * grid and an "+ Add" button, Sizes is one box. Without it the shorter
+        * one stretches and its control floats in the middle of a tall cell.
+        *
+        * Their own `size` no longer positions them: a `col-span` is inert
+        * outside the track it names, so they are `full` to say "take your half
+        * of the pane" rather than carrying a number that reads as a column
+        * count and is not one.
+        */}
+      <div className={cn(FIELD_SPAN.lg, "grid grid-cols-2 items-start gap-3")}>
       {/* COORDINATES FIRST — the master's order, and the order the data flows
           in: this list is what scopes the Coordinate cell in the grid beside it,
           so reading them the other way round would mean meeting the narrowed
@@ -9438,70 +9484,17 @@ export function AmendmentScreen({
           (see `coordinatesGrid`) — the same word the row beneath it is an
           instance of, and the same word the Components grid uses for the
           column that points back here. */}
-      <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="sm">
+      <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
         {coordinatesGrid(r)}
       </Field>
-      {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
-          unlabelled `<Field size>` around it is the sanctioned way to give it
-          one (LAYOUT.md §3, "a not-field that SHARES its row"). `label=""`
-          rather than no label: it RESERVES the label row, so the table's header
-          band starts level with the Sizes control beside it instead of ~16px
-          above it.
+      {/* SECOND IN THE LEFT PANE since 2026-08-27, under Coordinate. It used to
+          be the third CELL, on the far side of the Components table.
 
-          `xl` (8) — the widest of the three, because it is the only one holding
-          a table. Three 176px pickers plus a remove button need ~600px, which is
-          what 8 of 14 gives it here. */}
-      <Field label="" size="xl">
-        <ChildGrid<StyleComponentRow>
-          columns={componentColumns(r)}
-          rows={r.components}
-          /* OPENS ON A ROW rather than on a bare button. `ChildGrid`'s own note
-             is the reason and it is the keyboard contract, not a preference: Tab
-             lands on FIELDS, so a grid whose only affordance is "+ Add" has
-             nothing to tab into and nothing to stand on and press Enter. The
-             master passes it for the same reason. */
-          seedRow
-          onAdd={() => addStyleComponent(r.key)}
-          onRemove={(c) =>
-            mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
-          }
-          addLabel="+ Add component"
-        />
-      </Field>
-
-      {/**
-        * SIZES ARE CHOSEN, NOT LISTED — and this REVERSES two decisions, so
-        * both are named rather than left for the next reader to discover.
-        *
-        * What stood here was a row of Size pickers laid ACROSS the line
-        * (`sizeGrid`, client 2026-08-14: one per line was ~248px of a 32px row),
-        * seeded by `pickStyle`, each with a ✕ and NO "+ Add" (client
-        * 2026-08-20: a hand-add was "a second way to state something the Style
-        * master is authoritative for").
-        *
-        * BOTH REASONS EXPIRED IN THE SAME INSTRUCTION. The 08-14 density
-        * complaint is answered better by this control than by the across
-        * layout — fifty sizes are a wrapping tick grid behind one box, not a
-        * line that grows. And 08-20's premise is the exact premise the merge
-        * retires: the Style master is no longer the only place a style's sizes
-        * are stated, so "go and add it there, then pick the style again" is the
-        * trip this whole change removes. It is the same argument that gave the
-        * Components grid beside it a "+ Add component".
-        *
-        * SO THE FULL SIZE MASTER IS OFFERED, with inline create, exactly as on
-        * the Style master. `pickStyle` still seeds the style's own sizes, so
-        * nothing is retyped in the ordinary case; what changes is that an order
-        * running a size the style has not recorded is now enterable instead of
-        * blocked.
-        *
-        * PICK-ONCE COMES FREE: a set cannot hold a duplicate, so the shape rules
-        * out the L, L, M, M the old grid needed `usedIds` to prevent.
-        * `normalizeStyleSizes` still de-dupes server-side, which is the guard
-        * that matters for anything writing past the screen.
-        */}
-      {/* `sm` (3). The trigger caps itself at 280px and the PANEL is sized
-          independently (40rem), so width beyond the cap buys nothing here — see
-          `triggerClassName` / `panelClassName` below. */}
+          The old note here read "`sm` (3) — the trigger caps itself at 280px and
+          the PANEL is sized independently (40rem), so width beyond the cap buys
+          nothing". Still true and now the reason this move costs nothing: the
+          control does not grow into the wider pane, so putting Sizes beside
+          Coordinate takes no width away from the table it left. */}
       {/* SAME TREATMENT AS THE COORDINATES PANEL, AND ONE LABEL NOT TWO.
           `MultiSelect` draws its own `Label` — muted 12px — unless `compact`,
           so bolding the title here means moving it OUT of the control and into
@@ -9510,7 +9503,7 @@ export function AmendmentScreen({
           every Field+picker pair on this screen already carry a note about.
           `label` stays on the control: `compact` routes it to `aria-label`, and
           `useRequiredHold` words its message from it. */}
-      <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="sm">
+      <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="full">
         <MultiSelect
           compact
           label="Sizes"
@@ -9573,6 +9566,65 @@ export function AmendmentScreen({
           }
         />
       </Field>
+      </div>
+      {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
+          unlabelled `<Field size>` around it is the sanctioned way to give it
+          one (LAYOUT.md §3, "a not-field that SHARES its row"). `label=""`
+          rather than no label: it RESERVES the label row, so the table's header
+          band starts level with the Sizes control beside it instead of ~16px
+          above it.
+
+          `xl` (8) — the widest of the three, because it is the only one holding
+          a table. Three 176px pickers plus a remove button need ~600px, which is
+          what 8 of 14 gives it here. */}
+      <Field label="" size="xl">
+        <ChildGrid<StyleComponentRow>
+          columns={componentColumns(r)}
+          rows={r.components}
+          /* OPENS ON A ROW rather than on a bare button. `ChildGrid`'s own note
+             is the reason and it is the keyboard contract, not a preference: Tab
+             lands on FIELDS, so a grid whose only affordance is "+ Add" has
+             nothing to tab into and nothing to stand on and press Enter. The
+             master passes it for the same reason. */
+          seedRow
+          onAdd={() => addStyleComponent(r.key)}
+          onRemove={(c) =>
+            mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
+          }
+          addLabel="+ Add component"
+        />
+      </Field>
+
+      {/**
+        * SIZES ARE CHOSEN, NOT LISTED — and this REVERSES two decisions, so
+        * both are named rather than left for the next reader to discover.
+        *
+        * What stood here was a row of Size pickers laid ACROSS the line
+        * (`sizeGrid`, client 2026-08-14: one per line was ~248px of a 32px row),
+        * seeded by `pickStyle`, each with a ✕ and NO "+ Add" (client
+        * 2026-08-20: a hand-add was "a second way to state something the Style
+        * master is authoritative for").
+        *
+        * BOTH REASONS EXPIRED IN THE SAME INSTRUCTION. The 08-14 density
+        * complaint is answered better by this control than by the across
+        * layout — fifty sizes are a wrapping tick grid behind one box, not a
+        * line that grows. And 08-20's premise is the exact premise the merge
+        * retires: the Style master is no longer the only place a style's sizes
+        * are stated, so "go and add it there, then pick the style again" is the
+        * trip this whole change removes. It is the same argument that gave the
+        * Components grid beside it a "+ Add component".
+        *
+        * SO THE FULL SIZE MASTER IS OFFERED, with inline create, exactly as on
+        * the Style master. `pickStyle` still seeds the style's own sizes, so
+        * nothing is retyped in the ordinary case; what changes is that an order
+        * running a size the style has not recorded is now enterable instead of
+        * blocked.
+        *
+        * PICK-ONCE COMES FREE: a set cannot hold a duplicate, so the shape rules
+        * out the L, L, M, M the old grid needed `usedIds` to prevent.
+        * `normalizeStyleSizes` still de-dupes server-side, which is the guard
+        * that matters for anything writing past the screen.
+        */}
     </>
   );
 
