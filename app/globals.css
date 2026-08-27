@@ -13,7 +13,28 @@
   --surface-muted: #f1f3f5; /* table headers, subtle fills */
   --foreground: #16181d; /* primary text */
   --muted-foreground: #5b6472; /* secondary text */
-  --border: #e3e6ea;
+  /* RAISED FROM #e3e6ea ON 2026-08-27 (client: "the table borders and toggles
+   * also not visible that much, add some extra tone").
+   *
+   * #e3e6ea against a #ffffff surface is roughly 1.2:1 — a line that exists in
+   * the stylesheet and not on a shop-floor monitor at an angle under fluorescent
+   * light. This is field chrome AND every table gridline, so it was the one
+   * token making both complaints at once.
+   *
+   * IT MUST NOT CREEP TOWARD --border-strong. That token is the line between two
+   * RECORDS and the client fought for it twice (see its note below); the whole
+   * point is that a record boundary is drawn in visibly different ink from a
+   * text box's edge. #cfd5dd leaves the two about 12 steps apart per channel,
+   * which is more separation than #e3e6ea had against the #cbd2da that was
+   * REJECTED as a separator for being too close to it. If these two ever need
+   * to converge, the separator moves away — this one does not move up. */
+  --border: #cfd5dd;
+  /* The OFF track of a switch. Its own token because it is the one place a grey
+   * fill has to be legible UNDER a white knob rather than beside text — the
+   * toggle read as blank because `bg-surface-muted` (#f1f3f5) and a #ffffff knob
+   * are the same colour at arm's length. Deliberately mid-grey and never near
+   * --primary: "off" has to stay obviously unlike "on", which is blue. */
+  --switch-off: #b3bcc8;
   /* THE LINE BETWEEN TWO RECORDS, and it must outrank the lines INSIDE one
    * (client 2026-08-19, screenshot 2379: "no more clearly separation line, all
    * the lines look same kind, so can't tell the next section").
@@ -186,7 +207,21 @@
   --surface-muted: #1b1f27;
   --foreground: #e7e9ee;
   --muted-foreground: #9aa4b2;
-  --border: #262b34;
+  /* Raised from #262b34 with the light-mode value (2026-08-27). STRONGER MEANS
+   * MORE CONTRAST AGAINST THE SURFACE, so here that is LIGHTER — the rule the
+   * --border-strong note below states, applied to the token beside it. Written
+   * as "darker" this line is how a gridline disappears in the dark theme. */
+  --border: #333b47;
+  /* The switch's OFF track — lighter than the dark surface, for the same reason
+   * the light-mode value is darker than the light one.
+   *
+   * HELD BELOW --border-strong (#4d5666) ON PURPOSE. The track wears that token
+   * as its outline, so a fill within a few steps of it gives the pill no edge at
+   * all — the light theme gets its edge for free because the outline is DARKER
+   * than the fill there, and the dark theme only gets one if the fill stays
+   * darker than the outline here. #3f4756 keeps both: a clear step up from the
+   * #14171d surface, and a clear step below the outline drawn on it. */
+  --switch-off: #3f4756;
   /* Lighter than --border, not darker — see the light-mode note. Raised with
    * the light value so the two themes stay equally legible. */
   --border-strong: #4d5666;
@@ -241,6 +276,10 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  /* Exposed so the switch can say `bg-switch-off` instead of reaching for an
+     arbitrary value — the token flips with the theme and an arbitrary hex does
+     not. */
+  --color-switch-off: var(--switch-off);
   --color-ring: var(--ring);
 
   --color-brand-green: var(--brand-green);
