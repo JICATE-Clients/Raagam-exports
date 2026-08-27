@@ -598,6 +598,61 @@ function normalizePackTypes(data: AmendmentInput) {
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
+/**
+ * What each pack type PACKS (0472) — the child grid legacy carries beneath
+ * every Pack type(s) row and the conversion had left out.
+ *
+ * HANDED THE PACK TYPE ROWS BEING WRITTEN, not asked to re-derive them. Same
+ * dependency and the same resolution as `normalizeStyleSizes`: a line whose
+ * method was renamed or removed in this very save has no parent to hang off,
+ * and `normalizePackTypes` DE-DUPLICATES case-insensitively — so "abc pk" and
+ * "ABC PK" collapse to one stored method, and a line typed under the loser must
+ * follow the survivor rather than be orphaned. Matching on the same uppercased
+ * key is what makes the two agree; comparing the raw strings would silently
+ * drop half a grid the operator can still see.
+ *
+ * A LINE NAMING NO STYLE IS THE BLANK ROW the operator is standing in, exactly
+ * as a size with no `size_id` is. It is dropped rather than stored, which is
+ * also what keeps the unique index off a second all-null row.
+ *
+ * `sno` RENUMBERS PER PACK TYPE, so each method's list reads 1..n on its own —
+ * the S No legacy's sub-grid shows is the line's position within its method.
+ */
+function normalizePackTypeLines(
+  data: AmendmentInput,
+  packTypes: ReturnType<typeof normalizePackTypes>,
+) {
+  const key = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
+  const live = new Map(packTypes.map((r) => [key(r.pack_type), r.pack_type!]));
+  const seen = new Set<string>();
+  const perType = new Map<string, number>();
+  return data.pack_type_lines
+    .map((r) => ({
+      pack_type: clean(r.pack_type),
+      style_ref_no: clean(r.style_ref_no),
+      style: clean(r.style),
+      combo: clean(r.combo),
+      qty: r.qty,
+    }))
+    .filter((r) => r.style_ref_no)
+    .filter((r) => live.has(key(r.pack_type)))
+    /* STORED UNDER THE SPELLING THAT SURVIVED de-duplication, so the text key
+       the screen re-nests by matches a row that is actually there. */
+    .map((r) => ({ ...r, pack_type: live.get(key(r.pack_type))! }))
+    .filter((r) => {
+      const k = JSON.stringify([key(r.pack_type), styleKey(r.style_ref_no), key(r.combo)]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .map((r) => {
+      const k = key(r.pack_type);
+      const n = (perType.get(k) ?? 0) + 1;
+      perType.set(k, n);
+      return { ...r, sno: n };
+    });
+}
+
 function normalizeQuantities(data: AmendmentInput) {
   return data.quantities
     .map((r) => ({
@@ -606,6 +661,12 @@ function normalizeQuantities(data: AmendmentInput) {
       style_no: clean(r.style_no),
       consignee_id: r.consignee_id ?? null,
       assortment_type_id: r.assortment_type_id ?? null,
+      /* WHICH PACKING METHOD THIS DESTINATION SHIPS (0473). Written whatever
+         the Pack toggle says, for the reason `pack_types` itself is: hiding a
+         grid is not the same as emptying it, and a destination that lost its
+         method on a mis-click would have its colourway rows silently stop
+         being derived from anything. */
+      pack_type: clean(r.pack_type),
       // The buyer PO this destination belongs to (0427). Written whatever the
       // header's `multi_order` says: turning the switch off HIDES the column,
       // and a value the operator typed while it was on must survive that —
@@ -645,6 +706,9 @@ function normalizeQuantities(data: AmendmentInput) {
         // booleans are deliberately absent from this test: they default to
         // false, so counting them would make every seeded blank row "filled".
         r.pack ||
+        /* The method this destination ships (0473) — a row whose only content
+           is "these go out as ABC PACK" is a row. */
+        r.pack_type ||
         r.ratio_for ||
         r.master_carton_name ||
         r.inner_carton_name ||
@@ -675,6 +739,15 @@ function assortLineFilled(l: AmendmentInput["quantities"][number]["assort_lines"
   return (
     clean(l.style_ref_no) ||
     clean(l.combo) ||
+    /* A PACKS ROW NAMES NO COLOURWAY AND MAY NAME NO STYLE (0473), so without
+       this it is "filled" only by its size cells — true today and true only by
+       accident. Stated so the row survives on its own terms: it is the one line
+       whose whole content is a flag plus a row of boxes, and dropping it turns
+       every derived colourway line beneath it into an orphan. Unlike the two
+       booleans on the quantity row above, this one is NOT set on a seeded blank
+       — only the pack layout creates it — so counting it cannot keep an
+       untouched row alive. */
+    l.is_pack_row ||
     l.no_of_cartons ||
     Number(l.inners_per_carton) > 1 ||
     l.sizes.some((z) => z.size_id)
@@ -705,6 +778,10 @@ async function writeChildren(
   // the `sno` this stamps — recomputing it there would be a second answer to
   // "which combos is this save writing?".
   const comboRows = normalizeCombos(data);
+  // Shared with `normalizePackTypeLines`, which drops a line whose method did
+  // not survive de-duplication and restamps the rest with the spelling that
+  // did — it has to be handed the same list, not a second computation of it.
+  const packTypeRows = normalizePackTypes(data);
 
   const inserts: [string, Record<string, unknown>[]][] = [
     ["garment_order_amendment_styles", styleRows],
@@ -729,7 +806,13 @@ async function writeChildren(
     ["garment_order_amendment_combos", comboRows],
     ["garment_order_amendment_price_details", normalizePriceDetails(data)],
     ["garment_order_amendment_approval_qtys", normalizeApprovalQtys(data)],
-    ["garment_order_amendment_pack_types", normalizePackTypes(data)],
+    // Computed once and shared with the lines beneath them, so "which pack
+    // types is this save writing?" has one answer rather than two.
+    ["garment_order_amendment_pack_types", packTypeRows],
+    // What each of those methods PACKS (0472). AFTER the methods it depends
+    // on, and handed the very rows being inserted — the same dependency and
+    // the same resolution as the style sizes above.
+    ["garment_order_amendment_pack_type_lines", normalizePackTypeLines(data, packTypeRows)],
     // THIS LIST DRIVES THE DELETE LOOP AS WELL AS THE INSERTS. An entry added
     // only to the insert side would leave the previous rows in place and add
     // the new ones beside them, doubling the grid on every save.
@@ -828,6 +911,11 @@ async function writeAssortTree(
         // returns null for a blank so the two states cannot blur.
         style_ref_no: clean(l.style_ref_no),
         combo: clean(l.combo),
+        /* THE LINE WHOSE CELLS ARE BOXES (0473). Carried verbatim: it decides
+           how every size cell beneath it is READ, so a save that dropped it
+           would turn a box count into a piece count on the next load — the
+           whole order under-read by the pack size, silently. */
+        is_pack_row: l.is_pack_row,
         no_of_cartons: Number(l.no_of_cartons) || 0,
         // `|| 1`, never `|| 0` — see the Zod input's note (0432). A multiplier
         // that falls back to zero empties the order rather than failing.
@@ -1032,6 +1120,8 @@ function headerOnly(data: AmendmentInput) {
     price_details: _pd,
     approval_qtys: _aq,
     pack_types: _pt,
+    // 0472, and the child of the pack types above rather than a header column.
+    pack_type_lines: _ptl,
     quantities: _qt,
     files: _files,
     // NOT A COLUMN HERE. `location_id` belongs to the `sales_orders` row this
@@ -1053,6 +1143,7 @@ function headerOnly(data: AmendmentInput) {
   void _pd;
   void _aq;
   void _pt;
+  void _ptl;
   void _qt;
   return header;
 }

@@ -719,6 +719,41 @@ export interface AmendmentPackType {
 }
 
 /**
+ * Pack type(s) ▸ what one packing method actually packs (0472).
+ *
+ * Legacy's Pack type(s) tab is MASTER-DETAIL and the conversion took only the
+ * master — a pack type was a WORD and nothing else, which is why
+ * `AmendmentPackType` above still describes itself as "the only child with a
+ * single data column". Beneath each row legacy carries StyleRefNo | Style No |
+ * Combo | Qty (client 2026-08-27, screenshot 2518).
+ *
+ * KEYED BY `pack_type` TEXT, exactly as the styles' children are keyed by
+ * `style_ref_no`, and legitimately: `uq_goa_pack_types_method` makes
+ * `(amendment_id, pack_type)` unique, so the word identifies its parent. That
+ * is also what keeps this table inside `writeChildren`'s flat
+ * delete-all-then-reinsert instead of needing `writeComboTree`'s pairing.
+ *
+ * `style` IS THE REF ON A TYPED LINE. Legacy's two columns were the master's
+ * code and its name; Style became manual entry on 2026-08-25, so one string
+ * answers both — `combos` and `price_details` already store `style` set to the
+ * ref for this reason, and this follows them rather than inventing a third
+ * convention.
+ */
+export interface AmendmentPackTypeLine {
+  id: string;
+  amendment_id: string;
+  sno: number;
+  /** The pack type this line belongs to, BY VALUE. */
+  pack_type: string | null;
+  style_ref_no: string | null;
+  style: string | null;
+  /** The colourway, as `combos.combo` holds it. */
+  combo: string | null;
+  /** Pieces of this (style, colourway) that the method packs. */
+  qty: number;
+}
+
+/**
  * A document attached to the order (0416) — the style JPG, the buyer's original
  * PDF order sheet, a shade card.
  *
@@ -767,6 +802,19 @@ export interface AmendmentQuantity {
   style_no: string | null;
   consignee_id: string | null;
   assortment_type_id: string | null;
+  /**
+   * WHICH PACKING METHOD THIS DESTINATION SHIPS (0473), BY VALUE — matches a
+   * `pack_types` row, which `uq_goa_pack_types_method` makes unique.
+   *
+   * NOT the same question as `assortment_type_id` beside it: that says whether
+   * the cartons are solid or assorted, this says what one box HOLDS. Naming a
+   * method turns the size cells into BOX COUNTS and derives the colourway rows
+   * from the method's composition — see `is_pack_row` on the assort line.
+   *
+   * NULL is a real answer: the destination is not packed to a declared method
+   * and its size cells are ordinary piece counts, exactly as before 0473.
+   */
+  pack_type: string | null;
   /**
    * The buyer PO this destination belongs to (0427), asked only while the
    * header's `multi_order` is on. Null on every single-PO order, where the
@@ -826,6 +874,21 @@ export interface AmendmentAssortLine {
    *  `cartons x inners x ratio` (0432). Ignored by a Solid / Solid line, which
    *  has no ratio and no knowable carton count. */
   inners_per_carton: number;
+  /**
+   * THIS LINE'S SIZE CELLS ARE BOXES, NOT PIECES (0473).
+   *
+   * One box holds every colourway at once, so the count of boxes is a property
+   * of the SIZE — asking it once per colourway row would let the operator type
+   * 100 against WHITE and 90 against BLACK for one size and silently mean two
+   * different pack counts for one physical carton. So one line per style
+   * carries the boxes and every colourway line beneath it carries the pieces
+   * those boxes explode into.
+   *
+   * DECLARED, NOT INFERRED. "The line with no combo" is already a legal state
+   * on a Single Style pack (0433), so reading the flag off a null combo would
+   * make two different things indistinguishable in the table.
+   */
+  is_pack_row: boolean;
   sizes: AmendmentAssortLineSize[];
 }
 
@@ -943,6 +1006,8 @@ export interface GarmentOrderAmendment {
   price_details: AmendmentPriceDetail[];
   approval_qtys: AmendmentApprovalQty[];
   pack_types: AmendmentPackType[];
+  /** What each pack type packs (0472), keyed off `pack_types` by text. */
+  pack_type_lines: AmendmentPackTypeLine[];
   quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
   files: AmendmentFile[];
@@ -1230,6 +1295,28 @@ export const amendmentPackTypeInput = z.object({
 });
 
 /**
+ * One line of a pack type's detail grid (0472).
+ *
+ * `pack_type` IS THE PARENT KEY AND IS PLAIN TEXT, so it is `nullableText` like
+ * every other by-value binding here (`style_ref_no`, `combo`). A line whose
+ * method has since been renamed is dropped on save by `normalizePackTypeLines`
+ * rather than refused by validation — the same call `normalizeStyleSizes`
+ * makes for a size whose style line is gone.
+ *
+ * `qty` is `num`, so a blank box saves as 0 rather than failing. A pack type
+ * line the operator started and left unquantified is a row mid-answer, which is
+ * the rule every child input on this document follows.
+ */
+export const amendmentPackTypeLineInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  pack_type: nullableText,
+  style_ref_no: nullableText,
+  style: nullableText,
+  combo: nullableText,
+  qty: num,
+});
+
+/**
  * One attached document (0416).
  *
  * `doc_kind` is nullable because the operator picks it AFTER the file lands —
@@ -1282,6 +1369,12 @@ export const amendmentAssortLineInput = z.object({
   // CAPS: a colourway name is a field VALUE stored in capitals, and it must
   // match `amendmentComboInput.combo`, which it references by value.
   combo: capsTextNullable(),
+  /**
+   * THIS LINE HOLDS BOXES (0473). Defaults to false, so every line written by
+   * an importer, and every line stored before this column existed, stays a
+   * PIECES line — the direction that cannot rewrite a saved quantity.
+   */
+  is_pack_row: z.boolean().default(false),
   no_of_cartons: num,
   /**
    * DEFAULTS TO 1, NOT 0 (0432) — the one number here that is a MULTIPLIER
@@ -1305,6 +1398,8 @@ export const amendmentQuantityInput = z.object({
   style_no: nullableText,
   consignee_id: uuidN,
   assortment_type_id: uuidN,
+  /** Which pack type(s) method this destination ships (0473). */
+  pack_type: nullableText,
   /* `nullableText`, NOT `capsTextNullable()`, and deliberately so: this is the
      same PO number the HEADER's `po_no` holds, which is `nullableText` below.
      Capsing one of the two would let the same buyer reference read two ways
@@ -1483,6 +1578,7 @@ export const amendmentInput = z.object({
   price_details: z.array(amendmentPriceDetailInput).default([]),
   approval_qtys: z.array(amendmentApprovalQtyInput).default([]),
   pack_types: z.array(amendmentPackTypeInput).default([]),
+  pack_type_lines: z.array(amendmentPackTypeLineInput).default([]),
   quantities: z.array(amendmentQuantityInput).default([]),
   files: z.array(amendmentFileInput).default([]),
 });

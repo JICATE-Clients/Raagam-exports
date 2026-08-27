@@ -106,6 +106,11 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         "price_details:garment_order_amendment_price_details(*), " +
         "approval_qtys:garment_order_amendment_approval_qtys(*), " +
         "pack_types:garment_order_amendment_pack_types(*), " +
+        // What each pack type PACKS (0472) — a flat sibling, not an embed
+        // under `pack_types`, because it is keyed to its parent by
+        // `pack_type` TEXT and PostgREST can only nest across a real FK.
+        // The screen re-nests it; `style_sizes` above is the same shape.
+        "pack_type_lines:garment_order_amendment_pack_type_lines(*), " +
         // The Assort tree (0414). Two levels of embed under the quantity row —
         // and, like every other name here, ONE unresolvable relationship
         // fails the WHOLE query rather than this branch of it, which is why
@@ -159,6 +164,7 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     price_details: bySno(r.price_details),
     approval_qtys: bySno(r.approval_qtys),
     pack_types: bySno(r.pack_types),
+    pack_type_lines: bySno(r.pack_type_lines),
     quantities: bySno(r.quantities).map((q) => ({
       ...q,
       // Size cells have no `sno` — the ORDER of a ratio is the column order,
