@@ -2529,13 +2529,38 @@ export function ChildGrid<T extends { key: string }>({
                    NEXT one, and in the detail pane there is only ever one. Its
                    `localI > 0` would draw a stray line above whichever row
                    happened to be open. */
-                /* UNGATED WITH THE BOX ABOVE, and it had to be. The rule and the
-                   border were the two halves of one choice — a row got a box OR
-                   a divider. Dropping the box while the divider still waited on
-                   `listRows || flatRows` would have left an unflagged grid with
-                   NEITHER, and its records would run together with nothing at
-                   all between them. */
-                !mdActive && localI > 0 && "border-t-2 border-border-strong",
+                /**
+                 * GATED AGAIN (client 2026-08-27, screenshot 2520: "remove that
+                 * centered line from every section").
+                 *
+                 * It was ungated a few minutes earlier, when the box per row
+                 * went, on the reasoning that dropping the box while the divider
+                 * still waited on `listRows || flatRows` would leave an
+                 * unflagged grid with NEITHER. That was the right worry and the
+                 * wrong answer: what an unflagged grid got instead was a
+                 * `border-t-2` in `--border-strong` — the heaviest line the app
+                 * draws — between one-line rows inside a small list. It reads as
+                 * a rule through the middle of the panel.
+                 *
+                 * THE LINE IS FOR A RECORD BOUNDARY, and that is why the flag is
+                 * the right gate after all. A `listRows` / `flatRows` grid is
+                 * one RECORD per row — a whole style, a whole structure — and
+                 * the client asked for that line twice (2026-08-19: "no more
+                 * clearly separation line, all the lines look same kind, so
+                 * can't tell the next section", then again when 1px was still
+                 * invisible). A plain cards grid is one FIELD per row, where
+                 * `py-3` is already more space than the 8px between fields
+                 * inside a record, and there is no boundary to announce.
+                 *
+                 * So neither box nor line on an unflagged grid, deliberately.
+                 * Coordinate — the grid this was reported from — carries an
+                 * enclosing frame at its call site instead, which is what says
+                 * where the list starts and stops.
+                 */
+                !mdActive &&
+                  (listRows || flatRows) &&
+                  localI > 0 &&
+                  "border-t-2 border-border-strong",
                 // Only when the ✕ floats: `relative` to hang it on, and room on
                 // the right so the last field's LABEL does not run under it. A
                 // banded card needs neither — its ✕ is in the flow.

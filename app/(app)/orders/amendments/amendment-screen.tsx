@@ -9606,6 +9606,32 @@ export function AmendmentScreen({
     return (
       <ChildGrid<StyleCoordRow>
         narrow
+        /**
+         * LAID OUT LIKE COMPOSITION (client 2026-08-27, screenshot 2520: "update
+         * the table like composition").
+         *
+         * That is Material ▸ Composition ▸ Attributes (Mixing), and it is
+         * `inlineCards` + `flushRows` — one shared header band, then a light
+         * `border-b` under each row. This grid was in the DEFAULT `responsive`
+         * mode, which renders a table above 448px of its own inline size and
+         * stacked CARDS below it; at half of a six-column pane it was always the
+         * cards, so it drew a coordinate per card with a heavy rule between.
+         *
+         * A REAL TABLE IS NOT THE ANSWER HERE, which is worth writing down
+         * because the request says "table". `responsive`'s table carries
+         * `min-w-[420px]`, and this grid has about 200px — so forcing it would
+         * trade the cards for a horizontal scrollbar, and "no scroll-in-a-box"
+         * is a standing rule (2026-07-25). `inlineCards` is the layout that
+         * gives a header and aligned rows at ANY width, which is exactly why
+         * Composition uses it in the same situation: a grid sharing a row with
+         * the field beside it.
+         *
+         * `flushRows` also drops the caption band, and that is wanted here — the
+         * `<Field>` around this grid already prints "Coordinate" in the grid's
+         * own header type, so the band would say it a second time.
+         */
+        inlineCards
+        flushRows
         columns={[
           {
             header: "Coordinate",
