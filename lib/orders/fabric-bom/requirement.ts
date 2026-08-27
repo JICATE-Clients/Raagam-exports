@@ -4,7 +4,7 @@
  *     Fabric Required = Production Target x Consumption per garment
  *                       x (1 + Wastage %)
  *
- * Step 5 of the client's order flow. Material BOM's engine
+ * Step 3 of the client's order flow. Material BOM's engine
  * (`../material-bom/requirement.ts`) answers the same question for trims, and
  * THE TARGET HALF OF IT IS SHARED RATHER THAN COPIED: `productionSlices` resolves
  * order qty + excess + approval pieces + rejection allowance into slices, and
@@ -124,7 +124,7 @@ export type FabricLineScope = {
 export type FabricLineInput = {
   /** Fabric per garment, in the consumption unit. */
   consumption: number | null;
-  /** The CUTTING room's buffer. Not process loss — that is step 6, and applying
+  /** The CUTTING room's buffer. Not process loss — that is step 4, and applying
    *  it here as well charges the same loss twice. */
   wastage_pct: number | null;
   /** `uoms.decimal_places_allowed` of the consumption unit. */
@@ -304,7 +304,7 @@ export function fabricRequirementRows(
  * is a minimum per ORDER and a colour-wise explosion would otherwise apply it six
  * times. Fabric is not bought against an MOQ in this business — it is knitted to
  * order — so importing that rollup would add a control nothing sets and a number
- * nobody can explain. Step 6 is where a fabric quantity meets a supplier.
+ * nobody can explain. Step 4 is where a fabric quantity meets a supplier.
  */
 export function fabricLineTotal(rows: readonly FabricRequirementRow[]): number {
   return rows.reduce((a, r) => a + r.required, 0);

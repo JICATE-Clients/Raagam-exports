@@ -90,6 +90,8 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         // The coordinates a component is filed under (0461), and the
         // Style master's component list (0457), both merged into Order Info.
         "style_coordinates:garment_order_amendment_style_coordinates(*), " +
+        // Retail SET pack members (0467), the fifth of the style-keyed family.
+        "pack_components:garment_order_amendment_pack_components(*), " +
         // The Style master's component list, merged into Order Info (0457).
         "style_components:garment_order_amendment_style_components(*), " +
         "style_processes:garment_order_amendment_style_processes(*), " +
@@ -144,6 +146,7 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     styles: bySno(r.styles),
     style_sizes: bySno(r.style_sizes),
     style_coordinates: bySno(r.style_coordinates),
+    pack_components: bySno(r.pack_components),
     style_components: bySno(r.style_components),
     style_processes: bySno(r.style_processes),
     dyeings: bySno(r.dyeings),

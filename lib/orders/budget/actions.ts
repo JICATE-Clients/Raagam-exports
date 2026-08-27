@@ -167,7 +167,7 @@ export async function deleteOrderBudget(id: string): Promise<Result> {
 }
 
 // ---------------------------------------------------------------------------
-// The workflow — step 8
+// The workflow — step 6
 // ---------------------------------------------------------------------------
 
 async function readStatus(

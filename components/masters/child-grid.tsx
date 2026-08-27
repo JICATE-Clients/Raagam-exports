@@ -143,6 +143,26 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
 export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2";
 
 /**
+ * THE COLUMN-HEADER BAND'S TYPE — darker and a half-step bigger than a field
+ * label, for the reason the `<th>` below records: on a row of identical boxes
+ * the heading is the ONLY thing telling the operator which cell they are in, so
+ * a muted grey 12px "reads as decoration" (client 2026-08-18).
+ *
+ * EXPORTED BECAUSE A PANEL BESIDE A GRID HAS TO MATCH IT. Order Info ▸ Styles
+ * Details lays a coordinates list, this grid and a Sizes picker on one line;
+ * the middle one drew bold headings and the two beside it drew nothing and a
+ * muted `Label`, so the row read as one titled thing between two untitled ones
+ * (client 2026-08-26: "the centered section only have field titles but that
+ * left and right section field title no — so add it and make bold"). They title
+ * themselves with THIS string rather than a retyped copy of it, which is the
+ * same argument `LABEL_METRICS` makes one component over.
+ *
+ * It was typed out twice inside this file before that — the `#` header and the
+ * column headers — which is exactly how a third copy starts.
+ */
+export const GRID_HEADER_TEXT = "text-[12.5px] font-semibold text-foreground";
+
+/**
  * `openRowKey`'s "nothing is open" value — see the state declaration below.
  *
  * A STRING THAT CANNOT BE A ROW KEY, rather than a second boolean beside the
@@ -1750,7 +1770,7 @@ export function ChildGrid<T extends { key: string }>({
           >
             <thead>
               <tr className="border-b border-border bg-surface-muted">
-                <th className="w-10 px-2 py-2 text-center text-[12.5px] font-semibold text-foreground">#</th>
+                <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
                 {columns.map((c, i) => (
                   <th
                     key={i}
@@ -1768,7 +1788,8 @@ export function ChildGrid<T extends { key: string }>({
                       // operator which cell they are in — it is not chrome here,
                       // it is the label for every value beneath it, and a muted
                       // grey 12px reads as decoration.
-                      "border-l border-border px-2 py-2 text-[12.5px] font-semibold text-foreground",
+                      "border-l border-border px-2 py-2",
+                      GRID_HEADER_TEXT,
                       // See `centerHeaders`: the heading is centred while the
                       // CELLS keep `c.align`, so a column of figures still lines
                       // up on its decimal point.

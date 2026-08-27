@@ -269,7 +269,7 @@ export async function loadOrderPanels(garmentOrderId: string): Promise<OrderPane
 }
 
 // ---------------------------------------------------------------------------
-// The handoff to step 4 — Fabric BOM
+// The handoff to step 3 — Fabric BOM
 // ---------------------------------------------------------------------------
 
 /** One Fabric BOM line the seed either filled in or refused, with the sentence. */

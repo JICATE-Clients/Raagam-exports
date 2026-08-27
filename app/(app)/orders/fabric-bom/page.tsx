@@ -7,7 +7,7 @@ import {
 import { FabricBomScreen } from "./fabric-bom-screen";
 
 /**
- * Orders ▸ Fabric BOM — step 5 of the client's order flow.
+ * Orders ▸ Fabric BOM — step 3 of the client's order flow.
  *
  * TWO LISTS, and the distinction is the point of the screen — the same call
  * Material BOM's page records. `tasks` is one row per confirmed garment ORDER,

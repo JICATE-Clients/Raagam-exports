@@ -176,7 +176,19 @@ const STYLES: TabSpec<StyleRow> = {
   key: (r) => norm(r.style_ref_no),
   rowLabel: styleName,
   fields: [
-    { field: "style_id", label: "Style" },
+    /*
+     * `style_id` LEFT THIS LIST ON 2026-08-25, and it is the one removal here
+     * that is not a loss. The Style is typed now (client: "allow it manual entry
+     * now, unwire that style mapping"), so the column is NULL on every line this
+     * screen writes — a field that can only ever compare null to null reports
+     * nothing while looking like coverage, which is worse than an honest gap.
+     *
+     * THE STYLE IS STILL DIFFED, by `key` directly above: the ref no IS the
+     * style now, so re-typing it reads as one row leaving and another arriving
+     * rather than as a changed cell. That is the truthful shape — every child
+     * keyed on that text moves with it (`settleStyleRef`), so it really is a
+     * different line, not the same line with a different name.
+     */
     /*
      * BOTH UNIT COLUMNS ARE OFF THE SCREEN AND STILL IN THE DIFF (2026-08-11).
      *

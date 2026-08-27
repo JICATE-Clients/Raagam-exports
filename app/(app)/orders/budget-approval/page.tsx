@@ -3,7 +3,7 @@ import { listBudgetsForApproval, listOrderBudgets } from "@/lib/orders/budget/se
 import { BudgetApprovalScreen } from "./budget-approval-screen";
 
 /**
- * Orders ▸ Approval — step 8 of the client's order flow.
+ * Orders ▸ Approval — step 6 of the client's order flow.
  *
  * A QUEUE OVER `order_budgets.status`, never a second document. The rows are the
  * queue and `budgets` carries the full documents so opening one shows the

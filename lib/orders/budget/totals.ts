@@ -2,7 +2,7 @@
  * Order Budget — what the grouped orders are worth, what they cost, and the
  * difference.
  *
- * Step 7 of the client's order flow. `doc/prd.md`, in the client's own words:
+ * Step 5 of the client's order flow. `doc/prd.md`, in the client's own words:
  *
  *   "After BOM, budgeting is done using Fabric BOM and Material BOM of various
  *    orders which are grouped together. This budget is approved. After approval

@@ -69,6 +69,39 @@ export function coordinateLimit(
   return isUnitKind(unitKind) ? COORDINATE_LIMITS[unitKind] : null;
 }
 
+/**
+ * THE SAME RULE READ BACKWARDS — how many coordinates a line declares tells you
+ * what kind of unit it is. One garment is a Piece; two or more sold together are
+ * a Set.
+ *
+ * This exists because the Garment Order's Style became MANUAL ENTRY on
+ * 2026-08-25 (client: "allow it manual entry now, unwire that style mapping").
+ * The line's Order Unit used to be read through `style_id` off the master's
+ * `unit_kind` — "resolving it through `style_id` on every read means the two can
+ * never drift" — and with no `style_id` there is nothing to resolve. The choice
+ * was between a blank column, a new stored column with a new question for the
+ * operator, and this: the order already declares its coordinates, and
+ * `COORDINATE_LIMITS` directly above says what a count of them MEANS.
+ *
+ * SO IT IS NOT AN INFERENCE, it is the existing rule with its two sides
+ * swapped. The mapping is exact in both directions — piece is 1..1, set is 2..6,
+ * and no count satisfies both — which is what makes it safe to run backwards. If
+ * `COORDINATE_LIMITS` ever gains a third kind or overlapping ranges, this stops
+ * being derivable and must go back to being stored; `scripts/check-style-rules.mts`
+ * asserts the ranges stay disjoint so that day cannot pass unnoticed.
+ *
+ * NULL FOR ZERO, and never a default. A line whose coordinates are not entered
+ * yet has not said what it is, and answering "Piece" for it would print a
+ * unit the operator never chose onto Price Details, which STORES that word.
+ * Above the ceiling it stays "set" rather than becoming null: six is the
+ * client's cap on how many a set holds, not a claim that a seventh means
+ * something else.
+ */
+export function unitKindFromCoordinates(count: number): UnitKind | null {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return count <= COORDINATE_LIMITS.piece.max ? "piece" : "set";
+}
+
 /** A row counts toward the limit once it holds a coordinate. A blank row the
  *  grid seeded is not a coordinate the operator chose, and the save path drops
  *  it anyway (`normalizeCoordinates`). */

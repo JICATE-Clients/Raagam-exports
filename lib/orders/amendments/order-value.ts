@@ -45,6 +45,16 @@ import { styleKey } from "./style-key";
 export type ValuedStyle = {
   style_ref_no: string | null;
   po_qty: number;
+  /**
+   * Packs the buyer ordered (0467). Only consulted when this style's price rows
+   * say **Pack-wise** — a rate per box, which must be multiplied by boxes and
+   * not by the garments inside them.
+   *
+   * OPTIONAL, so every existing caller compiles unchanged; a Pack-wise style
+   * whose caller did not pass it is REFUSED rather than valued at 0 or at its
+   * piece count. See `priceBasisOf`.
+   */
+  packs_ordered?: number | string | null;
 };
 
 /** A Prices-tab row, as much of it as the value needs. */
@@ -102,6 +112,35 @@ function modeAxes(priceType: string | null | undefined): { colour: boolean; size
     colour: m === "color-wise" || m === "color-wise size-wise",
     size: m === "size-wise" || m === "color-wise size-wise",
   };
+}
+
+/**
+ * WHAT THIS STYLE'S RATE IS A RATE *PER* — the multiplicand, not the axes.
+ *
+ * Four of the five price modes quote a rate per GARMENT; **Pack-wise quotes one
+ * per BOX** (0467). `styleRate` cannot tell them apart because both collapse to
+ * a 1x1 matrix — `modeAxes` answers `{false,false}` for each — so the fork has
+ * to be read off the mode NAME, here, once.
+ *
+ * `null` on a genuine contradiction, the same refusal `styleRate` makes and for
+ * the same reason: rows left behind by a previous mode must never be averaged
+ * into a number that looks like an answer.
+ */
+export type PriceBasis = "piece" | "pack";
+
+export function priceBasisOf(
+  refNo: string | null,
+  prices: readonly ValuedPrice[],
+): PriceBasis | null {
+  const key = styleKey(refNo);
+  if (!key) return null;
+  const modes = new Set(
+    prices
+      .filter((p) => styleKey(p.style_ref_no) === key && num(p.price) > 0)
+      .map((p) => (p.price_type ?? "").trim().toLowerCase()),
+  );
+  if (modes.size !== 1) return null;
+  return [...modes][0] === "pack-wise" ? "pack" : "piece";
 }
 
 /**
@@ -244,7 +283,25 @@ export function orderValue(
       if (!unresolved.includes(key)) unresolved.push(key);
       continue;
     }
-    gross += lineQty * rate;
+
+    /**
+     * A PACK-WISE RATE IS MULTIPLIED BY PACKS, NOT PIECES (0467).
+     *
+     * `$12 per box x 1,000 boxes` is the order's value; `$12 x 3,000 garments`
+     * is the same document overstated threefold, and nothing on the screen that
+     * prints it would look wrong. That is why a missing pack count is a
+     * REFUSAL here rather than a fallback to `lineQty`: falling back would
+     * value the order at the piece count — the exact wrong answer — while
+     * reporting success. The module's standing rule is that it returns null and
+     * names the style rather than a figure it cannot stand behind.
+     */
+    const basis = priceBasisOf(s.style_ref_no, prices);
+    const multiplicand = basis === "pack" ? num(s.packs_ordered) : lineQty;
+    if (multiplicand <= 0) {
+      if (!unresolved.includes(key)) unresolved.push(key);
+      continue;
+    }
+    gross += multiplicand * rate;
   }
 
   if (qty <= 0) return { grossValue: null, avgRate: null, unresolved: [] };

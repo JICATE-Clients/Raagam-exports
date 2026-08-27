@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Orders ▸ Fabric Plan — step 6 of the client's order flow (0427).
+ * Orders ▸ Fabric Plan — step 4 of the client's order flow (0427).
  *
  * TWO SURFACES, one route, exactly as Fabric BOM has: a work queue of confirmed
  * garment ORDERS (so an order with no route is visible rather than absent), and
@@ -944,7 +944,7 @@ export function FabricPlanScreen({
       <div className="space-y-4">
         <PageHeader
           title="Fabric Plan"
-          description="Step 6 — the route that makes the fabric: yarn purchase, knitting, dyeing and finishing, with each stage's loss."
+          description="Step 4 — the route that makes the fabric: yarn purchase, knitting, dyeing and finishing, with each stage's loss."
         />
 
         <div className="flex flex-wrap items-center gap-2">

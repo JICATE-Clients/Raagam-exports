@@ -120,12 +120,27 @@ const AXIS_LABELS: Record<Axis, string> = {
  * grouping would silently be one grain coarser than the operator asked for, and
  * the figure would look entirely reasonable.
  *
- * `Order No` is NOT here, and that is a different call: it is a real column
- * (`garment_order_amendment_quantities.po_no`) that is simply unpopulated, and a
- * BOM names one `garment_order_id`, so it is a CONSTANT within any explosion
- * rather than a missing axis. A constant axis adds no rows, so it is not
- * offered rather than refused — #21 is #19 with a token that cannot divide
- * anything.
+ * `Order No` is NOT here, and that is a different call — but the reason given
+ * for it was WRONG, and the correction matters more than the conclusion.
+ *
+ * It used to read: "a BOM names one `garment_order_id`, so it is a CONSTANT
+ * within any explosion". **That is false whenever `multi_order` is on** (0427):
+ * the whole point of that toggle is that one order carries a DIFFERENT buyer PO
+ * number on each quantity row, so `po_no` divides an explosion exactly as
+ * `country` does. The premise was true when it was written and stopped being
+ * true when the feature shipped.
+ *
+ * The conclusion stands, on a different footing: **PO No is COMMERCIAL METADATA,
+ * not a production grain.** It names who is billed for a lot, not what has to be
+ * cut, dyed or issued to the floor. Splitting an explosion by it would produce
+ * two requirement lines for one physical dye lot, and the purchasing side would
+ * then round each of them up to its own MOQ — the client's own rule (B) for the
+ * same reason: it corrupts MOQ consolidation downstream.
+ *
+ * So it is excluded ON PURPOSE rather than for want of data, and it is not
+ * offered rather than refused — #21 is #19 with a token that must not divide
+ * anything. `resolveRowPoNo` in `lib/orders/po-no.ts` is where that metadata is
+ * read instead, on the documents that bill the lot.
  */
 const UNAVAILABLE: Partial<Record<Axis, string>> = {
   pack: "Pack Ref No is not on the order yet — no packing reference to split by",

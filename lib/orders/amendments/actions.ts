@@ -183,6 +183,60 @@ function normalizeStyleCoordinates(
 }
 
 /**
+ * The retail SET pack's members (0467) — the fifth style-keyed child, and the
+ * SAME FOUR PASSES as `normalizeStyleCoordinates` above, in the same order,
+ * because it is the same question asked of a different child.
+ *
+ * THE DUPLICATE KEY CARRIES `combo`, AND THAT IS THE WHOLE POINT. The
+ * coordinates normalizer de-duplicates on (style, coordinate) because a style
+ * lists each garment once. A PACK legitimately holds one coordinate several
+ * times over in several colours — a 3-pack of bodysuits is the client's own
+ * example — so de-duplicating on the coordinate alone would silently keep the
+ * first colour and drop the rest, leaving a 3-pack that explodes to one piece.
+ * The unique index in 0467 carries `combo` for the same reason; the two must be
+ * edited together or the form and the database disagree about what a duplicate
+ * is.
+ *
+ * `qty_per_pack` is NOT part of the "is this row blank" test: a member naming a
+ * coordinate is an answer, and a blank quantity is a half-filled row the
+ * operator can see and finish. It IS defaulted to 1 by the schema, because the
+ * ordinary set holds one of each.
+ */
+function normalizePackComponents(
+  data: AmendmentInput,
+  styles: ReturnType<typeof normalizeStyles>,
+) {
+  const live = new Set(styles.map((r) => styleKey(r.style_ref_no)).filter(Boolean));
+  const seen = new Set<string>();
+  const perStyle = new Map<string, number>();
+  return data.pack_components
+    .map((r) => ({
+      style_ref_no: clean(r.style_ref_no),
+      coordinate_id: r.coordinate_id,
+      combo: clean(r.combo),
+      qty_per_pack: r.qty_per_pack,
+    }))
+    .filter((r) => r.coordinate_id)
+    .filter((r) => live.has(styleKey(r.style_ref_no)))
+    .filter((r) => {
+      const k = JSON.stringify([
+        styleKey(r.style_ref_no),
+        r.coordinate_id,
+        (r.combo ?? "").trim().toUpperCase(),
+      ]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .map((r) => {
+      const k = styleKey(r.style_ref_no);
+      const n = (perStyle.get(k) ?? 0) + 1;
+      perStyle.set(k, n);
+      return { ...r, sno: n };
+    });
+}
+
+/**
  * The per-style Component list (0457) — the Style master's other child, merged
  * into Order Info beside the sizes.
  *
@@ -661,6 +715,8 @@ async function writeChildren(
     // What a component is a part of (0461). Same dependency and the same
     // resolution as the sizes above: handed the rows being inserted.
     ["garment_order_amendment_style_coordinates", normalizeStyleCoordinates(data, styleRows)],
+    // Retail SET pack members (0467). Same dependency, same resolution.
+    ["garment_order_amendment_pack_components", normalizePackComponents(data, styleRows)],
     // The Style master's component list, merged into Order Info (0457). Same
     // dependency and the same resolution as the sizes above.
     ["garment_order_amendment_style_components", normalizeStyleComponents(data, styleRows)],
@@ -963,6 +1019,8 @@ function headerOnly(data: AmendmentInput) {
     style_sizes: _ss,
     // 0461, and the fourth member of the same family.
     style_coordinates: _scoord,
+    // 0467, and the fifth member of the same family.
+    pack_components: _pc,
     // 0457, and the third member of the same family: the Style master's
     // component list, keyed off the styles above rather than a header column.
     style_components: _scomp,

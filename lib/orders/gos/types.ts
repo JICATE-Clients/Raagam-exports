@@ -127,7 +127,13 @@ export type GosHeader = {
 /** One destination's own dates, when the order ships to more than one place. */
 export type GosDestination = {
   label: string;
+  /** The PO this lot bills under — the row's own, else the order's
+   *  (`resolveRowPoNo`). Null only when neither level has one. */
   poNo: string | null;
+  /** True when `poNo` came from the ROW rather than the header. A buyer's
+   *  sub-PO against one destination and the contract PO against the others is
+   *  what their customs agent matches on, so the sheet may distinguish them. */
+  poNoIsOwn: boolean;
   deliveryDate: string | null;
   earlierShipmentDate: string | null;
   qty: number;
