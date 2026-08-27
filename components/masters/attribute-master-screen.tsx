@@ -28,7 +28,12 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuper
 // An attribute value is just a NAME now — its numeric/option behaviour and value
 // list are configured per-category in the Material Attribute screen (0346), not
 // here. Type/Options columns were removed (client 2026-07-25).
-type ValueRow = { key: string; value: string };
+/* `id` IS THE STORED ROW THIS ONE IS, null on a row the operator just added.
+   It is carried so `saveAttributeValues` can recognise a value across a save and
+   UPDATE it in place: matching on text alone makes a RENAME look like a delete
+   plus an insert, and a deleted value nulls `material_attribute_lines.attribute_id`
+   on every Material Attribute line pointing at it. See that action's header. */
+type ValueRow = { key: string; id: string | null; value: string };
 
 /**
  * Attribute master (doc/update.md #2-3) — the second half of the Item Class /
@@ -70,12 +75,12 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
 
   function openEdit(r: Attribute) {
     setEditRow(r);
-    setValues(r.values.map((v) => ({ key: newKey(), value: v.value })));
+    setValues(r.values.map((v) => ({ key: newKey(), id: v.id, value: v.value })));
     setOpen(true);
   }
   function addValueRow() {
     // ChildGrid (pageSize) handles jumping to the new last page on add.
-    setValues((vs) => [...vs, { key: newKey(), value: "" }]);
+    setValues((vs) => [...vs, { key: newKey(), id: null, value: "" }]);
   }
   function setValueAt(key: string, value: string) {
     setValues((vs) => vs.map((v) => (v.key === key ? { ...v, value } : v)));
@@ -128,7 +133,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
       // default server-side (unused by the flow).
       const payload = values
         .filter((v) => v.value.trim())
-        .map((v) => ({ value: v.value.trim().toUpperCase() }));
+        .map((v) => ({ id: v.id, value: v.value.trim().toUpperCase() }));
       const res = await saveAttributeValues(editRow.id, payload);
       if (res.ok) {
         success("Attributes saved.");

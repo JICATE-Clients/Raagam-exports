@@ -32,10 +32,15 @@ const pairKey = (itemClassId: string, categoryId: string) => `${itemClassId}|${c
  * are counted, because neither contains the other:
  *
  *  - the PAIR is primary and is the half that still works after an edit;
- *  - the ANSWERS are counted too, but cannot be relied on alone — the answers
- *    of a set are orphaned (`attribute_line_id` set to NULL) every time the set
- *    is EDITED, since `updateMaterialAttribute` replaces its lines wholesale.
- *    Live, the LABEL set reads 2 materials by pair and 0 by answer.
+ *  - the ANSWERS are counted too, but cannot be relied on alone. Until
+ *    2026-08-27 `updateMaterialAttribute` replaced its lines wholesale, so an
+ *    ordinary edit orphaned every answer of the set (`attribute_line_id` set to
+ *    NULL) — live, the LABEL set read 2 materials by pair and 0 by answer. That
+ *    action RECONCILES by `attribute_id` now and a save no longer orphans
+ *    anything, but the pair stays primary: **the 10 rows already orphaned are
+ *    not recoverable** (the value text cannot say which question it answered,
+ *    and `audit_log` holds no entry for any attribute table), so the answer
+ *    count still under-reports for every set edited before that date.
  *
  * Distinct item ids across both, so a material counted twice is one Material.
  *
