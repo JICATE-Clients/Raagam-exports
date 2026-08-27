@@ -11911,6 +11911,20 @@ export function AmendmentScreen({
             ) : undefined,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
+          /* NEXT UNTIL THE LAST SECTION, THEN SAVE (client 2026-08-27, on the
+             first tab of a new order: "instead just show the Next button until
+             the last tab — once we reach the last tab show this option").
+
+             This document is eleven sections long, and every one of them was
+             offering "Save garment order" beside a red "6 to fix" before the
+             operator had answered anything. The count was true and the button
+             was honest; both were just being put on the first screen of an
+             eleven-screen form.
+
+             The rule lives in `MasterFullScreen` — see `footer.stepper` — since
+             "am I on the last section?" is a question only the shell can answer.
+             Opt-in, so the masters' two-section editors are untouched. */
+          stepper: true,
         }}
       />
       {/*
