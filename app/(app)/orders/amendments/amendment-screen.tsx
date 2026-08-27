@@ -844,23 +844,24 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
 }
 
 /**
- * SET PACK IS OFF THE SCREEN FOR NOW (client 2026-08-27: "for now hide that set
- * pack toggle from ui").
+ * SET PACK IS BACK ON THE SCREEN (client 2026-08-27: "enable that set pack
+ * option again", hours after "for now hide that set pack toggle from ui").
  *
- * HIDDEN, NOT REMOVED — the same call the nav registry makes for a retired row.
- * `is_set_pack`, `packs_ordered` and `garment_order_amendment_pack_components`
- * stay in the schema (0467), the explosion stays in `pack-composition.ts` with
- * its vectors, and every consumer on this screen already asks `form.is_set_pack`
- * before it renders. So with the switch gone the flag simply stays false and the
- * Packs column, the Pack Composition button, the Pack-wise price mode and
- * `packProblems` all stand down on their own. Nothing needed a second edit, and
- * that is the test that this is a hide rather than a rip-out.
+ * THE ROUND TRIP COST ONE LINE, AND THAT IS THE WHOLE POINT OF THE FLAG. Hiding
+ * it was done as the nav registry retires a row — `is_set_pack`,
+ * `packs_ordered` and `garment_order_amendment_pack_components` stayed in the
+ * schema (0467), the explosion stayed in `pack-composition.ts` with its vectors,
+ * and every consumer on this screen already asks `form.is_set_pack` before it
+ * renders. So the switch went and nothing else moved; it came back and nothing
+ * else moved. Deleting the feature instead would have cost the migration, the
+ * sheet, the 23 explosion vectors and the reasoning behind `po_qty` staying
+ * pieces — and that last one is the expensive part to rebuild.
  *
- * TO BRING IT BACK: flip this to `true`. Deleting the feature instead would cost
- * the migration, the sheet, the 23 explosion vectors and the reasoning behind
- * `po_qty` staying pieces — and that last one is the expensive part to rebuild.
+ * KEEP THE FLAG. A switch the client has now asked to hide and to show inside a
+ * single day is one they may ask for again; the gate is cheaper standing than
+ * re-derived, and `|| form.is_set_pack` beside it stays either way (see there).
  */
-const SET_PACK_ON_SCREEN = false;
+const SET_PACK_ON_SCREEN = true;
 
 type HeaderForm = {
   // order header
@@ -11475,12 +11476,15 @@ export function AmendmentScreen({
               * are then derived from the composition rather than typed. See
               * `piecesPerPack`.
               *
-              * OFF THE SCREEN SINCE 2026-08-27 — see `SET_PACK_ON_SCREEN`. The
-              * switch also renders for an order that ALREADY holds the flag, so
-              * hiding it can never strand a saved set pack with a derived PO Qty
-              * and no way to turn the derivation off. That is the same call
-              * AGENTS.md records for a disabled master row: the one that
-              * survives the filter is the one the record already holds.
+              * GATED BY `SET_PACK_ON_SCREEN`, which is TRUE again since
+              * 2026-08-27 — it was hidden and restored the same day. The
+              * `|| form.is_set_pack` half is what makes hiding it safe and so
+              * outlives any particular value of the flag: the switch also
+              * renders for an order that ALREADY holds it, so switching it off
+              * can never strand a saved set pack with a derived PO Qty and no
+              * way to turn the derivation off. That is the same call AGENTS.md
+              * records for a disabled master row: the one that survives the
+              * filter is the one the record already holds.
               */}
             {(SET_PACK_ON_SCREEN || form.is_set_pack) && (
               <Toggle
