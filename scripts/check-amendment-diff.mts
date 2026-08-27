@@ -802,6 +802,75 @@ check("display empty string", display(""), "—");
 check("display false", display(false), "No");
 check("display zero", display(0), "0");
 
+// ---------- Order Unit (0471) ----------
+//
+// It became a column ON the style line on 2026-08-27. Before that it resolved
+// through `style_id` off the Style master, so the only way to change it was to
+// change the style — and the Style line already reported that. A field the
+// operator can now change on its own and an approver cannot see change would be
+// a hole in the amendment record.
+//
+// THE FORMATTING IS THE POINT OF THE SECOND VECTOR. The value is STORED
+// "piece" / "set" and READ "PCS" / "SET", so asserting the words is what fails
+// if the formatter is ever dropped — a raw "piece -> set" line describes a
+// field the approver has never seen on screen.
+const styleRow = (ref: string, unit: "piece" | "set" | null) =>
+  ({
+    sno: 1,
+    style_ref_no: ref,
+    style_id: null,
+    approved_sample_id: null,
+    article_no: null,
+    style_category: null,
+    style_category_id: null,
+    style_description: null,
+    order_unit_id: null,
+    plan_unit_id: null,
+    unit_kind: unit,
+    po_qty: 100,
+    packs_ordered: null,
+    description: null,
+  }) as unknown as SeededAmendmentChildren["styles"][number];
+
+const unitBefore = seed({ styles: [styleRow("TSH-001", "piece")] });
+const unitAfter = seed({ styles: [styleRow("TSH-001", "set")] });
+const unitRows = tab(diffAmendment(unitBefore, unitAfter), "styles");
+
+check(
+  "changing Order Unit is reported as a change",
+  unitRows.filter((r) => r.kind === "changed").length,
+  1,
+);
+check(
+  "...labelled Order Unit",
+  unitRows[0]?.fields.find((f) => f.field === "unit_kind")?.label ?? "(none)",
+  "Order Unit",
+);
+check(
+  "...and printed as the words the screen shows, not the stored codes",
+  (() => {
+    const f = unitRows[0]?.fields.find((x) => x.field === "unit_kind");
+    return f ? `${f.before} -> ${f.after}` : "(none)";
+  })(),
+  "PCS -> SET",
+);
+check(
+  "an unanswered unit is blank, never guessed",
+  (() => {
+    const rows = tab(
+      diffAmendment(seed({ styles: [styleRow("TSH-001", null)] }), unitAfter),
+      "styles",
+    );
+    const f = rows[0]?.fields.find((x) => x.field === "unit_kind");
+    return f ? `${f.before}|${f.after}` : "(none)";
+  })(),
+  "|SET",
+);
+check(
+  "the same unit on both sides is not a change",
+  tab(diffAmendment(unitBefore, unitBefore), "styles").filter((r) => r.kind === "changed").length,
+  0,
+);
 console.log(
   failed === 0 ? "\nAll amendment-diff vectors passed." : `\n${failed} vector(s) FAILED.`,
 );

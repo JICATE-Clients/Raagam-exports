@@ -103,11 +103,19 @@ export function orderUnitLabel(unitKind: string | null | undefined): string {
  * (editing 0400 changes nothing — it has already run). Nothing breaks if they
  * drift; the two tabs just stop reading alike.
  *
- * A ROW MAY HOLD A VALUE THAT IS NOT IN THIS TUPLE. `pack_type` is text with no
- * CHECK, so re-wording an option here does not invalidate what is already
- * saved — but a `<Select>` matches on VALUE, so a stale row would render blank
- * (the same trap RECEIPT_MODES records below). The screen keeps a held
- * off-tuple value on its own option list rather than silently dropping it.
+ * THIS TUPLE NO LONGER CONSTRAINS ANYTHING (2026-08-27). The Pack type(s) cell
+ * was a `<Select>` over these names and is now a typed box (client: "packtype
+ * field manual entry, not a default value"), so what an order may name is
+ * whatever the operator types. `pack_type` is text with no CHECK and
+ * `amendmentPackTypeInput` is `nullableText` and not a `z.enum` of this, which
+ * is what made the change UI-only: nothing already saved became invalid and no
+ * migration was needed.
+ *
+ * SO WHAT IS IT FOR NOW? Two things, both still worth one declaration. The
+ * screen prints it under the grid as the usual wordings, and 0400 seeded these
+ * same names into the lookup the Quantities tab picks from — so re-wording a
+ * method here still means a new migration if the two tabs are to keep reading
+ * alike. It is a vocabulary offered, not a list enforced.
  */
 export const PACK_TYPE_OPTIONS = [
   "Solid Colour / Solid Size",
@@ -129,17 +137,20 @@ export const PACK_TYPE_OPTIONS = [
  * stores, one decision, and only one of them heard it: exactly the drift the
  * comment above predicts in the abstract.
  *
- * KEPT, NOT DELETED, because a stored row may still name one. `pack_type` is
- * text with no CHECK (0399 refuses one deliberately), so nothing rejects the
- * value — but a `<Select>` matches on VALUE and would render a stale row BLANK.
- * `packTypeOptions()` re-admits a held off-tuple value, and tags it
- * `(inactive)` so the operator can see why it is the only one of its kind on
- * the list. That is the "Disabled rows" rule reaching a plain `<Select>`: the
- * one row that survives is the one the record already holds, and it cannot be
- * re-picked once cleared.
+ * AND THE DROPDOWN IT WAS RETIRED FROM IS GONE (2026-08-27). The cell is typed
+ * now, so nothing hides a retired method and nothing stops an operator naming
+ * one — that is what manual entry means, and it is the client's own later
+ * instruction. `packTypeOptions()` went with the `<Select>`: it re-admitted a
+ * held off-tuple value and tagged it `(inactive)`, which was the "Disabled
+ * rows" rule reaching a plain `<Select>`, and a typed box has no option list to
+ * drop a stored value from in the first place.
  *
- * The row ceiling, the "N of M methods" badge and the explainer sentence all
- * read `PACK_TYPE_OPTIONS.length`, so they follow this to 2 without an edit.
+ * KEPT, NOT DELETED, for what it still says: these two are not offered as
+ * examples under the grid. Deleting them would put them back in that sentence,
+ * which is the one place the retirement still has a surface to act on. The row
+ * ceiling and the "N of M methods" badge that used to read
+ * `PACK_TYPE_OPTIONS.length` are both gone — a ceiling counting a list nobody
+ * picks from is a "+ Add" that stops working for no visible reason.
  */
 export const RETIRED_PACK_TYPES: readonly string[] = [
   "Assort Colour / Solid Size",
@@ -327,6 +338,20 @@ export interface AmendmentStyle {
   style_description: string | null;
   order_unit_id: string | null;
   plan_unit_id: string | null;
+  /**
+   * ORDER UNIT — 'piece' (shown PCS) or 'set' (SET), asked of the operator
+   * again from 2026-08-27 (client: "that order unit need to show pcs and set").
+   *
+   * NOT `order_unit_id` above, which stays frozen and answers a different
+   * question: it was a `uoms` FK offering nos / mtr / kg / gross / yard / set —
+   * a stock unit. This is the two-valued vocabulary `COORDINATE_LIMITS` and
+   * `garment_styles.unit_kind` already speak, so the coordinate cap, the Style
+   * master and the order line cannot spell it three ways (0471).
+   *
+   * NULL IS "NOT ANSWERED", never PCS. The word is seeded into
+   * `price_details.unit`, so a guess here is a guess that reaches an invoice.
+   */
+  unit_kind: string | null;
   /**
    * PIECES. Always pieces, on a set pack too — see `packs_ordered`.
    */
@@ -683,7 +708,8 @@ export interface AmendmentApprovalQty {
  *
  * The whole row is its own value: there is nothing to say about a pack method
  * beyond naming it, which is why this is the only child with a single data
- * column. `pack_type` is one of `PACK_TYPE_OPTIONS`, stored as text.
+ * column. `pack_type` is free text since 2026-08-27 — typed, not picked — and
+ * `PACK_TYPE_OPTIONS` is the wording the screen offers as examples.
  */
 export interface AmendmentPackType {
   id: string;
@@ -964,6 +990,16 @@ export const amendmentStyleInput = z.object({
   style_description: nullableText,
   order_unit_id: uuidN,
   plan_unit_id: uuidN,
+  /* ORDER UNIT (0471). An ENUM, not `nullableText`, and that is the half the
+     DB check cannot cover on its own: the stored words are 'piece' / 'set'
+     while the operator reads PCS / SET, so the display word is the likeliest
+     thing to arrive from a caller that formats before it saves. Both ends
+     refuse it — this and the column's CHECK — because `lib/data-io` writes
+     straight to Postgres and the action is not on that path. */
+  unit_kind: z
+    .enum(["piece", "set"])
+    .nullish()
+    .transform((v) => v ?? null),
   po_qty: num,
   /* PACKS, beside the piece count (0467). `numN` and not `num`: NULL is "not a
      set pack", 0 is "zero packs ordered", and coercing the first to the second

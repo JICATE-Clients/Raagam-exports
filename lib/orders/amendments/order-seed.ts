@@ -600,6 +600,13 @@ export async function seedAmendmentFromOrder(
       style_id: master?.id ?? null,
       approved_sample_id: master?.approved_sample_id ?? null,
       article_no: master?.article_no ?? null,
+      /* ORDER UNIT (0471) — NULL, meaning "not answered", even where a master
+         row was matched above. A seeded line is a legacy order being read into
+         the new shape, and PCS / SET is a word that gets stored on the price
+         rows; taking it from a master the operator did not pick would put an
+         inferred unit onto an invoice. The screen asks for it, and the
+         coordinate derivation still answers where a line has coordinates. */
+      unit_kind: null,
       /* THE NAME AND THE ROW IT RESOLVES TO (0461). The text has always been
          seeded from the embed; the id is what a picker can resolve, and both
          come off the same master row here so they cannot disagree. */

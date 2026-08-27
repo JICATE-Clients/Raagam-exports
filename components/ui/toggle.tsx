@@ -92,7 +92,17 @@ export function Toggle({
       <span
         aria-hidden
         className={cn(
-          "relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border bg-surface-muted transition-colors",
+          /* THE OFF TRACK IS A REAL GREY (client 2026-08-27: "the table borders
+             and toggles also not visible that much, add some extra tone").
+             It was `bg-surface-muted` (#f1f3f5) under a `bg-surface` (#ffffff)
+             knob and inside a `border-border` hairline — three near-whites, so
+             an OFF switch read as an empty rectangle and the operator could not
+             tell it from a gap in the row. `--switch-off` carries the fill and
+             flips with the theme; `border-border-strong` gives the pill an edge
+             that survives the same monitor the gridlines were lost on. */
+          "relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border-strong bg-switch-off transition-colors",
+          /* ON stays --primary, and the gap between the two states is now a hue
+             change AND a lightness change rather than lightness alone. */
           "peer-checked:border-primary peer-checked:bg-primary",
           // The focus ring lands on the TRACK because the input itself is
           // `sr-only` and has no box to draw one on. `focus-visible`, not

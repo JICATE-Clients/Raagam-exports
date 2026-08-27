@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "r
 import { useRouter } from "next/navigation";
 import {
   Trash2,
+  Shirt,
   Palette,
   Layers,
   Banknote,
@@ -118,7 +119,9 @@ import {
   componentRowStarted,
   componentTypeForCategory,
   filledCoordinates,
+  isUnitKind,
   unitKindFromCoordinates,
+  UNIT_KIND_OPTIONS,
 } from "@/lib/orders/styles/rules";
 import { componentsForCoordinate } from "@/lib/masters/component-coordinates";
 import { previewOrderNumber } from "@/lib/orders/actions";
@@ -175,7 +178,6 @@ import {
 } from "@/lib/orders/amendments/pack-composition";
 import {
   PACK_TYPE_OPTIONS,
-  RETIRED_PACK_TYPES,
   PRICE_TYPE_OPTIONS,
   PACK_WISE_PRICE,
   SEASON_OPTIONS,
@@ -301,6 +303,8 @@ type StyleRow = {
   style_description: string;
   order_unit_id: string | null;
   plan_unit_id: string | null;
+  /** ORDER UNIT - 'piece' (shown PCS) or 'set' (SET), typed by the operator (0471). */
+  unit_kind: string | null;
   /** PIECES, always — see `packs_ordered`. */
   po_qty: string;
   /**
@@ -712,6 +716,7 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       style_description: txt(x.style_description),
       order_unit_id: x.order_unit_id,
       plan_unit_id: x.plan_unit_id,
+      unit_kind: x.unit_kind ?? null,
       po_qty: num(x.po_qty),
       packs_ordered: x.packs_ordered == null ? "" : String(x.packs_ordered),
       description: txt(x.description),
@@ -839,23 +844,24 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
 }
 
 /**
- * SET PACK IS OFF THE SCREEN FOR NOW (client 2026-08-27: "for now hide that set
- * pack toggle from ui").
+ * SET PACK IS BACK ON THE SCREEN (client 2026-08-27: "enable that set pack
+ * option again", hours after "for now hide that set pack toggle from ui").
  *
- * HIDDEN, NOT REMOVED — the same call the nav registry makes for a retired row.
- * `is_set_pack`, `packs_ordered` and `garment_order_amendment_pack_components`
- * stay in the schema (0467), the explosion stays in `pack-composition.ts` with
- * its vectors, and every consumer on this screen already asks `form.is_set_pack`
- * before it renders. So with the switch gone the flag simply stays false and the
- * Packs column, the Pack Composition button, the Pack-wise price mode and
- * `packProblems` all stand down on their own. Nothing needed a second edit, and
- * that is the test that this is a hide rather than a rip-out.
+ * THE ROUND TRIP COST ONE LINE, AND THAT IS THE WHOLE POINT OF THE FLAG. Hiding
+ * it was done as the nav registry retires a row — `is_set_pack`,
+ * `packs_ordered` and `garment_order_amendment_pack_components` stayed in the
+ * schema (0467), the explosion stayed in `pack-composition.ts` with its vectors,
+ * and every consumer on this screen already asks `form.is_set_pack` before it
+ * renders. So the switch went and nothing else moved; it came back and nothing
+ * else moved. Deleting the feature instead would have cost the migration, the
+ * sheet, the 23 explosion vectors and the reasoning behind `po_qty` staying
+ * pieces — and that last one is the expensive part to rebuild.
  *
- * TO BRING IT BACK: flip this to `true`. Deleting the feature instead would cost
- * the migration, the sheet, the 23 explosion vectors and the reasoning behind
- * `po_qty` staying pieces — and that last one is the expensive part to rebuild.
+ * KEEP THE FLAG. A switch the client has now asked to hide and to show inside a
+ * single day is one they may ask for again; the gate is cheaper standing than
+ * re-derived, and `|| form.is_set_pack` beside it stays either way (see there).
  */
-const SET_PACK_ON_SCREEN = false;
+const SET_PACK_ON_SCREEN = true;
 
 type HeaderForm = {
   // order header
@@ -1199,6 +1205,7 @@ export function AmendmentScreen({
     style_description: "",
     order_unit_id: null,
     plan_unit_id: null,
+    unit_kind: null,
     po_qty: "",
     packs_ordered: "",
     description: "",
@@ -1983,8 +1990,30 @@ export function AmendmentScreen({
    * initial Style Entry" means — it just no longer comes from a UoM master, and
    * now not from the Style master either.
    */
+  /**
+   * ASKED AGAIN SINCE 2026-08-27, and the derivation stays as the FALLBACK.
+   *
+   * The client's words: "that order unit need to show pcs and set". The
+   * coordinate derivation above is sound — the ranges are disjoint and read
+   * backwards exactly — and it was UNREACHABLE: measured on the live database,
+   * `garment_order_amendment_style_coordinates` held 0 rows against 4 style
+   * lines, so `filledCoordinates` returned 0 on every line ever entered and the
+   * column was blank on 100% of orders. `price_details.unit` is seeded from
+   * this, so all 14 stored price rows carry an empty unit too. A derivation
+   * whose only input is never captured is not a fallback, it is a blank column
+   * with an explanation attached.
+   *
+   * SO THE STORED ANSWER WINS AND THE DERIVATION CATCHES THE REST. A line saved
+   * before 0471 has no `unit_kind`, and where it happens to carry coordinates
+   * they still say what it is — dropping that would blank a value the screen
+   * could already work out. Nothing is back-filled: NULL is "not answered", and
+   * writing PCS onto four real PO quantities would put an invented unit on an
+   * invoice, which is the exact thing the old rule was right to refuse.
+   */
   const unitTextOf = (r: StyleRow) =>
-    orderUnitLabel(unitKindFromCoordinates(filledCoordinates(r.coordinates)));
+    orderUnitLabel(
+      r.unit_kind ?? unitKindFromCoordinates(filledCoordinates(r.coordinates)),
+    );
 
   /*
    * COLOUR IS TYPED, SO THERE IS NO COLOUR OPTION LIST (2026-08-11).
@@ -2331,6 +2360,14 @@ export function AmendmentScreen({
         style_description: r.style_description || null,
         order_unit_id: r.order_unit_id,
         plan_unit_id: r.plan_unit_id,
+        /* ORDER UNIT (0471). NARROWED through `isUnitKind`, not `|| null`:
+           `StyleRow.unit_kind` is a plain string (it is what a `<Select>`
+           hands back), the payload schema is the two-value enum, and the
+           column carries the matching CHECK. One predicate turns the loose
+           value into the strict one and answers the Select's empty option in
+           the same step — "" is not a kind, so it is NULL, which is what "not
+           answered" is stored as. */
+        unit_kind: isUnitKind(r.unit_kind) ? r.unit_kind : null,
         /* PIECES, ALWAYS — and on a set pack that means the DERIVED figure,
            not the box the operator can no longer type in (0467).
            `packs x pieces-per-pack` is computed here rather than mirrored into
@@ -3693,70 +3730,49 @@ export function AmendmentScreen({
   };
 
   /**
-   * THE ONE GRID WITH A CEILING. There are four packing methods and a method
-   * named twice says nothing the first row did not, so a fifth row could only
-   * ever hold a duplicate or a blank.
+   * NO CEILING SINCE 2026-08-27, because there is no longer a list to fill.
    *
-   * `return false` is `ChildGrid`'s own decline protocol (`gridKeyNav`'s
-   * `addRow`), which is why the cap lives here rather than in a disabled
-   * button: Enter off the last cell adds a row too, and a guard on the button
-   * alone would leave the keyboard path uncapped.
+   * The cap was `PACK_TYPE_OPTIONS.length`: one row per name on a fixed list,
+   * so a further row could only ever be a duplicate or a blank. The cell is
+   * typed now (client 2026-08-27, "packtype field manual entry, not a default
+   * value"), and a ceiling counting a list nobody picks from is a "+ Add" that
+   * stops working for no reason the operator can see.
+   *
+   * `ChildGrid`'s decline protocol (`return false`) is therefore unused here.
+   * It is what `gridKeyNav` reads, so a guard put back later belongs in THIS
+   * function and not on the button: Enter off the last cell adds a row too, and
+   * a disabled button would leave the keyboard path uncapped.
    */
   const addPackType = () => {
-    if (packTypes.length >= PACK_TYPE_OPTIONS.length) return false;
     setPackTypes((xs) => [...xs, blankPackType()]);
   };
 
   /**
-   * The methods this row may choose: the four, minus what OTHER rows took.
+   * DOES AN EARLIER ROW ALREADY NAME THIS METHOD?
    *
-   * Filtering at the source is what makes the duplicate impossible rather than
-   * merely rejected — the operator never picks a method twice, so the unique
-   * index (0399) and `normalizePackTypes` are backstops for the import path,
-   * not error messages anyone reads.
+   * The `<Select>` used to make a duplicate IMPOSSIBLE by hiding a method
+   * another row had taken, which is why the unique index (0399) and
+   * `normalizePackTypes` were backstops nobody read. Free text removes the
+   * filter and leaves the backstop standing — and `normalizePackTypes` drops
+   * the second row SILENTLY, so without this the operator types a row, saves,
+   * and finds it gone with nothing said.
    *
-   * A HELD VALUE ALWAYS SURVIVES THE FILTER, including one this build no longer
-   * names. A `<Select>` matches on value, so an unlisted value renders as blank
-   * — a filled cell showing empty, blanked on the next save. Same rule as
-   * "Disabled rows": the row that survives is the one the record already holds.
+   * ADVISORY, NEVER A HOLD. The save succeeds, so this is not an error that
+   * blocks Save, and `data-dup-error` would cage the cursor on a row whose only
+   * exit is Ctrl+Del (AGENTS.md, "Duplicates": the hold is for an error that
+   * genuinely blocks Save).
+   *
+   * Case-insensitive and FIRST-WINS, matching `normalizePackTypes` exactly. A
+   * rule stated twice that disagreed would flag the row the save intends to
+   * keep and stay quiet about the one it drops.
    */
-  /**
-   * The methods this row may pick — the live ones nobody else has taken, plus
-   * whatever this row already holds.
-   *
-   * THE HELD VALUE IS TAGGED, NOT SILENTLY RE-OFFERED. Two of the four methods
-   * were retired on 2026-08-25 (`RETIRED_PACK_TYPES`), and a `<Select>` matches
-   * on VALUE — so a row still naming one would render BLANK while continuing to
-   * save that value, which is the same trap `Combobox` sprang on the
-   * Assortments overlay's `combo` ("a stored value that is not among its
-   * options shows an empty box while still saving"). Re-admitting it unlabelled
-   * is only half a fix: it comes back as an ordinary option and the operator can
-   * re-pick it on a fresh row, which is precisely what "retired" means it must
-   * not do.
-   *
-   * So it returns `{value,label}` and the label says `(inactive)` — AGENTS.md's
-   * "Disabled rows" rule reaching a plain `<Select>`, which has no inactive
-   * state of its own the way `DataPicker` does. It is offered because dropping
-   * it would show a filled field as empty and blank the value on the next save;
-   * it is tagged so nobody reads it as a live choice.
-   */
-  const packTypeOptions = (row: PackTypeRow): { value: string; label: string }[] => {
-    const taken = new Set(
-      packTypes.filter((x) => x.key !== row.key).map((x) => x.pack_type).filter(Boolean),
-    );
-    const free = PACK_TYPE_OPTIONS.filter((o) => !taken.has(o)).map((o) => ({
-      value: o as string,
-      label: o as string,
-    }));
-    if (row.pack_type && !free.some((o) => o.value === row.pack_type)) {
-      free.push({
-        value: row.pack_type,
-        label: RETIRED_PACK_TYPES.includes(row.pack_type)
-          ? `${row.pack_type} (inactive)`
-          : row.pack_type,
-      });
-    }
-    return free;
+  const packTypeIsDuplicate = (row: PackTypeRow): boolean => {
+    const v = row.pack_type.trim().toUpperCase();
+    if (!v) return false;
+    const i = packTypes.findIndex((x) => x.key === row.key);
+    return packTypes
+      .slice(0, i < 0 ? 0 : i)
+      .some((x) => x.pack_type.trim().toUpperCase() === v);
   };
 
   /**
@@ -3778,10 +3794,11 @@ export function AmendmentScreen({
     // and a dot over an untouched tab is exactly the confident lie the rail was
     // built to remove.
     //
-    // `styles` is NOT keyed here any more — the Style(s) grid merged into Order
-    // Info, and that section carries its own `done` (which reads `has(styles)`,
-    // the same expression this entry held). A key left here would be read by
-    // nothing and would drift.
+    // `styles` IS KEYED HERE AGAIN (client 2026-08-27: "move that style section
+    // from order info as separate tab"). It was removed on 2026-08-11 when the
+    // grid merged into Order Info and that section took `has(styles)` into its
+    // own `done`; the split puts the expression back where the rail reads it.
+    styles: has(styles),
     // READS ONLY WHAT THE TAB SHOWS. Prints and Structures came off this tab on
     // 2026-08-14 and their state stayed (see the tab body), so keeping them in
     // this expression would light the dot for rows `pickStyle` seeded — a tab
@@ -4042,12 +4059,46 @@ export function AmendmentScreen({
        * makes the field `required`, so a legacy style answers the next time
        * anyone edits it.
        */
-      /* NO HAND-SET HEIGHT — it sits beside the Style `RecordPicker`, whose
-         height is the primitive's container query (`h-9 @2xl/editor:h-8`). A
-         flat `h-8` here opted this one cell out of it, so under 42rem the
-         picker stood 36px and this box 32px in the same row. See the note on
-         `quantityColumns`, where the same thing had happened five times. */
-      cell: (r) => <Input readOnly value={unitTextOf(r)} />,
+      /*
+       * ASKED AGAIN, AND THE 08-11 DECISION IS FOLLOWED RATHER THAN UNDONE
+       * (client 2026-08-27: "that order unit need to show pcs and set").
+       *
+       * "No longer asked" was right FOR ITS TIME: the Style master already
+       * answered it, so putting the question to the operator twice invited two
+       * answers that could disagree. The 08-25 unwiring made the Style manual
+       * entry and took the master's answer away; the derivation that replaced
+       * it reads coordinates, and no order has ever recorded one, so the column
+       * has been blank on every order there is. Restoring the field is not
+       * reversing 08-11 — it is what 08-11 implies once its premise is gone.
+       *
+       * NOT `required`, deliberately, and this is the same reasoning the
+       * readOnly version carried: a blank mandatory cell HOLDS THE CURSOR
+       * (AGENTS.md), and holding an operator on a two-option dropdown they have
+       * no way to skip would cage every half-entered line. Blank stays a legal
+       * saved state — NULL is "not answered" — and `orderUnitLabel` already
+       * renders it as nothing rather than guessing.
+       *
+       * THE BLANK OPTION IS THE FIRST ONE for the same reason the Dyeing Type
+       * cell keeps its: a line is identified by its Style ref, so a row with a
+       * ref and no unit yet is a legitimate state to be passing through.
+       *
+       * `unitTextOf` still renders elsewhere (the price seed reads it), so the
+       * stored value and the fallback stay in one function rather than this
+       * cell learning the rule a second time.
+       */
+      cell: (r) => (
+        <Select
+          value={r.unit_kind ?? ""}
+          onChange={(e) => updateStyle(r.key, { unit_kind: e.target.value || null })}
+        >
+          <option value=""></option>
+          {UNIT_KIND_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {orderUnitLabel(o.value)}
+            </option>
+          ))}
+        </Select>
+      ),
     },
     {
       header: "PO Qty",
@@ -5377,14 +5428,38 @@ export function AmendmentScreen({
   /**
    * ONE column, because the legacy grid has one: S No + Pack Type.
    *
+   * FREE TEXT SINCE 2026-08-27 (client, "packtype field manual entry, not a
+   * default value"). It was a `<Select>` over `PACK_TYPE_OPTIONS`, and that
+   * tuple decided what could be entered on this tab. It no longer decides
+   * anything: the column is text with no CHECK (0399 refuses one deliberately)
+   * and `amendmentPackTypeInput` is `nullableText` rather than a
+   * `z.enum(PACK_TYPE_OPTIONS)` — so nothing below this line ever needed the
+   * list, and nothing already saved becomes invalid.
+   *
+   * THE TUPLE STAYS WHERE IT IS. It is the wording the explainer under the grid
+   * offers as examples, and the same names 0400 seeded into the
+   * `assortment_type` lookup the Quantities tab picks from. `RETIRED_PACK_TYPES`
+   * stays too and now means only "not offered as an example" — there is no
+   * dropdown left for a value to be off, and nothing stops an operator typing a
+   * retired method, which is what manual entry means.
+   *
+   * WHAT THE LIST DID BESIDES CONSTRAIN: it hid a method another row had taken,
+   * so a duplicate could not be entered. `packTypeIsDuplicate` says so instead
+   * — see the note there for why it advises rather than holds.
+   *
    * `required`, so a row that exists names a method — the tab's entire content
    * is this cell, and a blank one is a row that says nothing. The hold is
-   * satisfiable with the keyboard alone: `keyFills` lets ↓ open a `<select>`'s
-   * list and the arrows pick within it, and Ctrl+Del still removes a row the
-   * operator should not have added (AGENTS.md, "Mandatory fields").
+   * satisfiable by typing, and Ctrl+Del still removes a row the operator should
+   * not have added (AGENTS.md, "Mandatory fields"). `Input` reads the
+   * `RequiredScope` `ChildGrid` wraps each cell in, so the star and the hold
+   * both still come from the one `required` above — the declaration is not
+   * restated on the control because this grid renders its cells through
+   * `columns.map()`, not `renderMobileRow`.
    *
-   * A `<Select>` and not a picker: four fixed options, no master behind them,
-   * nothing to search — the same call the Prices tab's Price Type makes.
+   * CAPITALS ARE THE DEFAULT and are not opted out of: a pack type is a stored
+   * value. Rows saved before today carry the tuple's Title Case, and
+   * `normalizePackTypes` compares case-insensitively, so the two spellings can
+   * never become two methods.
    */
   const packTypeColumns: ChildGridColumn<PackTypeRow>[] = [
     {
@@ -5394,27 +5469,31 @@ export function AmendmentScreen({
       // grid is `inlineCards`, where an unsized column is `flex-1` and a lone
       // one therefore takes the entire section. `hugsContent` is
       // `columns.every((c) => c.width)`, so with one column this single key is
-      // the whole condition — drop it and the Select spans the row again.
+      // the whole condition — drop it and the field spans the row again.
       width: "16rem",
-      cell: (r) => (
-        <Select
-          value={r.pack_type}
-          onChange={(e) =>
-            setPackTypes((xs) =>
-              xs.map((x) =>
-                x.key === r.key ? { ...x, pack_type: e.target.value } : x,
-              ),
-            )
-          }
-        >
-          <option value=""></option>
-          {packTypeOptions(r).map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      ),
+      cell: (r) => {
+        const dup = packTypeIsDuplicate(r);
+        return (
+          <div>
+            <Input
+              value={r.pack_type}
+              aria-invalid={dup || undefined}
+              onChange={(e) =>
+                setPackTypes((xs) =>
+                  xs.map((x) =>
+                    x.key === r.key ? { ...x, pack_type: e.target.value } : x,
+                  ),
+                )
+              }
+            />
+            {dup ? (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+                Already listed above; it will be saved once.
+              </p>
+            ) : null}
+          </div>
+        );
+      },
     },
   ];
 
@@ -5925,7 +6004,7 @@ export function AmendmentScreen({
    * gates its OWN section in Order Info; what it no longer does is reach across
    * into this tab.
    *
-   * `pack_type` (order level, text from `PACK_TYPE_OPTIONS`) and
+   * `pack_type` (order level, free text since 2026-08-27) and
    * `assortment_type_id` (row level, an FK into the `assortment_type` lookup)
    * were deliberately seeded by 0400 with the SAME four names — "Solid Colour /
    * Solid Size" through "Assort Colour / Assort Size" — so the two tabs read
@@ -6141,7 +6220,11 @@ export function AmendmentScreen({
         const out: Problem[] = [];
         if (piecesPerPack(r) <= 0) {
           out.push({
-            section: "orderinfo",
+            /* THE STYLE(S) TAB, since 2026-08-27: this problem is about a STYLE
+               ROW, and the section it names is where `goToSection` sends the
+               operator. Left as "orderinfo" it would jump them to the header
+               and leave them looking for a grid that is no longer there. */
+            section: "styles",
             label: "Pack Composition",
             message: `${who}: this order is sold in packs, so open Pack Composition and say what one pack holds.`,
             kind: "custom",
@@ -6149,7 +6232,7 @@ export function AmendmentScreen({
         }
         if (!(Number(r.packs_ordered) > 0)) {
           out.push({
-            section: "orderinfo",
+            section: "styles",
             label: "Packs",
             message: `${who}: enter how many packs the buyer ordered — PO Qty is worked out from it.`,
             kind: "custom",
@@ -6268,6 +6351,11 @@ export function AmendmentScreen({
   const validity = sectionValidity({
     sections: [
       { key: "orderinfo" },
+      /* SPLIT OUT OF `orderinfo` ON 2026-08-27 with the grid. It must be
+         declared here or `revealFirstProblem` hands `p.section` to
+         `goToSection` and lands nowhere — the same trap the `combos` note
+         below records. */
+      { key: "styles" },
       { key: "logistic" },
       /* THE RAIL'S OWN KEY. `revealFirstProblem` hands `p.section` straight to
          `goToSection`, so a section declared here that names no rail row is a
@@ -9962,6 +10050,41 @@ export function AmendmentScreen({
    */
   type OrderTab = TabItem & { skipTab?: boolean };
   const tabs: OrderTab[] = [
+    /**
+     * ---------------- Style(s) ----------------
+     *
+     * ITS OWN TAB AGAIN (client 2026-08-27: "move that style section from order
+     * info as separate tab"). This reverses the 2026-08-11 merge, which folded
+     * the grid into Order Info so the two halves of one subject read as one
+     * section. The later instruction wins; the earlier one is why the grid drew
+     * its own "Styles Details" band, and that band now names the tab's content
+     * from inside it exactly as every other tab's grids do.
+     *
+     * FIRST IN THE LIST, so the rail reads Order Info → Style(s) → Color/Print
+     * → … That is the order the work is done in and the order the 08-11 merge
+     * had it in when the two shared a section — the split changes where the
+     * boundary falls, not the sequence.
+     *
+     * NOTHING ABOUT THE GRID CHANGES. `stylesGrid` moves as one expression, so
+     * the columns, the nested Coordinates and Components panels, the keyboard
+     * behaviour and every `updateStyle` call site are untouched — this is a
+     * change to which pane the JSX hangs in, and it is worth keeping it that way
+     * so a layout change and a behaviour change cannot be confused in review.
+     *
+     * NO WRAPPER. A tab's `content` is mounted straight into the pane and the
+     * other ten pass bare JSX; `SectionBody` belongs to `orderInfoSection`,
+     * which is a hand-written section rather than one of these.
+     *
+     * THE SECTION EDGE IS NOW THIS TAB'S LAST FIELD, which is what makes Tab
+     * hand over to Color/Print Details (`registerContentEdge`). Order Info's
+     * note used to warn that the grid had to render LAST for that reason; with
+     * one grid alone in the pane there is no ordering left to get wrong.
+     */
+    {
+      key: "styles",
+      label: "Style(s)",
+      content: <div className="space-y-4">{stylesGrid}</div>,
+    },
     // ---------------- Color / Print Details ----------------
     {
       key: "colors",
@@ -10013,6 +10136,14 @@ export function AmendmentScreen({
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "yarn")}
                 inlineCards
+                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
+                   frames on this screen - remove the remaining frames in each section").
+                   The editor card and this grid's own card were already two; a rounded box
+                   around EVERY ROW made a third, drawn around a single two-field line. Rows
+                   stay separable by a hairline instead - the alternative this prop already
+                   carries, and the same call the client made for Structure Details ("one
+                   frame is enough") and for the Style(s) grid. */
+                flushRows
                 fill
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
@@ -10027,6 +10158,14 @@ export function AmendmentScreen({
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "fabric")}
                 inlineCards
+                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
+                   frames on this screen - remove the remaining frames in each section").
+                   The editor card and this grid's own card were already two; a rounded box
+                   around EVERY ROW made a third, drawn around a single two-field line. Rows
+                   stay separable by a hairline instead - the alternative this prop already
+                   carries, and the same call the client made for Structure Details ("one
+                   frame is enough") and for the Style(s) grid. */
+                flushRows
                 fill
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
@@ -10071,6 +10210,14 @@ export function AmendmentScreen({
             columns={comboColumns}
             rows={combos}
             inlineCards
+            /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
+               frames on this screen - remove the remaining frames in each section").
+               The editor card and this grid's own card were already two; a rounded box
+               around EVERY ROW made a third, drawn around a single two-field line. Rows
+               stay separable by a hairline instead - the alternative this prop already
+               carries, and the same call the client made for Structure Details ("one
+               frame is enough") and for the Style(s) grid. */
+            flushRows
             onAdd={addCombo}
             onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add combo"
@@ -10223,35 +10370,47 @@ export function AmendmentScreen({
           label: "Pack type(s)",
           content: (
             <>
-              {/* ONE real input, so §6's "<=3 -> inlineCards" band — and this is
-                  the extreme of it: a card per row would be a card around a
-                  single dropdown. The `badge` carries the ceiling, because a
-                  "+ Add" that declines silently on the fifth click reads as a
-                  broken button; "3 of 4 methods" says why before it happens. */}
+              {/* ONE real input, so §6's "<=3 -> inlineCards" band — and this
+                  is the extreme of it: a card per row would be a card around a
+                  single box. The badge used to read "3 of 4 methods" because the
+                  cell was a dropdown over a fixed list and the ceiling had to be
+                  visible BEFORE "+ Add" declined on it. The cell is typed now
+                  and there is no ceiling, so it counts what has been named and
+                  claims nothing about what is left. */}
               <ChildGrid<PackTypeRow>
                 badge={
                   <span className="text-xs text-muted-foreground">
-                    {packTypes.filter((r) => r.pack_type).length} of{" "}
-                    {PACK_TYPE_OPTIONS.length} methods
+                    {packTypes.filter((r) => r.pack_type.trim()).length} named
                   </span>
                 }
                 columns={packTypeColumns}
                 rows={packTypes}
                 inlineCards
+                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
+                   frames on this screen - remove the remaining frames in each section").
+                   The editor card and this grid's own card were already two; a rounded box
+                   around EVERY ROW made a third, drawn around a single two-field line. Rows
+                   stay separable by a hairline instead - the alternative this prop already
+                   carries, and the same call the client made for Structure Details ("one
+                   frame is enough") and for the Style(s) grid. */
+                flushRows
                 onAdd={addPackType}
                 onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add pack type"
               />
-              {/* WHAT THE FOUR MEAN, under the grid rather than in it. The names
-                  are the trade's and the colour and size axes are independent,
-                  which is not obvious from the wording alone — and the operator
-                  is choosing on behalf of a Packing List they cannot see from
-                  here. Static text, so it is not a second place the vocabulary
-                  is declared: it reads PACK_TYPE_OPTIONS for the names. */}
+              {/* WHAT THE WORDS MEAN, under the grid rather than in it. The
+                  names are the trade's and the colour and size axes are
+                  independent, which is not obvious from the wording alone — and
+                  the operator is naming a scheme on behalf of a Packing List
+                  they cannot see from here. Now that the cell is typed these are
+                  EXAMPLES and the sentence says so: a bare list printed beside a
+                  free-text box reads as the dropdown it used to be. It still
+                  reads PACK_TYPE_OPTIONS, so the wording is declared once. */}
               <p className="mt-3 text-xs text-muted-foreground">
                 How finished garments are sorted into cartons — the colour and
                 size axes are independent. <strong>Solid</strong> means one per
-                carton, <strong>Assort</strong> means mixed:{" "}
+                carton, <strong>Assort</strong> means mixed. Type the method as
+                this order words it; the usual wordings are{" "}
                 {PACK_TYPE_OPTIONS.join(" · ")}.
               </p>
             </>
@@ -10368,6 +10527,14 @@ export function AmendmentScreen({
             rows={quantities}
             totalsLabel="Total PO Qty"
             forceCards
+            /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
+               frames on this screen - remove the remaining frames in each section").
+               The editor card and this grid's own card were already two; a rounded box
+               around EVERY ROW made a third, drawn around a single two-field line. Rows
+               stay separable by a hairline instead - the alternative this prop already
+               carries, and the same call the client made for Structure Details ("one
+               frame is enough") and for the Style(s) grid. */
+            flatRows
             /* Labels and cells are read OFF `columns` — never retyped beside it,
                or a new column leaves the card and the header disagreeing. And
                `required={c.required}` is not optional plumbing: with
@@ -10990,14 +11157,15 @@ export function AmendmentScreen({
      * The SC No is minted, so it cannot be what marks this section done — Unit
      * and Customer are what the operator actually supplies.
      *
-     * `has(styles)` JOINED IT WITH THE MERGE, because the dot means "this
-     * section is answered" and the section now holds the styles too. An order
-     * with a Customer and no style line is not an order, so a dot there would
-     * be the confident lie the rail was given dots to avoid. It is the same
-     * `sectionDone.styles` expression this replaces, not a second reading of
-     * the same state.
+     * `has(styles)` LEFT IT AGAIN ON 2026-08-27, with the grid. It joined on
+     * 08-11 because the dot means "this section is answered" and the section
+     * then held the styles too; now that they are their own tab, the styles dot
+     * is `sectionDone.styles` and reading `has(styles)` here as well would make
+     * ONE fact light TWO rail rows — Order Info would go hollow because a style
+     * line is missing, pointing the operator at a section where there is
+     * nothing to do about it. Each row reports what it owns.
      */
-    done: !!form.location_id && !!form.customer_id && has(styles),
+    done: !!form.location_id && !!form.customer_id,
     content: (
       <SectionBody title="Order Info">
         {/* THE TWO ROWS SHARE ONE WRAPPER so the gap between them is the
@@ -11348,12 +11516,15 @@ export function AmendmentScreen({
               * are then derived from the composition rather than typed. See
               * `piecesPerPack`.
               *
-              * OFF THE SCREEN SINCE 2026-08-27 — see `SET_PACK_ON_SCREEN`. The
-              * switch also renders for an order that ALREADY holds the flag, so
-              * hiding it can never strand a saved set pack with a derived PO Qty
-              * and no way to turn the derivation off. That is the same call
-              * AGENTS.md records for a disabled master row: the one that
-              * survives the filter is the one the record already holds.
+              * GATED BY `SET_PACK_ON_SCREEN`, which is TRUE again since
+              * 2026-08-27 — it was hidden and restored the same day. The
+              * `|| form.is_set_pack` half is what makes hiding it safe and so
+              * outlives any particular value of the flag: the switch also
+              * renders for an order that ALREADY holds it, so switching it off
+              * can never strand a saved set pack with a derived PO Qty and no
+              * way to turn the derivation off. That is the same call AGENTS.md
+              * records for a disabled master row: the one that survives the
+              * filter is the one the record already holds.
               */}
             {(SET_PACK_ON_SCREEN || form.is_set_pack) && (
               <Toggle
@@ -11498,18 +11669,17 @@ export function AmendmentScreen({
         )}
         </div>
 
-        {/* THE STYLE(S) GRID, AND IT MUST RENDER LAST.
-            `cycleTab` (lib/focus.ts) walks the pane's field-like nodes in DOM
-            order and treats the last one as the SECTION EDGE — the point where
-            Tab hands over to Color/Print Details through `registerContentEdge`.
-            Put the grid above the fields and Tab re-enters the header after the
-            styles instead of leaving the section.
+        {/* THE STYLE(S) GRID LEFT THIS SECTION ON 2026-08-27 (client: "move
+            that style section from order info as separate tab"). It is the
+            `styles` tab below; see the note there for what the split had to
+            carry with it.
 
-            Nothing wraps it: `SectionBody` already spaces its children, and a
-            `DetailSection` here would add a border the two halves never had.
-            The grid draws its own "Styles Details" band, which is what keeps
-            the word Style on screen now that the rail no longer says it. */}
-        {stylesGrid}
+            The note that stood here said the grid MUST RENDER LAST, because
+            `cycleTab` treats the pane's last field-like node as the SECTION
+            EDGE — the point where Tab hands to the next section through
+            `registerContentEdge`. That is still true and is now automatic: the
+            header fields are the whole section, so the last of them IS the
+            edge. Nothing to order, and nothing to get wrong. */}
       </SectionBody>
     ),
   };
@@ -11785,6 +11955,20 @@ export function AmendmentScreen({
             ) : undefined,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
+          /* NEXT UNTIL THE LAST SECTION, THEN SAVE (client 2026-08-27, on the
+             first tab of a new order: "instead just show the Next button until
+             the last tab — once we reach the last tab show this option").
+
+             This document is eleven sections long, and every one of them was
+             offering "Save garment order" beside a red "6 to fix" before the
+             operator had answered anything. The count was true and the button
+             was honest; both were just being put on the first screen of an
+             eleven-screen form.
+
+             The rule lives in `MasterFullScreen` — see `footer.stepper` — since
+             "am I on the last section?" is a question only the shell can answer.
+             Opt-in, so the masters' two-section editors are untouched. */
+          stepper: true,
         }}
       />
       {/*
@@ -12098,8 +12282,9 @@ export function AmendmentScreen({
  * rendering nothing, so a new tab is plain but never broken.
  */
 const SECTION_ICONS: Record<string, LucideIcon> = {
-  // No `styles` entry: Style(s) is no longer a section of its own. Order Info
-  // declares its icon inline, as it always has.
+  // `styles` IS A SECTION OF ITS OWN AGAIN (client 2026-08-27). Order Info
+  // still declares its icon inline, as it always has.
+  styles: Shirt,
   colors: Palette,
   combos: Layers,
   prices: Banknote,

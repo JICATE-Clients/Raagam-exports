@@ -129,10 +129,11 @@ import {
   sliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
 import {
-  isUsableConversion,
+  describeConversion,
   toPurchaseQty,
   uomPrecision,
 } from "@/lib/uom/convert";
+import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -3033,8 +3034,10 @@ export function MbaMasterScreen({
     );
   };
 
-  const packById = (id: string | null) =>
-    id ? (data.conversions.find((c) => c.id === id) ?? null) : null;
+  /* `packById` LIVED HERE and was `packOf`'s only reader; `resolveLinePack`
+     does the id lookup itself now, because resolving by id and resolving by
+     units are two halves of one question and splitting them across two files is
+     how the two readers of that question drift. */
   /** `decimal_places_allowed` (0309), not `decimal_places` (0224) — the latter is
    *  0 on every row in the live DB and would round 16.67 Gross to 17, the
    *  round-up the client rejected. `uomPrecision` clamps it either way. */
@@ -3055,14 +3058,30 @@ export function MbaMasterScreen({
    * error — so the purchase figure declines while the requirement stands.
    */
   const packOf = (r: ItemRow) => {
-    const pack = packById(r.uom_conversion_id);
-    const usable =
-      !!pack &&
-      isUsableConversion(pack) &&
-      (!r.consumption_uom_id || pack.base_uom_id === r.consumption_uom_id);
+    /* RESOLVED FROM THE LINE'S OWN UNITS WHERE IT NAMES NO PACK — see
+       `resolveLinePack`, which the server action calls too.
+
+       This was `packById(r.uom_conversion_id)` and nothing else, which was
+       correct until the client had the Purchase Pack cell removed on
+       2026-08-21: after that no line could ever name one, so `usable` was false
+       on every line an operator could make, and the Final Quantity fell back to
+       the consumption figure on all of them (client 2026-08-27). The material,
+       the Purchase Uom and the Consumption Uom already say which pack it is. */
+    const { pack, usable, choices } = resolveLinePack(
+      {
+        item_id: r.item_id,
+        purchase_uom_id: r.purchase_uom_id,
+        consumption_uom_id: r.consumption_uom_id,
+        uom_conversion_id: r.uom_conversion_id,
+      },
+      data.conversions,
+    );
     return {
       pack,
       usable,
+      /* THE TIE, WHERE THE UNITS NAME TWO PACKS. Empty on every ordinary line;
+         the Purchase Uom cell turns it into a chooser when it is not. */
+      choices,
       /* `decimal_places_allowed` of the ALTERNATIVE unit — a purchase quantity
          is rounded and printed by the pack's precision, never the consumption
          unit's. `toPurchaseQty` takes the two separately for this reason. */
@@ -3891,16 +3910,62 @@ export function MbaMasterScreen({
       // NARROWED TO THE MATERIAL'S OWN UNITS (client 2026-08-19) — see
       // `uomOptionsFor` for why the master list was wrong here and what the
       // empty case says instead of falling back to it.
-      cell: (r) => (
-        <RecordPicker
-          label="Purchase Uom"
-          items={uomOptionsFor(r.item_id, r.purchase_uom_id)}
-          value={r.purchase_uom_id}
-          onChange={(id) => updItem(r.key, { purchase_uom_id: id })}
-          placeholder={uomEmptyWhy(r.item_id)}
-          compact
-        />
-      ),
+      cell: (r) => {
+        /* THE PACK CHOOSER IS AN EXCEPTION CELL, NOT THE RETURN OF THE REMOVED
+           FIELD. `resolveLinePack` derives the pack from this Uom and the
+           Consumption Uom beside it, so on an ordinary line `choices` is empty
+           and nothing renders. It fills only where the material really is bought
+           in two pack sizes OF THIS UNIT — the live data has a sewing thread at
+           1 CONE = 2500 MTR and 1 CONE = 5000 MTR — and there the line's units
+           genuinely do not say which. Guessing there is a purchase quantity
+           wrong by a factor of two, on the figure a PO is capped against.
+
+           IT LIVES INSIDE THIS CELL rather than as a column of its own: the
+           header runs on a 32-column track whose every run must sum to 32
+           exactly (see FIELD_GROUPS), so a 22nd column is a layout change, and
+           this one has nothing to show on almost every line. */
+        const { choices } = packOf(r);
+        return (
+          <>
+            <RecordPicker
+              label="Purchase Uom"
+              items={uomOptionsFor(r.item_id, r.purchase_uom_id)}
+              value={r.purchase_uom_id}
+              onChange={(id) => updItem(r.key, { purchase_uom_id: id })}
+              placeholder={uomEmptyWhy(r.item_id)}
+              compact
+            />
+            {choices.length > 0 && (
+              <>
+                <Select
+                  className="mt-1 h-8"
+                  aria-label="Which pack this line buys"
+                  value={r.uom_conversion_id ?? ""}
+                  onChange={(e) =>
+                    updItem(r.key, { uom_conversion_id: e.target.value || null })
+                  }
+                >
+                  <option value=""></option>
+                  {choices.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {describeConversion(c, uomName)}
+                    </option>
+                  ))}
+                </Select>
+                {/* SAID, NOT LEFT TO BE INFERRED. An unexplained second box under
+                    a Uom reads as a field somebody forgot to label; the line is
+                    what tells the operator the purchase figure is waiting on it.
+                    Amber and advisory — the requirement itself still computes,
+                    and the consumption figure it shows is not wrong, only not
+                    the purchase one. */}
+                <p className="mt-0.5 text-[10px] leading-tight text-amber-600 dark:text-amber-500">
+                  Two pack sizes — pick one for the purchase quantity.
+                </p>
+              </>
+            )}
+          </>
+        );
+      },
     },
     {
       header: "Consumption Uom",
@@ -4178,11 +4243,24 @@ export function MbaMasterScreen({
      * `uom_conversion_id`, so the packs already chosen on live BOMs survive an
      * ordinary edit-and-save of the line.
      *
-     * AND IT IS STILL READ. `packById` feeds `packUsable` in the line totals, so
+     * AND IT IS STILL READ. `packOf` feeds `packUsable` in the line totals, so
      * a stored pack keeps converting the requirement into a purchase figure —
      * this removed the way to CHANGE one, not the effect of having one.
-     * `packsFor` and the `describeConversion` import went with the cell; they had
-     * no other reader.
+     * `packsFor` went with the cell; it had no other reader.
+     *
+     * WHAT THAT SENTENCE MISSED, AND WHAT 2026-08-27 PUT BACK. "A stored pack
+     * keeps converting" was true and was the whole of it: no line created after
+     * the cell went could STORE one, so `packUsable` was false on every new
+     * line and the Final Quantity was the consumption figure on all of them —
+     * which is what the client reported ("need to show the purchase qty as
+     * final ... its showing the consumption qty only"). Removing the field
+     * removed the answer, and nothing was derived in its place.
+     *
+     * `resolveLinePack` derives it now, from the material and the two Uoms the
+     * line already names, and `describeConversion` came back with the tie
+     * chooser that lives inside the Purchase Uom cell. The column is still gone
+     * and is not coming back: what stands there is a control that appears only
+     * where the units name two packs and the app must not guess.
      */
   ];
 

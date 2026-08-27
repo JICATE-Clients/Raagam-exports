@@ -311,10 +311,51 @@ export function MasterFullScreen({
     /** Between the status text and Cancel — e.g. a "3 to fix" summary that
      *  re-fires the reveal. Chrome, so Tab steps over it and the mouse reaches it. */
     extra?: ReactNode;
+    /**
+     * STEP THROUGH THE SECTIONS, AND ONLY OFFER SAVE ON THE LAST ONE (client
+     * 2026-08-27, on Garment Order entry: "instead just show the Next button
+     * until the last tab — once we reach the last tab show this option").
+     *
+     * With it on, every section but the last shows **Next** where the save
+     * cluster normally sits; the last one shows exactly what it shows today.
+     * Cancel stays on every step — it is not part of what was objected to, and
+     * removing it would leave the ✕ in the header as the only visible way out.
+     *
+     * `extra` GOES WITH THE SAVE CLUSTER, not with Next. It is the "6 to fix"
+     * count, and on the first tab of a new document it counts fields the
+     * operator has not reached yet — a red number telling them they are already
+     * failing at something they have not been asked. It reappears with Save,
+     * where the count is about a decision they are actually making.
+     *
+     * IT BELONGS HERE AND NOT IN THE SCREEN. "Am I on the last section?" is a
+     * question only this component can answer — `section` is local state and
+     * `sections` is its own prop, which is precisely why `goToSection` had to be
+     * added to the handle for the reverse direction. A screen answering it would
+     * need both mirrored up, and the two would drift the first time a section
+     * was added.
+     *
+     * OPT-IN. Every masters screen shares this footer, and a two-section master
+     * does not want a wizard. Nothing changes for a caller that omits it.
+     */
+    stepper?: boolean;
   };
 }) {
   const firstKey = initialSection ?? sections[0]?.key ?? "";
   const [section, setSection] = useState(firstKey);
+  /**
+   * THE SECTION AFTER THIS ONE, or null when this is the last — the whole of
+   * `footer.stepper`'s state, derived per render rather than stored.
+   *
+   * Derived, so it cannot go stale when `sections` changes: this screen's list
+   * is filtered per door (the Reason section is only on the amend door), and a
+   * remembered index would point at the wrong row the moment one is added or
+   * dropped. `-1` from `findIndex` yields `sections[0]` on the right-hand side,
+   * so an unknown key falls back to "there is a next one" rather than showing
+   * Save on a section the shell cannot place.
+   */
+  const nextSectionKey =
+    sections[sections.findIndex((s) => s.key === section) + 1]?.key ?? null;
+  const stepping = !!footer.stepper && nextSectionKey !== null;
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -429,25 +470,32 @@ export function MasterFullScreen({
     return () => window.clearTimeout(id);
   }, [open, section, land]);
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      goToSection(key, landing = "first") {
-        landingRef.current = landing;
-        // Already on that section: no state change means no effect, so nothing
-        // would move. `setTimeout(0)` rather than a direct call because the
-        // caller is usually reacting to values that changed in this same commit
-        // — a just-appeared duplicate error has no marker in the DOM until
-        // React has painted it.
-        if (key === navRef.current.section) {
-          window.setTimeout(land, 0);
-          return;
-        }
-        setSection(key);
-      },
-    }),
+  /**
+   * LIFTED OUT OF THE IMPERATIVE HANDLE so the footer's Next button drives the
+   * SAME move a parent's `goToSection` does (`footer.stepper`). It was declared
+   * inline inside `useImperativeHandle`, which made it reachable only through
+   * the ref — and a second copy for the button would be a second answer to
+   * "how does this surface change section", with the landing behaviour the half
+   * that would quietly diverge.
+   */
+  const goToSection = useCallback(
+    (key: string, landing: Landing = "first") => {
+      landingRef.current = landing;
+      // Already on that section: no state change means no effect, so nothing
+      // would move. `setTimeout(0)` rather than a direct call because the
+      // caller is usually reacting to values that changed in this same commit
+      // — a just-appeared duplicate error has no marker in the DOM until
+      // React has painted it.
+      if (key === navRef.current.section) {
+        window.setTimeout(land, 0);
+        return;
+      }
+      setSection(key);
+    },
     [land],
   );
+
+  useImperativeHandle(ref, () => ({ goToSection }), [goToSection]);
 
   /**
    * MOVING PAST THE LAST FIELD OF A SECTION OPENS THE NEXT SECTION — Tab off the
@@ -675,23 +723,32 @@ export function MasterFullScreen({
              * refuses to shrink below its content, so without it a long record
              * pushes the footer back off the bottom and the gap returns.
              *
-             * AND IT BLEEDS THROUGH THE SHELL'S BOTTOM PADDING (client
-             * 2026-08-14). Filling the scrollport is not the same as reaching
-             * the screen: `<main>` is `p-4 pb-20 md:pb-6`, so a card that ends
-             * exactly at its scrollport still floats 24px above the desktop
-             * viewport edge — the footer read as a detached bar with a strip of
-             * page under it, which is the 08-10 complaint again, one padding
-             * short. `-mb-6` gives the flex item that 24px back (a negative
-             * margin shrinks its outer contribution, so `flex-1` resolves 24px
-             * taller) and the bottom border and radius come off, because a
-             * rounded corner sitting ON the screen edge is what makes a docked
-             * panel look dropped rather than docked.
+             * THE BLEED IS WITHDRAWN (client 2026-08-27, screenshot 2513: "I can
+             * see one fine white line for that Next button bar — can we make it
+             * curved, plain, without the bar").
              *
-             * md ONLY, and that is the whole reason the shell's padding is
-             * asymmetric: below md the 80px is clearance for `MobileNav`'s
-             * floating bar, so bleeding there would slide Save underneath it.
+             * What stood here, and why it is being reversed rather than tidied
+             * away: on 2026-08-14 the card gained `md:-mb-6 md:rounded-b-none
+             * md:border-b-0`, so it ate the shell's 24px bottom padding and met
+             * the viewport edge with squared corners — "a rounded corner sitting
+             * ON the screen edge is what makes a docked panel look dropped
+             * rather than docked". That was an answer to a REAL complaint (the
+             * footer floating with a strip of page beneath it), and it worked;
+             * what it also did was turn the footer into a full-width band welded
+             * to the bottom of the window, which is what now reads as a bar.
+             *
+             * The two complaints pull opposite ways and the client has now seen
+             * both, so the later call stands: the card is a card again, rounded
+             * on all four corners, and the footer is the last thing inside it
+             * rather than a rail across the screen. The 24px of page beneath is
+             * the same 24px every other page has, which is what makes it read as
+             * a card sitting on the page rather than a panel that fell short.
+             *
+             * If the footer ever looks detached again, the fix is NOT to bleed it
+             * back: it is that the card is not filling its scrollport, which
+             * `flex-1 min-h-0` above is what guarantees.
              */
-            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border md:-mb-6 md:rounded-b-none md:border-b-0",
+            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border",
       )}
     >
       {/* topbar — OVERLAY ONLY. A route already has browser Back, a breadcrumb
@@ -942,7 +999,27 @@ export function MasterFullScreen({
           orphaned halfway up (client 2026-08-04). */}
       <div
         className={cn(
-          "border-t border-border bg-surface px-4 py-3",
+          /**
+           * NO TOP BORDER (client 2026-08-27, screenshot 2513) — the "fine white
+           * line" is this rule, and dropping it is what turns a bar back into the
+           * bottom of a card. Same surface as the pane above, so the two read as
+           * one sheet with the buttons resting on it.
+           *
+           * THE SEPARATION IS NOW SPACE, WHICH IS THE HOUSE ANSWER. `--border-strong`
+           * records it in globals.css for the row-divider case — "if it ever looks
+           * heavy the answer is more SPACE around it, not less contrast in it" —
+           * and this is the same trade read the other way: the footer keeps its
+           * `py-3`, and the pane above ends on its own `py-5`, so ~32px of white
+           * separates the last field from the buttons without a line.
+           *
+           * WHAT TO WATCH. A line also told the operator that content SCROLLS
+           * UNDER the footer. Without it a long section can slide text right up
+           * to the buttons with no visual break. That is the cost the client
+           * accepted by asking for it plain; if it bites, the answer is a shadow
+           * that appears only while the pane is scrolled — not the border back,
+           * which is exactly the bar that was objected to.
+           */
+          "bg-surface px-4 py-3",
           /**
            * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
            * filling its scrollport rather than a separate decision.
@@ -988,11 +1065,31 @@ export function MasterFullScreen({
         >
           {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
           <div className="flex-1" />
-          {footer.extra}
+          {!stepping && footer.extra}
           <Button variant="outline" size="md" onClick={footer.onCancel}>
             Cancel
           </Button>
-          {footer.onSaveDraft && (
+          {/*
+            NEXT, WHILE THERE IS A SECTION AFTER THIS ONE — see `footer.stepper`.
+
+            It goes through `goToSection(..., "first")`, the same call the rail
+            makes, so stepping forward lands the cursor in the next section's
+            first field exactly as clicking the rail row does. A bare
+            `setSection` would switch the pane and leave the cursor on this
+            button, and the next Tab would start from the footer.
+
+            NOT gated on `canSave` or on this section's problems. Next is a
+            MOVE, and a section is routinely left half-filled on the way past —
+            an operator who cannot get to Logistic until Order Info is perfect
+            has a wizard that traps them on step one. Save still refuses at the
+            end, and `onBlockedSave` still brings them back to the field.
+          */}
+          {stepping && (
+            <Button size="md" onClick={() => goToSection(nextSectionKey!, "first")}>
+              Next
+            </Button>
+          )}
+          {!stepping && footer.onSaveDraft && (
             <Button
               variant="outline"
               size="md"
@@ -1011,15 +1108,17 @@ export function MasterFullScreen({
               Staying undisabled is also load-bearing for the keyboard:
               `submitTargetOf` takes the footer's last non-disabled button, so a
               disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
-          <Button
-            size="md"
-            disabled={footer.isPending || (!footer.canSave && !blocked)}
-            data-blocked={blocked || undefined}
-            className={cn(blocked && "opacity-60")}
-            onClick={fireSave}
-          >
-            {footer.isPending ? "Saving…" : footer.saveLabel}
-          </Button>
+          {!stepping && (
+            <Button
+              size="md"
+              disabled={footer.isPending || (!footer.canSave && !blocked)}
+              data-blocked={blocked || undefined}
+              className={cn(blocked && "opacity-60")}
+              onClick={fireSave}
+            >
+              {footer.isPending ? "Saving…" : footer.saveLabel}
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -11,7 +11,7 @@
     "gen:icons": "node scripts/generate-pwa-icons.mjs",
     "mine:vocab": "node --experimental-strip-types scripts/mine-name-vocabularies.mts",
     "check:names": "node --experimental-strip-types scripts/check-name-suggest.mts",
-    "check:amendment-diff": "node --experimental-strip-types scripts/check-amendment-diff.mts",
+    "check:amendment-diff": "npx --yes tsx scripts/check-amendment-diff.mts",
     "check:amendment-header": "node --experimental-strip-types scripts/check-amendment-header.mts",
     "check:order-value": "npx --yes tsx scripts/check-order-value.mts",
     "check:bom-requirement": "npx --yes tsx scripts/check-bom-requirement.mts",
