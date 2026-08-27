@@ -33,6 +33,7 @@ export function Toggle({
   checked,
   onChange,
   label,
+  ariaLabel,
   id,
   disabled = false,
   className,
@@ -47,6 +48,23 @@ export function Toggle({
    * Omit it where a `<Field>` label already names the answer.
    */
   label?: string;
+  /**
+   * The accessible name when there is no visible `label` AND no `<Field>` to
+   * borrow one from — a switch in a CHILD GRID CELL, where the column header
+   * names it on screen but reaches nothing programmatically.
+   *
+   * WITHOUT THIS, OMITTING `label` SHIPS AN UNNAMED CHECKBOX. The doc on `label`
+   * says to omit it where a `<Field>` names the answer, which is true and was
+   * the only case that existed — a grid cell is the case it does not cover, and
+   * `ChildGrid`'s cards layout does not associate the header with the control
+   * (`renderMobileRow` passes neither `htmlFor` nor the column's className). The
+   * tick this replaced on the Material BOM item row carried a hand-written
+   * `aria-label` for exactly that reason; the prop is that fix, kept.
+   *
+   * Say the QUESTION, not the column word: a header reading "Process" beside
+   * twenty other cells is not what a screen reader user needs read out.
+   */
+  ariaLabel?: string;
   id?: string;
   disabled?: boolean;
   className?: string;
@@ -66,6 +84,7 @@ export function Toggle({
         id={id}
         type="checkbox"
         className="peer sr-only"
+        aria-label={ariaLabel}
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
