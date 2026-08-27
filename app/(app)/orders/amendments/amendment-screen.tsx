@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "r
 import { useRouter } from "next/navigation";
 import {
   Trash2,
+  Shirt,
   Palette,
   Layers,
   Banknote,
@@ -3792,10 +3793,11 @@ export function AmendmentScreen({
     // and a dot over an untouched tab is exactly the confident lie the rail was
     // built to remove.
     //
-    // `styles` is NOT keyed here any more — the Style(s) grid merged into Order
-    // Info, and that section carries its own `done` (which reads `has(styles)`,
-    // the same expression this entry held). A key left here would be read by
-    // nothing and would drift.
+    // `styles` IS KEYED HERE AGAIN (client 2026-08-27: "move that style section
+    // from order info as separate tab"). It was removed on 2026-08-11 when the
+    // grid merged into Order Info and that section took `has(styles)` into its
+    // own `done`; the split puts the expression back where the rail reads it.
+    styles: has(styles),
     // READS ONLY WHAT THE TAB SHOWS. Prints and Structures came off this tab on
     // 2026-08-14 and their state stayed (see the tab body), so keeping them in
     // this expression would light the dot for rows `pickStyle` seeded — a tab
@@ -6217,7 +6219,11 @@ export function AmendmentScreen({
         const out: Problem[] = [];
         if (piecesPerPack(r) <= 0) {
           out.push({
-            section: "orderinfo",
+            /* THE STYLE(S) TAB, since 2026-08-27: this problem is about a STYLE
+               ROW, and the section it names is where `goToSection` sends the
+               operator. Left as "orderinfo" it would jump them to the header
+               and leave them looking for a grid that is no longer there. */
+            section: "styles",
             label: "Pack Composition",
             message: `${who}: this order is sold in packs, so open Pack Composition and say what one pack holds.`,
             kind: "custom",
@@ -6225,7 +6231,7 @@ export function AmendmentScreen({
         }
         if (!(Number(r.packs_ordered) > 0)) {
           out.push({
-            section: "orderinfo",
+            section: "styles",
             label: "Packs",
             message: `${who}: enter how many packs the buyer ordered — PO Qty is worked out from it.`,
             kind: "custom",
@@ -6344,6 +6350,11 @@ export function AmendmentScreen({
   const validity = sectionValidity({
     sections: [
       { key: "orderinfo" },
+      /* SPLIT OUT OF `orderinfo` ON 2026-08-27 with the grid. It must be
+         declared here or `revealFirstProblem` hands `p.section` to
+         `goToSection` and lands nowhere — the same trap the `combos` note
+         below records. */
+      { key: "styles" },
       { key: "logistic" },
       /* THE RAIL'S OWN KEY. `revealFirstProblem` hands `p.section` straight to
          `goToSection`, so a section declared here that names no rail row is a
@@ -10038,6 +10049,41 @@ export function AmendmentScreen({
    */
   type OrderTab = TabItem & { skipTab?: boolean };
   const tabs: OrderTab[] = [
+    /**
+     * ---------------- Style(s) ----------------
+     *
+     * ITS OWN TAB AGAIN (client 2026-08-27: "move that style section from order
+     * info as separate tab"). This reverses the 2026-08-11 merge, which folded
+     * the grid into Order Info so the two halves of one subject read as one
+     * section. The later instruction wins; the earlier one is why the grid drew
+     * its own "Styles Details" band, and that band now names the tab's content
+     * from inside it exactly as every other tab's grids do.
+     *
+     * FIRST IN THE LIST, so the rail reads Order Info → Style(s) → Color/Print
+     * → … That is the order the work is done in and the order the 08-11 merge
+     * had it in when the two shared a section — the split changes where the
+     * boundary falls, not the sequence.
+     *
+     * NOTHING ABOUT THE GRID CHANGES. `stylesGrid` moves as one expression, so
+     * the columns, the nested Coordinates and Components panels, the keyboard
+     * behaviour and every `updateStyle` call site are untouched — this is a
+     * change to which pane the JSX hangs in, and it is worth keeping it that way
+     * so a layout change and a behaviour change cannot be confused in review.
+     *
+     * NO WRAPPER. A tab's `content` is mounted straight into the pane and the
+     * other ten pass bare JSX; `SectionBody` belongs to `orderInfoSection`,
+     * which is a hand-written section rather than one of these.
+     *
+     * THE SECTION EDGE IS NOW THIS TAB'S LAST FIELD, which is what makes Tab
+     * hand over to Color/Print Details (`registerContentEdge`). Order Info's
+     * note used to warn that the grid had to render LAST for that reason; with
+     * one grid alone in the pane there is no ordering left to get wrong.
+     */
+    {
+      key: "styles",
+      label: "Style(s)",
+      content: <div className="space-y-4">{stylesGrid}</div>,
+    },
     // ---------------- Color / Print Details ----------------
     {
       key: "colors",
@@ -11070,14 +11116,15 @@ export function AmendmentScreen({
      * The SC No is minted, so it cannot be what marks this section done — Unit
      * and Customer are what the operator actually supplies.
      *
-     * `has(styles)` JOINED IT WITH THE MERGE, because the dot means "this
-     * section is answered" and the section now holds the styles too. An order
-     * with a Customer and no style line is not an order, so a dot there would
-     * be the confident lie the rail was given dots to avoid. It is the same
-     * `sectionDone.styles` expression this replaces, not a second reading of
-     * the same state.
+     * `has(styles)` LEFT IT AGAIN ON 2026-08-27, with the grid. It joined on
+     * 08-11 because the dot means "this section is answered" and the section
+     * then held the styles too; now that they are their own tab, the styles dot
+     * is `sectionDone.styles` and reading `has(styles)` here as well would make
+     * ONE fact light TWO rail rows — Order Info would go hollow because a style
+     * line is missing, pointing the operator at a section where there is
+     * nothing to do about it. Each row reports what it owns.
      */
-    done: !!form.location_id && !!form.customer_id && has(styles),
+    done: !!form.location_id && !!form.customer_id,
     content: (
       <SectionBody title="Order Info">
         {/* THE TWO ROWS SHARE ONE WRAPPER so the gap between them is the
@@ -11578,18 +11625,17 @@ export function AmendmentScreen({
         )}
         </div>
 
-        {/* THE STYLE(S) GRID, AND IT MUST RENDER LAST.
-            `cycleTab` (lib/focus.ts) walks the pane's field-like nodes in DOM
-            order and treats the last one as the SECTION EDGE — the point where
-            Tab hands over to Color/Print Details through `registerContentEdge`.
-            Put the grid above the fields and Tab re-enters the header after the
-            styles instead of leaving the section.
+        {/* THE STYLE(S) GRID LEFT THIS SECTION ON 2026-08-27 (client: "move
+            that style section from order info as separate tab"). It is the
+            `styles` tab below; see the note there for what the split had to
+            carry with it.
 
-            Nothing wraps it: `SectionBody` already spaces its children, and a
-            `DetailSection` here would add a border the two halves never had.
-            The grid draws its own "Styles Details" band, which is what keeps
-            the word Style on screen now that the rail no longer says it. */}
-        {stylesGrid}
+            The note that stood here said the grid MUST RENDER LAST, because
+            `cycleTab` treats the pane's last field-like node as the SECTION
+            EDGE — the point where Tab hands to the next section through
+            `registerContentEdge`. That is still true and is now automatic: the
+            header fields are the whole section, so the last of them IS the
+            edge. Nothing to order, and nothing to get wrong. */}
       </SectionBody>
     ),
   };
@@ -12178,8 +12224,9 @@ export function AmendmentScreen({
  * rendering nothing, so a new tab is plain but never broken.
  */
 const SECTION_ICONS: Record<string, LucideIcon> = {
-  // No `styles` entry: Style(s) is no longer a section of its own. Order Info
-  // declares its icon inline, as it always has.
+  // `styles` IS A SECTION OF ITS OWN AGAIN (client 2026-08-27). Order Info
+  // still declares its icon inline, as it always has.
+  styles: Shirt,
   colors: Palette,
   combos: Layers,
   prices: Banknote,
