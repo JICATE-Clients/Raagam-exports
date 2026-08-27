@@ -3720,9 +3720,16 @@ export function MbaMasterScreen({
          * exactly that — "i can't find that 22 attribute in material bom".
          *
          * So every one of the 22 is listed, in their words and under their
-         * S.No, and the fourteen that cannot be served are DISABLED with the
-         * reason on the row. An operator hunting #19 now finds it and learns
-         * why, instead of concluding it was missed.
+         * S.No. Every row is SELECTABLE ("enable all", 2026-08-26) and the ones
+         * the engine cannot build refuse at explosion time with the reason
+         * printed in the Requirement section — an operator hunting #19 finds it
+         * and learns why, instead of concluding it was missed.
+         *
+         * FIVE STILL REFUSE, and only five: the pack rows (#18-#22), for want of
+         * a column. It was nine until 2026-08-27, when the client's #26 decision
+         * put #3, #4, #15 and #17 onto `COARSENED` in `compose.ts`. The count
+         * lives in `client-matrix.ts` and is asserted there, so this sentence is
+         * the only place it can go stale — it has done so twice.
          *
          * OUR NAME RIDES ALONG WHERE IT DIFFERS — "1. Order No (Whole order)".
          * The read-only Attribute cell and the Combination sheet header both
