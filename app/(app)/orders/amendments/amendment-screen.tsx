@@ -844,24 +844,38 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
 }
 
 /**
- * SET PACK IS BACK ON THE SCREEN (client 2026-08-27: "enable that set pack
- * option again", hours after "for now hide that set pack toggle from ui").
+ * SET PACK IS OFF THE SCREEN, AND THE QUESTION IT ASKS IS BEING REOPENED
+ * (client 2026-08-27, three flips in one day: hide it, enable it again, then
+ * "without the set pack toggle it needs to work without any issue — the Pack
+ * is separate, I will [do] this logic next").
  *
- * THE ROUND TRIP COST ONE LINE, AND THAT IS THE WHOLE POINT OF THE FLAG. Hiding
- * it was done as the nav registry retires a row — `is_set_pack`,
- * `packs_ordered` and `garment_order_amendment_pack_components` stayed in the
- * schema (0467), the explosion stayed in `pack-composition.ts` with its vectors,
- * and every consumer on this screen already asks `form.is_set_pack` before it
- * renders. So the switch went and nothing else moved; it came back and nothing
- * else moved. Deleting the feature instead would have cost the migration, the
- * sheet, the 23 explosion vectors and the reasoning behind `po_qty` staying
- * pieces — and that last one is the expensive part to rebuild.
+ * SO THIS IS A PAUSE, NOT A RETIREMENT, and the reason is worth writing down
+ * because it is not the one the first hide recorded. `pack_components` was
+ * found to be `style_coordinates` PLUS `combo` and `qty_per_pack` — same
+ * grain, same FK, same picker, and the sheet even SCOPES its coordinate list to
+ * the style's own coordinates. On a Set style the two are the same list: the
+ * operator names TOP and BOTTOM on the row, then names TOP x 1 and BOTTOM x 1
+ * again in the sheet. Whether the pack keeps its own list (it must, to carry a
+ * per-member colour) or folds into the coordinates grid is the client's call,
+ * and it is theirs to make next.
  *
- * KEEP THE FLAG. A switch the client has now asked to hide and to show inside a
- * single day is one they may ask for again; the gate is cheaper standing than
- * re-derived, and `|| form.is_set_pack` beside it stays either way (see there).
+ * NOTHING IS DELETED WHILE THAT IS OPEN. `is_set_pack`, `packs_ordered` and
+ * `garment_order_amendment_pack_components` stay in the schema (0467), the
+ * explosion stays in `pack-composition.ts` with its vectors, and every consumer
+ * on this screen asks `form.is_set_pack` before it renders — so with the
+ * switch gone the flag stays false and the Packs column, the Pack Composition
+ * button, the Pack-wise price mode and `packProblems` all stand down on their
+ * own. Three flips have now cost one line each, which is the evidence that the
+ * gate is worth more than the tidiness of removing it.
+ *
+ * `pack` IS UNAFFECTED AND ALWAYS WAS. It means CARTON SORTATION and gates the
+ * Pack type(s) section; it is not a second name for this switch, and folding
+ * one into the other would make PO Qty read-only on an ordinary loose-garment
+ * order that merely declares how its cartons are sorted.
+ *
+ * TO BRING IT BACK: flip this to `true`.
  */
-const SET_PACK_ON_SCREEN = true;
+const SET_PACK_ON_SCREEN = false;
 
 type HeaderForm = {
   // order header
@@ -9484,9 +9498,11 @@ export function AmendmentScreen({
           (see `coordinatesGrid`) — the same word the row beneath it is an
           instance of, and the same word the Components grid uses for the
           column that points back here. */}
+        <div className="min-w-0">
       <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
         {coordinatesGrid(r)}
       </Field>
+        </div>
       {/* SECOND IN THE LEFT PANE since 2026-08-27, under Coordinate. It used to
           be the third CELL, on the far side of the Components table.
 
@@ -9495,6 +9511,11 @@ export function AmendmentScreen({
           nothing". Still true and now the reason this move costs nothing: the
           control does not grow into the wider pane, so putting Sizes beside
           Coordinate takes no width away from the table it left. */}
+        {/* Each half is a GRID ITEM, so the `Field` inside it is not — its
+            `col-span-12` would otherwise claim both columns of the pane and
+            put Sizes back on the line below (client 2026-08-27, screenshot
+            2517: "still size is second row?"). */}
+        <div className="min-w-0">
       {/* SAME TREATMENT AS THE COORDINATES PANEL, AND ONE LABEL NOT TWO.
           `MultiSelect` draws its own `Label` — muted 12px — unless `compact`,
           so bolding the title here means moving it OUT of the control and into
@@ -9566,6 +9587,7 @@ export function AmendmentScreen({
           }
         />
       </Field>
+        </div>
       </div>
       {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
           unlabelled `<Field size>` around it is the sanctioned way to give it
