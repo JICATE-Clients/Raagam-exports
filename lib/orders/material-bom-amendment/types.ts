@@ -4,7 +4,7 @@ import { AXES, canonicalAxes, type Axis } from "@/lib/orders/bom-explosion/explo
 import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
-// Orders ▸ Material BOM (0265, reshaped by 0418). Step 3 of the client's
+// Orders ▸ Material BOM (0265, reshaped by 0418). Step 2 of the client's
 // six-step garment order flow: every sewing and packing accessory a confirmed
 // order needs, and how much of each.
 //

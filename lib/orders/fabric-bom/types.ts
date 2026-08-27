@@ -3,7 +3,7 @@ import { FABRIC_BASES } from "./requirement";
 import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
-// Orders ▸ Fabric BOM (0426). Step 5 of the client's order flow: which fabric,
+// Orders ▸ Fabric BOM (0426). Step 3 of the client's order flow: which fabric,
 // in which colour, for which panel, and how much.
 //
 // Header + two children — the fabric lines, and the STORED requirement those
@@ -18,7 +18,7 @@ import { capsTextNullable } from "@/lib/validation/formats";
 //
 // NO STATUS FIELD BEYOND `is_draft`. The client is explicit in doc/prd.md: "BOM
 // required no approval… After BOM, budgeting is done using Fabric BOM and
-// Material BOM… This budget is approved." Approval is step 8's transition on the
+// Material BOM… This budget is approved." Approval is step 6's transition on the
 // BUDGET. Draft vs Recorded is this document's own state and is a different
 // question from the ORDER-level one `lib/orders/bom-status.ts` answers.
 // ============================================================================
@@ -58,12 +58,12 @@ export interface FabricBomLine {
   /** Fabric per garment, in `consumption_uom_id`. */
   consumption: number | null;
   consumption_uom_id: string | null;
-  /** The CUTTING room's buffer. NOT process loss — that is step 6, and applying
+  /** The CUTTING room's buffer. NOT process loss — that is step 4, and applying
    *  it here as well charges the same loss twice (0426). */
   wastage_pct: number | null;
   /** 'colour' | 'colour_size'. */
   requirement_basis: string | null;
-  /** Knitting diameter. Descriptive — step 6 plans knitting per diameter. */
+  /** Knitting diameter. Descriptive — step 4 plans knitting per diameter. */
   dia: number | null;
   required_by: string | null;
   rate: number | null;

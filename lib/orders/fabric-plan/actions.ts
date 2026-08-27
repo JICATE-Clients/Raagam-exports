@@ -278,7 +278,7 @@ export async function loadPlannableFabrics(garmentOrderId: string): Promise<Plan
   if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
   const res = await getPlannableFabrics(garmentOrderId);
   if (!res.bomId) {
-    return { ok: false, error: "This order has no Fabric BOM yet — plan its fabric first (step 5)" };
+    return { ok: false, error: "This order has no Fabric BOM yet — plan its fabric first (step 3)" };
   }
   if (res.fabrics.length === 0) {
     return { ok: false, error: "This order's Fabric BOM has no fabric lines yet" };

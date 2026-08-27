@@ -1,6 +1,6 @@
 "use client";
 
-import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -26,9 +26,13 @@ import type {
 } from "@/lib/masters/garment-rejection-rule-types";
 import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 import {
+  RANGE_KINDS,
   REJECTION_ALLOWANCE_TYPES,
-  rejectionFor,
+  rangeKindOf,
+  rangeLabelOf,
+  type RangeKind,
   type RejectionAllowanceType,
+  type RejectionTier,
 } from "@/lib/masters/rejection-rule";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -55,14 +59,32 @@ const blankLine = (key: string): LineRow => ({
   allowance_type: "percent",
 });
 
-/** The quantities the preview strip below the grid is measured at.
+const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
+
+/** A screen row in the engine's shape, so `rangeKindOf` and `rangeLabelOf` read
+ *  the same tier the server will store. */
+const asTier = (l: LineRow): RejectionTier => ({
+  from_value: numOrNull(l.from_value),
+  to_value: numOrNull(l.to_value),
+  rejection_allowance: numOrNull(l.rejection_allowance),
+  allowance_type: l.allowance_type,
+});
+
+/**
+ * Captions this screen writes, so it can tell them from ones an operator typed.
  *
- *  The first three are the client's own worked examples (2 → 5, 50 → 54,
- *  1,000 → 1,050), so a correctly entered Basic Rejection Rule reproduces the
- *  brief exactly and a mistyped `from`/`to` is visible immediately. 5,568 is the
- *  order size from their PPM screenshot — a real one, and the only one here that
- *  exercises the unbounded top tier. */
-const PREVIEW_QTYS = [2, 50, 1000, 5568];
+ * Recognising its OWN output by shape is the whole trick: it means the caption
+ * can keep following the bounds while a tier is being edited, and stop dead the
+ * moment somebody writes their own wording. Matching `rangeLabelOf`, digit
+ * grouping included — a stricter test than comparing against the caption for the
+ * CURRENT bounds, which would stop recognising the row the instant a bound
+ * changed, i.e. exactly when it needs to.
+ */
+const RANGE_LABEL_SHAPES = [
+  /^UP TO [\d,]+$/i,
+  /^[\d,]+ AND ABOVE$/i,
+  /^[\d,]+ TO [\d,]+$/i,
+];
 
 /**
  * Legacy "Garment rejection rule" master (System). Master-detail: header (auto
@@ -139,7 +161,71 @@ export function GarmentRejectionRuleMasterScreen({
     setLines((ls) => ls.filter((l) => l.key !== key));
   }
 
-  const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
+  /**
+   * Change a tier's RANGE KIND, which means changing its bounds — the kind is
+   * derived from them and is not stored (`rangeKindOf`).
+   *
+   * Legacy asks for both and lets them contradict each other: its top row reads
+   * "Above / 1001 / 0", where the 0 means nothing and its own engine treats it
+   * as unbounded. Here choosing the kind WRITES the bounds, so the two can never
+   * disagree — "Up to" clears From, "Above" clears To.
+   *
+   * Going TO "Between" has to invent the missing bound, and it seeds rather than
+   * blanks: a blank pair reads as an unfinished row everywhere else (the engine
+   * refuses to match it, the ladder check skips it, the action drops it), so
+   * leaving both empty would silently delete the row on save.
+   */
+  function setKind(key: string, kind: RangeKind) {
+    setLines((ls) =>
+      settleLabels(
+      ls.map((l) => {
+        if (l.key !== key) return l;
+        const from = numOrNull(l.from_value);
+        const to = numOrNull(l.to_value);
+        const next =
+          kind === "upto"
+            ? { from_value: "", to_value: l.to_value || String(to ?? from ?? 10) }
+            : kind === "above"
+              ? { from_value: l.from_value || String(from ?? (to != null ? to + 1 : 1)), to_value: "" }
+              : {
+                  from_value: l.from_value || String(from ?? 1),
+                  to_value: l.to_value || String(to ?? (from ?? 1) + 99),
+                };
+        return { ...l, ...next };
+      }),
+      ),
+    );
+  }
+
+  /**
+   * Fill in the caption from the bounds — but never OVER something typed.
+   *
+   * `range_label` is free text nobody parses, and the client's operators do
+   * write their own wordings. So it composes only into an empty cell or one
+   * still holding a caption this function produced, which is what lets an
+   * operator edit a bound afterwards without their own wording being eaten.
+   *
+   * IT HAS NO COLUMN OF ITS OWN, deliberately. Range + From + To already say
+   * exactly what the caption says, in editable form; a third cell repeating them
+   * is the redundancy this screen just took OUT of the legacy layout, where the
+   * kind and the bounds could contradict each other. The stored value still
+   * matters — reports and the legacy import read it — so it is kept accurate
+   * rather than kept visible.
+   */
+  function settleLabels(ls: LineRow[]): LineRow[] {
+    return ls.map((l) => {
+      const tier = asTier(l);
+      const composed = rangeLabelOf(tier);
+      const wasComposed =
+        l.range_label.trim() === "" ||
+        RANGE_LABEL_SHAPES.some((re) => re.test(l.range_label.trim()));
+      return wasComposed && composed ? { ...l, range_label: composed } : l;
+    });
+  }
+
+  function setBound(key: string, patch: Partial<LineRow>) {
+    setLines((ls) => settleLabels(ls.map((l) => (l.key === key ? { ...l, ...patch } : l))));
+  }
 
   function submit() {
     startTransition(async () => {
@@ -368,109 +454,139 @@ export function GarmentRejectionRuleMasterScreen({
             addLabel="+ Add tier"
             columns={[
               {
+                // THE COLUMN LEGACY HAS AND WE DID NOT. Its Range is a dropdown
+                // of three kinds; ours was a free-text caption nothing reads, so
+                // an operator coming off that screen typed "UPTO" into a box
+                // that ignored it.
+                //
+                // It writes From and To rather than sitting beside them — see
+                // `setKind`. The kind itself is never stored: `rangeKindOf`
+                // derives it back from the bounds, so there is one home for the
+                // fact and no way for a caption to contradict it.
                 header: "Range",
-                // No width — the one flexible column, so the label ("40S UPTO
-                // 60S") gets whatever the numeric columns leave.
+                width: "8.5rem",
                 cell: (l) => (
-                  <Input
-                    uppercase
-                    value={l.range_label}
-                    onChange={(e) => setLineAt(l.key, { range_label: e.target.value })}
-                  />
+                  <Select
+                    aria-label="Range"
+                    value={rangeKindOf(asTier(l))}
+                    onChange={(e) => setKind(l.key, e.target.value as RangeKind)}
+                  >
+                    {RANGE_KINDS.map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
+                      </option>
+                    ))}
+                  </Select>
                 ),
               },
               {
                 header: "From",
-                width: "8rem",
+                width: "7rem",
                 align: "right",
-                cell: (l) => (
-                  <Input
-                    type="number"
-                    // Right-aligned to match the column header, and
-                    // `tabular-nums` so the digits line up DOWN the
-                    // column — a tier ladder is read vertically.
-                    className="text-right tabular-nums"
-                    value={l.from_value}
-                    onChange={(e) => setLineAt(l.key, { from_value: e.target.value })}
-                  />
-                ),
+                cell: (l) => {
+                  const kind = rangeKindOf(asTier(l));
+                  return (
+                    <Input
+                      type="number"
+                      aria-label="From"
+                      // Disabled, not hidden: the column has to keep its width
+                      // down the page or the ladder stops reading as a ladder.
+                      // The placeholder says WHY it is off — legacy stores a
+                      // literal 0 here and means "no lower bound", which our
+                      // engine would read as a real bound of zero.
+                      disabled={kind === "upto"}
+                      placeholder={kind === "upto" ? "—" : ""}
+                      // Right-aligned to match the column header, and
+                      // `tabular-nums` so the digits line up DOWN the
+                      // column — a tier ladder is read vertically.
+                      className="text-right tabular-nums"
+                      value={l.from_value}
+                      onChange={(e) => setBound(l.key, { from_value: e.target.value })}
+                    />
+                  );
+                },
               },
               {
                 header: "To",
-                width: "8rem",
+                width: "7rem",
                 align: "right",
-                cell: (l) => (
-                  <Input
-                    type="number"
-                    // Right-aligned to match the column header, and
-                    // `tabular-nums` so the digits line up DOWN the
-                    // column — a tier ladder is read vertically.
-                    className="text-right tabular-nums"
-                    value={l.to_value}
-                    onChange={(e) => setLineAt(l.key, { to_value: e.target.value })}
-                  />
-                ),
+                cell: (l) => {
+                  const kind = rangeKindOf(asTier(l));
+                  return (
+                    <Input
+                      type="number"
+                      aria-label="To"
+                      disabled={kind === "above"}
+                      // "∞" rather than "—": blank here is not missing, it is
+                      // the only way to say unbounded, and every ladder needs
+                      // exactly one row that does.
+                      placeholder={kind === "above" ? "∞" : ""}
+                      className="text-right tabular-nums"
+                      value={l.to_value}
+                      onChange={(e) => setBound(l.key, { to_value: e.target.value })}
+                    />
+                  );
+                },
               },
               {
-                header: "Allowance",
-                width: "9rem",
+                /*
+                 * FOUR COLUMNS, AND THE BASIS LIVES INSIDE THIS ONE (client
+                 * 2026-08-26: "maintain the same fields legacy have, only 4 —
+                 * Range, From, To, Rejection Allowance").
+                 *
+                 * It is not dropped, because it cannot be: `allowance_type`
+                 * (0389) is what says whether a tier's "3" means three PIECES or
+                 * three PERCENT, and on a ten-piece size run those are 3 and
+                 * ceil(0.3) = 1. The screen hard-coded it to "percent" until
+                 * today, which is exactly why the client's own "up to 10 → 3
+                 * Flat" could not be entered and why no rule has ever been saved.
+                 *
+                 * Legacy does not drop it either — it puts the selector in a
+                 * narrow UNNAMED column between To and Rejection Allowance, so
+                 * their screen shows four column NAMES and five controls. This
+                 * keeps the four names and pairs the selector with the number it
+                 * qualifies, which says the same thing without an unlabelled
+                 * column: "3 Flat" and "5 %" read as one value, and a screen
+                 * reader gets a name for both halves rather than a blank header.
+                 */
+                header: "Rejection Allowance",
+                width: "12rem",
                 align: "right",
                 cell: (l) => (
-                  <Input
-                    type="number"
-                    // Right-aligned to match the column header, and
-                    // `tabular-nums` so the digits line up DOWN the
-                    // column — a tier ladder is read vertically.
-                    className="text-right tabular-nums"
-                    value={l.rejection_allowance}
-                    onChange={(e) => setLineAt(l.key, { rejection_allowance: e.target.value })}
-                  />
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      aria-label="Rejection allowance"
+                      className="text-right tabular-nums"
+                      value={l.rejection_allowance}
+                      onChange={(e) => setLineAt(l.key, { rejection_allowance: e.target.value })}
+                    />
+                    {/* Two controls in ONE cell is safe on the keyboard
+                        contract: Tab and the arrows both find fields by control
+                        (`ROW_FIELDS` / `ownDescendants`), not by cell, so this
+                        is two stops on the row's own axis and nothing special
+                        is needed. */}
+                    <Select
+                      aria-label="Allowance basis"
+                      className="w-[5.5rem] shrink-0"
+                      value={l.allowance_type}
+                      onChange={(e) =>
+                        setLineAt(l.key, {
+                          allowance_type: e.target.value as RejectionAllowanceType,
+                        })
+                      }
+                    >
+                      {REJECTION_ALLOWANCE_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                 ),
               },
             ]}
           />
-
-          {/* WHAT THIS RULE ACTUALLY DOES, at a few order sizes.
-              A three-tier ladder of from/to/allowance is not checkable by eye —
-              an off-by-one on a boundary, or a tier left as Percent when it
-              should be Pieces, both read as perfectly plausible rows. This is
-              where that gets caught, before an order is cut short on the floor.
-              It runs the SAME `rejectionFor` the SQ Detail screen and the server
-              use, so agreeing here means agreeing everywhere. */}
-          {lines.length > 0 && (
-            <div className="rounded-lg border border-border bg-surface-muted px-3 py-2.5">
-              <div className="mb-1.5 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
-                Preview
-              </div>
-              <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-                {PREVIEW_QTYS.map((q) => {
-                  const hit = rejectionFor(
-                    q,
-                    lines.map((l) => ({
-                      from_value: numOrNull(l.from_value),
-                      to_value: numOrNull(l.to_value),
-                      rejection_allowance: numOrNull(l.rejection_allowance),
-                      allowance_type: l.allowance_type,
-                    })),
-                  );
-                  return (
-                    <span key={q} className="text-xs tabular-nums">
-                      <span className="text-muted-foreground">{q.toLocaleString("en-IN")} → </span>
-                      {hit ? (
-                        <span className="font-semibold text-foreground">
-                          {hit.sdQty.toLocaleString("en-IN")}
-                        </span>
-                      ) : (
-                        // Never a 0 here: a quantity no tier covers is a hole in
-                        // the ladder, and 0 would read as "no rejection needed".
-                        <span className="font-medium text-warning">no tier</span>
-                      )}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
       </Sheet>
     </div>

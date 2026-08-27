@@ -8,7 +8,9 @@ import {
 import { MbaMasterScreen } from "./mba-master-screen";
 
 /**
- * Orders ▸ Material BOM — step 3 of the six-step garment order flow.
+ * Orders ▸ Material BOM — step 2 of the six-step garment order flow. It was
+ * step 3 until Style left the menu on 2026-08-25 (the style is entered on the
+ * order line now); `lib/nav/module-groups.ts` holds the sequence.
  *
  * TWO LISTS, and the distinction is the point of the screen. `tasks` is one row
  * per confirmed garment ORDER, marked Pending / Draft / Updated / Recalculate:

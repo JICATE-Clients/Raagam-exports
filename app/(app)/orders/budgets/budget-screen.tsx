@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Orders ▸ Budgeting — step 7 of the client's order flow (0428).
+ * Orders ▸ Budgeting — step 5 of the client's order flow (0428).
  *
  * A budget covers a GROUP of garment orders, costs them from their Fabric and
- * Material BOMs, and is submitted for approval (step 8, `/orders/budget-approval`).
+ * Material BOMs, and is submitted for approval (step 6, `/orders/budget-approval`).
  *
  * ## SUBMIT IS IN THE HEADER, NEVER THE FOOTER
  *
@@ -912,7 +912,7 @@ export function BudgetScreen({
       <div className="space-y-4">
         <PageHeader
           title="Budgeting"
-          description="Step 7 — cost a group of orders from their BOMs, and send the budget for approval."
+          description="Step 5 — cost a group of orders from their BOMs, and send the budget for approval."
         />
 
         <div className="flex flex-wrap items-center gap-2">

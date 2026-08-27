@@ -236,7 +236,14 @@ export function GstinCheckScreen({
                             ? "the state code"
                             : "the name / a known alternate spelling"
                         } — this is the row a "Set State" suggestion would write.`
-                      : "The State master has no row for this code, so no State can be suggested. Add one under Associates ▸ Country/State."
+                      : // The State master is a GST master, NOT an Associates one
+                        // (`submodules.ts`: slug "state" under the GST submodule).
+                        // This line read "Associates ▸ Country/State" until
+                        // 2026-08-26 — the wrong sub-module, and a row name that
+                        // is two names joined by a slash. Caught by
+                        // `npm run check:nav-paths`, which is why that check
+                        // resolves every segment rather than only the first.
+                        "The State master has no row for this code, so no State can be suggested. Add one under Master Data ▸ GST ▸ State."
                   }
                 />
                 <Row label="PAN" value={decoded.pan} mono tone="ok" note="Characters 3-12 are the PAN, exactly." />

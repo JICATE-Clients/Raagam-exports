@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Orders ▸ Fabric BOM — step 5 of the client's order flow (0426).
+ * Orders ▸ Fabric BOM — step 3 of the client's order flow (0426).
  *
  * TWO SURFACES, one route. `mode === "list"` is the merchandiser's work queue —
  * one row per confirmed garment ORDER, not one per document, so an order with no
@@ -1102,7 +1102,7 @@ export function FabricBomScreen({
       <div className="space-y-4">
         <PageHeader
           title="Fabric BOM"
-          description="Step 5 — fabric per component and colour, with the net requirement each order implies."
+          description="Step 3 — fabric per component and colour, with the net requirement each order implies."
         />
 
         {/* EVERY CONTROL IN THIS BAND IS `md` (h-9). The row's fixed element is

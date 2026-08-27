@@ -845,6 +845,35 @@ another row, no row duplicating its module root, every leaf resolving back to
 its group, every leaf still in search, and nothing the old flat nav reached
 being orphaned.
 
+**A LABEL IS ALSO WRITTEN DOWN IN THE PROSE, AND THE REGISTRY DOES NOT REACH IT.**
+"Raise one on Orders ▸ Order Preparation ▸ Order Entry" is a *direction*, and a
+direction naming a row that no longer exists is worse than none: the operator
+goes looking, fails, and concludes the screen is broken rather than the sentence.
+Renaming Order Setup → **Order Preparation** (client 2026-08-25) reached every
+surface the registry drives and NONE of the strings, because a string is not a
+row. So `npm run check:nav-paths` resolves every segment of every operator-facing
+menu path against `module-groups.ts` + `submodules.ts`.
+
+Three things it had to get right to be worth running, each learned by being made
+to fail first:
+
+- **Comments are stripped before scanning.** Most uses of ▸ in this repo are
+  comments recording what the menu USED to say; rewriting history to quiet a
+  check destroys the only thing those lines are for.
+- **`Quantities ▸ Assort` is not a menu path.** The same glyph joins a tab to a
+  grid *inside* one screen. In scope only when the FIRST segment is a registry
+  label, so the check never guesses what a sentence meant — only whether the
+  words it used are on the menu. A shorthand that skips the sub-module
+  (`Orders ▸ Material BOM`) resolves, because the row is unambiguous.
+- **The separator is borrowed once for a PERMISSION** — `Orders ▸ Approve` is
+  `orders:approve`, not a row. That earns `// nav-path: exempt -- <reason>`,
+  which reaches back over the whole comment block above a statement rather than
+  a fixed number of lines.
+
+It found `Associates ▸ Country/State` on the GSTIN screen the first time it ran:
+the State master is under **Master Data ▸ GST**, and "Country/State" is two names
+joined by a slash. Fix the WORDING to match the registry, never the reverse.
+
 ## Browser autofill (STANDING)
 
 **The browser's memory is not a master list.** Chrome remembers every value ever typed

@@ -1,5 +1,5 @@
 /**
- * CAD marker weights — the gram figure for one garment panel, and what step 4
+ * CAD marker weights — the gram figure for one garment panel, and what step 3
  * is allowed to do with it.
  *
  * doc/file.md §2: the CAD room measures each coordinate component panel off a

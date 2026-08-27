@@ -12,7 +12,7 @@
  *
  * Nothing in it is about MATERIAL. "Not started / draft / recorded / the order
  * moved under it / cannot be answered" is the shape of every BOM question, and
- * Fabric BOM (step 5 of the client's flow, `0426`) asks it identically. It sat
+ * Fabric BOM (step 3 of the client's flow, `0426`) asks it identically. It sat
  * one folder down only because Material BOM asked first.
  *
  * The move is deliberately a `git mv` of THIS file rather than a second copy
