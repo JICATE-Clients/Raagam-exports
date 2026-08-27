@@ -1749,6 +1749,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             <Field size="lg">
               <ChildGrid<CoordRow>
                 narrow
+                frameless
                 columns={coordColumns}
                 rows={coords}
                 hideAdd={!!coordCap && coords.length >= coordCap.max}
@@ -1961,6 +1962,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                    THIRD border nested inside an already-bordered card; this is
                    the first border on a panel that had none, and it leaves the
                    section at one frame per half. */
+                framed
                 options={sizeOpts.map((o) => ({
                   id: o.id,
                   label: o.name,

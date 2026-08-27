@@ -326,6 +326,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
             lockExisting
             columns={childColumns}
             rows={childRows}
+            frameless
             inlineCards
             onAdd={() => setChildRows((xs) => [...xs, { key: nextKey(), size_name: "" }])}
             onRemove={(r) => setChildRows((xs) => xs.filter((x) => x.key !== r.key))}

@@ -495,6 +495,7 @@ export function DocumentNoFormatMasterScreen({
                     columns={segmentColumns(m.key)}
                     rows={m.segments}
                     inlineCards
+                    frameless
                     seedRow
                     onAdd={() => mutSegs(m.key, (xs) => [...xs, blankSeg(newKey())])}
                     onRemove={(s) => mutSegs(m.key, (xs) => xs.filter((x) => x.key !== s.key))}

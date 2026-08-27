@@ -834,6 +834,7 @@ export function CategoryMasterScreen({
                   onRemove={(r) => removeSub(r.key)}
                   addLabel="+ Add sub category"
                   inlineCards
+                  frameless
                   columns={[
                     {
                       header: "Name",

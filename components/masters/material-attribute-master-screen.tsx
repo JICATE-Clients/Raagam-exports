@@ -1376,6 +1376,7 @@ export function MaterialAttributeMasterScreen({
                 label=""
                 forceCards
                 listRows
+                frameless
                 rows={lines}
                 // NO BUTTON, AND NO KEY THAT ADDS. Rows appear by filling in the
                 // trailing star row (`withStarRow`), which is how the legacy grid

@@ -125,25 +125,22 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
  * `data-grid-row` and not by `<tr>`. New code should carry the marker.
  */
 /**
- * `GRID_FRAME` WAS HERE AND IS GONE (client 2026-08-27: "remove this grid card
- * totally from the whole application"). It was
- * `rounded-lg border border-border p-2.5 @2xl/editor:p-2` — the border every
- * grid drew around itself, exported so a non-grid panel standing beside one
- * could match it exactly.
+ * THE FRAME A GRID DRAWS AROUND ITSELF, exported so a non-grid panel standing
+ * BESIDE a grid can match it exactly.
  *
- * DELETED RATHER THAN LEFT EXPORTED. Nothing applies it now: the grid draws no
- * card, and `MultiSelect`'s `framed` — the one thing that imported it, so a bare
- * control beside a framed grid would not "read as floating" (2026-08-18) — went
- * in the same change, because with the grid unframed that prop would have made
- * the CONTROL the only box on the row and simply swapped which half looked
- * wrong. A constant nothing renders is the dead-intent this file warns about
- * elsewhere.
+ * "One frame per grid" (the screen-layout skill) says how many borders there
+ * are; it says nothing about a control that has to sit next to one. On Style ▸
+ * Components & Sizes the framed Components table shared a row with an unframed
+ * Sizes control, and the client read the bare half as floating (2026-08-18).
+ * Retyping these classes there would have put the same four numbers in two
+ * files, which is how a border ends up 1px or 2px off and nobody can say which
+ * one is wrong — the reason `FIELD_SPAN` and `FIELD_TRACK` are exported too.
  *
- * Comments in `detail-section.tsx`, `style-master-screen.tsx` and
- * `multi-select.tsx` still name it while describing what they used to suppress
- * or match. Those are history and are left as written — this note is what they
- * now resolve to.
+ * A LITERAL, never a template. Tailwind v4 scans source text, so interpolating
+ * anything into it produces no CSS at all (`FIELD_TRACK` carries the same
+ * warning).
  */
+export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2";
 
 /**
  * THE COLUMN-HEADER BAND'S TYPE — darker and a half-step bigger than a field
@@ -978,6 +975,7 @@ export function ChildGrid<T extends { key: string }>({
   renderMobileRow,
   pageSize,
   forceCards = false,
+  frameless = false,
   keyboardNav = true,
   hideAdd = false,
   narrow = false,
@@ -1056,12 +1054,9 @@ export function ChildGrid<T extends { key: string }>({
   /** Always render the stacked row-cards, never the wide table — for grids
    *  living inside a half-width column (Fabric organized layout 2026-07-23). */
   forceCards?: boolean;
-  /* `frameless` WAS HERE AND IS GONE (client 2026-08-27: "remove this grid card
-     totally from the whole application"). It dropped the outer bordered card so
-     a grid could nest inside a DetailSection without a double border — now no
-     grid draws one at all, so there is nothing to opt out of. The prop is
-     REMOVED rather than left as a no-op, which is what makes the compiler name
-     all nine call sites instead of leaving them reading as intent. */
+  /** Drop the outer bordered card so the grid can nest INSIDE a DetailSection
+   *  (e.g. Attributes (Mixing) under Composition) without a double border. */
+  frameless?: boolean;
   /** Excel-like Enter/↑/↓ vertical cell navigation on the desktop table (on by
    *  default). Set false for grids where Enter should keep its native meaning. */
   keyboardNav?: boolean;
@@ -1762,34 +1757,13 @@ export function ChildGrid<T extends { key: string }>({
            sibling of both, at the end of this card. See `ownAddControl` for what
            counting bodies instead of grids cost. */
         data-grid-card
-        /**
-         * NO CARD, ANYWHERE (client 2026-08-27: "remove this grid card totally
-         * from the whole application").
-         *
-         * `GRID_FRAME` — `rounded-lg border border-border p-2.5` — used to wrap
-         * every grid unless a call site passed `frameless`. Nine sites did, one
-         * at a time, each because the grid sat inside something that already
-         * drew a border; the screen-layout skill's "one frame per grid" was
-         * being satisfied by remembering to opt out. This is the same rule
-         * applied from the other end: the frame is gone by construction, so
-         * there is nothing to remember and no screen can be the one that forgot.
-         *
-         * `data-grid-card` STAYS. It is a marker, not a look — `ownAddControl`
-         * reads it to find a grid's extent, and `responsive` mode renders two
-         * `data-grid-body` elements so the attribute is the only thing that says
-         * where one grid ends. Removing it with the border would break the "+
-         * Add" lookup on every grid at once.
-         *
-         * The padding went with the border, as `frameless`' own note always
-         * said they would: the grid's first control now sits level with a
-         * `Field` beside it instead of 10px inside a box.
-         */
         className={cn(
           "space-y-2 @2xl/editor:space-y-1.5",
-          // Kept for a grid that hugs its table: without a border there is no
-          // dead space to close, but `w-fit` still stops a narrow grid stretching
-          // to the section width. `max-w-full` keeps a wide table inside the
-          // section; the scroll wrapper's `overflow-x-auto` takes it from there.
+          !frameless && GRID_FRAME,
+          // The card hugs exactly when the table inside it does, so there is no
+          // dead space between the last column and the border. `max-w-full`
+          // keeps a table wider than the cap inside the section; the scroll
+          // wrapper's own `overflow-x-auto` takes it from there.
           hugsContent && "w-fit max-w-full",
         )}
       >
@@ -1813,21 +1787,6 @@ export function ChildGrid<T extends { key: string }>({
         {mode === "responsive" && (
         <div
           className={cn(
-            /* THE TABLE KEEPS ITS OWN FRAME, and this is the second half of a
-               correction (client 2026-08-27, screenshot 2516: "now the table is
-               not closed — add the close frame box").
-
-               It was removed with `GRID_FRAME` a few minutes earlier, on
-               "still the framed layout appearing" (2515). That went one border
-               too far: a TABLE has a header rule and a rule under every row, so
-               with no outline the bottom row's rule reads as the last of a
-               series and the shape has no end — it looks unfinished rather than
-               flat. A card around a two-field list was decoration; the frame
-               around a table is what closes it.
-
-               The two other frames stay gone, and that is the distinction: no
-               card WRAPPING the grid, no box per ROW, and no grey fill in the
-               header — the outline is the only one left. */
             "hidden overflow-x-auto rounded-lg border border-border",
             // See `narrow`: the cap would otherwise push this below @lg and the
             // grid would render as cards. See `wideTable` for the other end —
@@ -1855,14 +1814,15 @@ export function ChildGrid<T extends { key: string }>({
           >
             <thead>
               {/* WHITE, NOT GREY (client 2026-08-27: "that inside cell for some
-                  sections is grey — make it white too"). `bg-surface-muted` was
-                  a fill doing the same job the rule beneath it already does, and
-                  it read as a band sitting inside a section that has none. The
-                  header still separates itself: `border-b` draws the line, and
-                  `GRID_HEADER_TEXT` keeps the labels darker and a half-step
-                  bigger than the cells. Structure by type and a rule, not by a
-                  panel — the same call `--row-active` recorded app-wide on
-                  2026-08-18 ("no more that grey state in anywhere"). */}
+                  sections is grey — make it white too"). This is the ONE part of
+                  the de-framing round that survives the restore below it: the
+                  frames were asked for back, the grey fill was not.
+
+                  The header still separates itself — `border-b` draws the line
+                  and `GRID_HEADER_TEXT` keeps the labels darker and a half-step
+                  bigger than the cells. The fill was a third signal saying what
+                  those two already said, and it read as a panel inside a panel
+                  now that the grid has its card back. */}
               <tr className="border-b border-border">
                 <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
                 {columns.map((c, i) => (
@@ -1990,11 +1950,10 @@ export function ChildGrid<T extends { key: string }>({
                 this as a row. It has to be inside the same <table> to inherit the
                 <th> widths above it, which is the whole reason totals could not be
                 a wrapper around this component. */}
-            {/* WHITE, with the header (2026-08-27). The `border-t-2` is what
-                separates a total from the rows it sums — deliberately heavier
-                than a row rule — and `font-semibold` is what makes it read as a
-                figure rather than another line. The fill was a third signal
-                saying what those two already said. */}
+            {/* White, with the header above (2026-08-27). The `border-t-2` is
+                what separates a total from the rows it sums — deliberately
+                heavier than a row rule — and `font-semibold` is what makes it
+                read as a figure. The fill was a third signal. */}
             {hasTotals && (
               <tfoot className="border-t-2 border-border font-semibold">
                 <tr>
@@ -2212,19 +2171,14 @@ export function ChildGrid<T extends { key: string }>({
                   // slots — short cells stay centred exactly as they were, and a
                   // tall one grows downwards instead of pushing its row about.
                   "flex items-start gap-2",
-                  // No card inset: the row's own controls draw the boxes, so the
-                  // first one sits level with a `Field` beside it. Rows stay
-                  // separable by a rule rather than by a border each.
-                  // `localI === 0` rather than `first:` — the header band is a
-                  // sibling in this container, so `first:` would match IT.
-                  //
-                  // UNGATED FROM `flushRows` ON 2026-08-27, with the card branch
-                  // above and for the same reason: the box was the FALSE branch,
-                  // so an inline grid whose call site had not been given the prop
-                  // still drew one per row. Four call sites were handed
-                  // `flushRows` earlier today to get exactly this; the prop was
-                  // the remainder, not the rule.
-                  cn("border-b border-border pb-1.5 last:border-b-0", localI > 0 && "pt-1.5"),
+                  flushRows
+                    ? // No card inset: the row's own controls draw the boxes, so
+                      // the first one sits level with a `Field` beside it. Rows
+                      // stay separable by a rule rather than by a border each.
+                      // `localI === 0` rather than `first:` — the header band is a
+                      // sibling in this container, so `first:` would match IT.
+                      cn("border-b border-border pb-1.5 last:border-b-0", localI > 0 && "pt-1.5")
+                    : "rounded-md border border-border p-1.5",
                 )}
               >
                 {/* The index and the ✕ belong to the row's CONTROL LINE, not to
@@ -2497,15 +2451,9 @@ export function ChildGrid<T extends { key: string }>({
                  * one frame, which is why `flatRows` exists). 8px per record is
                  * the price, paid once per row rather than per field.
                  */
-                /* EVERY CARD ROW IS FLAT NOW (client 2026-08-27, screenshot
-                   2515: "still the framed layout appearing"). The box was the
-                   `listRows || flatRows` FALSE branch, so a grid that had not
-                   been given either prop still drew one per row — which is why
-                   Coordinate, a `narrow` grid rendering as cards, came out
-                   boxed after the grid card was removed. The two props now
-                   select nothing here: the reasoning above applied to every
-                   card, not to the ones whose call site remembered. */
-                "py-3 first:pt-0 last:pb-0",
+                listRows || flatRows
+                  ? "py-3 first:pt-0 last:pb-0"
+                  : "rounded-lg border border-border p-2.5",
                 /**
                  * The divider, owned by the row that needs one — see the
                  * container. `localI` is the index on the PAGE, so the first row
@@ -2529,34 +2477,6 @@ export function ChildGrid<T extends { key: string }>({
                    NEXT one, and in the detail pane there is only ever one. Its
                    `localI > 0` would draw a stray line above whichever row
                    happened to be open. */
-                /**
-                 * GATED AGAIN (client 2026-08-27, screenshot 2520: "remove that
-                 * centered line from every section").
-                 *
-                 * It was ungated a few minutes earlier, when the box per row
-                 * went, on the reasoning that dropping the box while the divider
-                 * still waited on `listRows || flatRows` would leave an
-                 * unflagged grid with NEITHER. That was the right worry and the
-                 * wrong answer: what an unflagged grid got instead was a
-                 * `border-t-2` in `--border-strong` — the heaviest line the app
-                 * draws — between one-line rows inside a small list. It reads as
-                 * a rule through the middle of the panel.
-                 *
-                 * THE LINE IS FOR A RECORD BOUNDARY, and that is why the flag is
-                 * the right gate after all. A `listRows` / `flatRows` grid is
-                 * one RECORD per row — a whole style, a whole structure — and
-                 * the client asked for that line twice (2026-08-19: "no more
-                 * clearly separation line, all the lines look same kind, so
-                 * can't tell the next section", then again when 1px was still
-                 * invisible). A plain cards grid is one FIELD per row, where
-                 * `py-3` is already more space than the 8px between fields
-                 * inside a record, and there is no boundary to announce.
-                 *
-                 * So neither box nor line on an unflagged grid, deliberately.
-                 * Coordinate — the grid this was reported from — carries an
-                 * enclosing frame at its call site instead, which is what says
-                 * where the list starts and stops.
-                 */
                 !mdActive &&
                   (listRows || flatRows) &&
                   localI > 0 &&
