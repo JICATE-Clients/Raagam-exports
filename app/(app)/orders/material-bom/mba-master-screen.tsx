@@ -3034,8 +3034,10 @@ export function MbaMasterScreen({
     );
   };
 
-  const packById = (id: string | null) =>
-    id ? (data.conversions.find((c) => c.id === id) ?? null) : null;
+  /* `packById` LIVED HERE and was `packOf`'s only reader; `resolveLinePack`
+     does the id lookup itself now, because resolving by id and resolving by
+     units are two halves of one question and splitting them across two files is
+     how the two readers of that question drift. */
   /** `decimal_places_allowed` (0309), not `decimal_places` (0224) — the latter is
    *  0 on every row in the live DB and would round 16.67 Gross to 17, the
    *  round-up the client rejected. `uomPrecision` clamps it either way. */
@@ -4241,7 +4243,7 @@ export function MbaMasterScreen({
      * `uom_conversion_id`, so the packs already chosen on live BOMs survive an
      * ordinary edit-and-save of the line.
      *
-     * AND IT IS STILL READ. `packById` feeds `packUsable` in the line totals, so
+     * AND IT IS STILL READ. `packOf` feeds `packUsable` in the line totals, so
      * a stored pack keeps converting the requirement into a purchase figure —
      * this removed the way to CHANGE one, not the effect of having one.
      * `packsFor` went with the cell; it had no other reader.
