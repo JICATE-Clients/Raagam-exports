@@ -1,4 +1,5 @@
 import type { SeededAmendmentChildren } from "./order-seed";
+import { orderUnitLabel } from "./types";
 
 /**
  * Orders ▸ Garment Order Amendment — what actually changed.
@@ -59,8 +60,24 @@ interface TabSpec<T> {
   key: (r: T) => string;
   /** Human name for the row in a summary line. */
   rowLabel: (r: T) => string;
-  /** The fields a "changed" verdict is allowed to rest on. */
-  fields: { field: keyof T & string; label: string }[];
+  /**
+   * The fields a "changed" verdict is allowed to rest on.
+   *
+   * `format` TURNS A STORED CODE INTO THE WORD THE OPERATOR SAW. Order Unit is
+   * stored 'piece' / 'set' and read PCS / SET on screen (0471), and an
+   * amendment line saying "Order Unit: piece -> set" describes a field nobody
+   * has ever seen — the approver has to translate it to check it. Same argument
+   * `creatorName()` makes about printing a uuid in an audit column.
+   *
+   * Optional, and the default stays `display()`: a field whose stored value IS
+   * the word needs no second spelling, and giving every entry a formatter would
+   * invite one that quietly disagrees with the screen.
+   */
+  fields: {
+    field: keyof T & string;
+    label: string;
+    format?: (v: unknown) => string;
+  }[];
 }
 
 const norm = (v: unknown): string =>
@@ -131,8 +148,8 @@ function diffTab<T>(spec: TabSpec<T>, before: T[], after: T[]): TabDiff {
         .map((f) => ({
           field: f.field,
           label: f.label,
-          before: display(bef[f.field]),
-          after: display(aft[f.field]),
+          before: f.format ? f.format(bef[f.field]) : display(bef[f.field]),
+          after: f.format ? f.format(aft[f.field]) : display(aft[f.field]),
         }));
       if (fields.length) {
         rows.push({ kind: "changed", key: `${key}#${i}`, label: spec.rowLabel(aft), fields });
@@ -201,9 +218,21 @@ const STYLES: TabSpec<StyleRow> = {
      * THE LABELS SAY "STOCK UNIT", NOT "ORDER UNIT". Whatever these two once
      * were, neither is the Order Unit an operator now sees; a diff line reading
      * "Order Unit: nos -> kg" beside a screen showing PCS would describe a field
-     * that is not there. `unit_kind` cannot appear here at all — changing it
-     * changes the STYLE, which is reported as a Style change on the row above.
+     * that is not there.
+     *
+     * `unit_kind` IS REPORTED NOW, AND USED NOT TO BE. This note used to say it
+     * "cannot appear here at all — changing it changes the STYLE, which is
+     * reported as a Style change on the row above", and that was right while
+     * the value was resolved through `style_id` off the master: swapping the
+     * style was the only way to change it, so the Style line already said so.
+     *
+     * 0471 made it a column ON this line, typed by the operator, precisely
+     * because the master's answer went away when the Style became manual entry.
+     * A field the operator can now change on its own and an approver cannot see
+     * change is a hole in the amendment record, so it is listed — formatted to
+     * the PCS / SET the screen shows, never the stored 'piece' / 'set'.
      */
+    { field: "unit_kind", label: "Order Unit", format: (v) => orderUnitLabel(v as string | null) },
     { field: "order_unit_id", label: "Stock Unit (order)" },
     { field: "plan_unit_id", label: "Stock Unit (plan)" },
     { field: "po_qty", label: "PO Qty" },
