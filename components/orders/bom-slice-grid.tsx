@@ -174,10 +174,16 @@ export interface BomSliceGroup {
   /** The group's own + Exc roll-up, NULL while any chosen row is unanswered —
    *  a partial sum of a half-typed group is a figure somebody would act on. */
   needs: number | null;
-  /** Non-null disables the fold and says why. A group holding an unanswered
-   *  required cell must not close: AGENTS.md, "requiring a hidden field is a
-   *  record that cannot be saved with nothing on screen to say why". */
-  whyNotClose: string | null;
+  /*
+   * `whyNotClose` WAS HERE AND IS GONE (2026-08-27). It disabled the chevron
+   * while the run held an unanswered required cell. The accordion replaced it —
+   * see the band's own note for why the "N of M unanswered" count on a shut band
+   * is what satisfies the rule it was citing.
+   *
+   * Deleted rather than left unread: a field the grid no longer consults is the
+   * same half-state as a header `*` with no hold behind it, and the next reader
+   * would reasonably assume something still enforced it.
+   */
 }
 
 export interface BomSliceFlagPatch {
@@ -231,15 +237,33 @@ export function BomSliceGrid({
   decimals,
   finalDecimals,
   finalUnit,
-  shutGroups,
+  openGroup,
   onToggleGroup,
 }: {
   caption: ReactNode;
   axisHead: string;
-  /** WHICH GROUPS ARE SHUT — the SHUT set, not the open one, so a combination
-   *  added later arrives open rather than hidden. `approval-qty-lines` makes the
-   *  same choice for the same reason: open is the absence of a decision. */
-  shutGroups?: ReadonlySet<string>;
+  /**
+   * WHICH GROUP IS OPEN — one name, or null for none (client 2026-08-27: "add
+   * that automatic collapse option, now it's totally open ... open the first
+   * section, close the second one").
+   *
+   * THE ACCORDION IS IN THE TYPE, and that is the whole reason this replaced a
+   * `shutGroups` SET. A set can hold "TOP and BOTTOM are both shut", so it can
+   * equally hold "both open" — the one-at-a-time rule would then live in whoever
+   * writes to it, and every future writer would have to know. One name cannot
+   * express two open groups, so the invariant cannot be broken by a caller.
+   *
+   * It also reverses the old comment's reasoning deliberately. The shut set was
+   * chosen so "a combination added later arrives OPEN rather than hidden behind
+   * a set nobody updated" — sound for a multi-open fold, and wrong here: under an
+   * accordion a new combination arriving open is a SECOND open group. It now
+   * arrives closed, with its own band and its own "N of M unanswered" count
+   * visible, which is the thing that made it safe to hide (see the band below).
+   *
+   * `approval-qty-lines.tsx` still uses the set shape and is untouched — it is a
+   * different component on a different screen and multi-open is correct there.
+   */
+  openGroup?: string | null;
   onToggleGroup?: (groupKey: string) => void;
   rows: readonly BomSliceRow[];
   onSet: (
@@ -365,7 +389,7 @@ export function BomSliceGrid({
         {rows.map((row) => {
           /* A ROW IS HIDDEN BY ITS GROUP, NEVER BY ITSELF — and a band is never
              hidden by its own group, or a shut group would have no way back. */
-          const shut = !row.groupHead && !!row.groupKey && !!shutGroups?.has(row.groupKey);
+          const shut = !row.groupHead && !!row.groupKey && row.groupKey !== openGroup;
           return (
           <div key={row.key} className="border-b border-border last:border-b-0">
             {/*
@@ -388,16 +412,40 @@ export function BomSliceGrid({
                 data-grid-row
                 className="flex items-center gap-2 border-t-2 border-border-strong bg-surface-muted px-3 py-1.5 first:border-t-0"
               >
+                {/*
+                  AN UNANSWERED GROUP CAN NOW BE CLOSED, and dropping that guard
+                  is what makes the accordion exist at all.
+
+                  It used to be `disabled` while the run held an unanswered
+                  required cell, reasoning that "hiding a required blank is a
+                  record that cannot be saved with nothing on screen to say why"
+                  — AGENTS.md's mandatory-field rule, correctly cited. But on a
+                  NEW BOM every group is unanswered, so every chevron was dead:
+                  the screen the client photographed (2026-08-27) could not fold
+                  one single band. A guard that only lets you tidy up what you
+                  have already finished is off exactly when tidying is the point.
+
+                  WHAT MAKES IT SAFE IS THE BAND ITSELF, which is why this is a
+                  narrowing rather than a waiver. The rule forbids hiding a blank
+                  with NOTHING ON SCREEN TO SAY WHY — and a shut group still
+                  renders its own "21 of 21 unanswered" in warning colour, one
+                  line up. The count is not hidden with the rows; it is the one
+                  thing a shut band exists to keep saying. Under an accordion
+                  that reads BETTER than before: the operator sees every group's
+                  outstanding count at a glance instead of scrolling a wall to
+                  find out. Save is still gated by the same figures.
+
+                  `aria-expanded` is now the accordion's own answer, so a screen
+                  reader is told what the chevron shows.
+                */}
                 <button
                   type="button"
                   data-row-open
                   onClick={() => onToggleGroup?.(row.groupHead!.key)}
-                  disabled={!!row.groupHead.whyNotClose}
-                  aria-expanded={!shutGroups?.has(row.groupHead.key)}
-                  title={row.groupHead.whyNotClose ?? undefined}
-                  className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground disabled:opacity-45"
+                  aria-expanded={row.groupHead.key === openGroup}
+                  className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground"
                 >
-                  {shutGroups?.has(row.groupHead.key) ? (
+                  {row.groupHead.key !== openGroup ? (
                     <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                   ) : (
                     <ChevronDown className="h-3.5 w-3.5 shrink-0" />

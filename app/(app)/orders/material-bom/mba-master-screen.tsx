@@ -783,19 +783,51 @@ export function MbaMasterScreen({
    */
   const [closedSlices, setClosedSlices] = useState<Set<string>>(new Set());
   /*
-   * WHICH COMBINATION BANDS ARE SHUT, keyed `${lineKey}\u0000${name}`.
+   * WHICH COMBINATION BAND IS OPEN ON EACH LINE — an ACCORDION (client
+   * 2026-08-27: "add that automatic collapse option, now its totally open ...
+   * open the first section, close the second one").
    *
-   * THE SHUT SET, NOT THE OPEN ONE — the same choice `approval-qty-lines` makes
-   * and for the same reason: open is the ABSENCE of a decision, so a combination
-   * added later arrives open rather than hidden behind a set nobody updated.
+   * Keyed by line, holding ONE group name. Opening TOP shuts BOTTOM because
+   * there is nowhere to write "both" — the invariant is the shape of the state,
+   * not a rule each future writer has to remember.
+   *
+   * SCOPED PER LINE, unchanged and still load-bearing: combination names repeat
+   * across materials, so one open group across the whole screen would fold and
+   * unfold "TOP" on every line at once. The fold is a per-line reading decision.
+   *
+   * THREE STATES, the shape `ChildGrid`'s `openRowKey` already uses:
+   *   absent — no decision yet, so the FIRST band of that line is open. That is
+   *            the "open the first section" half, and it is DERIVED rather than
+   *            seeded because the bands are built from the rows and do not
+   *            exist yet when this state is created.
+   *   a name — that band is open and every other one is shut.
+   *   null   — the operator shut the open one. Nothing is open, and the grid is
+   *            a clean index of bands and their unanswered counts.
+   *
+   * THE OLD SHUT SET IS GONE, and its reasoning with it. It was chosen so "a
+   * combination added later arrives open rather than hidden behind a set nobody
+   * updated" — right for a multi-open fold, and wrong under an accordion, where
+   * a combination arriving open is a SECOND open band. One now arrives shut,
+   * showing its name and its own unanswered count, which is what makes being
+   * shut safe. `approval-qty-lines.tsx` keeps the set shape and is untouched:
+   * different component, different screen, and multi-open is right there.
    */
-  const [shutGroups, setShutGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = (lineKey: string, name: string) =>
-    setShutGroups((prev) => {
-      const next = new Set(prev);
-      const k = `${lineKey}\u0000${name}`;
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
+  const [openGroups, setOpenGroups] = useState<Map<string, string | null>>(new Map());
+  /**
+   * Clicking the OPEN band shuts it; clicking a shut one opens it and shuts the
+   * rest. A shut accordion is a legitimate resting state, so this is a real
+   * toggle rather than an "always leave one open" cycle: the operator who wants
+   * the whole component list as an index can have it.
+   *
+   * `firstName` is passed in because the CALLER is what knows this line's
+   * groups. They are derived from its rows, so "the first one" cannot be read
+   * out of this state.
+   */
+  const toggleGroup = (lineKey: string, name: string, firstName: string | null) =>
+    setOpenGroups((prev) => {
+      const next = new Map(prev);
+      const current = prev.has(lineKey) ? prev.get(lineKey)! : firstName;
+      next.set(lineKey, current === name ? null : name);
       return next;
     });
 
@@ -2106,12 +2138,16 @@ export function MbaMasterScreen({
                       const f = figuresOf(x);
                       return t + (flags.chosen(x) && f.needs != null ? f.needs : 0);
                     }, 0),
-              /* A GROUP HOLDING AN UNANSWERED REQUIRED CELL CANNOT CLOSE — the
-                 same rule the caption applies to the whole grid, per group.
-                 Hiding a required blank is a record that cannot be saved with
-                 nothing on screen to say why. */
-              whyNotClose:
-                runUnanswered > 0 ? "Fill in Items and Pcs before closing this" : null,
+              /* `whyNotClose` WAS HERE AND IS GONE (2026-08-27). It disabled the
+                 chevron while the run held an unanswered required cell, citing
+                 AGENTS.md: hiding a required blank is a record that cannot be
+                 saved with nothing on screen to say why.
+
+                 On a NEW BOM every run is unanswered, so every chevron was dead
+                 and the accordion could not exist. The band answers the rule it
+                 cited: a shut group still prints "N of M unanswered" in warning
+                 colour, so the blank is reported, not hidden. See the band in
+                 `bom-slice-grid.tsx`. */
             }
           : null,
         /*
@@ -2256,17 +2292,21 @@ export function MbaMasterScreen({
               />
             );
           }}
-          /* THE SHUT SET, SCOPED TO THIS LINE. One `shutGroups` across the
-             screen would fold "TOP" on every material at once — the names repeat
-             across lines and the fold is a per-line reading decision. */
-          shutGroups={
-            new Set(
-              [...shutGroups]
-                .filter((k) => k.startsWith(`${r.key}\u0000`))
-                .map((k) => k.slice(r.key.length + 1)),
-            )
+          /* THE ONE OPEN BAND ON THIS LINE, scoped per line for the reason the
+             state note gives: combination names repeat across materials.
+
+             `firstGroup` is read off the ROWS rather than stored, because the
+             bands are derived from them — with no decision recorded yet, the
+             first band of this line is the open one. `?? null` covers a line in
+             identity mode, which builds no bands at all and folds nothing. */
+          openGroup={
+            openGroups.has(r.key)
+              ? openGroups.get(r.key)!
+              : (rows.find((x) => x.groupHead)?.groupHead?.key ?? null)
           }
-          onToggleGroup={(name) => toggleGroup(r.key, name)}
+          onToggleGroup={(name) =>
+            toggleGroup(r.key, name, rows.find((x) => x.groupHead)?.groupHead?.key ?? null)
+          }
           onFlag={(rowKey, patch) => {
             const sl = byKey.get(rowKey);
             if (!sl) return;
