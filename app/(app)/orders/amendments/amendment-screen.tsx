@@ -5617,16 +5617,14 @@ export function AmendmentScreen({
          `columns.every((c) => c.width)` and THIS column deliberately has none
          — it takes the rest of the line.
 
-         FRAMED, matching the Coordinates grid under a style line: a bare
-         stacked grid sharing a card with a framed table reads as loose rows
-         nobody chose. The classes match `child-grid.tsx`'s own wrapper and must
-         keep matching — two frames a few pixels apart is worse than neither. */
+         THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added while
+         `GRID_FRAME` did not exist — "a bare stacked grid sharing a card with a
+         framed table reads as loose rows nobody chose" — and the grid card has
+         since been restored, so `ChildGrid` draws that border itself. Left in
+         place it would be the SECOND one, a few pixels off the real one, which
+         is the doubling the note itself warned about. */
       header: "Packs",
-      cell: (r) => (
-        <div className="rounded-lg border border-border p-2">
-          {packTypeLinesGrid(r)}
-        </div>
-      ),
+      cell: (r) => packTypeLinesGrid(r),
     },
   ];
 
@@ -6940,7 +6938,18 @@ export function AmendmentScreen({
    */
   const packTypeLinesGrid = (r: PackTypeRow) => (
     <ChildGrid<PackTypeLineRow>
-      narrow
+      /* NO `narrow`, AND THAT IS THE WHOLE OF THE FIRST LAYOUT BUG (client
+         2026-08-27, screenshot 2521). It was copied from the Coordinates grid
+         under a style line, where it is right: that grid is ONE picker and
+         legacy draws the same list in a narrow panel. Here it caps the root at
+         `max-w-lg` — 512px for a FOUR-column table — so the pane's remaining
+         ~1100px went unused while Style Ref No rendered "GRIL…" and Combo
+         "WHI…" in ~70px boxes, with the full value printed in the untruncated
+         cell right beside it.
+
+         The prop's own note says the cap and the table's breakpoint are
+         coupled, so this is not a width to tune: a narrow grid is a DIFFERENT
+         layout, and the choice is per grid rather than per pixel. */
       columns={[
         {
           header: "Style Ref No",
@@ -7018,6 +7027,17 @@ export function AmendmentScreen({
           header: "Qty",
           align: "right",
           width: "8rem",
+          /* HOW MANY PIECES ONE PACK OF THIS METHOD HOLDS — the figure the grid
+             exists to produce, and the one legacy never showed. It is what makes
+             a method named "3 PCS PACK" whose lines sum to 13 visible as the
+             contradiction it is; without it the operator adds lines and the
+             total lives only in their head.
+
+             DERIVED, NEVER STORED — the rule 0414 and 0467 both state: a column
+             for a sum is a second source of truth for an addition. `total` also
+             keeps the band off the keyboard axis, which a hand-rolled footer
+             row would not. */
+          total: { kind: "sum", of: (l) => Number(l.qty) || 0 },
           cell: (l) => (
             <Input
               type="number"
@@ -9606,32 +9626,17 @@ export function AmendmentScreen({
     return (
       <ChildGrid<StyleCoordRow>
         narrow
-        /**
-         * LAID OUT LIKE COMPOSITION (client 2026-08-27, screenshot 2520: "update
-         * the table like composition").
-         *
-         * That is Material ▸ Composition ▸ Attributes (Mixing), and it is
-         * `inlineCards` + `flushRows` — one shared header band, then a light
-         * `border-b` under each row. This grid was in the DEFAULT `responsive`
-         * mode, which renders a table above 448px of its own inline size and
-         * stacked CARDS below it; at half of a six-column pane it was always the
-         * cards, so it drew a coordinate per card with a heavy rule between.
-         *
-         * A REAL TABLE IS NOT THE ANSWER HERE, which is worth writing down
-         * because the request says "table". `responsive`'s table carries
-         * `min-w-[420px]`, and this grid has about 200px — so forcing it would
-         * trade the cards for a horizontal scrollbar, and "no scroll-in-a-box"
-         * is a standing rule (2026-07-25). `inlineCards` is the layout that
-         * gives a header and aligned rows at ANY width, which is exactly why
-         * Composition uses it in the same situation: a grid sharing a row with
-         * the field beside it.
-         *
-         * `flushRows` also drops the caption band, and that is wanted here — the
-         * `<Field>` around this grid already prints "Coordinate" in the grid's
-         * own header type, so the band would say it a second time.
-         */
-        inlineCards
-        flushRows
+        /* `frameless` — this grid sits inside the style row's card and inside
+           its own `<Field>`, so the grid card would be a second border on the
+           same panel. Restored with the frame itself on 2026-08-27.
+
+           THE COMPOSITION LAYOUT (`inlineCards` + `flushRows`) WAS TRIED HERE
+           and is withdrawn with it. It was the answer while no grid drew a
+           frame — a shared header and light rules were the only structure
+           available. With the card, the row box and the field all back, this
+           grid reads like every other one again, which is what "same for all"
+           asks for. */
+        frameless
         columns={[
           {
             header: "Coordinate",
@@ -9788,31 +9793,14 @@ export function AmendmentScreen({
           column that points back here. */}
         <div className="min-w-0">
       <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
-        {/* FRAMED, LIKE THE TABLE ACROSS THE PANE (client 2026-08-27, screenshot
-            2519: "add the border for the coordinate section").
-
-            This grid is the SAME component in the SAME `responsive` mode as
-            Components beside it — it renders as CARDS only because it is
-            `narrow` and its half of the pane is under the table breakpoint. So
-            the two sat side by side with one enclosed and one loose, which reads
-            as the bare half having failed to render rather than as a difference
-            anyone chose. That is the exact fault `MultiSelect`'s withdrawn
-            `framed` prop was written for, arriving from the other direction.
-
-            AT THE CALL SITE, NOT IN THE PRIMITIVE. Putting it back in the cards
-            branch of `ChildGrid` would re-frame every stacked grid in the app —
-            Quantities, Structure Details, the style rows themselves — which is
-            what "remove this grid card totally" took away. This is one grid that
-            shares a pane with a framed table.
-
-            The classes match the table's wrapper in `child-grid.tsx` (`rounded-lg
-            border border-border`) and must keep matching: two frames a few
-            pixels apart on one row is worse than neither. `p-2` rather than the
-            old GRID_FRAME's `p-2.5` — the cards inside already carry their own
-            `py-3`. */}
-        <div className="rounded-lg border border-border p-2">
-          {coordinatesGrid(r)}
-        </div>
+        {/* THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added on "add the
+            border for the coordinate section" (screenshot 2519) while
+            `GRID_FRAME` did not exist, and its own note said the classes "must
+            keep matching" the primitive's. The grid card has since been restored
+            app-wide, so `ChildGrid` draws that border itself and this would be
+            the second one — which is the doubling the note was written to
+            prevent. One frame, drawn in one place. */}
+        {coordinatesGrid(r)}
       </Field>
         </div>
       {/* SECOND IN THE LEFT PANE since 2026-08-27, under Coordinate. It used to
@@ -9845,6 +9833,7 @@ export function AmendmentScreen({
              table on the left and a bare label-and-input on the right reads as
              something that failed to render, not as a deliberate difference
              (client 2026-08-18, on the master). */
+          framed
           /* Sizes are 2-5 characters, which is the whole case for the wrapping
              tick grid: ~40 visible at once instead of 8, and ↑/↓ move a row
              while ←/→ move a cell. */
@@ -9987,6 +9976,10 @@ export function AmendmentScreen({
         rows={styles}
         forceCards
         listRows
+        /* rameless — the section already draws a card and this grid's own
+           would be a second border around the same rows. Restored with the
+           grid frame itself on 2026-08-27. */
+        frameless
         /**
          * FLUSH WITH THE HEADER ABOVE IT (client 2026-08-14).
          *
@@ -12462,6 +12455,40 @@ export function AmendmentScreen({
                 Pcs/Pack, a solid pack shows none of them. That is the same
                 argument the carton fields already make by being hidden rather
                 than disabled. */}
+            {/**
+              * THE SIZE COLUMNS ARE THE ONLY PLACE A QUANTITY IS TYPED, so when
+              * a style declares no sizes this grid has NOWHERE to type one —
+              * and it says so again (client 2026-08-27, screenshot 2522: "in
+              * assortment there is no option for giving the input quantity").
+              *
+              * THIS RESTORES A SENTENCE THE CLIENT REMOVED ON 2026-08-19, and
+              * that is deliberate rather than a tidy-up. The note above
+              * `assortGrid` recorded exactly what the removal cost — "an
+              * operator who has not entered the style's sizes sees a grid that
+              * looks broken rather than one that says what to do" — and said
+              * restoring it would need a NEW INSTRUCTION. The report above is
+              * that instruction: it is the predicted symptom, reported as a
+              * missing feature rather than as a missing size list.
+              *
+              * IT IS NOT THE OLD SENTENCE BACK. The 08-19 removal took a line
+              * that showed on a grid which was ALREADY drawing its columns; this
+              * one appears ONLY when there are no size columns at all, which is
+              * the one state the grid cannot explain about itself. A screen with
+              * sizes is unchanged, so nothing the client cleared has returned.
+              *
+              * IT NAMES THE SECTION, not a checkbox on another tab — the rule
+              * the Pack type(s) empty state states, and the reason that one
+              * carries a button rather than a direction. No button here: sizes
+              * are a per-style list, so there is nothing one click could set.
+              */}
+            {!sizesForOverlay(assortQty).some((z) => z.size_id) ? (
+              <p className="rounded-md border border-dashed border-border bg-surface-muted/40 px-4 py-3 text-xs text-muted-foreground">
+                This style lists no sizes, so there are no size cells to fill and
+                Qty stays 0 — the quantity is the SUM of the size cells, never
+                typed on its own. Add the sizes on <strong>Style(s)</strong>,
+                then reopen this.
+              </p>
+            ) : null}
             {assortGrid(assortQty, assortMode)}
             {/* THE CARTON BLOCK IS GONE (client 2026-08-19). Master CTN Name,
                 Inner CTN Name and then Pack Description were all withdrawn from
