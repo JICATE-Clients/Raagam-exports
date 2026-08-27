@@ -42,7 +42,13 @@
 
 import { excessQty, productionTarget } from "@/lib/orders/amendments/approval-qty";
 import { styleKey } from "@/lib/orders/amendments/style-key";
-import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
+import {
+  ceilToPrecision,
+  isUsableConversion,
+  toPurchaseQty,
+  uomPrecision,
+  type ConversionLine,
+} from "@/lib/uom/convert";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
 
 // ---------------------------------------------------------------------------
@@ -184,10 +190,27 @@ export type ProductionSlice = {
   country_id?: string | null;
 };
 
-/** An Approval Qty row, as much of it as the requirement needs. */
+/**
+ * An Approval Qty row, as much of it as the requirement needs.
+ *
+ * **ONE ROW IS ONE SIZE CELL**, and the absence of `size_id` here is what makes
+ * that easy to misread — it is dropped because the requirement needs the
+ * QUANTITY and not the label, never because rows are rolled up to the colourway
+ * first. `garment_order_amendment_approval_qtys` stores one row per
+ * `(style_ref_no, combo, size_id)` and `bom-order-basis.ts` maps them straight
+ * across, so a colourway of five sizes arrives as five rows.
+ *
+ * It has to stay that way. `fullTarget` runs the rejection rule on `qty`, and
+ * the rule is BRACKETED — summing the sizes first and bracketing the total is a
+ * different, smaller answer (1,000 split 10/90/400/300/200 draws 53 extra pieces
+ * per size and 30 in one go), and it is the smaller one that leaves a ten-piece
+ * size run with no buffer at all. That is the failure the whole rule exists to
+ * prevent, so a "tidy-up" that groups these rows by combo is a regression.
+ */
 export type ApprovalRow = {
   style_ref_no: string | null;
   combo: string | null;
+  /** Ordered pieces of ONE SIZE of this style + combo. */
   qty: number;
   approval_qty: number;
 };
@@ -1525,11 +1548,80 @@ export type LineQuantity = {
   calcQty: number;
   /** Σ of every slice, with the line's Wastage % already inside (`requirementFor`). */
   excessCalcQty: number;
-  /** After the supplier's minimum. Equal to `excessCalcQty` when no MOQ applies. */
+  /**
+   * THE SAME TOTAL IN THE PURCHASE UNIT, BEFORE the minimum — the hop between
+   * `excessCalcQty` and `afterMoq`.
+   *
+   * It exists so the screen can SHOW the unit changing. Without it the ribbon
+   * prints "order needs 20,000 MTR ... MOQ 12 ... final 12 CONE" and the
+   * operator is left to work out that the minimum was never compared against
+   * the 20,000. It is also what lets "is this MOQ binding?" be asked of two
+   * figures in the same unit — asking it across units is the bug this whole
+   * change closes, and a dimmed-or-not badge is exactly where it would come
+   * back.
+   *
+   * Equal to `excessCalcQty` where the line names no pack.
+   */
+  purchaseQty: number;
+  /**
+   * After the supplier's minimum.
+   *
+   * ## IN THE PURCHASE UNIT WHERE THE LINE NAMES A PACK, and that is the whole
+   * point of `purchaseQuantities` below
+   *
+   * This and `finalQty` are the PURCHASE pair; `calcQty` and `excessCalcQty`
+   * above are the CONSUMPTION pair. A row therefore changes unit halfway across,
+   * and it has to: 0437 titles itself "a Material BOM line can round its
+   * PURCHASE figure UP", and 0451 states it outright - "a minimum and a rounding
+   * step are properties of the PURCHASE: facts about what may be bought of a
+   * material at all". A minimum of 12 typed against a pack of cones is 12 cones.
+   *
+   * Equal to `excessCalcQty` when no MOQ applies AND no pack is named, which is
+   * every line written before this and the reason nothing already stored moves.
+   */
   afterMoq: number;
-  /** After the operator's rounding step. THE figure a PO is written from. */
+  /** After the operator's rounding step. THE figure a PO is written from, in the
+   *  same unit as `afterMoq` above. */
   finalQty: number;
 };
+
+/**
+ * The slices of one line, converted into the unit the material is BOUGHT in.
+ *
+ * ## IT CONVERTS PER SLICE AND THEN SUMS, AND THAT ORDER IS NOT ARBITRARY
+ *
+ * `bomCeilingForOrder` reads the STORED `purchase_qty` of each requirement row -
+ * one `toPurchaseQty` per slice, each already rounded to the alternative unit's
+ * own precision - and sums those. Converting the total instead would be more
+ * accurate and would disagree with the ceiling by the accumulated rounding,
+ * which is the failure this whole change exists to close: a grid and a ceiling
+ * that differ by a little are read as a grid and a ceiling that differ, and the
+ * operator learns to dismiss the control. Same arithmetic, same order, same
+ * answer, to the digit.
+ *
+ * A NULL SLICE STAYS NULL - it refused upstream and `moqRollup` already knows
+ * what to do with it. A slice that ANSWERED and cannot convert also becomes
+ * null rather than being dropped: dropping it would total less than the order
+ * needs and read as correct, the partial-sum failure recorded throughout this
+ * file. `isUsableConversion` makes that unreachable in practice; it is written
+ * this way so it cannot become reachable quietly.
+ *
+ * @param decimals `decimal_places_allowed` of the ALTERNATIVE (purchase) unit -
+ *                 never the consumption unit's, which is what the figures going
+ *                 in were rounded by.
+ */
+export function toPurchaseSlices(
+  quantities: readonly (number | null)[],
+  conversion: ConversionLine | null,
+  decimals: number | null,
+): readonly (number | null)[] {
+  if (!conversion || !isUsableConversion(conversion)) return quantities;
+  return quantities.map((q) => {
+    const v = num(q);
+    if (v == null) return null;
+    return toPurchaseQty(v, conversion, uomPrecision(decimals));
+  });
+}
 
 export function lineQuantity(
   sliceQuantities: readonly (number | null)[],
@@ -1548,8 +1640,33 @@ export function lineQuantity(
    * the conflation the four separate columns exist to undo.
    */
   baseQuantities?: readonly (number | null)[],
+  /**
+   * THE SAME SLICES IN THE PURCHASE UNIT (`toPurchaseSlices`), where the line
+   * names a pack. The MOQ and the rounding step run over THESE.
+   *
+   * ## THE BUG THIS PARAMETER EXISTS TO CLOSE
+   *
+   * Without it the tail ran over `sliceQuantities`, which are in the CONSUMPTION
+   * unit - while `bomCeilingForOrder` has always run the same two numbers over
+   * the stored `purchase_qty`. One `moq` of 5000, two units: a line needing
+   * 20,000 MTR of thread on a 2,500 MTR cone showed a Final Quantity of 20,000
+   * MTR on the grid (the minimum inert) while the ceiling read 5,000 CONE -
+   * 12,500,000 MTR, and an over-purchase control that no longer fires.
+   *
+   * OPTIONAL, and absent means "this line names no pack", which is the fallback
+   * the ceiling itself takes (`purchase_qty ?? required_qty`). Every existing
+   * call site - the vectors, the stored write - keeps its exact behaviour.
+   */
+  purchaseQuantities?: readonly (number | null)[],
 ): LineQuantity | Refusal {
-  const roll = moqRollup(sliceQuantities, moq, unitKnown);
+  /* THE CONSUMPTION TOTAL, rolled up with NO minimum: `calcQty` and
+     `excessCalcQty` are what the order CONSUMES, and consumption does not care
+     that a supplier has a minimum. Passing `null` for the MOQ is what makes this
+     a plain sum that still refuses an empty line the way the tail does. */
+  const consumed = moqRollup(sliceQuantities, null, unitKnown);
+  if (isRefusal(consumed)) return consumed;
+
+  const roll = moqRollup(purchaseQuantities ?? sliceQuantities, moq, unitKnown);
   if (isRefusal(roll)) return roll;
 
   // A ROUNDING STEP NEEDS A UNIT for the same reason an MOQ does. "Round to
@@ -1570,8 +1687,9 @@ export function lineQuantity(
   const base = (baseQuantities ?? []).filter((q): q is number => num(q) != null);
 
   return {
-    calcQty: base.length ? base.reduce((a, b) => a + b, 0) : roll.total,
-    excessCalcQty: roll.total,
+    calcQty: base.length ? base.reduce((a, b) => a + b, 0) : consumed.total,
+    excessCalcQty: consumed.total,
+    purchaseQty: roll.total,
     afterMoq: roll.afterMoq,
     finalQty: roundUpTo(roll.afterMoq, step),
   };
@@ -1617,6 +1735,10 @@ export type ColourQuantities = {
   /** The same slices before the line's Wastage %. Optional for the reason
    *  `lineQuantity`'s own parameter is optional. */
   baseQuantities?: readonly (number | null)[];
+  /** The same slices in the PURCHASE unit - `toPurchaseSlices`. The minimum and
+   *  the step run over these; see `lineQuantity`'s own parameter. Per COLOUR,
+   *  because the pack is a property of the line and the colours share it. */
+  purchaseQuantities?: readonly (number | null)[];
 };
 
 export function lineQuantityByColour(
@@ -1634,7 +1756,14 @@ export function lineQuantityByColour(
 
   const parts: LineQuantity[] = [];
   for (const g of groups) {
-    const one = lineQuantity(g.quantities, moq, roundTo, unitKnown, g.baseQuantities);
+    const one = lineQuantity(
+      g.quantities,
+      moq,
+      roundTo,
+      unitKnown,
+      g.baseQuantities,
+      g.purchaseQuantities,
+    );
     if (isRefusal(one)) return one;
     parts.push(one);
   }
@@ -1648,6 +1777,9 @@ export function lineQuantityByColour(
        separation `lineQuantity` states for `baseQuantities` one function up. */
     calcQty: total((p) => p.calcQty),
     excessCalcQty: total((p) => p.excessCalcQty),
+    /* SUMS LIKE THE FIRST TWO, not like the last two: it is the requirement
+       expressed in another unit, and nothing has been lifted to a minimum yet. */
+    purchaseQty: total((p) => p.purchaseQty),
     /* THESE TWO ARE WHERE THE GROUPING BITES: each colour cleared the minimum
        and the step on its own before being added, so the sum is what the
        purchase really costs rather than what a single rollup would have said.
