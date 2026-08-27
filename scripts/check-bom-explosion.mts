@@ -36,6 +36,16 @@ import {
   type Axis,
 } from "@/lib/orders/bom-explosion/exploder";
 import {
+  CLIENT_GRAIN_MATRIX,
+  COMBINATION_LOCKED_HINT,
+  menuRows,
+  COMBINATION_UNLOCKED_HINT,
+  EXTRA_SERVED,
+  namesCombination,
+  blockedRows,
+  servedRows,
+} from "@/lib/orders/bom-explosion/client-matrix";
+import {
   productionSlices,
   isRefusal as isEngineRefusal,
   REQUIREMENT_BASES,
@@ -651,5 +661,346 @@ const named = producibleGrains().filter((g) => basisForAxes(g) !== null);
 check("six producible grains carry a legacy name", named.length, 6);
 check("...and three do not", producibleGrains().length - named.length, 3);
 
+/* -------------------------------------------------------------------------
+   THE CLIENT'S 22-ROW ATTRIBUTE LIST
+
+   `client-matrix.ts` claims a mapping from the client's numbered list onto the
+   grains this engine produces. A mapping table is worth exactly what the
+   assertion behind it is worth - the lesson `PLANS` records one file over - so
+   every claim it makes is re-derived here against the real `producibleGrains()`.
+
+   The assertion that earns its place is the LAST one: it is what makes deleting
+   a working grain to "match the client's list" fail a check rather than a
+   purchase order.
+   ------------------------------------------------------------------------- */
+
+check("the client's list is 22 rows", CLIENT_GRAIN_MATRIX.length, 22);
+
+/* NUMBERED 1..22 WITH NO GAPS AND NO REPEATS. The whole point of carrying the
+   client's own S.No is that a conversation about "#19" resolves to one row; a
+   duplicated or missing number silently breaks that. */
+check(
+  "S.No runs 1..22 exactly once each",
+  CLIENT_GRAIN_MATRIX.map((r) => r.sno).sort((a, b) => a - b),
+  Array.from({ length: 22 }, (_, i) => i + 1),
+);
+
+/* EVERY ROW ANSWERS, one way or the other. A row with neither a grain nor a
+   reason is the state that file exists to make impossible - it reads as
+   "handled" in a table and does nothing on screen. */
+/* EVERY ROW IS EXPRESSIBLE. Since "enable all" every row carries real axes —
+   `blocked` now says whether the engine can BUILD it, not whether it can be
+   named. A row with no axes could not be stored at all, so the menu would
+   accept the click and write NULL. */
+check(
+  "every row carries real axes",
+  CLIENT_GRAIN_MATRIX.filter((r) => !Array.isArray(r.axes)).length,
+  0,
+);
+/* AND EVERY ROW'S AXES ARE AXES. A typo here compiles (the array is typed) but
+   `parseAxes` would refuse the stored value on the way back. */
+for (const r of CLIENT_GRAIN_MATRIX) {
+  check(
+    `#${r.sno} names only real axes`,
+    r.axes.every((a) => (AXES as readonly string[]).includes(a)),
+    true,
+  );
+}
+
+check("thirteen of the client's rows produce", servedRows().length, 13);
+check("...and nine refuse", blockedRows().length, 9);
+/* FIVE OF THE THIRTEEN CARRY `trim_colour` and produce their base grain's rows.
+   Counted so that reclassifying one back to "blocked" — the mistake this file
+   already made once — fails here rather than silently removing an option. */
+check("five produce via the line, not the order", CLIENT_GRAIN_MATRIX.filter((r) => r.downstream).length, 5);
+
+/* EVERY BLOCKED ROW SAYS SOMETHING OF ITS OWN. A refusal that does not name its
+   cause sends the operator to the wrong screen. */
+for (const r of blockedRows()) {
+  check(`#${r.sno} names a reason`, r.reason.length > 20, true);
+}
+
+/* EVERY SERVED ROW IS REALLY PRODUCIBLE - asserted against the engine's own plan
+   table, not against a second copy of it. This is the claim that would rot
+   first: a plan removed from `PLANS` leaves this table pointing at a grain
+   nothing can build, and the screen would offer it. */
+const producibleKeys = new Set(producibleGrains().map((g) => serializeAxes(g)));
+/* COMPARED AT ORDER LEVEL, because that is the grain the engine plans by.
+   `trim_colour` is stripped by `orderAxesOf` on its way in (asserted in §9), so
+   testing the raw axes would fail all five `downstream` rows and read as five
+   missing options. */
+for (const r of servedRows()) {
+  check(
+    `#${r.sno} "${r.label}" is a grain the engine produces`,
+    producibleKeys.has(serializeAxes(orderAxesOf(r.axes))),
+    true,
+  );
+}
+
+/*
+ * THE ASSERTION THAT MAKES "ENABLE ALL" SAFE.
+ *
+ * Every row the matrix calls blocked must REFUSE when the engine is asked for
+ * it — not return rows. A refusal prints a sentence the operator can act on; a
+ * silent collapse to a coarser grain returns a smaller row count and a total
+ * that looks entirely correct, which is the partial-explosion failure
+ * `requirement.ts` opens its header with.
+ *
+ * MADE TO FAIL FIRST, and it genuinely did: before `compose.ts` learned to
+ * refuse a dropped axis, `["trim_colour"]` PRODUCED 1 ROW rather than refusing,
+ * because `orderAxesOf` stripped the token and matched the whole-order plan.
+ * Five of the client's rows would have shipped that number.
+ */
+/* THE FULL FIXTURE §4 ALREADY BUILDS — a real order with combos, sizes,
+   approvals and countries. Asking these grains of an EMPTY order would prove
+   nothing: everything refuses for want of data, so the collapse this guards
+   against would hide inside a refusal that happens to be right. */
+for (const r of blockedRows()) {
+  const out = slicesForAxes(r.axes, ORDER);
+  check(`#${r.sno} "${r.label}" REFUSES rather than collapsing`, isRefusal(out), true);
+}
+
+/* NO TWO SERVED ROWS ARE THE SAME GRAIN. Two client rows resolving to one grain
+   would put one option in the dropdown twice under two names. */
+const servedKeys = servedRows().map((r) => serializeAxes(orderAxesOf(r.axes)));
+/* THE FIVE `downstream` ROWS DELIBERATELY DUPLICATE five others at order level —
+   #10 "Style / Combination" plans exactly what #6 "Style" plans. So the distinct
+   count is 13 - 5 = 8, and asserting THAT rather than uniqueness is what keeps
+   the duplication intentional instead of merely tolerated. */
+check("the thirteen cover eight distinct order grains", new Set(servedKeys).size, 8);
+
+/* THE ENGINE SERVES NINE AND THE CLIENT NAMED EIGHT - and the ninth is kept.
+   `producibleGrains()` must be EXACTLY the served rows plus `EXTRA_SERVED`:
+   nothing offered that no row claims, and nothing claimed that is not offered.
+   MADE TO FAIL FIRST by emptying `EXTRA_SERVED`, which reported the
+   {style_ref, colour, size, country} grain as unaccounted for. */
+const accounted = new Set([...servedKeys, ...EXTRA_SERVED.map((e) => serializeAxes(e.axes))]);
+check("every producible grain is accounted for", [...producibleKeys].filter((k) => !accounted.has(k)), []);
+check("...and nothing accounted for is unproducible", [...accounted].filter((k) => !producibleKeys.has(k)), []);
+check("the ninth grain is retained by decision, not by accident", EXTRA_SERVED.length, 1);
+
+/*
+ * THE COMBINATION BUTTON'S GATE (client 2026-08-26).
+ *
+ * The screen enables the Combination cell only where the chosen grain names
+ * `trim_colour`, and that is the ONLY thing distinguishing five of the client's
+ * rows from five others — "Style / Combination" plans exactly what "Style"
+ * plans. So the set of rows that unlock the button is asserted here rather than
+ * left to a predicate in a 5,000-line screen: if the matrix stops marking a row
+ * `downstream`, or a row gains the token by a copy-paste, the count moves and
+ * this fails.
+ *
+ * `downstream` and "names trim_colour" must be the SAME set. They are two
+ * statements of one fact — the flag is what the matrix documents, the token is
+ * what the screen tests — and a row carrying one without the other would either
+ * enable a button on a grain with no panels or disable it on one with them.
+ */
+const namesTrimColour = CLIENT_GRAIN_MATRIX.filter((r) => r.axes.includes("trim_colour"));
+check("five client rows unlock the Combination button", namesTrimColour.length, 5);
+check(
+  "...and they are exactly the rows marked downstream",
+  namesTrimColour.map((r) => r.sno),
+  CLIENT_GRAIN_MATRIX.filter((r) => r.downstream).map((r) => r.sno),
+);
+/* AND NO OTHER ROW DOES. Named individually rather than counted, because a
+   count of five is satisfied by the wrong five. */
+check(
+  "the unlocking rows are #5, #10, #11, #12, #13",
+  namesTrimColour.map((r) => r.sno),
+  [5, 10, 11, 12, 13],
+);
+
+/*
+ * THE ATTRIBUTE TOOLTIP AND THE BUTTON'S REFUSAL ARE ONE FACT.
+ *
+ * The cell explains the rule, the button explains its own refusal, and both read
+ * `namesCombination` and the two sentences from `client-matrix`. Asserted
+ * because the failure is silent and directional: a tooltip saying "pick a
+ * Combination attribute" beside a button refusing for some OTHER reason sends
+ * the operator to change a field that was already right.
+ */
+for (const r of CLIENT_GRAIN_MATRIX) {
+  check(
+    `#${r.sno} agrees with its own axes about Combination`,
+    namesCombination(r.axes),
+    r.axes.includes("trim_colour"),
+  );
+}
+/* NULL IS NOT A COMBINATION — an unanswered line must take the LOCKED sentence,
+   not crash and not read as unlocked. `combinationsBlocked` answers "choose an
+   Attribute first" ahead of this, but the tooltip has no such ordering and asks
+   the question directly. */
+check("an unanswered grain does not name a Combination", namesCombination(null), false);
+check("...nor does an empty one", namesCombination([]), false);
+/* THE TWO SENTENCES ARE DIFFERENT AND BOTH SAY SOMETHING. Two identical hints
+   would render the tooltip useless while looking wired up. */
+refute("the two hints are not the same sentence", COMBINATION_LOCKED_HINT, COMBINATION_UNLOCKED_HINT);
+check("the locked hint names the thing to pick", COMBINATION_LOCKED_HINT.includes("Combination"), true);
+check("the unlocked hint names the button", COMBINATION_UNLOCKED_HINT.includes("button"), true);
+
+/*
+ * THE MENU'S OPTION VALUES MUST BE UNIQUE.
+ *
+ * A `<Select>` renders through `Combobox`, which keys its rows by option VALUE.
+ * Two rows naming one grain therefore produce two children with one key, and
+ * React's own warning says such children may be *duplicated or omitted* — a menu
+ * that can silently drop or swap a row, which is how a click lands on an
+ * Attribute nobody chose. Reported by the client 2026-08-26 with the console
+ * error attached: `g:pack`, from #18 "Pack" and #19 "Pack Ref No", which this
+ * file had already documented as a harmless collision. It was not harmless.
+ *
+ * MADE TO FAIL FIRST by clearing #18's `foldedInto`, which reports g:pack twice.
+ */
+const menuValues = menuRows().map((r) => serializeAxes(r.axes));
+check("no two offered rows share a grain", new Set(menuValues).size, menuValues.length);
+/* AND THE NINTH GRAIN DOES NOT COLLIDE WITH ONE EITHER — it is appended to the
+   same list from a different source, which is exactly how the first collision
+   arrived. */
+const withExtra = [...menuValues, ...EXTRA_SERVED.map((e) => serializeAxes(e.axes))];
+check("...nor with the ninth grain", new Set(withExtra).size, withExtra.length);
+
+/* A FOLDED ROW IS STILL IN THE MATRIX, and still means what it meant. Folding is
+   a MENU decision: the row keeps its axes so a stored value still resolves, and
+   keeps its S.No so "#18" still names something. */
+check("one row is folded away", CLIENT_GRAIN_MATRIX.length - menuRows().length, 1);
+for (const r of CLIENT_GRAIN_MATRIX.filter((x) => x.foldedInto !== undefined)) {
+  const target = CLIENT_GRAIN_MATRIX.find((x) => x.sno === r.foldedInto);
+  check(`#${r.sno} folds into a row that exists`, !!target, true);
+  /* AND INTO ONE THAT MEANS THE SAME THING. Folding a row into a DIFFERENT grain
+     would hide an option and silently redirect anyone looking for it. */
+  check(
+    `#${r.sno} folds into the same grain`,
+    serializeAxes(target?.axes ?? []),
+    serializeAxes(r.axes),
+  );
+  /* THE TARGET IS NOT ITSELF FOLDED, or both vanish from the menu. */
+  check(`#${r.sno}'s target is offered`, target?.foldedInto, undefined);
+}
+
+/*
+ * EVERY ATTRIBUTE THE MENU OFFERS MUST REACH A SURFACE.
+ *
+ * The nested Attribute grid — the ONLY place No. of Items and Per Pieces can be
+ * typed since 2026-08-21 — used to be gated on `requirement_basis`, the six-name
+ * legacy alias. `basisForAxes` returns null for every other grain, the gate read
+ * the stored "" as falsy, and the grid returned null: no rows, no caption, no
+ * sentence. SIXTEEN of the twenty-two Attributes were dead that way, and the
+ * screen still demanded the figure they had nowhere to enter.
+ *
+ * So the rule is not "does this grain have a legacy name" — most do not, and that
+ * is fine — but "is there a path that produces rows or NAMES a refusal". Anything
+ * else is a dead end the operator cannot diagnose.
+ *
+ * MADE TO FAIL FIRST by reinstating the old test — a grain with no legacy name
+ * resolving to nothing rather than falling through to `slicesForAxes`. It reports
+ * SIXTEEN dead Attributes, which is 22 minus the six that carry a legacy name
+ * (#1, #2, #6, #7, #9, #14) and is the exact scale of what was broken.
+ *
+ * Eight of those sixteen were the real loss — the five naming `trim_colour`, #8
+ * `Style / Order Size`, #16 `Country / Country Size` and the ninth grain: all
+ * PRODUCIBLE, all silently unusable. The other eight (the four
+ * `colour`-without-`style` rows and the four remaining `pack` rows) are refused
+ * either way, and legitimately, because they refuse BY NAME — which is the whole
+ * distinction this vector draws.
+ */
+for (const row of [
+  ...menuRows().map((r) => ({ what: `#${r.sno} "${r.label}"`, axes: r.axes })),
+  ...EXTRA_SERVED.map((e) => ({ what: "the ninth grain", axes: e.axes })),
+]) {
+  const out = basisForAxes(row.axes)
+    ? productionSlices(basisForAxes(row.axes) as RequirementBasis, ORDER)
+    : slicesForAxes(row.axes, ORDER);
+  /* ROWS OR A SENTENCE — never null, never silence. */
+  const reaches = isRefusal(out) ? out.refused.length > 10 : out.length > 0;
+  check(`${row.what} reaches a surface`, reaches, true);
+}
+
+/* AND THE NAMELESS ONES REALLY DO PRODUCE — the half the old gate killed. Named
+   individually rather than counted, because a count is satisfied by the wrong
+   set, and these eight are the exact Attributes that were dead. */
+for (const axes of [
+  ["trim_colour"],
+  ["style_ref", "trim_colour"],
+  ["style_ref", "size"],
+  ["size", "country"],
+  ["style_ref", "colour", "size", "country"],
+] as Axis[][]) {
+  check(`${labelFor(axes)} has no legacy name`, basisForAxes(axes), null);
+  const out = slicesForAxes(axes, ORDER);
+  check(`...and still produces rows`, isRefusal(out) ? 0 : out.length > 0, true);
+}
+
+/* -------------------------------------------------------------------------
+ * A COLOUR GRAIN ON A SINGLE-STYLE ORDER (client 2026-08-27, screenshot 2510)
+ *
+ * "Order No / Order Color / Order Size" — the client matrix #4 — was refused on
+ * an ordinary BOM. The block is `colour_needs_style`: the same white under two
+ * styles is two different requirements. That argument needs TWO STYLES to be
+ * true, and most garment orders carry one.
+ *
+ * THESE VECTORS WERE MADE TO FAIL FIRST: against the engine before the fix,
+ * every "EXPLODES" line below reported the refusal sentence instead of null.
+ * ------------------------------------------------------------------------- */
+console.log("\n\u00a713  a colour grain is refused for the ORDER, not for the grain");
+
+/* The same fixture with the second style removed. Nothing else changes, so any
+   difference below is the style count and only the style count. */
+const ORDER_1S: OrderProductionInput = {
+  ...ORDER,
+  approvals: ORDER.approvals.filter((a) => a.style_ref_no === S1),
+  combos: ORDER.combos.filter((c) => c.style_ref_no === S1),
+  assortSizes: ORDER.assortSizes.filter((a) => a.style_ref_no === S1),
+};
+const ONE_STYLE_TOTAL = 500; // 300 WHITE + 200 NAVY, S1 only
+
+/* The guard still stands where the hazard is real. */
+check(
+  "two styles: Order Color / Order Size is still refused",
+  refusalOf(slicesForAxes(["colour", "size"], ORDER)),
+  "Order Color / Order Size is not a split this order can be exploded by yet",
+);
+check(
+  "two styles: Order Color alone keeps its own sentence",
+  refusalOf(slicesForAxes(["colour"], ORDER))?.startsWith("Colour across every style"),
+  true,
+);
+
+/* One style: the same grains produce rows. This is the reported bug. */
+check("one style: Order Color / Order Size EXPLODES", refusalOf(slicesForAxes(["colour", "size"], ORDER_1S)), null);
+check("one style: Order Color EXPLODES", refusalOf(slicesForAxes(["colour"], ORDER_1S)), null);
+
+/* ...and produces EXACTLY the widened grain, which is what makes widening safe
+   rather than merely permissive. */
+const c1 = slicesForAxes(["colour", "size"], ORDER_1S);
+const c2 = slicesForAxes(["style_ref", "colour", "size"], ORDER_1S);
+check(
+  "one style: the SAME partition as Style / Order Color / Order Size",
+  isRefusal(c1) || isRefusal(c2) ? "refused" : c1.length === c2.length,
+  true,
+);
+check(
+  "...and the same rows, key for key",
+  isRefusal(c1) || isRefusal(c2)
+    ? "refused"
+    : c1.every(
+        (s, i) =>
+          groupKeyFor(["style_ref", "colour", "size"], s) ===
+          groupKeyFor(["style_ref", "colour", "size"], c2[i]!),
+      ),
+  true,
+);
+
+/* THE PARTS STILL SUM TO THE ORDER. A widened grain with a different total is
+   the partial-explosion failure this engine exists to prevent. */
+check("one style: Order Color / Order Size sums to the order", totalOf(c1), ONE_STYLE_TOTAL);
+check("one style: Order Color sums to the order", totalOf(slicesForAxes(["colour"], ORDER_1S)), ONE_STYLE_TOTAL);
+
+/* Widening is NOT a blanket amnesty: {colour, country} widens to
+   {style_ref, colour, country}, which no plan produces, and is still refused. */
+check(
+  "one style: an unreachable grain is still refused after widening",
+  refusalOf(slicesForAxes(["colour", "country"], ORDER_1S)) !== null,
+  true,
+);
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

@@ -3,7 +3,7 @@ import { STAGE_MODES } from "./route";
 import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
-// Orders ▸ Fabric Plan (0427). Step 6 of the client's order flow: the route that
+// Orders ▸ Fabric Plan (0427). Step 4 of the client's order flow: the route that
 // produces the fabric the BOM requires — yarn purchase, knitting, dyeing,
 // stentering, compacting — with each stage's loss and who performs it.
 //

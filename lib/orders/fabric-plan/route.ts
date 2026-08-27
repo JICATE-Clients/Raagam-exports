@@ -1,7 +1,7 @@
 /**
  * Fabric Plan — the route that makes the fabric, and what it costs in material.
  *
- * Step 6 of the client's order flow (client, 2026-08-17). Fabric BOM (step 5)
+ * Step 4 of the client's order flow (client, 2026-08-17). Fabric BOM (step 3)
  * says how much FINISHED FABRIC the order needs. This walks the route that
  * produces it — yarn purchase → knitting → dyeing → stentering → compacting —
  * applying each stage's loss, and arrives at the quantity of yarn to buy.

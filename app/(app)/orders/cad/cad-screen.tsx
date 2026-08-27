@@ -39,7 +39,7 @@
  * `componentWeightsForOrder` refuses a sheet with any unweighed panel — which is
  * correct for the HANDOFF and wrong for Save, because "SLEEVE, not measured yet"
  * is the state a sheet spends most of its life in. So it is shown in the handoff
- * section as the reason step 4 cannot be seeded, and Save is gated on the things
+ * section as the reason step 3 cannot be seeded, and Save is gated on the things
  * that are actually broken: a weight on no marker, a weight on no panel, a
  * negative weight, and one panel weighed twice on one marker (which the database
  * refuses outright, `uq_occw_panel`).

@@ -7,7 +7,7 @@ import {
 import { FabricPlanScreen } from "./fabric-plan-screen";
 
 /**
- * Orders ▸ Fabric Plan — step 6 of the client's order flow.
+ * Orders ▸ Fabric Plan — step 4 of the client's order flow.
  *
  * TWO LISTS, the same shape both BOM screens use: `tasks` is one row per
  * confirmed garment ORDER (so an order whose fabric has never been routed is

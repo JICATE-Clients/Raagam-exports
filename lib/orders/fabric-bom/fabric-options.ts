@@ -23,10 +23,10 @@ import type { Deactivatable } from "@/lib/masters/inactive";
  * ## YARN IS NOT OFFERED, AND THAT IS THE STEP BOUNDARY
  *
  * The obvious objection is that a knitted fabric is made of yarn, and the PRD
- * asks for yarn purchase in the process sequence. It does — in step 6. Fabric
+ * asks for yarn purchase in the process sequence. It does — in step 4. Fabric
  * BOM says how much FINISHED FABRIC the order needs; Fabric Plan walks knitting
  * and dyeing backwards to the yarn, applying each stage's loss. A yarn line here
- * would be a second, earlier answer to the question step 6 exists to ask, and the
+ * would be a second, earlier answer to the question step 4 exists to ask, and the
  * two would be reconciled by nobody.
  */
 

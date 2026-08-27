@@ -16,10 +16,12 @@
 // Exits non-zero on the first mismatch so it can gate a commit if wanted.
 
 import {
+  COORDINATE_LIMITS,
   componentRowStarted,
   componentTypeForCategory,
   coordinateLimit,
   filledCoordinates,
+  unitKindFromCoordinates,
   orphanComponents,
   styleCoordinateIds,
   styleProblems,
@@ -347,6 +349,57 @@ check("no category leaves Type alone",
     }
   }
   check("every offerable coordinate is accepted, and no other is", drift, 0);
+}
+
+// ---------------------------------------------------------------------------
+// UNIT KIND, DERIVED FROM THE COORDINATE COUNT (2026-08-25).
+//
+// The Garment Order's Style is manual entry now, so the line's Order Unit can no
+// longer be read off the master through `style_id`. `unitKindFromCoordinates`
+// runs `COORDINATE_LIMITS` backwards instead, and that is only legitimate while
+// the two ranges stay DISJOINT — the assertion below is the thing that notices
+// the day someone widens one of them, because from that moment a count would
+// satisfy both and the derivation would be picking a winner rather than reading
+// a rule.
+{
+  check("0 coordinates says nothing", unitKindFromCoordinates(0), null);
+  check("a negative count says nothing", unitKindFromCoordinates(-1), null);
+  check("NaN says nothing", unitKindFromCoordinates(Number.NaN), null);
+  check("1 coordinate is a Piece", unitKindFromCoordinates(1), "piece");
+  check("2 coordinates is a Set", unitKindFromCoordinates(2), "set");
+  check("6 coordinates is a Set", unitKindFromCoordinates(6), "set");
+  // Above the client's ceiling it stays a Set. Seven coordinates is a Set the
+  // grid should not have allowed, not a third kind of thing.
+  check("7 coordinates is still a Set", unitKindFromCoordinates(7), "set");
+
+  // ROUND TRIP: every count either kind ALLOWS must derive back to that kind.
+  let mismatches = 0;
+  for (const kind of ["piece", "set"] as const) {
+    const { min, max } = COORDINATE_LIMITS[kind];
+    for (let n = min; n <= max; n++) {
+      if (unitKindFromCoordinates(n) !== kind) {
+        mismatches++;
+        console.error(`      ${n} coordinate(s) is ${kind}, derived ${unitKindFromCoordinates(n)}`);
+      }
+    }
+  }
+  check("every count a kind allows derives back to that kind", mismatches, 0);
+
+  // DISJOINT, which is the precondition the whole derivation rests on.
+  const overlap =
+    COORDINATE_LIMITS.piece.max >= COORDINATE_LIMITS.set.min ||
+    COORDINATE_LIMITS.piece.min > COORDINATE_LIMITS.piece.max;
+  check("the two coordinate ranges do not overlap", overlap, false);
+
+  // AND IT AGREES WITH `coordinateLimit`, the forward direction: a count derived
+  // to a kind must sit inside that kind's own range. Two functions, one rule.
+  let disagree = 0;
+  for (let n = 1; n <= 6; n++) {
+    const kind = unitKindFromCoordinates(n);
+    const range = coordinateLimit(kind);
+    if (!range || n < range.min || n > range.max) disagree++;
+  }
+  check("forward and backward agree over 1..6", disagree, 0);
 }
 
 console.log(

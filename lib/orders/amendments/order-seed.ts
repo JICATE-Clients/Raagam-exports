@@ -22,6 +22,7 @@ import type {
   AmendmentStyleSize,
   AmendmentStyleComponent,
   AmendmentStyleCoordinate,
+  AmendmentPackComponent,
   AmendmentComboStructure,
   AmendmentComboComponent,
   AmendmentAssortLine,
@@ -160,6 +161,8 @@ export interface SeededAmendmentChildren {
    * this type so `applyRows` can map a SAVED document through the same shape.
    */
   styleCoordinates?: Seeded<AmendmentStyleCoordinate>[];
+  /** Retail SET pack members (0467). Never seeded — see the note in the screen. */
+  packComponents?: Seeded<AmendmentPackComponent>[];
   /**
    * Order Info ▸ Styles Details ▸ Components (0457).
    *
@@ -237,6 +240,7 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   packTypes: [],
   styleSizes: [],
   styleCoordinates: [],
+  packComponents: [],
   styleComponents: [],
   styleProcesses: [],
   quantities: [],
@@ -607,6 +611,9 @@ export async function seedAmendmentFromOrder(
       order_unit_id: null,
       plan_unit_id: null,
       po_qty: 0,
+      /* NULL, NOT 0 (0467): a legacy order carries no pack count because it was
+         never asked, which is a different statement from "no packs ordered". */
+      packs_ordered: null,
       description: null,
     });
   }

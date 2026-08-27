@@ -163,7 +163,58 @@ export function slicesForAxes(
     return refineByCountry(base, order);
   }
 
+  /**
+   * A COLOUR GRAIN ON A SINGLE-STYLE ORDER IS NOT AMBIGUOUS, so it is not refused
+   * (client 2026-08-27, screenshot 2510: "Order No / Order Color / Order Size is
+   * not a split this order can be exploded by yet" on an ordinary BOM).
+   *
+   * The block it lifts is real and stays: `colour_needs_style` in
+   * `client-matrix.ts` refuses the client's #3 and #4 because "the same white
+   * under two styles is two different requirements", and `primarySlices`' colour
+   * branch keys on (style, combo) for that reason. Collapsing WHITE across two
+   * styles would let one style's white absorb the other's.
+   *
+   * BUT THAT ARGUMENT NEEDS TWO STYLES TO BE TRUE. On an order carrying one,
+   * {colour} and {style_ref, colour} partition the same rows into the same
+   * groups — there is no second white to absorb anything. The refusal was
+   * answering a question about the GRAIN when the hazard is a property of the
+   * ORDER, and most garment orders have a single style, so the commonest case
+   * was refused to protect the rarer one.
+   *
+   * WIDENED, NOT SPECIAL-CASED. It re-asks with `style_ref` added and lets the
+   * ordinary plan lookup answer, so {colour} becomes the `colour` basis and
+   * {colour, size} becomes `combination` — the rows, the apportioning and the
+   * rejection tiers are the ones every other grain already goes through, not a
+   * second implementation that could drift. The recursion is one level deep by
+   * construction: the widened grain carries `style_ref`, so it cannot come back
+   * here.
+   *
+   * WHAT IS STORED IS STILL WHAT THE OPERATOR CHOSE. Only the production is
+   * widened; the BOM records the grain that was picked, which is the distinction
+   * `client-matrix.ts` already draws between what a grain RECORDS and what the
+   * explosion does.
+   *
+   * A MULTI-STYLE ORDER IS STILL REFUSED, with the same sentence as before —
+   * that is the client's #26 and it needs a decision, not an implementation.
+   */
+  if (want.includes("colour") && !want.includes("style_ref") && soleStyleOf(order)) {
+    return slicesForAxes(canonicalAxes([...want, "style_ref"]), order, rule);
+  }
+
   return { refused: whyUnreachable(want) };
+}
+
+/**
+ * The one style this order is for, or null when it carries none or several.
+ *
+ * Read off `approvals` because that is the list the explosion itself divides —
+ * asking a different source (the order header's Multi Style switch, the styles
+ * grid) could say "one style" about rows that carry two, and the guard would
+ * then be lifted over exactly the data it exists to protect.
+ */
+function soleStyleOf(order: OrderProductionInput): string | null {
+  const keys = new Set(order.approvals.map((a) => styleKey(a.style_ref_no)));
+  return keys.size === 1 ? [...keys][0]! : null;
 }
 
 /**

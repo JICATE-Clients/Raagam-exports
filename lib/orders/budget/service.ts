@@ -407,7 +407,7 @@ export async function listOrderBudgets(): Promise<OrderBudget[]> {
 }
 
 /**
- * The approval queue — step 8.
+ * The approval queue — step 6.
  *
  * IT LISTS EVERY BUDGET, not only the submitted ones, and the filter is the
  * screen's. An approver who can see only what is waiting cannot answer "what did

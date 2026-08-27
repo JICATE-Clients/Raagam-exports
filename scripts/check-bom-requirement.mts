@@ -46,6 +46,7 @@ import {
   baseRequirementFor,
   requirementFor,
   totalProductionOf,
+  toPurchaseSlices,
   type ApprovalRow,
   type AssortSizeRow,
   type BomLineInput,
@@ -821,6 +822,7 @@ check("a step of 0 passes through, never Infinity", roundUpTo(567, 0), 567);
 check("MOQ lifts BEFORE the step rounds", lineQuantity([100], 550, 500, true), {
   calcQty: 100,
   excessCalcQty: 100,
+  purchaseQty: 100,
   afterMoq: 550,
   finalQty: 1000,
 });
@@ -834,18 +836,21 @@ refute(
 check("a step alone", lineQuantity([567], null, 50, true), {
   calcQty: 567,
   excessCalcQty: 567,
+  purchaseQty: 567,
   afterMoq: 567,
   finalQty: 600,
 });
 check("an MOQ alone still behaves exactly as it did", lineQuantity([100], 500, null, true), {
   calcQty: 100,
   excessCalcQty: 100,
+  purchaseQty: 100,
   afterMoq: 500,
   finalQty: 500,
 });
 check("neither: the chain is the requirement, untouched", lineQuantity([567], null, null, true), {
   calcQty: 567,
   excessCalcQty: 567,
+  purchaseQty: 567,
   afterMoq: 567,
   finalQty: 567,
 });
@@ -863,6 +868,7 @@ check(
 check("no step, no unit, no refusal", lineQuantity([567], null, null, false), {
   calcQty: 567,
   excessCalcQty: 567,
+  purchaseQty: 567,
   afterMoq: 567,
   finalQty: 567,
 });
@@ -873,6 +879,7 @@ check("no step, no unit, no refusal", lineQuantity([567], null, null, false), {
 check("five colour rows round once, not five times", lineQuantity(fiveRows, null, 50, true), {
   calcQty: 100,
   excessCalcQty: 100,
+  purchaseQty: 100,
   afterMoq: 100,
   finalQty: 100,
 });
@@ -1007,7 +1014,7 @@ check(
 check(
   "calcQty is the base sum; MOQ and Round To apply only to the buying figure",
   lineQuantity([1236], 2000, 500, true, [1200]),
-  { calcQty: 1200, excessCalcQty: 1236, afterMoq: 2000, finalQty: 2000 },
+  { calcQty: 1200, excessCalcQty: 1236, purchaseQty: 1236, afterMoq: 2000, finalQty: 2000 },
 );
 refute(
   "an MOQ never lifts the CONSUMED figure",
@@ -1017,7 +1024,7 @@ refute(
 check(
   "with no wastage the two columns agree, and that is a real answer",
   lineQuantity([1200], null, null, true, [1200]),
-  { calcQty: 1200, excessCalcQty: 1200, afterMoq: 1200, finalQty: 1200 },
+  { calcQty: 1200, excessCalcQty: 1200, purchaseQty: 1200, afterMoq: 1200, finalQty: 1200 },
 );
 check(
   "a caller that does not ask for the split still gets a usable calcQty",
@@ -1399,10 +1406,21 @@ check(
   "FRONT BODY: enter how many are used",
 );
 
-console.log("\n§  panelConsumption — which ratio wins when both were typed");
+console.log("\n§  panelConsumption — the override wins (client 2026-08-25)");
 
-/* THE UNAMBIGUOUS CASE: no slice override, so the panels are the only ratio
-   anyone entered and they stand however the open question is settled. */
+/*
+ * THE PRECEDENCE, PINNED IN BOTH DIRECTIONS:
+ *
+ *     Tier 1 manual slice override > Tier 2 panel rate > Tier 3 line default
+ *
+ * These two vectors are the rule. They REPLACED a pair asserting the provisional
+ * "panels win", changed in the same edit as the arithmetic — the comment that
+ * stood here said "Change this vector WITH the rule, never after it", and a
+ * vector left asserting a superseded rule is worse than none: it makes the old
+ * behaviour look deliberate to everyone who runs the suite.
+ */
+
+/* TIER 2. No slice override, so the panels are the only ratio anyone entered. */
 check(
   "with no override, the panel rate is the rate",
   panelConsumption(
@@ -1412,19 +1430,220 @@ check(
   ),
   { no_of_items: 37, per_pieces: 1 },
 );
-/* THE OVERRIDE IS DETECTED BY COMPARISON WITH THE LINE, not by truthiness — a
-   slice that inherited its figures is NOT an override, and a test for "is there
-   a figure" would call every slice one. */
+
+/* TIER 1. The override replaces the construction outright — not scaled against
+   the panel rate, which was a live candidate and was rejected. */
 check(
-  "an override is detected against the line, per field",
+  "an override beats the panel rate",
   panelConsumption(
     { no_of_items: 24, per_pieces: 1 },
     { no_of_items: 20, per_pieces: 1 },
     { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
   ),
-  // Provisional while the TODO in `panelConsumption` is open: panels win, which
-  // is 0436 read on its own. Change this vector WITH the rule, never after it.
-  { no_of_items: 37, per_pieces: 1 },
+  { no_of_items: 24, per_pieces: 1 },
+);
+
+/* AND IT IS NOT SCALED. The rejected rule stated outright, because a vector that
+   only names the right answer cannot say which wrong one it was guarding
+   against — 24/20 x 37 is 44.4, and 24 x 37 is 888. */
+refute(
+  "...and the panel rate is not multiplied into it",
+  panelConsumption(
+    { no_of_items: 24, per_pieces: 1 },
+    { no_of_items: 20, per_pieces: 1 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
+  ).no_of_items,
+  44.4,
+);
+
+/* THE OVERRIDE IS DETECTED BY COMPARISON WITH THE LINE, not by truthiness — a
+   slice that inherited its figures is NOT an override, and a test for "is there
+   a figure" would hand tier 1 to every slice on the line. */
+check(
+  "a slice that merely INHERITED the line is not an override",
+  panelConsumption(
+    { no_of_items: 20, per_pieces: 1 },
+    { no_of_items: 20, per_pieces: 1 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 9, per_pieces: 1 },
+  ).no_of_items,
+  9,
+);
+
+/* PER FIELD, WHICH IS WHY IT TAKES A COMPOSED VALUE. An operator who typed only
+   `no_of_items` keeps the LINE's `per_pieces` — "more zippers, same per-piece" —
+   so tier 1 hands back 24/10, never 24/1 and never a null divisor. */
+check(
+  "a half-typed override keeps the line's divisor",
+  panelConsumption(
+    { no_of_items: 24, per_pieces: 10 },
+    { no_of_items: 20, per_pieces: 10 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
+  ),
+  { no_of_items: 24, per_pieces: 10 },
+);
+
+/*
+ * THE SPLIT SURVIVES THE OVERRIDE — the question that had to be answered before
+ * the rule could be implemented at all.
+ *
+ * Panels do two jobs: they supply a ratio, and they divide the line into one row
+ * per TRIM COLOUR (`colourSplits`), which is what feeds `item_color_id`, the
+ * per-cone MOQ grouping, the PO ceiling and the grey->DC->dyed path. Only the
+ * first is this function's. It returns two numbers and cannot remove a row,
+ * merge two colours or change what is bought — so "replace the construction"
+ * reaches the rate and stops there. Asserted by handing the SAME override two
+ * different colour splits and getting two answers back.
+ */
+const twoTrimColours = [
+  { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 as const },
+  { item_color_id: COL_RED, component_ids: [CMP_SLEEVE], no_of_items: 12, per_pieces: 1 as const },
+];
+check(
+  "an override does not collapse a two-colour line to one row",
+  twoTrimColours.map(
+    (s) => panelConsumption({ no_of_items: 24, per_pieces: 1 }, { no_of_items: 20, per_pieces: 1 }, s).no_of_items,
+  ).length,
+  2,
+);
+
+/*
+ * SAME RATE EVERY COLOUR — CHOSEN, NOT INHERITED (client 2026-08-25).
+ *
+ * `sliceKey` has no colour axis (combo/size/country/combination/style), so one
+ * override cannot say "navy 3, red 1". Under tier 1 the same overridden rate
+ * therefore reaches EVERY trim colour and the line's total multiplies by the
+ * colour count. **This was put to the client WITH the multiplication visible and
+ * chosen deliberately**, against their own worked example:
+ *
+ *     Line 2/pc, WHITE 300 / NAVY 200, operator types 4/pc.
+ *     WHITE -> 4/pc -> 1,200 ; NAVY -> 4/pc -> 800 ; TOTAL 2,000.
+ *     One figure typed, both colours moved.
+ *
+ * It was raised here first as an open consequence and this vector said so. It is
+ * now a decision, and the label had to change with it: a vector describing itself
+ * as an unanswered question invites the next reader to "fix" the multiplication
+ * as an oversight, which is the same failure mode as a vector left asserting a
+ * superseded rule.
+ *
+ * ## THE READING THAT WON, AND THE TWO THAT LOST
+ *
+ * An override means **"this line's RATE is wrong, fix it"** — not "this COLOUR
+ * needs more". Both alternatives were live:
+ *
+ *   - *per-colour override* — add a colour axis to `sliceKey` so an override
+ *     binds to one trim colour. Rejected as a SCHEMA AND UI change rather than an
+ *     arithmetic one: a new axis, the unique index, and new grid cells.
+ *   - *refuse on multi-colour lines* until per-colour exists. Rejected because it
+ *     blocks a planner who has a legitimate whole-line correction to make.
+ */
+check(
+  "one override reaches every trim colour — the client's chosen rule",
+  twoTrimColours.map(
+    (s) => panelConsumption({ no_of_items: 24, per_pieces: 1 }, { no_of_items: 20, per_pieces: 1 }, s).no_of_items,
+  ),
+  [24, 24],
+);
+
+/* AND IT IS NOT APPORTIONED ACROSS THE COLOURS — the rejected per-colour reading
+   stated outright, in the idiom the `refute` above uses for the rejected scale
+   answer. Splitting 24 between navy and red would look like restraint and would
+   under-buy the line by half; the client chose the whole rate on each. */
+refute(
+  "...and is NOT divided between them",
+  twoTrimColours.map(
+    (s) => panelConsumption({ no_of_items: 24, per_pieces: 1 }, { no_of_items: 20, per_pieces: 1 }, s).no_of_items,
+  ),
+  [12, 12],
+);
+
+console.log("\n§  colourSplits — one panel counted twice is not two panels");
+
+/*
+ * THE SUM'S PREMISE, ASSERTED. `colourSplits` adds panels together because front
+ * body plus sleeves is one thread rate — which is only true while each row is a
+ * DISTINCT panel. The same panel handed in twice used to double the rate
+ * silently: no crash, no dash, just a figure that reads reasonably and buys
+ * twice what the order needs.
+ *
+ * It is reachable and nothing else catches it. The components table carries no
+ * unique key over (item_line_id, component_id, item_color_id) — checked against
+ * the live catalogue — and the screen's surviving caller synthesises the list
+ * one entry per (part x production slice), so a two-part line over two
+ * colourways hands FRONT in twice.
+ */
+check(
+  "the same panel twice in one colour refuses, naming it",
+  refusalOf(
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+    ]),
+  ),
+  "TOP: listed twice for one colour — enter each panel once",
+);
+
+/* AND IT REFUSES RATHER THAN DOUBLING — the wrong answer this guards against
+   stated outright, because a vector that only names the refusal cannot say what
+   it was standing in the way of. */
+refute(
+  "...rather than summing to a doubled rate",
+  colourSplits(COL_NAVY, [
+    { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+    { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+  ]),
+  [
+    {
+      item_color_id: COL_NAVY,
+      component_ids: [CMP_FRONT, CMP_FRONT],
+      no_of_items: 50,
+      per_pieces: 1,
+    },
+  ],
+);
+
+/* THE IDENTITY IS THE PAIR, NOT THE PANEL. A front body stitched in navy and
+   topstitched in red is TWO things to buy — 0436's own case — so this must go on
+   answering. The guard would be worse than useless if it refused it: the
+   operator would have a correct sheet with no way to enter it. */
+check(
+  "the same panel in two colours is still two splits",
+  (
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1 },
+      { component_id: CMP_FRONT, item_color_id: COL_RED, no_of_items: 4, per_pieces: 1 },
+    ]) as unknown[]
+  ).length,
+  2,
+);
+
+/* A BLANK PANEL COLOUR RESOLVES TO THE LINE'S BEFORE THE PAIR IS FORMED, so a
+   row naming the line's colour explicitly and one leaving it blank are the same
+   panel and collide. Testing the raw column instead would let exactly that pair
+   through — the inherit contract 0436 gives the column, read from the guard's
+   side. */
+check(
+  "a blank colour and the line's own colour are the SAME pair",
+  refusalOf(
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "FRONT BODY" },
+      { component_id: CMP_FRONT, item_color_id: COL_NAVY, no_of_items: 25, per_pieces: 1, label: "FRONT BODY" },
+    ]),
+  ),
+  "FRONT BODY: listed twice for one colour — enter each panel once",
+);
+
+/* THE ORDINARY SHEET IS UNTOUCHED. Every 0436 line that was correct before this
+   guard existed has to stay correct, or the guard has bought a doubled rate at
+   the price of a working feature. */
+check(
+  "two DIFFERENT panels of one colour still sum, as they always did",
+  (
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1 },
+      { component_id: CMP_SLEEVE, item_color_id: null, no_of_items: 12, per_pieces: 1 },
+    ]) as { no_of_items: number }[]
+  )[0].no_of_items,
+  37,
 );
 
 console.log("\n§  lineQuantityByColour — the minimum is a minimum per CONE");
@@ -1442,6 +1661,7 @@ check("one group reduces to lineQuantity, to the digit", oneGroup, lineQuantity(
 check("...and that answer is still MOQ-then-step", oneGroup, {
   calcQty: 90,
   excessCalcQty: 100,
+  purchaseQty: 100,
   afterMoq: 550,
   finalQty: 1000,
 });
@@ -1462,6 +1682,7 @@ const twoColours = lineQuantityByColour(
 check("two colours clear the minimum separately", twoColours, {
   calcQty: 200,
   excessCalcQty: 200,
+  purchaseQty: 200,
   afterMoq: 1000,
   finalQty: 1000,
 });
@@ -1560,6 +1781,220 @@ check(
     lineQuantityByColour([{ item_color_id: COL_NAVY, quantities: [100] }], 500, null, false),
   ),
   "Set a purchase unit before an MOQ can be applied",
+);
+
+// ---------------------------------------------------------------------------
+// 15. THE MINIMUM AND THE STEP ARE PURCHASE FACTS — the unit they run in
+// ---------------------------------------------------------------------------
+/*
+ * THE DEFECT THESE EXIST TO CATCH, and why every MOQ vector above missed it.
+ *
+ * Sections 7 and 7b pass `unitKnown` as a BARE BOOLEAN. That asks "is there a
+ * unit?" and never "which one?", so the whole suite was blind to a `moq` of
+ * 5000 being compared against 20,000 MTR on the grid while
+ * `bomCeilingForOrder` compared that same 5000 against the 8 CONE those metres
+ * convert to. One stored number, two units: the grid reported the minimum as
+ * inert while the ceiling lifted the plan to 5,000 cones — 12,500,000 MTR, and
+ * an over-purchase control that no longer fires.
+ *
+ * 0437 titles itself "a Material BOM line can round its PURCHASE figure UP" and
+ * 0451 states it outright: "a minimum and a rounding step are properties of the
+ * PURCHASE". These vectors are that sentence, executable.
+ *
+ * VERIFIED BY BEING MADE TO FAIL FIRST against the pre-fix engine — the rule
+ * this repo applies to every new assertion. Without `purchaseQuantities` the
+ * first check below returns 20,000 where it now returns 12.
+ */
+
+/** The header example of `lib/uom/convert.ts`: one cone holds 2,500 metres. */
+const CONE = { alt_qty: 1, alt_uom_id: "cone", base_qty: 2500, base_uom_id: "mtr" };
+/** Entered per dozen, the SAME pack — the pair form is what makes that legal. */
+const CONE_DOZEN = { alt_qty: 12, alt_uom_id: "cone", base_qty: 30000, base_uom_id: "mtr" };
+/** 144 pieces to the gross — the second worked example in that header. */
+const GROSS = { alt_qty: 1, alt_uom_id: "grs", base_qty: 144, base_uom_id: "nos" };
+
+check("20,000 MTR on a 2,500 MTR cone is 8 cones", toPurchaseSlices([20000], CONE, 2), [8]);
+check(
+  "the same pack entered per dozen converts identically",
+  toPurchaseSlices([20000], CONE_DOZEN, 2),
+  [8],
+);
+check(
+  "a null slice stays null rather than becoming 0",
+  toPurchaseSlices([20000, null], CONE, 2),
+  [8, null],
+);
+check(
+  "no pack declared passes the consumption figures straight through",
+  toPurchaseSlices([20000], null, 2),
+  [20000],
+);
+check(
+  "a half-typed conversion is not a conversion",
+  toPurchaseSlices(
+    [20000],
+    { alt_qty: null, alt_uom_id: "cone", base_qty: 2500, base_uom_id: "mtr" },
+    2,
+  ),
+  [20000],
+);
+
+/* THE ONE THAT WOULD HAVE CAUGHT IT. An MOQ of 12 against a line needing 8
+   cones binds; against the 20,000 metres those cones hold it is inert. */
+check(
+  "an MOQ of 12 is 12 CONES, not 12 metres",
+  lineQuantity([20000], 12, null, true, undefined, toPurchaseSlices([20000], CONE, 2)),
+  { calcQty: 20000, excessCalcQty: 20000, purchaseQty: 8, afterMoq: 12, finalQty: 12 },
+);
+refute(
+  "the pre-fix engine returned the metres untouched",
+  (
+    lineQuantity([20000], 12, null, true, undefined, toPurchaseSlices([20000], CONE, 2)) as {
+      finalQty: number;
+    }
+  ).finalQty,
+  20000,
+);
+
+/* THE CLIENT'S OWN LOOPHOLE FIGURE — a minimum typed while reading a grid that
+   showed metres, then read by the ceiling as cones. Both sides now say 5,000
+   cones, which is at least ONE answer rather than two. */
+check(
+  "an MOQ of 5,000 against 8 cones lifts to 5,000 CONES on both sides",
+  (
+    lineQuantity([20000], 5000, null, true, undefined, toPurchaseSlices([20000], CONE, 2)) as {
+      finalQty: number;
+    }
+  ).finalQty,
+  5000,
+);
+
+/* THE CONSUMPTION PAIR DOES NOT MOVE. `calcQty` and `excessCalcQty` are what the
+   order CONSUMES and stay in metres — the separation `lineQuantity` already
+   states for `baseQuantities`, now one column further along. */
+check(
+  "the first two columns stay in the consumption unit",
+  (
+    lineQuantity([20000], 5000, null, true, [19000], toPurchaseSlices([20000], CONE, 2)) as {
+      calcQty: number;
+    }
+  ).calcQty,
+  19000,
+);
+
+/* MOQ FIRST, THEN THE STEP — 0437's order, now asserted IN THE PURCHASE UNIT
+   where it actually runs. 8 cones, minimum 10, rounded to the next 12. */
+check(
+  "MOQ then step, both in cones",
+  lineQuantity([20000], 10, 12, true, undefined, toPurchaseSlices([20000], CONE, 2)),
+  { calcQty: 20000, excessCalcQty: 20000, purchaseQty: 8, afterMoq: 10, finalQty: 12 },
+);
+refute(
+  "step-then-MOQ would have reached 12 by the other route",
+  (
+    lineQuantity([20000], 10, 12, true, undefined, toPurchaseSlices([20000], CONE, 2)) as {
+      afterMoq: number;
+    }
+  ).afterMoq,
+  12,
+);
+
+/* PER SLICE, THEN SUMMED — the order `bomCeilingForOrder` sums the stored
+   `purchase_qty` rows in. Converting the TOTAL instead is more accurate and
+   DISAGREES with the ceiling, which is the whole failure being closed: 2,400
+   NOS is 16.67 GRS, and three such slices are 50.01 rather than 50. */
+check(
+  "three slices convert individually, exactly as the ceiling sums them",
+  toPurchaseSlices([2400, 2400, 2400], GROSS, 2),
+  [16.67, 16.67, 16.67],
+);
+/* ROUNDED TO READ IT, and that is deliberate rather than a weaker assertion.
+   16.67 x 3 is 50.010000000000005 in binary floating point — the artefact
+   `ceilToPrecision` and `money()` both record — and `bomCeilingForOrder` sums
+   the stored rows with the SAME raw `+`, so both sides carry the same noise and
+   still agree to the digit. Smoothing it on one side only is how they would
+   come to disagree by 5e-15, which is this whole file's failure in miniature.
+   `fmtQty` absorbs it for the operator at the unit's own precision. */
+check(
+  "and the line total is their sum, not the conversion of the sum",
+  Number(
+    (
+      lineQuantity(
+        [7200],
+        null,
+        null,
+        true,
+        undefined,
+        toPurchaseSlices([2400, 2400, 2400], GROSS, 2),
+      ) as { purchaseQty: number }
+    ).purchaseQty.toFixed(2),
+  ),
+  50.01,
+);
+refute(
+  "converting the total would have produced 50 and disagreed with the ceiling",
+  Number(
+    (
+      lineQuantity([7200], null, null, true, undefined, toPurchaseSlices([7200], GROSS, 2)) as {
+        purchaseQty: number;
+      }
+    ).purchaseQty.toFixed(2),
+  ),
+  50.01,
+);
+
+/* THE CLIENT CHOSE EXACT DECIMALS OVER WHOLE PACKS — 16.67 GRS, never 17. A
+   rounding step is how an operator asks for whole ones, and it is opt-in. */
+check(
+  "2,400 buttons is 16.67 gross and stays 16.67",
+  (
+    lineQuantity([2400], null, null, true, undefined, toPurchaseSlices([2400], GROSS, 2)) as {
+      finalQty: number;
+    }
+  ).finalQty,
+  16.67,
+);
+check(
+  "a step of 1 is how whole gross are asked for",
+  (
+    lineQuantity([2400], null, 1, true, undefined, toPurchaseSlices([2400], GROSS, 2)) as {
+      finalQty: number;
+    }
+  ).finalQty,
+  17,
+);
+
+/* PER TRIM COLOUR, IN THE PURCHASE UNIT. Navy and red each clear the minimum on
+   their own (client 2026-08-22) — and each clears it in cones. */
+const twoConeColours = (moq: number) =>
+  lineQuantityByColour(
+    [
+      {
+        item_color_id: COL_NAVY,
+        quantities: [5000],
+        purchaseQuantities: toPurchaseSlices([5000], CONE, 2),
+      },
+      {
+        item_color_id: COL_RED,
+        quantities: [5000],
+        purchaseQuantities: toPurchaseSlices([5000], CONE, 2),
+      },
+    ],
+    moq,
+    null,
+    true,
+  ) as { finalQty: number; excessCalcQty: number; purchaseQty: number };
+
+check("two trim colours clear a cone minimum separately", twoConeColours(10).finalQty, 20);
+refute(
+  "rolled up first they would have shared one minimum",
+  twoConeColours(10).finalQty,
+  10,
+);
+check(
+  "and the consumption total is still the metres both consume",
+  twoConeColours(10).excessCalcQty,
+  10000,
 );
 
 console.log(failed === 0 ? "\nAll BOM requirement vectors pass." : `\n${failed} FAILED`);

@@ -40,6 +40,52 @@ const nextConfig: NextConfig = {
   // `npm run build:check` (scripts/build-check.mjs) to type/compile-check while
   // someone is using the app.
   distDir: process.env.NEXT_DIST_DIR || ".next",
+
+  /**
+   * TWO MEMORY SETTINGS, AND THE SECOND ONE IS THE BUG (Vercel build 2026-08-25:
+   * `npm run build` exited with SIGKILL after ~3min, "At least one Out of Memory
+   * (OOM) event was detected", 4 cores / 8 GB).
+   *
+   * ## THE BUILD WORKER WAS SILENTLY OFF, AND SERWIST IS WHY
+   *
+   * Next runs the webpack compilation in a SEPARATE Node worker by default,
+   * which is what keeps the module graph and the webpack cache out of the main
+   * process heap. "By default" has a condition, and `next/dist/build/index.js`
+   * states it exactly:
+   *
+   *     const useBuildWorker = config.experimental.webpackBuildWorker
+   *       || (config.experimental.webpackBuildWorker === undefined && !config.webpack)
+   *
+   * `withSerwist` injects a `webpack` config to emit the service worker — see
+   * the note on `turbopack: {}` below, which is about the same injection. So
+   * `config.webpack` is set, the `undefined` branch never fires, and this app
+   * has been compiling entirely in the main process. Nothing reports that; the
+   * build simply carries the whole graph in one heap until a container with
+   * 8 GB kills it.
+   *
+   * It is `true` EXPLICITLY rather than by deleting Serwist's config, because
+   * the SW is the reason `--webpack` is pinned at all. The docs warn the worker
+   * "may not be compatible with all custom Webpack plugins", so the check that
+   * matters is not that the build passes — it is that `public/sw.js` is still
+   * emitted, since a silently missing SW is a PWA that stops updating rather
+   * than a build that fails.
+   *
+   * ## AND THE OFFICIAL LEVER, WHICH IS NOT THE FIX ON ITS OWN
+   *
+   * `webpackMemoryOptimizations` is Next's own answer to build OOM (v15+,
+   * "considered to be low-risk", "may increase compilation times by a slight
+   * amount"). Worth having, but it trims a peak rather than moving where the
+   * peak lives; the worker above is the structural half.
+   *
+   * WHAT WAS DELIBERATELY NOT DONE: `typescript.ignoreBuildErrors`. The memory
+   * guide offers it and it would very likely make the build pass, by turning off
+   * the check that has caught a real error in this repo more than once. A deploy
+   * that compiles is not the goal; a deploy that is correct is.
+   */
+  experimental: {
+    webpackBuildWorker: true,
+    webpackMemoryOptimizations: true,
+  },
   // NOTE: cacheComponents (PPR) is intentionally OFF for now. The Raagam ERP is
   // almost entirely per-user, per-role dynamic data behind auth, so the strict
   // Suspense discipline PPR requires adds friction without payoff at this stage.

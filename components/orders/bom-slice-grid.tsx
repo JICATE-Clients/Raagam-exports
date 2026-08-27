@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -67,14 +68,39 @@ export interface BomSliceCell {
    *   calc   the ratio applied to this slice, before any buffer
    *   needs  the same with this row's Excess % — what it actually consumes
    *   final  after the line's MOQ and Round To, which stay per LINE (see below)
+   *
+   * ALL THREE ARE NULLABLE, and `calc` and `needs` became so on 2026-08-26.
+   * They were `number`, and the caller coerced a REFUSAL to 0 to satisfy that —
+   * so an unanswered row printed `0`, `0` as though somebody had computed them.
+   * Null is the honest value and `fmtQty` already renders it as an em dash.
    */
-  calc: number;
-  needs: number;
+  calc: number | null;
+  needs: number | null;
   final: number | null;
   items: string;
   pieces: string;
   /** The wastage buffer for this row (0450) - legacy's per-sub-row Allowance %. */
   excess: string;
+  /**
+   * WHY THIS CELL HAS NO FIGURES, verbatim from `sliceRequirement`, or null when
+   * it has them. Three dashes on their own read as "nothing needed"; the
+   * sentence is what turns them into "not answered yet, and here is what is
+   * missing". Rendered as a `title` rather than as text — the grid has no room
+   * for a sentence per row and `qtyRibbon` already prints one below it.
+   */
+  refusal: string | null;
+  /**
+   * WHETHER THIS BOX IS THE ONE THAT MUST BE ANSWERED — derived from the SAME
+   * `consumptionChain` call the caption's refusal-to-close reads, so the red
+   * star, the cursor hold and the closed-section refusal cannot disagree.
+   *
+   * CONDITIONAL, NEVER ALWAYS. A blank box whose value the LINE already supplies
+   * is not unfilled — `linePlaceholder` shows what it will use — so an
+   * unconditional `required` would hold the cursor on a correctly-empty box and
+   * cage the operator on a row that is finished.
+   */
+  itemsRequired: boolean;
+  piecesRequired: boolean;
 }
 
 export interface BomSliceRow {
@@ -109,8 +135,55 @@ export interface BomSliceRow {
   cell: BomSliceCell;
   /** The size boxes, when the row is ticked. */
   sizes: BomSliceCell[];
-  /** False where the order has no size break-up for this row to split by. */
-  canSizeWise: boolean;
+  /**
+   * WHY THIS ROW CANNOT SPLIT ITSELF BY SIZE, or null when it can.
+   *
+   * A REASON AND NOT A BOOLEAN, because the box's `disabled` and its own tooltip
+   * are one fact and there is now more than one cause: an order carrying no size
+   * break-up, and an Attribute the requirement cannot store a per-row tick
+   * against. A boolean beside a hard-coded sentence made the second cause read as
+   * the first.
+   */
+  sizeWiseWhyNot: string | null;
+  /**
+   * THE GROUP THIS ROW OPENS, or null when it continues the one above.
+   *
+   * Set on the FIRST row of each combination run. Null on every row when the
+   * grid has only one axis value — there the combination is the row's own
+   * identity column and a band naming it would repeat the row beneath it.
+   */
+  groupHead: BomSliceGroup | null;
+  /** WHICH GROUP HIDES THIS ROW. Null in identity mode, where nothing folds. */
+  groupKey: string | null;
+}
+
+/**
+ * THE BAND ABOVE A RUN OF ROWS SHARING ONE COMBINATION.
+ *
+ * `crossCombinations` is name-major, so the runs are already consecutive — this
+ * is a scan of the rows, never a regroup, and `check-bom-slices` asserts that
+ * rather than trusting it.
+ */
+export interface BomSliceGroup {
+  key: string;
+  name: string;
+  rows: number;
+  /** How many of its rows still need a figure. THE NUMBER THAT MAKES A WALL
+   *  NAVIGABLE — "21 of 21 unanswered" says where to go and work. */
+  unanswered: number;
+  /** The group's own + Exc roll-up, NULL while any chosen row is unanswered —
+   *  a partial sum of a half-typed group is a figure somebody would act on. */
+  needs: number | null;
+  /*
+   * `whyNotClose` WAS HERE AND IS GONE (2026-08-27). It disabled the chevron
+   * while the run held an unanswered required cell. The accordion replaced it —
+   * see the band's own note for why the "N of M unanswered" count on a shut band
+   * is what satisfies the rule it was citing.
+   *
+   * Deleted rather than left unread: a field the grid no longer consults is the
+   * same half-state as a header `*` with no hold behind it, and the next reader
+   * would reasonably assume something still enforced it.
+   */
 }
 
 export interface BomSliceFlagPatch {
@@ -145,21 +218,10 @@ const BOX =
 const COLS =
   "grid-cols-[2rem_minmax(104px,1fr)_2.75rem_minmax(112px,1fr)_minmax(88px,1fr)_minmax(80px,1fr)_3.75rem_3.75rem_3.5rem_4.5rem_4.5rem_4.75rem]";
 
-/**
- * THE SAME TRACK WITH COMBINATION IN FRONT (0463).
- *
- * A SECOND CONSTANT RATHER THAN A COMPUTED ONE, because Tailwind's compiler only
- * emits classes it can see as literals — a template string built at runtime
- * produces a class name that never reaches the stylesheet, and the grid silently
- * collapses to one column. That is the same reason `FIELD_TRACK_*` are literals
- * on the screen next door.
- *
- * IT LEADS, ahead of the axis, because the combination is the coarser grouping:
- * the operator reads "TEST, and within it these styles". Putting it after the
- * axis would interleave the two parts of one style and read as noise.
- */
-const COLS_COMBO =
-  "grid-cols-[2rem_minmax(96px,1fr)_minmax(104px,1fr)_2.75rem_minmax(112px,1fr)_minmax(88px,1fr)_minmax(80px,1fr)_3.75rem_3.75rem_3.5rem_4.5rem_4.5rem_4.75rem]";
+/* `COLS_COMBO` WENT WITH THE COLUMN IT SIZED (2026-08-26). The combination is
+   a GROUP HEADING or the row's own identity now, and neither needs a track —
+   so the reason that constant existed (Tailwind emits only the literals it can
+   see) is why there is ONE track list again rather than a computed one. */
 
 const TICK =
   "h-3.5 w-3.5 rounded border-border accent-primary disabled:opacity-40";
@@ -173,9 +235,36 @@ export function BomSliceGrid({
   renderColour,
   linePlaceholder,
   decimals,
+  finalDecimals,
+  finalUnit,
+  openGroup,
+  onToggleGroup,
 }: {
   caption: ReactNode;
   axisHead: string;
+  /**
+   * WHICH GROUP IS OPEN — one name, or null for none (client 2026-08-27: "add
+   * that automatic collapse option, now it's totally open ... open the first
+   * section, close the second one").
+   *
+   * THE ACCORDION IS IN THE TYPE, and that is the whole reason this replaced a
+   * `shutGroups` SET. A set can hold "TOP and BOTTOM are both shut", so it can
+   * equally hold "both open" — the one-at-a-time rule would then live in whoever
+   * writes to it, and every future writer would have to know. One name cannot
+   * express two open groups, so the invariant cannot be broken by a caller.
+   *
+   * It also reverses the old comment's reasoning deliberately. The shut set was
+   * chosen so "a combination added later arrives OPEN rather than hidden behind
+   * a set nobody updated" — sound for a multi-open fold, and wrong here: under an
+   * accordion a new combination arriving open is a SECOND open group. It now
+   * arrives closed, with its own band and its own "N of M unanswered" count
+   * visible, which is the thing that made it safe to hide (see the band below).
+   *
+   * `approval-qty-lines.tsx` still uses the set shape and is untouched — it is a
+   * different component on a different screen and multi-open is correct there.
+   */
+  openGroup?: string | null;
+  onToggleGroup?: (groupKey: string) => void;
   rows: readonly BomSliceRow[];
   onSet: (
     cellKey: string,
@@ -193,6 +282,19 @@ export function BomSliceGrid({
    * `fmtQty`. Optional, and `uomPrecision` floors an absent one at 2 decimals.
    */
   decimals?: number | null;
+  /**
+   * `decimal_places_allowed` of the PURCHASE unit, where the line names a pack.
+   *
+   * THE FINAL COLUMN IS NOT IN THE SAME UNIT AS THE TWO BESIDE IT. Calc and
+   * + Exc are what the row CONSUMES; Final is what is BOUGHT, because the MOQ
+   * and the rounding step that produced it are properties of the purchase
+   * (0451). Absent means the line names no pack and all three share `decimals`,
+   * which is every row written before this.
+   */
+  finalDecimals?: number | null;
+  /** The purchase unit's name, appended to the Final heading. Null on a line
+   *  with no pack, where the heading is already unambiguous. */
+  finalUnit?: string | null;
 }) {
   if (rows.length === 0) return null;
 
@@ -201,8 +303,41 @@ export function BomSliceGrid({
      Read off the ROWS rather than passed in as a flag, so the column cannot be
      shown with nothing in it or hidden with something in it — the two states a
      separate prop would let drift apart. */
-  const hasCombination = rows.some((r) => !!(r.combination ?? "").trim());
-  const cols = hasCombination ? COLS_COMBO : COLS;
+  /*
+   * ## TWO SHAPES, AND WHICH ONE IS A PROPERTY OF THE ROWS
+   *
+   * An axis constant across the WHOLE grid belongs in the caption; an axis
+   * constant across a RUN belongs in a band above that run. Combinations are
+   * one or the other and never a column, because a column is what made eleven
+   * rows read identically: it was the narrowest track in the grid, in the
+   * weakest colour, clipped by an END ellipsis — so names differing in their
+   * last token rendered the same. They are provably distinct (the Combination
+   * sheet blocks a duplicate), so widening could never have been the fix.
+   *
+   * IDENTITY MODE — one axis value, so the axis is in the caption and the
+   * combination IS the row's name, at the width the axis column had. This is
+   * the reported case (client 2026-08-26, screenshot 2505: eleven rows all
+   * reading "TEST 2"), and it costs no height at all.
+   *
+   * GROUPED MODE — many axis values, so each combination gets a band naming it
+   * once, with its own count, roll-up and fold.
+   */
+  const identityMode = rows.length > 0 && rows.every((r) => !!(r.combination ?? "").trim())
+    && new Set(rows.map((r) => r.label)).size === 1;
+  const grouped = rows.some((r) => r.groupHead);
+  const cols = COLS;
+
+  /*
+   * ONE SPOKEN NAME FOR EVERY CONTROL ON A ROW.
+   *
+   * Seven call sites each built their own from `row.label` and every one of them
+   * omitted the combination — so a screen reader heard "Include
+   * STL/26-27/0007" eleven times over eleven different panels. One function is
+   * what stops the eighth from doing it again; it also drops the trailing space
+   * the size strip emitted when `sizeLabel` was null.
+   */
+  const nameOf = (row: BomSliceRow, sizeLabel?: string | null) =>
+    [row.label, row.combination, sizeLabel].filter((x) => !!x && String(x).trim()).join(", ");
 
   return (
     <div className="mt-4 rounded-lg border border-border">
@@ -216,10 +351,12 @@ export function BomSliceGrid({
       <div data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
         <div className={cn("grid border-b border-border-strong bg-surface-muted", cols)}>
           <div className={cn("flex min-h-8 items-center justify-center px-1", T_LABEL)}>✓</div>
-          {hasCombination && (
-            <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>Combination</div>
-          )}
-          <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>{axisHead}</div>
+          {/* ONE IDENTITY COLUMN, NOT TWO. In identity mode it names the
+              combination and the caption carries the axis; otherwise it names
+              the axis and the bands carry the combination. */}
+          <div className={cn("flex min-h-8 items-center px-2", T_LABEL)}>
+            {identityMode ? "Combination" : axisHead}
+          </div>
           <div className={cn("flex min-h-8 items-center justify-center px-1 text-center", T_LABEL)}>
             Size
           </div>
@@ -240,11 +377,102 @@ export function BomSliceGrid({
           <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>Exc %</div>
           <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>Calc</div>
           <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>+ Exc</div>
-          <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>Final</div>
+          {/* THE UNIT IS IN THE HEADING BECAUSE THE COLUMN CHANGED UNITS. Three
+              figures in a row, the last one in cones and the first two in
+              metres, with one unlabelled heading over all three, is how a
+              converted quantity gets read as a consumption quantity. */}
+          <div className={cn("flex min-h-8 items-center justify-end px-2", T_LABEL)}>
+            {finalUnit ? `Final (${finalUnit})` : "Final"}
+          </div>
         </div>
 
-        {rows.map((row) => (
+        {rows.map((row) => {
+          /* A ROW IS HIDDEN BY ITS GROUP, NEVER BY ITSELF — and a band is never
+             hidden by its own group, or a shut group would have no way back. */
+          const shut = !row.groupHead && !!row.groupKey && row.groupKey !== openGroup;
+          return (
           <div key={row.key} className="border-b border-border last:border-b-0">
+            {/*
+              THE BAND — a combination named ONCE above its run, and the grid's
+              first real separator. `crossCombinations` is name-major so the runs
+              are already consecutive; this emits, never reorders.
+
+              IT IS A `data-grid-row` CARRYING A `data-row-open` CHEVRON, because
+              `ROW_FIELDS` counts that marker — without it an entire group's fold
+              would be mouse-only, which is the exact defect the marker exists
+              for. Accepted cost, stated: the band has one field, so ↓ down a
+              column of Items boxes lands on the chevron before the next group's
+              ✓. `focusColIn` declines rather than dead-ends, so no key is lost.
+
+              THE COUNT IS THE POINT. "21 of 21 unanswered" says where to go and
+              work; a bare name over a wall says only that the wall is sorted.
+            */}
+            {row.groupHead && (
+              <div
+                data-grid-row
+                className="flex items-center gap-2 border-t-2 border-border-strong bg-surface-muted px-3 py-1.5 first:border-t-0"
+              >
+                {/*
+                  AN UNANSWERED GROUP CAN NOW BE CLOSED, and dropping that guard
+                  is what makes the accordion exist at all.
+
+                  It used to be `disabled` while the run held an unanswered
+                  required cell, reasoning that "hiding a required blank is a
+                  record that cannot be saved with nothing on screen to say why"
+                  — AGENTS.md's mandatory-field rule, correctly cited. But on a
+                  NEW BOM every group is unanswered, so every chevron was dead:
+                  the screen the client photographed (2026-08-27) could not fold
+                  one single band. A guard that only lets you tidy up what you
+                  have already finished is off exactly when tidying is the point.
+
+                  WHAT MAKES IT SAFE IS THE BAND ITSELF, which is why this is a
+                  narrowing rather than a waiver. The rule forbids hiding a blank
+                  with NOTHING ON SCREEN TO SAY WHY — and a shut group still
+                  renders its own "21 of 21 unanswered" in warning colour, one
+                  line up. The count is not hidden with the rows; it is the one
+                  thing a shut band exists to keep saying. Under an accordion
+                  that reads BETTER than before: the operator sees every group's
+                  outstanding count at a glance instead of scrolling a wall to
+                  find out. Save is still gated by the same figures.
+
+                  `aria-expanded` is now the accordion's own answer, so a screen
+                  reader is told what the chevron shows.
+                */}
+                <button
+                  type="button"
+                  data-row-open
+                  onClick={() => onToggleGroup?.(row.groupHead!.key)}
+                  aria-expanded={row.groupHead.key === openGroup}
+                  className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground"
+                >
+                  {row.groupHead.key !== openGroup ? (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  <span>{row.groupHead.name}</span>
+                </button>
+                <span className="ml-auto flex items-center gap-3 text-[11px] text-muted-foreground">
+                  {row.groupHead.unanswered > 0 ? (
+                    <span className="text-warning">
+                      {row.groupHead.unanswered} of {row.groupHead.rows} unanswered
+                    </span>
+                  ) : (
+                    <span>all {row.groupHead.rows} answered</span>
+                  )}
+                  {/* NULL WHILE ANY CHOSEN ROW IS UNANSWERED — a partial sum of a
+                      half-typed group is a figure somebody would act on. */}
+                  <span className="tabular-nums font-medium text-info">
+                    {fmtQty(row.groupHead.needs, decimals)}
+                  </span>
+                </span>
+              </div>
+            )}
+            {/* A SHUT GROUP RENDERS ITS BAND AND NOTHING ELSE — never `hidden`.
+                A hidden field is still in the DOM, so Tab and the required-holds
+                would both visit a box the operator cannot see. Same call the
+                caption makes one level up, for the same reason. */}
+            {!shut && (
             <div
               data-grid-row
               className={cn("grid", cols, !row.chosen && "opacity-45")}
@@ -253,38 +481,34 @@ export function BomSliceGrid({
                 <input
                   type="checkbox"
                   checked={row.chosen}
-                  aria-label={`Include ${row.label}`}
+                  aria-label={`Include ${nameOf(row)}`}
                   onChange={(e) => onFlag(row.key, { chosen: e.target.checked })}
                   className={TICK}
                 />
               </div>
-              {hasCombination && (
-                /* READ-ONLY HERE. The name is typed in the Combination popup and
-                   this is where it is READ — a second editable copy would be two
-                   places to rename a part from, and the rename would have to
-                   re-key every stored row to keep its figures. Blank rather than
-                   a dash on a row that is not a combination split: a dash would
-                   read as "this part is called —". */
-                <div className="flex min-h-9 items-center px-2">
-                  <Truncated className="text-[13px] text-muted-foreground">
-                    {(row.combination ?? "").trim()}
-                  </Truncated>
-                </div>
-              )}
+              {/* THE ROW'S NAME, at full width and in full-strength text.
+                  In identity mode this is the COMBINATION — the thing that used
+                  to sit in a 96px muted track and clip its own distinguishing
+                  suffix, so eleven distinct panels rendered as eleven copies of
+                  one string. Here it has the width the axis column had. */}
               <div className="flex min-h-9 items-center px-2">
-                <Truncated className="text-[13px] text-foreground">{row.label}</Truncated>
+                <Truncated className="text-[13px] font-medium text-foreground">
+                  {identityMode ? (row.combination ?? "").trim() : row.label}
+                </Truncated>
               </div>
               <div className="flex min-h-9 items-center justify-center border-l border-border">
                 <input
                   type="checkbox"
                   checked={row.sizeWise}
-                  disabled={!row.chosen || !row.canSizeWise}
+                  disabled={!row.chosen || !!row.sizeWiseWhyNot}
                   aria-label={`Split ${row.label} by size`}
-                  title={
-                    !row.canSizeWise
-                      ? "This order has no size break-up on Quantities ▸ Assort to split by"
-                      : undefined
-                  }
+                  /* THE REASON COMES FROM THE CALLER, and it used to be one
+                     hard-coded sentence beside a boolean. There is more than one
+                     cause now — an order with no size break-up, and an Attribute
+                     the requirement cannot store a per-row tick against — and a
+                     fixed sentence made the second read as the first, sending the
+                     operator to the Assort tab to fix nothing. */
+                  title={row.sizeWiseWhyNot ?? undefined}
                   onChange={(e) => onFlag(row.key, { size_wise: e.target.checked })}
                   className={TICK}
                 />
@@ -296,7 +520,7 @@ export function BomSliceGrid({
                 <Input
                   uppercase
                   value={row.specification}
-                  aria-label={`Specification, ${row.label}`}
+                  aria-label={`Specification, ${nameOf(row)}`}
                   onChange={(e) => onFlag(row.key, { specification: e.target.value })}
                   className={cn(BOX, "w-full")}
                 />
@@ -305,7 +529,7 @@ export function BomSliceGrid({
                 <Input
                   uppercase
                   value={row.sizeSpec}
-                  aria-label={`Material size, ${row.label}`}
+                  aria-label={`Material size, ${nameOf(row)}`}
                   onChange={(e) => onFlag(row.key, { size_spec: e.target.value })}
                   className={cn(BOX, "w-full")}
                 />
@@ -320,8 +544,9 @@ export function BomSliceGrid({
                       min="0"
                       step="0.001"
                       value={row.cell.items}
+                        required={row.cell.itemsRequired}
                       placeholder={linePlaceholder.items}
-                      aria-label={`No. of items, ${row.label}`}
+                      aria-label={`No. of items, ${nameOf(row)}`}
                       onChange={(e) => onSet(row.cell.key, { items: e.target.value })}
                       className={cn(BOX, "w-full text-right")}
                     />
@@ -332,8 +557,9 @@ export function BomSliceGrid({
                       min="0"
                       step="0.001"
                       value={row.cell.pieces}
+                        required={row.cell.piecesRequired}
                       placeholder={linePlaceholder.pieces}
-                      aria-label={`Per pieces, ${row.label}`}
+                      aria-label={`Per pieces, ${nameOf(row)}`}
                       onChange={(e) => onSet(row.cell.key, { pieces: e.target.value })}
                       className={cn(BOX, "w-full text-right")}
                     />
@@ -345,7 +571,7 @@ export function BomSliceGrid({
                       max="100"
                       step="0.01"
                       value={row.cell.excess}
-                      aria-label={`Excess percent, ${row.label}`}
+                      aria-label={`Excess percent, ${nameOf(row)}`}
                       onChange={(e) => onSet(row.cell.key, { excess: e.target.value })}
                       className={cn(BOX, "w-full text-right")}
                     />
@@ -355,7 +581,14 @@ export function BomSliceGrid({
                       {row.chosen ? fmtQty(row.cell.calc, decimals) : "—"}
                     </span>
                   </div>
-                  <div className="flex min-h-9 items-center justify-end border-l border-border bg-info-soft/40 px-2">
+                  {/* THE SENTENCE ON THE LOUDEST CELL. Three dashes read as
+                      "nothing needed"; `title` turns them into "not answered
+                      yet, and here is what is missing" without spending a row on
+                      a sentence `qtyRibbon` already prints in full below. */}
+                  <div
+                    className="flex min-h-9 items-center justify-end border-l border-border bg-info-soft/40 px-2"
+                    title={row.chosen ? (row.cell.refusal ?? undefined) : undefined}
+                  >
                     <span className="tabular-nums text-[12.5px] font-medium text-info">
                       {row.chosen ? fmtQty(row.cell.needs, decimals) : "—"}
                     </span>
@@ -365,15 +598,18 @@ export function BomSliceGrid({
                       Final Quantity carries. */}
                   <div className="flex min-h-9 items-center justify-end border-l border-border bg-accent-soft/50 px-2">
                     <span className="tabular-nums text-[12.5px] font-semibold text-accent">
-                      {row.chosen && row.cell.final != null ? fmtQty(row.cell.final, decimals) : "—"}
+                      {row.chosen && row.cell.final != null
+                        ? fmtQty(row.cell.final, finalDecimals ?? decimals)
+                        : "—"}
                     </span>
                   </div>
               </>
             </div>
+            )}
 
             {/* THE SIZE STRIP — sizes ACROSS, the row named once above it. This is
                 what turns 3 colours x 7 sizes from 21 labelled rows into 3. */}
-            {row.sizeWise && row.chosen && row.sizes.length > 0 && (
+            {!shut && row.sizeWise && row.chosen && row.sizes.length > 0 && (
               <div
                 data-grid-row
                 className="border-t border-dashed border-border px-3 pb-2.5 pt-2"
@@ -387,8 +623,17 @@ export function BomSliceGrid({
                     <div className="flex justify-between gap-1.5 pb-0.5 text-[11px] text-muted-foreground">
                       <span>{c.sizeLabel}</span>
                       {/* Above the box, not in it: it is what the typed figure is
-                          judged against — `approval-qty-lines`' own rule. */}
-                      <span className="tabular-nums opacity-75">{fmtQty(c.needs, decimals)}</span>
+                          judged against — `approval-qty-lines`' own rule.
+
+                          NOTHING WHERE THERE IS NO FIGURE, and this is the one
+                          place the blank rule beats the dash rule: an annotation
+                          has no column to keep aligned, so fourteen dashes in a
+                          strip are noise where fourteen blanks are silence. It
+                          printed a bare `0` until 2026-08-26 — the caller
+                          coerced a refusal to zero and nothing here guarded it. */}
+                      <span className="tabular-nums opacity-75">
+                        {c.needs == null ? "" : fmtQty(c.needs, decimals)}
+                      </span>
                     </div>
                     <div className="flex divide-x divide-border rounded border border-border">
                       <Input
@@ -396,8 +641,9 @@ export function BomSliceGrid({
                         min="0"
                         step="0.001"
                         value={c.items}
+                        required={c.itemsRequired}
                         placeholder={row.cell.items || linePlaceholder.items}
-                        aria-label={`No. of items, ${row.label} ${c.sizeLabel ?? ""}`}
+                        aria-label={`No. of items, ${nameOf(row, c.sizeLabel)}`}
                         onChange={(e) => onSet(c.key, { items: e.target.value })}
                         className={cn(BOX, "min-w-0 flex-1 text-right")}
                       />
@@ -406,8 +652,9 @@ export function BomSliceGrid({
                         min="0"
                         step="0.001"
                         value={c.pieces}
+                        required={c.piecesRequired}
                         placeholder={row.cell.pieces || linePlaceholder.pieces}
-                        aria-label={`Per pieces, ${row.label} ${c.sizeLabel ?? ""}`}
+                        aria-label={`Per pieces, ${nameOf(row, c.sizeLabel)}`}
                         onChange={(e) => onSet(c.key, { pieces: e.target.value })}
                         className={cn(BOX, "min-w-0 flex-1 text-right")}
                       />
@@ -429,7 +676,8 @@ export function BomSliceGrid({
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <p className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">

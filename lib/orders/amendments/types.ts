@@ -112,9 +112,39 @@ export function orderUnitLabel(unitKind: string | null | undefined): string {
 export const PACK_TYPE_OPTIONS = [
   "Solid Colour / Solid Size",
   "Solid Colour / Assort Size",
+] as const;
+
+/**
+ * THE TWO ASSORT-COLOUR METHODS ARE RETIRED (client 2026-08-25: "remove
+ * Assorted Color Solid Size and Assorted Color Assorted Size from the active
+ * dropdown — they are never used on the Tirupur floor and only create visual
+ * noise").
+ *
+ * **THIS IS THE SECOND HALF OF A RETIREMENT THAT WAS HALF-DONE FOR A WEEK.**
+ * `0432` retired the same two on the OTHER store on 2026-08-18 —
+ * `config_lookups` kind `assortment_type`, `is_active = false` — which took them
+ * off the Quantities tab's Assortment Type picker for free, because
+ * `DataPicker` hides an inactive row and keeps a held one. The Pack type(s) tab
+ * reads this compile-time tuple instead, so it went on offering all four. Two
+ * stores, one decision, and only one of them heard it: exactly the drift the
+ * comment above predicts in the abstract.
+ *
+ * KEPT, NOT DELETED, because a stored row may still name one. `pack_type` is
+ * text with no CHECK (0399 refuses one deliberately), so nothing rejects the
+ * value — but a `<Select>` matches on VALUE and would render a stale row BLANK.
+ * `packTypeOptions()` re-admits a held off-tuple value, and tags it
+ * `(inactive)` so the operator can see why it is the only one of its kind on
+ * the list. That is the "Disabled rows" rule reaching a plain `<Select>`: the
+ * one row that survives is the one the record already holds, and it cannot be
+ * re-picked once cleared.
+ *
+ * The row ceiling, the "N of M methods" badge and the explainer sentence all
+ * read `PACK_TYPE_OPTIONS.length`, so they follow this to 2 without an edit.
+ */
+export const RETIRED_PACK_TYPES: readonly string[] = [
   "Assort Colour / Solid Size",
   "Assort Colour / Assort Size",
-] as const;
+];
 
 /**
  * How a style's price is broken down (client 2026-08-10). "The most critical
@@ -141,11 +171,36 @@ export const PACK_TYPE_OPTIONS = [
  */
 export const PRICE_TYPE_OPTIONS = [
   "Style-wise",
+  "Pack-wise",
   "Color-wise",
   "Size-wise",
   "Color-wise Size-wise",
 ] as const;
 export type PriceType = (typeof PRICE_TYPE_OPTIONS)[number];
+
+/**
+ * "PACK-WISE" IS THE FIFTH MODE (client 2026-08-25), and it is the one whose
+ * AXES ARE NOT WHAT MAKES IT DIFFERENT.
+ *
+ * A retail set is priced per box — "$12 per Baby Box" — not per garment, so
+ * that the price on a commercial invoice matches the thing customs is looking
+ * at. On the GRID that is a 1x1 matrix, exactly like Style-wise: one rate, no
+ * colour axis, no size axis. `priceAxes` and `modeAxes` therefore need NO new
+ * branch — an unrecognised mode already answers `{colour:false, size:false}`,
+ * which is the right answer here rather than a lucky one.
+ *
+ * WHAT CHANGES IS THE MULTIPLICAND. Every other mode is a rate per GARMENT and
+ * `orderValue` multiplies it by `po_qty`. Pack-wise is a rate per PACK and must
+ * be multiplied by `packs_ordered` (0467). Multiplying $12 by 3,000 pieces
+ * instead of 1,000 packs overstates the order threefold and looks entirely
+ * plausible on the screen that prints it — so `priceBasisOf` in
+ * `order-value.ts` is a hard fork in the arithmetic, not a display choice.
+ *
+ * It sits SECOND, beside Style-wise, because the tuple's order is the reading
+ * order and the two are the same shape of answer (one rate for the line). The
+ * grid renders this tuple directly, so this is also the dropdown order.
+ */
+export const PACK_WISE_PRICE: PriceType = "Pack-wise";
 export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
 
 /**
@@ -272,8 +327,60 @@ export interface AmendmentStyle {
   style_description: string | null;
   order_unit_id: string | null;
   plan_unit_id: string | null;
+  /**
+   * PIECES. Always pieces, on a set pack too — see `packs_ordered`.
+   */
   po_qty: number;
+  /**
+   * PACKS the buyer ordered, when the order carries `is_set_pack` (0467).
+   *
+   * `po_qty` beside it stays the PIECE count and is derived from this one:
+   * `po_qty = packs_ordered x sum(pack component qty_per_pack)`. The explosion
+   * happens in the browser and only pieces are stored, because
+   * `targetsOf` in the Material BOM engine folds an approval row through an
+   * exhaustive three-branch switch and NOT ONE BRANCH CARRIES A MULTIPLIER —
+   * neither do `fullTarget`, `totalProductionQty` or `bom-ceiling.ts`. A
+   * `po_qty` holding packs would under-buy every trim and every kilo of cloth
+   * by the set size, and each figure would look right on its own screen.
+   *
+   * NULL is "not a set pack / not asked", NOT 0. Zero packs is a claim an
+   * operator can make and it is a different one.
+   */
+  packs_ordered: number | null;
   description: string | null;
+}
+
+/**
+ * One member of a retail SET pack — Quantities' carton explosion's twin, one
+ * level up the commercial chain (0467, client 2026-08-25).
+ *
+ * A kid's pyjama set is `{TOP x1, BOTTOM x1}`; a 3-pack of bodysuits is one
+ * coordinate three times over in three colours. So a row is keyed on
+ * **(coordinate, combo)** and not on the coordinate alone — keyed on the
+ * garment only, the client's own worked example would be refused by the unique
+ * index.
+ *
+ * THERE IS NO `pieces_per_pack` FIELD. It is the sum of these rows'
+ * `qty_per_pack`, and a field for a sum is a second source of truth for an
+ * addition — the same test that kept `pcs_per_pack` off the assortment line
+ * twice (0414, restated by 0432 when it admitted `inners_per_carton` because
+ * that one is typed and derivable from nothing).
+ *
+ * `combo` and `style_ref_no` are TEXT BY VALUE, the 0413 / 0433 convention: a
+ * combo row's id is rewritten by every `writeChildren` pass, so an FK to it
+ * points at a row that will not exist after the next Save.
+ */
+export interface AmendmentPackComponent {
+  id: string;
+  amendment_id: string;
+  style_ref_no: string | null;
+  sno: number;
+  /** Which garment of the set — `items` of item class GAR, as Coordinates (0461). */
+  coordinate_id: string | null;
+  /** The colourway this member is made in, by value. */
+  combo: string | null;
+  /** How many of this coordinate are in ONE pack. Usually 1. */
+  qty_per_pack: number;
 }
 
 /**
@@ -737,6 +844,16 @@ export interface GarmentOrderAmendment {
   excess_pct: number;
   pack: boolean;
   /**
+   * RETAIL SET PACKAGING (0467) — this order is SOLD in packs and booked in
+   * pack counts, while the factory still makes pieces.
+   *
+   * NOT `pack` above, which is CARTON sortation and gates the Pack type(s)
+   * section. The two are independent: a 3-pack of bodysuits is still shipped in
+   * cartons, and those cartons are still either solid-size or assorted. One
+   * boolean cannot answer both.
+   */
+  is_set_pack: boolean;
+  /**
    * MULTI STYLE — this PO carries more than one style line.
    *
    * The column keeps the legacy `Mult.Ord` name and the UI says "Multi Style"
@@ -789,6 +906,8 @@ export interface GarmentOrderAmendment {
   styles: AmendmentStyle[];
   style_sizes: AmendmentStyleSize[];
   style_coordinates: AmendmentStyleCoordinate[];
+  /** Retail SET pack members (0467), keyed off the styles like the four above. */
+  pack_components: AmendmentPackComponent[];
   style_components: AmendmentStyleComponent[];
   style_processes: AmendmentStyleProcess[];
   dyeings: AmendmentDyeing[];
@@ -806,6 +925,26 @@ export interface GarmentOrderAmendment {
 const nullableText = z.string().optional().nullable();
 const uuidN = z.string().uuid().nullable().default(null);
 const num = z.coerce.number().default(0);
+
+/**
+ * A number that may be genuinely ABSENT — `numN` to `num` as `uuidN` is to a
+ * required uuid.
+ *
+ * **`z.coerce.number().nullable()` DOES NOT DO THIS**, and the way it fails is
+ * silent. `coerce` runs `Number(v)` BEFORE the nullability check, and
+ * `Number(null)` is `0` and `Number("")` is `0` — so the obvious spelling turns
+ * every "not answered" into a confident zero and the `.nullable()` never sees a
+ * null to pass through. On `packs_ordered` (0467) that is the difference
+ * between "this is not a set pack" and "the buyer ordered no packs", which is
+ * exactly the distinction 0467's verify block raises an exception to protect.
+ *
+ * So the emptiness test happens FIRST, in a preprocess, and only a value that
+ * survives it is coerced.
+ */
+const numN = z.preprocess(
+  (v) => (v === "" || v === null || v === undefined ? null : v),
+  z.coerce.number().nullable(),
+);
 
 // ---- Phase 2 (0128) nested grid inputs ----
 
@@ -826,7 +965,28 @@ export const amendmentStyleInput = z.object({
   order_unit_id: uuidN,
   plan_unit_id: uuidN,
   po_qty: num,
+  /* PACKS, beside the piece count (0467). `numN` and not `num`: NULL is "not a
+     set pack", 0 is "zero packs ordered", and coercing the first to the second
+     would make every existing order claim it ordered none. */
+  packs_ordered: numN,
   description: nullableText,
+});
+
+/**
+ * Order Info ▸ Styles Details ▸ Pack Composition (0467).
+ *
+ * Flat and keyed by `style_ref_no`, the same shape the sizes, the components
+ * and the coordinates take — the screen nests these under their style row and
+ * flattens on submit.
+ */
+export const amendmentPackComponentInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  style_ref_no: nullableText,
+  coordinate_id: uuidN,
+  /* BY VALUE, and capsed like every other stored value. A combo's id is
+     rewritten by each `writeChildren` pass (0413 / 0433). */
+  combo: capsTextNullable(),
+  qty_per_pack: num,
 });
 
 /**
@@ -1203,6 +1363,8 @@ export const amendmentInput = z.object({
   delivery_date: nullableText,
   excess_pct: num,
   pack: z.boolean().default(false),
+  /* 0467 — retail SET packs. Independent of `pack`; see the header type. */
+  is_set_pack: z.boolean().default(false),
   /** MULTI STYLE. The column name is the legacy one — see the row type. */
   mult_ord: z.boolean().default(false),
   /** MULTI ORDER (0427) — several buyer POs, one per quantity line. */
@@ -1259,6 +1421,8 @@ export const amendmentInput = z.object({
    * Coordinate cell, and the same order the Style master reads them in.
    */
   style_coordinates: z.array(amendmentStyleCoordinateInput).default([]),
+  /* 0467 — flat and keyed by `style_ref_no`, like the coordinates above. */
+  pack_components: z.array(amendmentPackComponentInput).default([]),
   /**
    * The per-style Component list (0457) — the Style master's other child,
    * merged into Order Info beside the sizes. Same flat, `style_ref_no`-keyed

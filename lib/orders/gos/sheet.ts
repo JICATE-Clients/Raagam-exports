@@ -38,6 +38,7 @@ import { assortMode } from "@/lib/orders/assort-weights";
 import { assortLineRef, declaredStyleRefs } from "@/lib/orders/amendments/assort-style";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { coordinateLimit, unitKindLabel } from "@/lib/orders/styles/rules";
+import { resolveRowPoNo, rowHasOwnPoNo } from "@/lib/orders/po-no";
 import type {
   GosCoordinateBlock,
   GosDestination,
@@ -524,7 +525,19 @@ function destinationsOf(src: GosSource): GosDestination[] {
     }
     return {
       label: q.destination ?? q.style_ref_no ?? "—",
-      poNo: q.po_no,
+      // THE ROW'S PO, FALLING BACK TO THE ORDER'S. Printed `q.po_no` raw until
+      // 2026-08-26, which left this column BLANK on every destination of every
+      // order — because a row only carries its own PO when `multi_order` is on,
+      // and even then only for the destinations the buyer gave a sub-PO for.
+      // A blank PO on an order sheet reads as "this lot has no PO", which is the
+      // one thing it never means: the header's applies. `resolveRowPoNo` owns
+      // that rule so this sheet and the shipping documents cannot answer
+      // differently for the same lot.
+      poNo: resolveRowPoNo(q.po_no, src.amendment.po_no),
+      // Whether it is the row's OWN — a sub-PO against one destination and the
+      // contract PO against the others is exactly the distinction the buyer's
+      // customs agent is checking, and rendering both identically hides it.
+      poNoIsOwn: rowHasOwnPoNo(q.po_no),
       deliveryDate: q.delivery_date,
       earlierShipmentDate: q.earlier_shipment_date,
       qty,

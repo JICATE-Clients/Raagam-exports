@@ -39,9 +39,31 @@
 
 import { rejectionFor, type RejectionTier } from "@/lib/masters/rejection-rule";
 
-/** Pieces of this combo the buyer ordered. Typed — see 0413. */
+/**
+ * One Approval Qty line the buffers are computed for. Typed — see 0413.
+ *
+ * **ONE SIZE CELL, NOT A COLOURWAY.** The distinction is the whole point of the
+ * rejection rule and this comment used to get it wrong: it said "this style +
+ * combo", which was true when 0413 wrote it and stopped being true at 0435, when
+ * the Approval Qty tab became a Style ▸ Combo ▸ Size tree.
+ *
+ * Nothing broke, because the CALLERS were already right —
+ * `approval-qty-lines.tsx` calls `derive(z.qty, …)` once per size and rolls a
+ * colour up as the SUM of its sizes, and `garment_order_amendment_approval_qtys`
+ * stores one row per `size_id`. Only the sentence was stale. It still cost
+ * something: read on its own it says a 1,000-piece colourway is bracketed as
+ * 1,000, which would mean a small size run inside it never reaches the flat
+ * tiers a rejection rule exists for — a defect that was reported, investigated
+ * and found not to exist (2026-08-26).
+ *
+ * The grain matters because the brackets are non-linear. A colourway of 1,000
+ * split 10/90/400/300/200 draws 3+5+20+15+10 = 53 extra pieces per size, and 30
+ * if the same rule is applied to the 1,000 in one go. Per size is what the
+ * client described ("a small size-wise curve of only 10 pieces"), and per size
+ * is what runs.
+ */
 export type ApprovalLine = {
-  /** Ordered quantity for this style + combo. */
+  /** Ordered pieces of this style + combo + SIZE. */
   qty: number;
   /** Manually entered samples: testing, buyer samples, office records. */
   approvalQty: number;

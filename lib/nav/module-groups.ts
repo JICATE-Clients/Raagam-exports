@@ -285,9 +285,24 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       //   08-17  … Fabric BOM · Fabric Plan · Budgeting · Approval — the BOM is
       //          back and is a step of its own, and Approve is uncollapsed
       //   08-17b Garment Process Plan comes OUT: "only 7 are needed"
+      //   08-25  STYLE comes out of the MENU — "we add this in garment order so
+      //          only hide it from ui". The step is not deleted, it MOVED INTO
+      //          THE SCREEN BELOW IT: 0457 / 0461 put the Style master's own
+      //          fields, its components child and its coordinates onto the order
+      //          line, and sizes had been there since 0407. A step that is now
+      //          the first section of step 1 is not a step of its own.
       //
-      // SO IT IS SEVEN STEPS: Style · Order Entry · Material BOM · Fabric BOM ·
-      // Fabric Plan · Budgeting · Approval.
+      // SO IT IS SIX STEPS: Order Entry · Material BOM · Fabric BOM · Fabric
+      // Plan · Budgeting · Approval.
+      //
+      // THE SCREEN IS NOT GONE, and this is the same distinction the 08-14
+      // menu change already drew: it is a child of `retired` at the bottom of
+      // this table — off the menu, still on the URL, still in the command
+      // palette. That last part is load-bearing here in a way it was not for
+      // Pack Ratios: `garment_styles` is still read in ten places, the order
+      // line's Style picker is `required` ("a line with no style is not a
+      // line") and it has no quick-create, so the palette is the only remaining
+      // route to making the row an order cannot save without.
       //
       // THE COUNT HAS NEVER BEEN THE CLIENT'S CLAIM — the sequence is. The 08-14
       // list read as six only because Fabric BOM had gone missing under Fabric
@@ -297,18 +312,45 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // somewhere: read the sequence, and change the heading.
       //
       // "ORDER ENTRY" IS A CARD HERE, NOT A ROW. That group is dissolved — its
-      // register became a standalone row (below), its two flow screens are steps
-      // 2 and 3, and its three legacy screens are retired at the bottom of this
+      // register became a standalone row (below), its two flow screens are the
+      // first two steps, and its three legacy screens are retired at the bottom of this
       // table. Cross-listing the steps as `cardOnly` instead was the alternative
       // and is the shape that was already deleted once: the 14-step Garment
       // Orders hub went on 2026-08-13 precisely because every one of its nine
       // children was borrowed, so it was a second way in rather than a home.
+      // "ORDER SETUP" WAS RENAMED "ORDER PREPARATION" ON 2026-08-25 (client),
+      // and the reason is that Style leaving made the old name false.
+      //
+      // "Setup" MEANS CONFIGURATION IN THIS APP, and it means it consistently:
+      // Stores ▸ Stock Setup, Finance ▸ Chart & Setup, HR ▸ Compliance & Setup
+      // are all master/config rows. This group was named that way when its step 1
+      // was the Style MASTER — so the label was accurate. With Style gone every
+      // card here acts on ONE LIVE ORDER: raise it, work out what it needs
+      // (Material BOM, CAD, Fabric BOM, Fabric Plan), cost it, get the budget
+      // approved. Nothing in it configures anything, so the word now sends the
+      // operator looking for settings and offers them an order.
+      //
+      // PREPARATION · EXECUTION · CLOSURE is the series it joins, and three of
+      // its five siblings are already lifecycle phases. That is what picked this
+      // name over the more obvious "Order Planning": there is a whole PLANNING
+      // MODULE two rows down the sidebar, whose own rows are Bill of Materials,
+      // Fabric Planning and Budgets — the same three words this group's cards
+      // use. A row named "Order Planning" sitting above it would read as that
+      // module's order-scoped half, which is exactly what it is not.
+      //
+      // THE SLUG STAYS `setup`, so the URL is still /orders/setup. A label is a
+      // name and a slug is an address: renaming the address breaks every deep
+      // link and bookmark, moves the hub page on disk, and buys nothing an
+      // operator can see. The registry already carries this split deliberately —
+      // the Amendments group's slug is `changes` — and `owningNavHref`,
+      // `backTarget` and nav search all read the LABEL, so the rename reaches
+      // every surface without touching a route.
       {
         kind: "group",
         slug: "setup",
-        label: "Order Setup",
+        label: "Order Preparation",
         description:
-          "Style to approved budget — the seven steps a bulk order passes through",
+          "Order entry to approved budget — the six steps a bulk order passes through",
         // Colour Cards was the other half of this group and was removed with its
         // routes and service (client, 2026-08-11): the screen had no rows, its
         // only consumer was the Garment Order colour picker, and that picker is
@@ -317,9 +359,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         // 0332 mistake this repo has already spent a session repairing, and
         // empty tables cost nothing to keep.
         children: [
-          // 1 · STYLE — the garment's DNA: coordinates, components, structures.
-          { href: "/orders/styles", label: "Style", description: "Define garment styles — coordinates, components and sizes" },
-          // 2 · ORDER ENTRY — THE SCREEN AN ORDER IS ACTUALLY ENTERED ON.
+          // STYLE WAS STEP 1 UNTIL 2026-08-25 and is now a child of `retired`.
+          // The garment's DNA — coordinates, components, structures — is entered
+          // on the order line itself (0457 / 0461), so the card here would open
+          // a second place to state what step 1 already states.
+          //
+          // 1 · ORDER ENTRY — THE SCREEN AN ORDER IS ACTUALLY ENTERED ON.
           //
           // Its row sat under Amendments until 2026-08-11, labelled "Order
           // Amendment", because that is the document it writes — while Order
@@ -343,11 +388,13 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           //
           // THE LABEL IS THE STEP NAME NOW. It read "Garment Order" while its
           // group was "Order Entry"; with the group gone the card has to carry
-          // the step, or the operator's step 2 has no row and no card bearing
-          // its name. The route still says `garment-orders`, which is the name
+          // the step, or the operator's entry step has no row and no card
+          // bearing its name (it was step 2 then, and is step 1 since Style left
+          // the list on 08-25 — which is why the sentence no longer names a
+          // number). The route still says `garment-orders`, which is the name
           // operators have used for the screen for years.
           { href: "/orders/garment-orders", label: "Order Entry", description: "Raise a garment order — buyer PO, styles, colours, prices, packing, quantities and logistics" },
-          // 3 · MATERIAL BOM — and it belongs beside the order it plans for, not
+          // 2 · MATERIAL BOM — and it belongs beside the order it plans for, not
           // under Amendments where it sat until 2026-08-13.
           //
           // It moved for the reason the card above did. The screen plans an
@@ -395,7 +442,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // pass through and becomes optional, which is what 'reduce the number
           // of entries' means".
           //
-          // 4 · FABRIC BOM — AND IT WAS MISSING UNDER ANOTHER NAME (client
+          // 3 · FABRIC BOM — AND IT WAS MISSING UNDER ANOTHER NAME (client
           // 2026-08-17).
           //
           // The tail of this list used to be two cross-module cards pointing
@@ -444,12 +491,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // an order before you can see which orders need you.
           //
           // Placed immediately BEFORE Fabric BOM because it feeds it: the gram
-          // weights this screen captures are what step 5's consumption is seeded
+          // weights this screen captures are what step 3's consumption is seeded
           // from. `page.tsx` renders a PageHeader + DataTable and imports no
           // HubCard, so assertion 8 of check-module-groups.mts is satisfied.
           { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
           { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
-          // 6 · FABRIC PLAN — the sourcing and processing path for what step 5
+          // 4 · FABRIC PLAN — the sourcing and processing path for what step 3
           // requires: yarn purchase, knitting, dyeing, stentering, compacting,
           // and which of those are in-house against out-processed.
           // BUILT 2026-08-17 (`0427`). The description is narrower than the
@@ -458,13 +505,13 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // Fabric BOM is finished fabric; this walks backwards from it to the
           // yarn, applying each stage's loss.
           { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
-          // 7 · BUDGETING — and 8 · APPROVAL — are two STEPS over ONE document.
+          // 5 · BUDGETING — and 6 · APPROVAL — are two STEPS over ONE document.
           //
           // Approval is a transition on the budget's own `status`, never a
           // second record: two records would let the approved figures drift from
           // the budget they approved. The app already does approvals this shape
           // (`/orders/approve-amendments` over the amendment's status), and the
-          // legacy schema did too. So step 8 is a QUEUE of submitted budgets,
+          // legacy schema did too. So the last step is a QUEUE of submitted budgets,
           // and it is a step because the client counts it as one.
           // BUILT 2026-08-17 (`0428`). "the order" became "a GROUP of orders" in
           // the description, and that is the client's own shape from doc/prd.md:
@@ -653,11 +700,34 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens are off the Orders menu — the first three because the six-step Order Setup replaces them, and All Orders by request. They all still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — the first three because Order Preparation replaces them, and All Orders and Style by request. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
           { href: "/orders/excess-orders", label: "Excess Orders", description: "Supplementary quantities beyond the planned order, size-wise" },
+          // STYLE JOINED ON 2026-08-25 (client): "we add this in garment order so
+          // only hide it from ui". It was step 1 of Order Preparation (still
+          // named Order Setup that morning); 0457 / 0461 put
+          // the master's fields, components and coordinates onto the order line,
+          // and 0407 had already put sizes there — so the step is now the first
+          // section of the screen that used to follow it, and a card for it would
+          // be a second door onto one piece of work.
+          //
+          // IT IS THE THIRD KIND OF SCREEN IN THIS GROUP, and the least retired of
+          // them. Order Booking et al are superseded menus; All Orders is a live
+          // register taken off the menu by request; this is a MASTER that ten call
+          // sites still read and that `pickStyle` seeds every order line from. The
+          // group's flag means "off the menu, still on the URL" and nothing more —
+          // which is exactly what was asked for, so the card belongs here rather
+          // than in a second hidden group meaning the same thing.
+          //
+          // THE PALETTE ENTRY IS NOT A COURTESY HERE. The order line's Style is
+          // `required` and its picker has no quick-create, so with the row gone
+          // from the menu, `moduleLeafItems` (which does not filter `hidden`) and
+          // `SECTION_ACTIONS["/orders/styles"]` are the only ways left to create
+          // the master an order cannot save without. Do not "finish the job" by
+          // deleting either — that would make a required field unfillable.
+          { href: "/orders/styles", label: "Style", description: "Define garment styles — coordinates, components and sizes" },
           // Keeps its `hub-count-map.ts` entry (`sales_orders`), so the card here
           // still shows how many orders are behind it. Nothing needed changing
           // for that: the map is keyed by href, and `GroupHub` reads it for a

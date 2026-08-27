@@ -21,8 +21,8 @@ export type { BomStatus };
  * Nothing here is about MATERIAL. It reads the order's Approval Qty rows, its
  * Combos tab, its excess percentage, its rejection rule and its assortment size
  * curve, and hands back the `OrderProductionInput` the requirement engines take.
- * Material BOM (step 3, `0418`) asked for it first; Fabric BOM (step 5, `0426`)
- * asks for exactly the same thing, and step 7's Budget will ask again.
+ * Material BOM (step 2, `0418`) asked for it first; Fabric BOM (step 3, `0426`)
+ * asks for exactly the same thing, and step 5's Budget will ask again.
  *
  * It was extracted rather than copied — for the reason `bom-status.ts` records
  * one file along, and for a sharper one here. `ORDER_SELECT` names four child

@@ -3,7 +3,7 @@ import { BUDGET_SOURCES } from "./totals";
 import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
-// Orders ▸ Budgeting (step 7) and Approval (step 8), over ONE table (0428).
+// Orders ▸ Budgeting (step 5) and Approval (step 6), over ONE table (0428).
 //
 // A budget groups several garment orders, costs them from their Fabric and
 // Material BOMs, and is then approved. Approval is a transition on `status`, not
@@ -223,7 +223,7 @@ export type BudgetableOrder = {
   material_cost_lines: number;
 };
 
-/** A row of the approval queue (step 8). */
+/** A row of the approval queue (step 6). */
 export type BudgetApprovalRow = {
   id: string;
   code: string | null;

@@ -1,4 +1,24 @@
 /**
+ * NOTHING IMPORTS THIS AS OF 2026-08-25, AND THAT IS NOT AN OVERSIGHT.
+ *
+ * The Garment Order's Style became MANUAL ENTRY on that date (client: "allow it
+ * manual entry now, unwire that style mapping with that field in orderinfo"), so
+ * there is no picker left to narrow and its one call site is gone. The file is
+ * kept rather than deleted because what it holds is a CLIENT RULE and an account
+ * of a schema blocker, not just code: `service.ts` cites it beside the
+ * `customer_id` column it selects but does not filter on, and `lib/orders/styles/
+ * types.ts` cites it for why the two style vocabularies are allowed to drift.
+ * Delete the file and those three comments point at nothing.
+ *
+ * SO TREAT IT AS DOCUMENTATION UNTIL SOMETHING IMPORTS IT AGAIN. It still
+ * type-checks, and its "empty and explain" hints still name the right screens —
+ * but nothing renders them today, so fixing the wording here changes nothing an
+ * operator sees. If the picker comes back (the customer half is one filled
+ * `buyers.customer_id` bridge away from being switchable on), this is what it
+ * comes back to.
+ *
+ * ---
+ *
  * "Which styles may this order line name?" — the Style picker's option list.
  *
  * Client requirement: "Once a customer and season are selected, the Style field
@@ -203,7 +223,12 @@ export function styleOptions({
   if (!styles.length) {
     return keep(
       [],
-      "There are no styles in the Style Master yet — add one on Orders ▸ Order Setup ▸ Style.",
+      // THE STYLE SCREEN IS OFF THE MENU (2026-08-25), so a hint naming a menu
+      // path sends the operator hunting for a row that is not there. The palette
+      // is the route now — see the `retired` group in lib/nav/module-groups.ts,
+      // which records that this is the only door left to a master an order
+      // cannot save without.
+      "There are no styles in the Style Master yet — press Ctrl+K and search “Style” to add one.",
       "— No styles yet —",
     );
   }
@@ -215,7 +240,7 @@ export function styleOptions({
     if (seasonOnly.length) {
       return keep(
         [],
-        "No styles for this customer. Enter the style on Orders ▸ Order Setup ▸ Style with this customer on it, or change the header's Customer.",
+        "No styles for this customer. Press Ctrl+K, search “Style”, and enter one with this customer on it — or change the header's Customer.",
         "— No styles for this customer —",
       );
     }
@@ -226,7 +251,7 @@ export function styleOptions({
     // branch above returns first whenever season is the cause.
     return keep(
       [],
-      "No styles for this customer. Enter the style on Orders ▸ Order Setup ▸ Style with this customer on it, or change the header's Customer.",
+      "No styles for this customer. Press Ctrl+K, search “Style”, and enter one with this customer on it — or change the header's Customer.",
       "— No styles for this customer —",
     );
   }

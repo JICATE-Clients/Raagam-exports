@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Orders ▸ Approval — step 8 of the client's order flow (0428).
+ * Orders ▸ Approval — step 6 of the client's order flow (0428).
  *
  * A QUEUE OVER THE BUDGET'S OWN STATUS, not a second document. A separate STEP
  * is not a separate record: two records would let the approved figures drift
@@ -192,7 +192,7 @@ export function BudgetApprovalScreen({
       <div className="space-y-4">
         <PageHeader
           title="Approval"
-          description="Step 8 — approve or reject a submitted order budget. The last gate before purchase may act on it."
+          description="Step 6 — approve or reject a submitted order budget. The last gate before purchase may act on it."
         />
 
         {!canApprove && (
@@ -200,6 +200,10 @@ export function BudgetApprovalScreen({
           // broken; the permission is real and the client decides who holds it.
           <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
             You can see budgets here but not decide on them — that needs the
+            {/* nav-path: exempt -- a PERMISSION (`orders:approve`, rendered
+                through MODULE_LABELS), not a menu path. The sentence says so
+                and points at the Roles screen, so nothing here promises a row
+                to click. */}
             <span className="font-medium text-foreground"> Orders ▸ Approve </span>
             permission, which is granted on the Roles screen.
           </p>

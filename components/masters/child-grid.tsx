@@ -8,7 +8,7 @@ import { LABEL_METRICS } from "@/components/ui/label";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
-import { atCaretEdge, focusField, isOffTabPath } from "@/lib/focus";
+import { atCaretEdge, focusField, isOffTabPath, landOnAddedRow } from "@/lib/focus";
 import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -143,6 +143,26 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
 export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2";
 
 /**
+ * THE COLUMN-HEADER BAND'S TYPE — darker and a half-step bigger than a field
+ * label, for the reason the `<th>` below records: on a row of identical boxes
+ * the heading is the ONLY thing telling the operator which cell they are in, so
+ * a muted grey 12px "reads as decoration" (client 2026-08-18).
+ *
+ * EXPORTED BECAUSE A PANEL BESIDE A GRID HAS TO MATCH IT. Order Info ▸ Styles
+ * Details lays a coordinates list, this grid and a Sizes picker on one line;
+ * the middle one drew bold headings and the two beside it drew nothing and a
+ * muted `Label`, so the row read as one titled thing between two untitled ones
+ * (client 2026-08-26: "the centered section only have field titles but that
+ * left and right section field title no — so add it and make bold"). They title
+ * themselves with THIS string rather than a retyped copy of it, which is the
+ * same argument `LABEL_METRICS` makes one component over.
+ *
+ * It was typed out twice inside this file before that — the `#` header and the
+ * column headers — which is exactly how a third copy starts.
+ */
+export const GRID_HEADER_TEXT = "text-[12.5px] font-semibold text-foreground";
+
+/**
  * `openRowKey`'s "nothing is open" value — see the state declaration below.
  *
  * A STRING THAT CANNOT BE A ROW KEY, rather than a second boolean beside the
@@ -226,6 +246,46 @@ function tabFieldsIn(row: HTMLElement): HTMLElement[] {
  *
  * Returns true when it consumed the key.
  */
+/**
+ * TAB ONTO A SHUT FOLD OPENS IT AND CARRIES ON INSIDE (client 2026-08-27, on
+ * Material BOM: "open the first section, close the second one").
+ *
+ * A folded group's band is a `data-grid-row` whose only field is its chevron, so
+ * without this Tab off the last row of one group STOPS on the next group's
+ * chevron — the operator presses Enter to open it, then Tab again to get into
+ * it. Three keys to cross a boundary they did not ask to be stopped at.
+ *
+ * IT IS NOT THE "+ Add" RULE AND MUST NOT INHERIT ITS CAUTION. Enter off the
+ * last row deliberately LANDS on "+ Add" and takes a second press to fire,
+ * because that button CREATES a row and the client complained about rows being
+ * conjured by a keystroke aimed at moving (2026-08-19). Opening a fold creates
+ * nothing: the rows already exist and are already the operator's, and the only
+ * question is which of them is on screen. Revealing is not creating, so the
+ * automatic move is right here and would be wrong there.
+ *
+ * Drives the chevron with `.click()`, the path a mouse takes — the same reason
+ * `enterNestedGrid` and `removeRowKey` do: whatever the button does, including
+ * shutting the fold the operator is leaving, happens exactly once and cannot
+ * drift from what a click does.
+ *
+ * `landOnAddedRow` then puts the cursor in the first field that appeared, which
+ * is what makes this one move rather than two. It diffs the grid body before and
+ * after, so it is indifferent to an accordion ALSO closing the previous group in
+ * the same commit — the fields that vanish are not candidates, and it retries
+ * across a few frames for the render.
+ *
+ * FORWARD ONLY, like `enterNestedGrid`: Shift+Tab out of a group is the operator
+ * leaving, not asking for the group above to unfold. And only a SHUT fold —
+ * `aria-expanded="false"` — so an open band's chevron stays an ordinary stop.
+ */
+function enterShutFold(target: HTMLElement, e: React.KeyboardEvent<HTMLElement>): boolean {
+  if (!target.matches('[data-row-open][aria-expanded="false"]')) return false;
+  e.preventDefault();
+  target.click();
+  landOnAddedRow(target);
+  return true;
+}
+
 function enterNestedGrid(row: HTMLElement, e: React.KeyboardEvent<HTMLElement>): boolean {
   // Nested bodies only — `row.closest` would find the grid this row belongs to —
   // and LAID OUT ones only: a `responsive` ChildGrid mounts its table and its
@@ -444,6 +504,10 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
     const into = tabFieldsIn(nextRow);
     target = step(into, dir === 1 ? -1 : into.length);
     if (!target) return false; // a collapsed / summary-only row: let Tab pass
+    // Off the end of a fold's LAST row, forward: the next thing is a shut fold's
+    // own chevron, and standing on it is a stop the operator has to press Enter
+    // on. Open it and carry straight in instead.
+    if (dir === 1 && enterShutFold(target, e)) return true;
   }
   /**
    * CLAIM THE KEY ONLY IF THE CURSOR ARRIVED (client 2026-08-19).
@@ -1750,7 +1814,7 @@ export function ChildGrid<T extends { key: string }>({
           >
             <thead>
               <tr className="border-b border-border bg-surface-muted">
-                <th className="w-10 px-2 py-2 text-center text-[12.5px] font-semibold text-foreground">#</th>
+                <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
                 {columns.map((c, i) => (
                   <th
                     key={i}
@@ -1768,7 +1832,8 @@ export function ChildGrid<T extends { key: string }>({
                       // operator which cell they are in — it is not chrome here,
                       // it is the label for every value beneath it, and a muted
                       // grey 12px reads as decoration.
-                      "border-l border-border px-2 py-2 text-[12.5px] font-semibold text-foreground",
+                      "border-l border-border px-2 py-2",
+                      GRID_HEADER_TEXT,
                       // See `centerHeaders`: the heading is centred while the
                       // CELLS keep `c.align`, so a column of figures still lines
                       // up on its decimal point.

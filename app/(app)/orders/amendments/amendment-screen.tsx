@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   ChildGrid,
+  GRID_HEADER_TEXT,
   gridKeyNav,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
@@ -113,10 +114,11 @@ import { isInactive } from "@/lib/masters/inactive";
 // writes the same two children that screen does (0457), and a second copy of
 // either question is how `comp_type` came to have four wrong readings.
 import {
+  COORDINATE_LIMITS,
   componentRowStarted,
   componentTypeForCategory,
-  coordinateLimit,
   filledCoordinates,
+  unitKindFromCoordinates,
 } from "@/lib/orders/styles/rules";
 import { componentsForCoordinate } from "@/lib/masters/component-coordinates";
 import { previewOrderNumber } from "@/lib/orders/actions";
@@ -164,9 +166,18 @@ import type {
 // `style-key.ts` says why it was split out rather than copied.
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import * as AssortStyle from "@/lib/orders/amendments/assort-style";
+import { PackCompositionSheet } from "@/components/orders/pack-composition-sheet";
+import {
+  piecesPerPack as packPieces,
+  derivedPoQty as packDerivedQty,
+  packRowStarted,
+  type PackComponentRow,
+} from "@/lib/orders/amendments/pack-composition";
 import {
   PACK_TYPE_OPTIONS,
+  RETIRED_PACK_TYPES,
   PRICE_TYPE_OPTIONS,
+  PACK_WISE_PRICE,
   SEASON_OPTIONS,
   dyeTypeOptions,
   SHIP_MODES,
@@ -176,14 +187,11 @@ import {
   orderUnitLabel,
   type GarmentOrderAmendment,
 } from "@/lib/orders/amendments/types";
-import {
-  styleOptions,
-  type StyleFilterRow,
-} from "@/lib/orders/amendments/style-options";
+// `StylePickerRow` left this import on 2026-08-25 with the Style picker itself —
+// the type describes a master row, and nothing on this screen holds one now.
 import type {
   AmendmentFormData,
   PickerRow,
-  StylePickerRow,
 } from "@/lib/orders/amendments/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
@@ -245,6 +253,11 @@ type SizeRow = { key: string; size_id: string | null };
  *  A component is a part of one of these, which is what makes this list the
  *  scope for the Components grid's Coordinate cell. */
 type StyleCoordRow = { key: string; coordinate_id: string | null };
+
+/* The pack member row and its arithmetic live in
+   `lib/orders/amendments/pack-composition.ts` — a pure module so the explosion
+   can carry vectors, and so the sheet and this screen cannot drift on what a
+   duplicate member is. */
 /**
  * Order Info ▸ Styles Details ▸ one COMPONENT of the style line (0457).
  *
@@ -288,8 +301,19 @@ type StyleRow = {
   style_description: string;
   order_unit_id: string | null;
   plan_unit_id: string | null;
+  /** PIECES, always — see `packs_ordered`. */
   po_qty: string;
+  /**
+   * PACKS the buyer ordered (0467), when the order is a retail SET pack.
+   *
+   * STRING, like every other numeric box on this screen, because a number
+   * cannot represent a just-cleared field — and here that matters more than
+   * usual: blank means "not a set pack" and 0 means "no packs ordered".
+   */
+  packs_ordered: string;
   description: string;
+  /** The pack's members, when this style is sold as a set (0467). */
+  pack_components: PackComponentRow[];
   /** The style's size set, listed under the row. Order IS the data. */
   sizes: SizeRow[];
   /** What its components are parts OF (0461), nested for the same reason. */
@@ -609,6 +633,21 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
     if (list) list.push(row);
     else coordsByStyle.set(k, [row]);
   }
+  /* THE PACK MEMBERS (0467), regrouped exactly as the coordinates above are,
+     and dropped the same way when their style has left the document. */
+  const packCompsByStyle = new Map<string, PackComponentRow[]>();
+  for (const x of src.packComponents ?? []) {
+    const k = styleKey(x.style_ref_no);
+    const list = packCompsByStyle.get(k);
+    const row: PackComponentRow = {
+      key: newKey(),
+      coordinate_id: x.coordinate_id,
+      combo: x.combo ?? "",
+      qty_per_pack: x.qty_per_pack == null ? "" : String(x.qty_per_pack),
+    };
+    if (list) list.push(row);
+    else packCompsByStyle.set(k, [row]);
+  }
   /* THE COMPONENTS (0457), regrouped exactly as the sizes above are.
 
      Same key, same comparison and the same drop rule: `styleKey` rather than
@@ -674,9 +713,11 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       order_unit_id: x.order_unit_id,
       plan_unit_id: x.plan_unit_id,
       po_qty: num(x.po_qty),
+      packs_ordered: x.packs_ordered == null ? "" : String(x.packs_ordered),
       description: txt(x.description),
       sizes: sizesByStyle.get(styleKey(x.style_ref_no)) ?? [],
       coordinates: coordsByStyle.get(styleKey(x.style_ref_no)) ?? [],
+      pack_components: packCompsByStyle.get(styleKey(x.style_ref_no)) ?? [],
       components: componentsByStyle.get(styleKey(x.style_ref_no)) ?? [],
       processes: processesByStyle.get(styleKey(x.style_ref_no)) ?? [],
     })),
@@ -797,6 +838,25 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
   };
 }
 
+/**
+ * SET PACK IS OFF THE SCREEN FOR NOW (client 2026-08-27: "for now hide that set
+ * pack toggle from ui").
+ *
+ * HIDDEN, NOT REMOVED — the same call the nav registry makes for a retired row.
+ * `is_set_pack`, `packs_ordered` and `garment_order_amendment_pack_components`
+ * stay in the schema (0467), the explosion stays in `pack-composition.ts` with
+ * its vectors, and every consumer on this screen already asks `form.is_set_pack`
+ * before it renders. So with the switch gone the flag simply stays false and the
+ * Packs column, the Pack Composition button, the Pack-wise price mode and
+ * `packProblems` all stand down on their own. Nothing needed a second edit, and
+ * that is the test that this is a hide rather than a rip-out.
+ *
+ * TO BRING IT BACK: flip this to `true`. Deleting the feature instead would cost
+ * the migration, the sheet, the 23 explosion vectors and the reasoning behind
+ * `po_qty` staying pieces — and that last one is the expensive part to rebuild.
+ */
+const SET_PACK_ON_SCREEN = false;
+
 type HeaderForm = {
   // order header
   sales_order_id: string | null;
@@ -811,6 +871,8 @@ type HeaderForm = {
   delivery_date: string;
   excess_pct: string;
   pack: boolean;
+  /** Retail SET packaging (0467) — independent of `pack`, which is cartons. */
+  is_set_pack: boolean;
   /** MULTI STYLE. Legacy column name, "Multi Style" on screen — see 0427. */
   mult_ord: boolean;
   /** MULTI ORDER (0427) — several buyer POs, one per quantity line. */
@@ -852,6 +914,7 @@ const BLANK: HeaderForm = {
   delivery_date: "",
   excess_pct: "",
   pack: false,
+  is_set_pack: false,
   mult_ord: false,
   multi_order: false,
   department_id: null,
@@ -890,6 +953,71 @@ const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
  * column width that drifts.
  */
 const STYLE_COL_W = "14rem";
+
+/**
+ * A STYLE FIELD'S WIDTH, KEYED BY ITS HEADER.
+ *
+ * The row left the 14-column track on 2026-08-26 for the reason the Order Info
+ * header did (see the note there): every cell was `xs`, `xs` means "2-4 chars",
+ * and on a fractional track that resolved to one seventh of the line for a
+ * three-letter Uom and for a style name alike.
+ *
+ * KEYED BY HEADER, NOT BY INDEX, and not added to `ChildGridColumn` — the
+ * column array is deliberately re-orderable (its own note says every consumer
+ * resolves by `header` precisely so it can be re-sequenced without a hunt), and
+ * `ChildGridColumn` is shared with ~20 other screens that have no `FieldRow`.
+ * A missing header falls back to `code`, which is the commonest of the seven.
+ *
+ * THE SEVEN IDENTITY FIELDS COME TO 1,008px including gaps — 176 + 144 + 144
+ * + 144 + 72 + 112 + 144, plus six gaps. Description is the eighth and it is
+ * NOT a fixed width; see its entry below.
+ *
+ * MEASURE THE PANE BEFORE ADDING A NINTH. The editor pane is **~1,229px** on
+ * the operator's machine (1920px screen at 125% scaling = 1536 CSS px, less the
+ * ~260px section rail and the page padding) — not the ~1,504 an unscaled
+ * 1920 suggests, and that 275px difference is exactly what made an eight-field
+ * line that "fitted" wrap in front of the client (2026-08-26, screenshot 2495).
+ * A width that fits in the arithmetic and not on the screen is worse than one
+ * that is visibly too wide, because nothing reports it.
+ */
+const STYLE_FIELD_W: Record<string, FieldWidth> = {
+  /* `term` (176) AND NOT `name` (288), SO DESCRIPTION FITS BESIDE IT (client
+     2026-08-26: "decrease that style field size a little, then move that
+     description to the same row" — the two halves are one instruction, because
+     at `name` the eight came to 1,420px and Description was the field that
+     wrapped away on anything under a full-width pane).
+
+     176px holds ~22 characters of a manually-typed style name, and the value is
+     `Truncated`-backed like every other on this row, so a longer one clips with
+     the rest reachable rather than being lost. It is still the widest of the
+     seven identity fields, which is the proportion that matters here. */
+  Style: "term",
+  "Approved Sample No": "code",
+  "Style Category": "code",
+  "Article No.": "code",
+  "Order Unit": "num",
+  "PO Qty": "range",
+  Process: "code",
+  /* DESCRIPTION JOINS THE ROW (client 2026-08-26: "that description also move
+     to the style details row"). It took the second line whole until then, on
+     `w-full`, because ~155px of a 14-column track is what `FIELD_TRACK_14`'s
+     own note calls "tight for free text".
+
+     THIS ENTRY IS ITS FLOOR, NOT ITS WIDTH. The cell also carries
+     `flex-[1_1_11rem]` at the call site — 11rem IS `term`, stated twice on
+     purpose so the two cannot say different things — which makes Description
+     take whatever the seven leave rather than a number somebody guessed:
+     ~210px on the operator's 1,229px pane, ~484px on a 1,504px one, and its own
+     line as soon as fewer than 176px are free.
+
+     A FIXED WIDTH WAS TRIED FIRST AND WRAPPED. `name` (288) put the line at
+     1,308px against a pane of 1,229, so the field the instruction was ABOUT was
+     the one that fell off it. Growing into the remainder is the only version of
+     this that cannot be wrong at a width nobody measured — which, on a row that
+     has now been re-widthed four times in a day, is the property that matters
+     more than any particular number. */
+  Description: "term",
+};
 
 export function AmendmentScreen({
   rows,
@@ -1072,7 +1200,9 @@ export function AmendmentScreen({
     order_unit_id: null,
     plan_unit_id: null,
     po_qty: "",
+    packs_ordered: "",
     description: "",
+    pack_components: [],
     sizes: [],
     coordinates: [],
     components: [],
@@ -1559,14 +1689,24 @@ export function AmendmentScreen({
    *
    * A combo row carries `style_ref_no` (the text key every style-keyed tab
    * resolves on), not a `style_id` — so the style is found the same way Price
-   * Details finds it, through the line the operator picked. `styleKey` rather
+   * Details finds it, through the line the operator typed. `styleKey` rather
    * than `===`, because rows saved before the CAPITALS rule are not upper-cased.
+   *
+   * IT RETURNS THE LINE, NOT A MASTER ROW (2026-08-25). It used to take one more
+   * hop — line → `style_id` → `garment_styles` — and with Style now typed there
+   * is no id to hop through. Nothing below it changed: `StyleRow.components`
+   * carries the same `coordinate_id` / `component_id` / `fabric_category_id`
+   * triple the master's list did (0457 copied that shape deliberately), so the
+   * three scoping helpers and the structure tree read the same field off a
+   * nearer source. They are also now scoped to what THIS ORDER declares rather
+   * than to what the master happens to say today, which is the stronger answer:
+   * a combo is a colourway of the garment on this PO.
    */
-  const styleOfCombo = (r: ComboRow): StylePickerRow | null => {
-    const line = styles.find(
-      (x) => styleKey(x.style_ref_no) === styleKey(r.style_ref_no),
+  const styleOfCombo = (r: ComboRow): StyleRow | null => {
+    return (
+      styles.find((x) => styleKey(x.style_ref_no) === styleKey(r.style_ref_no)) ??
+      null
     );
-    return line?.style_id ? (styleById.get(line.style_id) ?? null) : null;
   };
 
   /**
@@ -1710,64 +1850,29 @@ export function AmendmentScreen({
     colourOptionsByType.get(st.item_sub_type) ?? [];
 
   /**
-   * Style picker rows, carrying the column the filter narrows on.
-   * The full master rows stay in `styleById` for auto-fill lookup.
+   * THE STYLE PICKER IS GONE (client 2026-08-25) — and with it `styleFilterRows`,
+   * `styleOptionsFor` and `styleById`, the three things that existed only to
+   * serve it.
+   *
+   * WHAT WENT WITH THEM, RECORDED because it was a real rule and its premise
+   * expired rather than being found wrong: the picker narrowed to the header's
+   * CUSTOMER and SEASON ("Once a customer and season are selected, the Style
+   * field should only list relevant styles"), which took migration 0404 to make
+   * buildable at all — styles key on `customers`, this order keyed on `buyers`,
+   * and the bridge between them was empty. A typed field has nothing to narrow.
+   *
+   * `data.styles` IS STILL LOADED AND THIS SCREEN NO LONGER READS IT — said
+   * plainly because a fetch with no reader is the kind of thing that gets
+   * "tidied" by someone who has not asked why it is there. It is kept for two
+   * reasons: `AmendmentFormData` is shared with the loader both doors use, and
+   * the customer/season narrowing above is one filled `buyers.customer_id`
+   * bridge away from being switchable back on (service.ts says so beside the
+   * column). Dropping the select is a separate, deliberate change.
+   *
+   * The previous value of the cell being edited, for `settleStyleRef` — see the
+   * Style cell for why it is captured on focus rather than mirrored in state.
    */
-  const styleFilterRows: StyleFilterRow[] = useMemo(
-    () =>
-      data.styles.map((s) => ({
-        id: s.id,
-        code: s.code,
-        name: s.name,
-        blocked: s.blocked,
-        season: s.season,
-        customer_id: s.customer_id,
-      })),
-    [data.styles],
-  );
-
-  /**
-   * The Style options for ONE row (client: "Once a customer and season are
-   * selected, the Style field should only list relevant styles").
-   *
-   * CUSTOMER-FIRST, AND BOTH FACETS ARE LIVE (client 2026-08-14). The order of
-   * entry is Customer → Approved Sample No → Style, and the narrowing is what
-   * makes that order mean something rather than just being advice.
-   *
-   * The customer half was unbuildable until 0404: styles key on `customers` and
-   * this order keyed on `buyers`, with an empty bridge between them, so the
-   * filter would either empty the picker on every order or narrow nothing while
-   * looking like it works. 0404 repointed this order's party at `customers`, and
-   * the comment that used to sit here said "adding `customer: form.customer_id`
-   * below is the whole edit". It was — plus carrying the column into
-   * `styleFilterRows` above, which is the half that would have failed silently:
-   * a filter reading `undefined` on every row narrows nothing and looks correct.
-   *
-   * WHY IT IS SAFE TO SWITCH ON. The two worries were that it is a visible change
-   * to what the picker offers, and that with a thin master it can legitimately
-   * empty the list. Both are answered by `style-options.ts` rather than by
-   * hedging here: an unassigned style stays on offer, and an empty list explains
-   * WHICH facet emptied it and where to go.
-   *
-   * Per ROW, not per grid, for one reason only: `currentValue`. The style a line
-   * already holds must survive a filter that would now exclude it — the header's
-   * Customer or Season edited after the line was saved — or the field renders
-   * empty and the next save blanks the FK. The narrowing itself is identical on
-   * every row.
-   */
-  const styleOptionsFor = (currentValue: string | null) =>
-    styleOptions({
-      styles: styleFilterRows,
-      customer: form.customer_id,
-      season: form.season,
-      currentValue,
-    });
-
-  const styleById = useMemo(() => {
-    const m = new Map<string, StylePickerRow>();
-    for (const s of data.styles) m.set(s.id, s);
-    return m;
-  }, [data.styles]);
+  const styleRefOnFocus = useRef("");
 
   /**
    * WHICH STYLE(S) LINE HAS ITS PROCESS SHEET OPEN — keyed by the ROW, never by
@@ -1779,6 +1884,9 @@ export function AmendmentScreen({
    */
   const [processForKey, setProcessForKey] = useState<string | null>(null);
   const processStyle = styles.find((r) => r.key === processForKey) ?? null;
+  /* The Pack Composition sheet's opener, keyed the same way (0467). */
+  const [packForKey, setPackForKey] = useState<string | null>(null);
+  const packStyle = styles.find((r) => r.key === packForKey) ?? null;
 
   /**
    * THIS STYLE'S OWN PARTS, for the Process sheet's Component cell (0421).
@@ -1794,15 +1902,21 @@ export function AmendmentScreen({
    * style whose components have not been entered yet must not silently offer an
    * empty list, which reads as "this garment has no panels".
    */
-  const styleComponentOptions = (r: StyleRow): ComponentOption[] => {
-    const declared = new Set(
-      ((r.style_id ? styleById.get(r.style_id)?.components : null) ?? [])
-        .map((c) => c.component_id)
-        .filter(Boolean) as string[],
-    );
-    return declared.size
-      ? data.componentRows.filter((o) => declared.has(o.id))
-      : data.componentRows;
+  const styleComponentOptions = (_r: StyleRow): ComponentOption[] => {
+    /* THE FULL MASTER, ALWAYS, SINCE 2026-08-25. This narrowed the line's own
+       Components picker to the component list the MASTER declared for the picked
+       style — the "style declares the parts, the order picks among them" rule.
+       With Style typed there is no master row to ask, and narrowing the picker by
+       the line's OWN components would be circular: it would offer only the parts
+       already added and so refuse the next one.
+
+       This is the fallback the helper always had ("a style that declares nothing
+       falls back to the full master"), now the only branch. Kept as a function
+       rather than inlined because the CALL SITE is where the rule would come
+       back if the client ever wants the line scoped again — see the Combos
+       overlay's `scopedComponents`, which still narrows, because there the parent
+       (this line's components) is a genuinely different list from the child. */
+    return data.componentRows;
   };
 
   /**
@@ -1817,11 +1931,13 @@ export function AmendmentScreen({
       styles.map((r) => ({
         id: r.key,
         code: r.style_ref_no || null,
-        name:
-          (r.style_id ? styleById.get(r.style_id)?.name : null) ??
-          (r.style_ref_no || "(unnamed line)"),
+        /* THE TYPED REF IS THE NAME (2026-08-25). It used to prefer the master's
+           `name` and fall back to the ref; with Style typed there is one string
+           and it answers both. "(unnamed line)" still stands in for a line the
+           operator has not named yet, so a price row never points at a blank. */
+        name: r.style_ref_no || "(unnamed line)",
       })),
-    [styles, styleById],
+    [styles],
   );
 
   /**
@@ -1837,20 +1953,38 @@ export function AmendmentScreen({
     refNo.trim() ? (styles.find((x) => x.style_ref_no.trim() === refNo.trim())?.key ?? null) : null;
 
   /**
-   * The style line's Order Unit — PCS or SET, off the picked style's own
-   * `unit_kind` (client 2026-08-11).
+   * The style line's Order Unit — PCS or SET (client 2026-08-11).
    *
-   * Read through `style_id`, not off a column of this row: the unit is a fact
-   * the STYLE owns (it is the same value that caps its Coordinates grid), so
-   * there is nothing here to store and nothing to keep in step. `orderUnitLabel`
-   * carries the full reasoning and the reason `uoms` cannot answer this.
+   * IT COMES FROM THE LINE'S OWN COORDINATES SINCE 2026-08-25, and this is the
+   * one thing the Style unwiring actually took away. The unit used to resolve
+   * through `style_id` to the master's `unit_kind` — "a fact the STYLE owns …
+   * nothing here to store and nothing to keep in step" — and a typed Style has no
+   * id to resolve. Three ways out were open:
+   *
+   *   1. leave the column blank, which is honest and loses a value the client
+   *      asked for by name and which Price Details STORES;
+   *   2. add a `unit_kind` column to the line and ask the operator a second
+   *      question — a migration, and a question the order already answers;
+   *   3. read `COORDINATE_LIMITS` backwards, which is this.
+   *
+   * A Piece is one garment (one coordinate) and a Set is two or more; the ranges
+   * are disjoint, so a filled coordinate count names exactly one kind. The rule
+   * lives in `unitKindFromCoordinates` beside the limits it inverts, not here,
+   * and `scripts/check-style-rules.mts` asserts the two directions agree AND that
+   * the ranges stay disjoint — the derivation stops being legitimate the day they
+   * overlap, and that assertion is what would say so.
+   *
+   * BLANK UNTIL THE FIRST COORDINATE IS ENTERED, never defaulted to PCS: this
+   * word is written into `price_details.unit`, so a guess here is a guess that
+   * gets stored. `filledCoordinates` ignores the blank row the grid seeds.
    *
    * The text half is unchanged: Price Details still stores this word in its own
    * `unit` column, which is what "pulled from the Order Unit established in the
-   * initial Style Entry" means — it just no longer comes from a UoM master.
+   * initial Style Entry" means — it just no longer comes from a UoM master, and
+   * now not from the Style master either.
    */
   const unitTextOf = (r: StyleRow) =>
-    orderUnitLabel(r.style_id ? styleById.get(r.style_id)?.unit_kind : null);
+    orderUnitLabel(unitKindFromCoordinates(filledCoordinates(r.coordinates)));
 
   /*
    * COLOUR IS TYPED, SO THERE IS NO COLOUR OPTION LIST (2026-08-11).
@@ -2062,6 +2196,7 @@ export function AmendmentScreen({
       delivery_date: r.delivery_date ?? "",
       excess_pct: r.excess_pct ? String(r.excess_pct) : "",
       pack: r.pack,
+      is_set_pack: r.is_set_pack ?? false,
       mult_ord: r.mult_ord,
       multi_order: r.multi_order,
       department_id: r.department_id,
@@ -2098,6 +2233,7 @@ export function AmendmentScreen({
       styles: r.styles,
       styleSizes: r.style_sizes,
       styleCoordinates: r.style_coordinates,
+      packComponents: r.pack_components,
       styleComponents: r.style_components,
       styleProcesses: r.style_processes,
       dyeings: r.dyeings,
@@ -2161,6 +2297,7 @@ export function AmendmentScreen({
       excess_pct: numOrNull(form.excess_pct) ?? 0,
       rejection_rule_id: form.rejection_rule_id,
       pack: form.pack,
+      is_set_pack: form.is_set_pack,
       mult_ord: form.mult_ord,
       multi_order: form.multi_order,
       department_id: form.department_id,
@@ -2194,7 +2331,20 @@ export function AmendmentScreen({
         style_description: r.style_description || null,
         order_unit_id: r.order_unit_id,
         plan_unit_id: r.plan_unit_id,
-        po_qty: numOrNull(r.po_qty) ?? 0,
+        /* PIECES, ALWAYS — and on a set pack that means the DERIVED figure,
+           not the box the operator can no longer type in (0467).
+           `packs x pieces-per-pack` is computed here rather than mirrored into
+           state on every keystroke: state would need an effect keeping two
+           numbers in step, and the one that got stale would be the one every
+           BOM engine reads. `?? 0` because a set pack whose composition is not
+           finished yet is refused by `packProblems` before Save runs — the
+           zero can never be what gets stored. */
+        po_qty: form.is_set_pack
+          ? (derivedPoQty(r) ?? 0)
+          : (numOrNull(r.po_qty) ?? 0),
+        /* PACKS, and `numOrNull` NOT `?? 0` (0467): a blank box means this is
+           not a set pack, and a 0 would claim the buyer ordered none. */
+        packs_ordered: form.is_set_pack ? numOrNull(r.packs_ordered) : null,
         description: r.description || null,
       })),
       /**
@@ -2224,6 +2374,26 @@ export function AmendmentScreen({
           sno: 0,
           style_ref_no: r.style_ref_no || null,
           coordinate_id: c.coordinate_id,
+        })),
+      ),
+      /* THE PACK MEMBERS (0467), flattened exactly as the coordinates above
+         and just as deliberately unfiltered: `normalizePackComponents` drops
+         the blank, the orphaned and the duplicated, and it is the copy
+         `lib/data-io` would also pass through. A second filter here would be a
+         second answer to one question.
+
+         SENT WHATEVER THE Set Pack SWITCH SAYS, the same call `pack_types` and
+         the Multi Order columns both make: turning the switch off HIDES the
+         composition, and hiding is not emptying. `writeChildren` deletes and
+         reinserts, so a member the payload stops carrying is one the next
+         ordinary save destroys. */
+      pack_components: styles.flatMap((r) =>
+        r.pack_components.map((c) => ({
+          sno: 0,
+          style_ref_no: r.style_ref_no || null,
+          coordinate_id: c.coordinate_id,
+          combo: c.combo || null,
+          qty_per_pack: numOrNull(c.qty_per_pack) ?? 1,
         })),
       ),
       /* THE COMPONENTS (0457), flattened exactly as `style_sizes` above.
@@ -2681,6 +2851,38 @@ export function AmendmentScreen({
      points reads any of the three. */
 
   // ---- Phase 2 grid row updaters / adders / removers ----
+  /**
+   * THE SET-PACK EXPLOSION (0467) — packs in, pieces out.
+   *
+   *     pieces per pack = SUM over the composition of qty_per_pack
+   *     PO Qty          = packs ordered x pieces per pack
+   *
+   * DERIVED, NEVER STORED TWICE. `pieces per pack` has no column for the same
+   * reason `pcs_per_pack` has none on the assortment line: it is the sum of
+   * rows that are already stored, and a field for a sum is a second source of
+   * truth for an addition. `packs_ordered` earns its column because it is
+   * typed and derivable from nothing — the same test 0432 applied to
+   * `inners_per_carton`.
+   *
+   * AND IT EXPLODES HERE, IN THE BROWSER, so only PIECES ever leave the screen.
+   * `targetsOf` in the Material BOM engine folds an approval row through an
+   * exhaustive three-branch switch and not one branch carries a multiplier;
+   * neither does `fullTarget`, `totalProductionQty` or `bom-ceiling.ts`. A
+   * `po_qty` holding packs would under-buy every trim and every kilo of cloth
+   * by the set size, and each figure would look right on its own screen. This
+   * is the same shape the carton explosion already uses one tab across.
+   */
+  const piecesPerPack = (r: StyleRow) => packPieces(r.pack_components);
+
+  /**
+   * `null`, NOT 0, when the pack cannot be priced out yet — an empty
+   * composition or no pack count is "not answered", and a 0 in the PO Qty box
+   * would read as an order for nothing. The module's standing rule: a refusal
+   * is a sentence or a blank, never a zero.
+   */
+  const derivedPoQty = (r: StyleRow): number | null =>
+    packDerivedQty(r.pack_components, r.packs_ordered);
+
   const updateStyle = (key: string, patch: Partial<StyleRow>) =>
     setStyles((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   /** Opens the new row and folds the finished one — `openStyleKey` is declared
@@ -2716,172 +2918,100 @@ export function AmendmentScreen({
     setOpenStyleKey(row.key);
   };
   /**
-   * Picking a Style fills everything the Style Entry already knows, so the
-   * operator types only what the buyer's order sheet adds (client 2026-08-10).
+   * THE STYLE IS TYPED (client 2026-08-25: "Style - allow it manual entry now,
+   * unwire that style mapping with that field in orderinfo").
    *
-   * IT NO LONGER SEEDS A UNIT ANYONE SEES. Order Unit and Plan Unit were both
-   * `uoms` pickers prefilled from the style's one `unit_id`; the client withdrew
-   * Plan Unit and reduced Order Unit to PCS/SET on 2026-08-11, and the cell now
-   * DERIVES that from `unit_kind` on every read rather than being handed a value
-   * once. So there is no unit prefill left to get right — which also retires the
-   * "prefill, not a lock" argument Fabric's Base UoM had to relearn three times:
-   * it applies to a value the operator may overrule, and this one has no operator
-   * input to overrule it with.
+   * This replaces `pickStyle`, which took a `garment_styles` id and copied the
+   * master's answers onto the line. The master is off the menu (see the
+   * `retired` group in lib/nav/module-groups.ts) and every field it used to seed
+   * now lives on the order itself (0457 / 0461 / 0407), so the picker was a link
+   * to a screen the operator can no longer reach, filling cells they can already
+   * type. `style_id` is written NULL from here on.
    *
-   * THE TWO FK COLUMNS ARE STILL SEEDED, AND THAT IS DELIBERATE. `order_unit_id`
-   * and `plan_unit_id` are frozen, not deleted: `writeChildren` deletes and
-   * reinserts a grid wholesale, so a column that stops being written is NULLED on
-   * the next save rather than left alone. Seeding them from `unit_id` keeps a
-   * resaved line holding exactly what it would have held. `unit_id` is null on
-   * every style entered from 2026-08-11 (the Style screen withdrew the field that
-   * fills it), so in practice this now seeds null — which is the honest value for
-   * a column nothing asks about.
+   * WHAT THE PICK USED TO DO AND WHO DOES IT NOW:
    *
-   * PO Qty is deliberately NOT seeded: it is the one number that comes off the
+   * - the header fields (Article No, Category, Description), the sizes, the
+   *   coordinates and the components — TYPED, on the line. That was the whole
+   *   point of merging the Style entry into Order Info.
+   * - the FABRIC STRUCTURES on the Color/Print tab — still seeded, but from the
+   *   line's OWN components rather than the master's. The client's sentence for
+   *   that seed (2026-08-12) was "if the fabric structures are already defined in
+   *   the Style Entry, they should flow into this tab automatically to avoid
+   *   duplicate data entry", and the Style Entry IS this line now. So the rule is
+   *   more faithful after the unwiring than before it, not less.
+   * - the PRICE group and the COMBO — still seeded, from the typed ref. This half
+   *   is not optional: the Prices tab has no "+ Add style price" (client
+   *   2026-08-20), so if nothing seeds a group there, a PO can never be priced.
+   *   Removing the picker without this would have turned a removal into data loss.
+   *
+   * ON BLUR, NEVER ON EVERY KEYSTROKE. A price group per prefix of the word being
+   * typed is the same defect the GSM carry-down had to fix — see the Combos
+   * overlay, where onChange pushed a half-typed digit down the panel.
+   *
+   * IT ALSO RE-KEYS. `style_ref_no` is the TEXT key that Prices, Combos,
+   * Quantities, the assortment lines and Approval Qty all resolve on
+   * (`styleKey`), and the save path DROPS any child naming a style the order no
+   * longer carries (`normalizeStyleSizes` and friends, in actions.ts). With a
+   * picker the text changed only when a different style was picked; typed, an
+   * operator correcting a typo would silently take that line's prices and combos
+   * with it. So a settled rename carries them across. The line's OWN children
+   * (sizes, coordinates, components, processes) need nothing — they are nested on
+   * the row and stamped with its ref at save time.
+   *
+   * PO Qty is still not seeded, for the reason it never was: it comes off the
    * buyer's order sheet and nowhere else.
-   *
-   * STYLE REF NO IS THE STYLE'S CODE, not a typed value (client 2026-08-11 —
-   * the column left the grid because it is system-generated). It is the key
-   * Price Details, Quantities and Approval Qty all resolve on, so it has to be
-   * filled by whatever the operator DOES answer, and the style code
-   * (`STL/2627/0001`) is the one stable identifier the line has. Two lines
-   * naming the same style would share a ref, and the first would win the
-   * lookup — but a PO carrying one style twice is a duplicate line, not a case
-   * to encode.
-   *
-   * THE REF STAYS AN OPAQUE STRING AND IS STILL TEXT, NOT AN FK. Keying styles
-   * by text is deliberate here (a `style_id` FK is the known-wrong fix and has
-   * been rejected before), so this fills the existing text column and adds
-   * nothing. Nothing anywhere parses it: `styleKey` (order-seed.ts) and `norm`
-   * (diff.ts) trim and upper-case and stop there, and every other reader
-   * compares whole strings. That matters as of 0402, which puts SLASHES in the
-   * code — `STL/2627/0001` — so any split-on-a-delimiter added later would
-   * shred the key rather than read it.
-   *
-   * ONLY A NEWLY PICKED STYLE GETS A GENERATED REF. Rows loaded from a saved
-   * amendment keep whatever text they already hold — `toRows` copies it through
-   * untouched and this runs on the pick, so an older order's hand-typed ref is
-   * never rewritten into the new format.
-   *
-   * IT ALSO FILLS THE SIZE LIST (0407) — the second half of the legacy
-   * behaviour, and the half that was missing. Screenshot 2255 shows the
-   * sub-grid empty with the picker open; 2256, four seconds later, shows it
-   * holding the style's nine sizes. So the sizes are not typed here either:
-   * they are what the picked style IS, exactly like Article No above.
-   *
-   * A RE-PICK REPLACES THEM, and that is the same rule as every other line
-   * below, not a separate decision. A line now naming a different style but
-   * still listing the previous one's sizes is the "reads as data" failure the
-   * paragraph below describes, and it is worse in a list than in a cell —
-   * nine wrong rows look far more deliberate than one wrong word.
-   *
-   * AN EMPTY SIZE SET IS COPIED THROUGH AS EMPTY. Filling a style's sizes is
-   * optional on the Style master, so `[]` means "this style has not said" —
-   * the grid then renders a line saying exactly that, rather than a blank box
-   * the operator has to interpret. Never fall back to some other style's set,
-   * and never to the style's Size GROUP: the group's sizes are text names
-   * bridged to `config_lookups` by name, unmatched names drop silently, and
-   * the Style screen already exposes that bridge as an explicit "Fill sizes"
-   * button precisely because it is a shortcut and not the source of truth.
-   *
-   * Clearing the Style clears what it filled. Leaving a previous style's article
-   * number and units behind on a line that now names a different style is worse
-   * than a blank row, because it reads as data.
    */
-  const pickStyle = (key: string, id: string | null) => {
-    const s = id ? styleById.get(id) : null;
-    updateStyle(key, {
-      style_id: id,
-      style_ref_no: s?.code ?? "",
-      /* THE MASTER'S HEADER FIELDS COME IN WITH THE STYLE (0461). Same rule as
-         the sizes and the components below: copied ON THE PICK so the operator
-         never retypes what the style already states, and editable afterwards so
-         the order can differ from it. `""` / null on a CLEARED style, never the
-         previous style's answers left standing. */
-      approved_sample_id: s?.approved_sample_id ?? null,
-      article_no: s?.article_no ?? "",
-      /* The name and the row it resolves to, both off the same master row so
-         they cannot disagree — see `StyleRow`. */
-      style_category: s?.style_category ?? "",
-      style_category_id: s?.style_category_id ?? null,
-      style_description: s?.style_description ?? "",
-      // Frozen columns, neither on screen — see the note above. `?? null` rather
-      // than `?? ""`: these are FK columns to `uoms`, and "" is not a uuid.
-      order_unit_id: s?.unit_id ?? null,
-      plan_unit_id: s?.unit_id ?? null,
-      // The line's Description is the style's remarks, falling back to its
-      // description — the two fields legacy shows as "Style Description".
-      description: s ? (s.description ?? s.style_description ?? "") : "",
-      // `newKey()` per size, never the size's own id: two rows could otherwise
-      // share a React key the moment a style lists a size twice, and a
-      // duplicated key is a swapped-row bug that only shows once the operator
-      // starts editing (the same reason `toRows` takes `newKey` as an argument).
-      sizes: (s?.sizes ?? []).map((z) => ({
-        key: newKey(),
-        size_id: z.size_id,
-      })),
-      /*
-       * AND THE COORDINATES (0461) — what those components are parts OF.
-       *
-       * REPLACED, NOT MERGED, for the reason spelled out on the components
-       * below: a style's coordinate list is a DEFINITION of the garment, not an
-       * accumulation, so merging the coordinates of the style being swapped away
-       * with the ones being swapped in describes no garment at all.
-       */
-      coordinates: (s?.coordinates ?? []).map((c) => ({
-        key: newKey(),
-        coordinate_id: c.coordinate_id,
-      })),
-      /*
-       * THE COMPONENTS COME IN WITH THE STYLE TOO (0457).
-       *
-       * Same rule and the same `newKey()` reasoning as the sizes directly
-       * above: the master's list is the starting point, copied on the PICK so
-       * the operator never retypes what the style already states.
-       *
-       * REPLACED, NOT MERGED, and this is the one place this seed differs from
-       * the three additive ones below. A style's component list is a
-       * DEFINITION of a garment, not an accumulation of one: merging the parts
-       * of the style being swapped away with the parts of the style being
-       * swapped in gives a garment with two collars, and nothing downstream
-       * could tell which half was meant. The structures / prices / combos
-       * seeds are additive because those tabs describe the ORDER, which
-       * legitimately holds a little of each style on it; this list describes
-       * ONE line, and re-pointing that line replaces what it is.
-       *
-       * `comp_type` and `item_id` ride along under no cell — see
-       * `StyleComponentRow`.
-       */
-      components: (s?.components ?? []).map((c) => ({
-        key: newKey(),
-        coordinate_id: c.coordinate_id,
-        component_id: c.component_id,
-        fabric_category_id: c.fabric_category_id,
-        comp_type: c.comp_type ?? "",
-        item_id: c.item_id,
-      })),
-    });
+  const settleStyleRef = (key: string, typed: string, previous: string) => {
+    const row = styles.find((x) => x.key === key);
+    if (!row) return;
+    const ref = typed.trim();
+    const was = previous.trim();
+
+    /* THE RENAME, CARRIED. Compared through `styleKey` so re-capitalising or
+       re-spacing a ref is not a rename — those normalise to the same key, and
+       rewriting every child for them would mark a loaded order dirty for a
+       change that changes nothing. */
+    if (was && styleKey(was) !== styleKey(ref)) {
+      const hit = (v: string) => styleKey(v) === styleKey(was);
+      setPriceDetails((xs) =>
+        xs.map((x) => (hit(x.style_ref_no) ? { ...x, style_ref_no: ref } : x)),
+      );
+      setCombos((xs) =>
+        xs.map((x) => (hit(x.style_ref_no) ? { ...x, style_ref_no: ref } : x)),
+      );
+      setApprovalQtys((xs) =>
+        xs.map((x) => (hit(x.style_ref_no) ? { ...x, style_ref_no: ref } : x)),
+      );
+      /* Quantities carries the ref twice — on the destination row and on each
+         assortment line nested under it (0433, a line names its own style on a
+         Multiple Style pack). Both move, or the overlay's lines are orphaned
+         from a row that survived. */
+      setQuantities((xs) =>
+        xs.map((x) => {
+          const linesMoved = x.assort_lines.map((l) =>
+            hit(l.style_ref_no) ? { ...l, style_ref_no: ref } : l,
+          );
+          const rowRef = hit(x.style_ref_no) ? ref : x.style_ref_no;
+          return rowRef === x.style_ref_no && linesMoved.every((l, i) => l === x.assort_lines[i])
+            ? x
+            : { ...x, style_ref_no: rowRef, assort_lines: linesMoved };
+        }),
+      );
+    }
+
+    if (!ref) return;
 
     /*
-     * THE FABRICS FLOW IN WITH THE STYLE (0415, client 2026-08-12: "if the
-     * fabric structures are already defined in the Style Entry, they should
-     * flow into this tab automatically to avoid duplicate data entry").
+     * THE FABRICS FLOW IN FROM THE LINE'S OWN COMPONENTS (0415, client
+     * 2026-08-12) — see the contract above for why this is the same rule it
+     * always was, read off a different source.
      *
-     * ON THE PICK, NOT IN AN EFFECT. An effect watching the declared set would
-     * re-add a structure the operator deliberately removed the moment anything
-     * else re-rendered it — the grid would argue back. Seeding from the one
-     * action that introduces a new fabric is both the smallest rule and the
-     * predictable one: pick a style, its fabrics appear; remove one, it stays
-     * removed until a style that declares it is picked again.
-     *
-     * ADDITIVE, AND IT NEVER REMOVES. A structure already on the tab may have a
-     * Type answered against it, and a style swapped on one line says nothing
-     * about the fabrics another line still needs. It also fills the blank
-     * opening row rather than leaving it above the seeded ones (`openOneRow`
-     * gives every grid one), so picking the first style does not leave a stray
-     * empty structure at the top of the list.
+     * ADDITIVE AND IT NEVER REMOVES, unchanged: a structure already on the tab
+     * may have a Type answered against it, and one line's components say nothing
+     * about the fabrics another line still needs. It fills the blank opening row
+     * rather than leaving it above the seeded ones.
      */
-    const declared = (s?.components ?? [])
+    const declared = row.components
       .map((c) => c.fabric_category_id)
       .filter(Boolean) as string[];
     if (declared.length) {
@@ -2893,99 +3023,70 @@ export function AmendmentScreen({
           ...blankStructure(),
           structure_id: id,
         }));
-        const blankAt = xs.findIndex(
-          (x) => !x.structure_id && !x.item_sub_type,
-        );
+        const blankAt = xs.findIndex((x) => !x.structure_id && !x.item_sub_type);
         if (blankAt === -1) return [...xs, ...seeded];
         return [...xs.slice(0, blankAt), ...seeded, ...xs.slice(blankAt + 1)];
       });
     }
 
     /*
-     * THE PRICES TAB TAKES ITS STYLE LIST FROM HERE TOO (client 2026-08-20,
-     * "remove the add colour and add style price both fields").
+     * THE PRICES TAB TAKES ITS STYLE LIST FROM HERE (client 2026-08-20, "remove
+     * the add colour and add style price both fields").
      *
-     * `hideAdd` on that grid is only safe because of this block. The styles a PO
+     * `hideAdd` on that grid is only safe because of this block — the styles a PO
      * prices are the styles it CARRIES, so with no "+ Add style price" the group
-     * list has to arrive with the order — otherwise a Multi Style PO could price
-     * its first style and never reach its second, which is a removal turning
-     * into a data loss.
+     * has to arrive with the order or a Multi Style PO could price its first
+     * style and never reach its second.
      *
-     * SAME THREE RULES as the structures seed above, for the same reasons: ON
-     * THE PICK rather than in an effect (an effect would re-add a group the
-     * operator deliberately removed); ADDITIVE and never removing (a stored
-     * price belongs to a style even after the line is re-pointed — that is what
-     * the group's own ✕ is for); and it FILLS THE BLANK OPENING GROUP rather
-     * than leaving it above the seeded one, so picking the first style does not
-     * strand an empty price card at the top.
-     *
-     * Keyed by `styleKey`, the same text key Prices, Quantities and Approval Qty
-     * all resolve on — never by `style_id`, which the price rows do not carry.
+     * ADDITIVE, never removing: a stored price belongs to a style even after the
+     * line is re-typed, which is what the group's own ✕ is for. Keyed by
+     * `styleKey`, the same text key Prices, Quantities and Approval Qty resolve
+     * on — there is no `style_id` left to key on and the price rows never carried
+     * one anyway.
      */
-    const priceRef = (s?.code ?? "").trim();
-    if (priceRef) {
-      setPriceDetails((xs) => {
-        const want = styleKey(priceRef);
-        if (xs.some((x) => styleKey(x.style_ref_no) === want)) return xs;
-        const seeded: PriceDetailRow = {
-          ...blankPriceDetail(),
-          style_ref_no: priceRef,
-          style: s?.name ?? "",
-          article_no: s?.article_no ?? "",
-          // The Order Unit the style declares — the same value `unitTextOf`
-          // renders on the line, read from the same place rather than copied
-          // off the row this pick is still in the middle of writing.
-          unit: orderUnitLabel(s?.unit_kind ?? null),
-        };
-        const blankAt = xs.findIndex((x) => !x.style_ref_no.trim());
-        if (blankAt === -1) return [...xs, seeded];
-        return [...xs.slice(0, blankAt), seeded, ...xs.slice(blankAt + 1)];
-      });
-    }
+    setPriceDetails((xs) => {
+      const want = styleKey(ref);
+      if (xs.some((x) => styleKey(x.style_ref_no) === want)) return xs;
+      const seeded: PriceDetailRow = {
+        ...blankPriceDetail(),
+        style_ref_no: ref,
+        /* THE REF IS THE NAME NOW. Two columns held the master's code and its
+           name; a typed line has one string, so it answers both rather than
+           leaving `style` blank on every price row the order prints. */
+        style: ref,
+        article_no: row.article_no,
+        /* The Order Unit the LINE implies — see `unitTextOf`. Read from the same
+           place the cell renders rather than copied off a master row that is no
+           longer consulted. */
+        unit: unitTextOf(row),
+      };
+      const blankAt = xs.findIndex((x) => !x.style_ref_no.trim());
+      if (blankAt === -1) return [...xs, seeded];
+      return [...xs.slice(0, blankAt), seeded, ...xs.slice(blankAt + 1)];
+    });
 
     /*
      * THE COMBOS TAB TAKES THE STYLE FROM HERE (client 2026-08-17: the Combos
      * section "need to fetch automatically that style from previous section").
      *
-     * A combo is a colourway OF a style, and on a one-style PO there is exactly
-     * one answer it could have — so asking for it again is asking the operator
-     * to re-key something the order already states. Same argument, and the same
-     * client sentence, as the fabrics seeding directly above: "if it is already
-     * defined, it should flow in automatically to avoid duplicate data entry".
-     *
-     * ON THE PICK, NOT IN AN EFFECT — the rule the structures block above states
-     * in full, and it applies here for the same reason: an effect watching
-     * `styles` would refill a combo the operator had deliberately re-pointed the
-     * moment anything re-rendered, and the grid would argue back.
-     *
-     * ONLY WHILE THE ORDER HAS ONE STYLE LINE. With two, which style a combo
+     * ONLY WHILE THE ORDER HAS ONE STYLE LINE — with two, which style a combo
      * belongs to is a real question with no derivable answer, and guessing it
-     * from whichever line was picked last would put line 2's style onto combos
-     * that describe line 1. The picker stays for that case, which is what it is
-     * for. `styles` is this render's array and `pickStyle` runs from an event
-     * handler, so its length is current.
+     * from whichever line was typed last would put line 2's style onto combos
+     * that describe line 1. The picker stays for that case.
      *
-     * BLANK ROWS ONLY. A combo already naming a style is an answer, not a gap —
+     * BLANK ROWS ONLY. A combo already naming a style is an answer, not a gap;
      * overwriting it is the "silent data loss dressed up as tidiness" the
-     * disabled-rows rule names, and on a LOADED order it would also mark a
-     * record dirty that the operator has not touched.
+     * disabled-rows rule names, and on a loaded order it would mark a record
+     * dirty the operator has not touched.
      */
-    if (s && styles.length === 1) {
-      const ref = s.code ?? "";
-      if (ref) {
-        setCombos((xs) =>
-          xs.map((x) =>
-            x.style_ref_no.trim()
-              ? x
-              : {
-                  ...x,
-                  style_ref_no: ref,
-                  style: s.name ?? "",
-                  article_no: s.article_no ?? "",
-                },
-          ),
-        );
-      }
+    if (styles.length === 1) {
+      setCombos((xs) =>
+        xs.map((x) =>
+          x.style_ref_no.trim()
+            ? x
+            : { ...x, style_ref_no: ref, style: ref, article_no: row.article_no },
+        ),
+      );
     }
   };
 
@@ -3051,9 +3152,11 @@ export function AmendmentScreen({
     if (!row) return false;
     const last = row.coordinates[row.coordinates.length - 1];
     if (last && !last.coordinate_id) return false;
-    const cap = coordinateLimit(
-      row.style_id ? (styleById.get(row.style_id)?.unit_kind ?? null) : null,
-    );
+    /* THE CEILING, NOT THE KIND'S RANGE (2026-08-25) — see `unitKindFromCoordinates`.
+       Capping by the derived kind would be circular: one coordinate derives
+       "piece", piece allows exactly one, and no line could ever hold a second.
+       Six is the client's cap on a Set and so the widest a line may grow. */
+    const cap = { min: COORDINATE_LIMITS.piece.min, max: COORDINATE_LIMITS.set.max };
     if (cap && filledCoordinates(row.coordinates) >= cap.max) return false;
     mutCoords(styleKeyId, (cs) => [...cs, { key: newKey(), coordinate_id: null }]);
   };
@@ -3155,7 +3258,7 @@ export function AmendmentScreen({
       const only = styles.length === 1 ? styles[0] : null;
       const ref = only?.style_ref_no.trim();
       if (!only || !ref) return [...xs, blankCombo()];
-      const name = only.style_id ? (styleById.get(only.style_id)?.name ?? "") : "";
+      const name = only.style_ref_no.trim();
       return [
         ...xs,
         {
@@ -3617,12 +3720,42 @@ export function AmendmentScreen({
    * — a filled cell showing empty, blanked on the next save. Same rule as
    * "Disabled rows": the row that survives is the one the record already holds.
    */
-  const packTypeOptions = (row: PackTypeRow): string[] => {
+  /**
+   * The methods this row may pick — the live ones nobody else has taken, plus
+   * whatever this row already holds.
+   *
+   * THE HELD VALUE IS TAGGED, NOT SILENTLY RE-OFFERED. Two of the four methods
+   * were retired on 2026-08-25 (`RETIRED_PACK_TYPES`), and a `<Select>` matches
+   * on VALUE — so a row still naming one would render BLANK while continuing to
+   * save that value, which is the same trap `Combobox` sprang on the
+   * Assortments overlay's `combo` ("a stored value that is not among its
+   * options shows an empty box while still saving"). Re-admitting it unlabelled
+   * is only half a fix: it comes back as an ordinary option and the operator can
+   * re-pick it on a fresh row, which is precisely what "retired" means it must
+   * not do.
+   *
+   * So it returns `{value,label}` and the label says `(inactive)` — AGENTS.md's
+   * "Disabled rows" rule reaching a plain `<Select>`, which has no inactive
+   * state of its own the way `DataPicker` does. It is offered because dropping
+   * it would show a filled field as empty and blank the value on the next save;
+   * it is tagged so nobody reads it as a live choice.
+   */
+  const packTypeOptions = (row: PackTypeRow): { value: string; label: string }[] => {
     const taken = new Set(
       packTypes.filter((x) => x.key !== row.key).map((x) => x.pack_type).filter(Boolean),
     );
-    const free: string[] = PACK_TYPE_OPTIONS.filter((o) => !taken.has(o));
-    if (row.pack_type && !free.includes(row.pack_type)) free.push(row.pack_type);
+    const free = PACK_TYPE_OPTIONS.filter((o) => !taken.has(o)).map((o) => ({
+      value: o as string,
+      label: o as string,
+    }));
+    if (row.pack_type && !free.some((o) => o.value === row.pack_type)) {
+      free.push({
+        value: row.pack_type,
+        label: RETIRED_PACK_TYPES.includes(row.pack_type)
+          ? `${row.pack_type} (inactive)`
+          : row.pack_type,
+      });
+    }
     return free;
   };
 
@@ -3685,10 +3818,14 @@ export function AmendmentScreen({
    */
   const styleColumns: ChildGridColumn<StyleRow>[] = [
     /* THE ORDER OF THIS ARRAY IS THE ORDER OF THE ROW, and it was re-sequenced
-       for option B (client 2026-08-24). The first SEVEN share one line of the
-       14-column track and read as the master's own run — the style's identity,
-       then the commercial number, then the drill-in — and Description comes LAST
-       because it takes the whole second line.
+       for option B (client 2026-08-24). The first seven read as the master's own
+       run — the style's identity, then the commercial number, then the drill-in
+       — and Description comes LAST.
+
+       ALL EIGHT ARE ON ONE LINE SINCE 2026-08-26. Description was last because
+       it took the whole second line; it is last now because it is the least
+       identifying thing about a style, and the position is unchanged either
+       way. See `STYLE_FIELD_W`.
 
        Re-sequencing is safe and always has been: every consumer resolves by
        `header` (the folded-row filter, the Description span) rather than by
@@ -3707,13 +3844,6 @@ export function AmendmentScreen({
       // A line with no style is not a line. Red ⓘ on the legacy grid.
       required: true,
       cell: (r) => {
-        /* NARROWED BY THE HEADER'S CUSTOMER AND SEASON (client). `styleOptions`
-           holds the rule and the reasoning; `shortHint` is set only when the
-           narrowing left nothing, and then it replaces the "— Select Style —"
-           placeholder so the empty box explains itself in the one line a grid
-           cell has. The wider `hint` is rendered ONCE above the grid instead of
-           per row — see the note there. */
-        const opts = styleOptionsFor(r.style_id);
         /* THE DERIVED SUB-LINE IS WITHDRAWN (client 2026-08-14). It printed
            `article_no · style_category` under the picker — "23 · TEST" — and
            the client asked for it gone. Reverses the 2026-08-12 note that said
@@ -3727,18 +3857,46 @@ export function AmendmentScreen({
            grid wholesale, so a field dropped from the payload is NULLED on the
            next save rather than merely hidden. Same treatment `trims` and the
            withdrawn Fabric column already have. */
+        /* TYPED, NOT PICKED (client 2026-08-25: "Style - allow it manual entry
+           now, unwire that style mapping with that field in orderinfo").
+           `settleStyleRef` carries the full contract — what the pick used to
+           seed, who seeds it now, and why the rename has to be carried across
+           the tabs keyed on this text.
+
+           `required` IS DECLARED TWICE ON PURPOSE. The column says it (that
+           draws the header ✳) and the control says it (that is what stamps
+           `data-required-empty` and holds the cursor). AGENTS.md "Mandatory
+           fields" records why the two cannot be folded into one, and this grid
+           renders its own row on the stacked layout — where `ChildGridColumn.
+           required` never reaches the control at all.
+
+           NO `uppercase` FLAG: `Input` capitalises by default since 2026-08-18,
+           which is exactly right here — `styleKey` upper-cases this string to
+           compare it, so typing in caps makes what is stored match what is
+           matched on.
+
+           THE VALUE IT WRITES IS `style_ref_no`, the Orders module's join key,
+           and `style_id` goes NULL in the same update — one event, so the two
+           can never disagree about whether this line is linked. */
         return (
-          <RecordPicker
-            label="Style"
-            compact
-            items={opts.items}
-            value={r.style_id}
-            onChange={(id) => pickStyle(r.key, id)}
-            /* placeholder-blank: exempt -- EMPTY AND EXPLAIN. `shortHint` is set
-               ONLY when the customer/season narrowing left no style at all, so it
-               reports a CAUSE the operator must go fix rather than describing the
-               box. When styles exist it is undefined and the box says nothing. */
-            placeholder={opts.shortHint ?? undefined}
+          <Input
+            aria-label="Style"
+            required
+            value={r.style_ref_no}
+            onChange={(e) =>
+              updateStyle(r.key, { style_ref_no: e.target.value, style_id: null })
+            }
+            /* THE PREVIOUS VALUE IS CAPTURED ON FOCUS, not held in state. It is
+               needed only to know whether a rename happened, it is a property of
+               this editing session rather than of the record, and reading it off
+               the DOM at focus time cannot go stale the way a mirrored state
+               field would. */
+            onFocus={(e) => {
+              styleRefOnFocus.current = e.target.value;
+            }}
+            onBlur={(e) =>
+              settleStyleRef(r.key, e.target.value, styleRefOnFocus.current)
+            }
           />
         );
       },
@@ -3896,16 +4054,60 @@ export function AmendmentScreen({
       align: "right",
       // The one number that comes off the buyer’s order sheet and nowhere else,
       // which is exactly why nothing can seed it and why it must be asked for.
-      required: true,
-      cell: (r) => (
-        <Input
-          type="number"
-          className="text-right"
-          value={r.po_qty}
-          onChange={(e) => updateStyle(r.key, { po_qty: e.target.value })}
-        />
-      ),
+      //
+      // ON A SET PACK IT IS DERIVED AND THE REQUIREMENT MOVES WITH IT (0467).
+      // The buyer orders boxes; pieces are `packs x pieces-per-pack`. A field
+      // that is DISABLED and still `required` is a cursor cage with nothing on
+      // screen to say why — AGENTS.md is explicit — so the requiredness
+      // follows the answer to the Pack Composition, which `packProblems` gates.
+      required: !form.is_set_pack,
+      cell: (r) =>
+        form.is_set_pack ? (
+          <Input
+            readOnly
+            className="text-right"
+            value={derivedPoQty(r) == null ? "" : String(derivedPoQty(r))}
+            title={
+              derivedPoQty(r) == null
+                ? "Open Pack Composition and say what is in one pack"
+                : `${r.packs_ordered || 0} packs x ${piecesPerPack(r)} pieces`
+            }
+          />
+        ) : (
+          <Input
+            type="number"
+            className="text-right"
+            value={r.po_qty}
+            onChange={(e) => updateStyle(r.key, { po_qty: e.target.value })}
+          />
+        ),
     },
+    /**
+     * PACKS — the commercial figure a SET order is actually booked in (0467).
+     *
+     * It appears only on a set pack, beside the piece count it explodes into,
+     * and it is a COLUMN rather than a replacement for PO Qty because both
+     * numbers are real and the operator reads both: one is what the buyer
+     * ordered, the other is what the factory makes. Overwriting PO Qty with
+     * packs is what would put packs into `targetsOf`, which has no multiplier.
+     */
+    ...(form.is_set_pack
+      ? [
+          {
+            header: "Packs",
+            align: "right" as const,
+            required: true,
+            cell: (r: StyleRow) => (
+              <Input
+                type="number"
+                className="text-right"
+                value={r.packs_ordered}
+                onChange={(e) => updateStyle(r.key, { packs_ordered: e.target.value })}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       header: "Process",
       /**
@@ -3960,6 +4162,57 @@ export function AmendmentScreen({
         );
       },
     },
+    /**
+     * PACK COMPOSITION — the [Click] that says what one retail pack holds
+     * (0467, client 2026-08-25).
+     *
+     * ONLY ON A SET PACK. It is not a column that greys out: with `is_set_pack`
+     * off there is no pack, so the question does not exist rather than being
+     * unanswerable — the same call the Assortments overlay makes for its carton
+     * cells, which are hidden and not disabled on a solid pack because "a
+     * disabled box still costs a row on a screen called cluttered".
+     *
+     * GATED ON THE STYLE BEING NAMED, and on nothing else. The Process button
+     * beside it also requires a PO Qty; this one MUST NOT, because on a set
+     * pack PO Qty is DERIVED FROM THIS SHEET — requiring it would gate the
+     * control behind the number it produces, and the operator could never open
+     * it. That inversion is the whole reason the gate is written out rather
+     * than copied from the neighbour.
+     *
+     * THE COUNT IS WHAT MAKES THE PACK VISIBLE FROM OUTSIDE — "2 members · 3
+     * pcs" on the row, so a style whose pack is filled in does not look like
+     * one whose pack is empty, which is the argument the Process and Details
+     * buttons both already record.
+     */
+    ...(form.is_set_pack
+      ? [
+          {
+            header: "Pack Composition" as const,
+            cell: (r: StyleRow) => {
+              const named = !!(r.style_id || r.style_ref_no.trim());
+              const members = r.pack_components.filter(packRowStarted).length;
+              const per = piecesPerPack(r);
+              return (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={!named}
+                  /* NAMES THE FIELD THAT TURNS IT ON rather than greying out in
+                     silence — the rule the Assort gate states. */
+                  title={named ? undefined : "Name a style on this row first"}
+                  onClick={() => setPackForKey(r.key)}
+                >
+                  {members
+                    ? `${members} member${members === 1 ? "" : "s"} · ${fmtNumber(per)} pcs`
+                    : "Click"}
+                </Button>
+              );
+            },
+          },
+        ]
+      : []),
     {
       header: "Description",
       cell: (r) => (
@@ -4176,7 +4429,7 @@ export function AmendmentScreen({
   const orderStructureIds = (() => {
     const ids = new Set<string>();
     for (const s of styles) {
-      for (const c of styleById.get(s.style_id ?? "")?.components ?? []) {
+      for (const c of s.components) {
         if (c.fabric_category_id) ids.add(c.fabric_category_id);
       }
     }
@@ -4318,7 +4571,7 @@ export function AmendmentScreen({
                     ? {
                         ...x,
                         style_ref_no: line?.style_ref_no ?? "",
-                        style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
+                        style: line?.style_ref_no ?? "",
                         article_no: line?.article_no ?? "",
                       }
                     : x,
@@ -4672,7 +4925,7 @@ export function AmendmentScreen({
               ? {
                   ...x,
                   style_ref_no: line?.style_ref_no ?? "",
-                  style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
+                  style: line?.style_ref_no ?? "",
                   article_no: line?.article_no ?? "",
                   // "Unit ... is pulled from the Order Unit established in the
                   // initial Style Entry" — so it arrives with the line rather
@@ -4732,6 +4985,35 @@ export function AmendmentScreen({
    *
    * `applyPriceMode` is unchanged and still seeds only what is missing.
    */
+  /**
+   * A SET PACK IS PRICED PER BOX AND ONLY PER BOX (0467, client 2026-08-25:
+   * "the retail price is defined on the container pack level ... leaving the
+   * high-level Price input active leads to conflicting price data on commercial
+   * shipping invoices").
+   *
+   * So the per-garment modes come OFF THE LIST rather than the rate box being
+   * greyed: a disabled rate under a mode that is still selectable says "you may
+   * choose this, you just may not answer it". Narrowing the question is the
+   * honest version of the same restriction, and it is what leaves the invoice
+   * with one price for one thing.
+   *
+   * A ROW ALREADY ON A PER-GARMENT MODE KEEPS IT AND IS TAGGED. Same rule as
+   * the retired pack types above and the standing "Disabled rows" rule: a
+   * `<Select>` matches on VALUE, so dropping a held mode would render a priced
+   * style's row blank while it went on saving that mode — and `styleRate`
+   * would then be averaging rows the screen no longer admits exist.
+   */
+  const priceModeOptions = (mode: string): { value: string; label: string }[] => {
+    const live: readonly string[] = form.is_set_pack
+      ? [PACK_WISE_PRICE]
+      : PRICE_TYPE_OPTIONS;
+    const out = live.map((o) => ({ value: o, label: o }));
+    if (mode && !out.some((o) => o.value === mode)) {
+      out.push({ value: mode, label: `${mode} (not used on a set pack)` });
+    }
+    return out;
+  };
+
   const priceModeCell = (g: PriceGroup, mode: string) => (
     <Select
       required
@@ -4739,9 +5021,9 @@ export function AmendmentScreen({
       onChange={(e) => applyPriceMode(g.rows[0], e.target.value)}
     >
       <option value=""></option>
-      {PRICE_TYPE_OPTIONS.map((o) => (
-        <option key={o} value={o}>
-          {o}
+      {priceModeOptions(mode).map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
         </option>
       ))}
     </Select>
@@ -5127,8 +5409,8 @@ export function AmendmentScreen({
         >
           <option value=""></option>
           {packTypeOptions(r).map((o) => (
-            <option key={o} value={o}>
-              {o}
+            <option key={o.value} value={o.value}>
+              {o.label}
             </option>
           ))}
         </Select>
@@ -5194,11 +5476,15 @@ export function AmendmentScreen({
   };
 
   /** The style NAME behind a ref no, read off the Styles tab so the two cannot
-   *  disagree. Empty when the ref names no style the amendment carries. */
+   *  disagree. Empty when the ref names no style the amendment carries.
+   *
+   *  SINCE 2026-08-25 the ref IS the name — it used to hop through the line's
+   *  `style_id` into the master, and a typed Style has no id. `styleKey` rather
+   *  than `===` on the way, like every other join in this module: a ref saved
+   *  before the CAPITALS rule must still find its line. */
   const styleNoForRef = (ref: string) =>
-    data.styles.find(
-      (st) => st.id === styles.find((x) => x.style_ref_no === ref)?.style_id,
-    )?.name ?? "";
+    styles.find((x) => styleKey(x.style_ref_no) === styleKey(ref))
+      ?.style_ref_no ?? "";
 
   const setQty = (key: string, patch: Partial<QuantityRow>) =>
     setQuantities((xs) =>
@@ -5830,6 +6116,49 @@ export function AmendmentScreen({
    * straight to `goToSection`, so a key that names no rail row is a blocked Save
    * that reports the right message and then jumps nowhere.
    */
+  /**
+   * A SET PACK MUST SAY WHAT IS IN THE PACK (0467, client: the Pack Composition
+   * is "compulsory").
+   *
+   * Blocking, and it has to be: with `is_set_pack` on, PO Qty is DERIVED from
+   * this composition and the Prices tab is quoting per box. An empty
+   * composition makes `derivedPoQty` null, so the order would save with a piece
+   * count of zero — and zero is the one number every downstream engine reads
+   * as "nothing to make" rather than as "nobody said".
+   *
+   * TWO SEPARATE COMPLAINTS, not one, because they send the operator to
+   * different places: an empty composition is the sheet, a missing pack count
+   * is the cell on the row. A single message naming both would be right about
+   * half of every case.
+   *
+   * `kind: "custom"` — `isBlocking` in `lib/screens/validity.ts` treats a
+   * screen's own cross-field rule as a completeness claim about the record,
+   * which is exactly what this is.
+   */
+  const packProblems: Problem[] = form.is_set_pack
+    ? styles.flatMap((r) => {
+        const who = r.style_ref_no.trim() || "this style";
+        const out: Problem[] = [];
+        if (piecesPerPack(r) <= 0) {
+          out.push({
+            section: "orderinfo",
+            label: "Pack Composition",
+            message: `${who}: this order is sold in packs, so open Pack Composition and say what one pack holds.`,
+            kind: "custom",
+          });
+        }
+        if (!(Number(r.packs_ordered) > 0)) {
+          out.push({
+            section: "orderinfo",
+            label: "Packs",
+            message: `${who}: enter how many packs the buyer ordered — PO Qty is worked out from it.`,
+            kind: "custom",
+          });
+        }
+        return out;
+      })
+    : [];
+
   const quantityProblems: Problem[] = quantities.flatMap((q) => {
     const who = q.style_ref_no.trim() || "this destination";
     const out: Problem[] = [];
@@ -6010,7 +6339,7 @@ export function AmendmentScreen({
        section. `fields` cannot state either of these: a quantity rule is
        arithmetic across a row, and a Structure Details part is three levels
        below `form`. */
-    extra: [...quantityProblems, ...comboProblems],
+    extra: [...quantityProblems, ...comboProblems, ...packProblems],
   });
 
   const canSave = validity.canSave;
@@ -6096,7 +6425,17 @@ export function AmendmentScreen({
   const orderVal = orderValue(
     styles.map((r) => ({
       style_ref_no: r.style_ref_no,
-      po_qty: Number(r.po_qty) || 0,
+      /* THE DERIVED PIECES on a set pack, matching what Save stores — the box
+         itself is read-only there and `r.po_qty` is whatever was last typed
+         before the switch went on. Valuing the order off a stale box while
+         storing a different figure is two documents disagreeing. */
+      po_qty: form.is_set_pack
+        ? (derivedPoQty(r) ?? 0)
+        : (Number(r.po_qty) || 0),
+      /* Only consulted when this style's rows say Pack-wise (0467). A rate per
+         box multiplied by the garments inside it overstates the order by the
+         set size, on the screen that prints the invoice figure. */
+      packs_ordered: Number(r.packs_ordered) || 0,
     })),
     priceDetails.map((r) => ({
       style_ref_no: r.style_ref_no,
@@ -6146,7 +6485,7 @@ export function AmendmentScreen({
   const approvalTree = buildApprovalTree({
     styles: styles.map((r) => ({
       style_ref_no: r.style_ref_no,
-      style: (r.style_id ? styleById.get(r.style_id)?.name : null) ?? "",
+      style: r.style_ref_no,
       article_no: r.article_no,
       // The style's declared run, IN ORDER — 2 YEARS before 14 YEARS is a size
       // run, not an alphabetical accident.
@@ -6333,10 +6672,11 @@ export function AmendmentScreen({
     if (!ref.trim()) return "";
     const line = styles.find((x) => styleKey(x.style_ref_no) === styleKey(ref));
     if (!line) return "";
-    return (
-      data.styles.find((st) => st.id === line.style_id)?.name ??
-      line.style_description
-    );
+    /* THE LINE ANSWERS FOR ITSELF (2026-08-25). This preferred the master's name
+       and fell back to the line's own description; with Style typed the ref is
+       the name, and the description stays as the fallback for a line whose ref
+       is blank but which has been described. */
+    return line.style_ref_no.trim() || line.style_description;
   };
 
   /**
@@ -8945,9 +9285,8 @@ export function AmendmentScreen({
    * function.
    */
   const coordinatesGrid = (r: StyleRow) => {
-    const cap = coordinateLimit(
-      r.style_id ? (styleById.get(r.style_id)?.unit_kind ?? null) : null,
-    );
+    /* The ceiling, not the kind's range — see `addStyleCoordinate`. */
+    const cap = { min: COORDINATE_LIMITS.piece.min, max: COORDINATE_LIMITS.set.max };
     return (
       <ChildGrid<StyleCoordRow>
         narrow
@@ -9038,6 +9377,7 @@ export function AmendmentScreen({
    * given. Equal shares is what the previous cut did (`lg` x 3 = 18 of 12), and
    * it left Sizes wrapping onto a line of its own with six columns empty.
    */
+
   const componentsAndSizes = (r: StyleRow) => (
     <>
       {/* COORDINATES FIRST — the master's order, and the order the data flows
@@ -9048,7 +9388,18 @@ export function AmendmentScreen({
           `sm` (3) — it is `narrow` and single-column, so anything wider reserves
           width it does not draw in. It was `lg` (6) while these three shared a
           12-column grid of their own. */}
-      <Field label="" size="sm">
+      {/* TITLED, AND IN THE GRID'S OWN HEADING TYPE (client 2026-08-26).
+          `label=""` drew an EMPTY row here — it reserved the height so this
+          panel started level with the table beside it, and said nothing. Next
+          to a grid whose three columns are captioned in bold, an untitled list
+          reads as part of nothing. `GRID_HEADER_TEXT` is that grid's own
+          `<th>` string, imported rather than retyped, so the two cannot drift.
+
+          "Coordinate", SINGULAR, because it is this grid's own column header
+          (see `coordinatesGrid`) — the same word the row beneath it is an
+          instance of, and the same word the Components grid uses for the
+          column that points back here. */}
+      <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="sm">
         {coordinatesGrid(r)}
       </Field>
       {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
@@ -9112,8 +9463,17 @@ export function AmendmentScreen({
       {/* `sm` (3). The trigger caps itself at 280px and the PANEL is sized
           independently (40rem), so width beyond the cap buys nothing here — see
           `triggerClassName` / `panelClassName` below. */}
-      <Field label="" size="sm">
+      {/* SAME TREATMENT AS THE COORDINATES PANEL, AND ONE LABEL NOT TWO.
+          `MultiSelect` draws its own `Label` — muted 12px — unless `compact`,
+          so bolding the title here means moving it OUT of the control and into
+          the `<Field>` that was already reserving an empty row for it. Passing
+          both would print "Sizes" twice, which is the trap `DataPicker` and
+          every Field+picker pair on this screen already carry a note about.
+          `label` stays on the control: `compact` routes it to `aria-label`, and
+          `useRequiredHold` words its message from it. */}
+      <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="sm">
         <MultiSelect
+          compact
           label="Sizes"
           /* FRAMED, to match the Components table across the row — the same
              `GRID_FRAME` that grid draws, so the two cannot drift. A bordered
@@ -9459,41 +9819,66 @@ export function AmendmentScreen({
               * rejected.
               */}
             {/**
-              * SEVEN FIELDS ON ONE LINE, ON A FOURTEEN-COLUMN TRACK (client
-              * 2026-08-24, choosing option B of the alignment proposal).
+              * SEVEN FIELDS ON ONE LINE, AT CONTENT WIDTHS (client 2026-08-24
+              * for the seven; 2026-08-26 for the widths).
               *
-              * THE ROW HAD NO TRACK AT ALL, and that was the real defect rather
-              * than the wrong spans. This was a `FieldRow` — `flex flex-wrap` —
-              * so every `col-span-*` the cells carried landed on nothing: the
-              * fields sized to their content and wrapped wherever they ran out
-              * of width, which is why nothing lined up down the card from one
-              * style row to the next. Two generations of notes here reasoned
-              * about "the five xs cells occupy 10 of 12", which is how a
-              * `FieldGrid` behaves and not this.
+              * ## THIS IS A `FieldRow` AGAIN, AND IT IS NOT THE 08-24 BUG
               *
-              * FOURTEEN AND NOT TWELVE, because the line carries SEVEN fields
-              * and the smallest span is `xs` (2): twelve columns top out at six.
-              * 7 x 2 = 14 exactly. That is the same arithmetic — and the same
-              * constant — that `Orders ▸ Style ▸ Style Details` was given on
-              * 2026-08-17 for its own seven, so the order line and the Style
-              * master now lay their header out on one track. The fields keep
-              * `xs` rather than needing a new size.
+              * Read that carefully before "fixing" it back. This row WAS a
+              * `FieldRow` until 2026-08-24, and it was broken — but the defect
+              * was never the flex container. It was that every cell carried
+              * `size="xs"`, i.e. `col-span-2`, and a `col-span-*` inside a
+              * `flex-wrap` div lands on NOTHING: the fields fell back to their
+              * intrinsic width and wrapped wherever they ran out, so no two
+              * style cards agreed on anything. The fix on 08-24 was to give the
+              * spans a track (`cols={14}`). The fix now is the other one: give
+              * the cells REAL WIDTHS and keep the flex row.
               *
-              * A FIELD ON THIS TRACK IS ~155px, against LAYOUT.md §3's ~280px,
-              * and `FIELD_TRACK_14`'s own note calls that out: legible for a
-              * date, a code or a Select, tight for free text. That is why
-              * Description is NOT on this line — it takes the next one whole.
+              * So the invariant is not "this must be a grid". It is **a cell
+              * must be sized by the container it is in** — `size` inside a
+              * `FieldGrid`, `w` inside a `FieldRow`, never the other way round.
+              * `--check field-track` is the guard, and it fires on exactly the
+              * mistake 08-24 was cleaning up.
               *
-              * A 14-COL TRACK WAS TRIED ON THIS ROW ONCE AND REVERTED, and the
-              * reason does not apply here: it was hand-rolled to widen the
-              * SIZES cell, and "a cell sized for its fullest state is a hole in
-              * its commonest one". The fourteenth column is spent on fitting the
-              * seven fields, not on padding one cell.
+              * ## WHY THE WIDTHS, AND WHY NOT FOURTEEN COLUMNS
               *
-              * THE THREE LINES EACH SUM TO 14 — 7x2, then Description whole,
-              * then 3 + 8 + 3. An under-filled row is the defect that ships.
+              * 14 columns gave every one of the seven ~155px — a share of the
+              * line, identical for a style NAME and for a three-letter Order
+              * Unit. That is the same complaint the client made about the
+              * header on 2026-08-26 ("unit only going to have two to four
+              * character only ... no need an excess padding"), and it has the
+              * same answer: `STYLE_FIELD_W` above, out of `FIELD_WIDTH`'s five
+              * declared sizes.
+              *
+              * IT ALSO COSTS LESS WIDTH, WHICH IS THE POINT. The seven
+              * measure 1,008px including gaps, against a 14-column track that
+              * always consumed the whole line for them. Description takes the
+              * remainder (see `STYLE_FIELD_W`), so the line holds a field MORE
+              * than the client asked for at every pane width down to ~1,190px
+              * — and `FieldRow` WRAPS rather than scrolling (the operator's rule
+              * of 2026-08-10), so narrower than that it folds instead of
+              * breaking.
+              *
+              * A 14-COL TRACK WAS ALSO TRIED HERE ONCE BEFORE 08-24 AND
+              * REVERTED, hand-rolled to widen the SIZES cell — "a cell sized
+              * for its fullest state is a hole in its commonest one". That is
+              * the same argument as this change, one generation earlier.
+              *
+              * ## THE TWO LINES NO LONGER SHARE A RULER, DELIBERATELY
+              *
+              * Line 1 is EIGHT declared widths — Description joined the row on
+              * 2026-08-26, which is what Style narrowing to `term` paid for, and
+              * it no longer takes a line of its own. Line 2 keeps a
+              * 14-column track because a picker, a table and a tick grid are
+              * not values with known maxima. Each line is internally straight
+              * and both start on the same left edge. See the note above it.
+              *
+              * `items-end` comes free with `FieldRow`, so "Approved Sample No"
+              * wrapping its label no longer drops its control below the row —
+              * the fault `FIELD_TRACK_32` got `items-end` for on 2026-08-19.
               */}
-            <FieldGrid cols={14}>
+            <div className="space-y-2 @2xl/editor:space-y-1.5">
+            <FieldRow>
               {/* A FOLDED ROW SHOWS ONLY ITS STYLE. Anchored on the header, not
                   on index 0 — these columns have been reordered more than once,
                   and `filter` fails loudly if Style is renamed where `slice(0,1)`
@@ -9504,26 +9889,24 @@ export function AmendmentScreen({
                     key={col.header}
                     label={col.header}
                     required={col.required}
-                    size="xs"
-                    /* DESCRIPTION TAKES THE LINE, the other seven share one.
-                       It is the only free-text box on the row, and ~155px of a
-                       14-col track is the width `FIELD_TRACK_14` itself warns is
-                       "tight for free text".
+                    w={STYLE_FIELD_W[col.header] ?? "code"}
+                    /* DESCRIPTION IS THE ONLY CELL THAT GROWS — the seven
+                       beside it are fixed widths and it takes what they leave
+                       (`flex-[1_1_11rem]`: basis 11rem = `term`, grow 1).
 
-                       `col-span-full` AND NOT `col-span-14`: `full` resolves to
-                       `1 / -1`, so it fills whatever track it lands on and
-                       cannot silently produce no CSS the way a span past the
-                       default scale can. `cn` is twMerge, so this beats the
-                       `xs` span above it rather than sitting beside it.
+                       BASIS, NOT `flex-1`. `flex-1` is basis 0, so the cell
+                       would never be too big to fit and would collapse to
+                       whatever was left — 4px on a narrow pane. A basis of
+                       11rem is the width flex-wrap TESTS against, so the field
+                       either gets at least `term` or takes its own line, and
+                       there is no state where it is on the row and unusable.
 
-                       Anchored on the HEADER, like the folded-row filter below
-                       and for the same reason: these columns have been reordered
-                       more than once, and a header match fails loudly where an
-                       index would quietly widen the wrong cell. */
+                       Anchored on the HEADER, never on an index: this column
+                       array is deliberately re-orderable, and a header match
+                       fails loudly where an index would quietly grow the wrong
+                       cell. */
                     className={
-                      col.header === "Description"
-                        ? "@lg/section:col-span-full"
-                        : undefined
+                      col.header === "Description" ? "flex-[1_1_11rem]" : undefined
                     }
                   >
                     {col.cell(r, i)}
@@ -9568,19 +9951,19 @@ export function AmendmentScreen({
                 * cells (`ownDescendants`) — the one place the two keys read
                 * different axes on purpose.
                 */}
-              {isOpen ? (
-                componentsAndSizes(r)
-              ) : (
+              {!isOpen && (
                 /* `label=""` rather than no label: `Field` renders a `&nbsp;` in
                    that case precisely to reserve the label line, so the summary
                    sits level with the Style box beside it instead of 14px above
-                   it. `full` (12) beside Style's 2 fills the 14-column line
-                   exactly; it was `xl` (8) while the track was 12.
+                   it. `flex-1` NOW, WHERE IT WAS `size="full"` — a span means
+                   nothing in a `FieldRow`, and "take whatever Style leaves" is
+                   what the summary actually wants; `min-w-0` is what lets it
+                   shrink so the truncation below can happen at all.
 
                    `Truncated` because a long summary must stay READABLE, not
                    merely clipped — the standing rule that an ellipsis is a
                    promise the rest is reachable. */
-                <Field key="__summary" label="" size="full">
+                <Field key="__summary" label="" className="min-w-0 flex-1">
                   <div className="flex min-h-8 items-center">
                     <Truncated className="text-sm text-muted-foreground">
                       {summary || "Not filled in yet"}
@@ -9591,7 +9974,22 @@ export function AmendmentScreen({
                   </div>
                 </Field>
               )}
-            </FieldGrid>
+            </FieldRow>
+            {/* LINE 3 KEEPS A FRACTIONAL TRACK OF ITS OWN, and that is the one
+                thing the 08-26 change costs. Its three cells are a picker, a
+                TABLE and a wrapping tick grid — none of them a value with a
+                known maximum, which is the only thing `FIELD_WIDTH` can express
+                — so they are still shares of a line: Coordinates 3, Components
+                8, Sizes 3. Gen 4's "they line up under the fields above them"
+                no longer holds, because the fields above no longer stand on
+                columns; what replaces it is that each line is internally
+                straight and both start on the same left edge.
+
+                LAST IS ALSO THE ROW'S TAB ORDER, not a visual preference:
+                `tabFieldsIn` walks a row in DOM ORDER, and this block is still
+                the last thing in it. */}
+            {isOpen && <FieldGrid cols={14}>{componentsAndSizes(r)}</FieldGrid>}
+            </div>
           </div>
           );
         }}
@@ -10650,284 +11048,503 @@ export function AmendmentScreen({
     done: !!form.location_id && !!form.customer_id && has(styles),
     content: (
       <SectionBody title="Order Info">
-        {/* ONE FieldGrid for the header fields — SectionBody has no grid of its
-            own, and two stacked FieldGrids agree on the left edge but not the
-            row gap. The `ChildGrid` below is not a second one: it is a card
-            block that owns its whole row, which is the shape LAYOUT.md §3 puts
-            in the `full` band and the shape Customer ▸ Address already uses. */}
-        <FieldGrid>
-          {/* AUTO, NOT PICKED (client 2026-08-11).
-              This was a dropdown of orders that already existed — amendment
-              behaviour on the screen an order is ENTERED on. The SC No is now
-              this order's own identity: `assign_order_number()` (0395) stamps
-              it on insert, and `previewOrderNumber` shows what it will be.
+        {/* THE TWO ROWS SHARE ONE WRAPPER so the gap between them is the
+            track's own `gap-y-2`, not `SectionBody`'s `space-y-4`. That is the
+            drift the note here used to warn about when this was a single
+            `FieldGrid`: two stacked field containers agree on the left edge and
+            not on the row gap. The `ChildGrid` below is still not one of them
+            — it is a card block owning its whole row (LAYOUT.md §3's `full`
+            band, the shape Customer ▸ Address already uses). */}
+        {/* TWO CONTENT-WIDTH ROWS, NOT ONE TWELVE-COLUMN GRID
+            (client 2026-08-26: "unit only going to have two to four character
+            only ... same for season, date — no need an excess padding").
 
-              `readOnly`, never `disabled` — `Input` sets `tabIndex={-1}` on a
-              readOnly field itself, so it leaves the Tab path with no
-              per-screen opt-out, and it stays selectable so the number can be
-              copied. And NOT `required`: a readOnly field has no exit, so a
-              hold on it would cage the operator. The requiredness moved to
-              Unit and Date, the two fields the number is built from — the same
-              shape a composed name uses (AGENTS.md, "Mandatory fields"). */}
-          <Field label="RE No" size="xs" htmlFor="hd-scno">
-            <Input
-              id="hd-scno"
-              readOnly
-              value={savedOrderNo ?? previewNo ?? ""}
+            THE TWELVE FIELDS WERE ALL `size="xs"`, AND `xs` MEANS "2-4 chars"
+            — that is `FIELD_SPAN`'s own comment. On a 12-column track it
+            resolves to a SIXTH OF THE ROW, so every field was 241px: a
+            two-letter Unit, a two-digit Excess % and a customer's full trading
+            name all declared the same size. The sizes were never wrong about
+            the content; they were being read as "a sixth of the row".
+
+            SO THE ROW LEAVES THE FRACTIONAL TRACK. `FieldRow` sizes each field
+            by `FIELD_WIDTH` — 72 · 112 · 144 · 176 · 288 — and its own note is
+            why a WIDER track could never have answered this: "shrinking the
+            control inside a cell leaves the CELL at its old width and the value
+            floating in dead space ... nothing short of leaving the fractional
+            track can make a row genuinely compact."
+
+            WHAT THIS REVERSES, IN THE CLIENT'S OWN WORDS. "Six fields a row,
+            every field the same width" (2026-08-14) is superseded by the note
+            above. It is not being tidied away: the earlier rule is why the row
+            was uniform, and the later instruction is why it no longer is.
+
+            FIVE OF THE TWELVE ARE NOT FLOORED BY THEIR VALUE, which is worth
+            knowing before anyone tries to shrink them further:
+              · Excess % holds two digits — 16px of them — and stops at 72
+                because the WORDS "Excess %" need 55. The label is the floor.
+              · Pack and Multi Style are 34px switches held open by their own
+                names (and no longer by a `<Field>` label as well — see below).
+              · Date and Deli.Dt are floored by the BROWSER: a native
+                `<input type="date">` draws its own dd/mm/yyyy and its own
+                calendar button, neither restylable from the page, and clips
+                below ~130px. 144 is the first declared width clear of that,
+                which is the whole reason they do not go as low as Unit. The one
+                way past it is a masked text date field, which AGENTS.md already
+                records as unbuilt ("Pickers follow the machine until someone
+                builds a masked date component").
+
+            THE RIGHT EDGE IS RAGGED ON PURPOSE. Line 1 measures 1,028px and
+            line 2 862px against a ~1,504px pane. `FieldRow`'s note states the
+            rule and that it is not the sums-to-12 rule being broken: "a
+            content-width row has no twelfths to leave over: it simply ends."
+            It never scrolls sideways either — `flex-wrap`, which is the
+            operator's rule of 2026-08-10.
+
+            `items-end` COMES FREE with `FieldRow`, so a label that wraps at 72px
+            no longer pushes its control below the row — the fault
+            `FIELD_TRACK_32` was given `items-end` for on 2026-08-19, on the two
+            tracks that never got it. */}
+        {/* THE SKETCH SITS IN THE CORNER THE ROWS LEAVE EMPTY (client
+            2026-08-26, screenshot 2497: "why we hat remaining space … for
+            diplayin gthat image").
+
+            ## 144px IS MEASURED, NOT CHOSEN
+
+            The operator's editor pane is ~1,229px — a 1920px screen at 125%
+            scaling is 1536 CSS px, less the 228px rail and the padding, and NOT
+            the ~1,504 an unscaled 1920 suggests. Line 1 measures 1,028px and
+            line 2 **1,050px**, so the column can be at most 1,229 − 1,050 − 12
+            = **167px**. Of the widths this app declares, `w-36` (144) is the one
+            with real margin: it leaves the rows 1,073px against the 1,050 they
+            need. `w-40` (160) leaves 7px, which is inside the error bar on two
+            `w-fit` `Toggle`s, and `w-44` (176) does not fit at all — it wraps
+            the Attachments field onto a third line.
+
+            ## AND IT COSTS NO HEIGHT
+
+            The two rows are 114px tall (53 + 8 + 53). A 144-wide tile at 4:3 is
+            108px. The picture fits inside the height the header already had,
+            which is the whole reason this reads as filling a gap rather than as
+            a new block.
+
+            ## `flex-1` ON THE LEFT, NEVER AN AUTO BASIS
+
+            `FieldRow`'s outer div is `@container/section`, and
+            `container-type: inline-size` applies SIZE CONTAINMENT — the element
+            contributes nothing to intrinsic sizing, so a shrink-to-fit flex item
+            wrapping it measures 0 and COLLAPSES. A zero basis plus grow never
+            asks for an intrinsic size, so the containment cannot bite. This is
+            written down because it is invisible until it happens: the rows do
+            not misbehave, they vanish.
+
+            `items-start`, not `FieldRow`'s own `items-end`: the tile is 108px
+            against a 53px field, and bottom-aligning would sink the fields to
+            the foot of a tall line and open a gap under nothing.
+
+            THE COLUMN IS CONDITIONAL, so an order with no sketch is byte-for-byte
+            the layout that was there before and the rows get the whole pane back
+            — the standing rule that an unfilled field shows nothing, applied to
+            a column. */}
+        <div className="flex items-start gap-x-3">
+        <div className="min-w-0 flex-1 space-y-2 @2xl/editor:space-y-1.5">
+          <FieldRow>
+            {/* AUTO, NOT PICKED (client 2026-08-11).
+                This was a dropdown of orders that already existed — amendment
+                behaviour on the screen an order is ENTERED on. The SC No is now
+                this order's own identity: `assign_order_number()` (0395) stamps
+                it on insert, and `previewOrderNumber` shows what it will be.
+
+                `readOnly`, never `disabled` — `Input` sets `tabIndex={-1}` on a
+                readOnly field itself, so it leaves the Tab path with no
+                per-screen opt-out, and it stays selectable so the number can be
+                copied. And NOT `required`: a readOnly field has no exit, so a
+                hold on it would cage the operator. The requiredness moved to
+                Unit and Date, the two fields the number is built from — the same
+                shape a composed name uses (AGENTS.md, "Mandatory fields"). */}
+            <Field label="RE No" w="code" htmlFor="hd-scno">
+              <Input
+                id="hd-scno"
+                readOnly
+                value={savedOrderNo ?? previewNo ?? ""}
+              />
+            </Field>
+            {/* REQUIRED because the SC No cannot be built without it — 0395 counts
+                per (location, fiscal year) and the trigger refuses a blank one
+                rather than invent a shared bucket. READ-ONLY once saved: the
+                number is stamped on insert only, so changing the Unit afterwards
+                would leave an HO/… number on a different unit's order. */}
+            <Field label="Unit" required={!editId} w="num">
+              <RecordPicker
+                label="Unit"
+                identity="code"
+                compact
+                disabled={!!editId && !!form.location_id}
+                items={data.locations}
+                value={form.location_id}
+                onChange={(id) => set({ location_id: id })}
+              />
+            </Field>
+            <Field label="Date" required w="code" htmlFor="hd-date">
+              <Input id="hd-date" type="date" value={form.amend_date} onChange={(e) => set({ amend_date: e.target.value })} />
+            </Field>
+            {/* "Initiated" (By Customer / By Us) WITHDRAWN 2026-08-11 (client).
+                Same treatment as the 08-10 withdrawals: the JSX, the form state
+                and the ZOD INPUT all go, and the COLUMN and its stored rows are
+                left alone. Dropping only the JSX would leave `initiated` in the
+                schema, where `headerOnly(p.data)` writes it on every update and
+                would null the very values the removal preserves. */}
+            {/* "Type" (Garment / Fabric / Made-ups) WITHDRAWN 2026-08-11 (client):
+                "the company exclusively produces garments", so the field answers a
+                question with one answer. Same treatment as "Initiated" above and
+                the 08-10 withdrawals — the JSX, the form state, the payload key,
+                the LIST COLUMN and the ZOD INPUT all go; the `amend_type` column
+                and its stored rows are left alone. `AMEND_TYPE_OPTIONS` stays in
+                types.ts as the only record of the stored vocabulary. */}
+            {/* REQUIRED (client 2026-08-10). Costs the operator nothing in the normal
+                flow: `onSelectOrder` fills it from the picked order, so choosing an
+                SCNo satisfies this field too. It still has to be declared, because
+                the Customer can be cleared by hand after the order is picked. */}
+            <Field label="Customer" required w="name">
+              <RecordPicker
+                label="Customer"
+                compact
+                items={data.customers}
+                value={form.customer_id}
+                onChange={(id) => set({ customer_id: id })}
+              />
+            </Field>
+            <Field label="PO No" w="code" htmlFor="hd-pono">
+              <Input id="hd-pono" value={form.po_no} onChange={(e) => set({ po_no: e.target.value })} />
+            </Field>
+            <Field label="Merchand." w="term">
+              <RecordPicker
+                label="Merchand."
+                compact
+                items={data.merchandisers}
+                value={form.merchandiser_id}
+                onChange={(id) => set({ merchandiser_id: id })}
+              />
+            </Field>
+          </FieldRow>
+
+          {/* LINE 2 — THE ORDER'S TERMS. The break is where it has always been:
+              line 1 is who the order is and who it is for, line 2 is what it is
+              worth. Two declared rows rather than one wrapping one, because the
+              wrap point of a single row moves with the pane and these two groups
+              do not. */}
+          {/* THE ATTACHMENTS CONTROL RIDES THIS ROW (client 2026-08-26: "move
+              that attachment field near the rejection field"). It is the
+              seventh cell, not a panel beside the row: 144 + 112 + 72 + 74 +
+              112 + 288 + 176 = 978px plus six gaps = 1,050px, against a
+              ~1,229px pane.
+
+              THE PANEL SAT BESIDE THE ROW FOR ONE TURN AND THAT SHAPE IS GONE.
+              It needed a flex wrapper, `flex-1` on the row and a basis on the
+              panel, and it carried a live trap worth remembering if anything
+              like it comes back: `FieldRow`'s outer div is `@container/section`,
+              and `container-type: inline-size` applies SIZE CONTAINMENT, so a
+              shrink-to-fit flex item wrapping it measures 0 and collapses. A
+              field in the row needs none of that. */}
+          <FieldRow>
+            {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
+                entry run is SCNo → Date → Customer → PO No → Merchandiser →
+                Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
+                it in the middle. They stay in the header — the client was explicit
+                that they belong here and not on the style rows, where they have
+                never been. */}
+            <Field label="Deli.Dt" w="code" htmlFor="hd-deli">
+              <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
+            </Field>
+            <Field label="Season" w="range" htmlFor="hd-season">
+              <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
+                <option value=""></option>
+                {SEASON_OPTIONS.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </Select>
+            </Field>
+            {/**
+              * ## SUPERSEDED 2026-08-26 — THE SPANS BELOW ARE HISTORY
+              *
+              * Every arithmetic argument in this note is about `col-span` on a
+              * 12-column track, and this row is a `FieldRow` now: the fields
+              * carry declared WIDTHS and there are no twelfths to divide. The
+              * note is kept whole rather than deleted because it records WHY
+              * the tail of the header reads as a set and why Pack and Multi
+              * Style are two cells rather than one — both of which still hold.
+              * Read "so they sum to twelve" as "so the row was flush", which is
+              * the requirement 08-26 traded away on purpose (see the note at
+              * the top of the section).
+              *
+              * THE LAST FIVE HEADER FIELDS ARE `xs`, NOT `sm` — one row, on purpose
+              * (client 2026-08-12).
+              *
+              * Yr · Excess % · Pack · Mult. Ord · Rejection Rule belong together:
+              * they are the order's terms, and the operator reads them as a set.
+              * At `sm` (col-span-3) five of them need 15 of the track's 12 columns,
+              * so the fifth wrapped to a row of its own. At `xs` (col-span-2) they
+              * total 10 and sit on one line, with the spare 2 columns falling at
+              * the end of the row rather than between the fields.
+              *
+              * It tightens them too, which was the other half of the request: Pack
+              * and Mult. Ord are `w-fit` switches, so at `sm` most of each cell
+              * was trailing space. A narrower cell puts them next to the fields
+              * they qualify.
+              *
+              * SINCE 2026-08-14 THE WHOLE HEADER IS `xs`, and since 2026-08-17
+              * Pack and Mult. Ord are a cell each again, so this row is Deli.Dt ·
+              * Season · Excess % · Pack · Mult. Ord · Rejection Rule — SIX cells
+              * and twelve columns, flush. Eleven header cells left the row two
+              * columns short; twelve fill it. See the note on the switches below
+              * for why the merge was arithmetic rather than grouping.
+              *
+              * YR WAS THE SIXTH AND IS WITHDRAWN (client 2026-08-14): the year is
+              * already defined on the linked Style Master (`style_year`), so
+              * re-typing it on the order was a second place to state one fact.
+              * Withdrawn the way this file withdraws every field — the
+              * `amend_year` COLUMN and its stored values stay, and it left
+              * `garmentAmendmentInput` too, which is the half that stops an
+              * update writing NULL over what is already there.
+              *
+              * SEASON DID NOT GO WITH IT, and the asymmetry is deliberate: Season
+              * is a live FACET, the second one narrowing the Style picker
+              * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
+              */}
+            <Field label="Excess %" w="num" htmlFor="hd-excess">
+              <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
+            </Field>
+            {/**
+              * PACK AND MULT. ORD ARE A CELL EACH — as switches, and adjacent
+              * (client 2026-08-14 for the switches, 2026-08-17 for the split).
+              *
+              * THEY SHARED A CELL FOR ONE TURN, AND THE REASON WAS ARITHMETIC.
+              * On 08-14 the client asked for switches and for Rejection Rule to
+              * join this row, which was already full at six: two booleans in one
+              * cell freed the sixth slot, bringing the header to twelve cells —
+              * "twelve cells fill two rows flush", against the thirteen it held
+              * before, where the last row carried one field against ten empty
+              * columns.
+              *
+              * THEN `Yr` WAS WITHDRAWN THE SAME DAY AND NOTHING RECOUNTED.
+              * Eleven cells is 6 + 5, so the second row ended two columns early
+              * and the header carried the very orphan the merge removed — which
+              * is what the client reported as a gap (2026-08-17). Splitting them
+              * back is not undoing the 08-14 decision; it is finishing it, since
+              * the merge was arithmetic and the arithmetic changed.
+              *
+              * THE MERGE ALSO COST TWO THINGS THE SPLIT GETS BACK. Two `w-fit`
+              * switches never fitted 202px side by side, so `flex-wrap` stacked
+              * them and that one cell stood two rows tall against ten single-row
+              * fields (screenshot 2320). And the cell read "Pack / Mult. Ord"
+              * with "Pack" and "Mult. Ord" printed again on the switches inside
+              * it — `Toggle`'s own note says to "omit [the label] where a
+              * `<Field>` label already names the answer", so the `<Field>` names
+              * each one and `htmlFor` carries the accessible name onto the
+              * checkbox.
+              *
+              * THEY STAY ADJACENT, which is what "they belong together" actually
+              * needs: both are the order's shape rather than its content —
+              * whether it is packed to a scheme, and whether it carries more than
+              * one style — and each gates something below (Pack opens the Pack
+              * type(s) section; Mult. Ord caps Style(s) to one row). Two
+              * neighbouring cells say that as well as one shared cell did.
+              *
+              * `Toggle` is a real `<input type="checkbox">` underneath. A
+              * `<button role="switch">` is not `isFieldLike()`, so Tab would step
+              * straight over both of these — see the component's own note.
+              */}
+            {/* NO `<Field>` LABEL ANY MORE — THE SWITCH CARRIES ITS OWN
+                (client 2026-08-26). A `<Field label>` puts the word on one line
+                and a 34px switch on the next, so inside a 241px grid cell a 34px
+                control was spending two lines and a sixth of the row. `Toggle`
+                renders `label` as the words beside the switch and its own note
+                already says to omit it "where a `<Field>` label already names the
+                answer" — so this drops the FIELD label rather than the switch's,
+                and the word still appears exactly once. That is what the
+                2026-08-17 fix was about (the cell used to read "Pack / Mult. Ord"
+                with both words printed again inside it), and it is preserved.
+
+                A TICK BOX WOULD BE 8px NARROWER AND WAS DECLINED: the switch was
+                chosen on 2026-08-14 because it "carries its state in its shape and
+                its colour", where a tick makes the eye find the box and then read
+                the word. Eight pixels do not buy that back.
+
+                Keys are untouched — it is the same real `<input type="checkbox">`
+                underneath, so Tab, Enter and Space behave as they did. */}
+            <Toggle
+              id="hd-pack"
+              label="Pack"
+              checked={form.pack}
+              onChange={(pack) => set({ pack })}
             />
-          </Field>
-          {/* REQUIRED because the SC No cannot be built without it — 0395 counts
-              per (location, fiscal year) and the trigger refuses a blank one
-              rather than invent a shared bucket. READ-ONLY once saved: the
-              number is stamped on insert only, so changing the Unit afterwards
-              would leave an HO/… number on a different unit's order. */}
-          <Field label="Unit" required={!editId} size="xs">
-            <RecordPicker
-              label="Unit"
-              identity="code"
-              compact
-              disabled={!!editId && !!form.location_id}
-              items={data.locations}
-              value={form.location_id}
-              onChange={(id) => set({ location_id: id })}
-            />
-          </Field>
-          <Field label="Date" required size="xs" htmlFor="hd-date">
-            <Input id="hd-date" type="date" value={form.amend_date} onChange={(e) => set({ amend_date: e.target.value })} />
-          </Field>
-          {/* "Initiated" (By Customer / By Us) WITHDRAWN 2026-08-11 (client).
-              Same treatment as the 08-10 withdrawals: the JSX, the form state
-              and the ZOD INPUT all go, and the COLUMN and its stored rows are
-              left alone. Dropping only the JSX would leave `initiated` in the
-              schema, where `headerOnly(p.data)` writes it on every update and
-              would null the very values the removal preserves. */}
-          {/* "Type" (Garment / Fabric / Made-ups) WITHDRAWN 2026-08-11 (client):
-              "the company exclusively produces garments", so the field answers a
-              question with one answer. Same treatment as "Initiated" above and
-              the 08-10 withdrawals — the JSX, the form state, the payload key,
-              the LIST COLUMN and the ZOD INPUT all go; the `amend_type` column
-              and its stored rows are left alone. `AMEND_TYPE_OPTIONS` stays in
-              types.ts as the only record of the stored vocabulary. */}
-          {/* REQUIRED (client 2026-08-10). Costs the operator nothing in the normal
-              flow: `onSelectOrder` fills it from the picked order, so choosing an
-              SCNo satisfies this field too. It still has to be declared, because
-              the Customer can be cleared by hand after the order is picked. */}
-          <Field label="Customer" required size="xs">
-            <RecordPicker
-              label="Customer"
-              compact
-              items={data.customers}
-              value={form.customer_id}
-              onChange={(id) => set({ customer_id: id })}
-            />
-          </Field>
-          <Field label="PO No" size="xs" htmlFor="hd-pono">
-            <Input id="hd-pono" value={form.po_no} onChange={(e) => set({ po_no: e.target.value })} />
-          </Field>
-          <Field label="Merchand." size="xs">
-            <RecordPicker
-              label="Merchand."
-              compact
-              items={data.merchandisers}
-              value={form.merchandiser_id}
-              onChange={(id) => set({ merchandiser_id: id })}
-            />
-          </Field>
-          {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
-              entry run is SCNo → Date → Customer → PO No → Merchandiser →
-              Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
-              it in the middle. They stay in the header — the client was explicit
-              that they belong here and not on the style rows, where they have
-              never been. */}
-          <Field label="Deli.Dt" size="xs" htmlFor="hd-deli">
-            <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
-          </Field>
-          <Field label="Season" size="xs" htmlFor="hd-season">
-            <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
-              <option value=""></option>
-              {SEASON_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </Field>
-          {/**
-            * THE LAST FIVE HEADER FIELDS ARE `xs`, NOT `sm` — one row, on purpose
-            * (client 2026-08-12).
-            *
-            * Yr · Excess % · Pack · Mult. Ord · Rejection Rule belong together:
-            * they are the order's terms, and the operator reads them as a set.
-            * At `sm` (col-span-3) five of them need 15 of the track's 12 columns,
-            * so the fifth wrapped to a row of its own. At `xs` (col-span-2) they
-            * total 10 and sit on one line, with the spare 2 columns falling at
-            * the end of the row rather than between the fields.
-            *
-            * It tightens them too, which was the other half of the request: Pack
-            * and Mult. Ord are `w-fit` switches, so at `sm` most of each cell
-            * was trailing space. A narrower cell puts them next to the fields
-            * they qualify.
-            *
-            * SINCE 2026-08-14 THE WHOLE HEADER IS `xs`, and since 2026-08-17
-            * Pack and Mult. Ord are a cell each again, so this row is Deli.Dt ·
-            * Season · Excess % · Pack · Mult. Ord · Rejection Rule — SIX cells
-            * and twelve columns, flush. Eleven header cells left the row two
-            * columns short; twelve fill it. See the note on the switches below
-            * for why the merge was arithmetic rather than grouping.
-            *
-            * YR WAS THE SIXTH AND IS WITHDRAWN (client 2026-08-14): the year is
-            * already defined on the linked Style Master (`style_year`), so
-            * re-typing it on the order was a second place to state one fact.
-            * Withdrawn the way this file withdraws every field — the
-            * `amend_year` COLUMN and its stored values stay, and it left
-            * `garmentAmendmentInput` too, which is the half that stops an
-            * update writing NULL over what is already there.
-            *
-            * SEASON DID NOT GO WITH IT, and the asymmetry is deliberate: Season
-            * is a live FACET, the second one narrowing the Style picker
-            * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
-            */}
-          <Field label="Excess %" size="xs" htmlFor="hd-excess">
-            <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
-          </Field>
-          {/**
-            * PACK AND MULT. ORD ARE A CELL EACH — as switches, and adjacent
-            * (client 2026-08-14 for the switches, 2026-08-17 for the split).
-            *
-            * THEY SHARED A CELL FOR ONE TURN, AND THE REASON WAS ARITHMETIC.
-            * On 08-14 the client asked for switches and for Rejection Rule to
-            * join this row, which was already full at six: two booleans in one
-            * cell freed the sixth slot, bringing the header to twelve cells —
-            * "twelve cells fill two rows flush", against the thirteen it held
-            * before, where the last row carried one field against ten empty
-            * columns.
-            *
-            * THEN `Yr` WAS WITHDRAWN THE SAME DAY AND NOTHING RECOUNTED.
-            * Eleven cells is 6 + 5, so the second row ended two columns early
-            * and the header carried the very orphan the merge removed — which
-            * is what the client reported as a gap (2026-08-17). Splitting them
-            * back is not undoing the 08-14 decision; it is finishing it, since
-            * the merge was arithmetic and the arithmetic changed.
-            *
-            * THE MERGE ALSO COST TWO THINGS THE SPLIT GETS BACK. Two `w-fit`
-            * switches never fitted 202px side by side, so `flex-wrap` stacked
-            * them and that one cell stood two rows tall against ten single-row
-            * fields (screenshot 2320). And the cell read "Pack / Mult. Ord"
-            * with "Pack" and "Mult. Ord" printed again on the switches inside
-            * it — `Toggle`'s own note says to "omit [the label] where a
-            * `<Field>` label already names the answer", so the `<Field>` names
-            * each one and `htmlFor` carries the accessible name onto the
-            * checkbox.
-            *
-            * THEY STAY ADJACENT, which is what "they belong together" actually
-            * needs: both are the order's shape rather than its content —
-            * whether it is packed to a scheme, and whether it carries more than
-            * one style — and each gates something below (Pack opens the Pack
-            * type(s) section; Mult. Ord caps Style(s) to one row). Two
-            * neighbouring cells say that as well as one shared cell did.
-            *
-            * `Toggle` is a real `<input type="checkbox">` underneath. A
-            * `<button role="switch">` is not `isFieldLike()`, so Tab would step
-            * straight over both of these — see the component's own note.
-            */}
-          <Field label="Pack" size="xs" htmlFor="hd-pack">
-            <Toggle id="hd-pack" checked={form.pack} onChange={(pack) => set({ pack })} />
-          </Field>
-          {/**
-            * "MULTI STYLE", NOT "Mult. Ord" (client 2026-08-17). The client
-            * asked for a Multi Style option and a SEPARATE Multi Order button,
-            * and this switch has always been the first of the two: it captions
-            * the Style(s) grid ("Multiple styles on this PO") and `addStyle`
-            * turns it on when a second style line appears. Only the WORD was
-            * wrong, inherited from the legacy screen's `Mult.Ord` column.
-            *
-            * THE COLUMN KEEPS ITS NAME. `mult_ord` is what every stored row,
-            * `toRows`, the diff and the Order Sheet already read; renaming it
-            * would rewrite all of that for a label. 0427 says so in a column
-            * comment, which is where the next reader of the schema will look.
-            *
-            * MULTI ORDER IS NOT BESIDE IT, and that is arithmetic as much as
-            * meaning — see the note on the Quantities tab, which is where it
-            * lives and what it opens.
-            */}
-          <Field label="Multi Style" size="xs" htmlFor="hd-multord">
+            {/**
+              * "SET PACK" — RETAIL SETS, AND IT IS NOT THE SWITCH BESIDE IT
+              * (client 2026-08-25, 0467).
+              *
+              * A pyjama set, a 3-pack of bodysuits: the buyer orders BOXES, the
+              * factory makes GARMENTS, and the price on the invoice is per box.
+              *
+              * IT IS A SECOND FLAG BECAUSE `pack` ALREADY MEANS CARTONS, on the
+              * client's own instruction (2026-08-10), and the two questions are
+              * independent — a 3-pack is still shipped in cartons, and those
+              * cartons are still either solid-size or assorted. Folding both
+              * into one switch leaves three of the four states unanswerable and
+              * silently gets "retail set, shipped solid" wrong, which is the
+              * ordinary case.
+              *
+              * Turning it on DISABLES PO Qty and the price rate, because both
+              * are then derived from the composition rather than typed. See
+              * `piecesPerPack`.
+              *
+              * OFF THE SCREEN SINCE 2026-08-27 — see `SET_PACK_ON_SCREEN`. The
+              * switch also renders for an order that ALREADY holds the flag, so
+              * hiding it can never strand a saved set pack with a derived PO Qty
+              * and no way to turn the derivation off. That is the same call
+              * AGENTS.md records for a disabled master row: the one that
+              * survives the filter is the one the record already holds.
+              */}
+            {(SET_PACK_ON_SCREEN || form.is_set_pack) && (
+              <Toggle
+                id="hd-setpack"
+                label="Set Pack"
+                checked={form.is_set_pack}
+                onChange={(is_set_pack) => set({ is_set_pack })}
+              />
+            )}
+            {/**
+              * "MULTI STYLE", NOT "Mult. Ord" (client 2026-08-17). The client
+              * asked for a Multi Style option and a SEPARATE Multi Order button,
+              * and this switch has always been the first of the two: it captions
+              * the Style(s) grid ("Multiple styles on this PO") and `addStyle`
+              * turns it on when a second style line appears. Only the WORD was
+              * wrong, inherited from the legacy screen's `Mult.Ord` column.
+              *
+              * THE COLUMN KEEPS ITS NAME. `mult_ord` is what every stored row,
+              * `toRows`, the diff and the Order Sheet already read; renaming it
+              * would rewrite all of that for a label. 0427 says so in a column
+              * comment, which is where the next reader of the schema will look.
+              *
+              * MULTI ORDER IS NOT BESIDE IT, and that is arithmetic as much as
+              * meaning — see the note on the Quantities tab, which is where it
+              * lives and what it opens.
+              */}
             <Toggle
               id="hd-multord"
+              label="Multi Style"
               checked={form.mult_ord}
               onChange={(mult_ord) => set({ mult_ord })}
             />
-          </Field>
-          {/**
-            * REJECTION RULE — the source of Approval Qty's Projection (0413).
-            *
-            * On the HEADER and not on each approval line: the defect allowance
-            * is a property of how this order is made, not of one colour, and
-            * per-line rules would let two colours of one style disagree about
-            * the same factory's wastage.
-            *
-            * NOT `required`. An order with no rule has no Projection, which is
-            * a legitimate state and the one every row predating 0413 is in;
-            * requiring it would hold the cursor on a field the operator may
-            * have no answer for, on every existing order they open.
-            *
-            * `RecordPicker` over the whole master, unfiltered — the standing
-            * "Disabled rows" rule. `blocked` is 0264's spelling of the flag and
-            * `isInactive()` reads it, so a switched-off rule vanishes from the
-            * list while an order that already names it still resolves and still
-            * computes the same Projection.
-            */}
-          <Field label="Rejection Rule" size="xs">
-            <RecordPicker
-              label="Rejection Rule"
-              /* `compact` — WITHOUT IT THE LABEL RENDERS TWICE (client 2026-08-12,
-                 screenshot 2277). `DataPicker` draws `label` as its own <Label>
-                 "unless `compact`" (data-picker.tsx:223), so a picker inside a
-                 `<Field label>` must be compact or both print the word. Every
-                 other Field+RecordPicker pair on this screen — Coordinate, Unit,
-                 Composition — already passes it; this one was the outlier.
-                 The prop is still needed on `label` itself: it names the panel
-                 and the toasts even when it draws nothing. */
-              compact
-              items={data.rejectionRules}
-              value={form.rejection_rule_id}
-              onChange={(id) => set({ rejection_rule_id: id })}
-              /* placeholder-blank: exempt -- LAYOUT.md §3 names this one by hand:
-                 blank here is a STATE OF THE ORDER (no rejection projection), not
-                 an unanswered field. */
-              placeholder="No rejection"
+            {/**
+              * REJECTION RULE — the source of Approval Qty's Projection (0413).
+              *
+              * On the HEADER and not on each approval line: the defect allowance
+              * is a property of how this order is made, not of one colour, and
+              * per-line rules would let two colours of one style disagree about
+              * the same factory's wastage.
+              *
+              * NOT `required`. An order with no rule has no Projection, which is
+              * a legitimate state and the one every row predating 0413 is in;
+              * requiring it would hold the cursor on a field the operator may
+              * have no answer for, on every existing order they open.
+              *
+              * `RecordPicker` over the whole master, unfiltered — the standing
+              * "Disabled rows" rule. `blocked` is 0264's spelling of the flag and
+              * `isInactive()` reads it, so a switched-off rule vanishes from the
+              * list while an order that already names it still resolves and still
+              * computes the same Projection.
+              */}
+            <Field label="Rejection Rule" w="name">
+              <RecordPicker
+                label="Rejection Rule"
+                /* `compact` — WITHOUT IT THE LABEL RENDERS TWICE (client 2026-08-12,
+                   screenshot 2277). `DataPicker` draws `label` as its own <Label>
+                   "unless `compact`" (data-picker.tsx:223), so a picker inside a
+                   `<Field label>` must be compact or both print the word. Every
+                   other Field+RecordPicker pair on this screen — Coordinate, Unit,
+                   Composition — already passes it; this one was the outlier.
+                   The prop is still needed on `label` itself: it names the panel
+                   and the toasts even when it draws nothing. */
+                compact
+                items={data.rejectionRules}
+                value={form.rejection_rule_id}
+                onChange={(id) => set({ rejection_rule_id: id })}
+                /* placeholder-blank: exempt -- LAYOUT.md §3 names this one by hand:
+                   blank here is a STATE OF THE ORDER (no rejection projection), not
+                   an unanswered field. */
+                placeholder="No rejection"
+              />
+            </Field>
+            {/* THE ADD CONTROL IS A FIELD, NOT A PANEL (client 2026-08-26,
+                screenshot 2496: "remove this wordings — that add file button
+                field like that Merchand. field, same size of it").
+
+                WHAT WENT was a bold "Attachments" heading, a two-line sentence
+                under it, and a dashed box reading "No documents attached." —
+                three pieces of chrome around one button, and in a 288px column
+                the sentence wrapped to three lines while the button broke
+                across two. The 2026-08-17 de-clutter pass already made both
+                halves standing rules: a heading gets no sentence, and an
+                unfilled field shows nothing.
+
+                WHAT IS LEFT is a `<Field>` like every other cell on this row.
+                The `<Field>` label IS the heading now, at the same size as
+                "Merchand." above it; `w="term"` is that field's own 176px; and
+                `size="md"` inside the control is `h-9 @2xl/editor:h-8`, the
+                exact string `Input` carries, so the button matches a picker's
+                height at BOTH densities rather than by 1px of luck.
+
+                THE FILES ARE NOT IN HERE — see the `list` below. A file row is
+                an icon, a name, a size, a 176px kind Select and a remove; it
+                cannot live in a 176px cell, and shrinking that Select to fit
+                would be sizing a control by its container instead of by its
+                content, which is the whole mistake `FIELD_WIDTH` exists to
+                stop. */}
+            <Field label="Attachments" w="term">
+              <FileAttachments
+                variant="control"
+                rows={attachments}
+                onChange={setAttachments}
+                bucket="garment-order-docs"
+                folder={editId ?? uploadFolder}
+                disabled={!perms.canEdit}
+              />
+            </Field>
+          </FieldRow>
+        </div>
+        {attachments.length > 0 && (
+          <div className="w-36 shrink-0">
+            {/* EVERY ATTACHMENT, NOT JUST THE SKETCH — this column is the only
+                place the files appear now (client 2026-08-26, screenshot 223756:
+                "no need to thi extra displaying", about the strip that used to
+                list them underneath).
+
+                SO IT CANNOT BE KEYED ON `sketchPath`. That is the first row whose
+                `doc_kind` is `sketch`; a buyer's PDF order sheet is
+                `order_sheet`, and keying on the sketch would have left it with no
+                representation anywhere on the screen — nothing to open, and
+                nothing to remove it by. `tiles` draws a picture where there is
+                one and a named chip where there is not.
+
+                A tile is `object-contain` on a 4:3 box — LETTERBOXED, never
+                cropped. The 32px chip in `PageHeader` crops because at that size
+                a drawing is an identifier; here it is the thing being looked at
+                while the order is typed, and a tidy crop hides the half the
+                operator wanted.
+
+                THE 32px CHIP STAYS TOO, and is not redundant: its documented job
+                is being reachable from Combos and Sizes, three and four rail
+                stops from here. */}
+            <FileAttachments
+              variant="tiles"
+              rows={attachments}
+              onChange={setAttachments}
+              bucket="garment-order-docs"
+              folder={editId ?? uploadFolder}
+              disabled={!perms.canEdit}
             />
-          </Field>
-        </FieldGrid>
-
-        {/* THE ATTACHED DOCUMENTS, AND THIS IS THE ONLY POSITION THAT WORKS.
-            Two rules meet here and between them they leave one slot.
-
-            `FileAttachments` holds exactly one field-like node — the per-row
-            kind `<Select>` — and its own header says to render the panel AFTER a
-            section's fields, so that Select does not become the section edge
-            ahead of them.
-
-            The styles grid below says it MUST RENDER LAST, because `cycleTab`
-            treats the last field-like node as the edge where Tab hands over to
-            Color/Print Details.
-
-            So: fields, then this, then the grid. Move it below `stylesGrid` and
-            Tab stops leaving Order Info; move it above the `FieldGrid` and it
-            becomes the edge ahead of the header fields.
-
-            WHY HERE AND NOT LOGISTIC. 0416 was written for the Logistic tab and
-            the client's 2026-08-12 words put it there. Order Info is the later
-            instruction: the buyer's PDF belongs beside the PO No it arrived
-            with, and since Style(s) merged into this section on 2026-08-11 the
-            sketch belongs beside the style it depicts. One panel, because those
-            two placements are now one section. */}
-        <FileAttachments
-          rows={attachments}
-          onChange={setAttachments}
-          bucket="garment-order-docs"
-          folder={editId ?? uploadFolder}
-          disabled={!perms.canEdit}
-          label="Order documents"
-          hint="The buyer's PDF order sheet, the style sketch, and any approvals or shade cards production needs to see."
-        />
+          </div>
+        )}
+        </div>
 
         {/* THE STYLE(S) GRID, AND IT MUST RENDER LAST.
             `cycleTab` (lib/focus.ts) walks the pane's field-like nodes in DOM
@@ -11035,7 +11652,7 @@ export function AmendmentScreen({
 
            THE LIST BRANCH KEEPS THE DEFAULT, deliberately: there the parent IS a
            real destination, and because the registry answers per route, the one
-           component gives "← Back to Order Setup" at /orders/garment-orders and
+           component gives "← Back to Order Preparation" at /orders/garment-orders and
            "← Back to Amendments" at /orders/amendments with no `purpose` branch
            of its own. */
         back={false}
@@ -11440,17 +12057,50 @@ export function AmendmentScreen({
         * save, silently. Because none of that was thrown away, every process
         * entered before 08-17 is still in the database and reappears here.
         */}
+      {/**
+        * PACK COMPOSITION (0467) — mounted HERE, at the editor root, and not
+        * inside the grid cell whose button opens it.
+        *
+        * `ChildGrid` wraps every cell in a `RequiredScope` and that scope
+        * follows the RENDER tree, so a sheet rendered from inside a cell would
+        * have every optional field within it inherit "required", stamp
+        * `data-required-empty` and hold the cursor — the New Yarn bug AGENTS.md
+        * records. `Sheet` resets the scope at its portal boundary, and mounting
+        * it out here is what puts it on the far side of that boundary.
+        *
+        * Same placement, and the same reason, as the Process, Structure Details
+        * and Assortments sheets above and below it.
+        */}
+      {packStyle && (
+        <PackCompositionSheet
+          open
+          onClose={() => setPackForKey(null)}
+          styleLabel={packStyle.style_ref_no.trim() || "this style"}
+          rows={packStyle.pack_components}
+          onChange={(next) => updateStyle(packStyle.key, { pack_components: next })}
+          /* SCOPED BY THE PARENT, per the cascading-picker rule: this screen is
+             what knows which coordinates the style line declares. `coordinates`
+             falls back to the whole GAR class only when the line declares none,
+             which is the same "empty means unscoped, not empty" call
+             `styleCoordinateOptions` already makes for the row's own grid. */
+          coordinates={
+            packStyle.coordinates.some((c) => c.coordinate_id)
+              ? data.coordinates.filter((o) =>
+                  packStyle.coordinates.some((c) => c.coordinate_id === o.id),
+                )
+              : data.coordinates
+          }
+          combos={comboOptionsForStyle(packStyle.style_ref_no)}
+          packsOrdered={packStyle.packs_ordered}
+          newKey={newKey}
+          readOnly={!perms.canEdit}
+        />
+      )}
       {processStyle && (
         <StyleProcessSheet
           open
           onClose={() => setProcessForKey(null)}
-          styleLabel={
-            processStyle.style_ref_no.trim() ||
-            (processStyle.style_id
-              ? (styleById.get(processStyle.style_id)?.name ?? "")
-              : "") ||
-            "this style"
-          }
+          styleLabel={processStyle.style_ref_no.trim() || "this style"}
           header={
             {
               styleRefNo: processStyle.style_ref_no,
@@ -11462,9 +12112,11 @@ export function AmendmentScreen({
                  `order_unit_id`: that FK is still seeded but is no longer what
                  the column displays. */
               orderUnit: unitTextOf(processStyle),
-              styleNo: processStyle.style_id
-                ? (styleById.get(processStyle.style_id)?.name ?? "")
-                : "",
+              /* THE TYPED REF ANSWERS BOTH (2026-08-25). This was the master's
+                 `name` beside `styleRefNo`'s code; a typed line has one string,
+                 and printing it twice is better than printing a blank under a
+                 heading the sheet renders either way. */
+              styleNo: processStyle.style_ref_no,
               styleDescription: processStyle.style_description,
               poQty: processStyle.po_qty,
             } satisfies StyleProcessHeader

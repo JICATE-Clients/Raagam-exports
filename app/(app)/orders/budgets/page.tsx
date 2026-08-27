@@ -3,7 +3,7 @@ import { getBudgetFormData, listOrderBudgets } from "@/lib/orders/budget/service
 import { BudgetScreen } from "./budget-screen";
 
 /**
- * Orders ▸ Budgeting — step 7 of the client's order flow.
+ * Orders ▸ Budgeting — step 5 of the client's order flow.
  *
  * ONE LIST, not two, and the difference from the three screens before it is the
  * point: Material BOM, Fabric BOM and Fabric Plan each list ORDERS, because
