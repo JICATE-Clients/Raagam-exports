@@ -9330,7 +9330,6 @@ export function AmendmentScreen({
     return (
       <ChildGrid<StyleCoordRow>
         narrow
-        frameless
         columns={[
           {
             header: "Coordinate",
@@ -9520,7 +9519,6 @@ export function AmendmentScreen({
              table on the left and a bare label-and-input on the right reads as
              something that failed to render, not as a deliberate difference
              (client 2026-08-18, on the master). */
-          framed
           /* Sizes are 2-5 characters, which is the whole case for the wrapping
              tick grid: ~40 visible at once instead of 8, and ↑/↓ move a row
              while ←/→ move a cell. */
@@ -9624,7 +9622,6 @@ export function AmendmentScreen({
          *
          * The label band is untouched — "Styles Details" still heads the grid.
          */
-        frameless
         pageSize={5}
 /**
          * THE CAP IS BACK, GATED ON THE VISIBLE TOGGLE (client 2026-08-19,

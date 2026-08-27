@@ -5,7 +5,6 @@ import { Check, ChevronDown, Plus, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { useRequiredHold } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
-import { GRID_FRAME } from "@/components/masters/child-grid";
 import { cn } from "@/lib/utils";
 
 /**
@@ -120,7 +119,6 @@ export function MultiSelect({
   panelClassName,
   groupBy,
   gridded,
-  framed,
   onCreate,
 }: {
   id?: string;
@@ -198,19 +196,19 @@ export function MultiSelect({
    */
   gridded?: boolean;
   /**
-   * Draw the SAME frame a `ChildGrid` draws, for the case where this control
-   * stands beside one.
+   * `framed` WAS HERE AND IS GONE (client 2026-08-27: "remove this grid card
+   * totally from the whole application").
    *
-   * Off by default: a field in a row of fields must not grow a box of its own —
-   * that is the over-framing the client cut back on 2026-08-18 ("too much
-   * frames"). It is for the opposite fault, one row over: a bare control sharing
-   * a row with a framed grid reads as floating, because the asymmetry looks like
-   * something failed to render rather than like a deliberate difference.
+   * It drew the SAME frame a `ChildGrid` drew, for a control standing beside
+   * one: "a bare control sharing a row with a framed grid reads as floating,
+   * because the asymmetry looks like something failed to render". That was
+   * exactly right, and it is why this prop has to go WITH the grid card rather
+   * than after it — a `ChildGrid` no longer draws a frame, so a framed
+   * MultiSelect beside it would be the only box on the row and the asymmetry
+   * would simply have swapped sides.
    *
-   * `GRID_FRAME` is imported rather than restated, so the two halves cannot
-   * drift a pixel apart.
+   * The symmetry it existed to protect is now free: neither draws one.
    */
-  framed?: boolean;
   /**
    * TYPE A VALUE THAT DOES NOT EXIST YET AND STORE IT IN THE MASTER.
    *
@@ -585,7 +583,7 @@ export function MultiSelect({
       : emptyLabel;
 
   return (
-    <div ref={rootRef} className={cn("relative", framed && GRID_FRAME, className)}>
+    <div ref={rootRef} className={cn("relative", className)}>
       {!compact && (
         <Label htmlFor={id}>
           {/* required-star: exempt -- this control renders its OWN label, so it

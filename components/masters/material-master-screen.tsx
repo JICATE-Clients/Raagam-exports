@@ -1599,7 +1599,6 @@ export function MaterialMasterScreen({
         <ChildGrid<MixRow>
           lockExisting
           inlineCards
-          frameless
           // This grid SHARES its row with the Using field beside it, so its rows
           // have to line up with that field's control rather than sit in cards
           // 17px lower. See `flushRows` in child-grid.tsx for the arithmetic.
@@ -2651,7 +2650,6 @@ export function MaterialMasterScreen({
                       onRemove={(c) => delConv(c.key)}
                       addLabel="+ Add conversion"
                       inlineCards
-                      frameless
                       columns={[
                         {
                           header: "Alt qty",

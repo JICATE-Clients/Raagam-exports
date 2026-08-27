@@ -125,22 +125,25 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
  * `data-grid-row` and not by `<tr>`. New code should carry the marker.
  */
 /**
- * THE FRAME A GRID DRAWS AROUND ITSELF, exported so a non-grid panel standing
- * BESIDE a grid can match it exactly.
+ * `GRID_FRAME` WAS HERE AND IS GONE (client 2026-08-27: "remove this grid card
+ * totally from the whole application"). It was
+ * `rounded-lg border border-border p-2.5 @2xl/editor:p-2` — the border every
+ * grid drew around itself, exported so a non-grid panel standing beside one
+ * could match it exactly.
  *
- * "One frame per grid" (the screen-layout skill) says how many borders there
- * are; it says nothing about a control that has to sit next to one. On Style ▸
- * Components & Sizes the framed Components table shared a row with an unframed
- * Sizes control, and the client read the bare half as floating (2026-08-18).
- * Retyping these classes there would have put the same four numbers in two
- * files, which is how a border ends up 1px or 2px off and nobody can say which
- * one is wrong — the reason `FIELD_SPAN` and `FIELD_TRACK` are exported too.
+ * DELETED RATHER THAN LEFT EXPORTED. Nothing applies it now: the grid draws no
+ * card, and `MultiSelect`'s `framed` — the one thing that imported it, so a bare
+ * control beside a framed grid would not "read as floating" (2026-08-18) — went
+ * in the same change, because with the grid unframed that prop would have made
+ * the CONTROL the only box on the row and simply swapped which half looked
+ * wrong. A constant nothing renders is the dead-intent this file warns about
+ * elsewhere.
  *
- * A LITERAL, never a template. Tailwind v4 scans source text, so interpolating
- * anything into it produces no CSS at all (`FIELD_TRACK` carries the same
- * warning).
+ * Comments in `detail-section.tsx`, `style-master-screen.tsx` and
+ * `multi-select.tsx` still name it while describing what they used to suppress
+ * or match. Those are history and are left as written — this note is what they
+ * now resolve to.
  */
-export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2";
 
 /**
  * THE COLUMN-HEADER BAND'S TYPE — darker and a half-step bigger than a field
@@ -975,7 +978,6 @@ export function ChildGrid<T extends { key: string }>({
   renderMobileRow,
   pageSize,
   forceCards = false,
-  frameless = false,
   keyboardNav = true,
   hideAdd = false,
   narrow = false,
@@ -1054,9 +1056,12 @@ export function ChildGrid<T extends { key: string }>({
   /** Always render the stacked row-cards, never the wide table — for grids
    *  living inside a half-width column (Fabric organized layout 2026-07-23). */
   forceCards?: boolean;
-  /** Drop the outer bordered card so the grid can nest INSIDE a DetailSection
-   *  (e.g. Attributes (Mixing) under Composition) without a double border. */
-  frameless?: boolean;
+  /* `frameless` WAS HERE AND IS GONE (client 2026-08-27: "remove this grid card
+     totally from the whole application"). It dropped the outer bordered card so
+     a grid could nest inside a DetailSection without a double border — now no
+     grid draws one at all, so there is nothing to opt out of. The prop is
+     REMOVED rather than left as a no-op, which is what makes the compiler name
+     all nine call sites instead of leaving them reading as intent. */
   /** Excel-like Enter/↑/↓ vertical cell navigation on the desktop table (on by
    *  default). Set false for grids where Enter should keep its native meaning. */
   keyboardNav?: boolean;
@@ -1757,13 +1762,34 @@ export function ChildGrid<T extends { key: string }>({
            sibling of both, at the end of this card. See `ownAddControl` for what
            counting bodies instead of grids cost. */
         data-grid-card
+        /**
+         * NO CARD, ANYWHERE (client 2026-08-27: "remove this grid card totally
+         * from the whole application").
+         *
+         * `GRID_FRAME` — `rounded-lg border border-border p-2.5` — used to wrap
+         * every grid unless a call site passed `frameless`. Nine sites did, one
+         * at a time, each because the grid sat inside something that already
+         * drew a border; the screen-layout skill's "one frame per grid" was
+         * being satisfied by remembering to opt out. This is the same rule
+         * applied from the other end: the frame is gone by construction, so
+         * there is nothing to remember and no screen can be the one that forgot.
+         *
+         * `data-grid-card` STAYS. It is a marker, not a look — `ownAddControl`
+         * reads it to find a grid's extent, and `responsive` mode renders two
+         * `data-grid-body` elements so the attribute is the only thing that says
+         * where one grid ends. Removing it with the border would break the "+
+         * Add" lookup on every grid at once.
+         *
+         * The padding went with the border, as `frameless`' own note always
+         * said they would: the grid's first control now sits level with a
+         * `Field` beside it instead of 10px inside a box.
+         */
         className={cn(
           "space-y-2 @2xl/editor:space-y-1.5",
-          !frameless && GRID_FRAME,
-          // The card hugs exactly when the table inside it does, so there is no
-          // dead space between the last column and the border. `max-w-full`
-          // keeps a table wider than the cap inside the section; the scroll
-          // wrapper's own `overflow-x-auto` takes it from there.
+          // Kept for a grid that hugs its table: without a border there is no
+          // dead space to close, but `w-fit` still stops a narrow grid stretching
+          // to the section width. `max-w-full` keeps a wide table inside the
+          // section; the scroll wrapper's `overflow-x-auto` takes it from there.
           hugsContent && "w-fit max-w-full",
         )}
       >
