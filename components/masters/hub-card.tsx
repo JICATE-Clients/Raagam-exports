@@ -100,7 +100,41 @@ export function HubCard({
         >
           {title}
         </span>
-        <Truncated text={subtitle} className="mt-0.5 text-xs text-muted-foreground" />
+        {/*
+          * THE SUBTITLE WRAPS ON A PHONE AND TRUNCATES FROM `sm` UP, and the
+          * two are the same decision read at two widths.
+          *
+          * The grid behind these cards is one column below `sm`
+          * (`group-hub.tsx`), so a card is the full width of the screen and its
+          * subtitle gets whatever the fixed chrome leaves: 16px of `p-4` each
+          * side, the 40px glyph, two 12px gaps and the count. On a 360px
+          * Android that is ~212px for the text — about 38 characters — so
+          * "Plan every sewing and packing accessory a customer's order needs"
+          * arrived as "Plan every sewing and packing accessory a c…". The
+          * ellipsis was doing its job; there was simply nothing behind it worth
+          * reading, and a column of near-identical fragments is what reads as
+          * "the cards are not aligned".
+          *
+          * Wrapping is not a licence to drop `Truncated` — LAYOUT.md §14 is
+          * that an ellipsis must be revealable, and TEXT THAT WRAPS HAS NO
+          * ELLIPSIS, so the rule is satisfied by there being nothing hidden.
+          * That is why this is a swap and not a `line-clamp`: a clamp would
+          * reinstate the `…` with no way to reach the rest, which is the exact
+          * dead end §14 exists to forbid.
+          *
+          * From `sm` the grid is 2-3 columns, cards are short and wide and a
+          * wrapping subtitle would make each one a different height — so the
+          * single line with its hover / press-and-hold reveal is right there,
+          * unchanged. Both nodes render; `cn` is `twMerge`, so `hidden` beats
+          * `Truncated`'s own `block` and `sm:block` brings it back.
+          */}
+        <span className="mt-0.5 block text-xs text-muted-foreground sm:hidden">
+          {subtitle}
+        </span>
+        <Truncated
+          text={subtitle}
+          className="mt-0.5 hidden text-xs text-muted-foreground sm:block"
+        />
       </span>
       {external ? (
         <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />

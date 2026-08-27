@@ -54,7 +54,10 @@ export function DataTable<T>({
         !bare && "rounded-lg border border-border bg-surface",
       )}
     >
-      <table className="w-full text-sm">
+      {/* `hidden md:table`, with the stacked cards below taking over — see the
+          note above that block. Desktop is unchanged: `md:table` restores the
+          element's own default display. */}
+      <table className="hidden w-full text-sm md:table">
         <thead>
           <tr className="border-b border-border bg-surface-muted">
             {selectable && (
@@ -135,6 +138,102 @@ export function DataTable<T>({
           )}
         </tbody>
       </table>
+
+      {/*
+        * THE SAME ROWS AS STACKED CARDS BELOW `md`, because a table on a phone
+        * is a table the operator drags sideways to read. Style's list put
+        * Serial No / Style / Customer / Season into ~330px and Season was
+        * already off-screen (client 2026-08-27); every column after it was
+        * reachable only by scrolling, with the identifier scrolled out of sight
+        * by the time you got there.
+        *
+        * IT BELONGS HERE AND NOT ON THE SCREEN. `MasterListShell` has paired a
+        * desktop table with a `MobileCardList` for a while, but a screen
+        * reaching for a bare `<DataTable>` got nothing — and 209 files use this
+        * component. That is the remainder a per-screen fix always leaves, so
+        * the fallback goes in the primitive and every one of them is correct
+        * without being edited.
+        *
+        * IT CANNOT DOUBLE UP WITH `MobileCardList`. That shell renders its
+        * table inside `hidden … md:block` (master-list-shell.tsx), so this
+        * block is inside an already-hidden container there and never paints.
+        * A shell screen keeps its curated card — title, subtitle, pill,
+        * row actions — and this is only the fallback for everyone else.
+        *
+        * Label-left / value-right rather than the label-above-control stacking
+        * `ChildGrid` uses in cards mode: these cells are READ, not typed, so a
+        * pair costs one line where stacking costs two, and a six-column row
+        * becomes six lines instead of twelve.
+        *
+        * The divider is `border-t-2 border-border-strong`, the same two-pixel
+        * rule `child-grid.tsx` draws between records and for the same reason —
+        * at 1px in `--border` it reads as one more field edge rather than as
+        * the start of a new record.
+        *
+        * A column with a BLANK header is the row-action cluster (LAYOUT.md
+        * §6a): it gets no label, and sits at the foot of the card where its
+        * `<th>` sits at the end of the row.
+        *
+        * Nothing here is `truncate`, deliberately — a value that needs the room
+        * wraps onto a second line. The §14 exemption that lets a table cell cut
+        * a value off is paid for by the table scrolling, and this does not
+        * scroll, so a `…` here would be the dead end §14 forbids.
+        */}
+      <div className="md:hidden">
+        {rows.length === 0 ? (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            {empty}
+          </div>
+        ) : (
+          rows.map((row, ri) => {
+            const key = getKey(row, ri);
+            const href = onRowHref?.(row);
+            return (
+              <div
+                key={key}
+                data-href={href}
+                className={cn(
+                  "space-y-1.5 px-3 py-3",
+                  ri > 0 && "border-t-2 border-border-strong",
+                  selected.has(key) && "bg-primary/5",
+                )}
+              >
+                {selectable && (
+                  <label className="flex items-center gap-2 pb-1 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer"
+                      checked={selected.has(key)}
+                      onChange={() => onToggle?.(key)}
+                      aria-label="Select row"
+                    />
+                    Select
+                  </label>
+                )}
+                {columns.map((c, ci) =>
+                  c.header ? (
+                    <div
+                      key={ci}
+                      className="flex items-baseline justify-between gap-3"
+                    >
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {c.header}
+                      </span>
+                      <span className="min-w-0 text-right text-sm">
+                        {c.cell(row)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div key={ci} className="flex justify-end pt-0.5">
+                      {c.cell(row)}
+                    </div>
+                  ),
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

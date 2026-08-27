@@ -28,7 +28,10 @@ export function Topbar({ locations }: { locations: Location[] }) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
       {/* Location switcher (two GST entities) */}
-      <div className="flex items-center gap-2">
+      {/* `min-w-0`: without it this group is sized by the Select's fixed width
+          and cannot give a pixel back, which is half of why the bar had a hard
+          378px floor (see the Select's own note). */}
+      <div className="flex min-w-0 items-center gap-2">
         <span className="hidden text-xs text-muted-foreground sm:inline">
           Location
         </span>
@@ -36,12 +39,28 @@ export function Topbar({ locations }: { locations: Location[] }) {
             itself — repeating them here drew a SECOND box around it. `h-8`
             matches the Search trigger opposite; `md:text-xs` has to be spelled
             out because the control declares `text-base md:text-sm`, and a bare
-            `text-xs` only wins below the md breakpoint. */}
+            `text-xs` only wins below the md breakpoint.
+
+            `w-28` UNTIL `sm`, AND THAT IS THE WHOLE MOBILE FIX. Every element
+            in this bar was a fixed width with no shrink allowance: 176px here,
+            plus 170px of search + theme + bell + avatar opposite, plus 32px of
+            `px-4` — a 378px floor in a bar that has to fit a 360px Android and
+            a 320px SE. Nothing could give, so `justify-between` pushed the
+            overflow off the trailing edge and the shell's `overflow-hidden`
+            (app/(app)/layout.tsx) clipped it: the avatar was sliced in half and
+            there was no scrollbar to say anything was missing.
+
+            176 → 112 drops the floor to 314px, which clears every phone. The
+            trade is that a long location name clips inside the control below
+            640px — a native `<select>` has no ellipsis — and that is the right
+            way round: the name is re-read from the open list, while a
+            half-rendered avatar is a control the operator cannot press. Above
+            `sm` it is 176px exactly as before. */}
         <Select
           value={locationId}
           onChange={(e) => setLocationId(e.target.value)}
           aria-label="Location"
-          className="h-8 w-44 text-xs font-medium md:text-xs"
+          className="h-8 w-28 text-xs font-medium sm:w-44 md:text-xs"
         >
           {locations.map((l) => (
             <option key={l.id} value={l.id}>
