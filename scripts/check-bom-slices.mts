@@ -22,12 +22,16 @@
  * Run: `npm run check:bom-slices`.
  */
 import {
+  combinationNames,
   consumptionFor,
+  crossCombinations,
   liveOverrides,
+  orphanedOverrides,
   overrideFor,
   sliceKey,
   toOverrides,
   OVERRIDE_FIELDS,
+  KEY_AXES,
   type SliceOverride,
 } from "../lib/orders/material-bom/slice-consumption.ts";
 import { requirementFor } from "../lib/orders/material-bom/requirement.ts";
@@ -136,6 +140,32 @@ check(
   Object.keys(carried[0]).sort(),
   [...OVERRIDE_FIELDS].sort(),
 );
+
+/*
+ * AND THE SAME ARGUMENT FOR `KEY_AXES`, which is a SECOND hand-maintained list
+ * of the same fact. `liveOverrides` mutes the axes a live set does not speak by
+ * walking it, so an axis that is in `sliceKey` and not in this list can never be
+ * muted — the grain-collapse ruling would then quietly fail on that one axis,
+ * which is precisely the shape 0449, 0463 and 0464 each arrived as.
+ *
+ * Asserted two ways, because neither is sufficient alone: the key really is made
+ * of exactly this many segments, and every axis named really does move the key.
+ * A list that named a field `sliceKey` ignores would pass the count and fail the
+ * second; a list missing a real axis fails the first.
+ */
+check(
+  "sliceKey is built from exactly KEY_AXES.length axes",
+  sliceKey({ combo: null, size_id: null, country_id: null }).split(":").length,
+  KEY_AXES.length,
+);
+for (const axis of KEY_AXES) {
+  const blank = { combo: null, size_id: null, country_id: null, combination: null, style_ref_no: null };
+  refute(
+    `sliceKey reads ${axis}, so muting it is meaningful`,
+    sliceKey({ ...blank, [axis]: "X" }),
+    sliceKey(blank),
+  );
+}
 check(
   "...and undefined is normalised to null, never left to key as \"\"",
   toOverrides([{ combo: "WHITE" }])[0],
@@ -452,6 +482,211 @@ check(
 check("nothing live keeps nothing", liveOverrides(stored, []).length, 0);
 check("a null store is an empty list, never a throw", liveOverrides(null, []), []);
 
+/*
+ * THE COMBINATION AXIS DOES NOT COME FROM THE ORDER, AND FILTERING BY IT DELETED
+ * THE OPERATOR'S TYPING (2026-08-25).
+ *
+ * `sliceKey` has five axes and four of them are the order's. A garment part is
+ * typed on the LINE, in the Combination popup, so a live set built from
+ * `productionSlices` mentions none — and every stored combination row matched
+ * nothing. This filter runs on the way OUT, so those rows were not ignored, they
+ * were never written: type TOP and BOTTOM, save, reopen, gone.
+ *
+ * Made to fail first against the pre-fix function: 5 rows in, 1 kept.
+ */
+const withParts = [
+  { combo: "WHITE", size_id: null, country_id: null, combination: "TOP", style_ref_no: "S1" },
+  { combo: "NAVY", size_id: null, country_id: null, combination: "TOP", style_ref_no: "S1" },
+  { combo: "WHITE", size_id: null, country_id: null, combination: "BOTTOM", style_ref_no: "S1" },
+  { combo: "WHITE", size_id: null, country_id: null, combination: null, style_ref_no: "S1" },
+];
+/* The live set a server builds today — the order's own axes, no combination. */
+const liveNoParts = [
+  { combo: "WHITE", size_id: null, country_id: null, style_ref_no: "S1" },
+  { combo: "NAVY", size_id: null, country_id: null, style_ref_no: "S1" },
+];
+check(
+  "a live set that names no combination cannot vote to delete one",
+  liveOverrides(withParts, liveNoParts).length,
+  4,
+);
+refute(
+  "...it does NOT keep only the plain row",
+  liveOverrides(withParts, liveNoParts).length,
+  1,
+);
+
+/* THE CLIENT'S RULE SURVIVES ON THE AXES THE ORDER DOES OWN. Only the
+   combination half of the key is excused — a part typed against a colourway the
+   order has dropped still goes, or "the grid follows the order exactly" would
+   have become "except on any line with a combination". */
+check(
+  "a combination row whose COLOURWAY has gone is still dropped",
+  liveOverrides(withParts, [liveNoParts[0]]).map((o) => `${o.combo}/${o.combination ?? "-"}`),
+  ["WHITE/TOP", "WHITE/BOTTOM", "WHITE/-"],
+);
+
+/* AND IT SELF-DISABLES. The moment a caller crosses its slices by combination —
+   the screen already does — the live set expresses the axis, the full five-way
+   comparison applies again, and a name removed from the popup takes its rows
+   with it. Otherwise this would be a permanent hole rather than a stood-down
+   axis. */
+check(
+  "a live set that DOES name combinations adjudicates them again",
+  liveOverrides(withParts, [
+    { combo: "WHITE", size_id: null, country_id: null, combination: "TOP", style_ref_no: "S1" },
+  ]).map((o) => `${o.combo}/${o.combination ?? "-"}`),
+  ["WHITE/TOP"],
+);
+
+/*
+ * §6b  A GRAIN COLLAPSE KEEPS THE FIGURES IT BYPASSES (client ruling 2026-08-25)
+ *
+ * A SEPARATE BYPASS FROM THE COMBINATION ONE ABOVE, and it is about the LINE
+ * changing rather than the order. Switch a line's Attribute from Colour-wise to
+ * Whole order and the live set collapses to a single keyless slice, so every
+ * colour-keyed figure matches nothing and `consumptionFor` inherits the line's
+ * own ratio in its place.
+ *
+ * IT USED TO DELETE THEM AT SAVE — 2 typed, 0 written. The client was offered
+ * keep / prompt / refuse and chose KEEP, so the axis a collapsed grain no longer
+ * speaks now stands down and nothing is orphaned. These two vectors were
+ * INVERTED in the same edit as the rule, never left behind:
+ *
+ *     a collapse to whole-order orphans every colour-keyed figure  ->  orphans NOTHING
+ *
+ * The bypass is still reported to the operator — the advisory beside the
+ * Attribute says those figures are not counted under this grain — but it is a
+ * warning now rather than a deletion notice.
+ */
+const colourTyped = [
+  { combo: "WHITE", size_id: null, country_id: null, combination: null, style_ref_no: "S1" },
+  { combo: "NAVY", size_id: null, country_id: null, combination: null, style_ref_no: "S1" },
+];
+const colourLive = [
+  { combo: "WHITE", size_id: null, country_id: null, style_ref_no: "S1" },
+  { combo: "NAVY", size_id: null, country_id: null, style_ref_no: "S1" },
+];
+/* The whole-order grain: one slice with no axis at all. */
+const orderLive = [{ combo: null, size_id: null, country_id: null, style_ref_no: null }];
+
+check(
+  "while the grain still holds them, nothing is orphaned",
+  orphanedOverrides(colourTyped, colourLive).length,
+  0,
+);
+check(
+  "a collapse to whole-order orphans NOTHING — the ruling is keep",
+  orphanedOverrides(colourTyped, orderLive).map((o) => o.combo),
+  [],
+);
+check(
+  "...and every bypassed figure is written, so switching back reaches it",
+  liveOverrides(colourTyped, orderLive).map((o) => o.combo),
+  ["WHITE", "NAVY"],
+);
+/* THE CASE THAT WOULD MAKE THE GENERALISATION WRONG, and the reason it is not a
+   blanket amnesty. While the grain IS colour-wise the live set SPEAKS the colour
+   axis, so a figure typed against a colourway that has left the ORDER is still
+   dropped — the client's "the grid follows the order exactly" survives intact on
+   every axis the live set expresses. Made to fail against a draft that muted an
+   axis whenever ANY override disagreed with the live set. */
+const withDeadColour = [
+  ...colourTyped,
+  { combo: "BLACK", size_id: null, country_id: null, combination: null, style_ref_no: "S1" },
+];
+check(
+  "a colourway that left the ORDER is still dropped while the grain speaks colour",
+  liveOverrides(withDeadColour, colourLive).map((o) => o.combo),
+  ["WHITE", "NAVY"],
+);
+check(
+  "...and it is the row NAMED as orphaned",
+  orphanedOverrides(withDeadColour, colourLive).map((o) => o.combo),
+  ["BLACK"],
+);
+/* THE PARTITION MUST HOLD ON THE NEW RULE TOO, and on a set where something is
+   genuinely discarded — asserting it only where nothing is orphaned would pass
+   against a function that had stopped reporting altogether. */
+check(
+  "kept + orphaned is the input on a set that DOES discard",
+  liveOverrides(withDeadColour, colourLive).length +
+    orphanedOverrides(withDeadColour, colourLive).length,
+  withDeadColour.length,
+);
+/* THE TWO HALVES MUST PARTITION. An override is written or it is reported, never
+   both and never neither — a gap between them is a row that vanishes with
+   nothing said about it, which is the whole failure being reported on. */
+check(
+  "kept + orphaned is always the input, exactly",
+  liveOverrides(colourTyped, orderLive).length + orphanedOverrides(colourTyped, orderLive).length,
+  colourTyped.length,
+);
+/* AND IT READS THE SAME "LIVE" AS THE FILTER DOES. A combination row excused by
+   `liveOverrides` must not be reported as orphaned by its complement, or the
+   screen would warn about rows that are in fact being saved. */
+check(
+  "a combination row the filter excuses is not reported as orphaned",
+  orphanedOverrides(withParts, liveNoParts).length,
+  0,
+);
+
+/*
+ * §6c  THE CALLER'S PRECONDITION: pass every slice the grid draws, or lose rows.
+ *
+ * These vectors do NOT bless the behaviour they describe — `liveOverrides` is
+ * correct and is being fed an incomplete set. They pin the COST of the omission,
+ * because it is a delete on the way out and the two plausible partial sets each
+ * destroy something different. A caller reading only the first would "fix" it by
+ * passing the tick and silently swap one casualty for another.
+ *
+ * Size is deliberately NOT excused the way the combination axis is: a size is
+ * obtainable (`productionSlices` emits one per size on request), so an
+ * incomplete set is a caller defect rather than an unknowable axis. Excusing it
+ * would keep stale size rows alive forever.
+ */
+const tickedTyped = [
+  /* the ticked row's OWN figure, which the client requires to survive a tick */
+  { combo: "WHITE", size_id: null, country_id: null, combination: null, style_ref_no: "S1" },
+  /* a figure typed against one of its sizes */
+  { combo: "WHITE", size_id: "size-s", country_id: null, combination: null, style_ref_no: "S1" },
+];
+/* PRIMARY ONLY — a live set computed without the sizeWise predicate. */
+const livePrimary = [{ combo: "WHITE", size_id: null, country_id: null, style_ref_no: "S1" }];
+/* EXPANDED ONLY — the tick REPLACES the row with its children, never adds. */
+const liveExpanded = [
+  { combo: "WHITE", size_id: "size-s", country_id: null, style_ref_no: "S1" },
+  { combo: "WHITE", size_id: "size-m", country_id: null, style_ref_no: "S1" },
+];
+
+/* THE SAFETY NET, and it is why this is no longer a deletion. A primary-only set
+   speaks no size axis at all, so the axis stands down and the size figure
+   SURVIVES — dormant rather than destroyed. This vector asserted `["size-s"]`
+   until the generalisation and was inverted with it. What is lost is the
+   CLEANUP, not the figure: a size genuinely dropped from Quantities is no longer
+   tidied away, which is why the union below is still required of the caller. */
+check(
+  "a live set without the size children no longer DELETES the size figure",
+  orphanedOverrides(tickedTyped, livePrimary).map((o) => o.size_id),
+  [],
+);
+check(
+  "...and passing the tick alone loses the PARENT's figure instead",
+  orphanedOverrides(tickedTyped, liveExpanded).map((o) => o.size_id),
+  [null],
+);
+/* THE UNION IS THE ONLY SET THAT KEEPS BOTH, and it is what the grid renders. */
+check(
+  "the union of primary and expanded keeps every typed figure",
+  liveOverrides(tickedTyped, [...livePrimary, ...liveExpanded]).length,
+  2,
+);
+check(
+  "...and orphans nothing",
+  orphanedOverrides(tickedTyped, [...livePrimary, ...liveExpanded]).length,
+  0,
+);
+
 // ---------------------------------------------------------------------------
 // THE COMPOSITION THE SERVER HAS TO PERFORM
 //
@@ -610,6 +845,131 @@ check(
 );
 check("a line naming no material is never unfinished", labels({ ...base, item_id: null }), []);
 
+/* -------------------------------------------------------------------------
+   §7  THE COMBINATION CROSSING — the screen and the server share one
+
+   `sliceKey` has carried `combination` since 0463, so an override typed against
+   a garment part is identified partly BY that part. The screen crossed its rows
+   by the line's names and the SERVER DID NOT, so every row `requirementRows`
+   built keyed as "" and no combination override matched on the way to storage.
+
+   The screen was RIGHT, which is what made it dangerous: the operator saw the
+   figure they typed while the STORED requirement carried another, and a purchase
+   order is checked against the stored one.
+
+   MADE TO FAIL FIRST: the resolution vectors below return the line's own 2 when
+   the row is uncrossed, and 3 once it carries its name.
+   ------------------------------------------------------------------------- */
+console.log("\n§7  combination crossing");
+
+check("no names leaves the rows alone", crossCombinations([{ k: 1 }, { k: 2 }], []).length, 2);
+/* NULL, NOT "" — the value every pre-0463 row already coalesces to, so nothing
+   already stored moves. */
+check(
+  "...and marks them null, not with a blank name",
+  crossCombinations([{ k: 1 }], []).map((r) => r.combination),
+  [null],
+);
+check("two names double the rows", crossCombinations([{ k: 1 }, { k: 2 }], ["TOP", "BOT"]).length, 4);
+check(
+  "...and each row carries the name it was crossed by",
+  crossCombinations([{ k: 1 }], ["TOP", "BOT"]).map((r) => r.combination),
+  ["TOP", "BOT"],
+);
+
+/* THE NAMES ARE READ OFF THE SLICES, trimmed and de-duplicated. A half-typed row
+   carries "" and must never become a panel named nothing — that would cross
+   every production row against an empty name and double the grid. */
+check(
+  "names are distinct, trimmed, and blanks dropped",
+  combinationNames([
+    { combination: "TOP" },
+    { combination: " TOP " },
+    { combination: "" },
+    { combination: null },
+    { combination: "BOT" },
+  ]),
+  ["TOP", "BOT"],
+);
+
+/* THE RESOLUTION, which is the whole point. */
+const comboOverrides = toOverrides([
+  { combo: "WHITE", combination: "TOP", no_of_items: 3, per_pieces: 1 },
+]);
+const uncrossedRow = { combo: "WHITE", size_id: null, country_id: null, style_ref_no: null };
+check(
+  "an UNCROSSED row misses the override — the defect, stated",
+  consumptionFor({ no_of_items: 2, per_pieces: 1 }, comboOverrides, uncrossedRow).no_of_items,
+  2,
+);
+check(
+  "...and a crossed row finds it",
+  consumptionFor(
+    { no_of_items: 2, per_pieces: 1 },
+    comboOverrides,
+    crossCombinations([uncrossedRow], ["TOP"])[0],
+  ).no_of_items,
+  3,
+);
+/* AND IT DOES NOT LEAK ACROSS PARTS — one typed figure must not reprice every
+   panel on the line. */
+check(
+  "a different part keeps the line's own rate",
+  consumptionFor(
+    { no_of_items: 2, per_pieces: 1 },
+    comboOverrides,
+    crossCombinations([uncrossedRow], ["BOT"])[0],
+  ).no_of_items,
+  2,
+);
+
+
+/*
+ * THE THREE CALLERS MUST CROSS THE SAME WAY.
+ *
+ * `crossCombinations` has three readers — `requirementRows` on the server, the
+ * screen's nested Attribute grid, and the screen's line totals. Each builds slices
+ * for the same line, so any one of them skipping the crossing puts a different
+ * number in front of the operator from the one that is stored.
+ *
+ * BOTH DIRECTIONS HAVE NOW HAPPENED. The screen's GRID crossed while the server
+ * did not, so a typed combination figure never reached storage (screen 2,000,
+ * stored 1,000). That was fixed on the server — and the screen's TOTALS still did
+ * not cross, so the mirror image appeared: the save held 2,000 while the ribbon
+ * showed 1,000.
+ *
+ * This asserts the arithmetic all three must agree on, so a caller that forgets is
+ * a failing check rather than a figure nobody can reconcile.
+ *
+ * MADE TO FAIL FIRST by dropping the crossing from either side: the uncrossed
+ * total is 1 row at the line's own rate, the crossed total is one row per name at
+ * each name's own rate.
+ */
+const twoParts = combinationNames([{ combination: "TOP" }, { combination: "BOT" }]);
+const wholeOrder = [{ combo: null, size_id: null, country_id: null, style_ref_no: null }];
+
+check("two names turn one whole-order row into two", crossCombinations(wholeOrder, twoParts).length, 2);
+/* AND EACH CARRIES ITS OWN TYPED RATE — the point of crossing at all. TOP was
+   typed 3, BOT 1, and the line's own rate is 2. */
+const partRates = toOverrides([
+  { combination: "TOP", no_of_items: 3, per_pieces: 1 },
+  { combination: "BOT", no_of_items: 1, per_pieces: 1 },
+]);
+check(
+  "...and each resolves its own figure, not the line's",
+  crossCombinations(wholeOrder, twoParts).map(
+    (sl) => consumptionFor({ no_of_items: 2, per_pieces: 1 }, partRates, sl).no_of_items,
+  ),
+  [3, 1],
+);
+/* THE UNCROSSED READING, stated so the two numbers sit beside each other: one row
+   at the line's rate. 1 x 2 = 2 against the crossed 3 + 1 = 4, which on a 500-piece
+   order is 1,000 against 2,000 — the figures both bugs produced. */
+check(
+  "an uncrossed row answers with the line's rate alone",
+  wholeOrder.map((sl) => consumptionFor({ no_of_items: 2, per_pieces: 1 }, partRates, sl).no_of_items),
+  [2],
+);
 console.log(
   failed === 0
     ? "\nOK — every BOM slice vector holds."

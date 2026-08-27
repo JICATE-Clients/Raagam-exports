@@ -1399,10 +1399,21 @@ check(
   "FRONT BODY: enter how many are used",
 );
 
-console.log("\n§  panelConsumption — which ratio wins when both were typed");
+console.log("\n§  panelConsumption — the override wins (client 2026-08-25)");
 
-/* THE UNAMBIGUOUS CASE: no slice override, so the panels are the only ratio
-   anyone entered and they stand however the open question is settled. */
+/*
+ * THE PRECEDENCE, PINNED IN BOTH DIRECTIONS:
+ *
+ *     Tier 1 manual slice override > Tier 2 panel rate > Tier 3 line default
+ *
+ * These two vectors are the rule. They REPLACED a pair asserting the provisional
+ * "panels win", changed in the same edit as the arithmetic — the comment that
+ * stood here said "Change this vector WITH the rule, never after it", and a
+ * vector left asserting a superseded rule is worse than none: it makes the old
+ * behaviour look deliberate to everyone who runs the suite.
+ */
+
+/* TIER 2. No slice override, so the panels are the only ratio anyone entered. */
 check(
   "with no override, the panel rate is the rate",
   panelConsumption(
@@ -1412,19 +1423,220 @@ check(
   ),
   { no_of_items: 37, per_pieces: 1 },
 );
-/* THE OVERRIDE IS DETECTED BY COMPARISON WITH THE LINE, not by truthiness — a
-   slice that inherited its figures is NOT an override, and a test for "is there
-   a figure" would call every slice one. */
+
+/* TIER 1. The override replaces the construction outright — not scaled against
+   the panel rate, which was a live candidate and was rejected. */
 check(
-  "an override is detected against the line, per field",
+  "an override beats the panel rate",
   panelConsumption(
     { no_of_items: 24, per_pieces: 1 },
     { no_of_items: 20, per_pieces: 1 },
     { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
   ),
-  // Provisional while the TODO in `panelConsumption` is open: panels win, which
-  // is 0436 read on its own. Change this vector WITH the rule, never after it.
-  { no_of_items: 37, per_pieces: 1 },
+  { no_of_items: 24, per_pieces: 1 },
+);
+
+/* AND IT IS NOT SCALED. The rejected rule stated outright, because a vector that
+   only names the right answer cannot say which wrong one it was guarding
+   against — 24/20 x 37 is 44.4, and 24 x 37 is 888. */
+refute(
+  "...and the panel rate is not multiplied into it",
+  panelConsumption(
+    { no_of_items: 24, per_pieces: 1 },
+    { no_of_items: 20, per_pieces: 1 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
+  ).no_of_items,
+  44.4,
+);
+
+/* THE OVERRIDE IS DETECTED BY COMPARISON WITH THE LINE, not by truthiness — a
+   slice that inherited its figures is NOT an override, and a test for "is there
+   a figure" would hand tier 1 to every slice on the line. */
+check(
+  "a slice that merely INHERITED the line is not an override",
+  panelConsumption(
+    { no_of_items: 20, per_pieces: 1 },
+    { no_of_items: 20, per_pieces: 1 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 9, per_pieces: 1 },
+  ).no_of_items,
+  9,
+);
+
+/* PER FIELD, WHICH IS WHY IT TAKES A COMPOSED VALUE. An operator who typed only
+   `no_of_items` keeps the LINE's `per_pieces` — "more zippers, same per-piece" —
+   so tier 1 hands back 24/10, never 24/1 and never a null divisor. */
+check(
+  "a half-typed override keeps the line's divisor",
+  panelConsumption(
+    { no_of_items: 24, per_pieces: 10 },
+    { no_of_items: 20, per_pieces: 10 },
+    { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 },
+  ),
+  { no_of_items: 24, per_pieces: 10 },
+);
+
+/*
+ * THE SPLIT SURVIVES THE OVERRIDE — the question that had to be answered before
+ * the rule could be implemented at all.
+ *
+ * Panels do two jobs: they supply a ratio, and they divide the line into one row
+ * per TRIM COLOUR (`colourSplits`), which is what feeds `item_color_id`, the
+ * per-cone MOQ grouping, the PO ceiling and the grey->DC->dyed path. Only the
+ * first is this function's. It returns two numbers and cannot remove a row,
+ * merge two colours or change what is bought — so "replace the construction"
+ * reaches the rate and stops there. Asserted by handing the SAME override two
+ * different colour splits and getting two answers back.
+ */
+const twoTrimColours = [
+  { item_color_id: COL_NAVY, component_ids: [CMP_FRONT], no_of_items: 37, per_pieces: 1 as const },
+  { item_color_id: COL_RED, component_ids: [CMP_SLEEVE], no_of_items: 12, per_pieces: 1 as const },
+];
+check(
+  "an override does not collapse a two-colour line to one row",
+  twoTrimColours.map(
+    (s) => panelConsumption({ no_of_items: 24, per_pieces: 1 }, { no_of_items: 20, per_pieces: 1 }, s).no_of_items,
+  ).length,
+  2,
+);
+
+/*
+ * SAME RATE EVERY COLOUR — CHOSEN, NOT INHERITED (client 2026-08-25).
+ *
+ * `sliceKey` has no colour axis (combo/size/country/combination/style), so one
+ * override cannot say "navy 3, red 1". Under tier 1 the same overridden rate
+ * therefore reaches EVERY trim colour and the line's total multiplies by the
+ * colour count. **This was put to the client WITH the multiplication visible and
+ * chosen deliberately**, against their own worked example:
+ *
+ *     Line 2/pc, WHITE 300 / NAVY 200, operator types 4/pc.
+ *     WHITE -> 4/pc -> 1,200 ; NAVY -> 4/pc -> 800 ; TOTAL 2,000.
+ *     One figure typed, both colours moved.
+ *
+ * It was raised here first as an open consequence and this vector said so. It is
+ * now a decision, and the label had to change with it: a vector describing itself
+ * as an unanswered question invites the next reader to "fix" the multiplication
+ * as an oversight, which is the same failure mode as a vector left asserting a
+ * superseded rule.
+ *
+ * ## THE READING THAT WON, AND THE TWO THAT LOST
+ *
+ * An override means **"this line's RATE is wrong, fix it"** — not "this COLOUR
+ * needs more". Both alternatives were live:
+ *
+ *   - *per-colour override* — add a colour axis to `sliceKey` so an override
+ *     binds to one trim colour. Rejected as a SCHEMA AND UI change rather than an
+ *     arithmetic one: a new axis, the unique index, and new grid cells.
+ *   - *refuse on multi-colour lines* until per-colour exists. Rejected because it
+ *     blocks a planner who has a legitimate whole-line correction to make.
+ */
+check(
+  "one override reaches every trim colour — the client's chosen rule",
+  twoTrimColours.map(
+    (s) => panelConsumption({ no_of_items: 24, per_pieces: 1 }, { no_of_items: 20, per_pieces: 1 }, s).no_of_items,
+  ),
+  [24, 24],
+);
+
+/* AND IT IS NOT APPORTIONED ACROSS THE COLOURS — the rejected per-colour reading
+   stated outright, in the idiom the `refute` above uses for the rejected scale
+   answer. Splitting 24 between navy and red would look like restraint and would
+   under-buy the line by half; the client chose the whole rate on each. */
+refute(
+  "...and is NOT divided between them",
+  twoTrimColours.map(
+    (s) => panelConsumption({ no_of_items: 24, per_pieces: 1 }, { no_of_items: 20, per_pieces: 1 }, s).no_of_items,
+  ),
+  [12, 12],
+);
+
+console.log("\n§  colourSplits — one panel counted twice is not two panels");
+
+/*
+ * THE SUM'S PREMISE, ASSERTED. `colourSplits` adds panels together because front
+ * body plus sleeves is one thread rate — which is only true while each row is a
+ * DISTINCT panel. The same panel handed in twice used to double the rate
+ * silently: no crash, no dash, just a figure that reads reasonably and buys
+ * twice what the order needs.
+ *
+ * It is reachable and nothing else catches it. The components table carries no
+ * unique key over (item_line_id, component_id, item_color_id) — checked against
+ * the live catalogue — and the screen's surviving caller synthesises the list
+ * one entry per (part x production slice), so a two-part line over two
+ * colourways hands FRONT in twice.
+ */
+check(
+  "the same panel twice in one colour refuses, naming it",
+  refusalOf(
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+    ]),
+  ),
+  "TOP: listed twice for one colour — enter each panel once",
+);
+
+/* AND IT REFUSES RATHER THAN DOUBLING — the wrong answer this guards against
+   stated outright, because a vector that only names the refusal cannot say what
+   it was standing in the way of. */
+refute(
+  "...rather than summing to a doubled rate",
+  colourSplits(COL_NAVY, [
+    { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+    { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "TOP" },
+  ]),
+  [
+    {
+      item_color_id: COL_NAVY,
+      component_ids: [CMP_FRONT, CMP_FRONT],
+      no_of_items: 50,
+      per_pieces: 1,
+    },
+  ],
+);
+
+/* THE IDENTITY IS THE PAIR, NOT THE PANEL. A front body stitched in navy and
+   topstitched in red is TWO things to buy — 0436's own case — so this must go on
+   answering. The guard would be worse than useless if it refused it: the
+   operator would have a correct sheet with no way to enter it. */
+check(
+  "the same panel in two colours is still two splits",
+  (
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1 },
+      { component_id: CMP_FRONT, item_color_id: COL_RED, no_of_items: 4, per_pieces: 1 },
+    ]) as unknown[]
+  ).length,
+  2,
+);
+
+/* A BLANK PANEL COLOUR RESOLVES TO THE LINE'S BEFORE THE PAIR IS FORMED, so a
+   row naming the line's colour explicitly and one leaving it blank are the same
+   panel and collide. Testing the raw column instead would let exactly that pair
+   through — the inherit contract 0436 gives the column, read from the guard's
+   side. */
+check(
+  "a blank colour and the line's own colour are the SAME pair",
+  refusalOf(
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1, label: "FRONT BODY" },
+      { component_id: CMP_FRONT, item_color_id: COL_NAVY, no_of_items: 25, per_pieces: 1, label: "FRONT BODY" },
+    ]),
+  ),
+  "FRONT BODY: listed twice for one colour — enter each panel once",
+);
+
+/* THE ORDINARY SHEET IS UNTOUCHED. Every 0436 line that was correct before this
+   guard existed has to stay correct, or the guard has bought a doubled rate at
+   the price of a working feature. */
+check(
+  "two DIFFERENT panels of one colour still sum, as they always did",
+  (
+    colourSplits(COL_NAVY, [
+      { component_id: CMP_FRONT, item_color_id: null, no_of_items: 25, per_pieces: 1 },
+      { component_id: CMP_SLEEVE, item_color_id: null, no_of_items: 12, per_pieces: 1 },
+    ]) as { no_of_items: number }[]
+  )[0].no_of_items,
+  37,
 );
 
 console.log("\n§  lineQuantityByColour — the minimum is a minimum per CONE");
