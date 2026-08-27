@@ -265,6 +265,47 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 
+  /* ==========================================================================
+   * EVERYTHING IS BOLD (client 2026-08-27: "make all the font bold globally").
+   *
+   * THE WHOLE SCALE MOVES UP, rather than one weight being forced everywhere.
+   * That distinction is the entire change, so it is worth being explicit about:
+   *
+   *   normal   400 -> 600      semibold 600 -> 700
+   *   medium   500 -> 600      bold     700 -> 700
+   *
+   * A rule like `* { font-weight: 700 }` would have been the literal reading and
+   * is the wrong one twice over. It flattens EVERY level to one weight, so a
+   * section heading stops outranking the label under it — and because this file
+   * already records that an UNLAYERED rule beats any Tailwind utility no matter
+   * how specific (see the focus-ring note below), it would also silently kill
+   * `font-medium` and `font-bold` at ~900 call sites, leaving them as dead code
+   * that still reads as intent. Re-pointing the tokens keeps every one of those
+   * utilities meaningful; they just all land heavier.
+   *
+   * WHY IT STOPS AT 700 rather than pushing normal to 700 and bold to 800. The
+   * stack is Segoe UI / Roboto / Arial, and Arial ships 400 and 700 and nothing
+   * between — ask it for 800 and the browser either clamps to 700 or synthesises
+   * a smeared fake bold. So 800 would not be heavier than 700 on a Windows
+   * shop-floor machine; it would just cost the one step of hierarchy that still
+   * survives. 600 reads as bold against the 14px body text this app sets, and
+   * headings stay visibly heavier than the fields under them.
+   *
+   * `font-normal` at a CALL SITE still means "the lightest weight", which is now
+   * 600 — so a screen that deliberately de-emphasises something keeps working
+   * relative to its neighbours instead of becoming the one thin thing on a bold
+   * page.
+   * ========================================================================== */
+  --font-weight-thin: 500;
+  --font-weight-extralight: 500;
+  --font-weight-light: 500;
+  --font-weight-normal: 600;
+  --font-weight-medium: 600;
+  --font-weight-semibold: 700;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
+
   --color-primary-soft: var(--primary-soft);
   --color-accent-soft: var(--accent-soft);
   --color-pos: var(--pos);
@@ -366,6 +407,26 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   /* Dense data UIs read better slightly tighter */
   font-size: 14px;
+  /*
+   * THE FLOOR FOR TEXT CARRYING NO WEIGHT UTILITY (client 2026-08-27).
+   *
+   * The re-pointed `--font-weight-*` tokens above only reach an element that
+   * actually writes `font-normal` / `font-medium` / …, and most text in this app
+   * writes none — a plain <td>, a <p>, the text inside a <div>. Those inherit,
+   * and without this line they would inherit the UA's 400 and stay thin while
+   * everything around them went bold. Two halves, and the change is wrong with
+   * either one missing.
+   *
+   * Form controls come along for free: Tailwind's preflight sets
+   * `font-weight: inherit` on button / input / select / textarea, which is what
+   * stops a grid of <input>s staying 400 inside a bold page.
+   *
+   * Layered? No — `body` is a plain element selector, so a utility on the
+   * element itself outranks it either way. This sets what is INHERITED, and an
+   * element that states its own weight still wins. That is the intended
+   * relationship, not a specificity accident.
+   */
+  font-weight: 600;
   -webkit-font-smoothing: antialiased;
 }
 

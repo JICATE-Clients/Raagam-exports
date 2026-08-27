@@ -38,7 +38,8 @@ import {
   sliceKey,
   type SliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
-import { isUsableConversion, toPurchaseQty, uomPrecision } from "@/lib/uom/convert";
+import { toPurchaseQty, uomPrecision } from "@/lib/uom/convert";
+import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -210,6 +211,11 @@ function normalizeProcesses(data: MaterialBomAmendmentInput) {
 
 type ConversionRow = {
   id: string;
+  /* WHOSE PACK IT IS. Selected since 2026-08-27 because `resolveLinePack`
+     matches a line's units against ITS OWN material's conversions — without it
+     the server could only look a pack up by the id a line names, which is the
+     lookup that stopped answering when the Purchase Pack cell was removed. */
+  item_id: string;
   alt_qty: number | null;
   alt_uom_id: string | null;
   base_qty: number | null;
@@ -218,17 +224,25 @@ type ConversionRow = {
 
 /** A material's pack sizes and the UOM precisions, for the purchase quantity. */
 type PackContext = {
+  /* BOTH SHAPES OF ONE READ. The map answers "the pack this line names" and the
+     list answers "the packs this material has" — `resolveLinePack` needs the
+     second and the first is what every existing reader holds. One query. */
   conversions: Map<string, ConversionRow>;
+  conversionList: ConversionRow[];
   uomDecimals: Map<string, number | null>;
 };
 
 async function packContext(s: Awaited<ReturnType<typeof createClient>>): Promise<PackContext> {
   const [conv, uoms] = await Promise.all([
-    s.from("material_uom_conversions").select("id, alt_qty, alt_uom_id, base_qty, base_uom_id"),
+    s
+      .from("material_uom_conversions")
+      .select("id, item_id, alt_qty, alt_uom_id, base_qty, base_uom_id"),
     s.from("uoms").select("id, decimal_places_allowed"),
   ]);
+  const conversionList = (conv.data ?? []) as ConversionRow[];
   return {
-    conversions: new Map(((conv.data ?? []) as ConversionRow[]).map((c) => [c.id, c])),
+    conversions: new Map(conversionList.map((c) => [c.id, c])),
+    conversionList,
     uomDecimals: new Map(
       ((uoms.data ?? []) as { id: string; decimal_places_allowed: number | null }[]).map((u) => [
         u.id,
@@ -516,16 +530,29 @@ function requirementRows(
       continue;
     }
 
-    const conv = line.uom_conversion_id
-      ? (packs.conversions.get(line.uom_conversion_id) ?? null)
-      : null;
-    // The pack must convert INTO the unit this line is consumed in. A cone that
-    // holds metres against a line counted in pieces yields a number and a
-    // category error; nothing in the codebase checked this before.
-    const packUsable =
-      !!conv &&
-      isUsableConversion(conv) &&
-      (!line.consumption_uom_id || conv.base_uom_id === line.consumption_uom_id);
+    /*
+     * THE SAME RESOLUTION THE SCREEN MAKES — one function, two readers.
+     *
+     * This was a straight `packs.conversions.get(line.uom_conversion_id)`, and
+     * the pack must still convert INTO the unit the line is consumed in (a cone
+     * that holds metres against a line counted in pieces yields a number and a
+     * category error). What changed on 2026-08-27 is that a line naming NO pack
+     * now resolves one from its material and its two Uoms instead of giving up.
+     *
+     * IT HAS TO HAPPEN HERE AS WELL AS ON THE SCREEN. `purchase_qty` is STORED
+     * from this line, and `bomCeilingForOrder` caps a purchase order against the
+     * stored value — so a screen that resolved a pack the server did not would
+     * show a purchase figure that no control ever enforced.
+     */
+    const { pack: conv, usable: packUsable } = resolveLinePack(
+      {
+        item_id: line.item_id ?? null,
+        purchase_uom_id: line.purchase_uom_id ?? null,
+        consumption_uom_id: line.consumption_uom_id ?? null,
+        uom_conversion_id: line.uom_conversion_id ?? null,
+      },
+      packs.conversionList,
+    );
 
     /* NORMALISED BY `toOverrides`, NOT BY A LITERAL HERE. That literal named
        four of the six fields and dropped `country_id` and `excess_pct` — both
