@@ -56,6 +56,7 @@ import { styleKey } from "@/lib/orders/amendments/style-key";
 import {
   axesAvailable,
   canonicalAxes,
+  groupKeyFor,
   isRefusal,
   labelFor,
   serializeAxes,
@@ -99,6 +100,45 @@ const PLANS: { axes: Axis[]; basis: RequirementBasis; tick: boolean }[] = [
 /** The grain this module composes rather than delegates — the client's #16. */
 const COUNTRY_MATRIX = serializeAxes(["style_ref", "colour", "size", "country"]);
 
+/** Every order axis at once — the finest thing this module can produce, and the
+ *  source a coarsened grain falls back to when its own +style twin has no plan. */
+const FULL_MATRIX: Axis[] = ["style_ref", "colour", "size", "country"];
+
+/**
+ * COLOUR WITHOUT STYLE — the client's #3, #4, #15 and #17, served since
+ * 2026-08-27 ("i need to make sure every attribute is working").
+ *
+ * ## THIS REVERSES A STATED RULE, DELIBERATELY, AND ONLY FOR THE PURCHASE
+ *
+ * `primarySlices`' colour branch keys on (style, combo) because "WHITE can exist
+ * under two styles with different targets, and collapsing them would let one
+ * style's white absorb the other's". That is true of a PRODUCTION target and it
+ * is why these four rows refused for months. It is NOT true of a purchase: the
+ * red thread bought for two styles is one cone, and consolidating it is the
+ * whole point the client's #26 was asking for.
+ *
+ * Nothing is absorbed here because nothing is replaced — the groups are SUMMED.
+ * A style's white contributes its own quantity and keeps it; what changes is
+ * that both contributions are bought on one line instead of two.
+ *
+ * ## SO THE SINGLE-STYLE PATH BELOW IS STILL SEPARATE, AND STAYS
+ *
+ * A one-style order is already answered by WIDENING (see `slicesForAxes`), which
+ * re-asks the ordinary plan with `style_ref` added and therefore produces the
+ * engine's own rows, labels and slice KEYS. Those keys are what per-slice
+ * overrides are stored against, so routing a single-style order through the
+ * coarsener instead would silently re-key every override an operator has typed.
+ * The two paths agree on every figure — asserted in `check-bom-explosion` — and
+ * differ only in a label and a key, which is exactly the difference that must
+ * not move under stored data.
+ */
+const COARSENED: Axis[][] = [
+  ["colour"],
+  ["colour", "size"],
+  ["colour", "country"],
+  ["colour", "size", "country"],
+];
+
 /**
  * Why a grain that is neither delegated nor composed cannot be produced.
  *
@@ -109,21 +149,13 @@ const COUNTRY_MATRIX = serializeAxes(["style_ref", "colour", "size", "country"])
  * supposed to be a convenience.
  */
 function whyUnreachable(axes: readonly Axis[]): string {
-  const key = serializeAxes(axes);
-  /*
-   * {colour} ALONE IS NOT AN OVERSIGHT — the engine argues against it.
-   *
-   * `primarySlices`' colour branch keys on (style, combo) and its comment says
-   * why: "WHITE can exist under two styles with different targets, and
-   * collapsing them would let one style's white absorb the other's." The
-   * client's #26 (`Combination / Order Color`) asks for exactly that collapse,
-   * to consolidate one cone of red thread across the order — a defensible
-   * purchase decision and a reversal of a stated rule, so it needs a decision
-   * rather than an implementation.
-   */
-  if (key === serializeAxes(["colour"])) {
-    return "Colour across every style is not a split this engine makes — a colourway belongs to a style (see #26)";
-  }
+  /* THE {colour}-ALONE BRANCH THAT STOOD HERE IS GONE (2026-08-27). It said
+     "Colour across every style is not a split this engine makes", which was the
+     client's #26 awaiting a decision; the decision was taken and `COARSENED`
+     serves it. Recorded rather than silently deleted, because the ARGUMENT it
+     carried is still correct about production targets and is preserved in
+     `COARSENED`'s header — what changed is that a purchase sums where a target
+     would have absorbed. */
   return `${labelFor(axes)} is not a split this order can be exploded by yet`;
 }
 
@@ -201,7 +233,95 @@ export function slicesForAxes(
     return slicesForAxes(canonicalAxes([...want, "style_ref"]), order, rule);
   }
 
+  /*
+   * THE SAME GRAIN ON A MULTI-STYLE ORDER — coarsened, not refused (client
+   * 2026-08-27). See `COARSENED` above for why summing is right for a purchase
+   * where absorbing would be wrong for a target.
+   *
+   * THE SOURCE IS THE FINEST GRAIN THAT COVERS THIS ONE, and it is asked for
+   * through `slicesForAxes` rather than built here, so the rows being summed
+   * have been through the same plans, apportioning and rejection tiers as every
+   * other grain. `+style_ref` is the natural source; where that has no plan
+   * ({colour, country} does not), the full matrix stands in and the extra axis
+   * is summed away by the same grouping.
+   */
+  if (COARSENED.some((g) => serializeAxes(g) === key)) {
+    const widened = canonicalAxes([...want, "style_ref"]);
+    const source = PLANS.some((p) => serializeAxes(p.axes) === serializeAxes(widened))
+      ? widened
+      : FULL_MATRIX;
+    const base = slicesForAxes(source, order, rule);
+    if (isRefusal(base)) return base;
+    return coarsenTo(want, base, order);
+  }
+
   return { refused: whyUnreachable(want) };
+}
+
+/**
+ * The same rows, regrouped onto a grain that drops an axis they carry.
+ *
+ * ## SUMMED, NEVER RE-DERIVED
+ *
+ * The parts arrive already correct and already summing to the order total, so
+ * grouping and adding preserves that exactly — the same argument `refineByCountry`
+ * makes in the other direction. Re-deriving the matrix at the coarser grain would
+ * be a second answer to "what is this order's colour split", and the two would
+ * agree only until one was edited.
+ *
+ * ## THE KEY IS THE GROUP'S OWN IDENTITY
+ *
+ * `groupKeyFor` is what `rowCountFor` already counts by, so a coarsened row is
+ * keyed by exactly the thing that makes it one row. It cannot collide with a
+ * finer grain's key because it names its axes in it.
+ *
+ * ## A DROPPED AXIS IS NULLED, NOT LEFT ON THE FIRST MEMBER
+ *
+ * The representative slice carries a value only on the axes the grain actually
+ * names. Keeping `style_ref_no` from whichever member happened to sort first
+ * would put one style's name on a row covering several — a label that reads as
+ * provenance and is a lie.
+ */
+function coarsenTo(
+  wanted: readonly Axis[],
+  slices: readonly ProductionSlice[],
+  order: OrderProductionInput,
+): ProductionSlice[] {
+  const want = new Set(canonicalAxes(wanted));
+  const groups = new Map<string, ProductionSlice[]>();
+  for (const sl of slices) {
+    const k = groupKeyFor(wanted, sl);
+    const at = groups.get(k);
+    if (at) at.push(sl);
+    else groups.set(k, [sl]);
+  }
+  return [...groups].map(([key, members]) => {
+    const first = members[0]!;
+    const parts: string[] = [];
+    if (want.has("style_ref")) parts.push(first.style_ref_no ?? "(no style)");
+    if (want.has("colour")) parts.push(first.combo ?? "(no colour)");
+    if (want.has("size")) {
+      parts.push(
+        first.size_id ? (order.sizeNames?.[first.size_id] ?? first.size_id) : "(no size)",
+      );
+    }
+    if (want.has("country")) {
+      parts.push(
+        first.country_id
+          ? (order.countryNames?.[first.country_id] ?? first.country_id)
+          : "(no destination)",
+      );
+    }
+    return {
+      key,
+      label: parts.join(" · ") || "Whole order",
+      qty: members.reduce((t, m) => t + m.qty, 0),
+      style_ref_no: want.has("style_ref") ? first.style_ref_no : null,
+      combo: want.has("colour") ? first.combo : null,
+      size_id: want.has("size") ? first.size_id : null,
+      country_id: want.has("country") ? (first.country_id ?? null) : null,
+    };
+  });
 }
 
 /**
@@ -300,5 +420,12 @@ function refineByCountry(
  * and how the nav list and the landing grid fell out of sync before that.
  */
 export function producibleGrains(): Axis[][] {
-  return [...PLANS.map((p) => p.axes), ["style_ref", "colour", "size", "country"] as Axis[]];
+  return [
+    ...PLANS.map((p) => p.axes),
+    FULL_MATRIX,
+    /* THE FOUR COARSENED COLOUR GRAINS. Offered like any other: a grain this
+       module can produce is a grain the screen may show, and the vectors assert
+       the two lists are the same set in both directions. */
+    ...COARSENED,
+  ];
 }

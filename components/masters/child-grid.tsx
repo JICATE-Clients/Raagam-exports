@@ -1813,7 +1813,17 @@ export function ChildGrid<T extends { key: string }>({
             )}
           >
             <thead>
-              <tr className="border-b border-border bg-surface-muted">
+              {/* WHITE, NOT GREY (client 2026-08-27: "that inside cell for some
+                  sections is grey — make it white too"). This is the ONE part of
+                  the de-framing round that survives the restore below it: the
+                  frames were asked for back, the grey fill was not.
+
+                  The header still separates itself — `border-b` draws the line
+                  and `GRID_HEADER_TEXT` keeps the labels darker and a half-step
+                  bigger than the cells. The fill was a third signal saying what
+                  those two already said, and it read as a panel inside a panel
+                  now that the grid has its card back. */}
+              <tr className="border-b border-border">
                 <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
                 {columns.map((c, i) => (
                   <th
@@ -1940,8 +1950,12 @@ export function ChildGrid<T extends { key: string }>({
                 this as a row. It has to be inside the same <table> to inherit the
                 <th> widths above it, which is the whole reason totals could not be
                 a wrapper around this component. */}
+            {/* White, with the header above (2026-08-27). The `border-t-2` is
+                what separates a total from the rows it sums — deliberately
+                heavier than a row rule — and `font-semibold` is what makes it
+                read as a figure. The fill was a third signal. */}
             {hasTotals && (
-              <tfoot className="border-t-2 border-border bg-surface-muted font-semibold">
+              <tfoot className="border-t-2 border-border font-semibold">
                 <tr>
                   {/* THE LABEL SPANS EVERYTHING BEFORE THE FIRST TOTALLED COLUMN.
                       It used to sit alone in the `#` cell, which is `w-10` — so

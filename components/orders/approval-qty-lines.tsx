@@ -122,6 +122,51 @@ const T_LABEL = "text-[11px] uppercase tracking-wide text-muted-foreground";
  */
 const BOX = "h-[26px] @2xl/editor:h-[26px] text-[12.5px] md:text-[12.5px] text-right tabular-nums";
 
+/**
+ * THE BREAKUP MATRIX — sizes ACROSS, the five figures DOWN (client 2026-08-27,
+ * screenshot 2523: "in approval qty tab need to show the breakup values").
+ *
+ * ## WHAT WAS MISSING, EXACTLY
+ *
+ * The strip that stood here showed a size's ORDERED quantity and a box to type
+ * its approval into, and nothing else. Excess, Rejection and To make existed
+ * only as a colour-level roll-up, so the operator could see that WHITE makes 550
+ * and never that the L makes 165 — the legacy screen's third level (the `+` on
+ * every combo row of 2523) is exactly that breakup, and we had folded it away.
+ *
+ * ## IT IS A MATRIX AND NOT THE SIX ROWS LEGACY USES, DELIBERATELY
+ *
+ * Restoring `Size · Qty · Excess · Approval · Rejection · Total` as six stacked
+ * ROWS is the shape the client had removed on 2026-08-21 ("took huge space in
+ * screen"), and the note above records why: SIZES ARE AN AXIS, SO THEY GO
+ * ACROSS. Both instructions are satisfied by transposing — a size stays a
+ * COLUMN, and the five figures become five rows whose height does not grow with
+ * the size run. Six sizes cost five lines here and thirty-six there.
+ *
+ * READ A COLUMN AND YOU READ ONE SIZE'S STORY; read down it and the arithmetic
+ * is vertical — Ordered + Excess + Approval + Rejection = To make. That sum used
+ * to be a sentence under the strip and is now the shape of the table, so the
+ * sentence went rather than being repeated.
+ *
+ * ## THE CHROME IS `price-matrix.tsx`'S, NOT A SECOND OPINION
+ *
+ * Same box, same sticky first column, same borderless cell field — the two tabs
+ * were built in one week and a matrix that looked like neither would be a third
+ * thing to learn. A twelve-size run scrolls sideways INSIDE this box (never the
+ * page), and the row label stays put while it does, or the operator is reading
+ * digits with nothing to say which figure they are.
+ */
+const MX_WRAP = "w-fit max-w-full overflow-x-auto rounded-md border border-border bg-surface";
+/** The row-name column. Sticky for the reason `price-matrix` gives. */
+const MX_HEAD =
+  "sticky left-0 z-[2] whitespace-nowrap border-r border-border-strong bg-surface px-2 py-[3px] text-left";
+const MX_CELL = "border-l border-border px-2 py-[3px] text-right tabular-nums text-[12.5px]";
+/** The roll-up column. `border-l-2` so it reads as a rule rather than a cell edge. */
+const MX_TOTAL = "border-l-2 border-border-strong px-2 py-[3px] text-right tabular-nums font-semibold";
+/** A cell that IS a field: the grid rule is the border, so the input draws none. */
+const MX_BOX =
+  "h-[24px] @2xl/editor:h-[24px] w-full min-w-[44px] rounded-none border-0 bg-transparent px-1 text-right text-[12.5px] md:text-[12.5px] font-semibold tabular-nums";
+
 /** The row grid, declared ONCE so the header and every line cannot drift. */
 const COLS =
   "grid grid-cols-[minmax(7rem,1.5fr)_5.5rem_1.75rem] items-center gap-x-2.5 @lg/section:grid-cols-[minmax(8rem,1.5fr)_6rem_7.5rem_5rem_6.5rem_1.75rem]";
@@ -141,37 +186,53 @@ export function ApprovalQtyLines({
   onSetAll,
 }: ApprovalQtyLinesProps) {
   /**
-   * WHICH COLOURS ARE SHUT — the set is CLOSED, not open, and that inversion is
-   * the whole of "default open" (client 2026-08-21, screenshots 2452 → 2454:
-   * "it open as like … closed state but make it as default open like second
-   * one").
+   * WHICH COLOUR IS OPEN — an ACCORDION (client 2026-08-27: "add auto collaps
+   * option", the same instruction given for the Material BOM's combination
+   * bands that morning: "add that automatic collapse option, now its totally
+   * open … open the first section, close the second one").
    *
-   * Tracking the open ones and seeding the set would have got today's colours
-   * open and left tomorrow's shut: a colour added on the Combos tab after this
-   * component mounted is not in the seed, so it would arrive collapsed on a
-   * screen whose every other colour is expanded. Tracking the SHUT ones makes
-   * open the absence of a decision, so anything new is open because nobody has
-   * closed it — no effect, no dependency on `colours`, nothing to re-seed.
+   * ## IT REVERSES "DEFAULT OPEN", WHICH ITSELF REVERSED "DEFAULT CLOSED"
    *
-   * IT REVERSES A CHOICE MADE THREE HOURS AGO and does so on instruction. The
-   * argument for collapsed was length: the client's first complaint about this
-   * tab was that it "took huge space in screen". What paid that off was the
-   * SHAPE — one line per colour instead of one grid per colour, sizes across
-   * instead of down — not the folding, so opening by default costs one strip
-   * per colour rather than the six stacked rows it replaced.
+   * This state was a SHUT SET, and the set was the whole of default-open: open
+   * was the absence of a decision, so a colour added on the Combos tab later
+   * arrived expanded rather than hidden behind a set nobody had updated. That
+   * reasoning is right for a multi-open fold and WRONG under an accordion,
+   * where a colour arriving open is a SECOND open colour. Same reversal, same
+   * reason, as `mba-master-screen`'s bands the same day.
+   *
+   * The 08-21 argument for opening everything is not refuted, it is outgrown:
+   * what paid off "took huge space in screen" was the SHAPE — one line per
+   * colour, sizes across — and an open colour cost one strip. It now costs a
+   * five-row breakup matrix, so the length that folding used to save is back.
+   *
+   * ## ONE NAME, BECAUSE A SET CAN HOLD TWO
+   *
+   * The invariant is the TYPE, not a rule every future writer has to remember:
+   * there is nowhere here to write "both open". Three states, the shape
+   * `ChildGrid`'s `openRowKey` and the BOM's `openGroups` already use:
+   *
+   *   undefined — no decision yet, so the FIRST colour is open. DERIVED rather
+   *               than seeded: `colours` is built by `buildApprovalTree` and is
+   *               empty on the render this state is created in, so a seed would
+   *               name nothing and never be revisited.
+   *   a combo   — that colour is open and every other one is shut.
+   *   null      — the operator shut the open one. Nothing is open, and the tab
+   *               is a clean index of colours with their totals — a legitimate
+   *               resting state, which is why this toggles rather than cycling
+   *               to always leave one open.
    *
    * Component state, deliberately: `amendment-screen` returns early on
    * `if (mode === "list")`, so a `useState` added there has to sit above that
    * return or React counts hooks differently between the two renders and blanks
    * the route. Owning it here means the screen grows no hook at all.
    */
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const [openCombo, setOpenCombo] = useState<string | null | undefined>(undefined);
+  /** `undefined` resolved against today's colours — see the three states above. */
+  const shown = openCombo === undefined ? (colours[0]?.combo ?? null) : openCombo;
   const toggle = (combo: string) =>
-    setClosed((s) => {
-      const next = new Set(s);
-      if (next.has(combo)) next.delete(combo);
-      else next.add(combo);
-      return next;
+    setOpenCombo((cur) => {
+      const at = cur === undefined ? (colours[0]?.combo ?? null) : cur;
+      return at === combo ? null : combo;
     });
 
   /** A colour's figures are the SUM of its sizes — computed every render, never
@@ -255,14 +316,28 @@ export function ApprovalQtyLines({
         {colours.map((c) => {
           const r = roll(c);
           const one = uniformApproval(c.sizes.map((z) => z.approval));
-          /* MIXED CANNOT BE CLOSED. A single box cannot honestly show one
-             figure for six that disagree, so the sizes are the only place the
-             value can be read — shutting them would leave the operator with a
-             box that refuses to say what is stored. Now that open is the
-             default this is a refusal to CLOSE rather than a force to open,
-             which is why it survives the inversion unchanged in effect. */
-          const isOpen =
-            (!closed.has(c.combo) || one === null) && c.sizes.length > 0;
+          /* EVERY SIZE'S FIGURES, DERIVED ONCE. Five rows read the same three
+             numbers per size, and calling `derive` inside each row would run it
+             five times over — and, worse, put five call sites where one rounding
+             rule has to hold. `roll` above sums the same values; it is left
+             alone rather than folded in with these, because it must keep
+             answering for a CLOSED colour too, where no cell is drawn. */
+          const cells = c.sizes.map((z) => ({ z, d: derive(z.qty, num(z.approval)) }));
+          /* Whether the Rejection row has anything to say — see its comment. */
+          const anyRejection = cells.some((x) => x.d.rejection !== null);
+          /* MIXED CANNOT BE CLOSED, AND THAT OUTRANKS THE ACCORDION. A single
+             box cannot honestly show one figure for six that disagree, so the
+             breakup is the only place the value can be read — shutting it would
+             leave the operator with a box that refuses to say what is stored.
+
+             SO A MIXED COLOUR IS OPEN ALONGSIDE THE ACCORDION'S ONE, and that
+             is the intended reading rather than a leak: "one at a time" is a
+             convenience about LENGTH, and honesty about a stored value is not
+             negotiable against it. It cannot run away with the screen either —
+             `uniformApproval` returns "" for a colour nobody has typed into, so
+             every colour on a fresh order is uniform and mixed is only ever
+             something the operator did on purpose. */
+          const isOpen = (shown === c.combo || one === null) && c.sizes.length > 0;
           return (
             <div
               key={c.combo}
@@ -333,33 +408,109 @@ export function ApprovalQtyLines({
               </div>
 
               {isOpen && c.sizes.length > 0 && (
-                <div className="mt-0.5 flex flex-wrap gap-1.5 border-t border-dashed border-border pt-2 pb-2.5">
-                  {c.sizes.map((z) => (
-                    <div key={z.sizeId} className="min-w-[3.9rem] flex-none">
-                      <div className="flex justify-between gap-1.5 pb-0.5 text-[11px] text-muted-foreground">
-                        <span>{z.label}</span>
-                        {/* The ordered quantity, above the box rather than
-                            inside it: it is what the answer is judged against,
-                            and 2-of-100 is a different decision from 2-of-300. */}
-                        <span className="tabular-nums opacity-75">{fmtNumber(z.qty)}</span>
-                      </div>
-                      <Input
-                        type="number"
-                        value={z.approval}
-                        onChange={(e) => onSet(c.combo, z.sizeId, e.target.value)}
-                        aria-label={`Approval quantity, ${c.combo} ${z.label}, of ${z.qty} ordered`}
-                        className={cn(BOX, "w-full px-1.5")}
-                      />
-                    </div>
-                  ))}
-                  <div className="w-full pt-1 text-[11px] text-muted-foreground">
-                    <b className="font-semibold text-foreground tabular-nums">
-                      {fmtNumber(r.approval)}
-                    </b>{" "}
-                    approval pieces · {fmtNumber(r.qty)} + {fmtNumber(r.excess)} +{" "}
-                    {fmtNumber(r.approval)} + {fmtNumber(r.rejection)} ={" "}
-                    <b className="font-semibold text-foreground tabular-nums">{fmtNumber(r.total)}</b>{" "}
-                    to make
+                <div className="mt-0.5 border-t border-dashed border-border pt-2 pb-2.5">
+                  <div className={MX_WRAP}>
+                    <table className="border-collapse">
+                      <thead>
+                        <tr className="border-b border-border-strong bg-surface-muted">
+                          {/* THE CORNER IS EMPTY, not labelled "Figure". The row
+                              names below say what they are, and a word here would
+                              be a heading for a column of headings. */}
+                          <th className={cn(MX_HEAD, T_LABEL, "bg-surface-muted")} />
+                          {c.sizes.map((z) => (
+                            <th
+                              key={z.sizeId}
+                              scope="col"
+                              className={cn(MX_CELL, T_LABEL, "font-semibold")}
+                            >
+                              {z.label}
+                            </th>
+                          ))}
+                          <th scope="col" className={cn(MX_TOTAL, T_LABEL)}>
+                            Total
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* ORDERED is what every other row is judged against, so
+                            it leads — "2 of 100" and "2 of 300" are different
+                            decisions, which is why the strip used to print it
+                            above each box. */}
+                        <tr className="border-t border-border">
+                          <th scope="row" className={cn(MX_HEAD, T_LABEL)}>Ordered</th>
+                          {cells.map((x) => (
+                            <td key={x.z.sizeId} className={MX_CELL}>{fmtNumber(x.z.qty)}</td>
+                          ))}
+                          <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.qty)}</td>
+                        </tr>
+                        <tr className="border-t border-border">
+                          <th scope="row" className={cn(MX_HEAD, T_LABEL)}>Excess</th>
+                          {cells.map((x) => (
+                            <td key={x.z.sizeId} className={MX_CELL}>{fmtNumber(x.d.excess)}</td>
+                          ))}
+                          <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.excess)}</td>
+                        </tr>
+                        {/* THE ONE ROW THAT IS TYPED. It sits where the strip's
+                            boxes sat and holds the same `onSet`, so the keyboard
+                            is unchanged: these are the only fields in the row, in
+                            size order, and `gridKeyNav` still walks the each-box
+                            then S, M, L along the SAME `data-grid-row`. */}
+                        <tr className="border-t border-border bg-surface-muted/40">
+                          <th scope="row" className={cn(MX_HEAD, T_LABEL, "text-foreground")}>
+                            Approval
+                          </th>
+                          {cells.map((x) => (
+                            <td key={x.z.sizeId} className={cn(MX_CELL, "p-0")}>
+                              <Input
+                                type="number"
+                                value={x.z.approval}
+                                onChange={(e) => onSet(c.combo, x.z.sizeId, e.target.value)}
+                                aria-label={`Approval quantity, ${c.combo} ${x.z.label}, of ${x.z.qty} ordered`}
+                                className={MX_BOX}
+                              />
+                            </td>
+                          ))}
+                          <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.approval)}</td>
+                        </tr>
+                        {/* REJECTION IS DRAWN ONLY WHEN IT HAS AN ANSWER. It is
+                            null with no Rejection Rule on the order and null in a
+                            gap between tiers, and a row of zeroes would read as
+                            "none needed" — the `0`-versus-refusal distinction the
+                            requirement engine is built around. A null BESIDE real
+                            answers still prints, as a dash, because there the gap
+                            is the finding. */}
+                        {anyRejection && (
+                          <tr className="border-t border-border">
+                            <th scope="row" className={cn(MX_HEAD, T_LABEL)}>Rejection</th>
+                            {cells.map((x) => (
+                              <td key={x.z.sizeId} className={MX_CELL}>
+                                {x.d.rejection === null ? (
+                                  <span className="text-muted-foreground">—</span>
+                                ) : (
+                                  fmtNumber(x.d.rejection)
+                                )}
+                              </td>
+                            ))}
+                            <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.rejection)}</td>
+                          </tr>
+                        )}
+                        {/* THE ANSWER, in the accent the colour row's own "To
+                            make" already uses, so the eye pairs the two. */}
+                        <tr className="border-t border-border-strong">
+                          <th scope="row" className={cn(MX_HEAD, T_LABEL, "text-foreground")}>
+                            To make
+                          </th>
+                          {cells.map((x) => (
+                            <td key={x.z.sizeId} className={cn(MX_CELL, "font-semibold text-primary")}>
+                              {fmtNumber(x.d.total)}
+                            </td>
+                          ))}
+                          <td className={cn(MX_TOTAL, "text-[12.5px] text-primary")}>
+                            {fmtNumber(r.total)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}

@@ -172,15 +172,104 @@ export async function updateMaterialAttribute(
   if (dupLine) return fail(dupLine);
   const { error } = await s.from("material_attributes").update(header).eq("id", id);
   if (error) return fail(error.message);
-  // Replace the line grid wholesale (small, fully-loaded set).
-  // Replace the line grid wholesale (line-option children cascade-delete).
-  const { error: delErr } = await s
+
+  /*
+   * RECONCILED BY ATTRIBUTE, NOT REPLACED WHOLESALE.
+   *
+   * This was `delete().eq("material_attribute_id", id)` followed by
+   * `insertLines`, which gave every line a FRESH id on every save — and
+   * `item_attribute_values.attribute_line_id` is `ON DELETE SET NULL`, so an
+   * ordinary save stripped every Material's stored answers of WHICH ATTRIBUTE
+   * they answer. The value text survived; the meaning did not. **10 of 17
+   * answers in the live DB are already orphaned that way** (2026-08-11), and
+   * they stay orphaned: the text alone cannot say which question it answered,
+   * and `audit_log` holds no entry for any attribute table.
+   *
+   * This is the same defect as the one fixed the same day in
+   * `saveAttributeValues` (`extras-actions.ts`), one level down. Both were
+   * "replace the child grid wholesale", and both had an inbound FK the comment
+   * beside the delete never mentioned.
+   *
+   * THE IDENTITY IS `attribute_id` WITHIN THE SET, and the schema already agrees:
+   * `uq_material_attribute_lines_attr` is UNIQUE (material_attribute_id,
+   * attribute_id) WHERE attribute_id IS NOT NULL, so at most one line per
+   * attribute can exist and the match can never be ambiguous. `normalizeLines`
+   * has already dropped lines naming no attribute, and `duplicateError` has
+   * already refused a set naming one twice.
+   */
+  const { data: existing, error: exErr } = await s
     .from("material_attribute_lines")
-    .delete()
+    .select("id, attribute_id")
     .eq("material_attribute_id", id);
-  if (delErr) return fail(delErr.message);
-  const ins = await insertLines(s, id, lines);
-  if (!ins.ok) return ins;
+  if (exErr) return fail(exErr.message);
+  const stored = (existing ?? []) as { id: string; attribute_id: string | null }[];
+
+  const byAttr = new Map<string, string>();
+  for (const r of stored) if (r.attribute_id) byAttr.set(r.attribute_id, r.id);
+
+  const claimed = new Set<string>();
+  const resolved = lines.map((l) => {
+    const lineId = byAttr.get(l.row.attribute_id as string) ?? null;
+    const keep = lineId && !claimed.has(lineId) ? lineId : null;
+    if (keep) claimed.add(keep);
+    return { id: keep, line: l };
+  });
+
+  /* GONE — a line the operator removed, or one already orphaned by the old bug
+     (`attribute_id` NULL, so it matches nothing and cannot be kept). Its answers
+     are nulled, which is correct: the set no longer asks that question. */
+  const removed = stored.map((r) => r.id).filter((rid) => !claimed.has(rid));
+  if (removed.length) {
+    const { error: delErr } = await s.from("material_attribute_lines").delete().in("id", removed);
+    if (delErr) return fail(delErr.message);
+  }
+
+  // KEPT — updated in place, so every Material's answers stay attached.
+  for (const r of resolved) {
+    if (!r.id) continue;
+    const { error: upErr } = await s
+      .from("material_attribute_lines")
+      .update(r.line.row)
+      .eq("id", r.id);
+    if (upErr) return fail(lineErrorMessage(upErr));
+  }
+
+  // NEW.
+  const fresh = resolved.filter((r) => !r.id).map((r) => r.line);
+  if (fresh.length) {
+    const { data: created, error: insErr } = await s
+      .from("material_attribute_lines")
+      .insert(fresh.map((l) => ({ ...l.row, material_attribute_id: id })))
+      .select("id, sno");
+    if (insErr) return fail(lineErrorMessage(insErr));
+    const idBySno = new Map((created ?? []).map((r) => [r.sno as number, r.id as string]));
+    for (const r of resolved) {
+      if (r.id) continue;
+      r.id = idBySno.get(r.line.row.sno) ?? null;
+    }
+  }
+
+  /* OPTIONS, replaced per line. Safe in the way the tables above are not:
+     nothing points at `material_attribute_line_options`, so re-creating one
+     orphans nothing. Cleared for EVERY line including the kept ones, or a value
+     the operator deleted would outlive the save. */
+  const withIds = resolved.filter((r): r is typeof r & { id: string } => !!r.id);
+  if (withIds.length) {
+    const { error: optDel } = await s
+      .from("material_attribute_line_options")
+      .delete()
+      .in("material_attribute_line_id", withIds.map((r) => r.id));
+    if (optDel) return fail(optDel.message);
+  }
+  const optionRows = withIds.flatMap((r) =>
+    r.line.options.map((o) => ({ ...o, material_attribute_line_id: r.id })),
+  );
+  if (optionRows.length) {
+    const { error: oErr } = await s
+      .from("material_attribute_line_options")
+      .insert(optionRows);
+    if (oErr) return fail(lineErrorMessage(oErr));
+  }
   rev();
   return { ok: true };
 }

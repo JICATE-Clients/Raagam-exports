@@ -89,7 +89,7 @@ import {
   type MasterFullScreenHandle,
 } from "@/components/masters/master-full-screen";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
-import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, FIELD_SPAN, RequiredScope } from "@/components/ui/field";
 import { MultiSelect } from "@/components/ui/multi-select";
 // `sortBySize` / `sizeFamily`: the Style master orders and bands its Sizes
 // dropdown with these, and Order Info now draws the same control — a second
@@ -115,7 +115,7 @@ import { isInactive } from "@/lib/masters/inactive";
 // writes the same two children that screen does (0457), and a second copy of
 // either question is how `comp_type` came to have four wrong readings.
 import {
-  COORDINATE_LIMITS,
+  coordinateCap,
   componentRowStarted,
   componentTypeForCategory,
   filledCoordinates,
@@ -169,6 +169,7 @@ import type {
 // `style-key.ts` says why it was split out rather than copied.
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import * as AssortStyle from "@/lib/orders/amendments/assort-style";
+import * as PackExplode from "@/lib/orders/amendments/pack-type-explosion";
 import { PackCompositionSheet } from "@/components/orders/pack-composition-sheet";
 import {
   piecesPerPack as packPieces,
@@ -502,7 +503,26 @@ type PriceDetailRow = {
  * Pack type(s) tab (0399) — the legacy grid is S No + Pack Type and nothing
  * else, so the row is its one value.
  */
-type PackTypeRow = { key: string; pack_type: string };
+/**
+ * Pack type(s) ▸ one line of what a method PACKS (0472, client 2026-08-27,
+ * screenshot 2518).
+ *
+ * NESTED ON SCREEN, FLAT IN THE PAYLOAD — the rule `style_sizes` states one
+ * grid across: nested so a line cannot outlive the method it describes, flat on
+ * the way out because that is how the table stores it, with `pack_type` text
+ * carrying the binding across.
+ *
+ * `qty` IS A STRING like every other numeric box on this screen: a number
+ * cannot represent a just-cleared field.
+ */
+type PackTypeLineRow = {
+  key: string;
+  style_ref_no: string;
+  combo: string;
+  qty: string;
+};
+
+type PackTypeRow = { key: string; pack_type: string; lines: PackTypeLineRow[] };
 /** Quantities ▸ Assort ▸ one size cell (0414). `qty` is a string: it is typed. */
 type AssortSizeRow = { key: string; size_id: string | null; qty: string };
 /**
@@ -528,6 +548,12 @@ type AssortLineRow = {
   no_of_cartons: string;
   /** Ratio bundles per carton (0432) — asked only on a Solid / Assort line. */
   inners_per_carton: string;
+  /**
+   * THIS LINE'S SIZE CELLS ARE BOXES (0473) — the one typed line of a packed
+   * destination. Every colourway line beneath it is DERIVED from it and the
+   * pack type's composition, and is read-only on screen.
+   */
+  is_pack_row: boolean;
   sizes: AssortSizeRow[];
 };
 /** Quantities tab (0398) — the legacy "Quantities Details" grid. */
@@ -538,6 +564,8 @@ type QuantityRow = {
   style_no: string;
   consignee_id: string | null;
   assortment_type_id: string | null;
+  /** Which packing method this destination ships (0473). */
+  pack_type: string;
   /** The buyer PO this destination belongs to (0427). Only asked while the
    *  header's Multi Order is on; kept and round-tripped either way. */
   po_no: string;
@@ -792,6 +820,25 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
     packTypes: (src.packTypes ?? []).map((x): PackTypeRow => ({
       key: newKey(),
       pack_type: txt(x.pack_type),
+      /* RE-NESTED BY THE TEXT KEY (0472). The service returns the lines as a
+         flat sibling because PostgREST can only embed across a real FK, and
+         this is the same re-nesting `styleSizes` does two mappings above.
+         Case-INSENSITIVE, matching `normalizePackTypeLines` on the server: the
+         method is stored with one spelling and a line typed under another must
+         still find its parent, or the grid opens empty on a document that
+         saved perfectly well. */
+      lines: (src.packTypeLines ?? [])
+        .filter(
+          (l) =>
+            (l.pack_type ?? "").trim().toUpperCase() ===
+            (x.pack_type ?? "").trim().toUpperCase(),
+        )
+        .map((l): PackTypeLineRow => ({
+          key: newKey(),
+          style_ref_no: txt(l.style_ref_no),
+          combo: txt(l.combo),
+          qty: l.qty == null ? "" : String(l.qty),
+        })),
     })),
     quantities: (src.quantities ?? []).map((x): QuantityRow => ({
       key: newKey(),
@@ -800,6 +847,7 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       style_no: txt(x.style_no),
       consignee_id: x.consignee_id ?? null,
       assortment_type_id: x.assortment_type_id ?? null,
+      pack_type: txt(x.pack_type),
       po_no: txt(x.po_no),
       po_qty: num(x.po_qty),
       delivery_date: txt(x.delivery_date),
@@ -830,6 +878,10 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
         combo: txt(l.combo),
         no_of_cartons: num(l.no_of_cartons),
         inners_per_carton: num(l.inners_per_carton),
+        /* `?? false` for the rows written before 0473: every one of them is a
+           PIECES line, which is the reading that cannot rewrite a stored
+           quantity. */
+        is_pack_row: l.is_pack_row ?? false,
         // Size cells come back UNSORTED and are looked up by `size_id`, never
         // by position: the column ORDER is the style's size list, which the
         // overlay derives, so a stored order would be a second answer to it.
@@ -844,24 +896,38 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
 }
 
 /**
- * SET PACK IS BACK ON THE SCREEN (client 2026-08-27: "enable that set pack
- * option again", hours after "for now hide that set pack toggle from ui").
+ * SET PACK IS OFF THE SCREEN, AND THE QUESTION IT ASKS IS BEING REOPENED
+ * (client 2026-08-27, three flips in one day: hide it, enable it again, then
+ * "without the set pack toggle it needs to work without any issue — the Pack
+ * is separate, I will [do] this logic next").
  *
- * THE ROUND TRIP COST ONE LINE, AND THAT IS THE WHOLE POINT OF THE FLAG. Hiding
- * it was done as the nav registry retires a row — `is_set_pack`,
- * `packs_ordered` and `garment_order_amendment_pack_components` stayed in the
- * schema (0467), the explosion stayed in `pack-composition.ts` with its vectors,
- * and every consumer on this screen already asks `form.is_set_pack` before it
- * renders. So the switch went and nothing else moved; it came back and nothing
- * else moved. Deleting the feature instead would have cost the migration, the
- * sheet, the 23 explosion vectors and the reasoning behind `po_qty` staying
- * pieces — and that last one is the expensive part to rebuild.
+ * SO THIS IS A PAUSE, NOT A RETIREMENT, and the reason is worth writing down
+ * because it is not the one the first hide recorded. `pack_components` was
+ * found to be `style_coordinates` PLUS `combo` and `qty_per_pack` — same
+ * grain, same FK, same picker, and the sheet even SCOPES its coordinate list to
+ * the style's own coordinates. On a Set style the two are the same list: the
+ * operator names TOP and BOTTOM on the row, then names TOP x 1 and BOTTOM x 1
+ * again in the sheet. Whether the pack keeps its own list (it must, to carry a
+ * per-member colour) or folds into the coordinates grid is the client's call,
+ * and it is theirs to make next.
  *
- * KEEP THE FLAG. A switch the client has now asked to hide and to show inside a
- * single day is one they may ask for again; the gate is cheaper standing than
- * re-derived, and `|| form.is_set_pack` beside it stays either way (see there).
+ * NOTHING IS DELETED WHILE THAT IS OPEN. `is_set_pack`, `packs_ordered` and
+ * `garment_order_amendment_pack_components` stay in the schema (0467), the
+ * explosion stays in `pack-composition.ts` with its vectors, and every consumer
+ * on this screen asks `form.is_set_pack` before it renders — so with the
+ * switch gone the flag stays false and the Packs column, the Pack Composition
+ * button, the Pack-wise price mode and `packProblems` all stand down on their
+ * own. Three flips have now cost one line each, which is the evidence that the
+ * gate is worth more than the tidiness of removing it.
+ *
+ * `pack` IS UNAFFECTED AND ALWAYS WAS. It means CARTON SORTATION and gates the
+ * Pack type(s) section; it is not a second name for this switch, and folding
+ * one into the other would make PO Qty read-only on an ordinary loose-garment
+ * order that merely declares how its cartons are sorted.
+ *
+ * TO BRING IT BACK: flip this to `true`.
  */
-const SET_PACK_ON_SCREEN = true;
+const SET_PACK_ON_SCREEN = false;
 
 type HeaderForm = {
   // order header
@@ -1010,19 +1076,28 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
      own note calls "tight for free text".
 
      THIS ENTRY IS ITS FLOOR, NOT ITS WIDTH. The cell also carries
-     `flex-[1_1_11rem]` at the call site — 11rem IS `term`, stated twice on
+     `flex-[1_1_7rem]` at the call site — 7rem IS `range`, stated twice on
      purpose so the two cannot say different things — which makes Description
      take whatever the seven leave rather than a number somebody guessed:
      ~210px on the operator's 1,229px pane, ~484px on a 1,504px one, and its own
-     line as soon as fewer than 176px are free.
+     line only once fewer than 112px are free.
+
+     LOWERED FROM `term` (176) ON 2026-08-27, because at that floor the row sat
+     ~30px from its own wrap point and picking a SIZE tipped it over: the chosen
+     sizes render as chips, the row grows taller, the pane gains a scrollbar, and
+     Description took the second line (screenshot 2519). The floor is what
+     `flex-wrap` tests against — shrinking happens after the line is decided — so
+     it is the number that sets the wrap threshold and nothing else. `grow: 1`
+     means the field takes the whole remainder whenever it fits, so this costs no
+     width on any real pane; it only moves the point at which the row gives up.
 
      A FIXED WIDTH WAS TRIED FIRST AND WRAPPED. `name` (288) put the line at
      1,308px against a pane of 1,229, so the field the instruction was ABOUT was
      the one that fell off it. Growing into the remainder is the only version of
      this that cannot be wrong at a width nobody measured — which, on a row that
-     has now been re-widthed four times in a day, is the property that matters
+     has now been re-widthed five times in two days, is the property that matters
      more than any particular number. */
-  Description: "term",
+  Description: "range",
 };
 
 export function AmendmentScreen({
@@ -1255,6 +1330,7 @@ export function AmendmentScreen({
     style_no: "",
     consignee_id: null,
     assortment_type_id: null,
+    pack_type: "",
     po_no: "",
     po_qty: "",
     delivery_date: "",
@@ -1273,7 +1349,7 @@ export function AmendmentScreen({
     pack_description: "",
     assort_lines: [],
   });
-  const blankPackType = (): PackTypeRow => ({ key: newKey(), pack_type: "" });
+  const blankPackType = (): PackTypeRow => ({ key: newKey(), pack_type: "", lines: [] });
 
   /**
    * EVERY GRID OPENS ON ONE BLANK ROW (client 2026-08-11).
@@ -2537,6 +2613,26 @@ export function AmendmentScreen({
         sno: 0,
         pack_type: r.pack_type || null,
       })),
+      /* FLATTENED OUT OF THE PACK TYPE ROWS (0472), the same shape the style
+         sizes take: nested on screen so a line cannot outlive its method, flat
+         here because that is how the table stores it. `pack_type` carries the
+         binding, and `normalizePackTypeLines` drops any line whose method did
+         not survive the save.
+
+         `style` IS SENT AS THE REF. Legacy's two columns were the master's code
+         and its name; with Style typed the ref answers both — `price_details`
+         and `combos` already store it that way, and re-deriving it here from a
+         master that is no longer consulted would blank the column. */
+      pack_type_lines: packTypes.flatMap((r) =>
+        r.lines.map((l) => ({
+          sno: 0,
+          pack_type: r.pack_type || null,
+          style_ref_no: l.style_ref_no || null,
+          style: l.style_ref_no || null,
+          combo: l.combo || null,
+          qty: numOrNull(l.qty) ?? 0,
+        })),
+      ),
       quantities: quantities.map((r) => ({
         sno: 0,
         country_id: r.country_id,
@@ -2544,6 +2640,13 @@ export function AmendmentScreen({
         style_no: r.style_no || null,
         consignee_id: r.consignee_id,
         assortment_type_id: r.assortment_type_id,
+        /* THE RESOLVED METHOD, not the row's stored one (0473). The column is a
+           RECORD of which composition this destination's pieces were exploded
+           from, so it must agree with what was actually used — and the resolver
+           is what was used. Writing back the stale value would leave a saved
+           document naming a method its own numbers no longer match, which is
+           worse than naming none. */
+        pack_type: resolvedPackTypeFor(r) || null,
         /* SENT WHATEVER Multi Order SAYS, for the same reason `pack_types` is
            sent whatever the Pack toggle says: turning the switch off HIDES the
            column, and hiding is not emptying. An order entered with three PO
@@ -2585,6 +2688,11 @@ export function AmendmentScreen({
           // `?? 1`: a multiplier, so an unanswered box is "one inner per
           // carton", never zero. See the Zod input's note (0432).
           inners_per_carton: numOrNull(l.inners_per_carton) ?? 1,
+          /* CARRIED VERBATIM (0473). It decides how every size cell beneath is
+             READ, so a save that dropped it would turn a box count into a piece
+             count on the next load — the order under-read by the pack size,
+             silently, which is the failure the whole feature exists to stop. */
+          is_pack_row: l.is_pack_row,
           sizes: l.sizes.map((z) => ({
             size_id: z.size_id,
             // `?? 0` and NOT `|| 0`: an explicit 0 is a real ratio entry
@@ -3189,11 +3297,32 @@ export function AmendmentScreen({
     if (!row) return false;
     const last = row.coordinates[row.coordinates.length - 1];
     if (last && !last.coordinate_id) return false;
-    /* THE CEILING, NOT THE KIND'S RANGE (2026-08-25) — see `unitKindFromCoordinates`.
-       Capping by the derived kind would be circular: one coordinate derives
-       "piece", piece allows exactly one, and no line could ever hold a second.
-       Six is the client's cap on a Set and so the widest a line may grow. */
-    const cap = { min: COORDINATE_LIMITS.piece.min, max: COORDINATE_LIMITS.set.max };
+    /**
+     * THE ORDER UNIT'S OWN RANGE, ONCE THE OPERATOR HAS TYPED ONE (client
+     * 2026-08-27: "if Order Unit is PCS, just the single coordinate — hide the
+     * add coordinate option; if they choose SET they can add multiple").
+     *
+     * THE CIRCULARITY THAT CLOSED THIS ON 2026-08-25 IS GONE, and that is the
+     * whole reason this can be re-pointed rather than special-cased. The note
+     * here read: "capping by the derived kind would be circular — one
+     * coordinate derives 'piece', piece allows exactly one, and no line could
+     * ever hold a second". Correct, and fatal, while the unit was INFERRED from
+     * the coordinate count. 0471 made Order Unit a stored column the operator
+     * answers, so the cap now reads a value that does not depend on the thing it
+     * is capping.
+     *
+     * NULL STILL FALLS BACK TO THE CEILING, and it has to: an unanswered unit is
+     * still derived from the coordinates (`unitTextOf`), so capping by it would
+     * restore exactly the loop above. Six — the client's cap on a Set — is the
+     * widest a line may grow until somebody says otherwise.
+     *
+     * A LINE ALREADY OVER ITS CAP IS LEFT ALONE. Switching a three-coordinate
+     * style to PCS hides the button and refuses another; it does not delete the
+     * two that are there. Silently dropping entered rows because a dropdown
+     * changed is the data loss the "Disabled rows" rule refuses for the same
+     * reason.
+     */
+    const cap = coordinateCap(row.unit_kind);
     if (cap && filledCoordinates(row.coordinates) >= cap.max) return false;
     mutCoords(styleKeyId, (cs) => [...cs, { key: newKey(), coordinate_id: null }]);
   };
@@ -3743,6 +3872,38 @@ export function AmendmentScreen({
    * function and not on the button: Enter off the last cell adds a row too, and
    * a disabled button would leave the keyboard path uncapped.
    */
+  /**
+   * The lines under ONE pack type (0472).
+   *
+   * All three go through `setPackTypes` rather than a state of their own: the
+   * lines are nested in the row, so a method removed takes its lines with it
+   * without a second cleanup — which is the whole reason they are nested on
+   * screen. The flattening happens once, on the way to the payload.
+   */
+  const mutPackTypeLines = (
+    rowKey: string,
+    f: (ls: PackTypeLineRow[]) => PackTypeLineRow[],
+  ) =>
+    setPackTypes((xs) =>
+      xs.map((x) => (x.key === rowKey ? { ...x, lines: f(x.lines) } : x)),
+    );
+
+  const blankPackTypeLine = (): PackTypeLineRow => ({
+    key: newKey(),
+    /* THE SOLE STYLE, PREFILLED. With one style line on the order there is no
+       question to ask, and the legacy screenshot's five lines all name the same
+       ref — typing it five times is the keystroke this fills in. With two it is
+       a real choice and stays blank, the same call `pickStyle` makes for the
+       Combos tab. */
+    style_ref_no: styles.length === 1 ? styles[0].style_ref_no.trim() : "",
+    combo: "",
+    qty: "",
+  });
+
+  const addPackTypeLine = (rowKey: string) => {
+    mutPackTypeLines(rowKey, (ls) => [...ls, blankPackTypeLine()]);
+  };
+
   const addPackType = () => {
     setPackTypes((xs) => [...xs, blankPackType()]);
   };
@@ -5495,6 +5656,24 @@ export function AmendmentScreen({
         );
       },
     },
+    {
+      /* WHAT THE METHOD PACKS (0472) — legacy's expandable sub-grid, rendered
+         in place rather than behind a [+]. The row has two facts now, so the
+         old note here ("ONE real input ... a card per row would be a card
+         around a single box") no longer holds; what still holds is the reason
+         the Pack Type cell keeps its `width`, since `hugsContent` is
+         `columns.every((c) => c.width)` and THIS column deliberately has none
+         — it takes the rest of the line.
+
+         THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added while
+         `GRID_FRAME` did not exist — "a bare stacked grid sharing a card with a
+         framed table reads as loose rows nobody chose" — and the grid card has
+         since been restored, so `ChildGrid` draws that border itself. Left in
+         place it would be the SECOND one, a few pixels off the real one, which
+         is the doubling the note itself warned about. */
+      header: "Packs",
+      cell: (r) => packTypeLinesGrid(r),
+    },
   ];
 
   // ---------------- Quantities (0398) ----------------
@@ -5732,14 +5911,170 @@ export function AmendmentScreen({
    * row of zeroes would make `assortLineFilled` treat an untouched line as
    * answered. An explicit typed 0 is kept — that one IS a statement.
    */
+  /**
+   * EVERY PACK TYPE'S LINES, FLAT — the left-hand factor of the explosion
+   * (0473). Nested in `packTypes` on screen, flat here because that is the
+   * shape `pack-type-explosion.ts` reads and the shape the payload takes.
+   */
+  const allPackTypeLines = packTypes.flatMap((r) =>
+    r.lines.map((l) => ({
+      pack_type: r.pack_type,
+      style_ref_no: l.style_ref_no,
+      combo: l.combo,
+      qty: l.qty,
+    })),
+  );
+
+  /**
+   * WHICH METHOD THIS DESTINATION SHIPS — RESOLVED, NEVER ASKED (0473, client
+   * 2026-08-27: "no need to show it on the quantity tab UI, just inside
+   * wiring").
+   *
+   * The order already states this twice over: a pack type's LINES name the
+   * style they pack, and a destination names its style. So the method is the
+   * one whose lines cover this destination's style, and a third statement of it
+   * would be a third thing to keep in agreement.
+   *
+   * EXACTLY ONE, OR NONE. Two methods packing the same style is a real document
+   * — an order may ship a 3-pack to one country and a gift box to another —
+   * and nothing here can tell which goes where. Picking the first would explode
+   * every destination against a method half of them do not use, and it would
+   * look right: the totals would foot, against the wrong composition. So an
+   * ambiguous order stays on ordinary typed piece counts, which is the state it
+   * was in before this feature and the only honest answer.
+   *
+   * ORDER-WISE, NOT ROW-WISE, is therefore the shape: the resolution reads only
+   * the pack types and the destination's style, so every destination packing
+   * one style resolves the same way and no two can disagree.
+   */
+  const resolvedPackTypeFor = (q: QuantityRow): string => {
+    const ref = inheritedStyleFor(q);
+    if (!ref.trim()) return "";
+    const methods = Array.from(
+      new Set(
+        packTypes
+          .map((r) => r.pack_type.trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    ).filter(
+      (m) => PackExplode.packContents(allPackTypeLines, m, ref).length > 0,
+    );
+    return methods.length === 1 ? methods[0] : "";
+  };
+
+  /**
+   * IS THIS DESTINATION PACKED TO A DECLARED METHOD? (0473)
+   *
+   * Reads the RESOLVED method rather than the row's stored one, so a pack type
+   * named or edited a moment ago takes effect without a save — the stored
+   * column is a record of what was exploded, never the input to it.
+   */
+  const packModeOf = (q: QuantityRow): boolean =>
+    !!resolvedPackTypeFor(q) && form.pack;
+
+  /**
+   * REBUILD THE COLOURWAY LINES FROM THE BOXES (0473, client ruling
+   * 2026-08-27).
+   *
+   *     pieces(colourway, size) = boxes(size) x pieces-of-colourway-per-box
+   *
+   * ONE TYPED ROW, THE REST DERIVED. The `is_pack_row` line holds the boxes and
+   * is the only line the operator edits; every colourway line is discarded and
+   * regenerated here, so the two can never drift and there is no state to keep
+   * in step. The arithmetic itself is `pack-type-explosion.ts`, which the
+   * vectors exercise — this function only decides WHICH rows exist.
+   *
+   * THE DERIVED LINES ARE STILL SAVED, and that is the ruling's whole point:
+   * the exploded piece counts go into the quantities and sizes tables "so the
+   * downstream Material and Fabric BOM engines never even have to know that
+   * Packs existed". Same call 0467 made for a set pack's `po_qty`.
+   *
+   * KEYS ARE REGENERATED, which is safe ONLY because nothing focusable lives on
+   * a derived row — its cells are read-only. A new key on a row holding a live
+   * input would remount it mid-keystroke and drop the cursor.
+   */
+  const explodePackLines = (
+    q: QuantityRow,
+    lines: AssortLineRow[],
+  ): AssortLineRow[] => {
+    const ref = inheritedStyleFor(q);
+    const method = resolvedPackTypeFor(q);
+    const packRow = lines.find((l) => l.is_pack_row);
+    if (!packRow || !method) return lines;
+    const boxes = new Map<string, string>(
+      packRow.sizes
+        .filter((z) => z.size_id)
+        .map((z) => [z.size_id!, z.qty] as const),
+    );
+    const cells = PackExplode.explodePacks(allPackTypeLines, method, ref, boxes);
+    /* Grouped by colourway IN COMPOSITION ORDER, so the rows read down the
+       screen the way the pack type's own grid reads — not in whatever order
+       the sizes happened to be typed. */
+    const byCombo = new Map<string, AssortSizeRow[]>();
+    for (const c of PackExplode.packContents(allPackTypeLines, method, ref)) {
+      byCombo.set(c.combo, []);
+    }
+    for (const c of cells) {
+      const held = byCombo.get(c.combo);
+      if (held) held.push({ key: newKey(), size_id: c.size_id, qty: String(c.qty) });
+    }
+    return [
+      packRow,
+      ...[...byCombo.entries()].map(([combo, sizes]): AssortLineRow => ({
+        key: newKey(),
+        style_ref_no: packRow.style_ref_no,
+        combo,
+        no_of_cartons: "",
+        inners_per_carton: "",
+        is_pack_row: false,
+        sizes,
+      })),
+    ];
+  };
+
+  /**
+   * Put a destination into pack layout, or leave it exactly as it is.
+   *
+   * CALLED WHEN THE OVERLAY OPENS, and from nowhere else — which is what keeps
+   * this out of an effect. An effect keyed on the pack types would fire when a
+   * SAVED order is opened and rewrite every stored breakup before the operator
+   * had looked at it; this file already records that failure for the Combos
+   * tab's Type field. Opening the sheet is intent to work on the destination,
+   * the same justification `openAssort`'s own seeding runs on.
+   *
+   * IT NEVER TAKES A DESTINATION OUT. Lines typed under no method hold real
+   * piece counts, and dropping the method (by editing Pack type(s)) leaves them
+   * standing as ordinary rows — "hiding is not emptying", which this document
+   * states in four other places.
+   */
+  const enterPackLayout = (q: QuantityRow) => {
+    if (!packModeOf(q)) return;
+    mutAssort(q.key, (ls) => {
+      const packRow: AssortLineRow = ls.find((l) => l.is_pack_row) ?? {
+        key: newKey(),
+        style_ref_no: inheritedStyleFor(q),
+        combo: "",
+        no_of_cartons: "",
+        inners_per_carton: "",
+        is_pack_row: true,
+        /* THE BOXES A PREVIOUS SESSION TYPED ARE NOT INVENTED HERE. A first
+           entry starts empty and the colourway rows read 0 until a box count is
+           typed — nothing is guessed from the piece counts that may be sitting
+           on the lines this replaces. */
+        sizes: [],
+      };
+      return explodePackLines(q, [packRow]);
+    });
+  };
+
   const setAssortSize = (
     qtyKey: string,
     lineKey: string,
     sizeId: string,
     qty: string,
   ) =>
-    mutAssort(qtyKey, (ls) =>
-      ls.map((l) => {
+    mutAssort(qtyKey, (ls) => {
+      const written = ls.map((l) => {
         if (l.key !== lineKey) return l;
         const hit = l.sizes.find((z) => z.size_id === sizeId);
         return {
@@ -5748,8 +6083,17 @@ export function AmendmentScreen({
             ? l.sizes.map((z) => (z.size_id === sizeId ? { ...z, qty } : z))
             : [...l.sizes, { key: newKey(), size_id: sizeId, qty }],
         };
-      }),
-    );
+      });
+      /* A BOX COUNT REPAINTS EVERY COLOURWAY BENEATH IT (0473), in the same
+         render as the keystroke — the ruling asks for the derived piece count
+         to be visible "so the operator can visually verify the total volume",
+         and a figure that lagged a keystroke behind would be read as the answer
+         to the previous number. Only the pack row triggers it; a typed line on
+         an unpacked destination is untouched. */
+      const q = quantities.find((x) => x.key === qtyKey);
+      const target = written.find((l) => l.key === lineKey);
+      return q && target?.is_pack_row ? explodePackLines(q, written) : written;
+    });
   const assortSizeQty = (l: AssortLineRow, sizeId: string): string =>
     l.sizes.find((z) => z.size_id === sizeId)?.qty ?? "";
 
@@ -5892,7 +6236,18 @@ export function AmendmentScreen({
   const openAssort = (qtyKey: string) => {
     setAssortQtyKey(qtyKey);
     const q = quantities.find((x) => x.key === qtyKey);
-    if (!q || q.assort_lines.length) return;
+    if (!q) return;
+    /* PACK LAYOUT IS ENTERED HERE (0473), ahead of the ordinary seed and
+       instead of it. A destination whose style resolves to exactly one packing
+       method does not want a row per declared colour to type into — it wants
+       the boxes row, with the colours derived. Both are "what shape does this
+       destination open in", so they are one decision in one place rather than a
+       seed that runs and a rebuild that undoes it. */
+    if (packModeOf(q)) {
+      enterPackLayout(q);
+      return;
+    }
+    if (q.assort_lines.length) return;
 
     const inherited = inheritedStyleFor(q);
     mutAssort(qtyKey, () =>
@@ -5902,6 +6257,7 @@ export function AmendmentScreen({
           key: newKey(),
           no_of_cartons: "",
           inners_per_carton: "",
+          is_pack_row: false,
           sizes: [] as AssortLineRow["sizes"],
         }),
       ),
@@ -5971,6 +6327,7 @@ export function AmendmentScreen({
         combo: "",
         no_of_cartons: "",
         inners_per_carton: "",
+        is_pack_row: false,
         sizes: [],
       },
     ]);
@@ -6089,9 +6446,26 @@ export function AmendmentScreen({
       ? ratioTotalOf(l)
       : (Number(l.no_of_cartons) || 0) * innersOf(l) * ratioTotalOf(l);
 
+  /**
+   * THE PACK ROW'S FIGURE IS BOXES AND MUST NEVER JOIN A PIECE TOTAL (0473).
+   *
+   * `lineQtyOf` reads Solid as "sum the size cells", which on the boxes row is
+   * the box count — right for the row's own Qty cell, and catastrophic in any
+   * sum: added to the colourway lines beneath it, the destination would read as
+   * pieces PLUS boxes, the balance rule would refuse an order that is exactly
+   * right, and the operator's only way out would be to type a wrong number.
+   *
+   * So every place that AGGREGATES lines drops it, and every place that
+   * DISPLAYS one keeps it. Two call sites, named here rather than filtered
+   * inline at each, because the third one added later is the one that will
+   * forget.
+   */
+  const pieceLinesOf = (q: QuantityRow) =>
+    q.assort_lines.filter((l) => !l.is_pack_row);
+
   const assortTotalOf = (q: QuantityRow) => {
     const mode = assortModeOf(q) ?? "solid";
-    return q.assort_lines.reduce((a, l) => a + lineQtyOf(l, mode), 0);
+    return pieceLinesOf(q).reduce((a, l) => a + lineQtyOf(l, mode), 0);
   };
 
   /**
@@ -6495,7 +6869,11 @@ export function AmendmentScreen({
    */
   const quantityBreakup = quantities.flatMap((q) => {
     const mode = assortModeOf(q) ?? "solid";
-    return q.assort_lines.flatMap((l) =>
+    /* PIECES ONLY (0473). This feeds the Approval Qty tree, the order's value
+       and the balance rule; a boxes row reaching any of them is the exact
+       "silent, total costing failure" the pack explosion exists to prevent,
+       arriving from the inside. */
+    return pieceLinesOf(q).flatMap((l) =>
       l.sizes.map((z) => ({
         /* THE LINE'S STYLE, not the destination's (0433) — through the one
            resolver, so a Multiple Style pack is priced against the style each
@@ -6766,6 +7144,171 @@ export function AmendmentScreen({
        is blank but which has been described. */
     return line.style_ref_no.trim() || line.style_description;
   };
+
+  /**
+   * PACK TYPE(S) ▸ WHAT THIS METHOD PACKS (0472, client 2026-08-27,
+   * screenshot 2518: "for the pack type we missed 4 field table ... the style
+   * and combo from the previous tab data").
+   *
+   * Legacy's tab is master-detail and the conversion took only the master, so a
+   * pack type was a WORD with nothing under it. The four columns are legacy's:
+   * StyleRefNo | Style No | Combo | Qty.
+   *
+   * ## BOTH LISTS COME FROM THE TABS BEFORE THIS ONE, WHICH IS THE ASK
+   *
+   * `styleRefOptions` is the Style(s) section and `comboOptionsForStyle` is the
+   * Combos tab, SCOPED to the style the line names — the cascading-picker rule,
+   * and the same pair the Assortments overlay already uses two sections down.
+   * Nothing here re-derives either list.
+   *
+   * `withHeldOption` on BOTH, for the reason it exists: a scoped list drops a
+   * value the row already holds (a combo declared under a style since removed),
+   * and `Combobox` renders a missing value as an EMPTY BOX while still saving
+   * it — which reads as "nobody filled this in" and invites the operator to
+   * overwrite a value they were never shown.
+   *
+   * ## STYLE NO IS A FACT, NOT A FIELD
+   *
+   * Rendered as text rather than a disabled input, so it neither invites a
+   * click nor sits in the Tab path — the call the Prices tab's Unit cell makes
+   * for the same shape. On a typed line it equals the ref ("THE REF IS THE
+   * NAME NOW"); the column is kept because legacy shows it and because a
+   * document imported with both still round-trips.
+   *
+   * ## NOTHING IS `required`
+   *
+   * The grid opens on a seeded blank row, and a mandatory field HOLDS THE
+   * CURSOR — so a `required` here would cage the operator in a row they have
+   * not looked at yet. Same call, and the same wording, as the Coordinates grid
+   * on the style line. `normalizePackTypeLines` drops a line naming no style,
+   * so the blank costs nothing on save.
+   */
+  const packTypeLinesGrid = (r: PackTypeRow) => (
+    <ChildGrid<PackTypeLineRow>
+      /* NO `narrow`, AND THAT IS THE WHOLE OF THE FIRST LAYOUT BUG (client
+         2026-08-27, screenshot 2521). It was copied from the Coordinates grid
+         under a style line, where it is right: that grid is ONE picker and
+         legacy draws the same list in a narrow panel. Here it caps the root at
+         `max-w-lg` — 512px for a FOUR-column table — so the pane's remaining
+         ~1100px went unused while Style Ref No rendered "GRIL…" and Combo
+         "WHI…" in ~70px boxes, with the full value printed in the untruncated
+         cell right beside it.
+
+         The prop's own note says the cap and the table's breakpoint are
+         coupled, so this is not a width to tune: a narrow grid is a DIFFERENT
+         layout, and the choice is per grid rather than per pixel. */
+      columns={[
+        {
+          header: "Style Ref No",
+          cell: (l) => (
+            <Combobox
+              options={withHeldOption(styleRefOptions, l.style_ref_no)}
+              value={l.style_ref_no}
+              onChange={(v) =>
+                mutPackTypeLines(r.key, (ls) =>
+                  ls.map((x) =>
+                    x.key === l.key
+                      ? /* THE COMBO GOES WITH IT. Colourways are scoped to the
+                           style, so a combo kept across a style change is a
+                           value this row's own list no longer offers — held on
+                           screen by `withHeldOption` and saved against a style
+                           that never declared it. */
+                        { ...x, style_ref_no: v.toUpperCase(), combo: "" }
+                      : x,
+                  ),
+                )
+              }
+              /* placeholder-blank: exempt -- the ORDER's state, not a hint:
+                 with no styles entered there is nothing this box can offer, and
+                 saying so points at the section that fixes it. */
+              placeholder={
+                styleRefOptions.length ? undefined : "Enter a style on Style(s) first"
+              }
+              clearable
+            />
+          ),
+        },
+        {
+          header: "Style No",
+          cell: (l) => (
+            <div className="flex min-h-8 items-center text-sm text-muted-foreground">
+              <Truncated>{styleNameForRef(l.style_ref_no) || "—"}</Truncated>
+            </div>
+          ),
+        },
+        {
+          header: "Combo",
+          cell: (l) => {
+            const scoped = comboOptionsForStyle(l.style_ref_no).map((c) => ({
+              value: c,
+              label: c,
+            }));
+            return (
+              <Combobox
+                options={withHeldOption(scoped, l.combo)}
+                value={l.combo}
+                onChange={(v) =>
+                  mutPackTypeLines(r.key, (ls) =>
+                    ls.map((x) =>
+                      x.key === l.key ? { ...x, combo: v.toUpperCase() } : x,
+                    ),
+                  )
+                }
+                /* placeholder-blank: exempt -- names the tab that fills this,
+                   the same way the Style Ref cell above names its section. A
+                   line whose style is not chosen yet cannot have a colourway
+                   list at all, and the two states read differently. */
+                placeholder={
+                  !l.style_ref_no.trim()
+                    ? "Pick a Style Ref No first"
+                    : scoped.length
+                      ? undefined
+                      : "No combos on this style yet"
+                }
+                clearable
+              />
+            );
+          },
+        },
+        {
+          header: "Qty",
+          align: "right",
+          width: "8rem",
+          /* HOW MANY PIECES ONE PACK OF THIS METHOD HOLDS — the figure the grid
+             exists to produce, and the one legacy never showed. It is what makes
+             a method named "3 PCS PACK" whose lines sum to 13 visible as the
+             contradiction it is; without it the operator adds lines and the
+             total lives only in their head.
+
+             DERIVED, NEVER STORED — the rule 0414 and 0467 both state: a column
+             for a sum is a second source of truth for an addition. `total` also
+             keeps the band off the keyboard axis, which a hand-rolled footer
+             row would not. */
+          total: { kind: "sum", of: (l) => Number(l.qty) || 0 },
+          cell: (l) => (
+            <Input
+              type="number"
+              className="text-right"
+              value={l.qty}
+              onChange={(e) =>
+                mutPackTypeLines(r.key, (ls) =>
+                  ls.map((x) => (x.key === l.key ? { ...x, qty: e.target.value } : x)),
+                )
+              }
+            />
+          ),
+        },
+      ]}
+      rows={r.lines}
+      seedRow
+      onAdd={() => addPackTypeLine(r.key)}
+      onRemove={(l) =>
+        mutPackTypeLines(r.key, (ls) => ls.filter((x) => x.key !== l.key))
+      }
+      /* toolbar-size: exempt -- a ChildGrid "+ Add", not a header row. */
+      addLabel="+ Add line"
+    />
+  );
 
   /**
    * Quantities Details — EIGHT columns, and therefore CARDS (see the grid below).
@@ -7101,6 +7644,21 @@ export function AmendmentScreen({
         />
       ),
     },
+    /**
+     * PACK TYPE IS NOT A COLUMN HERE (client 2026-08-27: "no need to show it on
+     * the quantity tab UI — just inside wiring").
+     *
+     * It was one for an hour. The link it carries is real and unchanged; what
+     * the client rejected is ASKING for it, so the method now RESOLVES itself
+     * — see `resolvedPackTypeFor`. The stored column stays and is written with
+     * whatever was resolved, so a saved document still records which method its
+     * pieces were exploded from; nothing about the explosion moved.
+     *
+     * A picker here would have been the third place one order states the same
+     * fact: Pack type(s) already names the method AND names the style its lines
+     * pack, and a destination already names its style. Asking again is asking
+     * the operator to keep three answers in agreement.
+     */
     {
       header: "PO Qty",
       align: "right",
@@ -7627,6 +8185,12 @@ export function AmendmentScreen({
   const assortGrid = (q: QuantityRow, mode: AssortMode) => {
     const assort = mode === "assort";
     const sizes = sizesForOverlay(q).filter((z) => z.size_id);
+    /* THIS DESTINATION IS PACKED TO A DECLARED METHOD (0473) — the size cells
+       on the `is_pack_row` line are BOXES and every colourway row beneath it is
+       derived from them. Computed once for the grid rather than per cell: it
+       decides what the header says, which cells are editable and what the row
+       label reads, and three answers to one question is how they drift. */
+    const packMode = packModeOf(q);
 
     /**
      * The widest number this column has to hold — every line's entry, and the
@@ -7674,8 +8238,12 @@ export function AmendmentScreen({
       "sticky bottom-0 z-20 flex min-h-9 items-center justify-center border-t " +
       "border-border-strong bg-surface-muted px-1 text-xs font-bold tabular-nums";
 
+    /* PIECES ONLY (0473) — the boxes row shares this column and its figure is
+       a different unit. Summed in, a size ordering 100 boxes of a 4-piece pack
+       would foot as 500 against 400 real garments, and the column that is meant
+       to prove the arithmetic would be the one hiding it. */
     const sizeTotal = (sizeId: string) =>
-      q.assort_lines.reduce(
+      pieceLinesOf(q).reduce(
         (a, l) => a + (Number(assortSizeQty(l, sizeId)) || 0),
         0,
       );
@@ -7789,36 +8357,87 @@ export function AmendmentScreen({
                           />
                         </div>
                       )}
-                      <div className="min-w-0 flex-1">
-                        <Combobox
-                          options={withHeldOption(
-                            scoped.length
-                              ? scoped.map((c) => ({ value: c, label: c }))
-                              : declaredComboOptions,
-                            l.combo,
+                      {/**
+                        * UNDER A PACK TYPE THE COLOURWAY IS NOT A CHOICE (0473).
+                        *
+                        * The boxes row names the METHOD, and every row beneath
+                        * it names a colourway the method's own composition
+                        * declares — so both are stated, not picked. A live
+                        * Combobox here would offer the operator a colourway the
+                        * pack does not contain, and accepting it would produce
+                        * a row the next box-count keystroke silently deletes.
+                        *
+                        * `x N/pack` IS THE MULTIPLIER MADE VISIBLE. Without it
+                        * a BLACK row reading twice its neighbours looks like a
+                        * typo rather than the 2-per-pack it is — the figure
+                        * that explains the row has to be beside the row.
+                        *
+                        * The remove button goes with them: a derived row cannot
+                        * be removed, only the method can be changed. The boxes
+                        * row keeps its own, because dropping the method's line
+                        * is how a destination leaves pack layout.
+                        */}
+                      {packMode ? (
+                        <div className="min-w-0 flex-1">
+                          {l.is_pack_row ? (
+                            <span className="block truncate text-sm font-semibold">
+                              PACKS
+                              <span className="ml-1.5 font-normal text-muted-foreground">
+                                {resolvedPackTypeFor(q)}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="block truncate text-sm">
+                              {l.combo}
+                              <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">
+                                {"×"}
+                                {fmtNumber(
+                                  PackExplode.piecesOfComboPerPack(
+                                    allPackTypeLines,
+                                    resolvedPackTypeFor(q),
+                                    ref,
+                                    l.combo,
+                                  ) ?? 0,
+                                )}
+                                /pack
+                              </span>
+                            </span>
                           )}
-                          value={l.combo}
-                          onChange={(v) =>
-                            patchAssort(q.key, l.key, { combo: v.toUpperCase() })
+                        </div>
+                      ) : (
+                        <div className="min-w-0 flex-1">
+                          <Combobox
+                            options={withHeldOption(
+                              scoped.length
+                                ? scoped.map((c) => ({ value: c, label: c }))
+                                : declaredComboOptions,
+                              l.combo,
+                            )}
+                            value={l.combo}
+                            onChange={(v) =>
+                              patchAssort(q.key, l.key, { combo: v.toUpperCase() })
+                            }
+                            clearable
+                          />
+                        </div>
+                      )}
+                      {packMode && !l.is_pack_row ? null : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          data-row-remove
+                          className="shrink-0 text-muted-foreground hover:text-danger"
+                          onClick={() =>
+                            mutAssort(q.key, (ls) =>
+                              ls.filter((x) => x.key !== l.key),
+                            )
                           }
-                          clearable
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        data-row-remove
-                        className="shrink-0 text-muted-foreground hover:text-danger"
-                        onClick={() =>
-                          mutAssort(q.key, (ls) =>
-                            ls.filter((x) => x.key !== l.key),
-                          )
-                        }
-                        aria-label="Remove assortment line"
-                      >
-                        <Trash2 className="h-4 w-4 shrink-0" />
-                      </Button>
+                          aria-label="Remove assortment line"
+                        >
+                          <Trash2 className="h-4 w-4 shrink-0" />
+                        </Button>
+                      )}
                     </div>
                     {/* THE STYLE NAME SURVIVES AS A LINE, NOT A 288px COLUMN.
                         The client asked for the ref/name PAIR on 2026-08-19 and
@@ -7867,13 +8486,23 @@ export function AmendmentScreen({
                        cell has to occupy its column or the row stops lining up
                        with the header. Blank, never a dash. */
                     const usable = lineHasSize(q, l, z.size_id!);
+                    /* A COLOURWAY ROW UNDER A PACK TYPE IS DERIVED (0473) — its
+                       pieces are the boxes above times the composition, so the
+                       cell is READ-ONLY. Typing here would be a second answer
+                       to a question the boxes row has already answered, and the
+                       next keystroke on the boxes row would silently discard
+                       it. The boxes row itself stays fully editable. */
+                    const derived = packMode && !l.is_pack_row;
                     return (
                       <div key={z.size_id} className={CELL}>
                         <Input
                           type="number"
-                          readOnly={!usable}
+                          readOnly={!usable || derived}
                           inputMode="decimal"
-                          className="h-8 px-1.5 text-right font-mono text-[13px] tabular-nums"
+                          className={
+                            "h-8 px-1.5 text-right font-mono text-[13px] tabular-nums" +
+                            (derived ? " border-transparent bg-transparent" : "")
+                          }
                           value={usable ? assortSizeQty(l, z.size_id!) : ""}
                           onChange={(e) =>
                             setAssortSize(q.key, l.key, z.size_id!, e.target.value)
@@ -8017,16 +8646,35 @@ export function AmendmentScreen({
           );
         })()}
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          data-row-add
-          className="mt-3"
-          onClick={() => addAssortLine(q.key)}
-        >
-          + Add assortment
-        </Button>
+        {/* NOTHING TO ADD UNDER A PACK TYPE (0473): the colourway rows ARE the
+            method's composition, so a hand-added line would be a colourway the
+            pack does not contain and the next box-count keystroke would delete
+            it. The way to change what a destination ships is the method — or
+            the method's own lines, one section back.
+
+            The button is REMOVED rather than disabled, and that is the rule
+            this document already follows for the carton cells on a solid pack:
+            "a disabled box still costs a row on a screen called cluttered". It
+            also keeps `data-row-add` off a control Enter would steer to and
+            then find inert. */}
+        {packModeOf(q) ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            The colourway rows come from <strong>{resolvedPackTypeFor(q)}</strong> on Pack
+            type(s). Type box counts on the PACKS row; change what a box holds by
+            editing that method.
+          </p>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-row-add
+            className="mt-3"
+            onClick={() => addAssortLine(q.key)}
+          >
+            + Add assortment
+          </Button>
+        )}
       </div>
     );
   };
@@ -9325,11 +9973,24 @@ export function AmendmentScreen({
    * function.
    */
   const coordinatesGrid = (r: StyleRow) => {
-    /* The ceiling, not the kind's range — see `addStyleCoordinate`. */
-    const cap = { min: COORDINATE_LIMITS.piece.min, max: COORDINATE_LIMITS.set.max };
+    /* THE ORDER UNIT'S RANGE — the same expression `addStyleCoordinate` uses,
+       and the reasoning lives there. PCS caps at one coordinate, SET at six, an
+       unanswered unit at the ceiling. Both read one function so the hidden
+       button and the refused keystroke can never disagree about the limit. */
+    const cap = coordinateCap(r.unit_kind);
     return (
       <ChildGrid<StyleCoordRow>
         narrow
+        /* `frameless` — this grid sits inside the style row's card and inside
+           its own `<Field>`, so the grid card would be a second border on the
+           same panel. Restored with the frame itself on 2026-08-27.
+
+           THE COMPOSITION LAYOUT (`inlineCards` + `flushRows`) WAS TRIED HERE
+           and is withdrawn with it. It was the answer while no grid drew a
+           frame — a shared header and light rules were the only structure
+           available. With the card, the row box and the field all back, this
+           grid reads like every other one again, which is what "same for all"
+           asks for. */
         frameless
         columns={[
           {
@@ -9420,6 +10081,52 @@ export function AmendmentScreen({
 
   const componentsAndSizes = (r: StyleRow) => (
     <>
+      {/*
+        * SPLIT IN TWO (client 2026-08-27, screenshot 124618: "add split screen -
+        * coordinate and size in one, and that three-field centre section in
+        * another one side").
+        *
+        * WAS THREE CELLS, NOW TWO PANES. Coordinate | Components | Sizes put the
+        * table in the MIDDLE, so the two short controls that describe the style
+        * sat on opposite sides of it with the widest thing on the screen between
+        * them. They belong together: the Coordinate list is what scopes the
+        * Coordinate column inside Components, and Sizes is the other axis of the
+        * same style.
+        *
+        * 6 + 8 = 14, and COMPONENTS DOES NOT MOVE. It keeps `xl` and the exact
+        * width it had; only the left pane grows from 3 to 6 by absorbing Sizes
+        * from the right. That is what makes this a re-grouping rather than a
+        * re-proportioning - nothing about the table changes.
+        *
+        * STILL CELLS OF THE STYLE ROW'S OWN TRACK, which is the 2026-08-24
+        * decision this must not undo: the panes are two spans of the same
+        * fourteen columns the seven fields above use, so the left edge of
+        * Coordinate still lands under the left edge of Style. A nested
+        * `FieldGrid` here would be a second track and a second place to
+        * disagree - the note that removed one already says so.
+        *
+        * SIDE BY SIDE INSIDE THE PANE, NOT STACKED (client 2026-08-27,
+        * screenshot 2516: "coordinate and size on the same row, not the next
+        * row"). The first cut used `space-y-3`, which put Sizes on the line
+        * BELOW Coordinate and left the pane twice as tall as the table beside
+        * it — grouping them had turned into stacking them.
+        *
+        * `grid-cols-2` splits the pane's six columns into three and three,
+        * which is the width each of these two had when they were separate cells
+        * of the outer track. So they end up their original size, next to each
+        * other, with the table on the other side of the split — which is what
+        * the request actually asks for.
+        *
+        * `items-start` because they are different heights: Coordinate carries a
+        * grid and an "+ Add" button, Sizes is one box. Without it the shorter
+        * one stretches and its control floats in the middle of a tall cell.
+        *
+        * Their own `size` no longer positions them: a `col-span` is inert
+        * outside the track it names, so they are `full` to say "take your half
+        * of the pane" rather than carrying a number that reads as a column
+        * count and is not one.
+        */}
+      <div className={cn(FIELD_SPAN.lg, "grid grid-cols-2 items-start gap-3")}>
       {/* COORDINATES FIRST — the master's order, and the order the data flows
           in: this list is what scopes the Coordinate cell in the grid beside it,
           so reading them the other way round would mean meeting the narrowed
@@ -9439,70 +10146,31 @@ export function AmendmentScreen({
           (see `coordinatesGrid`) — the same word the row beneath it is an
           instance of, and the same word the Components grid uses for the
           column that points back here. */}
-      <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="sm">
+        <div className="min-w-0">
+      <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
+        {/* THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added on "add the
+            border for the coordinate section" (screenshot 2519) while
+            `GRID_FRAME` did not exist, and its own note said the classes "must
+            keep matching" the primitive's. The grid card has since been restored
+            app-wide, so `ChildGrid` draws that border itself and this would be
+            the second one — which is the doubling the note was written to
+            prevent. One frame, drawn in one place. */}
         {coordinatesGrid(r)}
       </Field>
-      {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
-          unlabelled `<Field size>` around it is the sanctioned way to give it
-          one (LAYOUT.md §3, "a not-field that SHARES its row"). `label=""`
-          rather than no label: it RESERVES the label row, so the table's header
-          band starts level with the Sizes control beside it instead of ~16px
-          above it.
+        </div>
+      {/* SECOND IN THE LEFT PANE since 2026-08-27, under Coordinate. It used to
+          be the third CELL, on the far side of the Components table.
 
-          `xl` (8) — the widest of the three, because it is the only one holding
-          a table. Three 176px pickers plus a remove button need ~600px, which is
-          what 8 of 14 gives it here. */}
-      <Field label="" size="xl">
-        <ChildGrid<StyleComponentRow>
-          columns={componentColumns(r)}
-          rows={r.components}
-          /* OPENS ON A ROW rather than on a bare button. `ChildGrid`'s own note
-             is the reason and it is the keyboard contract, not a preference: Tab
-             lands on FIELDS, so a grid whose only affordance is "+ Add" has
-             nothing to tab into and nothing to stand on and press Enter. The
-             master passes it for the same reason. */
-          seedRow
-          onAdd={() => addStyleComponent(r.key)}
-          onRemove={(c) =>
-            mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
-          }
-          addLabel="+ Add component"
-        />
-      </Field>
-
-      {/**
-        * SIZES ARE CHOSEN, NOT LISTED — and this REVERSES two decisions, so
-        * both are named rather than left for the next reader to discover.
-        *
-        * What stood here was a row of Size pickers laid ACROSS the line
-        * (`sizeGrid`, client 2026-08-14: one per line was ~248px of a 32px row),
-        * seeded by `pickStyle`, each with a ✕ and NO "+ Add" (client
-        * 2026-08-20: a hand-add was "a second way to state something the Style
-        * master is authoritative for").
-        *
-        * BOTH REASONS EXPIRED IN THE SAME INSTRUCTION. The 08-14 density
-        * complaint is answered better by this control than by the across
-        * layout — fifty sizes are a wrapping tick grid behind one box, not a
-        * line that grows. And 08-20's premise is the exact premise the merge
-        * retires: the Style master is no longer the only place a style's sizes
-        * are stated, so "go and add it there, then pick the style again" is the
-        * trip this whole change removes. It is the same argument that gave the
-        * Components grid beside it a "+ Add component".
-        *
-        * SO THE FULL SIZE MASTER IS OFFERED, with inline create, exactly as on
-        * the Style master. `pickStyle` still seeds the style's own sizes, so
-        * nothing is retyped in the ordinary case; what changes is that an order
-        * running a size the style has not recorded is now enterable instead of
-        * blocked.
-        *
-        * PICK-ONCE COMES FREE: a set cannot hold a duplicate, so the shape rules
-        * out the L, L, M, M the old grid needed `usedIds` to prevent.
-        * `normalizeStyleSizes` still de-dupes server-side, which is the guard
-        * that matters for anything writing past the screen.
-        */}
-      {/* `sm` (3). The trigger caps itself at 280px and the PANEL is sized
-          independently (40rem), so width beyond the cap buys nothing here — see
-          `triggerClassName` / `panelClassName` below. */}
+          The old note here read "`sm` (3) — the trigger caps itself at 280px and
+          the PANEL is sized independently (40rem), so width beyond the cap buys
+          nothing". Still true and now the reason this move costs nothing: the
+          control does not grow into the wider pane, so putting Sizes beside
+          Coordinate takes no width away from the table it left. */}
+        {/* Each half is a GRID ITEM, so the `Field` inside it is not — its
+            `col-span-12` would otherwise claim both columns of the pane and
+            put Sizes back on the line below (client 2026-08-27, screenshot
+            2517: "still size is second row?"). */}
+        <div className="min-w-0">
       {/* SAME TREATMENT AS THE COORDINATES PANEL, AND ONE LABEL NOT TWO.
           `MultiSelect` draws its own `Label` — muted 12px — unless `compact`,
           so bolding the title here means moving it OUT of the control and into
@@ -9511,7 +10179,7 @@ export function AmendmentScreen({
           every Field+picker pair on this screen already carry a note about.
           `label` stays on the control: `compact` routes it to `aria-label`, and
           `useRequiredHold` words its message from it. */}
-      <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="sm">
+      <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="full">
         <MultiSelect
           compact
           label="Sizes"
@@ -9575,6 +10243,66 @@ export function AmendmentScreen({
           }
         />
       </Field>
+        </div>
+      </div>
+      {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
+          unlabelled `<Field size>` around it is the sanctioned way to give it
+          one (LAYOUT.md §3, "a not-field that SHARES its row"). `label=""`
+          rather than no label: it RESERVES the label row, so the table's header
+          band starts level with the Sizes control beside it instead of ~16px
+          above it.
+
+          `xl` (8) — the widest of the three, because it is the only one holding
+          a table. Three 176px pickers plus a remove button need ~600px, which is
+          what 8 of 14 gives it here. */}
+      <Field label="" size="xl">
+        <ChildGrid<StyleComponentRow>
+          columns={componentColumns(r)}
+          rows={r.components}
+          /* OPENS ON A ROW rather than on a bare button. `ChildGrid`'s own note
+             is the reason and it is the keyboard contract, not a preference: Tab
+             lands on FIELDS, so a grid whose only affordance is "+ Add" has
+             nothing to tab into and nothing to stand on and press Enter. The
+             master passes it for the same reason. */
+          seedRow
+          onAdd={() => addStyleComponent(r.key)}
+          onRemove={(c) =>
+            mutComponents(r.key, (cs) => cs.filter((x) => x.key !== c.key))
+          }
+          addLabel="+ Add component"
+        />
+      </Field>
+
+      {/**
+        * SIZES ARE CHOSEN, NOT LISTED — and this REVERSES two decisions, so
+        * both are named rather than left for the next reader to discover.
+        *
+        * What stood here was a row of Size pickers laid ACROSS the line
+        * (`sizeGrid`, client 2026-08-14: one per line was ~248px of a 32px row),
+        * seeded by `pickStyle`, each with a ✕ and NO "+ Add" (client
+        * 2026-08-20: a hand-add was "a second way to state something the Style
+        * master is authoritative for").
+        *
+        * BOTH REASONS EXPIRED IN THE SAME INSTRUCTION. The 08-14 density
+        * complaint is answered better by this control than by the across
+        * layout — fifty sizes are a wrapping tick grid behind one box, not a
+        * line that grows. And 08-20's premise is the exact premise the merge
+        * retires: the Style master is no longer the only place a style's sizes
+        * are stated, so "go and add it there, then pick the style again" is the
+        * trip this whole change removes. It is the same argument that gave the
+        * Components grid beside it a "+ Add component".
+        *
+        * SO THE FULL SIZE MASTER IS OFFERED, with inline create, exactly as on
+        * the Style master. `pickStyle` still seeds the style's own sizes, so
+        * nothing is retyped in the ordinary case; what changes is that an order
+        * running a size the style has not recorded is now enterable instead of
+        * blocked.
+        *
+        * PICK-ONCE COMES FREE: a set cannot hold a duplicate, so the shape rules
+        * out the L, L, M, M the old grid needed `usedIds` to prevent.
+        * `normalizeStyleSizes` still de-dupes server-side, which is the guard
+        * that matters for anything writing past the screen.
+        */}
     </>
   );
 
@@ -9603,6 +10331,10 @@ export function AmendmentScreen({
         rows={styles}
         forceCards
         listRows
+        /* rameless — the section already draws a card and this grid's own
+           would be a second border around the same rows. Restored with the
+           grid frame itself on 2026-08-27. */
+        frameless
         /**
          * FLUSH WITH THE HEADER ABOVE IT (client 2026-08-14).
          *
@@ -9624,7 +10356,6 @@ export function AmendmentScreen({
          *
          * The label band is untouched — "Styles Details" still heads the grid.
          */
-        frameless
         pageSize={5}
 /**
          * THE CAP IS BACK, GATED ON THE VISIBLE TOGGLE (client 2026-08-19,
@@ -9932,21 +10663,46 @@ export function AmendmentScreen({
                     w={STYLE_FIELD_W[col.header] ?? "code"}
                     /* DESCRIPTION IS THE ONLY CELL THAT GROWS — the seven
                        beside it are fixed widths and it takes what they leave
-                       (`flex-[1_1_11rem]`: basis 11rem = `term`, grow 1).
+                       (`flex-[1_1_7rem]`: basis 7rem = `range`, grow 1).
 
-                       BASIS, NOT `flex-1`. `flex-1` is basis 0, so the cell
-                       would never be too big to fit and would collapse to
-                       whatever was left — 4px on a narrow pane. A basis of
-                       11rem is the width flex-wrap TESTS against, so the field
-                       either gets at least `term` or takes its own line, and
-                       there is no state where it is on the row and unusable.
+                       BASIS, NOT `flex-1`, and that half is unchanged. `flex-1`
+                       is basis 0, so the cell would never be too big to fit and
+                       would collapse to whatever was left — 4px on a narrow
+                       pane. The basis is the floor that stops that.
+
+                       THE BASIS WAS 11rem AND WRAPPED IN FRONT OF THE CLIENT
+                       (2026-08-27, screenshot 2519: "if I choose a size, that
+                       description automatically comes to the second row").
+
+                       Why picking a SIZE moves a field on the line above it: the
+                       chosen sizes render as chips under the Sizes trigger, the
+                       style row gets taller, the editor pane gains a vertical
+                       scrollbar, and the line loses ~15px. `flex-wrap` breaks a
+                       line on the item's BASIS — shrinking happens afterwards,
+                       within a line that has already been decided — so at 11rem
+                       the row was sitting ~30px from its own wrap point and any
+                       perturbation tipped it.
+
+                       LOWERING THE BASIS COSTS NOTHING, and this is the property
+                       that makes it the right fix rather than a smaller guess:
+                       `grow: 1` means Description takes the WHOLE remainder
+                       whenever it fits, so the basis never decides how wide it
+                       is — only when it gives up and takes its own line. At
+                       ~1,229px it is still ~210px either way. All that changes
+                       is that the row now has ~100px of slack instead of ~30.
+
+                       7rem still answers the "unusable" test the 11rem note was
+                       written for: ~14 characters typed, scrolling horizontally
+                       after that, on a field that is free text rather than a
+                       value anything matches on. It is a FLOOR reached only on a
+                       pane narrower than any machine this runs on.
 
                        Anchored on the HEADER, never on an index: this column
                        array is deliberately re-orderable, and a header match
                        fails loudly where an index would quietly grow the wrong
                        cell. */
                     className={
-                      col.header === "Description" ? "flex-[1_1_11rem]" : undefined
+                      col.header === "Description" ? "flex-[1_1_7rem]" : undefined
                     }
                   >
                     {col.cell(r, i)}
@@ -10136,14 +10892,6 @@ export function AmendmentScreen({
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "yarn")}
                 inlineCards
-                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-                   frames on this screen - remove the remaining frames in each section").
-                   The editor card and this grid's own card were already two; a rounded box
-                   around EVERY ROW made a third, drawn around a single two-field line. Rows
-                   stay separable by a hairline instead - the alternative this prop already
-                   carries, and the same call the client made for Structure Details ("one
-                   frame is enough") and for the Style(s) grid. */
-                flushRows
                 fill
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
@@ -10158,14 +10906,6 @@ export function AmendmentScreen({
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "fabric")}
                 inlineCards
-                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-                   frames on this screen - remove the remaining frames in each section").
-                   The editor card and this grid's own card were already two; a rounded box
-                   around EVERY ROW made a third, drawn around a single two-field line. Rows
-                   stay separable by a hairline instead - the alternative this prop already
-                   carries, and the same call the client made for Structure Details ("one
-                   frame is enough") and for the Style(s) grid. */
-                flushRows
                 fill
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
@@ -10210,14 +10950,6 @@ export function AmendmentScreen({
             columns={comboColumns}
             rows={combos}
             inlineCards
-            /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-               frames on this screen - remove the remaining frames in each section").
-               The editor card and this grid's own card were already two; a rounded box
-               around EVERY ROW made a third, drawn around a single two-field line. Rows
-               stay separable by a hairline instead - the alternative this prop already
-               carries, and the same call the client made for Structure Details ("one
-               frame is enough") and for the Style(s) grid. */
-            flushRows
             onAdd={addCombo}
             onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add combo"
@@ -10370,13 +11102,18 @@ export function AmendmentScreen({
           label: "Pack type(s)",
           content: (
             <>
-              {/* ONE real input, so §6's "<=3 -> inlineCards" band — and this
-                  is the extreme of it: a card per row would be a card around a
-                  single box. The badge used to read "3 of 4 methods" because the
-                  cell was a dropdown over a fixed list and the ceiling had to be
-                  visible BEFORE "+ Add" declined on it. The cell is typed now
-                  and there is no ceiling, so it counts what has been named and
-                  claims nothing about what is left. */}
+              {/* TWO COLUMNS SINCE 0472 — the method and what it packs — so
+                  §6's "<=3 -> inlineCards" band still applies, but the old
+                  reading of it does not: this was "the extreme of it, a card
+                  around a single box" while a pack type was a word alone.
+                  Cards are now what gives the nested grid a full line to wrap
+                  into rather than a table cell to squeeze inside.
+
+                  The badge used to read "3 of 4 methods" because the cell was a
+                  dropdown over a fixed list and the ceiling had to be visible
+                  BEFORE "+ Add" declined on it. The cell is typed now and there
+                  is no ceiling, so it counts what has been named and claims
+                  nothing about what is left. */}
               <ChildGrid<PackTypeRow>
                 badge={
                   <span className="text-xs text-muted-foreground">
@@ -10386,14 +11123,6 @@ export function AmendmentScreen({
                 columns={packTypeColumns}
                 rows={packTypes}
                 inlineCards
-                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-                   frames on this screen - remove the remaining frames in each section").
-                   The editor card and this grid's own card were already two; a rounded box
-                   around EVERY ROW made a third, drawn around a single two-field line. Rows
-                   stay separable by a hairline instead - the alternative this prop already
-                   carries, and the same call the client made for Structure Details ("one
-                   frame is enough") and for the Style(s) grid. */
-                flushRows
                 onAdd={addPackType}
                 onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add pack type"
@@ -10527,14 +11256,6 @@ export function AmendmentScreen({
             rows={quantities}
             totalsLabel="Total PO Qty"
             forceCards
-            /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-               frames on this screen - remove the remaining frames in each section").
-               The editor card and this grid's own card were already two; a rounded box
-               around EVERY ROW made a third, drawn around a single two-field line. Rows
-               stay separable by a hairline instead - the alternative this prop already
-               carries, and the same call the client made for Structure Details ("one
-               frame is enough") and for the Style(s) grid. */
-            flatRows
             /* Labels and cells are read OFF `columns` — never retyped beside it,
                or a new column leaves the card and the header disagreeing. And
                `required={c.required}` is not optional plumbing: with
@@ -12089,6 +12810,40 @@ export function AmendmentScreen({
                 Pcs/Pack, a solid pack shows none of them. That is the same
                 argument the carton fields already make by being hidden rather
                 than disabled. */}
+            {/**
+              * THE SIZE COLUMNS ARE THE ONLY PLACE A QUANTITY IS TYPED, so when
+              * a style declares no sizes this grid has NOWHERE to type one —
+              * and it says so again (client 2026-08-27, screenshot 2522: "in
+              * assortment there is no option for giving the input quantity").
+              *
+              * THIS RESTORES A SENTENCE THE CLIENT REMOVED ON 2026-08-19, and
+              * that is deliberate rather than a tidy-up. The note above
+              * `assortGrid` recorded exactly what the removal cost — "an
+              * operator who has not entered the style's sizes sees a grid that
+              * looks broken rather than one that says what to do" — and said
+              * restoring it would need a NEW INSTRUCTION. The report above is
+              * that instruction: it is the predicted symptom, reported as a
+              * missing feature rather than as a missing size list.
+              *
+              * IT IS NOT THE OLD SENTENCE BACK. The 08-19 removal took a line
+              * that showed on a grid which was ALREADY drawing its columns; this
+              * one appears ONLY when there are no size columns at all, which is
+              * the one state the grid cannot explain about itself. A screen with
+              * sizes is unchanged, so nothing the client cleared has returned.
+              *
+              * IT NAMES THE SECTION, not a checkbox on another tab — the rule
+              * the Pack type(s) empty state states, and the reason that one
+              * carries a button rather than a direction. No button here: sizes
+              * are a per-style list, so there is nothing one click could set.
+              */}
+            {!sizesForOverlay(assortQty).some((z) => z.size_id) ? (
+              <p className="rounded-md border border-dashed border-border bg-surface-muted/40 px-4 py-3 text-xs text-muted-foreground">
+                This style lists no sizes, so there are no size cells to fill and
+                Qty stays 0 — the quantity is the SUM of the size cells, never
+                typed on its own. Add the sizes on <strong>Style(s)</strong>,
+                then reopen this.
+              </p>
+            ) : null}
             {assortGrid(assortQty, assortMode)}
             {/* THE CARTON BLOCK IS GONE (client 2026-08-19). Master CTN Name,
                 Inner CTN Name and then Pack Description were all withdrawn from

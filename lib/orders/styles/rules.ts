@@ -70,6 +70,45 @@ export function coordinateLimit(
 }
 
 /**
+ * HOW MANY COORDINATES A LINE MAY GROW TO — the same rule with the unanswered
+ * case decided, for a caller that has to produce a number rather than a maybe.
+ *
+ * Client 2026-08-27, on the Garment Order: "if Order Unit is PCS, just the
+ * single coordinate — hide the add coordinate option; if they choose SET they
+ * can add multiple". So the Order Unit gates the grid, which is `coordinateLimit`
+ * read forwards.
+ *
+ * THE CEILING IS THE FALLBACK, AND THAT IS NOT A DETAIL. An unanswered unit is
+ * still DERIVED from the coordinate count (`unitKindFromCoordinates` below), so
+ * a caller that capped by the derived kind would close a loop the order screen
+ * already hit once (2026-08-25): one coordinate derives "piece", piece allows
+ * exactly one, and no line could ever hold a second. Falling back to the widest
+ * range keeps the question open until somebody answers it.
+ *
+ * That loop is why this is a FUNCTION rather than the two-line expression it
+ * replaces. It was written out at both call sites on the order screen — the
+ * hidden "+ Add" and the keystroke that refuses — and the vectors in
+ * `check-style-rules.mts` can reach neither. One place, one answer, and the
+ * button and the key cannot disagree about the limit.
+ *
+ * A LINE ALREADY OVER ITS CAP IS NOT THIS FUNCTION'S PROBLEM. Switching a
+ * three-coordinate style to PCS returns {1,1}; the caller stops offering more
+ * and leaves the three alone. Deleting entered rows because a dropdown changed
+ * is the data loss "Disabled rows" refuses for the same reason.
+ */
+export function coordinateCap(unitKind: string | null | undefined): {
+  min: number;
+  max: number;
+} {
+  return (
+    coordinateLimit(unitKind) ?? {
+      min: COORDINATE_LIMITS.piece.min,
+      max: COORDINATE_LIMITS.set.max,
+    }
+  );
+}
+
+/**
  * THE SAME RULE READ BACKWARDS — how many coordinates a line declares tells you
  * what kind of unit it is. One garment is a Piece; two or more sold together are
  * a Set.

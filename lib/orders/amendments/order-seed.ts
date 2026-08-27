@@ -18,6 +18,7 @@ import type {
   AmendmentApprovalQty,
   AmendmentCountrySize,
   AmendmentPackType,
+  AmendmentPackTypeLine,
   AmendmentStyleProcess,
   AmendmentStyleSize,
   AmendmentStyleComponent,
@@ -137,6 +138,16 @@ export interface SeededAmendmentChildren {
    */
   packTypes?: Seeded<AmendmentPackType>[];
   /**
+   * Pack type(s) ▸ what each method packs (0472) — ALWAYS EMPTY FROM AN ORDER,
+   * and optional for the same reason `packTypes` above it is.
+   *
+   * It cannot be otherwise: these lines hang off a pack type by TEXT, and a
+   * `sales_order` names no packing method at all, so there is no parent for a
+   * seeded line to belong to. It is in this type all the same because
+   * `applyRows` maps a SAVED document through the same shape.
+   */
+  packTypeLines?: Seeded<AmendmentPackTypeLine>[];
+  /**
    * Style(s) ▸ per-style sizes (0407) — ALWAYS EMPTY FROM AN ORDER, and
    * optional for the same reason `packTypes` above is.
    *
@@ -238,6 +249,7 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   priceDetails: [],
   approvalQtys: [],
   packTypes: [],
+  packTypeLines: [],
   styleSizes: [],
   styleCoordinates: [],
   packComponents: [],
@@ -927,6 +939,11 @@ export async function seedAmendmentFromOrder(
     quantities.push({
       sno: quantities.length + 1,
       country_id: null,
+      /* NO PACKING METHOD EITHER (0473), and for the same reason as the size
+         above: an order declares no pack types at all, so there is nothing to
+         seed. The operator names one on the Quantities row once Pack type(s)
+         has been filled in. */
+      pack_type: null,
       style_ref_no: p.style_ref_no,
       // `styleLabel` names its column `style`; this table's is `style_no`,
       // matching the order children it is keyed against.

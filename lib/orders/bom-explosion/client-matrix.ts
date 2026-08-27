@@ -62,7 +62,15 @@ import type { Axis } from "@/lib/orders/bom-explosion/exploder";
  * `trim_colour` — so the correction is recorded in the header rather than left
  * as a silently deleted union member.
  */
-export type BlockedReason = "order_no_constant" | "colour_needs_style" | "pack_no_data";
+/* `colour_needs_style` WAS HERE and was retired on 2026-08-27, when the client's
+   #26 decision landed and `COARSENED` in `compose.ts` began serving #3/#4/#15/#17
+   on a multi-style order too. Removed rather than left unused: an unreachable
+   code is a reason nobody can ever read, and `BLOCKED_REASONS` would keep a
+   sentence claiming the engine refuses a split it now makes. The ARGUMENT it
+   carried is not lost — it is correct about production targets and is preserved
+   in `COARSENED`'s header, which explains why a purchase may sum where a target
+   may not absorb. */
+export type BlockedReason = "order_no_constant" | "pack_no_data";
 
 /**
  * The sentence an operator reads. Written in the operator's vocabulary, not the
@@ -72,8 +80,6 @@ export type BlockedReason = "order_no_constant" | "colour_needs_style" | "pack_n
 export const BLOCKED_REASONS: Record<BlockedReason, string> = {
   order_no_constant:
     "One BOM covers one order, so Order No cannot split it — this is the whole order",
-  colour_needs_style:
-    "A colour belongs to a style — the same white under two styles is two different requirements",
   pack_no_data: "Pack Ref No is not on the order yet — there is no packing reference to split by",
 };
 
@@ -88,7 +94,6 @@ export const BLOCKED_REASONS: Record<BlockedReason, string> = {
  */
 export const BLOCKED_SHORT: Record<BlockedReason, string> = {
   order_no_constant: "one BOM is one order",
-  colour_needs_style: "a colour needs its style",
   pack_no_data: "not on the order yet",
 };
 
@@ -162,8 +167,8 @@ export type ClientGrainRow = {
 export const CLIENT_GRAIN_MATRIX: ClientGrainRow[] = [
   { sno: 1, label: "Order No", axes: [], blocked: null },
   { sno: 2, label: "Order No / Order Size", axes: ["size"], blocked: null },
-  { sno: 3, label: "Order No / Order Color", axes: ["colour"], blocked: "colour_needs_style" },
-  { sno: 4, label: "Order No / Order Color / Order Size", axes: ["colour", "size"], blocked: "colour_needs_style" },
+  { sno: 3, label: "Order No / Order Color", axes: ["colour"], blocked: null },
+  { sno: 4, label: "Order No / Order Color / Order Size", axes: ["colour", "size"], blocked: null },
   { sno: 5, label: "Order No / Combination", axes: ["trim_colour"], blocked: null, downstream: true },
   { sno: 6, label: "Style", axes: ["style_ref"], blocked: null },
   { sno: 7, label: "Style / Order Color", axes: ["style_ref", "colour"], blocked: null },
@@ -174,9 +179,9 @@ export const CLIENT_GRAIN_MATRIX: ClientGrainRow[] = [
   { sno: 12, label: "Style / Combination / Order Size", axes: ["style_ref", "size", "trim_colour"], blocked: null, downstream: true },
   { sno: 13, label: "Style / Combination / Order Color / Order Size", axes: ["style_ref", "colour", "size", "trim_colour"], blocked: null, downstream: true },
   { sno: 14, label: "Country", axes: ["country"], blocked: null },
-  { sno: 15, label: "Country / Order Color", axes: ["colour", "country"], blocked: "colour_needs_style" },
+  { sno: 15, label: "Country / Order Color", axes: ["colour", "country"], blocked: null },
   { sno: 16, label: "Country / Country Size", axes: ["size", "country"], blocked: null },
-  { sno: 17, label: "Country / Order Color / Order Size", axes: ["colour", "size", "country"], blocked: "colour_needs_style" },
+  { sno: 17, label: "Country / Order Color / Order Size", axes: ["colour", "size", "country"], blocked: null },
   { sno: 18, label: "Pack", axes: ["pack"], blocked: "pack_no_data", foldedInto: 19 },
   { sno: 19, label: "Pack Ref No", axes: ["pack"], blocked: "pack_no_data" },
   { sno: 20, label: "Pack Ref No / Order Color", axes: ["colour", "pack"], blocked: "pack_no_data" },
