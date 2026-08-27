@@ -10133,14 +10133,6 @@ export function AmendmentScreen({
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "yarn")}
                 inlineCards
-                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-                   frames on this screen - remove the remaining frames in each section").
-                   The editor card and this grid's own card were already two; a rounded box
-                   around EVERY ROW made a third, drawn around a single two-field line. Rows
-                   stay separable by a hairline instead - the alternative this prop already
-                   carries, and the same call the client made for Structure Details ("one
-                   frame is enough") and for the Style(s) grid. */
-                flushRows
                 fill
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
@@ -10155,14 +10147,6 @@ export function AmendmentScreen({
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "fabric")}
                 inlineCards
-                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-                   frames on this screen - remove the remaining frames in each section").
-                   The editor card and this grid's own card were already two; a rounded box
-                   around EVERY ROW made a third, drawn around a single two-field line. Rows
-                   stay separable by a hairline instead - the alternative this prop already
-                   carries, and the same call the client made for Structure Details ("one
-                   frame is enough") and for the Style(s) grid. */
-                flushRows
                 fill
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
@@ -10207,14 +10191,6 @@ export function AmendmentScreen({
             columns={comboColumns}
             rows={combos}
             inlineCards
-            /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-               frames on this screen - remove the remaining frames in each section").
-               The editor card and this grid's own card were already two; a rounded box
-               around EVERY ROW made a third, drawn around a single two-field line. Rows
-               stay separable by a hairline instead - the alternative this prop already
-               carries, and the same call the client made for Structure Details ("one
-               frame is enough") and for the Style(s) grid. */
-            flushRows
             onAdd={addCombo}
             onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add combo"
@@ -10383,14 +10359,6 @@ export function AmendmentScreen({
                 columns={packTypeColumns}
                 rows={packTypes}
                 inlineCards
-                /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-                   frames on this screen - remove the remaining frames in each section").
-                   The editor card and this grid's own card were already two; a rounded box
-                   around EVERY ROW made a third, drawn around a single two-field line. Rows
-                   stay separable by a hairline instead - the alternative this prop already
-                   carries, and the same call the client made for Structure Details ("one
-                   frame is enough") and for the Style(s) grid. */
-                flushRows
                 onAdd={addPackType}
                 onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add pack type"
@@ -10524,14 +10492,6 @@ export function AmendmentScreen({
             rows={quantities}
             totalsLabel="Total PO Qty"
             forceCards
-            /* ONE FRAME, NOT THREE (client 2026-08-27, screenshot 2514: "too much boxed
-               frames on this screen - remove the remaining frames in each section").
-               The editor card and this grid's own card were already two; a rounded box
-               around EVERY ROW made a third, drawn around a single two-field line. Rows
-               stay separable by a hairline instead - the alternative this prop already
-               carries, and the same call the client made for Structure Details ("one
-               frame is enough") and for the Style(s) grid. */
-            flatRows
             /* Labels and cells are read OFF `columns` — never retyped beside it,
                or a new column leaves the card and the header disagreeing. And
                `required={c.required}` is not optional plumbing: with

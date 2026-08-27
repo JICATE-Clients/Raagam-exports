@@ -1813,7 +1813,14 @@ export function ChildGrid<T extends { key: string }>({
         {mode === "responsive" && (
         <div
           className={cn(
-            "hidden overflow-x-auto rounded-lg border border-border",
+            /* NO BORDER ON THE TABLE EITHER (client 2026-08-27, screenshot
+               2515: "still the framed layout appearing"). Removing `GRID_FRAME`
+               took the card WRAPPING a grid; `responsive` mode drew a second
+               one of its own around the table, so the Components grid still
+               came out boxed and the change looked like it had not landed.
+               The header rule and the row rules are what structure a table —
+               an outline around them is the frame, not the structure. */
+            "hidden overflow-x-auto",
             // See `narrow`: the cap would otherwise push this below @lg and the
             // grid would render as cards. See `wideTable` for the other end —
             // and note @lg is 512px here, not the 1024 the viewport name suggests.
@@ -1839,7 +1846,16 @@ export function ChildGrid<T extends { key: string }>({
             )}
           >
             <thead>
-              <tr className="border-b border-border bg-surface-muted">
+              {/* WHITE, NOT GREY (client 2026-08-27: "that inside cell for some
+                  sections is grey — make it white too"). `bg-surface-muted` was
+                  a fill doing the same job the rule beneath it already does, and
+                  it read as a band sitting inside a section that has none. The
+                  header still separates itself: `border-b` draws the line, and
+                  `GRID_HEADER_TEXT` keeps the labels darker and a half-step
+                  bigger than the cells. Structure by type and a rule, not by a
+                  panel — the same call `--row-active` recorded app-wide on
+                  2026-08-18 ("no more that grey state in anywhere"). */}
+              <tr className="border-b border-border">
                 <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
                 {columns.map((c, i) => (
                   <th
@@ -1966,8 +1982,13 @@ export function ChildGrid<T extends { key: string }>({
                 this as a row. It has to be inside the same <table> to inherit the
                 <th> widths above it, which is the whole reason totals could not be
                 a wrapper around this component. */}
+            {/* WHITE, with the header (2026-08-27). The `border-t-2` is what
+                separates a total from the rows it sums — deliberately heavier
+                than a row rule — and `font-semibold` is what makes it read as a
+                figure rather than another line. The fill was a third signal
+                saying what those two already said. */}
             {hasTotals && (
-              <tfoot className="border-t-2 border-border bg-surface-muted font-semibold">
+              <tfoot className="border-t-2 border-border font-semibold">
                 <tr>
                   {/* THE LABEL SPANS EVERYTHING BEFORE THE FIRST TOTALLED COLUMN.
                       It used to sit alone in the `#` cell, which is `w-10` — so
@@ -2183,14 +2204,19 @@ export function ChildGrid<T extends { key: string }>({
                   // slots — short cells stay centred exactly as they were, and a
                   // tall one grows downwards instead of pushing its row about.
                   "flex items-start gap-2",
-                  flushRows
-                    ? // No card inset: the row's own controls draw the boxes, so
-                      // the first one sits level with a `Field` beside it. Rows
-                      // stay separable by a rule rather than by a border each.
-                      // `localI === 0` rather than `first:` — the header band is a
-                      // sibling in this container, so `first:` would match IT.
-                      cn("border-b border-border pb-1.5 last:border-b-0", localI > 0 && "pt-1.5")
-                    : "rounded-md border border-border p-1.5",
+                  // No card inset: the row's own controls draw the boxes, so the
+                  // first one sits level with a `Field` beside it. Rows stay
+                  // separable by a rule rather than by a border each.
+                  // `localI === 0` rather than `first:` — the header band is a
+                  // sibling in this container, so `first:` would match IT.
+                  //
+                  // UNGATED FROM `flushRows` ON 2026-08-27, with the card branch
+                  // above and for the same reason: the box was the FALSE branch,
+                  // so an inline grid whose call site had not been given the prop
+                  // still drew one per row. Four call sites were handed
+                  // `flushRows` earlier today to get exactly this; the prop was
+                  // the remainder, not the rule.
+                  cn("border-b border-border pb-1.5 last:border-b-0", localI > 0 && "pt-1.5"),
                 )}
               >
                 {/* The index and the ✕ belong to the row's CONTROL LINE, not to
@@ -2463,9 +2489,15 @@ export function ChildGrid<T extends { key: string }>({
                  * one frame, which is why `flatRows` exists). 8px per record is
                  * the price, paid once per row rather than per field.
                  */
-                listRows || flatRows
-                  ? "py-3 first:pt-0 last:pb-0"
-                  : "rounded-lg border border-border p-2.5",
+                /* EVERY CARD ROW IS FLAT NOW (client 2026-08-27, screenshot
+                   2515: "still the framed layout appearing"). The box was the
+                   `listRows || flatRows` FALSE branch, so a grid that had not
+                   been given either prop still drew one per row — which is why
+                   Coordinate, a `narrow` grid rendering as cards, came out
+                   boxed after the grid card was removed. The two props now
+                   select nothing here: the reasoning above applied to every
+                   card, not to the ones whose call site remembered. */
+                "py-3 first:pt-0 last:pb-0",
                 /**
                  * The divider, owned by the row that needs one — see the
                  * container. `localI` is the index on the PAGE, so the first row
@@ -2489,10 +2521,13 @@ export function ChildGrid<T extends { key: string }>({
                    NEXT one, and in the detail pane there is only ever one. Its
                    `localI > 0` would draw a stray line above whichever row
                    happened to be open. */
-                !mdActive &&
-                  (listRows || flatRows) &&
-                  localI > 0 &&
-                  "border-t-2 border-border-strong",
+                /* UNGATED WITH THE BOX ABOVE, and it had to be. The rule and the
+                   border were the two halves of one choice — a row got a box OR
+                   a divider. Dropping the box while the divider still waited on
+                   `listRows || flatRows` would have left an unflagged grid with
+                   NEITHER, and its records would run together with nothing at
+                   all between them. */
+                !mdActive && localI > 0 && "border-t-2 border-border-strong",
                 // Only when the ✕ floats: `relative` to hang it on, and room on
                 // the right so the last field's LABEL does not run under it. A
                 // banded card needs neither — its ✕ is in the flow.
