@@ -13,7 +13,7 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { ProcessOption } from "./style-processes";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import type { GarmentOrderAmendment } from "./types";
-import type { Deactivatable } from "@/lib/masters/inactive";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 import type { ComponentScopeRow } from "@/lib/masters/component-coordinates";
 /* TYPE ONLY — erased at compile time, so naming it here does not pull the
    Style master's server module into this bundle. See `getApprovedSampleRows`. */
@@ -1022,21 +1022,55 @@ async function getProcessRows(): Promise<ProcessOption[]> {
  */
 async function getRejectionRuleRows(): Promise<RejectionRuleOption[]> {
   const s = await createClient();
-  const { data } = await s
+  /**
+   * `inactive`, NOT `blocked` — THE COLUMN NAME, NOT THE OPTION'S FIELD NAME
+   * (client 2026-08-27: rules made in the master did not appear on Order Entry).
+   *
+   * 0264 spells this table's disable flag `inactive`. The select asked for
+   * `blocked`, and PostgREST rejects the WHOLE query for one unknown column —
+   * so `data` came back null, `data ?? []` made that an empty list, and the
+   * Rejection Rule picker was empty on every order while the master listed the
+   * rule correctly beside it. Nothing looked broken: an empty dropdown reads as
+   * "no rules have been set up yet", which is a real and unremarkable answer.
+   *
+   * The two names are NOT a rename. `RejectionRuleOption.blocked` stays as it
+   * is: `isInactive()` reads all three spellings the schema uses, so the option
+   * shape is deliberately in that vocabulary. Only the wire name was wrong.
+   *
+   * AGENTS.md says to read the flag through `isInactive()` rather than by hand,
+   * and this is the failure it describes arriving one step earlier — not a flag
+   * read wrongly, a flag ASKED FOR wrongly.
+   */
+  const { data, error } = await s
     .from("garment_rejection_rules")
     .select(
-      "id, rule, blocked, effective_from, " +
+      "id, rule, inactive, effective_from, " +
         "lines:garment_rejection_rule_lines(from_value, to_value, rejection_allowance, allowance_type)",
     )
     .order("effective_from", { ascending: false });
+  /**
+   * THROW RATHER THAN HAND BACK AN EMPTY LIST.
+   *
+   * This is the actual lesson of the bug above, and it is worth more than the
+   * one-word fix. `const { data } = await ...` cannot tell "no rules exist" from
+   * "the query was rejected", and the two look identical on screen — one is an
+   * empty master, the other is a broken one. A schema mismatch stayed invisible
+   * until somebody noticed a dropdown that should not have been empty.
+   *
+   * `getAmendments` above already throws on its own error and that is how the
+   * pack-composition table being missing was found in minutes rather than weeks.
+   */
+  if (error) {
+    throw new Error(`Could not load rejection rules: ${error.message}`);
+  }
   return ((data ?? []) as unknown as {
-    id: string; rule: string | null; blocked: boolean | null; effective_from: string | null;
+    id: string; rule: string | null; inactive: boolean | null; effective_from: string | null;
     lines: RejectionTier[] | null;
   }[]).map((r) => ({
     id: r.id,
     code: r.effective_from,
     name: r.rule ?? "(unnamed rule)",
-    blocked: r.blocked ?? false,
+    blocked: isInactive(r),
     tiers: r.lines ?? [],
   }));
 }

@@ -930,5 +930,77 @@ for (const axes of [
   check(`...and still produces rows`, isRefusal(out) ? 0 : out.length > 0, true);
 }
 
+/* -------------------------------------------------------------------------
+ * A COLOUR GRAIN ON A SINGLE-STYLE ORDER (client 2026-08-27, screenshot 2510)
+ *
+ * "Order No / Order Color / Order Size" — the client matrix #4 — was refused on
+ * an ordinary BOM. The block is `colour_needs_style`: the same white under two
+ * styles is two different requirements. That argument needs TWO STYLES to be
+ * true, and most garment orders carry one.
+ *
+ * THESE VECTORS WERE MADE TO FAIL FIRST: against the engine before the fix,
+ * every "EXPLODES" line below reported the refusal sentence instead of null.
+ * ------------------------------------------------------------------------- */
+console.log("\n\u00a713  a colour grain is refused for the ORDER, not for the grain");
+
+/* The same fixture with the second style removed. Nothing else changes, so any
+   difference below is the style count and only the style count. */
+const ORDER_1S: OrderProductionInput = {
+  ...ORDER,
+  approvals: ORDER.approvals.filter((a) => a.style_ref_no === S1),
+  combos: ORDER.combos.filter((c) => c.style_ref_no === S1),
+  assortSizes: ORDER.assortSizes.filter((a) => a.style_ref_no === S1),
+};
+const ONE_STYLE_TOTAL = 500; // 300 WHITE + 200 NAVY, S1 only
+
+/* The guard still stands where the hazard is real. */
+check(
+  "two styles: Order Color / Order Size is still refused",
+  refusalOf(slicesForAxes(["colour", "size"], ORDER)),
+  "Order Color / Order Size is not a split this order can be exploded by yet",
+);
+check(
+  "two styles: Order Color alone keeps its own sentence",
+  refusalOf(slicesForAxes(["colour"], ORDER))?.startsWith("Colour across every style"),
+  true,
+);
+
+/* One style: the same grains produce rows. This is the reported bug. */
+check("one style: Order Color / Order Size EXPLODES", refusalOf(slicesForAxes(["colour", "size"], ORDER_1S)), null);
+check("one style: Order Color EXPLODES", refusalOf(slicesForAxes(["colour"], ORDER_1S)), null);
+
+/* ...and produces EXACTLY the widened grain, which is what makes widening safe
+   rather than merely permissive. */
+const c1 = slicesForAxes(["colour", "size"], ORDER_1S);
+const c2 = slicesForAxes(["style_ref", "colour", "size"], ORDER_1S);
+check(
+  "one style: the SAME partition as Style / Order Color / Order Size",
+  isRefusal(c1) || isRefusal(c2) ? "refused" : c1.length === c2.length,
+  true,
+);
+check(
+  "...and the same rows, key for key",
+  isRefusal(c1) || isRefusal(c2)
+    ? "refused"
+    : c1.every(
+        (s, i) =>
+          groupKeyFor(["style_ref", "colour", "size"], s) ===
+          groupKeyFor(["style_ref", "colour", "size"], c2[i]!),
+      ),
+  true,
+);
+
+/* THE PARTS STILL SUM TO THE ORDER. A widened grain with a different total is
+   the partial-explosion failure this engine exists to prevent. */
+check("one style: Order Color / Order Size sums to the order", totalOf(c1), ONE_STYLE_TOTAL);
+check("one style: Order Color sums to the order", totalOf(slicesForAxes(["colour"], ORDER_1S)), ONE_STYLE_TOTAL);
+
+/* Widening is NOT a blanket amnesty: {colour, country} widens to
+   {style_ref, colour, country}, which no plan produces, and is still refused. */
+check(
+  "one style: an unreachable grain is still refused after widening",
+  refusalOf(slicesForAxes(["colour", "country"], ORDER_1S)) !== null,
+  true,
+);
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
