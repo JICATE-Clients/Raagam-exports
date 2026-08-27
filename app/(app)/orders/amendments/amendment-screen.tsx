@@ -838,6 +838,25 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
   };
 }
 
+/**
+ * SET PACK IS OFF THE SCREEN FOR NOW (client 2026-08-27: "for now hide that set
+ * pack toggle from ui").
+ *
+ * HIDDEN, NOT REMOVED — the same call the nav registry makes for a retired row.
+ * `is_set_pack`, `packs_ordered` and `garment_order_amendment_pack_components`
+ * stay in the schema (0467), the explosion stays in `pack-composition.ts` with
+ * its vectors, and every consumer on this screen already asks `form.is_set_pack`
+ * before it renders. So with the switch gone the flag simply stays false and the
+ * Packs column, the Pack Composition button, the Pack-wise price mode and
+ * `packProblems` all stand down on their own. Nothing needed a second edit, and
+ * that is the test that this is a hide rather than a rip-out.
+ *
+ * TO BRING IT BACK: flip this to `true`. Deleting the feature instead would cost
+ * the migration, the sheet, the 23 explosion vectors and the reasoning behind
+ * `po_qty` staying pieces — and that last one is the expensive part to rebuild.
+ */
+const SET_PACK_ON_SCREEN = false;
+
 type HeaderForm = {
   // order header
   sales_order_id: string | null;
@@ -11328,13 +11347,22 @@ export function AmendmentScreen({
               * Turning it on DISABLES PO Qty and the price rate, because both
               * are then derived from the composition rather than typed. See
               * `piecesPerPack`.
+              *
+              * OFF THE SCREEN SINCE 2026-08-27 — see `SET_PACK_ON_SCREEN`. The
+              * switch also renders for an order that ALREADY holds the flag, so
+              * hiding it can never strand a saved set pack with a derived PO Qty
+              * and no way to turn the derivation off. That is the same call
+              * AGENTS.md records for a disabled master row: the one that
+              * survives the filter is the one the record already holds.
               */}
-            <Toggle
-              id="hd-setpack"
-              label="Set Pack"
-              checked={form.is_set_pack}
-              onChange={(is_set_pack) => set({ is_set_pack })}
-            />
+            {(SET_PACK_ON_SCREEN || form.is_set_pack) && (
+              <Toggle
+                id="hd-setpack"
+                label="Set Pack"
+                checked={form.is_set_pack}
+                onChange={(is_set_pack) => set({ is_set_pack })}
+              />
+            )}
             {/**
               * "MULTI STYLE", NOT "Mult. Ord" (client 2026-08-17). The client
               * asked for a Multi Style option and a SEPARATE Multi Order button,
