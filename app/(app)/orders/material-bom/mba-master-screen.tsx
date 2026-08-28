@@ -452,7 +452,7 @@ const WEIGHT_CLASS: Record<Weight, string | undefined> = {
   final: "[&_input]:border-transparent",
 };
 
-type GroupCell = { header: string; size: FieldSize; weight: Weight };
+type GroupCell = { header: string; size: FieldSize; weight: Weight; align?: "end" };
 
 /**
  * GRID DENSITY, and it is the difference between the mockup and the screen.
@@ -719,22 +719,82 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    *   run 1  4+4+6+4+4+4+2+4 = 32
    *   run 2  4+4+4+4         = 16   (the tail of the form, left-aligned)
    */
+  /*
+   * ^ SUPERSEDED 2026-08-27: ONE RUN AGAIN, at the client's direct request —
+   * "here i want this all schema should be in the same line".
+   *
+   * THIS IS NOT THE ARRANGEMENT THAT FAILED. The 08-26 note above is right that
+   * "twelve fields never fitted", and it is describing a SPECIFIC attempt: the
+   * one that paid for a new `xs` cell by cutting Type and Supply Type to 2/32
+   * (~88px), where a clear ✕ eats ~30px and the value renders as `A…` / `L…`.
+   * The mistake there was spending the whole squeeze on two victims while nine
+   * fields stayed at 4.
+   *
+   * SPREAD IT INSTEAD AND THE SAME 32 GOES ROUND TWELVE. Everything that shows
+   * a VALUE takes `sm` (3/32, ~132px) and the four that show none take `xs`:
+   * Combination is an icon button, Process a toggle, MOQ and Round To hold two
+   * or three digits. 8x3 + 4x2 = 32, exactly, so nothing drops to a line of its
+   * own.
+   *
+   *   Category · Type · Material · Attribute · Purchase Uom ·
+   *   Consumption Uom · Supply Type · Vendor      8 x sm = 24
+   *   Combination · MOQ · Round To · Process      4 x xs =  8
+   *
+   * IT ALSO FIXES THE THING THE CLIENT ACTUALLY POINTED AT ON 08-26. The
+   * complaint was a ragged top edge, and the note above diagnoses it exactly:
+   * `Purchase Uom` and `Consumption Uom` could not fit on one line at 98px, so
+   * two labels wrapped while ten did not and the label band stood at two
+   * heights. At 132px both fit on one line, so the top edge is straight for the
+   * reason it was crooked before — not by breaking the row, but by giving the
+   * labels the width they needed all along.
+   *
+   * WHAT IT COSTS, PLAINLY: Material drops from `lg` (~264px) to ~132px and
+   * Vendor from `md` (~176px). Those are the two fields the 08-21 note says the
+   * width went to because they hold a slashed spec and a company name, so they
+   * are the two that will now clip soonest — with the reveal bubble every
+   * truncated value in this app gets. That is the trade the client chose:
+   * twelve fields on one line cannot also be twelve wide fields, and the
+   * previous note said the same thing from the other side ("a choice between
+   * scrolling and clipping, not a bug either way").
+   *
+   * Reverting is this array and nothing else — the renderer matches by HEADER,
+   * so the shape here is presentation and nothing depends on it.
+   */
   [
-    { header: "Category", size: "md", weight: "key" },
-    { header: "Type", size: "md", weight: "quiet" },
-    { header: "Material", size: "lg", weight: "key" },
-    { header: "Attribute", size: "md", weight: "key" },
-    { header: "Purchase Uom", size: "md", weight: "auto" },
-    { header: "Consumption Uom", size: "md", weight: "auto" },
+    { header: "Category", size: "sm", weight: "key" },
+    { header: "Type", size: "sm", weight: "quiet" },
+    { header: "Material", size: "sm", weight: "key" },
+    { header: "Attribute", size: "sm", weight: "key" },
+    { header: "Purchase Uom", size: "sm", weight: "auto" },
+    { header: "Consumption Uom", size: "sm", weight: "auto" },
     // An icon button, not a value — the only field with nothing to clip.
     { header: "Combination", size: "xs", weight: "quiet" },
-    { header: "Supply Type", size: "md", weight: "plain" },
-  ],
-  [
-    { header: "Vendor", size: "md", weight: "plain" },
-    { header: "MOQ", size: "md", weight: "plain" },
-    { header: "Round To", size: "md", weight: "plain" },
-    { header: "Process", size: "md", weight: "plain" },
+    { header: "Supply Type", size: "sm", weight: "plain" },
+    { header: "Vendor", size: "sm", weight: "plain" },
+    // Two or three digits apiece, so `xs` costs them nothing.
+    { header: "MOQ", size: "xs", weight: "plain" },
+    { header: "Round To", size: "xs", weight: "plain" },
+    /* PROCESS STAYS LAST, and the space after it is answered in the CELL rather
+       than by moving the field (client 2026-08-27: "after process there is some
+       space use that also for the alignment of the schema", then "process was at
+       last before right").
+       Its position is a decision, not an accident — the note above states it:
+       Process sits last so the identity run reads unbroken and the row ends on
+       the question the Processes tab asks. Reordering it away was the wrong
+       currency for a spacing complaint.
+       WHAT THE SPACE ACTUALLY IS: the run sums to 32 either way, so the row
+       always filled the track. The gap was SLACK INSIDE THIS CELL — a toggle
+       draws ~44px in an 88px `xs` cell, and being the last field, that slack sat
+       at the row's right edge and read as a ragged end. The toggle is now
+       right-aligned (`align: "end"` below), so the control lands ON the edge and
+       the slack falls to its left as ordinary spacing.
+       IT CANNOT BE RECLAIMED AS WIDTH on this track: `xs` (2) is the smallest
+       span there is, so a toggle cannot be given less and the freed column
+       handed to Material. The lever for that would be a wider track, and the
+       note at the run renderer records `FIELD_TRACK_40` being dropped for
+       exactly this row after the client reported the cramping it bought
+       (screenshot 2396). */
+    { header: "Process", size: "xs", weight: "plain", align: "end" },
   ],
 ];
 
@@ -4958,7 +5018,9 @@ export function MbaMasterScreen({
               const groups = FIELD_GROUPS.map((g) => {
                 const cells = g.flatMap((b) => {
                   const col = itemColumns.find((c) => c.header === b.header);
-                  return col ? [{ col, size: b.size, weight: b.weight }] : [];
+                  return col
+                    ? [{ col, size: b.size, weight: b.weight, align: b.align }]
+                    : [];
                 });
                 /* A RUN CAN NOW BE EMPTY. Run 2 is Style alone since Item Color,
                    Size and Specification became sub-grid columns, and Style hides
@@ -4977,7 +5039,15 @@ export function MbaMasterScreen({
               const named = new Set(FIELD_GROUPS.flat().map((b) => b.header));
               const orphans = itemColumns
                 .filter((c) => !named.has(c.header))
-                .map((col) => ({ col, size: "sm" as FieldSize, weight: "plain" as Weight }));
+                // `align` carried explicitly so an orphan and a declared cell
+                // share ONE shape — `runs` is the union of both, and the
+                // renderer destructures `align` off every member.
+                .map((col) => ({
+                  col,
+                  size: "sm" as FieldSize,
+                  weight: "plain" as Weight,
+                  align: undefined as "end" | undefined,
+                }));
               const withCells = groups.filter((g) => g.length > 0);
               const runs = orphans.length ? [...withCells, orphans] : withCells;
               const t = lineTotals.get(row.key);
@@ -5051,7 +5121,7 @@ export function MbaMasterScreen({
                       className={cn("py-3", gi > 0 && "border-t border-border")}
                     >
                       <FieldGrid cols={32}>
-                        {g.map(({ col, size, weight }, ci) => (
+                        {g.map(({ col, size, weight, align }, ci) => (
                           <Field
                             key={ci}
                             label={col.header}
@@ -5063,7 +5133,17 @@ export function MbaMasterScreen({
                                `audit_layout.py --check grid-required-mobile`. */
                             required={col.required}
                             size={size}
-                            className={cn(DENSE, WEIGHT_CLASS[weight])}
+                            /* `text-right` and not a flex rule: `Field` is a
+                               plain block whose control is inline-level (Toggle
+                               is `inline-flex w-fit`), so text alignment is what
+                               moves it — and the label rides along, which is
+                               what makes the cell read as deliberately
+                               right-hand rather than as a stray control. */
+                            className={cn(
+                              DENSE,
+                              WEIGHT_CLASS[weight],
+                              align === "end" && "text-right",
+                            )}
                           >
                             {col.cell(row, i)}
                           </Field>
