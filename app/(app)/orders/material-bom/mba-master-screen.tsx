@@ -1109,15 +1109,25 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
     { header: H.consumptionUom, size: "sm", weight: "auto" },
     /* THE TWO NUMERIC BOXES, and they now follow the units directly (client
        2026-08-28: "cons.uom - moq - round to - combination - tba this order").
-       3-4 digits in an `xs` cell, right-aligned; the labels ("MOQ" ~18px,
-       "Round To" ~47px) are the smallest on the row and clear their 50px at
-       1366@110% with room. Nothing about them changed except where they sit. */
+       Both 08-28 instructions agree on this pair and on where it sits — the
+       amendment that followed ("TBA next to the Round To, remaining all the
+       same") moved only the cell AFTER them. 3-4 digits in an `xs` cell,
+       right-aligned; the labels ("MOQ" ~18px, "Round To" ~47px) are the
+       smallest on the row and clear their 50px at 1366@110% with room. Nothing
+       about them changed except where they sit. */
     { header: H.moq, size: "xs", weight: "plain" },
     { header: H.roundTo, size: "xs", weight: "plain" },
     /* A TWO-OPTION `<Select>` SHOWING "Available Item" on almost every line, so
        it is sized for a value rather than for a switch — ~107px at 1366@110%,
        against a ~78px `sm` that would clip it. Holding it at 4 is also what
-       keeps this run at exactly 32. */
+       keeps this run at exactly 32.
+
+       IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
+       (2026-08-28), amending their own chain of minutes earlier which had it
+       one place further along. This is the ONE wide cell in the run of five
+       narrow ones that closes the line — see the cell's own doc for why that
+       is deliberate and why it is the first thing an evening-up instinct
+       reaches for. */
     { header: H.tba, size: "md", weight: "quiet" },
     /* AN ICON BUTTON, NOT A VALUE — the only field on the row with nothing to
        clip, which is what lets it take the smallest span without losing
@@ -4545,28 +4555,33 @@ export function MbaMasterScreen({
        * stored, because filling one in on read would change what the next save
        * writes.
        *
-       * ## NINTH ON THE LINE, AFTER Combination — AND THAT IS ITS THIRD
-       * ## POSITION IN ONE DAY
+       * ## EIGHTH ON THE LINE, IMMEDIATELY AFTER Round To — AND THAT IS ITS
+       * ## FOURTH POSITION IN ONE DAY
        *
-       * The client named the middle of the row as a chain (2026-08-28:
-       * "cons.uom - moq - round to - combination - tba this order"), and this
-       * cell is the last link in it. Before that it was LAST, for a few hours
-       * on the same day ("that TBA button — move it to the last field in that
-       * same row"); before that it was SECOND, having inherited the position of
-       * the `Type` dropdown it replaced, which is where legacy puts it
-       * (screenshot 2362).
+       * Client 2026-08-28: **"TBA next to the Round To, remaining all the
+       * same."** That amended a chain given minutes earlier the same day
+       * ("cons.uom - moq - round to - combination - tba this order"), which had
+       * put this cell one place further along, AFTER Combination. Before that
+       * it was LAST, for a few hours ("that TBA button — move it to the last
+       * field in that same row"); before that it was SECOND, having inherited
+       * the position of the `Type` dropdown it replaced, which is where legacy
+       * puts it (screenshot 2362).
        *
-       * Three positions, three instructions, one afternoon. **Do not move it
-       * back to any of them as a correction** — not to legacy's order, and not
-       * to the end of the row on the strength of the quote above, which is real
-       * and was superseded the same day. `FIELD_GROUPS` carries the same
-       * sequence and the same warning.
+       * Four positions, four instructions, one afternoon. **Do not move it back
+       * to any of them as a correction** — not to legacy's order, not to the end
+       * of the row on the strength of the quote above, and NOT to the end of
+       * that chain: all three are real quotes from today and all three were
+       * superseded by the one at the top of this note. The chain is the
+       * dangerous one, because it is a complete-looking sentence naming five
+       * cells and it reads as authoritative on its own. `FIELD_GROUPS` carries
+       * the same sequence and the same warning.
        *
-       * It keeps `md` rather than shrinking to match the two ticks that now
-       * follow it: it shows a VALUE ("Available Item") where they show a switch,
-       * so it needs the width — and holding it at 4 is also what keeps the run
-       * at exactly 32. The reorder resized nothing, and this is the cell a
-       * "tidy the three end cells to one width" instinct would reach for first.
+       * It keeps `md` while sitting between two `xs` numerics and an `xs` icon
+       * button: it shows a VALUE ("Available Item") where none of them shows
+       * one, so it needs the width — and holding it at 4 is also what keeps the
+       * run at exactly 32. NEITHER 08-28 REORDER RESIZED ANYTHING, and this is
+       * the cell an "even up the narrow run" instinct reaches for first, now
+       * that it is the one wide cell in a stretch of five narrow ones.
        *
        * NOT UPPERCASED: a fixed option list is outside the CAPITALS rule, which
        * governs typed free text. `type` stays `nullableText` in the input.
@@ -4605,12 +4620,14 @@ export function MbaMasterScreen({
          it.
 
          THE 08-24 INSTRUCTION NAMED A CELL, NOT A NEIGHBOUR, and that is what
-         lets it survive the client's 2026-08-28 reorder ("cons.uom - moq -
-         round to - combination - tba this order"), which put MOQ and Round To
-         BETWEEN this cell and Consumption Uom. The two are no longer adjacent
-         and the width still matches, because "same size as the consumption
-         field" is a statement about how big the box is. Nothing here was
-         resized for the reorder. */
+         lets it survive the client's 2026-08-28 reorder — given as a chain
+         ("cons.uom - moq - round to - combination - tba this order") and
+         amended within the hour ("TBA next to the Round To, remaining all the
+         same"), which between them put MOQ, Round To and TBA BETWEEN this cell
+         and Consumption Uom. The two are three cells apart now and the width
+         still matches, because "same size as the consumption field" is a
+         statement about how big the box is, not about what it sits next to.
+         Nothing here was resized by either instruction. */
       className: "min-w-[130px]",
       /**
        * ONE CONTROL, AND THE FREE-TEXT BOX IS THE ONE THAT WENT
@@ -4805,17 +4822,21 @@ export function MbaMasterScreen({
        *
        * IT SITS BESIDE Process, because the two ticks are the same kind of
        * question and read better together than a switch buried between two
-       * numeric boxes. The PAIR has moved twice in a day without ever coming
-       * apart: they were the last two cells on the row when FOC landed, TBA
-       * moving to the end on 2026-08-28 pushed them up one, and the client's
-       * reorder later the same day ("cons.uom - moq - round to - combination -
-       * tba this order") put them back at the end — TBA is named as the last
-       * link of that chain and the two ticks were not named at all, so they
-       * follow it. FOC IS LAST AGAIN, and that is a return rather than a
-       * restoration: a reader who finds an intervening note saying "FOC is no
-       * longer last" is holding the middle of the story. The renderer matches by
-       * HEADER, so the position here is presentation and nothing else depends on
-       * it.
+       * numeric boxes. THE PAIR HAS SURVIVED THREE MOVES IN A DAY WITHOUT EVER
+       * COMING APART, which is the property worth protecting here: they were
+       * the last two cells on the row when FOC landed (0474); TBA moving to the
+       * end on 2026-08-28 pushed them up one; the client's reorder later the
+       * same day ("cons.uom - moq - round to - combination - tba this order")
+       * put them back at the end; and the amendment minutes after that ("TBA
+       * next to the Round To, remaining all the same") left them exactly where
+       * that chain had. Neither 08-28 instruction NAMED these two cells at all —
+       * both describe the run of fields before them — so the ticks close the
+       * line by following it.
+       *
+       * FOC IS LAST AGAIN, and that is a return rather than a restoration: a
+       * reader who finds an intervening note saying "FOC is no longer last" is
+       * holding the middle of the story. The renderer matches by HEADER, so the
+       * position here is presentation and nothing else depends on it.
        *
        * `aria-label` for the reason `Toggle.ariaLabel` documents: the column
        * header does not reach the control in the cards layout, so omitting it
