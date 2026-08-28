@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+
+/**
+ * `useLayoutEffect` on the client, `useEffect` on the server.
+ *
+ * This component IS server-rendered — it returns null until `mounted`, but its
+ * hooks still run during SSR, and React warns that useLayoutEffect does nothing
+ * there. Assigned ONCE at module scope, so the hook called at that position
+ * never changes identity between renders.
+ */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { RequiredScope } from "@/components/ui/field";
@@ -20,6 +30,79 @@ let openSheetCount = 0;
 const sheetStack: (() => void)[] = [];
 
 /**
+ * What `document.body` looked like before the outermost sheet locked it.
+ * `null` while nothing is locked. See `lockBodyScroll`.
+ */
+let bodyLockRestore: { overflow: string; paddingRight: string } | null = null;
+
+/**
+ * THE PAGE BEHIND A SHEET MUST NOT JUMP SIDEWAYS WHEN IT OPENS
+ * (client 2026-08-28: "in that process screen, the back screen goes to the
+ * right").
+ *
+ * `overflow: hidden` on the body removes the vertical scrollbar, the viewport
+ * gains its width — ~15px on Windows Chrome — and everything in normal flow
+ * slides right by that much. On close it snaps back. It has been there since the
+ * scroll lock was written and it is every dialog in the app, not this one.
+ *
+ * The fix is to hold the space the scrollbar was occupying: pad the body by
+ * exactly the width that vanished.
+ *
+ * Three things this has to get right, and each is a way to write the fix so that
+ * it does nothing or makes matters worse:
+ *
+ * - **MEASURE BEFORE LOCKING.** After `overflow: hidden` the scrollbar is
+ *   already gone, so `window.innerWidth` and `documentElement.clientWidth` are
+ *   equal and the gap reads 0. The measurement is the first statement below for
+ *   that reason, not for tidiness.
+ * - **ONLY THE OUTERMOST SHEET.** `openSheetCount` already ref-counts nesting,
+ *   and these two guard on it: a picker opening over an entity editor must not
+ *   add a second 15px. Setting `overflow: hidden` twice is harmless, which is
+ *   why the old code could get away with doing it per sheet — padding is not,
+ *   and a nested sheet would in any case measure a gap of 0 (the scrollbar is
+ *   gone by then) and write `paddingRight: 0`, undoing the outer sheet's
+ *   compensation. Both failures are avoided by never running for a nested sheet.
+ * - **RESTORE WHAT WAS THERE, NOT `""`.** The old code blanked `overflow`
+ *   unconditionally, and that is a real bug rather than a style point:
+ *   `MasterFullScreen`, `vendor-master-screen` and `search-palette` each lock
+ *   the body too, and each already captures-and-restores. A Sheet opened inside
+ *   a MasterFullScreen overlay therefore **unlocked the page on close while the
+ *   overlay was still open**. Capturing is the same cost and matches the three
+ *   call sites that were already doing it.
+ *
+ * WHAT THIS DOES NOT REACH: anything `position: fixed`. A fixed element is laid
+ * out against the viewport, not the body, so body padding cannot hold it — and
+ * because the viewport is what got wider, a RIGHT-anchored fixed element moves
+ * right by the same ~15px. In this app that is the toast stack
+ * (`components/ui/toast.tsx`, `fixed bottom-4 right-4`) and the floating
+ * bug-reporter button, which is an external SDK and not ours to lay out. Fixing
+ * those needs `scrollbar-gutter: stable` on `html` in `app/globals.css`, which
+ * reserves the gutter permanently and makes the whole class of shift impossible
+ * — a global change to every page in the app, so it is named here rather than
+ * smuggled in beside a dialog fix.
+ */
+function lockBodyScroll() {
+  if (openSheetCount > 0) return; // an outer sheet already owns the lock
+  const body = document.body;
+  // First statement on purpose — see above.
+  const gap = window.innerWidth - document.documentElement.clientWidth;
+  bodyLockRestore = { overflow: body.style.overflow, paddingRight: body.style.paddingRight };
+  body.style.overflow = "hidden";
+  // `> 0` guards the overlay-scrollbar case (macOS, most touch devices), where
+  // nothing is reclaimed and padding would be a 0px no-op at best.
+  if (gap > 0) body.style.paddingRight = `${gap}px`;
+}
+
+/** Undo `lockBodyScroll`, but only once the LAST sheet has gone. */
+function unlockBodyScroll() {
+  if (openSheetCount > 0) return; // a still-open outer sheet needs the lock
+  const body = document.body;
+  body.style.overflow = bodyLockRestore?.overflow ?? "";
+  body.style.paddingRight = bodyLockRestore?.paddingRight ?? "";
+  bodyLockRestore = null;
+}
+
+/**
  * True when focus sits inside a modal layer that is NOT `root` — typically a
  * dialog picker portaled to <body> from inside this sheet. Such a layer owns
  * Escape and Tab for as long as it is up, so the sheet underneath must stand
@@ -30,6 +113,31 @@ function inForeignModal(root: HTMLElement | null): boolean {
   if (!(active instanceof HTMLElement)) return false;
   const modal = active.closest<HTMLElement>('[role="dialog"], [aria-modal="true"]');
   return !!modal && modal !== root && !root?.contains(modal);
+}
+
+/**
+ * WHERE A CONTAINED DIALOG CAME FROM — the point it grows out of and collapses
+ * back into. Either a rect measured at the moment of the click, or a ref to the
+ * element that is still on screen.
+ *
+ * PREFER THE RECT. A trigger that lives in a `ChildGrid` cell is re-rendered
+ * every keystroke on the row and can be unmounted entirely while the dialog it
+ * opened is still up — a ref then resolves to `null` and the dialog silently
+ * goes back to scaling from its own centre. `getBoundingClientRect()` taken in
+ * the click handler is a value, not a live reference, and cannot go stale in a
+ * way that matters: the trigger is behind a scrim and nothing can scroll it.
+ */
+export type SheetOrigin =
+  | DOMRect
+  | { left: number; top: number; width: number; height: number }
+  | RefObject<HTMLElement | null>;
+
+/** Viewport-space centre of a `SheetOrigin`, or null when it resolves to nothing. */
+function originCentre(origin: SheetOrigin | null | undefined): { x: number; y: number } | null {
+  if (!origin) return null;
+  const rect = "current" in origin ? origin.current?.getBoundingClientRect() : origin;
+  if (!rect) return null;
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
 
 /**
@@ -50,6 +158,8 @@ export function Sheet({
   fullScreen = true,
   size = "lg",
   fullBleed = false,
+  origin,
+  alignToPane = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -130,6 +240,152 @@ export function Sheet({
    * as touching the glass, and 32px is what keeps the first field off the edge.
    */
   fullBleed?: boolean;
+  /**
+   * GROW OUT OF THE THING THAT OPENED THIS — the trigger's rect (or a ref to
+   * it), which becomes the panel's `transform-origin`.
+   *
+   * ## Why it exists (client 2026-08-28)
+   *
+   * The client saw a navigation pattern where the ACTIVE rail row and the
+   * content pane beside it are drawn as ONE CONTINUOUS SHAPE — the selected
+   * pill flows into the panel with a concave join, so there is no seam. A
+   * shared edge is proof of parentage: the panel cannot be mistaken for
+   * something that arrived from elsewhere. They asked whether the Style Process
+   * dialog could connect to its trigger the same way.
+   *
+   * **IT CANNOT, AND THAT IS STRUCTURAL RATHER THAN A MATTER OF EFFORT.** Three
+   * reasons, each sufficient on its own:
+   *
+   * - **It is on another plane.** The dialog is portaled to `<body>` and sits
+   *   above a `fixed inset-0` scrim. A join needs the two shapes to share a
+   *   coordinate space and a paint order; here one is deliberately floating
+   *   over the other, dimmed.
+   * - **It covers its own trigger.** The Process button lives in a grid cell in
+   *   the middle of the screen, and an `md` dialog is ~1112px wide and centred
+   *   — it lands ON the button it grew from. There is no edge left to join to.
+   * - **Centred is position-independent.** Every row's dialog opens at the
+   *   viewport centre, so the surface says nothing about WHICH row opened it.
+   *   That is the whole thing a join communicates, and it is exactly what a
+   *   centred box discards.
+   *
+   * **So the MOTION is the substitute.** The panel cannot share an edge with
+   * its trigger, but it can come FROM it: scaling out of that point and
+   * collapsing back into it carries the same "this belongs to that row" without
+   * needing the two to touch. The rail join itself went where it genuinely fits
+   * — `components/masters/master-full-screen.tsx`, which has a real rail and a
+   * real pane beside it.
+   *
+   * ## What it does, and what it deliberately does not
+   *
+   * OPTIONAL AND BACKWARD-COMPATIBLE. Every existing `sm`/`md` sheet passes
+   * nothing and keeps scaling from its own centre exactly as before — this adds
+   * one CSS property and no behaviour.
+   *
+   * CONTAINED BRANCH ONLY (`size !== "lg"`). That is the only variant whose
+   * open transition is a SCALE, so it is the only one a `transform-origin` can
+   * mean anything to: the full-screen branch translates 12px and the slide-over
+   * slides in from an edge, and both of those already say where they came from.
+   *
+   * NOTHING THE KEYBOARD READS IS TOUCHED. No change to `size`, to the focus
+   * trap, to `useModalGuard`, to `role="dialog"` / `aria-modal`, or to any
+   * `data-focus-region` — `transform-origin` is paint, and `lib/focus.ts` reads
+   * markers and geometry, not transforms.
+   *
+   * UNDER `prefers-reduced-motion` NO ORIGIN IS SET AT ALL. `app/globals.css`
+   * already clamps every transition in the app to 0.01ms for those users, so
+   * the panel simply appears; deriving an origin for an animation that does not
+   * run would be dead arithmetic on the keystroke path.
+   */
+  origin?: SheetOrigin | null;
+  /**
+   * CENTRE THE PANEL OVER THE CONTENT PANE RATHER THAN THE VIEWPORT
+   * (client 2026-08-28: "just move it near to the style — now it looks
+   * unaligned; the centre modal stays").
+   *
+   * A viewport-centred `md` box on a rail editor is centred against the WRONG
+   * BOX. The rail takes 192px off the left, so the panel's left edge lands
+   * ~37px left of where the content begins — cutting across the rail/content
+   * divider — while its right edge stops well short of the content's. It reads
+   * as misaligned because it is: it is centred on a container the operator
+   * cannot see, against content that starts somewhere else.
+   *
+   * This shifts the CENTRING BOX only. The panel keeps `max-w-6xl`,
+   * `max-h-[88vh]`, its own rounding, the scrim, and every keyboard behaviour.
+   * It is still a centred contained dialog — centred over the thing it belongs
+   * to.
+   *
+   * NOT A JOIN. A rail join was built and withdrawn three times on 2026-08-28;
+   * see the tombstone above. This does not touch the scrim, does not light the
+   * rail, and draws no tab. It moves a box.
+   *
+   * DEGRADES TO VIEWPORT CENTRING whenever the pane cannot be resolved — no
+   * opener, no `[data-focus-scope]` ancestor, or a zero-width pane. There is no
+   * half state: one `paneBox` decides it.
+   */
+  alignToPane?: boolean;
+  /*
+   * A RAIL JOIN WAS BUILT HERE AND WITHDRAWN ON 2026-08-28. Read this before
+   * building a fourth one.
+   *
+   * The client's reference is a navigation rail whose ACTIVE item and content
+   * panel are drawn as ONE continuous shape — a shared edge is proof of
+   * parentage, where a title can only assert it. Asked for between this dialog
+   * and the tab it opens from, it was attempted three times in one day:
+   *
+   *  1. ON THE SECTION RAIL (`09384bb`) — the active rail item joined the
+   *     content pane. The wrong target: the client meant this dialog, not the
+   *     pane. Reverted (`5b2eec3`), along with the pane's `bg-surface`, which
+   *     existed only to give that join something to be visible against.
+   *  2. ANCHORED TO THE TRIGGER CELL — the panel hung off a ~180px grid cell,
+   *     which shoved a ~1150px box to the viewport edge and put Done under the
+   *     floating bug-reporter button. Rejected on sight.
+   *  3. JOINED TO THE ACTIVE SECTION TAB (`1012920`) — the panel took the pane's
+   *     box, the scrim's `left` started at the pane so the rail stayed lit, and a
+   *     tab bridged the two. It worked, and it lit the ENTIRE rail rather than
+   *     the one joined tab.
+   *
+   * WHAT (3) WOULD HAVE COST TO FINISH, measured rather than guessed:
+   *
+   *  - `box-shadow: 0 0 0 100vmax` cannot punch the hole on its own. The scrim
+   *    carries `onClick={onClose}` and a box-shadow region is NEVER hit-testable
+   *    — hit testing uses the border box. It needs four rect divs around the
+   *    hole, each dimmed and each carrying the close handler.
+   *  - Raising the tab's z-index instead is not general. `MasterFullScreen`'s
+   *    DEFAULT `mount="overlay"` root is `fixed inset-0 z-[80]`, a stacking
+   *    context — nothing inside can paint above this scrim. It would work only
+   *    for `mount="page"` and silently do nothing everywhere else.
+   *  - The rail was left CLICKABLE, and `joinBox` never re-measured on a section
+   *    change, so switching section behind the open dialog left the tab pointing
+   *    at a stale position.
+   *
+   * AND (3) WAS NEVER FULLY WORKING WHEN IT WAS JUDGED — found in review after
+   * the withdrawal, and the single most useful thing to know before trying
+   * again. `openerRef.current` is assigned in a PASSIVE effect; the join
+   * measured in a LAYOUT effect. React runs every layout effect before any
+   * passive effect in the same commit, so on the commit where `open` flips
+   * true the measurement read `openerRef.current` as null on the first ever
+   * open, or the opener from the PREVIOUS open on every one after — and with
+   * deps `[open, joinRail]` nothing ever re-measured. So the first open drew no
+   * join at all, and later opens drew one from a stale opener that happened to
+   * resolve to the same pane. Hook PHASE ordering, not declaration order, is
+   * what broke it: a layout effect cannot read state a passive effect writes in
+   * the same commit. Capture the opener at layout time, or thread it in as a
+   * prop rather than sniffing `document.activeElement`.
+   *
+   * THE CLIENT'S DECISION: leave it centred, no further integration with the
+   * side section. That is why this is a comment and not a prop.
+   *
+   * `09384bb` holds the geometry if it is ever revisited — the 13px overhang
+   * (the rail's own `p-3` plus `border-r`), the 23px compensating padding that
+   * keeps labels from re-truncating, and the 8px radial-gradient fillets,
+   * including why the cut must be `var(--surface-muted)` and never
+   * `transparent`, which fringes dark on antialiased pixels.
+   *
+   * AND THE LESSON THAT OUTLIVES ALL THREE: the geometry was never what failed.
+   * Attempt 1 was arithmetically exact and read as nothing, because the two
+   * halves it joined were a 2% fill step apart. A join is only a join when both
+   * halves share a fill and the ground differs.
+   */
 }) {
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
@@ -240,14 +496,18 @@ export function Sheet({
       }
     };
     document.addEventListener("keydown", onKey);
+    // Lock BEFORE the increment and unlock AFTER the decrement, so both run
+    // exactly on the 0→1 and 1→0 transitions — the guard inside each reads
+    // `openSheetCount`, so the order of these two lines is what makes a nested
+    // sheet a no-op rather than a second 15px of padding.
+    lockBodyScroll();
     openSheetCount += 1;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
       const i = sheetStack.lastIndexOf(entry);
       if (i !== -1) sheetStack.splice(i, 1);
       openSheetCount = Math.max(0, openSheetCount - 1);
-      if (openSheetCount === 0) document.body.style.overflow = "";
+      unlockBodyScroll();
       // Hand focus back to the opener (e.g. the picker trigger button), but only
       // if nothing else has claimed it in the meantime.
       const home = openerRef.current;
@@ -270,7 +530,83 @@ export function Sheet({
   // provider already treats it as the navigation boundary. What stays below is
   // overlay-specific: the focus trap, Escape, and autofocus on open.
 
+  /**
+   * THE CONTENT PANE'S HORIZONTAL BOX, or null meaning "centre on the viewport
+   * as before". See the `alignToPane` prop.
+   *
+   * A LAYOUT EFFECT, AND IT CAPTURES THE OPENER ITSELF RATHER THAN READING
+   * `openerRef`. That ref is written in the PASSIVE effect below, and React
+   * runs every layout effect before any passive effect in the same commit — so
+   * reading it here would see null on the first open and the PREVIOUS open's
+   * element on every one after. That is not hypothetical: it is exactly how the
+   * withdrawn rail join failed, silently, for hours (see the tombstone above).
+   * `document.activeElement` is still the trigger at this point; the sheet's own
+   * autofocus is on a 60ms timeout.
+   *
+   * Layout timing rather than passive, so the box is known before paint and the
+   * panel never appears viewport-centred for a frame and then jumps.
+   *
+   * ROUNDED, because a fractional `left` on a box that also has `max-w` and
+   * auto margins puts the panel on a half-pixel and softens its border.
+   */
+  const [paneBox, setPaneBox] = useState<{ left: number; width: number } | null>(null);
+
+  useIsoLayoutEffect(() => {
+    if (!open || !alignToPane) return;
+    const measure = () => {
+      const opener = document.activeElement;
+      const pane =
+        opener instanceof HTMLElement ? opener.closest<HTMLElement>("[data-focus-scope]") : null;
+      const r = pane?.getBoundingClientRect();
+      // No pane, or a pane with no width (a collapsed or unmounted shell) — fall
+      // back to viewport centring rather than pinning the panel to x=0.
+      setPaneBox(r && r.width > 0 ? { left: Math.round(r.left), width: Math.round(r.width) } : null);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open, alignToPane]);
+
   if (!mounted) return null;
+
+  /**
+   * THE ORIGIN IS DERIVED WITHOUT MEASURING THE PANEL, and that is what makes
+   * it exact on the FIRST painted frame rather than one frame late.
+   *
+   * The obvious implementation — measure the panel in an effect, then set the
+   * origin — cannot work here: `useEffect` runs after the browser has already
+   * painted the opening transition's first frame, so the panel starts scaling
+   * from its centre and snaps to the real origin a frame later. Reading the
+   * panel's box during that frame is also wrong, because it is mid-transform
+   * and `getBoundingClientRect()` reports the TRANSFORMED box.
+   *
+   * Neither problem arises if the panel is never measured. The contained branch
+   * centres its panel in the viewport (`flex items-center justify-center` with
+   * symmetric padding), so the panel's own centre IS the viewport centre — and
+   * `transform-origin` accepts `calc()`, so the point can be expressed as "the
+   * panel's centre, shifted by the trigger's offset from the viewport centre".
+   * Percentages resolve against the panel; the pixel term needs only the
+   * trigger's rect and `window.innerWidth/Height`, both of which are known here
+   * during render.
+   *
+   * IT FOLLOWS THAT THIS IS TIED TO THE CENTRING. If the contained branch ever
+   * stops centring its panel, the `50%` term stops naming the panel's layout
+   * centre and every origin lands off by the difference. Degrading safely is
+   * cheap: an unresolvable origin yields `undefined`, and `undefined` is the
+   * behaviour every sheet had before this prop existed.
+   *
+   * `window` is safe below the `mounted` guard above — this whole component
+   * renders null until it has mounted on the client.
+   */
+  const reducedMotion =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const centre = reducedMotion ? null : originCentre(origin);
+  const transformOrigin = centre
+    ? `calc(50% + ${Math.round(centre.x - window.innerWidth / 2)}px) calc(50% + ${Math.round(
+        centre.y - window.innerHeight / 2,
+      )}px)`
+    : undefined;
 
   return createPortal(
     /**
@@ -313,13 +649,25 @@ export function Sheet({
              behind them ("md"). A contained box on the scrim; scrolls
              internally when long. */
           <div
-            className="pointer-events-none fixed inset-0 flex items-center justify-center p-4"
-            style={{ zIndex: zIndexBase + 1 }}
+            className="pointer-events-none fixed inset-y-0 flex items-center justify-center p-4"
+            /* `inset-y-0` plus an explicit left/width, so the ONLY thing that
+               changes is which box the panel is centred inside. Falls back to
+               the full viewport when there is no pane — see `alignToPane`. */
+            style={
+              paneBox
+                ? { zIndex: zIndexBase + 1, left: paneBox.left, width: paneBox.width }
+                : { zIndex: zIndexBase + 1, left: 0, right: 0 }
+            }
           >
             <div
               ref={containerRef}
               role="dialog"
               aria-modal="true"
+              /* `undefined` when no origin was supplied (or under reduced
+                 motion), which leaves the CSS default `50% 50%` — i.e. exactly
+                 what every contained sheet did before this prop existed. See
+                 the `origin` prop. */
+              style={{ transformOrigin }}
               className={cn(
                 "flex max-h-[88vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
                 size === "md" ? "max-w-6xl" : "max-w-md",

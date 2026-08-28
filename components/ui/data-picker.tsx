@@ -814,7 +814,24 @@ export function DataPicker({
             // turns Enter into a dead key by mouse instead of by arrow.
             onMouseEnter={() => { if (!blocked) setHighlight(r.id); }}
             className={cn(
-              "group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm",
+              /* THE PANEL FOLLOWS THE FIELD'S DENSITY (client 2026-08-28,
+                 screenshot 2533: "inside of the field the font size is good but
+                 in the drop it looks a little bit bigger").
+
+                 THE TYPE SIZE WAS ALREADY IDENTICAL — the trigger is
+                 `text-base md:text-sm` and a row is `text-sm`, both 14px on any
+                 desktop. What differed is the ROW: 8px of padding top and
+                 bottom against a `compact` trigger that is 32px tall in total,
+                 so the list read as looser and therefore larger. Matching the
+                 leading is the honest fix; shrinking the text would have made
+                 the dropdown disagree with the field it fills.
+
+                 ONLY WHEN `compact`, which is the picker-in-a-grid-cell case.
+                 A full-width picker on a form keeps the roomier row — it sits
+                 beside 36px controls, and tightening it there would answer a
+                 complaint nobody made by making a comfortable list cramped. */
+              "group flex cursor-pointer items-center gap-2 px-3 text-sm",
+              compact ? "py-1.5" : "py-2",
               blocked && "cursor-not-allowed opacity-40",
               r.id === highlight ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-muted",
             )}
@@ -1254,7 +1271,15 @@ export function DataPicker({
                 : { role: "dialog" as const, "aria-modal": true, "aria-label": `${mode} ${noun}` })}
               onKeyDown={mode === "list" ? undefined : onFormKeyDown}
               style={dropdownPanelStyle(rect, mode === "list" ? "list" : "form")}
-              className="overflow-hidden rounded-md border border-border bg-surface shadow-lg"
+              /* `font-sans` EXPLICITLY, because this panel is `createPortal`ed to
+             `document.body` and therefore sits outside the app's own subtree.
+             It inherits body's family today, so this changes nothing now — it is
+             a guard: any future wrapper that sets the typeface on a shell div
+             rather than on `body` would silently drop the ~160 pickers back to
+             the browser default, and a dropdown in a different face is exactly
+             the kind of fault that gets reported as "the font is wrong" long
+             after the change that caused it (client 2026-08-28). */
+          className="font-sans overflow-hidden rounded-md border border-border bg-surface shadow-lg"
             >
               {body}
             </div>

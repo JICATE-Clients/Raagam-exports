@@ -101,40 +101,56 @@ export { isAccessoryClass, ACCESSORY_CLASS_CODES };
 /**
  * The materials to offer a line, narrowed by the Category beside it.
  *
- * ## THE NAME LEADS AND THE CLASS RIDES BEHIND IT (client 2026-08-28)
+ * ## THE LIST SHOWS THE MATERIAL NAME AND NOTHING ELSE (client 2026-08-28)
  *
- * "Displaying the raw Material Name first for readability." Until today the
- * unscoped branch composed `SEW · BUTTON` — the class code, a middle dot, then
- * the thing the operator is actually looking for. It now composes
- * `BUTTON (SEW)`.
+ * "No need to mention the value in the material field listing — just list the
+ * material name", naming the two brackets it meant: `(SEW)` and `(PACK)`.
  *
- * **The class is kept, not dropped, and that half is deliberate.** This branch
- * fires when NO category is chosen, i.e. when the whole accessory master is on
- * offer, and AGENTS.md's cascading-filters rule is explicit about that state:
- * "with no class chosen, prefix each option by its class … two identical
- * options the operator has to guess between is the other half of the same bug".
- * Two rows both reading POLY BAG, one Sewing and one Packing, is a coin toss
- * that saves the wrong FK, and nothing downstream would object. Deleting the
- * qualifier would answer a readability complaint by reintroducing an ambiguity
- * complaint.
+ * ## THIS REVERSES A STANDING RULE, AND THAT IS THE CLIENT'S CALL TO MAKE
  *
- * **What was actually wrong was the ORDER, and it cost more than a glance.**
- * `RecordPicker` sorts its rows by what is DISPLAYED (`a.label.localeCompare`),
- * so a leading class code sorted the entire list by CLASS first: every PACK
- * material, then every SEW one, with each class's names alphabetised only
- * inside its own block. An operator hunting BUTTON had to know which class it
- * was filed under before the alphabet was any use to them — the list read as
- * unsorted. Putting the name first is what puts the sort back on the name; a
- * mere cosmetic swap of `·` for a dash would have left that untouched.
+ * AGENTS.md's "Cascading filters" section says, of exactly this state: "with no
+ * class chosen, prefix each option by its class … two identical options the
+ * operator has to guess between is the other half of the same bug". The label
+ * has carried the class since, and an earlier version of this note argued the
+ * point at length — that two rows both reading POLY BAG, one Sewing and one
+ * Packing, are a coin toss that saves the wrong FK with nothing downstream to
+ * object.
  *
- * **Parentheses, matching the `(uncategorised)` suffix the other branch already
- * writes.** The two branches are mutually exclusive — one fires with no
- * category, the other with one — so a label can never carry both, and using one
- * shape for both means the operator learns a single rule: the name is the row,
- * anything in brackets after it is the list telling them why the row is here.
+ * That argument was put to the client and the answer was to drop the brackets.
+ * The later instruction wins. It is recorded here rather than quietly obeyed
+ * because a reader who finds the AGENTS.md sentence quoted elsewhere is holding
+ * a rule this file now deliberately departs from — and because if the wrong
+ * material is ever reported as saved against a line, THIS is the paragraph to
+ * re-open, not a bug in the picker.
  *
- * A material declaring no class is left exactly as it was: a bare name with an
- * empty bracket beside it says nothing and reads as a rendering fault.
+ * ## WHAT STILL SEPARATES TWO SAME-NAMED MATERIALS
+ *
+ * The ambiguity is narrowed rather than reintroduced whole, and it is worth
+ * knowing why before anyone "restores" the suffix as a fix:
+ *
+ *  - **The picker shows the material CODE beneath the name.** `RecordPicker`
+ *    renders `pickerIdentityParts(code, name)`, so two POLY BAGs are two rows
+ *    with different codes under them — visibly different, just not classified.
+ *    A material with no code is the case this does not cover.
+ *  - **The unscoped list is the exception, not the rule.** This branch fires
+ *    only while no Category is chosen; the ordinary flow picks a category first
+ *    and never sees a cross-class list at all.
+ *
+ * ## `(uncategorised)` STAYS
+ *
+ * The client named `(SEW)` and `(PACK)`. The other branch's marker answers a
+ * different question — not "which class is this" but "this row is only here
+ * because it belongs to no category and the filter let it through" — and
+ * without it a row appears under a category it does not belong to with nothing
+ * saying why.
+ *
+ * ## THE SORT FOLLOWS THE NAME, WHICH IS WHAT THE 08-28 SWAP WAS FOR
+ *
+ * `RecordPicker` sorts by what is DISPLAYED (`a.label.localeCompare`). The
+ * label led with the class code until 2026-08-28 (`SEW · BUTTON`), which sorted
+ * the whole list by CLASS — an operator hunting BUTTON had to know its class
+ * before the alphabet was any use. Moving the name to the front fixed that;
+ * dropping the bracket now leaves the sort exactly where that change put it.
  */
 export function materialsForCategory(
   materials: readonly MaterialOption[],
@@ -143,11 +159,9 @@ export function materialsForCategory(
   const want = opts.categoryId?.trim() || null;
   const held = opts.currentValue ?? null;
 
-  if (!want) {
-    return materials.map((m) =>
-      m.class_code ? { ...m, name: `${m.name} (${m.class_code})` } : m,
-    );
-  }
+  // THE NAME ALONE (client 2026-08-28) — see the header for what this departs
+  // from and what still separates two same-named materials.
+  if (!want) return [...materials];
 
   return materials
     .filter((m) => m.category_id === want || m.category_id == null || m.id === held)

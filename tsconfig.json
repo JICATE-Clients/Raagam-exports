@@ -53,6 +53,7 @@
     "scripts/check-order-value.mts",
     "scripts/check-bom-requirement.mts",
     "scripts/check-pack-composition.mts",
+    "scripts/check-uom-prefill.mts",
     "scripts/check-pack-type-explosion.mts",
     "scripts/check-process-return.mts",
     "scripts/check-fabric-bom.mts",
