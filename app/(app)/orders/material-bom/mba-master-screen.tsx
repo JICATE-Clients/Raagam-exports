@@ -3334,6 +3334,26 @@ export function MbaMasterScreen({
    * — the "empty-and-explain, never fall back" rule AGENTS.md states for the
    * nominated-vendor list, which is the same shape one screen along.
    */
+  /**
+   * WHAT A LINE IS CALLED, ON BOTH SIDES OF THE SPLIT (client 2026-08-28: "i can
+   * not know which from right side seeing which is for which matrial showing").
+   *
+   * The left list and the open pane each named the line themselves, and both fell
+   * back to a CONSTANT when no material was picked — every blank line read
+   * "Not filled in" in the list and "New material" in the pane. With three blank
+   * lines there was nothing to match a list row to the fields beside it.
+   *
+   * A NUMBER IS THE FALLBACK, because it is the one thing a blank line still has.
+   * Named lines still show their material — the number only stands in until then.
+   * One function, so the two sides cannot word it differently again; the pane
+   * heading and the list row are the same string by construction.
+   */
+  const lineLabel = (row: ItemRow): string => {
+    if (row.item_id) return itemName(row.item_id);
+    const n = items.findIndex((x) => x.key === row.key);
+    return n >= 0 ? `Material ${n + 1}` : "New material";
+  };
+
   const uomOptionsFor = (itemId: string | null, current: string | null): UomRow[] => {
     const m = itemId ? data.items.find((x) => x.id === itemId) : null;
     const allowed = new Set<string>();
@@ -5474,11 +5494,12 @@ export function MbaMasterScreen({
                unpredictable distance down the page — and moved it again every
                time a different line was opened. */
             masterDetail
-            /* PICKING A LINE FOLDS THE RAIL (client 2026-08-20, screenshot
-               2402). This section is itself a list plus an editor, so the rail
-               and the item list were two levels of navigation stacked in front
-               of 22 fields. */
-            onOpenRow={() => setRailCollapsed(true)}
+            /* THE RAIL NO LONGER FOLDS (client 2026-08-28: "left bar with that 3
+               buttons always stays left it should not go hide"). REVERSES
+               2026-08-20 / screenshot 2402, which folded it because "the rail and
+               the item list were two levels of navigation stacked in front of 22
+               fields" — a real cost, now weighed the other way: losing your place
+               in the document is worse than losing 192px. */
             renderListItem={(row) => {
               /* INERT BY CONTRACT — see `renderListItem` on the grid. Text, a
                  dot and a figure; nothing focusable, because the fields live in
@@ -5518,7 +5539,7 @@ export function MbaMasterScreen({
                         name ? "font-medium text-foreground" : "text-muted-foreground",
                       )}
                     >
-                      {name ?? "Not filled in"}
+                      {name ?? lineLabel(row)}
                     </Truncated>
                     {(basis || ratio) && (
                       <Truncated className="block text-[10px] leading-tight text-muted-foreground">
@@ -5771,7 +5792,7 @@ export function MbaMasterScreen({
                         caption under the heading above it rather than as the name of
                         the record being edited. */}
                     <Truncated className="min-w-0 text-[15px] font-bold tracking-tight text-foreground">
-                      {row.item_id ? itemName(row.item_id) : "New material"}
+                      {lineLabel(row)}
                     </Truncated>
                     {/* "Line 1 of 1" REMOVED (client 2026-08-28: "remove the line 1
                         of 1 wodings"). On a one-line BOM it stated the obvious, and
@@ -5942,12 +5963,9 @@ export function MbaMasterScreen({
                   return false;
                 }
               }
-              /* ADDING A LINE IS CHOOSING TO WORK ON IT — the cursor lands in the
-                 new row (`landOnAddedRow`), so the rail folds for the same
-                 reason it folds on picking one out of the list. Without this the
-                 sections stayed up through the whole of a new BOM, which is
-                 exactly when the fields need the width most (client 2026-08-20). */
-              setRailCollapsed(true);
+              /* The rail used to fold here too (2026-08-20). Withdrawn on
+                 2026-08-28 with the one above; `setRailCollapsed` keeps its reader
+                 in `onExpandRail`, so this is one line to put back. */
               mutItems((xs) => [...xs, blankItem(newKey())]);
             }}
             onRemove={(r) => mutItems((xs) => xs.filter((x) => x.key !== r.key))}
