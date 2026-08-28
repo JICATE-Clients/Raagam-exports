@@ -39,7 +39,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { today as todayAtFactory } from "@/lib/calendar";
 import { fmtDate, fmtNumber } from "@/lib/format";
-import { fmtQty } from "@/lib/uom/convert";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -136,7 +135,10 @@ import {
   sliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
 import {
+  conversionFactor,
   describeConversion,
+  fmtQty,
+  isUsableConversion,
   toPurchaseQty,
   uomPrecision,
 } from "@/lib/uom/convert";
@@ -3328,14 +3330,135 @@ export function MbaMasterScreen({
    * would restore the bug for exactly the materials whose master is unfinished
    * — the "empty-and-explain, never fall back" rule AGENTS.md states for the
    * nominated-vendor list, which is the same shape one screen along.
+   *
+   * ## IT ALSO SAYS WHAT EACH UNIT IS WORTH — `GROSS = 144 NOS`
+   *
+   * Added 2026-08-28; the reasoning is on `packSuffixFor` directly above. It is
+   * done HERE rather than in the two cells because this function is their only
+   * feed, so the rule cannot reach one picker and miss the other. The rows it
+   * returns are COPIES with a decorated `name`; ids are untouched, so the
+   * membership test the Consumption prefill runs against this list is unaffected.
    */
+  /**
+   * WHAT ONE OF THIS UNIT IS WORTH, FOR THIS MATERIAL — the `= 144 NOS` half of
+   * `GROSS = 144 NOS`, or null when there is nothing trustworthy to say.
+   *
+   * Client 2026-08-28: "we did set GROSS as 144 button = one gross, and the
+   * width of cone is 2500 metre and 500 metre — this also needs to show there
+   * while choosing the uom, MTR = 2500, like this." A bare `GROSS` on the
+   * dropdown does not tell an operator whether they are about to plan in
+   * hundreds or in dozens, and the number that answers it is already on the
+   * screen: `data.conversions` is every `material_uom_conversions` row, fetched
+   * flat and filtered client-side, which is the same list the pack chooser in
+   * the Purchase Uom cell reads.
+   *
+   * ## SCOPED BY `item_id`, AND THAT IS THE WHOLE RULE
+   *
+   * A GROSS is 144 of one thing and could be 144 of something else entirely; the
+   * figure belongs to the MATERIAL, never to the unit. A conversion borrowed
+   * from another material is worse than no conversion at all — it is a wrong
+   * number that looks like a checked one, on the field that decides what gets
+   * bought. So `item_id` is matched first and there is no fallback of any kind.
+   *
+   * ## ONLY A PACK UNIT CARRIES A FIGURE
+   *
+   * Matched on `alt_uom_id`, never `base_uom_id`. The alternative unit IS the
+   * pack — a gross, a cone, a box — and the base unit is what the pack is
+   * measured in. Decorating NOS with "1/144 GROSS" would state the same fact
+   * backwards, in the row where it is least useful, on the unit that appears on
+   * nearly every line. The client's two examples are both pack units.
+   *
+   * ## `alt_qty` IS NOT ASSUMED TO BE 1
+   *
+   * `conversionFactor` divides by the stored `alt_qty`, so `12 CONE = 30,000
+   * MTR` and `1 CONE = 2,500 MTR` both read `CONE = 2,500 MTR`. That is the
+   * point of showing the factor rather than the raw pair: those two rows are the
+   * SAME PHYSICAL PACK entered two ways (`lib/uom/convert.ts` says so in terms),
+   * and printing them as two different labels would invent a difference the
+   * data does not have. It is also the number every downstream figure is
+   * computed with — `toPurchaseQty` converts through exactly this factor — so
+   * the label cannot drift from the arithmetic it describes.
+   *
+   * ## MORE THAN ONE MATCH SHOWS NOTHING, DELIBERATELY
+   *
+   * The client's own example is the ambiguous case: a cone is 2,500 metres AND
+   * 500 metres. `pack-resolve.ts` documents the live data for it — SEWING THREAD
+   * / POLYESTER carries `1 CONE = 2500 MTR` and `1 CONE = 5000 MTR`, both
+   * entered on purpose — and REFUSES to pick one, handing the tie to the chooser
+   * that appears inside the Purchase Uom cell. This must refuse on exactly the
+   * same test or the screen contradicts itself: a label reading `CONE = 2,500
+   * MTR` above a chooser offering 2,500 and 5,000 answers a question the cell
+   * beneath it is still asking, and the label is the one with no control behind
+   * it. Which pack applies is not knowable here anyway — it depends on the
+   * consumption unit, which the line may not have chosen yet.
+   *
+   * So: exactly one usable row, or the unit renders plain. Two rows saying the
+   * same thing are not treated as agreement either — that is `resolveLinePack`'s
+   * `choices.length === 1` test, borrowed rather than re-derived, because the
+   * two must not drift.
+   *
+   * ## NULL-SAFE BY CONSTRUCTION
+   *
+   * `isUsableConversion` rejects a half-typed row (either quantity or either
+   * unit missing, zero or negative), which is the normal state of a row somebody
+   * is entering — never an error, and never a reason to render `144 undefined`.
+   * The base unit is resolved out of `data.uoms` as well, so a conversion
+   * pointing at a unit this screen did not load renders plain rather than
+   * `144 —`.
+   */
+  const packSuffixFor = (itemId: string | null, uomId: string): string | null => {
+    if (!itemId) return null;
+    const rows = data.conversions.filter(
+      (c) => c.item_id === itemId && c.alt_uom_id === uomId && isUsableConversion(c),
+    );
+    if (rows.length !== 1) return null;
+    const factor = conversionFactor(rows[0]);
+    const base = data.uoms.find((u) => u.id === rows[0].base_uom_id);
+    if (factor == null || !base) return null;
+    /* `fmtQty`, not `fmtNumber`, because this figure is DERIVED. `fmtNumber` is
+       a bare `toLocaleString` and caps at three fraction digits (see its note in
+       lib/uom/convert.ts), which is fine for the stored 144 and 2,500 that
+       `describeConversion` prints and wrong for a quotient — `12 CONE = 28,000
+       MTR` is 2,333.33 recurring. The base unit's own `decimal_places_allowed`
+       is the right precision because the figure is a quantity OF that unit. */
+    return `${fmtQty(factor, base.decimal_places_allowed)} ${base.name}`;
+  };
+
   const uomOptionsFor = (itemId: string | null, current: string | null): UomRow[] => {
     const m = itemId ? data.items.find((x) => x.id === itemId) : null;
     const allowed = new Set<string>();
     if (m?.base_uom_id) allowed.add(m.base_uom_id);
     if (m?.has_alternate_uom && m.purchase_uom_id) allowed.add(m.purchase_uom_id);
     if (current) allowed.add(current);
-    return data.uoms.filter((u) => allowed.has(u.id));
+    /*
+     * THE PACK FIGURE IS APPENDED HERE so that every Uom cell carries it without
+     * being asked — this function is the one feed for both pickers and for the
+     * membership test the Consumption prefill runs, so a cell cannot be built
+     * that narrows correctly and explains nothing.
+     *
+     * APPENDED, NEVER PREFIXED, and that is not a style choice. `RecordPicker`
+     * sorts by the DISPLAYED label, so a leading figure sorts the list by number
+     * instead of by unit — the same trap that had the Material list sorting by
+     * class code until it was fixed earlier today (`SEW · BUTTON` →
+     * `BUTTON (SEW)`). The unit name stays first and the ordering is unchanged.
+     *
+     * `=` rather than a middot, for two reasons: it is the client's own phrasing
+     * ("144 button = one gross"), and it is how `describeConversion` writes the
+     * same fact in the pack chooser lower down the SAME CELL, so the two read as
+     * one idiom instead of two.
+     *
+     * A COPY, never a mutation — `data.uoms` is the raw master list and
+     * `uomName()` above resolves display names out of it for the ribbon, the
+     * derived-quantity cells and `describeConversion`. Writing the suffix into
+     * those rows would put `GROSS = 144 NOS` inside the pack chooser's own
+     * label, which already spells the conversion out in full.
+     */
+    return data.uoms
+      .filter((u) => allowed.has(u.id))
+      .map((u) => {
+        const pack = packSuffixFor(itemId, u.id);
+        return pack ? { ...u, name: `${u.name} = ${pack}` } : u;
+      });
   };
 
   /** Why a Uom cell is empty, in the cell itself. Order matters: "pick a
