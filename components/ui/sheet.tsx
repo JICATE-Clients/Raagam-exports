@@ -1,6 +1,20 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+
+/**
+ * `useLayoutEffect` on the client, `useEffect` on the server.
+ *
+ * This component IS server-rendered — it returns null until `mounted`, but its
+ * hooks still run during SSR, and React warns that useLayoutEffect does nothing
+ * there. The layout timing is what stops the joined panel painting centred for
+ * one frame and then jumping to the rail, so it is worth keeping on the client
+ * rather than downgrading both.
+ *
+ * Assigned ONCE at module scope, so the hook called at that position never
+ * changes identity between renders.
+ */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { RequiredScope } from "@/components/ui/field";
@@ -463,37 +477,6 @@ export function Sheet({
   // provider already treats it as the navigation boundary. What stays below is
   // overlay-specific: the focus trap, Escape, and autofocus on open.
 
-  if (!mounted) return null;
-
-  /**
-   * THE ORIGIN IS DERIVED WITHOUT MEASURING THE PANEL, and that is what makes
-   * it exact on the FIRST painted frame rather than one frame late.
-   *
-   * The obvious implementation — measure the panel in an effect, then set the
-   * origin — cannot work here: `useEffect` runs after the browser has already
-   * painted the opening transition's first frame, so the panel starts scaling
-   * from its centre and snaps to the real origin a frame later. Reading the
-   * panel's box during that frame is also wrong, because it is mid-transform
-   * and `getBoundingClientRect()` reports the TRANSFORMED box.
-   *
-   * Neither problem arises if the panel is never measured. The contained branch
-   * centres its panel in the viewport (`flex items-center justify-center` with
-   * symmetric padding), so the panel's own centre IS the viewport centre — and
-   * `transform-origin` accepts `calc()`, so the point can be expressed as "the
-   * panel's centre, shifted by the trigger's offset from the viewport centre".
-   * Percentages resolve against the panel; the pixel term needs only the
-   * trigger's rect and `window.innerWidth/Height`, both of which are known here
-   * during render.
-   *
-   * IT FOLLOWS THAT THIS IS TIED TO THE CENTRING. If the contained branch ever
-   * stops centring its panel, the `50%` term stops naming the panel's layout
-   * centre and every origin lands off by the difference. Degrading safely is
-   * cheap: an unresolvable origin yields `undefined`, and `undefined` is the
-   * behaviour every sheet had before this prop existed.
-   *
-   * `window` is safe below the `mounted` guard above — this whole component
-   * renders null until it has mounted on the client.
-   */
   /**
    * THE PANE AND THE ACTIVE RAIL ITEM, IN VIEWPORT SPACE — or null, meaning
    * "centre this panel as it always was". See the `joinRail` prop.
@@ -517,7 +500,7 @@ export function Sheet({
     tabTop: number; tabHeight: number; tabGap: number;
   } | null>(null);
 
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     if (!open || !joinRail) {
       setJoinBox(null);
       return;
@@ -554,6 +537,38 @@ export function Sheet({
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [open, joinRail]);
+
+  if (!mounted) return null;
+
+  /**
+   * THE ORIGIN IS DERIVED WITHOUT MEASURING THE PANEL, and that is what makes
+   * it exact on the FIRST painted frame rather than one frame late.
+   *
+   * The obvious implementation — measure the panel in an effect, then set the
+   * origin — cannot work here: `useEffect` runs after the browser has already
+   * painted the opening transition's first frame, so the panel starts scaling
+   * from its centre and snaps to the real origin a frame later. Reading the
+   * panel's box during that frame is also wrong, because it is mid-transform
+   * and `getBoundingClientRect()` reports the TRANSFORMED box.
+   *
+   * Neither problem arises if the panel is never measured. The contained branch
+   * centres its panel in the viewport (`flex items-center justify-center` with
+   * symmetric padding), so the panel's own centre IS the viewport centre — and
+   * `transform-origin` accepts `calc()`, so the point can be expressed as "the
+   * panel's centre, shifted by the trigger's offset from the viewport centre".
+   * Percentages resolve against the panel; the pixel term needs only the
+   * trigger's rect and `window.innerWidth/Height`, both of which are known here
+   * during render.
+   *
+   * IT FOLLOWS THAT THIS IS TIED TO THE CENTRING. If the contained branch ever
+   * stops centring its panel, the `50%` term stops naming the panel's layout
+   * centre and every origin lands off by the difference. Degrading safely is
+   * cheap: an unresolvable origin yields `undefined`, and `undefined` is the
+   * behaviour every sheet had before this prop existed.
+   *
+   * `window` is safe below the `mounted` guard above — this whole component
+   * renders null until it has mounted on the client.
+   */
 
   const reducedMotion =
     typeof window.matchMedia === "function" &&
