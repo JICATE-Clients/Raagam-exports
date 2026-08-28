@@ -351,6 +351,13 @@ export function StyleProcessSheet({
        * gone with the fields it described.
        */
       size="md"
+      /* JOINS THE ACTIVE SECTION TAB (client 2026-08-28). The panel takes the
+         content pane's box and grows a tab into the rail's selected item, so the
+         two read as one surface — the client's reference pattern, applied where
+         they asked for it rather than to the rail itself (that attempt is
+         reverted, `5b2eec3`). Degrades to the centred box whenever it cannot
+         measure: no rail, a collapsed rail, or below `md`. */
+      joinRail
       /* Grows out of the Process cell that opened it — see the `origin` prop. */
       origin={origin}
       title={styleLabel ? `Process — ${styleLabel}` : "Process"}
