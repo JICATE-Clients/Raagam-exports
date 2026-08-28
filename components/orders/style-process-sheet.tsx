@@ -351,6 +351,13 @@ export function StyleProcessSheet({
        * gone with the fields it described.
        */
       size="md"
+      /* CENTRED OVER THE CONTENT PANE, NOT THE VIEWPORT (client 2026-08-28:
+         "just move it near to the style — now it looks unaligned; the centre
+         modal stays"). The rail takes 192px off the left, so a viewport-centred
+         box sits ~37px left of where the content starts and crosses the
+         rail/content divider. This moves the centring box and nothing else —
+         see `alignToPane`. It is NOT the withdrawn rail join. */
+      alignToPane
       /* Grows out of the Process cell that opened it — see the `origin` prop. */
       origin={origin}
       title={styleLabel ? `Process — ${styleLabel}` : "Process"}

@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+
+/**
+ * `useLayoutEffect` on the client, `useEffect` on the server.
+ *
+ * This component IS server-rendered — it returns null until `mounted`, but its
+ * hooks still run during SSR, and React warns that useLayoutEffect does nothing
+ * there. Assigned ONCE at module scope, so the hook called at that position
+ * never changes identity between renders.
+ */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { RequiredScope } from "@/components/ui/field";
@@ -149,6 +159,7 @@ export function Sheet({
   size = "lg",
   fullBleed = false,
   origin,
+  alignToPane = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -286,6 +297,32 @@ export function Sheet({
    * run would be dead arithmetic on the keystroke path.
    */
   origin?: SheetOrigin | null;
+  /**
+   * CENTRE THE PANEL OVER THE CONTENT PANE RATHER THAN THE VIEWPORT
+   * (client 2026-08-28: "just move it near to the style — now it looks
+   * unaligned; the centre modal stays").
+   *
+   * A viewport-centred `md` box on a rail editor is centred against the WRONG
+   * BOX. The rail takes 192px off the left, so the panel's left edge lands
+   * ~37px left of where the content begins — cutting across the rail/content
+   * divider — while its right edge stops well short of the content's. It reads
+   * as misaligned because it is: it is centred on a container the operator
+   * cannot see, against content that starts somewhere else.
+   *
+   * This shifts the CENTRING BOX only. The panel keeps `max-w-6xl`,
+   * `max-h-[88vh]`, its own rounding, the scrim, and every keyboard behaviour.
+   * It is still a centred contained dialog — centred over the thing it belongs
+   * to.
+   *
+   * NOT A JOIN. A rail join was built and withdrawn three times on 2026-08-28;
+   * see the tombstone above. This does not touch the scrim, does not light the
+   * rail, and draws no tab. It moves a box.
+   *
+   * DEGRADES TO VIEWPORT CENTRING whenever the pane cannot be resolved — no
+   * opener, no `[data-focus-scope]` ancestor, or a zero-width pane. There is no
+   * half state: one `paneBox` decides it.
+   */
+  alignToPane?: boolean;
   /*
    * A RAIL JOIN WAS BUILT HERE AND WITHDRAWN ON 2026-08-28. Read this before
    * building a fourth one.
@@ -493,6 +530,43 @@ export function Sheet({
   // provider already treats it as the navigation boundary. What stays below is
   // overlay-specific: the focus trap, Escape, and autofocus on open.
 
+  /**
+   * THE CONTENT PANE'S HORIZONTAL BOX, or null meaning "centre on the viewport
+   * as before". See the `alignToPane` prop.
+   *
+   * A LAYOUT EFFECT, AND IT CAPTURES THE OPENER ITSELF RATHER THAN READING
+   * `openerRef`. That ref is written in the PASSIVE effect below, and React
+   * runs every layout effect before any passive effect in the same commit — so
+   * reading it here would see null on the first open and the PREVIOUS open's
+   * element on every one after. That is not hypothetical: it is exactly how the
+   * withdrawn rail join failed, silently, for hours (see the tombstone above).
+   * `document.activeElement` is still the trigger at this point; the sheet's own
+   * autofocus is on a 60ms timeout.
+   *
+   * Layout timing rather than passive, so the box is known before paint and the
+   * panel never appears viewport-centred for a frame and then jumps.
+   *
+   * ROUNDED, because a fractional `left` on a box that also has `max-w` and
+   * auto margins puts the panel on a half-pixel and softens its border.
+   */
+  const [paneBox, setPaneBox] = useState<{ left: number; width: number } | null>(null);
+
+  useIsoLayoutEffect(() => {
+    if (!open || !alignToPane) return;
+    const measure = () => {
+      const opener = document.activeElement;
+      const pane =
+        opener instanceof HTMLElement ? opener.closest<HTMLElement>("[data-focus-scope]") : null;
+      const r = pane?.getBoundingClientRect();
+      // No pane, or a pane with no width (a collapsed or unmounted shell) — fall
+      // back to viewport centring rather than pinning the panel to x=0.
+      setPaneBox(r && r.width > 0 ? { left: Math.round(r.left), width: Math.round(r.width) } : null);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open, alignToPane]);
+
   if (!mounted) return null;
 
   /**
@@ -575,8 +649,15 @@ export function Sheet({
              behind them ("md"). A contained box on the scrim; scrolls
              internally when long. */
           <div
-            className="pointer-events-none fixed inset-0 flex items-center justify-center p-4"
-            style={{ zIndex: zIndexBase + 1 }}
+            className="pointer-events-none fixed inset-y-0 flex items-center justify-center p-4"
+            /* `inset-y-0` plus an explicit left/width, so the ONLY thing that
+               changes is which box the panel is centred inside. Falls back to
+               the full viewport when there is no pane — see `alignToPane`. */
+            style={
+              paneBox
+                ? { zIndex: zIndexBase + 1, left: paneBox.left, width: paneBox.width }
+                : { zIndex: zIndexBase + 1, left: 0, right: 0 }
+            }
           >
             <div
               ref={containerRef}
