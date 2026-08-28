@@ -187,6 +187,9 @@ const SRC: GosSource = {
       style_ref_no: "111",
       is_single_style_pack: false,
       assortment_type: { code: "solid_solid", name: "Solid Colour / Solid Size" },
+      // Irrelevant on a SOLID pack — the ratio scope only multiplies an assorted
+      // one. Section 13 below is where it does the work.
+      ratio_for: null,
       po_no: null,
       po_qty: 1000,
       delivery_date: "2026-10-10",
@@ -319,6 +322,11 @@ const ASSORT: GosSource = {
     {
       ...SRC.quantities[0],
       assortment_type: { code: "solid_assort", name: "Solid Colour / Assort Size" },
+      /* STATED, not left blank (2026-08-28). Inners only multiply when the ratio
+         fills an INNER, and this vector is about the inner count — a blank here
+         would read as `master`, halve the expected figure, and quietly turn this
+         into a test of a different formula. */
+      ratio_for: "inner",
       assort_lines: [
         {
           sno: 1,
@@ -660,6 +668,68 @@ check(
   0,
 );
 check("10c a clean order reports no orphans", sheet.orphans, []);
+
+// --------------------------------------------------------------------------
+// 15 — RATIO FOR REACHES THE SHEET (2026-08-28).
+//
+// `sizeCells` and `destinationsOf` each carried their OWN copy of the packing
+// multiplication — the fourth and fifth in the codebase — and both ignored
+// `ratio_for`, so a Master-ratio pack printed the Inner answer: every figure on
+// the buyer's sheet multiplied by the inner count. Both call `packFactor` now.
+//
+// THIS IS THE DATA HALF AS MUCH AS THE RULE HALF. `gos/service.ts` writes its
+// select by hand AND re-maps every row field by field, so the column has to be
+// named twice to arrive at all; miss either and this section reads `undefined`,
+// `ratioScope` answers `master`, and the vector below catches it — which is the
+// same failure AGENTS.md records for `created_by` on the sales registers.
+// --------------------------------------------------------------------------
+
+const assorted = (ratioFor: string | null): GosSource => ({
+  ...SRC,
+  quantities: [
+    {
+      ...SRC.quantities[0],
+      style_ref_no: REF,
+      assortment_type: { code: "solid_assort", name: "Solid Colour / Assort Size" },
+      ratio_for: ratioFor,
+      po_qty: 0,
+      assort_lines: [
+        {
+          ...SRC.quantities[0].assort_lines[0],
+          // 100 cartons, 10 bundles each, a 1:2 ratio across two sizes.
+          no_of_cartons: 100,
+          inners_per_carton: 10,
+          sizes: cells({ M: 1, L: 2 }),
+        },
+      ],
+    },
+  ],
+});
+
+check(
+  "15 master: the ratio IS the carton, so the sheet prints cartons x ratio",
+  buildGosSheet(assorted("master")).grandTotal,
+  300,
+);
+check(
+  "15b inner: the same row, ten bundles deep",
+  buildGosSheet(assorted("inner")).grandTotal,
+  3000,
+);
+// THE REGRESSION AS ITSELF: both copies used to return the inner answer either
+// way, so this is the vector that fails if the sheet stops reading `ratio_for`.
+check(
+  "15c master must NOT print the inner answer",
+  buildGosSheet(assorted("master")).grandTotal === 3000,
+  false,
+);
+// The destination band totals the SAME cells the matrix prints. They were two
+// separately-typed expressions and are now one, so they cannot disagree.
+check(
+  "15d the destination band agrees with the matrix it summarises",
+  buildGosSheet(assorted("inner")).destinations.map((d) => d.qty),
+  [3000],
+);
 
 check(
   "11 the header states the approved sample only when ONE style makes it unambiguous",

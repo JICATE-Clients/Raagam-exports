@@ -24,7 +24,10 @@
 import {
   explodePacks,
   linesOf,
+  memberKey,
   packContents,
+  packStyles,
+  packsStyle,
   piecesOfComboPerPack,
   piecesPerPack,
   totalPiecesFromPacks,
@@ -32,6 +35,18 @@ import {
 } from "../lib/orders/amendments/pack-type-explosion.ts";
 
 let failed = 0;
+
+/** Asserts a value is NOT something — the wrong answer a plausible
+ *  implementation gives. Same helper the sibling suites carry. */
+function refute(what: string, got: unknown, notWant: unknown) {
+  if (JSON.stringify(got) === JSON.stringify(notWant)) {
+    failed++;
+    console.log(`FAIL  ${what}
+        must not be ${JSON.stringify(notWant)}`);
+  } else {
+    console.log(`ok    ${what}`);
+  }
+}
 
 function check(what: string, got: unknown, want: unknown) {
   const g = JSON.stringify(got);
@@ -71,9 +86,9 @@ check(
   "the composition is three colourways",
   packContents(LINES, ABC, TEE),
   [
-    { combo: "WHITE", qty: 1 },
-    { combo: "GREEN", qty: 1 },
-    { combo: "BLACK", qty: 2 },
+    { style_ref_no: TEE, combo: "WHITE", qty: 1 },
+    { style_ref_no: TEE, combo: "GREEN", qty: 1 },
+    { style_ref_no: TEE, combo: "BLACK", qty: 2 },
   ],
 );
 check("the other method is not counted", piecesPerPack(LINES, "GIFT BOX", TEE), 5);
@@ -93,9 +108,9 @@ check(
   "1,000 boxes become 1,000 white, 1,000 green and 2,000 black",
   explodePacks(LINES, ABC, TEE, new Map([[S, 1000]])),
   [
-    { combo: "WHITE", size_id: S, qty: 1000 },
-    { combo: "GREEN", size_id: S, qty: 1000 },
-    { combo: "BLACK", size_id: S, qty: 2000 },
+    { style_ref_no: TEE, combo: "WHITE", size_id: S, qty: 1000 },
+    { style_ref_no: TEE, combo: "GREEN", size_id: S, qty: 1000 },
+    { style_ref_no: TEE, combo: "BLACK", size_id: S, qty: 2000 },
   ],
 );
 check(
@@ -112,12 +127,12 @@ check(
   "two sizes explode independently",
   explodePacks(LINES, ABC, TEE, new Map([[S, 100], [M, 200]])),
   [
-    { combo: "WHITE", size_id: S, qty: 100 },
-    { combo: "GREEN", size_id: S, qty: 100 },
-    { combo: "BLACK", size_id: S, qty: 200 },
-    { combo: "WHITE", size_id: M, qty: 200 },
-    { combo: "GREEN", size_id: M, qty: 200 },
-    { combo: "BLACK", size_id: M, qty: 400 },
+    { style_ref_no: TEE, combo: "WHITE", size_id: S, qty: 100 },
+    { style_ref_no: TEE, combo: "GREEN", size_id: S, qty: 100 },
+    { style_ref_no: TEE, combo: "BLACK", size_id: S, qty: 200 },
+    { style_ref_no: TEE, combo: "WHITE", size_id: M, qty: 200 },
+    { style_ref_no: TEE, combo: "GREEN", size_id: M, qty: 200 },
+    { style_ref_no: TEE, combo: "BLACK", size_id: M, qty: 400 },
   ],
 );
 
@@ -127,9 +142,9 @@ check(
   "a size with no boxes yields no cells at all",
   explodePacks(LINES, ABC, TEE, new Map([[S, 100], [M, 0]])),
   [
-    { combo: "WHITE", size_id: S, qty: 100 },
-    { combo: "GREEN", size_id: S, qty: 100 },
-    { combo: "BLACK", size_id: S, qty: 200 },
+    { style_ref_no: TEE, combo: "WHITE", size_id: S, qty: 100 },
+    { style_ref_no: TEE, combo: "GREEN", size_id: S, qty: 100 },
+    { style_ref_no: TEE, combo: "BLACK", size_id: S, qty: 200 },
   ],
 );
 check(
@@ -190,7 +205,7 @@ check(
 check(
   "...and contributes no cells when exploded",
   explodePacks(PARTIAL, ABC, TEE, new Map([[S, 10]])),
-  [{ combo: "WHITE", size_id: S, qty: 20 }],
+  [{ style_ref_no: TEE, combo: "WHITE", size_id: S, qty: 20 }],
 );
 
 // `lib/data-io` writes straight to Postgres and a document saved before
@@ -202,7 +217,7 @@ const DOUBLED: PackTypeLineLike[] = [
 check(
   "a repeated colourway is ONE member, summed",
   packContents(DOUBLED, ABC, TEE),
-  [{ combo: "WHITE", qty: 4 }],
+  [{ style_ref_no: TEE, combo: "WHITE", qty: 4 }],
 );
 
 check(
@@ -230,6 +245,121 @@ check(
   "a composition of blank quantities is not an explosion",
   totalPiecesFromPacks(BLANK, ABC, TEE, new Map([[S, 100]])),
   null,
+);
+
+// ---------------------------------------------------------------------------
+// THE MULTI-STYLE BOX (client 2026-08-28)
+//
+//   "A single box containing garment items of DIFFERENT styles — for example a
+//    baby gift set with 1 full-sleeve, 1 half-sleeve and 1 sleeveless bodysuit."
+//
+//   100 boxes of Size S must become 100 + 100 + 100 = 300 pieces, split across
+//   three distinct styles.
+//
+// THIS IS WHAT THE MODULE COULD NOT DO. The composition was keyed on the
+// COLOURWAY and took the style as a mandatory filter, so it modelled "several
+// colours of ONE style". A three-style box exploded into one third of itself,
+// and on an order declaring several styles `inheritedStyleFor` resolves to no
+// style at all, so it exploded into NOTHING — the boxes row never appeared and
+// the destination silently fell back to typed piece counts.
+//
+// THE STORAGE NEVER NEEDED CHANGING: `pack_type_lines` has carried
+// `style_ref_no` per line since 0472. The style was thrown away on the way out.
+// ---------------------------------------------------------------------------
+
+const BOX = "BABY GIFT BOX";
+const FULL = "STL/26-27/0101";
+const HALF = "STL/26-27/0102";
+const SLEEVELESS = "STL/26-27/0103";
+
+const GIFT: PackTypeLineLike[] = [
+  { pack_type: BOX, style_ref_no: FULL, combo: "BLUE", qty: 1 },
+  { pack_type: BOX, style_ref_no: HALF, combo: "BLUE", qty: 1 },
+  { pack_type: BOX, style_ref_no: SLEEVELESS, combo: "BLUE", qty: 1 },
+];
+
+check("the box holds three garments across three styles", piecesPerPack(GIFT, BOX), 3);
+check("and names the three styles, in composition order", packStyles(GIFT, BOX), [
+  FULL,
+  HALF,
+  SLEEVELESS,
+]);
+check(
+  "the composition is three members, each carrying its own style",
+  packContents(GIFT, BOX),
+  [
+    { style_ref_no: FULL, combo: "BLUE", qty: 1 },
+    { style_ref_no: HALF, combo: "BLUE", qty: 1 },
+    { style_ref_no: SLEEVELESS, combo: "BLUE", qty: 1 },
+  ],
+);
+
+// THE CLIENT'S WORKED NUMBERS.
+check(
+  "100 boxes become 100 + 100 + 100 pieces, one row per style",
+  explodePacks(GIFT, BOX, null, new Map([[S, 100]])),
+  [
+    { style_ref_no: FULL, combo: "BLUE", size_id: S, qty: 100 },
+    { style_ref_no: HALF, combo: "BLUE", size_id: S, qty: 100 },
+    { style_ref_no: SLEEVELESS, combo: "BLUE", size_id: S, qty: 100 },
+  ],
+);
+check(
+  "...which is 300 pieces, not 100",
+  totalPiecesFromPacks(GIFT, BOX, null, new Map([[S, 100]])),
+  300,
+);
+// THE REGRESSION AS ITSELF. Keyed on the colourway alone, all three members are
+// "BLUE" and collapse into one — 100 pieces of a garment nobody can name, and
+// two styles cut and stitched for nothing.
+refute(
+  "three styles sharing a colourway must NOT collapse into one member",
+  packContents(GIFT, BOX).length,
+  1,
+);
+check(
+  "...and their member keys are genuinely distinct",
+  new Set(packContents(GIFT, BOX).map((c) => memberKey(c.style_ref_no, c.combo))).size,
+  3,
+);
+
+// NARROWING STILL WORKS, which is what keeps every single-style caller correct.
+check("naming a style narrows to it", piecesPerPack(GIFT, BOX, HALF), 1);
+check(
+  "...and returns only that style's members",
+  packContents(GIFT, BOX, HALF),
+  [{ style_ref_no: HALF, combo: "BLUE", qty: 1 }],
+);
+check("a style the box does not pack is nothing", piecesPerPack(GIFT, BOX, TEE), 0);
+
+// `packsStyle` is what the order screen resolves a destination's method by.
+check("the box packs the half-sleeve", packsStyle(GIFT, BOX, HALF), true);
+check("it does not pack the tee", packsStyle(GIFT, BOX, TEE), false);
+// A BLANK REF ASKS ABOUT NO STYLE, so it is false rather than vacuously true —
+// otherwise every method would "cover" every destination and the screen would
+// resolve an ambiguous order to whichever method it looked at first.
+check("a blank ref is not a style the box packs", packsStyle(GIFT, BOX, ""), false);
+// ...but a blank ref on the CONTENTS means "every style", which is what a
+// multi-style box is. The two blanks mean opposite things on purpose: one asks
+// "is this style in the box", the other says "do not narrow the box".
+check("a blank ref does not narrow the composition", packContents(GIFT, BOX, "").length, 3);
+
+// A MIXED PACK: two styles, one of them in two colourways. The member count is
+// what tells the difference between this and a four-colour single-style pack.
+const MIXED: PackTypeLineLike[] = [
+  { pack_type: BOX, style_ref_no: FULL, combo: "BLUE", qty: 1 },
+  { pack_type: BOX, style_ref_no: FULL, combo: "PINK", qty: 1 },
+  { pack_type: BOX, style_ref_no: HALF, combo: "BLUE", qty: 2 },
+];
+check("a mixed box counts every member", piecesPerPack(MIXED, BOX), 4);
+check("the full-sleeve contributes two of them", piecesPerPack(MIXED, BOX, FULL), 2);
+check(
+  "BLUE means two different garments here, and stays two rows",
+  explodePacks(MIXED, BOX, null, new Map([[S, 10]])).filter((c) => c.combo === "BLUE"),
+  [
+    { style_ref_no: FULL, combo: "BLUE", size_id: S, qty: 10 },
+    { style_ref_no: HALF, combo: "BLUE", size_id: S, qty: 20 },
+  ],
 );
 
 console.log(
