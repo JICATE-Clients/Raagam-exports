@@ -41,7 +41,6 @@ import { useMemo } from "react";
 import { Sheet } from "@/components/ui/sheet";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Field, FieldRow } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
@@ -57,28 +56,16 @@ import {
   type StyleProcessRow,
 } from "@/lib/orders/amendments/style-processes";
 
-/**
- * The style line's identity, shown read-only above the grid.
- *
- * RESOLVED BY THE PARENT, not looked up here. Order Unit and Style No are
- * derived on the screen from `styleById` and `orderUnitLabel`, and re-deriving
- * them in this sheet would be a second answer to "what does this line say" —
- * the kind that stays right until one of the two is changed.
- */
-export type StyleProcessHeader = {
-  styleRefNo: string;
-  articleNo: string;
-  orderUnit: string;
-  styleNo: string;
-  styleDescription: string;
-  poQty: string;
-};
+/* `StyleProcessHeader` STOOD HERE and was removed with the six read-only fields
+   it typed (client 2026-08-28) — see the note at the top of the sheet body,
+   which is where the deletion is explained. It was the style line's identity,
+   RESOLVED BY THE PARENT rather than looked up here, so nothing about this file
+   knew how to rebuild it and nothing here has to be unwired to keep it gone. */
 
 export function StyleProcessSheet({
   open,
   onClose,
   styleLabel,
-  header,
   rows,
   onChange,
   processes,
@@ -90,7 +77,6 @@ export function StyleProcessSheet({
   onClose: () => void;
   /** The style this list belongs to, for the sheet title. */
   styleLabel: string;
-  header: StyleProcessHeader;
   rows: StyleProcessRow[];
   onChange: (next: StyleProcessRow[]) => void;
   /** The whole master list, unfiltered — the narrowing is this file's job. */
@@ -328,13 +314,18 @@ export function StyleProcessSheet({
        * Details and Assortments were not part of this ask and keep theirs.
        *
        * **What 08-20 actually cost is NOT being reverted with it.** Declaring a
-       * width on all four grid columns, and moving the six header fields off
-       * `FieldGrid` spans onto `FieldRow` content widths, both stay exactly as
-       * they are — see their own notes below. Those changes made the sheet size
-       * itself from its data instead of from its container, which is what lets
-       * it move between containers at all. Undoing them "because full bleed is
-       * gone" would put the six fields back on a fractional track and hand each
-       * of them a twelfth of 1112px.
+       * width on all four grid columns stays exactly as it is — see its own note
+       * below. That change made the sheet size itself from its data instead of
+       * from its container, which is what lets it move between containers at
+       * all.
+       *
+       * The other half of 08-20's cost was moving the six read-only header
+       * fields off `FieldGrid` spans onto `FieldRow` content widths, and THOSE
+       * FIELDS ARE GONE (client 2026-08-28) — the note where they stood carries
+       * the reason. That deletion does not reopen this: `size` is chosen against
+       * the GRID's ~1040px, which the header never exceeded, so nothing about
+       * the number below changes. It is only the second worked example that has
+       * gone with the fields it described.
        */
       size="md"
       title={styleLabel ? `Process — ${styleLabel}` : "Process"}
@@ -353,77 +344,41 @@ export function StyleProcessSheet({
       footer={<SubSheetFooter onDone={onClose} />}
     >
       {/**
-        * THE STYLE LINE, READ-ONLY — the block the legacy screen puts above its
-        * Process Details grid (client screenshot 2026-08-12).
+        * THE SIX READ-ONLY HEADER FIELDS ARE GONE (client 2026-08-28: "Process —
+        * Style ref to PO qty, remove the section, no need this field, remove it
+        * from the process tab header also").
         *
-        * It is not decoration. The sheet is opened from one row of a grid that
-        * may hold several style lines, and once it covers the screen there is
-        * nothing else left to say WHICH line these processes belong to. The
-        * legacy screen answers that with six fields; so does this.
+        * What stood here, and what it was for: Style Ref No · Article No · Style
+        * No · Style Description · Order Unit · PO Qty, read-only, in a bordered
+        * band above the grid — the block the legacy screen puts above its own
+        * Process Details grid (client screenshot 2026-08-12). The argument for
+        * them was that this sheet is opened from ONE row of a grid that may hold
+        * several style lines, so something had to say which line these processes
+        * belong to.
         *
-        * `readOnly` and not `disabled`: `Input` sets `tabIndex={-1}` on a
-        * readOnly field itself, so these leave the Tab path without a
-        * per-screen opt-out — the same reason the Order Unit cell on the parent
-        * grid is readOnly, recorded there at length.
+        * THE CLIENT HAS WITHDRAWN THAT, AND THE REASON IS THEIR INSTRUCTION —
+        * nothing structural replaces the fields. Do not restore them on the
+        * reasoning above, and do not restore them on the reasoning that the sheet
+        * no longer covers the grid: it still does. This is `size="md"` on a
+        * scrim, the same contained modal as before (client 2026-08-28: "that
+        * previous centred screen is good, I need that"), so the six were removed
+        * because they were not wanted, full stop.
+        *
+        * THE WIDTH DECISIONS ABOVE ARE UNAFFECTED. `size="md"` is chosen against
+        * the GRID — 12+16+12+20rem of declared column widths plus ~80px of
+        * `#`/remove chrome, ~1040px against ~1112px of content — and the header
+        * was always the narrower of the two things on the sheet (~1030px). So
+        * removing it takes nothing off what the sheet has to fit, and the grid
+        * still clears `ChildGrid`'s 512px container threshold by ~600px and
+        * renders as a table rather than stacked cards. `size` must NOT be
+        * narrowed to follow this deletion: `sm` was tried and failed for exactly
+        * that reason (see its note above).
+        *
+        * `StyleProcessHeader` and the `header` prop went with them, so the screen
+        * no longer resolves `unitTextOf` for this sheet. Every fact the six
+        * carried is still on the style row behind the scrim and still in
+        * `StyleRow` — nothing was dropped from state, only from display.
         */}
-      {/* `FieldRow`, NOT `FieldGrid` (client 2026-08-20: "but fields size look
-          too large, make it compact").
-
-          THIS WAS THE COST OF `fullBleed`, PAID PROPERLY — AND IT STAYS PAID
-          NOW THAT `fullBleed` IS GONE (2026-08-28). These were `size="md"`
-          — `col-span-4` of a twelve-column track — which was right at the old
-          1180px reading width and became six ~470px boxes the moment the sheet
-          took the whole pane. A SPAN IS A FRACTION OF WHATEVER IT IS GIVEN, so
-          widening the container widened every field with it, and `Order Unit`
-          got a quarter of a metre to hold "PCS".
-
-          The container has since changed AGAIN — the sheet is a contained
-          `size="md"` box, ~1112px — which is the argument for keeping this
-          rather than the argument for reverting it. A fractional track hands
-          every field a twelfth of whatever the surface happens to be this
-          month; content widths are the same six boxes in all three containers
-          this sheet has had. Being independent of the container is what made
-          the move possible at all, so restoring the spans "because the pane is
-          narrower now" would re-open the bug one container later.
-
-          Narrowing the CONTROL inside a fractional cell does not help and is the
-          trap `FieldRow`'s own doc records: the cell stays its old width and the
-          value floats in dead space, so the surplus reads as a HOLE rather than
-          as room. "Nothing short of leaving the fractional track can make a row
-          genuinely compact."
-
-          So each field takes the width its data needs and the row ends where its
-          content ends. The sums-to-12 rule is not being broken — it is a
-          statement about a fractional track, and a content-width row has no
-          twelfths to leave over.
-
-          The widths are the data's: a ref and a style name are `term` (176px), a
-          description is `name` (288px), a unit is `code` (144px) and a quantity
-          is `num` (72px). Still six fields and still the legacy header's six
-          facts; only the ruler changed. */}
-      <div className="mb-4 rounded-md border bg-surface-muted/30 p-3">
-        <FieldRow>
-          <Field label="Style Ref No" w="term">
-            <Input readOnly value={header.styleRefNo} className="h-8" />
-          </Field>
-          <Field label="Article No" w="term">
-            <Input readOnly value={header.articleNo} className="h-8" />
-          </Field>
-          <Field label="Style No" w="term">
-            <Input readOnly value={header.styleNo} className="h-8" />
-          </Field>
-          <Field label="Style Description" w="name">
-            <Input readOnly value={header.styleDescription} className="h-8" />
-          </Field>
-          <Field label="Order Unit" w="code">
-            <Input readOnly value={header.orderUnit} className="h-8" />
-          </Field>
-          <Field label="PO Qty" w="num">
-            <Input readOnly value={header.poQty} className="h-8 text-right" />
-          </Field>
-        </FieldRow>
-      </div>
-
       <ChildGrid<StyleProcessRow>
         columns={columns}
         rows={rows}
