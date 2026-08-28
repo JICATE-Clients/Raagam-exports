@@ -2346,6 +2346,11 @@ export function ChildGrid<T extends { key: string }>({
                        stops between one field and the next. The mouse, the arrow
                        keys and a screen reader all still reach it. */
                     tabIndex={-1}
+                    /* A styling hook, same family as `data-skin` — no behaviour,
+                       nothing reads it but a stylesheet. `aria-current` marks only
+                       the OPEN row, so a skin that wants to draw every entry in
+                       this list has nothing to select on without it. */
+                    data-md-list-item=""
                     aria-current={isOpen ? "true" : undefined}
                     onClick={() => {
                       setOpenRowKey(row.key);
