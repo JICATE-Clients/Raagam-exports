@@ -754,8 +754,15 @@ body {
      name. */
   --background: #ffffff;
   --surface-muted: #ffffff;
-  --border: #e3e8dc;
-  --border-strong: #9fb08c;
+  /* BOLD ON THE FIELDS, QUIET ON THE PARTITIONS (client 2026-08-28: "no u made
+     all the lines bold ... i will tell which lines to remove").
+     Making `--border` itself bold was the wrong lever, because ONE token draws
+     two different things: the box an operator types into, and the seams between
+     regions. Turning it up made every seam shout; turning it down had made the
+     boxes vanish ("too smooth almost can't see them"). So the token stays quiet
+     and the FIELDS are lifted on their own, below. */
+  --border: #dde5d3;
+  --border-strong: #b9c9a6;
 
   /* The shadow now does the separating, so it has to be visible. Tinted with
      the green's hue rather than neutral black, so the lift reads warm. */
@@ -798,11 +805,6 @@ body {
 
 /* The header row's buttons become pills. Scoped to the header region so a
    grid's "+ Add" and the footer's Save keep the app's own shape. */
-[data-skin="raagam"] [data-focus-region="header"] button,
-[data-skin="raagam"] [data-focus-region="header"] a {
-  border-radius: 9999px;
-}
-
 /* THE LEFT RAIL IS A SOLID BRAND-BLUE PANEL AND THE CONTENT BESIDE IT IS GREEN
    (client 2026-08-28: "i want our clients blue colour on full left side bar and
    the green on right side"). That is the logo's own pairing — blue wordmark,
@@ -846,7 +848,12 @@ body {
    inventing chrome the design does not have, and made all three read as equally
    active. */
 [data-skin="raagam"] [role="tab"] {
-  border-radius: 9999px;
+  /* THE RAIL BUTTONS TAKE THE FIELD'S SHAPE, NOT A PILL (client 2026-08-28, a
+     screenshot of a field box: "i want this shape for left side buttons").
+     `--radius-md` is the same token the inputs on the right resolve to, so the
+     two sides share one corner radius by reference rather than by two numbers
+     that happen to match today. */
+  border-radius: var(--radius-md);
   border-color: transparent;
   background: transparent;
   color: #44506a;
@@ -945,9 +952,17 @@ body {
    `:not([role="tab"])` because the rail's items already have their own pill
    above, and `:not([role="switch"])` so the Process toggle keeps the shape its
    own component draws. */
+/* ONE CORNER RADIUS FOR THE WHOLE SCREEN (client 2026-08-28, pointing at
+   "Copy from…": "this also make like rectangle some like below schemas").
+   Buttons were pills, which read as a second shape beside the fields and the
+   rail. They now take `--radius-md` — the SAME token the inputs and the rail
+   items resolve to — so the three share one radius by reference and cannot
+   drift apart. The separate pill rule for the header row went with this; it
+   existed only to make that row rounder than the rest, which is the opposite
+   of what is wanted now. */
 [data-skin="raagam"] button:not([role="tab"]):not([role="switch"]):not([data-field-affordance]),
 [data-skin="raagam"] a[class*="inline-flex"] {
-  border-radius: 9999px;
+  border-radius: var(--radius-md);
 }
 
 [data-skin="raagam"] [data-card] {
@@ -1016,4 +1031,71 @@ body {
 [data-skin="raagam"] [data-field-affordance] {
   border-left-color: transparent;
   background: transparent;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * WHICH LINES ARE DRAWN, ONE BY ONE (client 2026-08-28)
+ * ------------------------------------------------------------------------- */
+
+/* THE FIELD BOXES ARE THE BOLD ONES. Targeted by ELEMENT rather than by the
+   `border-border` class, so it catches exactly the things a value is typed into
+   and nothing structural. A picker's trigger is a real <input> (see
+   data-picker.tsx), so the ~160 pickers come along without a rule of their own.
+   #79b023 is the logo green darkened at its own 83deg hue — 2.61:1 on white,
+   where no PASTEL of it can pass 1.8:1, because the logo green is a light
+   colour to begin with. */
+[data-skin="raagam"] input:not([type="checkbox"]):not([type="radio"]),
+[data-skin="raagam"] select,
+[data-skin="raagam"] textarea {
+  border-color: #79b023;
+}
+
+/* "there is one box surrounding the item right remove that box" — the grid's
+   own frame. The fields inside it now draw their own edges, so the frame was
+   a second boundary around boxes that already had one.
+   THE PADDING HAS TO GO WITH THE BORDER (client 2026-08-28: "the alignment is
+   not good everything strts from same line"). `GRID_FRAME` is
+   `rounded-lg border border-border p-2.5`, so clearing only the border left its
+   10px inset behind — ITEMS, "New material", the Category label and "+ Add
+   material" all stayed indented against "Material BOM" and "Date" above them,
+   held off an edge that was no longer drawn. Only the INLINE padding is
+   dropped: the vertical padding is the gap between the grid and the field above
+   it, which is still wanted. */
+[data-skin="raagam"] [data-grid-card] {
+  border-color: transparent;
+  padding-inline: 0;
+}
+
+/* "below the new material one line is there right remove that one" — the rule
+   between grid rows. `flushRows` draws it so records stay separable without a
+   card each; with the field boxes now bold it is redundant. */
+[data-skin="raagam"] [data-grid-row] {
+  border-bottom-color: transparent;
+}
+
+/* A LABEL NEEDS AIR ABOVE ITS BOX (client 2026-08-28: "the heading of the schema
+   ex ctaegory and that's box is too close. i wnat some good spacing").
+   `LABEL_METRICS` is `mb-0.5` and then `@2xl/editor:mb-0` — so inside a desktop
+   editor the gap is literally ZERO and the label sits on the box. That density
+   is deliberate for the app at large; this skin buys 6px of it back.
+   `label.block` and not `label`: the `Label` component carries `block`, while a
+   `Toggle` is also a <label> and is `inline-flex` — margin there would shove the
+   Process and FOC switches out of the row. */
+[data-skin="raagam"] label.block {
+  margin-bottom: 0.375rem;
+}
+
+/* THE ✕ SITS WITH THE FIELDS, NOT WITH THE HEADING (client 2026-08-28: "the
+   into mark is up i wnat it near to the down line schema").
+   `cornerRemove` pins it `top-1`, which put it level with "New material" — a
+   row's remove control floating beside the row's NAME rather than beside the
+   row. Anchoring to the bottom instead lands it against the control line: the
+   inputs are the last thing in the row and are 36px tall, so a ~28px button at
+   `bottom: 0.25rem` centres within 1px of the input's own centre. Bottom-anchored
+   rather than a magic `top`, so it stays right when the row grows a second line. */
+[data-skin="raagam"] [data-grid-row] > button[data-row-remove],
+[data-skin="raagam"] [data-grid-row] button[data-row-remove].absolute {
+  top: auto;
+  bottom: 0.25rem;
 }
