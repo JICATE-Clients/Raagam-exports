@@ -961,8 +961,144 @@ export function MasterFullScreen({
                   isActive
                     ? "border-border bg-surface font-semibold text-foreground shadow-sm"
                     : "border-transparent text-muted-foreground hover:bg-surface hover:text-foreground",
+                  /**
+                   * THE ACTIVE ROW AND THE PANE ARE ONE SURFACE (client
+                   * 2026-08-28, after a reference pattern).
+                   *
+                   * The active pill stops being a card floating on the rail and
+                   * becomes the near edge of the pane beside it: it reaches
+                   * across the rail's own padding and border, loses its right
+                   * rounding, its outline and its shadow, and the two `span`s
+                   * below fillet the corners above and below the join. A shared
+                   * edge is proof of parentage — the pane cannot be read as
+                   * something that arrived from elsewhere, because it visibly
+                   * starts at the row that opened it.
+                   *
+                   * ## THE DIALOG CANNOT HAVE THIS, WHICH IS WHY IT IS HERE
+                   *
+                   * The client asked the same question of the Style Process
+                   * dialog first. It cannot be answered there, for three reasons
+                   * that are structural rather than a matter of effort: the
+                   * dialog is portaled to `<body>` and sits on a scrim, so it is
+                   * on ANOTHER PLANE with no shared coordinate space; it is
+                   * ~1112px and centred, so it COVERS ITS OWN TRIGGER and leaves
+                   * no edge to join to; and being CENTRED makes it
+                   * position-independent — every row's dialog opens in the same
+                   * place, which discards exactly the information a join
+                   * carries. The substitute there is MOTION, not geometry: see
+                   * `Sheet`'s `origin` prop (components/ui/sheet.tsx), which
+                   * makes that dialog scale out of the cell that opened it. The
+                   * pattern went where it genuinely fits, and this rail is that
+                   * place because it has a real pane beside it.
+                   *
+                   * ## 13px IS TWO NUMBERS FROM THE `<nav>` ABOVE, ADDED UP
+                   *
+                   * The rail's grid column is 192px with `box-sizing: border-box`,
+                   * so `md:p-3` (12px) and `md:border-r` (1px) sit between this
+                   * button's `md:w-full` content box and the pane's left edge.
+                   * `calc(100% + 13px)` is exactly that gap and nothing more —
+                   * the pill's right edge lands ON the pane's left edge.
+                   *
+                   * **CHANGE EITHER OF THOSE TWO AND CHANGE THIS.** A rail padded
+                   * `p-2` leaves a 4px channel of rail colour between the pill and
+                   * the pane, which reads as a misprint rather than as a join.
+                   * They cannot be derived in CSS — a child cannot measure its
+                   * parent's padding — so this is the coupling to write down
+                   * rather than the one to engineer away. The literal has to stay
+                   * spelled out in the class for Tailwind's scanner to emit it at
+                   * all, which is a second reason not to hide it behind a
+                   * constant.
+                   *
+                   * ## THE OUTLINE AND THE SHADOW GO, AND THAT IS THE POINT
+                   *
+                   * `md:border-transparent md:shadow-none` — a continuous surface
+                   * cannot have a rule drawn across it or cast a shadow onto the
+                   * thing it is continuous with. What is lost is small: the pill
+                   * is `bg-surface` against a `bg-surface-muted` rail in both
+                   * themes, so it stays legible as the active row on fill alone,
+                   * and it now also reaches the pane, which nothing else does.
+                   * These are desktop-only, so the mobile chip strip keeps its
+                   * bordered, shadowed pill exactly as it is.
+                   *
+                   * ## IT DEGRADES TO TODAY, TWICE
+                   *
+                   * Every class here is `md:`-gated and the fillets are
+                   * `hidden md:block`, so below the breakpoint the rail is the
+                   * horizontal chip strip and is untouched — A STRIP HAS NO PANE
+                   * BESIDE IT TO JOIN TO, so there is nothing there for this to
+                   * mean. And `railCollapsed` folds the whole `<nav>` away with
+                   * `md:hidden` to give its 192px to the content: a join needs
+                   * something to join FROM, so the guard below withholds it
+                   * rather than leaving a notch hanging off a rail that is not
+                   * on screen.
+                   *
+                   * Nothing here is behaviour. The roving `tabIndex`, `role="tab"`,
+                   * `aria-current`/`aria-selected`, `data-section-key`, the arrow
+                   * handler, the done dot and the problem badge are all untouched
+                   * — this is fill, radius, shadow and width.
+                   */
+                  /**
+                   * `md:pr-[23px]` IS WHAT KEEPS THE LABEL BUDGET TRUE. The 13px
+                   * the pill gains is fill, not room: adding it to the button's
+                   * own `px-2.5` (10px) right padding leaves the icon, the label
+                   * and the done dot / problem badge at EXACTLY the pixel they
+                   * occupy today, so the 21-character label budget reasoned out
+                   * on the `<nav>` above still holds and no label truncates at a
+                   * different word. Without it the indicator would also end up
+                   * 10px from the pane instead of 23px, reading as crowded
+                   * against a surface it is now continuous with.
+                   */
+                  isActive && !railCollapsed &&
+                    "md:relative md:z-10 md:w-[calc(100%+13px)] md:pr-[23px] md:rounded-r-none md:border-transparent md:shadow-none",
                 )}
               >
+                {isActive && !railCollapsed && (
+                  <>
+                    {/**
+                      * THE CONCAVE CORNERS — an 8px square at each end of the
+                      * join, filled with the pill's own surface except for a
+                      * quarter-disc of rail colour bitten out of the far corner.
+                      * That arc is what turns a butt joint into a fillet: the
+                      * pane's edge curves out to meet the row's edge instead of
+                      * meeting it at a right angle.
+                      *
+                      * A `radial-gradient` WITH A HARD STOP, not a `box-shadow`
+                      * spread trick and not an SVG. One element, one property,
+                      * no extra DOM inside the pane, and both colours are read
+                      * as `var()` so the dark theme's own `--surface` /
+                      * `--surface-muted` are picked up with no second rule.
+                      *
+                      * `var(--surface-muted)` and not `transparent` for the cut:
+                      * `transparent` is rgba(0,0,0,0), so the antialiased pixels
+                      * along the arc blend toward BLACK and leave a dark fringe
+                      * — visible on the light theme, which is where the two
+                      * fills are closest. Naming the rail's actual colour costs
+                      * nothing and removes the fringe, and it is exact because
+                      * these squares sit inside the rail's own padding.
+                      *
+                      * `aria-hidden`: decoration. Deliberately NOT focusable and
+                      * not a Tab stop — they are inside the rail button, which
+                      * is chrome (`data-focus-region="header"` on the `<nav>`),
+                      * and the keyboard contract has no opinion about paint.
+                      */}
+                    <span
+                      aria-hidden
+                      className="absolute right-0 top-0 hidden h-2 w-2 -translate-y-full md:block"
+                      style={{
+                        background:
+                          "radial-gradient(circle at top left, var(--surface-muted) 8px, var(--surface) 8px)",
+                      }}
+                    />
+                    <span
+                      aria-hidden
+                      className="absolute bottom-0 right-0 hidden h-2 w-2 translate-y-full md:block"
+                      style={{
+                        background:
+                          "radial-gradient(circle at bottom left, var(--surface-muted) 8px, var(--surface) 8px)",
+                      }}
+                    />
+                  </>
+                )}
                 <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
                 {/* truncate-reveal: exempt -- rail chrome, not a value. The
                     vocabulary is fixed and short, and clicking the step shows

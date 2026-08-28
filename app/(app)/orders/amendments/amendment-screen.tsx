@@ -2043,6 +2043,21 @@ export function AmendmentScreen({
    */
   const [processForKey, setProcessForKey] = useState<string | null>(null);
   const processStyle = styles.find((r) => r.key === processForKey) ?? null;
+  /**
+   * WHERE THE PROCESS SHEET GREW FROM — the rect of the Process cell's button,
+   * captured at the click (client 2026-08-28). `Sheet`'s `origin` note carries
+   * the reasoning; two things belong at THIS layer rather than in the sheet:
+   *
+   * - **A rect, not a ref.** The button is re-created as the row re-renders, and
+   *   on a set-pack order the columns around it change shape. A ref read while
+   *   the sheet is opening could resolve to `null`, and the fallback for that is
+   *   a centre origin — a silent regression rather than a visible one.
+   * - **Beside `processForKey`, not folded into it.** The key identifies the row
+   *   the edits belong to and is what `processStyle` resolves; the rect is only
+   *   how the surface animates. Merging them would put a paint concern inside
+   *   the pointer that decides which style's list is being written.
+   */
+  const [processOrigin, setProcessOrigin] = useState<DOMRect | null>(null);
   /* The Pack Composition sheet's opener, keyed the same way (0467). */
   const [packForKey, setPackForKey] = useState<string | null>(null);
   const packStyle = styles.find((r) => r.key === packForKey) ?? null;
@@ -4550,7 +4565,14 @@ export function AmendmentScreen({
                   ? "Enter the PO Qty first"
                   : undefined
             }
-            onClick={() => setProcessForKey(r.key)}
+            /* Captures the button's own rect so the sheet scales out of THIS
+               row rather than out of the middle of the screen — see
+               `processOrigin`. `currentTarget` and not `target`: the click can
+               land on the text node inside the button. */
+            onClick={(e) => {
+              setProcessOrigin(e.currentTarget.getBoundingClientRect());
+              setProcessForKey(r.key);
+            }}
           >
             {started ? `${started} process${started === 1 ? "" : "es"}` : "Click"}
           </Button>
@@ -13996,6 +14018,11 @@ export function AmendmentScreen({
              `StyleRow` and dropping it removes no write path. `unitTextOf`,
              `article_no` and `style_description` are all still live on the row
              itself. */
+          /* The Process cell that opened this — the sheet grows out of that
+             button. See `processOrigin`, and `Sheet`'s `origin` prop for why the
+             MOTION is what this dialog gets instead of the continuous join the
+             client asked about. */
+          origin={processOrigin}
           rows={processStyle.processes}
           onChange={(next) => updateStyle(processStyle.key, { processes: next })}
           processes={data.processes}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { RequiredScope } from "@/components/ui/field";
@@ -33,6 +33,31 @@ function inForeignModal(root: HTMLElement | null): boolean {
 }
 
 /**
+ * WHERE A CONTAINED DIALOG CAME FROM — the point it grows out of and collapses
+ * back into. Either a rect measured at the moment of the click, or a ref to the
+ * element that is still on screen.
+ *
+ * PREFER THE RECT. A trigger that lives in a `ChildGrid` cell is re-rendered
+ * every keystroke on the row and can be unmounted entirely while the dialog it
+ * opened is still up — a ref then resolves to `null` and the dialog silently
+ * goes back to scaling from its own centre. `getBoundingClientRect()` taken in
+ * the click handler is a value, not a live reference, and cannot go stale in a
+ * way that matters: the trigger is behind a scrim and nothing can scroll it.
+ */
+export type SheetOrigin =
+  | DOMRect
+  | { left: number; top: number; width: number; height: number }
+  | RefObject<HTMLElement | null>;
+
+/** Viewport-space centre of a `SheetOrigin`, or null when it resolves to nothing. */
+function originCentre(origin: SheetOrigin | null | undefined): { x: number; y: number } | null {
+  if (!origin) return null;
+  const rect = "current" in origin ? origin.current?.getBoundingClientRect() : origin;
+  if (!rect) return null;
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
+/**
  * Responsive editor surface: a right-hand slide-over on desktop (≥md), a
  * bottom sheet on mobile. Portal + scrim + body-scroll-lock + Escape-to-close.
  * The one editor primitive for master/detail forms across modules. Sheets can
@@ -50,6 +75,7 @@ export function Sheet({
   fullScreen = true,
   size = "lg",
   fullBleed = false,
+  origin,
 }: {
   open: boolean;
   onClose: () => void;
@@ -130,6 +156,63 @@ export function Sheet({
    * as touching the glass, and 32px is what keeps the first field off the edge.
    */
   fullBleed?: boolean;
+  /**
+   * GROW OUT OF THE THING THAT OPENED THIS — the trigger's rect (or a ref to
+   * it), which becomes the panel's `transform-origin`.
+   *
+   * ## Why it exists (client 2026-08-28)
+   *
+   * The client saw a navigation pattern where the ACTIVE rail row and the
+   * content pane beside it are drawn as ONE CONTINUOUS SHAPE — the selected
+   * pill flows into the panel with a concave join, so there is no seam. A
+   * shared edge is proof of parentage: the panel cannot be mistaken for
+   * something that arrived from elsewhere. They asked whether the Style Process
+   * dialog could connect to its trigger the same way.
+   *
+   * **IT CANNOT, AND THAT IS STRUCTURAL RATHER THAN A MATTER OF EFFORT.** Three
+   * reasons, each sufficient on its own:
+   *
+   * - **It is on another plane.** The dialog is portaled to `<body>` and sits
+   *   above a `fixed inset-0` scrim. A join needs the two shapes to share a
+   *   coordinate space and a paint order; here one is deliberately floating
+   *   over the other, dimmed.
+   * - **It covers its own trigger.** The Process button lives in a grid cell in
+   *   the middle of the screen, and an `md` dialog is ~1112px wide and centred
+   *   — it lands ON the button it grew from. There is no edge left to join to.
+   * - **Centred is position-independent.** Every row's dialog opens at the
+   *   viewport centre, so the surface says nothing about WHICH row opened it.
+   *   That is the whole thing a join communicates, and it is exactly what a
+   *   centred box discards.
+   *
+   * **So the MOTION is the substitute.** The panel cannot share an edge with
+   * its trigger, but it can come FROM it: scaling out of that point and
+   * collapsing back into it carries the same "this belongs to that row" without
+   * needing the two to touch. The rail join itself went where it genuinely fits
+   * — `components/masters/master-full-screen.tsx`, which has a real rail and a
+   * real pane beside it.
+   *
+   * ## What it does, and what it deliberately does not
+   *
+   * OPTIONAL AND BACKWARD-COMPATIBLE. Every existing `sm`/`md` sheet passes
+   * nothing and keeps scaling from its own centre exactly as before — this adds
+   * one CSS property and no behaviour.
+   *
+   * CONTAINED BRANCH ONLY (`size !== "lg"`). That is the only variant whose
+   * open transition is a SCALE, so it is the only one a `transform-origin` can
+   * mean anything to: the full-screen branch translates 12px and the slide-over
+   * slides in from an edge, and both of those already say where they came from.
+   *
+   * NOTHING THE KEYBOARD READS IS TOUCHED. No change to `size`, to the focus
+   * trap, to `useModalGuard`, to `role="dialog"` / `aria-modal`, or to any
+   * `data-focus-region` — `transform-origin` is paint, and `lib/focus.ts` reads
+   * markers and geometry, not transforms.
+   *
+   * UNDER `prefers-reduced-motion` NO ORIGIN IS SET AT ALL. `app/globals.css`
+   * already clamps every transition in the app to 0.01ms for those users, so
+   * the panel simply appears; deriving an origin for an animation that does not
+   * run would be dead arithmetic on the keystroke path.
+   */
+  origin?: SheetOrigin | null;
 }) {
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
@@ -272,6 +355,45 @@ export function Sheet({
 
   if (!mounted) return null;
 
+  /**
+   * THE ORIGIN IS DERIVED WITHOUT MEASURING THE PANEL, and that is what makes
+   * it exact on the FIRST painted frame rather than one frame late.
+   *
+   * The obvious implementation — measure the panel in an effect, then set the
+   * origin — cannot work here: `useEffect` runs after the browser has already
+   * painted the opening transition's first frame, so the panel starts scaling
+   * from its centre and snaps to the real origin a frame later. Reading the
+   * panel's box during that frame is also wrong, because it is mid-transform
+   * and `getBoundingClientRect()` reports the TRANSFORMED box.
+   *
+   * Neither problem arises if the panel is never measured. The contained branch
+   * centres its panel in the viewport (`flex items-center justify-center` with
+   * symmetric padding), so the panel's own centre IS the viewport centre — and
+   * `transform-origin` accepts `calc()`, so the point can be expressed as "the
+   * panel's centre, shifted by the trigger's offset from the viewport centre".
+   * Percentages resolve against the panel; the pixel term needs only the
+   * trigger's rect and `window.innerWidth/Height`, both of which are known here
+   * during render.
+   *
+   * IT FOLLOWS THAT THIS IS TIED TO THE CENTRING. If the contained branch ever
+   * stops centring its panel, the `50%` term stops naming the panel's layout
+   * centre and every origin lands off by the difference. Degrading safely is
+   * cheap: an unresolvable origin yields `undefined`, and `undefined` is the
+   * behaviour every sheet had before this prop existed.
+   *
+   * `window` is safe below the `mounted` guard above — this whole component
+   * renders null until it has mounted on the client.
+   */
+  const reducedMotion =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const centre = reducedMotion ? null : originCentre(origin);
+  const transformOrigin = centre
+    ? `calc(50% + ${Math.round(centre.x - window.innerWidth / 2)}px) calc(50% + ${Math.round(
+        centre.y - window.innerHeight / 2,
+      )}px)`
+    : undefined;
+
   return createPortal(
     /**
      * A SHEET STARTS WITH A CLEAN REQUIRED SCOPE.
@@ -320,6 +442,11 @@ export function Sheet({
               ref={containerRef}
               role="dialog"
               aria-modal="true"
+              /* `undefined` when no origin was supplied (or under reduced
+                 motion), which leaves the CSS default `50% 50%` — i.e. exactly
+                 what every contained sheet did before this prop existed. See
+                 the `origin` prop. */
+              style={{ transformOrigin }}
               className={cn(
                 "flex max-h-[88vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
                 size === "md" ? "max-w-6xl" : "max-w-md",

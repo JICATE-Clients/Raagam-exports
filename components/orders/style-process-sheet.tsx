@@ -38,7 +38,7 @@
  */
 
 import { useMemo } from "react";
-import { Sheet } from "@/components/ui/sheet";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -72,6 +72,7 @@ export function StyleProcessSheet({
   components,
   newKey,
   readOnly = false,
+  origin,
 }: {
   open: boolean;
   onClose: () => void;
@@ -101,6 +102,28 @@ export function StyleProcessSheet({
    */
   newKey: () => string;
   readOnly?: boolean;
+  /**
+   * THE PROCESS CELL THIS SHEET WAS OPENED FROM — so it grows out of that row's
+   * button instead of out of nowhere (client 2026-08-28).
+   *
+   * This is the first call site of `Sheet`'s `origin`, and it is the one that
+   * motivated the prop: the client asked whether this dialog could JOIN its
+   * trigger the way an active rail row joins the pane beside it. It cannot —
+   * another plane, it covers its own trigger, and a centred box is
+   * position-independent — and `sheet.tsx`'s `origin` note carries all three
+   * reasons in full. The motion is what stands in for the join.
+   *
+   * A RECT, MEASURED IN THE CLICK HANDLER, NOT A REF. The trigger is a `<Button>`
+   * in a `ChildGrid` cell on the style row, and that row re-renders as the
+   * operator types; on a set-pack order the column set changes shape underneath
+   * it. A ref could resolve to `null` exactly when the sheet is opening, which
+   * would silently fall back to a centre origin — the failure would be invisible
+   * rather than loud. The parent captures the rect at the moment of the click.
+   *
+   * Optional: with nothing passed the sheet scales from its own centre, which is
+   * what it did before this existed.
+   */
+  origin?: SheetOrigin | null;
 }) {
   const patch = (key: string, next: Partial<StyleProcessRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
@@ -328,6 +351,8 @@ export function StyleProcessSheet({
        * gone with the fields it described.
        */
       size="md"
+      /* Grows out of the Process cell that opened it — see the `origin` prop. */
+      origin={origin}
       title={styleLabel ? `Process — ${styleLabel}` : "Process"}
       /* STILL NO SAVE OF ITS OWN — the rows are part of the amendment and are
          written by the amendment's Save, so a Save here would imply they commit
