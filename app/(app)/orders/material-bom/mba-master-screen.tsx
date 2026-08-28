@@ -5476,7 +5476,19 @@ export function MbaMasterScreen({
   ];
 
   return (
-    <>
+    /* THE ONLY HOLDER OF THE NEW SKIN TODAY (client 2026-08-28: "in material bom
+       only change this edit if it's okay we can chnaged all other things ...
+       touch these pages only as of now"). `[data-skin="raagam"]` in globals.css
+       is pure token overrides, so both surfaces below inherit it and no screen
+       outside this subtree can see it.
+       IT WRAPS THE FRAGMENT, NOT JUST THE LIST, because the editor is a SIBLING
+       of the list and `MasterFullScreen` neither portals nor takes a className —
+       skinning only the list would have left the overlay on the old tokens, and
+       the two are the two screens the client named. A plain div is safe around a
+       `fixed` overlay: nothing here sets transform or filter, which are the only
+       things that would make `fixed` resolve against this box instead of the
+       viewport. */
+    <div data-skin="raagam">
       <div className="space-y-4">
         {/* THE PRIMARY ACTION SITS BESIDE "← Back", NOT IN A BAND OF ITS OWN.
             It was a right-aligned div under the toolbar, so the two buttons this
@@ -5635,6 +5647,12 @@ export function MbaMasterScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        /* The bar shows on Requirement and nowhere else (client 2026-08-28).
+           These three sections ARE a sequence — what the BOM is, what happens to
+           it, then what the order therefore needs — and Requirement is the
+           figure the document exists to produce, so the save sits under it.
+           Ctrl+S and Enter still save from the other two. */
+        footerOnLastSection
         open={mode === "edit"}
         onClose={() => setMode("list")}
         modeLabel={
@@ -5740,7 +5758,7 @@ export function MbaMasterScreen({
         onPick={pickCopySource}
         isPending={isPending}
       />
-    </>
+    </div>
   );
 }
 

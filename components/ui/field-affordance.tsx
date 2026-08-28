@@ -71,6 +71,12 @@ const SLOT = cn(
   "rounded-r-[5px] border-l border-border bg-surface-muted text-muted-foreground",
 );
 
+/* A STYLING HOOK, stamped on both slots below. Same family as `data-skin`: no
+ * behaviour, nothing reads it but the stylesheet. It exists so a skin can undo
+ * the segment treatment without matching on `SLOT`'s utility classes, which are
+ * a private detail of this file and are expected to change. */
+const SLOT_ATTR = { "data-field-affordance": "" } as const;
+
 /** Width and glyph size, the only two things `compact` changes. Everything else
  *  about the slot — the insets, the radius, the border, the fill — is shared, so
  *  a dense cell and a full field are visibly the same control at two sizes. */
@@ -123,6 +129,7 @@ export function FieldAffordance({
        */
       tabIndex={-1}
       onClick={onClear}
+      {...SLOT_ATTR}
       className={cn(
         SLOT,
         SLOT_W[compact ? "compact" : "full"],
@@ -138,6 +145,7 @@ export function FieldAffordance({
   ) : (
     <span
       aria-hidden
+      {...SLOT_ATTR}
       className={cn(
         SLOT,
         SLOT_W[compact ? "compact" : "full"],
