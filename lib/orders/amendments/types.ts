@@ -240,6 +240,64 @@ export const PACK_WISE_PRICE: PriceType = "Pack-wise";
  * the kind of reasoning that is true until a composition varies by size.
  */
 export const PACK_WISE_SIZE_PRICE: PriceType = "Pack-wise Size-wise";
+export const SIZE_WISE_PRICE: PriceType = "Size-wise";
+
+/**
+ * WHICH MODES THE PRICES TAB OFFERS ONCE A PACK TYPE IS LIVE (client
+ * 2026-08-28, second ruling).
+ *
+ * ## This is NOT `isPackWise`, and conflating them is the whole risk
+ *
+ * `isPackWise` (`order-value.ts`) answers "is this rate a rate per BOX?" — the
+ * multiplicand fork. This list answers "may the operator choose this on a pack
+ * order?" — a screen question. They were the SAME list until now, which is why
+ * one predicate served both, and the moment a per-garment mode joined the
+ * dropdown they stopped being the same statement. Reading `isPackWise` where
+ * this list is meant would drop Size-wise out of the dropdown; reading this list
+ * where `isPackWise` is meant would multiply a garment rate by the box count.
+ *
+ * ## Why a per-garment mode is on a pack order at all
+ *
+ * The first ruling was "a pack order prices the box, and only the box" — one
+ * rate per carton so the commercial invoice carries one figure. The operator has
+ * since asked for plain Size-wise beside the two pack modes, and it is a real
+ * trade: some buyers contract a set at a per-GARMENT rate per size and let the
+ * box price fall out of the composition. Nothing about the earlier ruling is
+ * withdrawn — the per-STYLE and per-COLOUR grids stay hidden, so there is still
+ * exactly one place a rate is typed for a pack, and still no way to quote a box
+ * and a garment for the same method at once (`packPriceMode` reads ONE mode per
+ * method).
+ *
+ * ## What the operator must be able to see
+ *
+ * `$12` under Pack-wise and `$12` under Size-wise value a 3-style gift box at
+ * 4,800 and 14,400 respectively, and BOTH are correct arithmetic for what they
+ * mean. So the grid's rate column names its unit ("Rate / pack" vs
+ * "Rate / piece") rather than leaving one header over two questions. That is the
+ * guard; there is no arithmetic one, because there is nothing wrong with either
+ * figure.
+ *
+ * DERIVED FROM THE TUPLE, so the dropdown keeps `PRICE_TYPE_OPTIONS`' declared
+ * reading order (Pack-wise, Pack-wise Size-wise, Size-wise) and a mode re-worded
+ * there cannot leave a dangling literal here.
+ */
+export const PACK_BRANCH_PRICE_MODES: readonly PriceType[] = PRICE_TYPE_OPTIONS.filter(
+  (o) => o === PACK_WISE_PRICE || o === PACK_WISE_SIZE_PRICE || o === SIZE_WISE_PRICE,
+);
+
+/**
+ * Is this stored mode one the pack branch renders?
+ *
+ * Trimmed and case-folded like every other read of `price_type` in this module,
+ * because a row SAVED before a re-wording is the case this has to survive — a
+ * method whose mode fails this test reads back as the default and its typed
+ * rates go invisible.
+ */
+export function isPackBranchMode(priceType: string | null | undefined): boolean {
+  const m = (priceType ?? "").trim().toLowerCase();
+  return PACK_BRANCH_PRICE_MODES.some((o) => o.toLowerCase() === m);
+}
+
 export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
 
 /**

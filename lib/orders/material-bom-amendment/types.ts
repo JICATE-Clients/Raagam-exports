@@ -111,6 +111,24 @@ export const MATERIAL_TYPE_OPTIONS = [
 export const DEFAULT_MATERIAL_TYPE: (typeof MATERIAL_TYPE_OPTIONS)[number] = "Available Item";
 
 /**
+ * THE TWO STATES THE TBA SWITCH FLIPS BETWEEN (client 2026-08-28: "TBA as
+ * toggle — if toggle is enabled To Be Advised, otherwise the state is always
+ * Available Item").
+ *
+ * The cell was a `<Select>` over `MATERIAL_TYPE_OPTIONS`; it is a `Toggle` now,
+ * and a switch has exactly two positions. NAMED HERE rather than written as
+ * literals at the call site for the same reason `DEFAULT_MATERIAL_TYPE` is: the
+ * strings are what `UNSETTLED_MATERIAL_TYPES` matches on to refuse a purchase
+ * order, so a typo at the switch would be a PO gate that silently stops
+ * refusing. `TBA_MATERIAL_TYPE` and the default are the switch's on and off.
+ *
+ * THE COLUMN IS UNCHANGED. `type` is still text holding these same words, so
+ * every stored row, `refuseUnsettledMaterials` and the retired "To be
+ * developed" all keep working — only the control changed.
+ */
+export const TBA_MATERIAL_TYPE: (typeof MATERIAL_TYPE_OPTIONS)[number] = "To be advised";
+
+/**
  * THE TWO TYPES THAT MEAN "NOT SETTLED YET" — what a purchase order is refused
  * against (client 2026-08-28: TBA blocks downstream PO creation until the final
  * size specs are saved).
