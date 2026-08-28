@@ -20,6 +20,79 @@ let openSheetCount = 0;
 const sheetStack: (() => void)[] = [];
 
 /**
+ * What `document.body` looked like before the outermost sheet locked it.
+ * `null` while nothing is locked. See `lockBodyScroll`.
+ */
+let bodyLockRestore: { overflow: string; paddingRight: string } | null = null;
+
+/**
+ * THE PAGE BEHIND A SHEET MUST NOT JUMP SIDEWAYS WHEN IT OPENS
+ * (client 2026-08-28: "in that process screen, the back screen goes to the
+ * right").
+ *
+ * `overflow: hidden` on the body removes the vertical scrollbar, the viewport
+ * gains its width — ~15px on Windows Chrome — and everything in normal flow
+ * slides right by that much. On close it snaps back. It has been there since the
+ * scroll lock was written and it is every dialog in the app, not this one.
+ *
+ * The fix is to hold the space the scrollbar was occupying: pad the body by
+ * exactly the width that vanished.
+ *
+ * Three things this has to get right, and each is a way to write the fix so that
+ * it does nothing or makes matters worse:
+ *
+ * - **MEASURE BEFORE LOCKING.** After `overflow: hidden` the scrollbar is
+ *   already gone, so `window.innerWidth` and `documentElement.clientWidth` are
+ *   equal and the gap reads 0. The measurement is the first statement below for
+ *   that reason, not for tidiness.
+ * - **ONLY THE OUTERMOST SHEET.** `openSheetCount` already ref-counts nesting,
+ *   and these two guard on it: a picker opening over an entity editor must not
+ *   add a second 15px. Setting `overflow: hidden` twice is harmless, which is
+ *   why the old code could get away with doing it per sheet — padding is not,
+ *   and a nested sheet would in any case measure a gap of 0 (the scrollbar is
+ *   gone by then) and write `paddingRight: 0`, undoing the outer sheet's
+ *   compensation. Both failures are avoided by never running for a nested sheet.
+ * - **RESTORE WHAT WAS THERE, NOT `""`.** The old code blanked `overflow`
+ *   unconditionally, and that is a real bug rather than a style point:
+ *   `MasterFullScreen`, `vendor-master-screen` and `search-palette` each lock
+ *   the body too, and each already captures-and-restores. A Sheet opened inside
+ *   a MasterFullScreen overlay therefore **unlocked the page on close while the
+ *   overlay was still open**. Capturing is the same cost and matches the three
+ *   call sites that were already doing it.
+ *
+ * WHAT THIS DOES NOT REACH: anything `position: fixed`. A fixed element is laid
+ * out against the viewport, not the body, so body padding cannot hold it — and
+ * because the viewport is what got wider, a RIGHT-anchored fixed element moves
+ * right by the same ~15px. In this app that is the toast stack
+ * (`components/ui/toast.tsx`, `fixed bottom-4 right-4`) and the floating
+ * bug-reporter button, which is an external SDK and not ours to lay out. Fixing
+ * those needs `scrollbar-gutter: stable` on `html` in `app/globals.css`, which
+ * reserves the gutter permanently and makes the whole class of shift impossible
+ * — a global change to every page in the app, so it is named here rather than
+ * smuggled in beside a dialog fix.
+ */
+function lockBodyScroll() {
+  if (openSheetCount > 0) return; // an outer sheet already owns the lock
+  const body = document.body;
+  // First statement on purpose — see above.
+  const gap = window.innerWidth - document.documentElement.clientWidth;
+  bodyLockRestore = { overflow: body.style.overflow, paddingRight: body.style.paddingRight };
+  body.style.overflow = "hidden";
+  // `> 0` guards the overlay-scrollbar case (macOS, most touch devices), where
+  // nothing is reclaimed and padding would be a 0px no-op at best.
+  if (gap > 0) body.style.paddingRight = `${gap}px`;
+}
+
+/** Undo `lockBodyScroll`, but only once the LAST sheet has gone. */
+function unlockBodyScroll() {
+  if (openSheetCount > 0) return; // a still-open outer sheet needs the lock
+  const body = document.body;
+  body.style.overflow = bodyLockRestore?.overflow ?? "";
+  body.style.paddingRight = bodyLockRestore?.paddingRight ?? "";
+  bodyLockRestore = null;
+}
+
+/**
  * True when focus sits inside a modal layer that is NOT `root` — typically a
  * dialog picker portaled to <body> from inside this sheet. Such a layer owns
  * Escape and Tab for as long as it is up, so the sheet underneath must stand
@@ -49,6 +122,77 @@ export type SheetOrigin =
   | { left: number; top: number; width: number; height: number }
   | RefObject<HTMLElement | null>;
 
+/** A viewport-space box, the shape both the pane and the rail resolve to. */
+type Box = { left: number; top: number; width: number; height: number };
+
+type RailJoinLayout = {
+  /** The content pane — the panel takes this box exactly. */
+  pane: Box;
+  /** The rail's `<nav>` — the one region the scrim leaves lit. */
+  rail: Box;
+};
+
+/**
+ * WHERE A RAIL-JOINED PANEL SITS — the content pane of the `MasterFullScreen`
+ * this sheet was opened from, or `null` meaning "centre it as before".
+ *
+ * ## It is resolved from DOM MARKERS, and that is not novel coupling
+ *
+ * `[data-focus-scope]` is the content pane and `[data-section-key]` +
+ * `aria-selected` are the rail's items. Reading them from outside the shell is
+ * exactly what `lib/focus.ts` and `components/shell/keyboard-nav-provider.tsx`
+ * already do — the whole keyboard contract is delivered by one `document`
+ * listener resolving those same attributes. So this reads a contract that is
+ * already public and already load-bearing, rather than reaching into another
+ * component's private markup.
+ *
+ * It is also why the shell needs no edit at all: the active tab ALREADY
+ * overhangs 13px into the pane and draws its two fillets there, for every
+ * `MasterFullScreen` in the app since 09384bb. A panel that lands exactly on
+ * the pane's box, with no left border, no left rounding and no shadow, is
+ * joined by the geometry that is already on screen. Nothing here draws a notch;
+ * inventing a second one is what the brief forbids and what the shell makes
+ * unnecessary.
+ *
+ * ## The three refusals, each returning `null` for the centred fallback
+ *
+ * - **Below `md`** the rail is a horizontal chip strip above the pane, not a
+ *   column beside it. There is no left edge to join to, and the shell's own
+ *   join classes are `md:`-gated for the same reason.
+ * - **A COLLAPSED RAIL** (`railCollapsed`) folds the `<nav>` away with
+ *   `md:hidden` to give its 192px to the content. There is no tab on screen, so
+ *   there is nothing to join FROM — detected as the active tab having no
+ *   `offsetParent`, which is what `display: none` produces.
+ * - **No shell at all.** A sheet opened from a plain page form finds no pane and
+ *   centres, which is every other caller in the app.
+ */
+function railJoinLayout(): RailJoinLayout | null {
+  if (!window.matchMedia("(min-width: 768px)").matches) return null;
+
+  /* RESOLVED FROM THE ACTIVE TAB OUTWARD, never by a global query for the pane.
+     `[data-focus-scope]` is not unique to this shell — 25+ screens stamp it on
+     a plain form wrapper — so `document.querySelector` for it returns whatever
+     comes first in the document, which on another screen is not a rail pane at
+     all. Walking tab → rail → the shell's body row and looking only INSIDE that
+     row is exact: it can only ever find the pane belonging to the rail whose
+     tab is being joined. */
+  const tab = document.querySelector<HTMLElement>('[data-section-key][aria-selected="true"]');
+  const rail = tab?.closest<HTMLElement>('[role="tablist"]');
+  const pane = rail?.parentElement?.querySelector<HTMLElement>("[data-focus-scope]");
+  if (!pane || !tab || !rail) return null;
+  // `offsetParent` is null for a `display: none` element — the collapsed rail.
+  if (tab.offsetParent === null) return null;
+
+  const p = pane.getBoundingClientRect();
+  const r = rail.getBoundingClientRect();
+  if (p.width <= 0 || p.height <= 0 || r.width <= 0) return null;
+
+  return {
+    pane: { left: p.left, top: p.top, width: p.width, height: p.height },
+    rail: { left: r.left, top: r.top, width: r.width, height: r.height },
+  };
+}
+
 /** Viewport-space centre of a `SheetOrigin`, or null when it resolves to nothing. */
 function originCentre(origin: SheetOrigin | null | undefined): { x: number; y: number } | null {
   if (!origin) return null;
@@ -76,6 +220,7 @@ export function Sheet({
   size = "lg",
   fullBleed = false,
   origin,
+  railJoin = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -213,6 +358,69 @@ export function Sheet({
    * run would be dead arithmetic on the keystroke path.
    */
   origin?: SheetOrigin | null;
+  /**
+   * FILL THE SHELL'S CONTENT PANE AND JOIN THE ACTIVE RAIL TAB, so the tab and
+   * this panel read as one continuous shape (client 2026-08-28).
+   *
+   * ## The two wrong answers that came first
+   *
+   * The client saw a reference where an active navigation item flows into the
+   * panel beside it, with a concave join and no seam, and asked for it here.
+   * That was answered twice and wrongly, and both are worth keeping because the
+   * next reader will be tempted by the first:
+   *
+   * 1. **"A dialog cannot do this"** — motion was offered instead, and `origin`
+   *    (above) still carries that behaviour. Wrong: every reason given was a
+   *    consequence of CENTRING, not of being a dialog.
+   * 2. **Anchored to the TRIGGER CELL.** The panel hung off the Process button
+   *    in the style row, with a notch and fillets drawn against it. Rejected on
+   *    screen: that cell sits far right, so a ~1440px panel was shoved against
+   *    the viewport edge, overlapped the Coordinate field and pushed Done under
+   *    the floating bug-reporter button. The client: *"I thought that panel
+   *    anchor will be integrated with that style tab, but you integrated with
+   *    Click."*
+   *
+   * **"That tab" was the SECTION RAIL tab all along** — Style(s) in the rail,
+   * not the cell in the grid. This prop is that reading.
+   *
+   * ## What it does
+   *
+   * The panel takes the content pane's box exactly — `max-w-6xl` and the
+   * centring both stand down — and drops its left border, left rounding and its
+   * shadow, because a continuous surface cannot have a rule drawn across it or
+   * cast a shadow onto the thing it is continuous with (the rail join's own
+   * note makes that argument first).
+   *
+   * **NOTHING DRAWS A NOTCH HERE.** The active tab already reaches 13px into
+   * the pane and already draws its two fillets at that edge — see
+   * `master-full-screen.tsx`, which has done it for every rail editor since
+   * 09384bb. Landing the panel on the pane's box puts its left edge exactly
+   * where that overhang stops, and both halves are `bg-surface`, so the join is
+   * the one already on screen. `railJoinLayout` explains why the shell needs no
+   * edit for that to be true.
+   *
+   * **THE SCRIM LEAVES THE RAIL LIT.** A join to a dimmed tab is not a join, so
+   * the dim is drawn as a spotlight around the rail's box rather than as a flat
+   * `inset-0` fill: the app chrome behind dims as it always did, the rail does
+   * not. Note the pane's own dim is invisible either way — the panel covers the
+   * pane exactly — so the only region where this is visible IS the chrome.
+   *
+   * **THE RAIL IS LIT BUT INERT.** The scrim still spans the viewport and still
+   * takes the click, so a rail row cannot switch section under an open panel —
+   * a state nobody has designed. Clicking it closes the sheet, exactly like
+   * clicking anywhere else on the scrim.
+   *
+   * ## Falls back, in four cases, always to today's centred box
+   *
+   * Below `md`, on a collapsed rail, when no shell is found, and — because the
+   * pane's box moves — on any resize, where it simply re-measures rather than
+   * going stale. `railJoinLayout` carries the first three.
+   *
+   * NOTHING THE KEYBOARD READS IS TOUCHED. Same `role="dialog"` / `aria-modal`,
+   * same focus trap, same `useModalGuard`, same Escape ladder, same three
+   * `data-focus-region`s, same Ctrl+S gate. This is position and paint.
+   */
+  railJoin?: boolean;
 }) {
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
@@ -238,6 +446,32 @@ export function Sheet({
   // Whatever was focused *before* this sheet opened — restored on close, so
   // dismissing a nested picker returns the cursor to the trigger that opened it.
   const openerRef = useRef<HTMLElement | null>(null);
+
+  /**
+   * RE-MEASURE THE PANE WHEN THE PAGE RESHAPES. See `railJoin`.
+   *
+   * The rail-joined layout is resolved from the LIVE DOM rather than from a
+   * value captured at the click, which is the one material advantage this
+   * anchor has over the trigger-cell one it replaced: a stale rect is
+   * impossible, because there is no rect to go stale. A resize just re-reads
+   * the pane, so the panel follows it instead of falling back.
+   *
+   * Bumping a counter is the whole mechanism — the measurement itself happens
+   * during render, beside the `window.innerWidth` read the centred branch has
+   * always done, so all this has to do is ask for another render.
+   *
+   * Scroll is deliberately NOT listened for. The pane owns its own scrollbar
+   * and its BOX does not move when its content scrolls; the page behind cannot
+   * scroll at all, because a sheet locks body overflow and the scrim absorbs
+   * the wheel.
+   */
+  const [, bumpMeasure] = useState(0);
+  useEffect(() => {
+    if (!open || !railJoin) return;
+    const remeasure = () => bumpMeasure((n) => n + 1);
+    window.addEventListener("resize", remeasure);
+    return () => window.removeEventListener("resize", remeasure);
+  }, [open, railJoin]);
 
   // Ctrl/⌘+S saves the open editor by activating the primary footer button.
   // Only the full-screen entity editors (size="lg") opt in — nested pickers /
@@ -323,14 +557,18 @@ export function Sheet({
       }
     };
     document.addEventListener("keydown", onKey);
+    // Lock BEFORE the increment and unlock AFTER the decrement, so both run
+    // exactly on the 0→1 and 1→0 transitions — the guard inside each reads
+    // `openSheetCount`, so the order of these two lines is what makes a nested
+    // sheet a no-op rather than a second 15px of padding.
+    lockBodyScroll();
     openSheetCount += 1;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
       const i = sheetStack.lastIndexOf(entry);
       if (i !== -1) sheetStack.splice(i, 1);
       openSheetCount = Math.max(0, openSheetCount - 1);
-      if (openSheetCount === 0) document.body.style.overflow = "";
+      unlockBodyScroll();
       // Hand focus back to the opener (e.g. the picker trigger button), but only
       // if nothing else has claimed it in the meantime.
       const home = openerRef.current;
@@ -384,6 +622,19 @@ export function Sheet({
    * `window` is safe below the `mounted` guard above — this whole component
    * renders null until it has mounted on the client.
    */
+  /**
+   * MEASURED DURING RENDER, like the origin arithmetic below it, and for the
+   * same reason: an effect runs after the browser has painted, so a panel
+   * positioned there would paint centred for one frame and jump. Reading the
+   * DOM here is a read, not a mutation, and this component already reads
+   * `window` at this point — it is below the `mounted` guard, so there is no
+   * server render to disagree with.
+   *
+   * Gated on `railJoin`, so the two `querySelector`s are paid for only by the
+   * sheet that asked; every picker and quick-create in the app skips them.
+   */
+  const railLayout = railJoin && fullScreen && size !== "lg" ? railJoinLayout() : null;
+
   const reducedMotion =
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -424,10 +675,48 @@ export function Sheet({
         onClick={onClose}
         style={{ zIndex: zIndexBase }}
         className={cn(
-          "fixed inset-0 bg-black/50 transition-opacity duration-200",
+          "fixed inset-0 transition-opacity duration-200",
+          // Rail-joined: the dim moves into the spotlight below so the rail can
+          // stay lit. The element itself is unchanged — full-viewport hit area,
+          // the close click, the fade — which is what keeps the rail INERT
+          // while it is undimmed. See `railJoin`.
+          railLayout ? null : "bg-black/50",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
-      />
+      >
+        {railLayout && (
+          /**
+           * THE SPOTLIGHT — `rgba(0,0,0,.5)`, the same value `bg-black/50`
+           * resolves to, painted by a large `box-shadow` spread around a
+           * transparent box at the RAIL's rect. Everything outside the rail
+           * dims; the rail does not, because a join to a dimmed tab is not a
+           * join.
+           *
+           * A box-shadow rather than `clip-path: polygon(evenodd, …)`, whose
+           * even-odd form is the only way to punch a hole in a clip path and is
+           * recent; this works everywhere.
+           *
+           * WHAT IT ACTUALLY DIMS IS THE APP CHROME. The pane's share of the
+           * dim is behind the panel, which covers the pane exactly, so the only
+           * place the difference is visible is the module sidebar and topbar
+           * around the shell — which dim exactly as they always did.
+           *
+           * PAINT ONLY: a shadow is not hit-testable, and this span sits inside
+           * the scrim, so the modal surface is unchanged.
+           */
+          <span
+            aria-hidden
+            style={{
+              position: "fixed",
+              left: railLayout.rail.left,
+              top: railLayout.rail.top,
+              width: railLayout.rail.width,
+              height: railLayout.rail.height,
+              boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)",
+            }}
+          />
+        )}
+      </div>
       {fullScreen ? (
         size !== "lg" ? (
           /* centered dialog box — nested pickers and small config dialogs
@@ -446,11 +735,40 @@ export function Sheet({
                  motion), which leaves the CSS default `50% 50%` — i.e. exactly
                  what every contained sheet did before this prop existed. See
                  the `origin` prop. */
-              style={{ transformOrigin }}
+              /* Rail-joined: the content pane's box exactly, so the panel's
+                 left edge lands where the active tab's 13px overhang stops.
+                 `position: fixed` steps it out of the centring flex above
+                 without disturbing that branch for anyone else, and the inline
+                 box wins over the `w-full max-h-[88vh] max-w-*` classes that
+                 stay on for the centred case.
+
+                 It does NOT scale on open. A panel that grows from 95% would
+                 pull its own left edge away from the tab and put a widening gap
+                 exactly where the join is; it fades instead. See `railJoin`. */
+              style={
+                railLayout
+                  ? {
+                      position: "fixed",
+                      left: railLayout.pane.left,
+                      top: railLayout.pane.top,
+                      width: railLayout.pane.width,
+                      height: railLayout.pane.height,
+                      maxHeight: "none",
+                    }
+                  : { transformOrigin }
+              }
               className={cn(
                 "flex max-h-[88vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
                 size === "md" ? "max-w-6xl" : "max-w-md",
-                open ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
+                /* THE JOINED EDGE CARRIES NO RULE, NO CORNER AND NO SHADOW.
+                   All three would be drawn across the seam the tab is trying to
+                   flow through — the rail join's own note makes this argument
+                   about the pill, and it is the same argument from the other
+                   side. The other three edges keep theirs. */
+                railLayout && "rounded-l-none border-l-0 shadow-none",
+                open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+                // The scale belongs to the centred box only — see the style above.
+                railLayout ? null : open ? "scale-100" : "scale-95",
               )}
             >
               {/* header */}
