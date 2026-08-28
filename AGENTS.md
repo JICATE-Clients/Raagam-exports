@@ -846,13 +846,15 @@ its group, every leaf still in search, and nothing the old flat nav reached
 being orphaned.
 
 **A LABEL IS ALSO WRITTEN DOWN IN THE PROSE, AND THE REGISTRY DOES NOT REACH IT.**
-"Raise one on Orders ▸ Order Preparation ▸ Order Entry" is a *direction*, and a
+"Raise one on Orders ▸ Order Management ▸ Order Entry" is a *direction*, and a
 direction naming a row that no longer exists is worse than none: the operator
 goes looking, fails, and concludes the screen is broken rather than the sentence.
-Renaming Order Setup → **Order Preparation** (client 2026-08-25) reached every
+Renaming Order Setup → **Order Preparation** (client 2026-08-25), and then
+Order Preparation → **Order Management** (client 2026-08-28), reached every
 surface the registry drives and NONE of the strings, because a string is not a
-row. So `npm run check:nav-paths` resolves every segment of every operator-facing
-menu path against `module-groups.ts` + `submodules.ts`.
+row. The slug stayed `setup` through both. So `npm run check:nav-paths` resolves
+every segment of every operator-facing menu path against `module-groups.ts` +
+`submodules.ts`.
 
 Three things it had to get right to be worth running, each learned by being made
 to fail first:

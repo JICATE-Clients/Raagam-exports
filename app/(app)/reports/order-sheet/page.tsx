@@ -95,7 +95,7 @@ export default async function OrderSheetIndex() {
             // and both had been renamed under it (2026-08-25 and 2026-08-14). An
             // empty state that recites a menu path is only useful while the path
             // is real, so it is checked against the registry when either changes.
-            body: "The order sheet prints an entered garment order, so there is nothing to show until one exists. Raise one on Orders ▸ Order Preparation ▸ Order Entry.",
+            body: "The order sheet prints an entered garment order, so there is nothing to show until one exists. Raise one on Orders ▸ Order Management ▸ Order Entry.",
             href: "/orders/garment-orders",
             action: "Go to Order Entry",
           }}

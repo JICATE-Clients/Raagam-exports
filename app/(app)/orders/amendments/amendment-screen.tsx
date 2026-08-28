@@ -13650,7 +13650,7 @@ export function AmendmentScreen({
 
            THE LIST BRANCH KEEPS THE DEFAULT, deliberately: there the parent IS a
            real destination, and because the registry answers per route, the one
-           component gives "← Back to Order Preparation" at /orders/garment-orders and
+           component gives "← Back to Order Management" at /orders/garment-orders and
            "← Back to Amendments" at /orders/amendments with no `purpose` branch
            of its own. */
         back={false}
