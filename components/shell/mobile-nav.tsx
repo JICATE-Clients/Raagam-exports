@@ -209,18 +209,37 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       {/* Peek bar */}
       <div className="fixed inset-x-[4.75rem] bottom-4 z-40 flex h-12 justify-center md:hidden">
         <div className="flex h-full max-w-full items-center gap-0.5 rounded-full border border-border bg-surface/90 pl-1.5 pr-1.5 shadow-[0_10px_28px_-10px_rgba(20,23,30,0.35),inset_0_1px_0_rgba(255,255,255,0.75)] ring-1 ring-inset ring-white/50 backdrop-blur-xl">
-          {/* Module zone → quick module switcher */}
+          {/*
+            * Module zone → quick module switcher.
+            *
+            * THE MODULE IS ITS GLYPH, NOT ITS NAME, AND THAT IS WHAT MAKES THE
+            * SECTION READABLE. This pill sits between two 48px floating
+            * buttons, so `inset-x-[4.75rem]` leaves it 208px on a 360px phone —
+            * and 115px of that is chrome (the 32px glyph, a chevron, an arrow,
+            * a divider and six paddings). Two labels then split 93px: about six
+            * characters each, which is how the bar came to read "O" beside
+            * "Order…" (client 2026-08-27).
+            *
+            * Dropping this label gives the section 99px instead of 46px — about
+            * fourteen characters, so "Order Setup" is written out in full. It
+            * costs the least of any cut available here because the two labels
+            * were saying the same thing: the module of "Order Setup" is Orders,
+            * and the glyph beside it already says so. Trimming the section
+            * instead would have removed the only specific word on the bar.
+            *
+            * `aria-label` is REQUIRED now, not decorative. The visible text was
+            * this button's accessible name; with only an icon inside, dropping
+            * it would leave a control screen readers announce as "button".
+            */}
           <button
             type="button"
             onClick={toggleModules}
             aria-expanded={modOpen}
+            aria-label={`Switch module — currently ${activeModule.label}`}
             className="flex h-full min-w-0 items-center gap-1.5 rounded-full pl-1 pr-1.5 active:bg-surface-muted"
           >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary ring-1 ring-inset ring-white/40">
               <activeModule.icon className="h-[18px] w-[18px]" />
-            </span>
-            <span className="max-w-[64px] truncate text-[12px] font-semibold text-foreground">
-              {activeModule.label}
             </span>
             <ChevronDown
               className={cn(
@@ -238,7 +257,12 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
             onClick={launch}
             className="flex h-full min-w-0 items-center gap-1.5 rounded-full pl-1.5 pr-2 active:bg-surface-muted"
           >
-            <span className="max-w-[92px] truncate text-[12px] font-semibold text-foreground">
+            {/* `min-w-0` in place of `max-w-[92px]`: the cap truncated at 92px
+                even when the pill had room to spare, and could not use the
+                width the module label just gave back. The pill still sizes to
+                its content and is held to `max-w-full`, so a short section
+                keeps a compact pill and only a genuinely long one truncates. */}
+            <span className="min-w-0 truncate text-[12px] font-semibold text-foreground">
               {shownSection?.label ?? "Overview"}
             </span>
             <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground" />
