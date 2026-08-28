@@ -186,6 +186,7 @@ export function MasterFullScreen({
   modeLabel,
   header,
   sections,
+  onEnterSection,
   railCollapsed = false,
   onExpandRail,
   initialSection,
@@ -250,6 +251,26 @@ export function MasterFullScreen({
     right?: ReactNode;
   };
   sections: FullScreenSection[];
+  /**
+   * CALLED WHENEVER A SECTION BECOMES THE VISIBLE ONE — including the first one
+   * on mount, and however the operator got there: the rail, the stepper's Next,
+   * or Tab off the last field.
+   *
+   * IT EXISTS SO A SCREEN CAN SEED ON AN ACTION RATHER THAN IN AN EFFECT.
+   * `seedComboFromStyle` on the Garment Order records the rule at length: an
+   * effect watching a screen's own state "also fires when a SAVED order is
+   * opened, and would overwrite every stored composition on load", and a
+   * standing top-up "would re-add a row the operator deliberately removed the
+   * moment anything else re-rendered it — the grid would argue back". Opening a
+   * section is a deliberate act, the same way the [Detail] button is, so it is
+   * a safe place to fill a grid in from what the operator has already stated
+   * elsewhere.
+   *
+   * A HANDLER MUST STILL BE IDEMPOTENT. This fires on mount and on every
+   * revisit, so "add what is missing" needs the caller's own guard against
+   * resurrecting something deleted; the callback is the trigger, never the rule.
+   */
+  onEnterSection?: (key: string) => void;
   /**
    * Fold the section rail away and give its 192px to the content.
    *
@@ -342,6 +363,15 @@ export function MasterFullScreen({
 }) {
   const firstKey = initialSection ?? sections[0]?.key ?? "";
   const [section, setSection] = useState(firstKey);
+
+  /* THROUGH A REF, so the effect below is keyed on the SECTION and not on the
+     caller's function identity — an inline arrow is a new value every render,
+     which would fire this on every keystroke in the pane. */
+  const onEnterRef = useRef(onEnterSection);
+  onEnterRef.current = onEnterSection;
+  useEffect(() => {
+    onEnterRef.current?.(section);
+  }, [section]);
   /**
    * THE SECTION AFTER THIS ONE, or null when this is the last — the whole of
    * `footer.stepper`'s state, derived per render rather than stored.

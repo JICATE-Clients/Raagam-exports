@@ -52,10 +52,7 @@ import {
  * round-tripping rather than dropped. Only the column, the pointer and the mount
  * came back.
  */
-import {
-  StyleProcessSheet,
-  type StyleProcessHeader,
-} from "@/components/orders/style-process-sheet";
+import { StyleProcessSheet } from "@/components/orders/style-process-sheet";
 import {
   excessQty,
   projectionQty,
@@ -178,9 +175,9 @@ import {
   type PackComponentRow,
 } from "@/lib/orders/amendments/pack-composition";
 import {
-  PACK_TYPE_OPTIONS,
   PRICE_TYPE_OPTIONS,
   PACK_WISE_PRICE,
+  PACK_WISE_SIZE_PRICE,
   SEASON_OPTIONS,
   dyeTypeOptions,
   SHIP_MODES,
@@ -1117,6 +1114,22 @@ export function AmendmentScreen({
   /** The editor shell, so a blocked Save can steer to the section that owns the
    *  problem — see `revealFirstProblem`. */
   const shellRef = useRef<MasterFullScreenHandle>(null);
+
+  /**
+   * WHICH STYLES THE COMBOS GRID HAS ALREADY BEEN GIVEN A ROW FOR.
+   *
+   * This is what stops the listing from arguing back. `onEnterSection` fires on
+   * every visit to Combos, so "add the styles that have no row yet" would put
+   * back a row the operator deliberately deleted the moment they navigated in
+   * again — the exact failure `seedComboFromStyle` refuses an effect over. A
+   * style is listed AT MOST ONCE per document; delete its row and it stays
+   * deleted.
+   *
+   * PRIMED FULL ON A SAVED ORDER, empty on a new one. A stored document already
+   * says what its combos are, and adding to it on open would mark it dirty
+   * before the operator had looked at anything.
+   */
+  const listedComboStyles = useRef<Set<string>>(new Set());
   const [isPending, start] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
@@ -1371,7 +1384,54 @@ export function AmendmentScreen({
    * saved document and after seeding from an order, where most grids already
    * have rows and must not be disturbed.
    */
-  const openOneRow = () => {
+  /**
+   * ONE COMBO ROW PER DECLARED STYLE (client 2026-08-28: "if we give multi
+   * styles it should be listed automatically in combos — now it's only showing
+   * one style by default").
+   *
+   * The grid opened on ONE blank row however many styles the order declared, so
+   * a three-style PO showed a single unattributed line and the operator picked
+   * the style by hand on every colourway. `addCombo` had half the answer
+   * already — it carries the style on a NEW row — but only `styles.length === 1`,
+   * because with several it cannot guess which one the operator meant. Listing
+   * them all is the answer it could not reach: nothing is guessed, every
+   * declared style simply gets its line.
+   *
+   * THE STYLES ARE PASSED IN, NOT READ FROM STATE. Both callers have just
+   * called `setStyles`, and React batches — the `styles` closure here still
+   * holds the PREVIOUS document's rows, so reading it would list the last
+   * order's styles on this one. That is the same trap the rename fan-out below
+   * avoids by taking its values as arguments.
+   *
+   * ONCE, AND ONLY INTO AN EMPTY GRID — `xs.length ? xs : …`, the rule this
+   * function already applies to every other grid. It is deliberately NOT a
+   * top-up: `seedComboFromStyle` records at length why "add the styles that
+   * have no row yet" is wrong as a standing rule ("an effect watching the
+   * declared set would re-add a structure the operator deliberately removed the
+   * moment anything else re-rendered it — the grid would argue back"), and a
+   * saved order arrives with its own rows, so this never fires on one.
+   */
+  const combosForStyles = (styleRows: readonly StyleRow[]): ComboRow[] => {
+    const seen = new Set<string>();
+    const out: ComboRow[] = [];
+    for (const st of styleRows) {
+      const ref = st.style_ref_no.trim();
+      const k = styleKey(ref);
+      if (!ref || seen.has(k)) continue;
+      seen.add(k);
+      out.push({
+        ...blankCombo(),
+        style_ref_no: ref,
+        // THE REF IS THE NAME NOW (Style became manual entry 2026-08-25), the
+        // same pair `addCombo` writes.
+        style: ref,
+        article_no: st.article_no ?? "",
+      });
+    }
+    return out;
+  };
+
+  const openOneRow = (styleRows: readonly StyleRow[] = []) => {
     setStyles((xs) => (xs.length ? xs : [blankStyle()]));
     // Two grids over ONE array: Color/Print shows Yarn and Fabric dyeing
     // separately, so each section needs its own opening row.
@@ -1383,7 +1443,13 @@ export function AmendmentScreen({
     });
     setPrints((xs) => (xs.length ? xs : [blankPrint()]));
     setStructures((xs) => (xs.length ? xs : [blankStructure()]));
-    setCombos((xs) => (xs.length ? xs : [blankCombo()]));
+    setCombos((xs) => {
+      if (xs.length) return xs;
+      const listed = combosForStyles(styleRows);
+      // No usable style yet (a brand-new document) still opens on one blank row
+      // — the keyboard needs something to land in. See this function's header.
+      return listed.length ? listed : [blankCombo()];
+    });
     setPriceDetails((xs) => (xs.length ? xs : [blankPriceDetail()]));
     setPackTypes((xs) => (xs.length ? xs : [blankPackType()]));
     setQuantities((xs) => (xs.length ? xs : [blankQuantity()]));
@@ -1427,7 +1493,17 @@ export function AmendmentScreen({
     setQuantities(r.quantities);
     // Covers BOTH callers — a saved document reopened, and a seed from an
     // order. Tops up only the grids that came back empty.
-    openOneRow();
+    //
+    /* EVERY DECLARED STYLE COUNTS AS ALREADY LISTED on a document that arrives
+       with rows — see `listedComboStyles`. `openOneRow` just below fills an
+       EMPTY combos grid from the same styles, and marking them here keeps the
+       section-entry top-up from adding a second row for each. */
+    listedComboStyles.current = new Set(
+      r.styles.map((x) => styleKey(x.style_ref_no)).filter(Boolean),
+    );
+    // `r.styles`, NOT the `styles` state: `setStyles` two dozen lines up has not
+    // landed yet, so the closure still holds the previous document's rows.
+    openOneRow(r.styles);
   };
 
   /**
@@ -2263,6 +2339,9 @@ export function AmendmentScreen({
     setUploadFolder(crypto.randomUUID());
     setPendingSeed(null);
     setSeeded(false);
+    // A NEW DOCUMENT HAS LISTED NOTHING, so every style the operator types is
+    // still owed its combo row. See `listedComboStyles`.
+    listedComboStyles.current = new Set();
     openOneRow();
     setMode("edit");
   }
@@ -3419,19 +3498,123 @@ export function AmendmentScreen({
    * is authoritative (`pickStyle` fills it there). Seeding from `styleById`
    * instead would reconstruct the same string one hop further from its source.
    */
+  /**
+   * OPENING COMBOS LISTS EVERY STYLE THE ORDER DECLARES (client 2026-08-28,
+   * screenshots 2526/2527: two styles entered, one style listed).
+   *
+   * `openOneRow` fills an EMPTY grid on load, and `addCombo` fills the row the
+   * operator asks for — but neither covers the flow the screenshots show, which
+   * is the ordinary one: a NEW order, styles typed on the tab before this, then
+   * Combos opened. The grid was seeded blank before those styles existed, so it
+   * had one unattributed line and the operator picked the style by hand.
+   *
+   * ON ENTERING THE SECTION, WHICH IS AN ACTION AND NOT AN EFFECT. That is the
+   * distinction `seedComboFromStyle` draws and the reason its own seed hangs off
+   * the [Detail] button: an effect watching the declared styles also fires when
+   * a saved order loads. Navigating to Combos is the operator saying "show me
+   * the colourways", exactly as [Detail] says "show me this combo's parts".
+   *
+   * IT CANNOT ARGUE BACK — `listedComboStyles` remembers, so a row that is
+   * deleted stays deleted however many times the section is revisited, and a
+   * saved order is primed full and never touched.
+   *
+   * BLANK ROWS ARE FILLED BEFORE ANY ARE ADDED. The grid opens holding one
+   * untouched row (`openOneRow`, which the keyboard contract needs), so
+   * appending would leave that blank line sitting above the styles it was
+   * supposed to become.
+   */
+  const listStylesInCombos = () => {
+    const declared = styles
+      .map((st) => st.style_ref_no.trim())
+      .filter(Boolean);
+    if (!declared.length) return;
+
+    setCombos((xs) => {
+      const already = new Set(
+        xs.map((x) => styleKey(x.style_ref_no)).filter(Boolean),
+      );
+      const owed = declared.filter((ref) => {
+        const k = styleKey(ref);
+        return !already.has(k) && !listedComboStyles.current.has(k);
+      });
+      if (!owed.length) return xs;
+
+      const rowFor = (ref: string) => {
+        const st = styles.find((x) => styleKey(x.style_ref_no) === styleKey(ref));
+        return {
+          style_ref_no: ref,
+          // THE REF IS THE NAME NOW (2026-08-25), as `addCombo` writes it.
+          style: ref,
+          article_no: st?.article_no ?? "",
+        };
+      };
+
+      /* An untouched opening row: no style, no colourway, no structures. A row
+         holding ANY of those is the operator's and is never written over. */
+      const isBlank = (r: ComboRow) =>
+        !r.style_ref_no.trim() && !r.combo.trim() && !r.structures.length;
+
+      const queue = [...owed];
+      const filled = xs.map((r) =>
+        isBlank(r) && queue.length ? { ...r, ...rowFor(queue.shift()!) } : r,
+      );
+      const out = [
+        ...filled,
+        ...queue.map((ref) => ({ ...blankCombo(), ...rowFor(ref) })),
+      ];
+      for (const ref of owed) listedComboStyles.current.add(styleKey(ref));
+      return out;
+    });
+  };
+
   const addCombo = () =>
     setCombos((xs) => {
       const only = styles.length === 1 ? styles[0] : null;
       const ref = only?.style_ref_no.trim();
-      if (!only || !ref) return [...xs, blankCombo()];
-      const name = only.style_ref_no.trim();
+      if (only && ref) {
+        const name = only.style_ref_no.trim();
+        return [
+          ...xs,
+          {
+            ...blankCombo(),
+            style_ref_no: ref,
+            style: name,
+            article_no: only.article_no ?? "",
+          },
+        ];
+      }
+      /**
+       * SEVERAL STYLES: THE NEXT ONE NOT YET LISTED (client 2026-08-28).
+       *
+       * A multi-style order fell straight through to a blank row, so the
+       * operator re-picked a style the order had already stated — the exact
+       * complaint the one-style branch above exists to answer, left unanswered
+       * for every order with more than one style. `combosForStyles` lists them
+       * all when the grid opens; this is the same rule for the grid an operator
+       * has already worked in.
+       *
+       * ON THE CLICK, WHICH IS WHAT MAKES IT SAFE. `seedComboFromStyle`'s note
+       * refuses a standing top-up because it "would re-add a row the operator
+       * deliberately removed the moment anything else re-rendered it". Pressing
+       * "+ Add" IS the operator asking for a row, so filling it in with the
+       * style they have not covered yet argues with nobody — and when every
+       * style is listed it falls back to a blank row rather than refusing.
+       */
+      const listed = new Set(
+        xs.map((x) => styleKey(x.style_ref_no)).filter(Boolean),
+      );
+      const next = styles.find(
+        (st) => st.style_ref_no.trim() && !listed.has(styleKey(st.style_ref_no)),
+      );
+      if (!next) return [...xs, blankCombo()];
+      const nextRef = next.style_ref_no.trim();
       return [
         ...xs,
         {
           ...blankCombo(),
-          style_ref_no: ref,
-          style: name,
-          article_no: only.article_no ?? "",
+          style_ref_no: nextRef,
+          style: nextRef,
+          article_no: next.article_no ?? "",
         },
       ];
     });
@@ -5081,6 +5264,16 @@ export function AmendmentScreen({
    * style price" twice would look like it had done nothing the second time.
    */
   type PriceGroup = { key: string; refNo: string; rows: PriceDetailRow[] };
+  /** One line of the pack-rate grid: what a box of this method, in this size,
+   *  costs. Derived per render from the pack types and the styles they pack —
+   *  it is not stored, and `setPackRate` is what turns it back into rows. */
+  type PackPriceRow = {
+    key: string;
+    method: string;
+    /** `null` on a Pack-wise row: one rate for the box, no size axis. */
+    size_id: string | null;
+    name: string;
+  };
   const priceGroups: PriceGroup[] = (() => {
     const out: PriceGroup[] = [];
     const seen = new Map<string, PriceGroup>();
@@ -5248,15 +5441,7 @@ export function AmendmentScreen({
      * `is_set_pack` is kept in the test rather than replaced, so a genuine
      * 0467 set pack still narrows if that switch is ever flipped back on.
      */
-    const packActive =
-      form.is_set_pack ||
-      (form.pack &&
-        packTypes.some(
-          (r) =>
-            r.pack_type.trim() &&
-            PackExplode.packContents(allPackTypeLines, r.pack_type).length > 0,
-        ));
-    const live: readonly string[] = packActive
+    const live: readonly string[] = packPricingActive
       ? PRICE_TYPE_OPTIONS.filter((o) => isPackWise(o))
       : PRICE_TYPE_OPTIONS;
     const out = live.map((o) => ({ value: o, label: o }));
@@ -5971,6 +6156,224 @@ export function AmendmentScreen({
       qty: l.qty,
     })),
   );
+
+  /**
+   * IS THIS ORDER PRICED BY THE BOX? — one answer, read by the Prices tab's
+   * mode list AND by the grid it draws (client 2026-08-28).
+   *
+   * `pack` (carton sortation) AND a declared method that actually holds a
+   * composition. The flag alone is not enough: an order may tick sortation
+   * before anyone has written what a box contains, and switching the Prices tab
+   * over then would take away every per-garment mode and offer a box rate with
+   * no box to attach it to.
+   *
+   * `is_set_pack` stays in the test so 0467's older "sold in packs" switch still
+   * narrows the tab if it is ever turned back on (`SET_PACK_ON_SCREEN`).
+   */
+  const declaredPackMethods = Array.from(
+    new Set(packTypes.map((r) => r.pack_type.trim().toUpperCase()).filter(Boolean)),
+  ).filter((m) => PackExplode.packContents(allPackTypeLines, m).length > 0);
+
+  const packPricingActive = form.is_set_pack || (form.pack && declaredPackMethods.length > 0);
+
+  /**
+   * THE PRICES TAB, WHEN THE BUYER BUYS BOXES (client 2026-08-28).
+   *
+   * "The screen will strictly list the selected Pack Name broken down by Sizes.
+   * The operator will enter a single, overall price for that pack-size
+   * combination, regardless of how many individual styles or colours make up
+   * the pack inside."
+   *
+   * ## THE GRID IS A PROJECTION; THE STORAGE DOES NOT CHANGE
+   *
+   * `price_details` stays one row per (style, colour, size) — the shape
+   * `styleRate`, `orderValue`, the Logistic tab's Avg Rate and
+   * `check:order-value` all read. What the operator types once against
+   * (method, size) is written to EVERY style that method packs, at that size.
+   *
+   * That is not duplication for its own sake: a pack rate is a rate per BOX, and
+   * `pack_group` is what stops the box being counted once per style. The rows
+   * carry the same figure precisely so the group test can see they agree —
+   * `orderValue` refuses a group whose members quote different rates, so writing
+   * one style and leaving the rest blank would refuse the whole order.
+   *
+   * ## SIZES ARE THE UNION ACROSS THE PACK'S STYLES
+   *
+   * One box holds several styles and their size runs need not match (a body may
+   * run S-XXL while a bib runs one size), so the rows are every size any member
+   * declares — the same rule `sizesForOverlay` applies to the assortment grid.
+   */
+  const packPriceSizes = (method: string): { id: string; name: string }[] => {
+    const seen = new Set<string>();
+    const out: { id: string; name: string }[] = [];
+    for (const ref of PackExplode.packStyles(allPackTypeLines, method)) {
+      for (const z of sizeOptionsForStyle(ref)) {
+        if (seen.has(z.id)) continue;
+        seen.add(z.id);
+        out.push(z);
+      }
+    }
+    return out;
+  };
+
+  /** The member styles of a method, as comparison keys. */
+  const packMemberKeys = (method: string) =>
+    PackExplode.packStyles(allPackTypeLines, method).map((r) => styleKey(r));
+
+  /**
+   * WHICH PACK MODE THIS METHOD IS PRICED ON — read off its own stored rows,
+   * defaulting to Pack-wise Size-wise (client 2026-08-28: the Price Type field
+   * "defaults strictly to Pack-Wise & Size-Wise").
+   *
+   * DERIVED, NEVER HELD IN STATE. A second store for "which mode" is a second
+   * thing that can disagree with the rows it describes — the same call
+   * `is_ratio_wise_pack` records on the Quantities tab, where a tickbox beside
+   * the field that answered it could only ever contradict it.
+   */
+  const packPriceMode = (method: string): string => {
+    const keys = packMemberKeys(method);
+    const hit = priceDetails.find(
+      (r) => keys.includes(styleKey(r.style_ref_no)) && isPackWise(r.price_type),
+    );
+    return hit?.price_type || PACK_WISE_SIZE_PRICE;
+  };
+
+  /**
+   * WHAT ONE BOX COSTS — blank when nothing is stored, and blank when the member
+   * rows DISAGREE.
+   *
+   * Showing the first of two different figures would put a number in the box
+   * that is not what the order is valued at: `orderValue` refuses a pack group
+   * whose members disagree, so the operator would see a rate and an unresolved
+   * order with nothing connecting them. A blank cell is the honest state, and
+   * re-typing it writes every member back into agreement.
+   */
+  const packRateFor = (
+    method: string,
+    mode: string,
+    sizeId: string | null,
+  ): string => {
+    const keys = packMemberKeys(method);
+    const rows = priceDetails.filter(
+      (r) =>
+        keys.includes(styleKey(r.style_ref_no)) &&
+        r.price_type === mode &&
+        r.size_id === sizeId,
+    );
+    if (!rows.length) return "";
+    const distinct = new Set(rows.map((r) => (r.price ?? "").trim()));
+    return distinct.size === 1 ? rows[0].price : "";
+  };
+
+  /** One rate, written to every style the method packs. See the header on
+   *  `packPriceSizes` for why the fan-out is what makes `pack_group` work. */
+  const setPackRate = (
+    method: string,
+    mode: string,
+    sizeId: string | null,
+    price: string,
+  ) => {
+    const refs = PackExplode.packStyles(allPackTypeLines, method);
+    setPriceDetails((xs) => {
+      const out = [...xs];
+      for (const ref of refs) {
+        const k = styleKey(ref);
+        const i = out.findIndex(
+          (r) =>
+            styleKey(r.style_ref_no) === k &&
+            r.price_type === mode &&
+            r.size_id === sizeId,
+        );
+        if (i >= 0) {
+          out[i] = { ...out[i], price };
+          continue;
+        }
+        out.push({
+          ...blankPriceDetail(),
+          style_ref_no: ref,
+          // THE REF IS THE NAME NOW (2026-08-25).
+          style: ref,
+          price_type: mode,
+          /* NO COLOURWAY. A box holds several, and the client's own wording is
+             "regardless of how many individual styles or colours make up the
+             pack inside" — so the colour axis is not merely unused here, it is
+             the wrong question. `modeAxes` answers `{colour:false}` for both
+             pack modes, so a combo written here could never be matched. */
+          combo: "",
+          size_id: sizeId,
+          price,
+        });
+      }
+      return out;
+    });
+  };
+
+  /**
+   * SWITCHING THE PACK'S PRICE TYPE, CARRYING THE FIGURE WHERE IT MEANS THE SAME
+   * THING.
+   *
+   * The two modes hold the same rate at two grains, so a switch is a RESHAPE and
+   * not a fresh start:
+   *
+   *   Size-wise -> Pack-wise   every size at one figure collapses to it; sizes
+   *                            that disagree collapse to blank, because no
+   *                            single one of them is the pack's price.
+   *   Pack-wise -> Size-wise   the one figure is seeded onto every size, which
+   *                            is what the operator has already said the box
+   *                            costs.
+   *
+   * THE OTHER MODE'S ROWS ARE REPLACED, and this is the one place on this tab
+   * that does not follow "never delete typed money". The rule protects rows the
+   * operator can still SEE and clear — the per-style grid renders a stale
+   * Colour-wise row so they can. Here the rows are a projection: nothing renders
+   * the inactive mode, `styleRate` refuses a style holding two modes at once,
+   * and the operator would face an order that will not value with nothing on
+   * screen to act on. Carrying the figure across is what keeps the deletion
+   * honest — no number the operator typed is lost unless it genuinely has no
+   * meaning at the new grain.
+   */
+  const setPackPriceMode = (method: string, mode: string) => {
+    const current = packPriceMode(method);
+    if (current === mode) return;
+    const refs = PackExplode.packStyles(allPackTypeLines, method);
+    const keys = packMemberKeys(method);
+    const sizes = packPriceSizes(method);
+
+    let carried = "";
+    if (mode === PACK_WISE_PRICE) {
+      const vals = new Set(
+        sizes
+          .map((z) => packRateFor(method, PACK_WISE_SIZE_PRICE, z.id).trim())
+          .filter(Boolean),
+      );
+      carried = vals.size === 1 ? [...vals][0] : "";
+    } else {
+      carried = packRateFor(method, PACK_WISE_PRICE, null);
+    }
+
+    setPriceDetails((xs) => {
+      const kept = xs.filter(
+        (r) => !(keys.includes(styleKey(r.style_ref_no)) && isPackWise(r.price_type)),
+      );
+      const made: PriceDetailRow[] = [];
+      for (const ref of refs) {
+        const base = {
+          ...blankPriceDetail(),
+          style_ref_no: ref,
+          style: ref,
+          price_type: mode,
+          combo: "",
+          price: carried,
+        };
+        if (mode === PACK_WISE_PRICE) {
+          made.push({ ...base, key: newKey(), size_id: null });
+          continue;
+        }
+        for (const z of sizes) made.push({ ...base, key: newKey(), size_id: z.id });
+      }
+      return [...kept, ...made];
+    });
+  };
 
   /**
    * WHICH METHOD THIS DESTINATION SHIPS — RESOLVED, NEVER ASKED (0473, client
@@ -11410,11 +11813,235 @@ export function AmendmentScreen({
         </>
       ),
     },
+    /**
+     * Pack type(s) is GATED ON THE Pack TOGGLE (client 2026-08-10): the tab is
+     * where solid vs assorted sizes/colours are defined, and that question only
+     * arises once the operator says this order is packed to a scheme.
+     *
+     * The section stays in the rail either way rather than appearing and
+     * disappearing as a checkbox is ticked — a rail whose sections come and go
+     * loses the operator their place. It says which switch turns it on instead.
+     */
+    form.pack
+      ? {
+          key: "packtypes",
+          label: "Pack type(s)",
+          content: (
+            <>
+              {/* TWO COLUMNS SINCE 0472 — the method and what it packs — so
+                  §6's "<=3 -> inlineCards" band still applies, but the old
+                  reading of it does not: this was "the extreme of it, a card
+                  around a single box" while a pack type was a word alone.
+                  Cards are now what gives the nested grid a full line to wrap
+                  into rather than a table cell to squeeze inside.
+
+                  The badge used to read "3 of 4 methods" because the cell was a
+                  dropdown over a fixed list and the ceiling had to be visible
+                  BEFORE "+ Add" declined on it. The cell is typed now and there
+                  is no ceiling, so it counts what has been named and claims
+                  nothing about what is left. */}
+              <ChildGrid<PackTypeRow>
+                badge={
+                  <span className="text-xs text-muted-foreground">
+                    {packTypes.filter((r) => r.pack_type.trim()).length} named
+                  </span>
+                }
+                columns={packTypeColumns}
+                rows={packTypes}
+                inlineCards
+                onAdd={addPackType}
+                onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add pack type"
+              />
+            </>
+          ),
+        }
+      : {
+          key: "packtypes",
+          label: "Pack type(s)",
+          /* NOTHING TO TYPE IN THIS BRANCH, so Tab and Enter pass over it and go
+             straight to Quantities (client 2026-08-19, screenshot 2365). The flag
+             lives on the SAME object as the fieldless panel below — the ternary is
+             what makes the two impossible to disagree. The rail still lists the
+             section and "Turn Pack on" still works when reached by mouse or by the
+             rail's arrow keys. */
+          skipTab: true,
+          content: (
+            <div className="rounded-md border border-dashed border-border bg-surface-muted/40 px-4 py-10 text-center">
+              <p className="text-sm font-medium text-foreground">Pack type(s)</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                This order is not packed to a scheme, so there are no pack types
+                to define (solid vs assorted sizes and colours).
+              </p>
+              {/* THE NOTE USED TO NAME A CHECKBOX ON ANOTHER SECTION and leave the
+                  operator to go and find it — which read as the tab being broken
+                  rather than switched off (2026-08-11). The button IS that
+                  checkbox: it sets the same header field, so `Pack` in Order Info
+                  ticks itself and this panel becomes the grid in place. Nothing
+                  navigates, so nothing typed on this section is left behind. */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => set({ pack: true })}
+              >
+                Turn Pack on
+              </Button>
+            </div>
+          ),
+        },
     // ---------------- Prices ----------------
     {
       key: "prices",
       label: "Prices",
-      content: (
+      /**
+       * A PACK ORDER PRICES THE BOX, AND ONLY THE BOX (client 2026-08-28).
+       *
+       * "If the pack option is enabled the system must completely hide the
+       * individual style-level or colour-level rate inputs. The screen will
+       * strictly list the selected Pack Name broken down by Sizes."
+       *
+       * So the per-style grid is not disabled here, it is not rendered at all —
+       * the client's own reasoning being that leaving a second place to type a
+       * rate "leads to conflicting price data on commercial shipping invoices".
+       * A style's rate and a box's rate are two answers to one question, and the
+       * invoice can only carry one.
+       *
+       * THE MODE NEEDS NO DROPDOWN IN THIS BRANCH. It is Pack-wise Size-wise by
+       * construction — `setPackRate` writes that `price_type` and nothing here
+       * offers another — which is the "defaults strictly to Pack-Wise &
+       * Size-Wise" half of the same instruction. `priceModeOptions` still
+       * narrows the list for the per-style branch, so an order that turns Pack
+       * off mid-entry finds its stored mode tagged rather than blanked.
+       *
+       * NOTHING IS DELETED WHEN THE BRANCH SWITCHES. Rates typed under a
+       * per-garment mode stay in `price_details`, unrendered — the standing rule
+       * on this tab ("never delete typed money"), and `styleRate` refuses a
+       * style holding two modes at once, which is the prompt to tidy them.
+       *
+       * PACK TYPE(S) NOW COMES BEFORE THIS TAB, which is what makes the grid
+       * possible without a fetch button: by the time the operator arrives the
+       * methods and their members are already in state.
+       */
+      content: packPricingActive ? (
+        <div className="space-y-6">
+          {declaredPackMethods.map((method) => {
+            const mode = packPriceMode(method);
+            const sizes = packPriceSizes(method);
+            /* SIZE-WISE DRAWS A ROW PER SIZE; PACK-WISE DRAWS ONE ROW FOR THE
+               BOX. `size_id: null` is not a missing size — it is the mode
+               saying the rate does not vary by one, and it is the value
+               `styleRate` matches on. */
+            const rows: PackPriceRow[] =
+              mode === PACK_WISE_PRICE
+                ? [{ key: `${method}::all`, method, size_id: null, name: "" }]
+                : sizes.map((z) => ({
+                    key: `${method}::${z.id}`,
+                    method,
+                    size_id: z.id,
+                    name: z.name,
+                  }));
+            return (
+              <div key={method} className="space-y-2">
+                {/* THE PACK NAME, ONCE — the same call the per-style grid makes
+                    for the style ("already we choosed the style, why need show
+                    for all size"). It is a heading and not a field: the method
+                    is the Pack type(s) tab's answer and is not re-picked here. */}
+                {/* THE PACK NAME AND ITS PRICE TYPE ON ONE LINE (client
+                    2026-08-28: "that dropdown i need"). The first cut dropped
+                    the control entirely, reasoning that a single available mode
+                    needs no dropdown — but there are TWO pack modes, and which
+                    one a buyer contracts on is the operator's to state, not the
+                    screen's to assume. It is the same field the per-style branch
+                    shows; only its options are narrowed. */}
+                <div className="flex flex-wrap items-end gap-4">
+                  <p className="text-sm font-semibold text-foreground">{method}</p>
+                  <Field label="Price Type" w="term" required>
+                    <Select
+                      value={mode}
+                      onChange={(e) => setPackPriceMode(method, e.target.value)}
+                    >
+                      {/* FROM THE TUPLE, FILTERED — never a hand-written pair,
+                          so a third pack mode appears here without an edit and
+                          the wording is declared once (`PRICE_TYPE_OPTIONS`). */}
+                      {PRICE_TYPE_OPTIONS.filter((o) => isPackWise(o)).map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+                {rows.length && (mode === PACK_WISE_PRICE || sizes.length) ? (
+                  <ChildGrid<PackPriceRow>
+                    columns={[
+                      /* NO SIZE COLUMN ON A PACK-WISE ROW — there is one rate
+                         and nothing for the column to say. Spreading a blank
+                         cell across the row instead would leave a header naming
+                         an axis this mode does not have. */
+                      ...(mode === PACK_WISE_PRICE
+                        ? []
+                        : [
+                            {
+                              header: "Size",
+                              cell: (r: PackPriceRow) => (
+                                <div className="flex min-h-8 items-center">
+                                  <span className="rounded border border-border bg-surface px-1.5 py-px font-mono text-[13px] font-medium tabular-nums text-foreground">
+                                    {r.name}
+                                  </span>
+                                </div>
+                              ),
+                            },
+                          ]),
+                      {
+                        header: "Rate / pack",
+                        required: true,
+                        /* DECLARED TWICE ON PURPOSE — `ChildGridColumn.required`
+                           draws the header star, and a grid that renders its own
+                           row must repeat it on the control or the star has
+                           nothing behind it (AGENTS.md, `--check
+                           grid-required-mobile`). */
+                        cell: (r) => (
+                          <Field required>
+                            <Input
+                              type="number"
+                              inputMode="decimal"
+                              className="h-8 text-right font-mono tabular-nums"
+                              value={packRateFor(r.method, mode, r.size_id)}
+                              onChange={(e) =>
+                                setPackRate(r.method, mode, r.size_id, e.target.value)
+                              }
+                            />
+                          </Field>
+                        ),
+                      },
+                    ]}
+                    rows={rows}
+                    /* THE ROWS ARE THE DATA. A size comes from the styles this
+                       method packs, so there is nothing to add or remove here —
+                       the lever is the Style(s) tab's size list. `hideAdd` and a
+                       declining `onAdd` together, so Enter off the last rate
+                       escalates to Save rather than trying to grow a fixed
+                       grid. */
+                    hideAdd
+                    onAdd={() => false}
+                    onRemove={() => {}}
+                  />
+                ) : (
+                  /* An empty state that NAMES A CAUSE ELSEWHERE — the survivor
+                     the de-clutter rule keeps. Without it a method whose styles
+                     carry no sizes draws a bare heading and reads as broken. */
+                  <p className="text-xs text-muted-foreground">
+                    The styles in this pack list no sizes yet — add them on
+                    Style(s).
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
         <>
           {/* ONE ROW PER STYLE, RATES BENEATH IT (client 2026-08-14), which is
               the legacy shape in screenshot 2295: a style's row carries a small
@@ -11540,99 +12167,6 @@ export function AmendmentScreen({
         </>
       ),
     },
-    /**
-     * Pack type(s) is GATED ON THE Pack TOGGLE (client 2026-08-10): the tab is
-     * where solid vs assorted sizes/colours are defined, and that question only
-     * arises once the operator says this order is packed to a scheme.
-     *
-     * The section stays in the rail either way rather than appearing and
-     * disappearing as a checkbox is ticked — a rail whose sections come and go
-     * loses the operator their place. It says which switch turns it on instead.
-     */
-    form.pack
-      ? {
-          key: "packtypes",
-          label: "Pack type(s)",
-          content: (
-            <>
-              {/* TWO COLUMNS SINCE 0472 — the method and what it packs — so
-                  §6's "<=3 -> inlineCards" band still applies, but the old
-                  reading of it does not: this was "the extreme of it, a card
-                  around a single box" while a pack type was a word alone.
-                  Cards are now what gives the nested grid a full line to wrap
-                  into rather than a table cell to squeeze inside.
-
-                  The badge used to read "3 of 4 methods" because the cell was a
-                  dropdown over a fixed list and the ceiling had to be visible
-                  BEFORE "+ Add" declined on it. The cell is typed now and there
-                  is no ceiling, so it counts what has been named and claims
-                  nothing about what is left. */}
-              <ChildGrid<PackTypeRow>
-                badge={
-                  <span className="text-xs text-muted-foreground">
-                    {packTypes.filter((r) => r.pack_type.trim()).length} named
-                  </span>
-                }
-                columns={packTypeColumns}
-                rows={packTypes}
-                inlineCards
-                onAdd={addPackType}
-                onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add pack type"
-              />
-              {/* WHAT THE WORDS MEAN, under the grid rather than in it. The
-                  names are the trade's and the colour and size axes are
-                  independent, which is not obvious from the wording alone — and
-                  the operator is naming a scheme on behalf of a Packing List
-                  they cannot see from here. Now that the cell is typed these are
-                  EXAMPLES and the sentence says so: a bare list printed beside a
-                  free-text box reads as the dropdown it used to be. It still
-                  reads PACK_TYPE_OPTIONS, so the wording is declared once. */}
-              <p className="mt-3 text-xs text-muted-foreground">
-                How finished garments are sorted into cartons — the colour and
-                size axes are independent. <strong>Solid</strong> means one per
-                carton, <strong>Assort</strong> means mixed. Type the method as
-                this order words it; the usual wordings are{" "}
-                {PACK_TYPE_OPTIONS.join(" · ")}.
-              </p>
-            </>
-          ),
-        }
-      : {
-          key: "packtypes",
-          label: "Pack type(s)",
-          /* NOTHING TO TYPE IN THIS BRANCH, so Tab and Enter pass over it and go
-             straight to Quantities (client 2026-08-19, screenshot 2365). The flag
-             lives on the SAME object as the fieldless panel below — the ternary is
-             what makes the two impossible to disagree. The rail still lists the
-             section and "Turn Pack on" still works when reached by mouse or by the
-             rail's arrow keys. */
-          skipTab: true,
-          content: (
-            <div className="rounded-md border border-dashed border-border bg-surface-muted/40 px-4 py-10 text-center">
-              <p className="text-sm font-medium text-foreground">Pack type(s)</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                This order is not packed to a scheme, so there are no pack types
-                to define (solid vs assorted sizes and colours).
-              </p>
-              {/* THE NOTE USED TO NAME A CHECKBOX ON ANOTHER SECTION and leave the
-                  operator to go and find it — which read as the tab being broken
-                  rather than switched off (2026-08-11). The button IS that
-                  checkbox: it sets the same header field, so `Pack` in Order Info
-                  ticks itself and this panel becomes the grid in place. Nothing
-                  navigates, so nothing typed on this section is left behind. */}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                onClick={() => set({ pack: true })}
-              >
-                Turn Pack on
-              </Button>
-            </div>
-          ),
-        },
     // ---------------- Quantities ----------------
     {
       key: "quantities",
@@ -13082,6 +13616,12 @@ export function AmendmentScreen({
            operator has actually been editing. */
         dirty={tabsHaveRows && touched}
         sections={sections}
+        /* The one action that means "show me the colourways" — see
+           `listStylesInCombos`. Keyed by section rather than by a Combos-only
+           callback so a second screen needing the same shape has it. */
+        onEnterSection={(key) => {
+          if (key === "combos") listStylesInCombos();
+        }}
         /**
          * Same footer contract as the Associates / Materials masters —
          * `customer-master-screen.tsx:1642` is the reference. `status` names the
@@ -13445,26 +13985,17 @@ export function AmendmentScreen({
           open
           onClose={() => setProcessForKey(null)}
           styleLabel={processStyle.style_ref_no.trim() || "this style"}
-          header={
-            {
-              styleRefNo: processStyle.style_ref_no,
-              articleNo: processStyle.article_no,
-              /* `unitTextOf`, the SAME helper the row's own Unit cell reads —
-                 the header must not be a second answer to "what does this line
-                 say", which is exactly what the sheet's own header doc warns
-                 about. Note it resolves from the style's `unit_kind`, not from
-                 `order_unit_id`: that FK is still seeded but is no longer what
-                 the column displays. */
-              orderUnit: unitTextOf(processStyle),
-              /* THE TYPED REF ANSWERS BOTH (2026-08-25). This was the master's
-                 `name` beside `styleRefNo`'s code; a typed line has one string,
-                 and printing it twice is better than printing a blank under a
-                 heading the sheet renders either way. */
-              styleNo: processStyle.style_ref_no,
-              styleDescription: processStyle.style_description,
-              poQty: processStyle.po_qty,
-            } satisfies StyleProcessHeader
-          }
+          /* NO `header` — the six read-only fields it fed (Style Ref No ·
+             Article No · Style No · Style Description · Order Unit · PO Qty)
+             were removed from the sheet on the client's instruction
+             (2026-08-28: "Process — Style ref to PO qty, remove the section, no
+             need this field, remove it from the process tab header also"). The
+             sheet's own note carries the reasoning; what matters here is that
+             NOTHING WAS UNWIRED — every one of the six was a `readOnly` display
+             `<Input>` with no `onChange`, so this prop was a one-way read out of
+             `StyleRow` and dropping it removes no write path. `unitTextOf`,
+             `article_no` and `style_description` are all still live on the row
+             itself. */
           rows={processStyle.processes}
           onChange={(next) => updateStyle(processStyle.key, { processes: next })}
           processes={data.processes}
