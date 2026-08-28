@@ -16,6 +16,7 @@
     "check:order-value": "npx --yes tsx scripts/check-order-value.mts",
     "check:bom-requirement": "npx --yes tsx scripts/check-bom-requirement.mts",
     "check:pack": "npx --yes tsx scripts/check-pack-composition.mts",
+    "check:uom-prefill": "npx --yes tsx scripts/check-uom-prefill.mts",
     "check:pack-type": "npx --yes tsx scripts/check-pack-type-explosion.mts",
     "check:process-return": "npx --yes tsx scripts/check-process-return.mts",
     "check:fabric-bom": "npx --yes tsx scripts/check-fabric-bom.mts",

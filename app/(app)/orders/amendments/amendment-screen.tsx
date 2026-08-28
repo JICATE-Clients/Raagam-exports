@@ -95,7 +95,7 @@ import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
 import { capsName } from "@/lib/validation/formats";
 import { Truncated } from "@/components/ui/truncated";
 import { PriceMatrix } from "@/components/orders/price-matrix";
-import { reshapeRates } from "@/lib/orders/amendments/price-modes";
+import { adoptedPrice, reshapeRates } from "@/lib/orders/amendments/price-modes";
 import { ApprovalQtyLines } from "@/components/orders/approval-qty-lines";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -176,8 +176,13 @@ import {
 } from "@/lib/orders/amendments/pack-composition";
 import {
   PRICE_TYPE_OPTIONS,
-  PACK_WISE_PRICE,
+  /* `PACK_WISE_PRICE` WENT WITH THE MODE-NAME TESTS (2026-08-28). The grid's
+     shape is `priceAxes(mode).size` and its unit is `isPackWise(mode)`, so the
+     one literal this file compared against has no reader left — which is the
+     point: a third mode arriving needed no edit at either site. */
   PACK_WISE_SIZE_PRICE,
+  PACK_BRANCH_PRICE_MODES,
+  isPackBranchMode,
   SEASON_OPTIONS,
   dyeTypeOptions,
   SHIP_MODES,
@@ -5436,13 +5441,18 @@ export function AmendmentScreen({
    * would then be averaging rows the screen no longer admits exist.
    */
   const priceModeOptions = (mode: string): { value: string; label: string }[] => {
-    /* BOTH PACK MODES (2026-08-28). The list was the single `PACK_WISE_PRICE`,
-       so adding the size-wise sibling to the tuple would have left it
-       unreachable on the one kind of order it exists for — the client's
-       "pack-wise AND size-wise" is a box rate per size, and a set pack that
-       could only quote one rate for every size could not express it. Filtered
-       out of the tuple rather than listed by hand, so a third pack mode needs
-       no edit here. */
+    /* THE PACK BRANCH'S OWN LIST, DECLARED ONCE (`PACK_BRANCH_PRICE_MODES`).
+       It was `PRICE_TYPE_OPTIONS.filter(isPackWise)` here and again in the
+       dropdown's JSX — two readings of one rule, which held only while "a mode
+       the pack branch offers" and "a mode that prices a BOX" were the same
+       sentence. They stopped being the same when plain Size-wise joined the
+       list (client 2026-08-28), and `isPackWise` still has to mean the second
+       one: it is the multiplicand fork in `order-value.ts`.
+
+       The list before it was the single `PACK_WISE_PRICE`, so adding the
+       size-wise sibling to the tuple would have left it unreachable on the one
+       kind of order it exists for. Derived from the tuple rather than listed by
+       hand, so a fourth mode needs no edit here. */
     /**
      * A PACK TYPE BEING ACTIVE IS WHAT SWITCHES THIS ON (client 2026-08-28:
      * "gate strictly on `pack`, not `is_set_pack`").
@@ -5464,7 +5474,7 @@ export function AmendmentScreen({
      * 0467 set pack still narrows if that switch is ever flipped back on.
      */
     const live: readonly string[] = packPricingActive
-      ? PRICE_TYPE_OPTIONS.filter((o) => isPackWise(o))
+      ? PACK_BRANCH_PRICE_MODES
       : PRICE_TYPE_OPTIONS;
     const out = live.map((o) => ({ value: o, label: o }));
     if (mode && !out.some((o) => o.value === mode)) {
@@ -6243,7 +6253,7 @@ export function AmendmentScreen({
     PackExplode.packStyles(allPackTypeLines, method).map((r) => styleKey(r));
 
   /**
-   * WHICH PACK MODE THIS METHOD IS PRICED ON — read off its own stored rows,
+   * WHICH MODE THIS METHOD IS PRICED ON — read off its own stored rows,
    * defaulting to Pack-wise Size-wise (client 2026-08-28: the Price Type field
    * "defaults strictly to Pack-Wise & Size-Wise").
    *
@@ -6251,11 +6261,19 @@ export function AmendmentScreen({
    * thing that can disagree with the rows it describes — the same call
    * `is_ratio_wise_pack` records on the Quantities tab, where a tickbox beside
    * the field that answered it could only ever contradict it.
+   *
+   * `isPackBranchMode`, NOT `isPackWise` (2026-08-28, second ruling). The
+   * predicate here has to admit every mode the dropdown above offers, and plain
+   * Size-wise is now one of them while remaining a PIECE basis. Left as
+   * `isPackWise` this reads a Size-wise method's rows as belonging to no mode,
+   * falls through to the default, and the operator's typed rates vanish from a
+   * grid that then offers to take them again — the failure is silent in both
+   * directions, since the rows are still there and still valued.
    */
   const packPriceMode = (method: string): string => {
     const keys = packMemberKeys(method);
     const hit = priceDetails.find(
-      (r) => keys.includes(styleKey(r.style_ref_no)) && isPackWise(r.price_type),
+      (r) => keys.includes(styleKey(r.style_ref_no)) && isPackBranchMode(r.price_type),
     );
     return hit?.price_type || PACK_WISE_SIZE_PRICE;
   };
@@ -6337,12 +6355,33 @@ export function AmendmentScreen({
    * The two modes hold the same rate at two grains, so a switch is a RESHAPE and
    * not a fresh start:
    *
-   *   Size-wise -> Pack-wise   every size at one figure collapses to it; sizes
+   *   per-size -> one rate    every size at one figure collapses to it; sizes
    *                            that disagree collapse to blank, because no
    *                            single one of them is the pack's price.
-   *   Pack-wise -> Size-wise   the one figure is seeded onto every size, which
+   *   one rate -> per-size     the one figure is seeded onto every size, which
    *                            is what the operator has already said the box
    *                            costs.
+   *   per-size -> per-size     each size keeps ITS OWN rate, cell for cell.
+   *
+   * ## IT FORKS ON THE AXIS, NOT ON THE MODE NAME (2026-08-28, second ruling)
+   *
+   * The third transition is Pack-wise Size-wise <-> Size-wise, and it is the one
+   * that broke the original shape: both grains are per-size, so there is no
+   * single `carried` figure — six sizes carry six rates. Written as a scalar
+   * with an `if (mode === PACK_WISE_PRICE)` the same-grain case would fall into
+   * the `else`, read `packRateFor(..., null)` (a cell neither mode has), and
+   * blank all six rates the operator had just typed.
+   *
+   * So the carry is a FUNCTION OF THE TARGET CELL and the fork is `priceAxes`,
+   * which is the same question `modeAxes` asks in `order-value.ts`. A fourth
+   * mode needs no branch here, only a correct entry there.
+   *
+   * WHAT THE FIGURE MEANS DOES CHANGE ACROSS THE NEW TRANSITION, and that is
+   * deliberate rather than overlooked: 12 per box becomes 12 per garment. There
+   * is no conversion available — the screen does not know the composition of
+   * every size — and blanking instead would throw away typed money on a switch
+   * the operator may be making to correct the unit. The rate column names its
+   * unit, so what changed is on screen next to the number.
    *
    * THE OTHER MODE'S ROWS ARE REPLACED, and this is the one place on this tab
    * that does not follow "never delete typed money". The rule protects rows the
@@ -6360,22 +6399,46 @@ export function AmendmentScreen({
     const refs = PackExplode.packStyles(allPackTypeLines, method);
     const keys = packMemberKeys(method);
     const sizes = packPriceSizes(method);
+    const isSized = priceAxes(mode).size;
 
-    let carried = "";
-    if (mode === PACK_WISE_PRICE) {
-      const vals = new Set(
-        sizes
-          .map((z) => packRateFor(method, PACK_WISE_SIZE_PRICE, z.id).trim())
-          .filter(Boolean),
-      );
-      carried = vals.size === 1 ? [...vals][0] : "";
-    } else {
-      carried = packRateFor(method, PACK_WISE_PRICE, null);
-    }
+    /**
+     * THE CARRY IS `adoptedPrice`, THE SAME RULE THE PER-STYLE GRID USES.
+     *
+     * It was three hand-written branches here — collapse, seed, and (once
+     * Size-wise arrived) carry-across — which is the table of mode-to-mode
+     * transitions `price-modes.ts` was written to avoid ever needing. Its
+     * `covers` predicate treats a blank axis as a WILDCARD, and that one idea is
+     * all three branches at once:
+     *
+     *   per-size -> per-size   the wanted size matches its own row      → that rate
+     *   one rate -> per-size   the source's `size_id: null` covers all  → seeded
+     *   per-size -> one rate   the wanted `null` covers every source    → only if
+     *                          they agree, else blank — which is the client's
+     *                          ruling ("picking one discards a rate, averaging
+     *                          invents one"), already vectored in
+     *                          `check-price-modes.mts` §3.
+     *
+     * SOURCES ARE READ OFF ONE MEMBER STYLE, not all of them. `packRateFor`
+     * already refuses to show a figure the members disagree on, so the rows are
+     * either unanimous or the cell was blank on screen; taking every member's
+     * copy would feed `adoptedPrice` N identical rows and change nothing but the
+     * cost. The colour axis is blank throughout — a box holds several.
+     */
+    const firstKey = keys[0];
+    const sources = priceDetails
+      .filter((r) => styleKey(r.style_ref_no) === firstKey && isPackBranchMode(r.price_type))
+      .map((r) => ({ combo: "", size_id: r.size_id ?? null, price: r.price ?? "" }));
+    const carriedFor = (sizeId: string | null) =>
+      adoptedPrice({ combo: "", size_id: sizeId }, sources);
 
     setPriceDetails((xs) => {
+      /* `isPackBranchMode`, not `isPackWise` — this is what clears the mode
+         being left, so a predicate narrower than the dropdown would strand a
+         Size-wise method's rows beside the new mode's. `styleRate` refuses a
+         style holding two modes at once, so the order would stop valuing with
+         nothing on screen naming the rows to delete. */
       const kept = xs.filter(
-        (r) => !(keys.includes(styleKey(r.style_ref_no)) && isPackWise(r.price_type)),
+        (r) => !(keys.includes(styleKey(r.style_ref_no)) && isPackBranchMode(r.price_type)),
       );
       const made: PriceDetailRow[] = [];
       for (const ref of refs) {
@@ -6385,13 +6448,13 @@ export function AmendmentScreen({
           style: ref,
           price_type: mode,
           combo: "",
-          price: carried,
         };
-        if (mode === PACK_WISE_PRICE) {
-          made.push({ ...base, key: newKey(), size_id: null });
+        if (!isSized) {
+          made.push({ ...base, key: newKey(), size_id: null, price: carriedFor(null) });
           continue;
         }
-        for (const z of sizes) made.push({ ...base, key: newKey(), size_id: z.id });
+        for (const z of sizes)
+          made.push({ ...base, key: newKey(), size_id: z.id, price: carriedFor(z.id) });
       }
       return [...kept, ...made];
     });
@@ -11918,7 +11981,29 @@ export function AmendmentScreen({
       key: "prices",
       label: "Prices",
       /**
-       * A PACK ORDER PRICES THE BOX, AND ONLY THE BOX (client 2026-08-28).
+       * A PACK ORDER IS PRICED IN ONE PLACE (client 2026-08-28).
+       *
+       * ## THE HEADLINE USED TO READ "AND ONLY THE BOX", AND IT NO LONGER DOES
+       *
+       * The first ruling was that a pack order quotes a rate per carton and
+       * nothing else; the operator has since asked for plain **Size-wise**
+       * beside the two pack modes, because some buyers contract a set at a
+       * per-GARMENT rate per size. So the dropdown now offers three modes and
+       * two multiplicands (`PACK_BRANCH_PRICE_MODES` in types.ts carries the
+       * reasoning and the risk).
+       *
+       * WHAT SURVIVES OF THE FIRST RULING IS THE PART THAT MATTERED. The quote
+       * below is about there being ONE place a rate is typed, not about which
+       * unit it is in — "conflicting price data on commercial shipping invoices"
+       * comes from a style grid and a pack grid both accepting a figure, and
+       * that is still impossible: the per-style and per-colour grids are not
+       * rendered here, and `packPriceMode` reads exactly one mode per method, so
+       * no method can quote a box and a garment at once.
+       *
+       * WHAT CHANGED IS THAT THE UNIT IS NOW A CHOICE, so the grid's rate column
+       * names it ("Rate / pack" vs "Rate / piece"). That header is the whole
+       * guard, and it is enough because neither figure is wrong — they are
+       * answers to different questions.
        *
        * "If the pack option is enabled the system must completely hide the
        * individual style-level or colour-level rate inputs. The screen will
@@ -11930,12 +12015,14 @@ export function AmendmentScreen({
        * A style's rate and a box's rate are two answers to one question, and the
        * invoice can only carry one.
        *
-       * THE MODE NEEDS NO DROPDOWN IN THIS BRANCH. It is Pack-wise Size-wise by
-       * construction — `setPackRate` writes that `price_type` and nothing here
-       * offers another — which is the "defaults strictly to Pack-Wise &
-       * Size-Wise" half of the same instruction. `priceModeOptions` still
-       * narrows the list for the per-style branch, so an order that turns Pack
-       * off mid-entry finds its stored mode tagged rather than blanked.
+       * THE MODE DEFAULTS TO PACK-WISE SIZE-WISE and is then the operator's:
+       * that is the "defaults strictly to Pack-Wise & Size-Wise" half of the
+       * same instruction, and `packPriceMode` states it as a fallback rather
+       * than as a constant. (An earlier note here claimed the branch needed no
+       * dropdown at all, on the grounds that one available mode cannot be
+       * chosen between. Three now can.) `priceModeOptions` still tags a stored
+       * mode the pack branch does not offer, so an order that turns Pack off
+       * mid-entry finds it named rather than blanked.
        *
        * NOTHING IS DELETED WHEN THE BRANCH SWITCHES. Rates typed under a
        * per-garment mode stay in `price_details`, unrendered — the standing rule
@@ -11951,12 +12038,28 @@ export function AmendmentScreen({
           {declaredPackMethods.map((method) => {
             const mode = packPriceMode(method);
             const sizes = packPriceSizes(method);
-            /* SIZE-WISE DRAWS A ROW PER SIZE; PACK-WISE DRAWS ONE ROW FOR THE
-               BOX. `size_id: null` is not a missing size — it is the mode
-               saying the rate does not vary by one, and it is the value
-               `styleRate` matches on. */
+            /* THE SHAPE IS THE MODE'S SIZE AXIS, NOT ITS NAME. Two of the three
+               modes on offer here draw a row per size (Pack-wise Size-wise, and
+               plain Size-wise since 2026-08-28) and only Pack-wise draws one row
+               for the box, so `=== PACK_WISE_PRICE` was about to become "every
+               mode except this one" — a test that is right until the fourth
+               mode. `priceAxes` is the same question `modeAxes` answers in
+               `order-value.ts`, and the two are already kept in step.
+
+               `size_id: null` is not a missing size — it is the mode saying the
+               rate does not vary by one, and it is the value `styleRate` matches
+               on. */
+            const sized = priceAxes(mode).size;
+            /* AND WHAT THE RATE IS A RATE *PER* — `isPackWise`, the multiplicand
+               fork, deliberately NOT the dropdown's list. Pack-wise and
+               Pack-wise Size-wise quote a box; Size-wise quotes a garment, and
+               the same figure typed under each values a 3-style gift box three
+               times apart. Both are correct arithmetic for what they mean, so
+               there is nothing to guard against — only a unit to name, in the
+               one place the operator is looking when they type it. */
+            const perBox = isPackWise(mode);
             const rows: PackPriceRow[] =
-              mode === PACK_WISE_PRICE
+              !sized
                 ? [{ key: `${method}::all`, method, size_id: null, name: "" }]
                 : sizes.map((z) => ({
                     key: `${method}::${z.id}`,
@@ -11966,45 +12069,60 @@ export function AmendmentScreen({
                   }));
             return (
               <div key={method} className="space-y-2">
-                {/* THE PACK NAME, ONCE — the same call the per-style grid makes
-                    for the style ("already we choosed the style, why need show
-                    for all size"). It is a heading and not a field: the method
-                    is the Pack type(s) tab's answer and is not re-picked here. */}
-                {/* THE PACK NAME AND ITS PRICE TYPE ON ONE LINE (client
-                    2026-08-28: "that dropdown i need"). The first cut dropped
-                    the control entirely, reasoning that a single available mode
-                    needs no dropdown — but there are TWO pack modes, and which
-                    one a buyer contracts on is the operator's to state, not the
-                    screen's to assume. It is the same field the per-style branch
-                    shows; only its options are narrowed. */}
-                <div className="flex flex-wrap items-end gap-4">
-                  <p className="text-sm font-semibold text-foreground">{method}</p>
-                  <Field label="Price Type" w="term" required>
-                    <Select
-                      value={mode}
-                      onChange={(e) => setPackPriceMode(method, e.target.value)}
-                    >
-                      {/* FROM THE TUPLE, FILTERED — never a hand-written pair,
-                          so a third pack mode appears here without an edit and
-                          the wording is declared once (`PRICE_TYPE_OPTIONS`). */}
-                      {PRICE_TYPE_OPTIONS.filter((o) => isPackWise(o)).map((o) => (
-                        <option key={o} value={o}>
-                          {o}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </div>
-                {rows.length && (mode === PACK_WISE_PRICE || sizes.length) ? (
+                {/* THE PACK NAME IS A HEADING ON ITS OWN LINE, and the Price
+                    Type field starts beneath it (client 2026-08-28, screenshot
+                    2534).
+
+                    The two sat on one `flex` row, so the field's left edge was
+                    wherever the NAME happened to end — and a two-method order
+                    (REFE, then FDFADSF) drew its two Price Type selects at two
+                    different indents, with the heading hanging off the bottom of
+                    each. A pack name is DATA: its width is the operator's, so
+                    anything laid out after it on the same line inherits that
+                    raggedness and no amount of gap tuning fixes it. Stacking is
+                    what makes every group's field land on the same track as the
+                    grid below it.
+
+                    It is still a heading and not a field: the method is the Pack
+                    type(s) tab's answer and is not re-picked here ("already we
+                    choosed the style, why need show for all size").
+
+                    THE DROPDOWN STAYS (client 2026-08-28: "that dropdown i
+                    need"). The first cut dropped the control entirely, reasoning
+                    that a single available mode needs no dropdown — but there
+                    are TWO pack modes, and which one a buyer contracts on is the
+                    operator's to state, not the screen's to assume. It is the
+                    same field the per-style branch shows; only its options are
+                    narrowed. */}
+                <p className="text-sm font-semibold text-foreground">{method}</p>
+                <Field label="Price Type" w="term" required>
+                  <Select
+                    value={mode}
+                    onChange={(e) => setPackPriceMode(method, e.target.value)}
+                  >
+                    {/* ONE DECLARATION, TWO READERS — `PACK_BRANCH_PRICE_MODES`,
+                        which `priceModeOptions` also reads. It was
+                        `PRICE_TYPE_OPTIONS.filter(isPackWise)` in both places:
+                        the same rule written twice, correct only while "offered
+                        on a pack order" and "priced per box" were one sentence.
+                        Adding Size-wise to one of the two copies is exactly the
+                        edit that would have left the other behind. */}
+                    {PACK_BRANCH_PRICE_MODES.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {rows.length && (!sized || sizes.length) ? (
                   <ChildGrid<PackPriceRow>
                     columns={[
-                      /* NO SIZE COLUMN ON A PACK-WISE ROW — there is one rate
-                         and nothing for the column to say. Spreading a blank
-                         cell across the row instead would leave a header naming
-                         an axis this mode does not have. */
-                      ...(mode === PACK_WISE_PRICE
-                        ? []
-                        : [
+                      /* NO SIZE COLUMN ON A MODE WITH NO SIZE AXIS — there is
+                         one rate and nothing for the column to say. Spreading a
+                         blank cell across the row instead would leave a header
+                         naming an axis this mode does not have. */
+                      ...(sized
+                        ? [
                             {
                               header: "Size",
                               cell: (r: PackPriceRow) => (
@@ -12015,9 +12133,19 @@ export function AmendmentScreen({
                                 </div>
                               ),
                             },
-                          ]),
+                          ]
+                        : []),
                       {
-                        header: "Rate / pack",
+                        /* THE HEADER NAMES THE UNIT, and it is the only thing on
+                           screen that does. Three modes share this one column
+                           and two of them price a BOX while the third prices a
+                           GARMENT — 12 typed here is 4,800 or 14,400 on the same
+                           3-style gift box depending on which is selected. The
+                           dropdown says which mode; this says what the number
+                           beside it means. Leaving "Rate / pack" standing over a
+                           per-garment rate would be a label that is simply
+                           false. */
+                        header: perBox ? "Rate / pack" : "Rate / piece",
                         required: true,
                         /* DECLARED TWICE ON PURPOSE — `ChildGridColumn.required`
                            draws the header star, and a grid that renders its own
@@ -12040,6 +12168,15 @@ export function AmendmentScreen({
                       },
                     ]}
                     rows={rows}
+                    /* CAPPED, NOT STRETCHED — the one-column case this prop was
+                       written for (client 2026-08-10). Pack-wise draws a single
+                       Rate / pack column, so a `<table>` handed the whole pane
+                       gave one figure a ~1400px box (screenshot 2534); Size-wise
+                       adds a two-character size beside it and is no wider a
+                       question. `narrow` caps the grid at 32rem, which is still
+                       4rem clear of the container query that would flip it to
+                       stacked cards — see the prop's note before tightening it. */
+                    narrow
                     /* THE ROWS ARE THE DATA. A size comes from the styles this
                        method packs, so there is nothing to add or remove here —
                        the lever is the Style(s) tab's size list. `hideAdd` and a
@@ -12048,6 +12185,15 @@ export function AmendmentScreen({
                        grid. */
                     hideAdd
                     onAdd={() => false}
+                    /* AND NO ✕ EITHER — the same statement as `hideAdd`, made at
+                       the other end of the row. `onRemove` was a no-op handler
+                       BEHIND a rendered button, so every rate line carried a
+                       control that did nothing when clicked (screenshot 2534).
+                       `hideRemove` is the prop written for a derived grid, and
+                       it takes Ctrl+Del with it (it drives the same button), so
+                       the keyboard and the mouse decline together rather than
+                       one of them appearing to work. */
+                    hideRemove
                     onRemove={() => {}}
                   />
                 ) : (

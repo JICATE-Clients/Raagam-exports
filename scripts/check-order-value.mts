@@ -35,6 +35,10 @@ import {
   priceBasisOf,
   styleRate,
 } from "../lib/orders/amendments/order-value.ts";
+import {
+  PACK_BRANCH_PRICE_MODES,
+  isPackBranchMode,
+} from "../lib/orders/amendments/types.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -584,6 +588,111 @@ check(
     giftPrices,
   ).grossValue,
   4800,
+);
+
+// ---------------------------------------------------------------------------
+// SIZE-WISE ON A PACK ORDER — the third mode the pack branch offers (operator
+// request, 2026-08-28), and the first one there that prices a GARMENT.
+//
+// THE RISK IS NOT ARITHMETIC, IT IS A CONFLATED PREDICATE. `isPackWise` had two
+// jobs until now: "does this rate multiply by boxes?" and "may a pack order
+// choose this mode?" — the same list, so one function served both. They part
+// company here, and each direction of the confusion has its own damage:
+//
+//   read `isPackWise` where the DROPDOWN is meant  -> Size-wise is not offered,
+//                                                    or worse, is offered and
+//                                                    then read back as "no mode"
+//                                                    so the typed rates vanish;
+//   read `isPackBranchMode` where the BASIS is meant -> a garment rate is
+//                                                    multiplied by the box count.
+//
+// So the two are asserted against each other, on the one mode that separates
+// them.
+// ---------------------------------------------------------------------------
+
+check(
+  "the pack branch offers three modes, in the tuple's reading order",
+  [...PACK_BRANCH_PRICE_MODES],
+  ["Pack-wise", "Pack-wise Size-wise", "Size-wise"],
+);
+check(
+  "...and Size-wise is the one the two predicates disagree about",
+  ["Pack-wise", "Pack-wise Size-wise", "Size-wise", "Color-wise"].map((m) => [
+    isPackBranchMode(m),
+    isPackWise(m),
+  ]),
+  [[true, true], [true, true], [true, false], [false, false]],
+);
+check(
+  "a mode is matched trimmed and case-folded, so a row saved earlier reads back",
+  [isPackBranchMode("  SIZE-WISE "), isPackBranchMode(""), isPackBranchMode(null)],
+  [true, false, false],
+);
+
+// THE BASIS IS UNMOVED, which is the assertion that matters: the dropdown grew
+// and `priceBasisOf` did not change its mind about anything.
+check(
+  "Size-wise stays a PIECE basis however it was reached",
+  priceBasisOf(S, [price(12, { type: "Size-wise", size: SIZE_S })]),
+  "piece",
+);
+
+// The same 3-style gift box as the section above, priced per GARMENT instead of
+// per box. Both figures below are correct; they are answers to different
+// questions, which is exactly why the grid's rate column has to name its unit.
+const pieceRate = (ref: string, p = 12) => ({
+  style_ref_no: ref,
+  price_type: "Size-wise",
+  combo: null,
+  size_id: SIZE_S,
+  price: p,
+});
+const piecePrices = [pieceRate(F), pieceRate(H), pieceRate(L)];
+/* A SIZE-WISE RATE STILL NEEDS ITS QUANTITIES, and the first cut of these
+   vectors forgot it — all three refused. That is not noise: the size axis is
+   open under this mode, so `styleRate` blends per size and a priced size with no
+   pieces behind it refuses rather than dropping out of the average (the vector
+   two sections up). Which means SWITCHING A METHOD TO SIZE-WISE MAKES THE ORDER
+   DEPEND ON THE QUANTITIES TAB in a way Pack-wise never did. Worth knowing
+   before an operator reports the Logistic tab as broken. */
+const pieceQtys = [
+  qty(BOXES, { size: SIZE_S, ref: F }),
+  qty(BOXES, { size: SIZE_S, ref: H }),
+  qty(BOXES, { size: SIZE_S, ref: L }),
+];
+
+check(
+  "a piece-priced pack is worth every garment in it, not one box",
+  orderValue(giftStyles, piecePrices, pieceQtys),
+  // 3 styles x 400 garments x 12 = 14,400 over 1,200 pieces.
+  { grossValue: 14400, avgRate: 12, unresolved: [] },
+);
+check(
+  "...which is 3x the SAME figure typed under Pack-wise, and both are right",
+  [
+    orderValue(giftStyles, giftPrices).grossValue,
+    orderValue(giftStyles, piecePrices, pieceQtys).grossValue,
+  ],
+  [4800, 14400],
+);
+// `pack_group` is read only on a pack basis, so the members are NOT collapsed
+// here even though they share a carton — the general rule is vectored above;
+// this is it arriving through the pack branch, which is how it will be hit.
+check(
+  "the carton does not collapse a piece-priced method",
+  orderValue(giftStyles, piecePrices, pieceQtys).grossValue !== 4800,
+  true,
+);
+// A pack count is irrelevant to a piece basis, so its absence must not refuse —
+// the mirror of "a pack-wise style with no pack count is unresolved".
+check(
+  "a piece-priced pack style with no pack count still values",
+  orderValue(
+    [{ style_ref_no: F, po_qty: BOXES, pack_group: "BABY GIFT BOX" }],
+    [pieceRate(F)],
+    [qty(BOXES, { size: SIZE_S, ref: F })],
+  ),
+  { grossValue: 4800, avgRate: 12, unresolved: [] },
 );
 
 console.log(

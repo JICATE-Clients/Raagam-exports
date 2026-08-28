@@ -18,7 +18,7 @@
  * `Aurelia Retail` (client 2026-08-10). `currency-picker.tsx` already does this
  * for the same reason: an ISO code IS the currency.
  */
-export type PickerIdentity = "name" | "code";
+export type PickerIdentity = "name" | "code" | "name-only";
 
 /**
  * A value adds nothing beside another when it IS that one, or is already inside
@@ -55,6 +55,24 @@ export function pickerIdentityParts(
   const n = (name ?? "").trim();
   // `&& c` is the fallback that keeps a codeless row from rendering a blank
   // field: an order with no number still shows its customer.
+  /**
+   * `"name-only"` SUPPRESSES THE SECOND HALF ENTIRELY (client 2026-08-28,
+   * screenshot 2531: "after the material name I can see again one more thing —
+   * don't need that").
+   *
+   * A THIRD VALUE RATHER THAN A `hideSublabel` FLAG, because this is the same
+   * question the other two answer — what identifies this record to the operator
+   * — and a boolean beside an enum is a second way to say one thing. It is also
+   * what keeps the choice greppable: every picker's identity is one word.
+   *
+   * WHAT IT COSTS, STATED PLAINLY: `DataPicker` searches `label + sublabel`, so
+   * a row whose code is not displayed can no longer be FOUND by its code. That
+   * is a real capability and it is given up deliberately — on the Material list
+   * the codes are truncated auto-generated strings (BUTTONPLAS, SEWINGTHRE2)
+   * that no operator types. Do not reach for this on a field whose code IS the
+   * thing people know it by (an HSN, an account head, a PO number).
+   */
+  if (identity === "name-only") return { label: n || c, sublabel: null };
   const codeLeads = identity === "code" && !!c;
   const primary = codeLeads ? c : n;
   const other = codeLeads ? n : c;

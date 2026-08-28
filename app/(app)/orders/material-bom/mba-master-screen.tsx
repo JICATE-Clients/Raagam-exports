@@ -93,7 +93,7 @@ import {
   missingItemFields,
   DEFAULT_MATERIAL_TYPE,
   DEFAULT_SUPPLY_TYPE,
-  MATERIAL_TYPE_OPTIONS,
+  TBA_MATERIAL_TYPE,
   REQUIREMENT_BASIS_LABELS,
   type BomCopySource,
   type MaterialBomAmendment,
@@ -143,6 +143,7 @@ import {
   uomPrecision,
 } from "@/lib/uom/convert";
 import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
+import { uomPatchForMaterial } from "@/lib/orders/material-bom/uom-prefill";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -1047,9 +1048,18 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    *     in that same row").
    *  3. **Ninth, after Combination** — the end of the chain quoted above, the
    *     same day.
-   *  4. **Eighth, immediately after Round To** — this ("TBA next to the Round
-   *     To, remaining all the same"), the same day again, which moved it one
-   *     cell left and left every other cell where the chain had put it.
+   *  4. **Eighth, immediately after Round To** ("TBA next to the Round To,
+   *     remaining all the same"), the same day again, which moved it one cell
+   *     left and left every other cell where the chain had put it.
+   *  5. **Ninth, after Combination again** — this (client 2026-08-28: "move the
+   *     TBA after the combination field"), which is position 3 restored.
+   *
+   * **STEP 5 IS NOT THE "CORRECTION" THIS NOTE WARNED ABOUT.** The paragraph
+   * above predicted a reader putting TBA back to the chain because the chain is
+   * the sentence quoted first — and this is the same destination reached the
+   * only legitimate way, by a fresh instruction, not by re-reading an old one.
+   * The warning stands for the NEXT reader: position 4 is now the one that
+   * looks like the amendment, and restoring it needs a new instruction too.
    *
    * `FOC` has been reversed the same way and for the same reason: it arrived
    * with 0474 beside `Process`, the two of them the last cells on the row; the
@@ -1060,12 +1070,17 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * one that ships.
    *
    * TAB ORDER IS THIS ORDER. An operator now fills the line's identity, then
-   * its units, then its purchase numbers, answers "is this material settled?"
-   * while still among them, opens the Combination grid, and leaves on the two
-   * ticks. TBA sitting mid-row costs nothing it did not cost at position 2 —
-   * it is a plain `<Select>` with no reveal, so nothing after it is displaced
-   * by touching it, which is what made the end-of-row position worth having
-   * while it was still a tick and what makes giving that position up cheap now.
+   * its units, then its purchase numbers, opens the Combination grid, answers
+   * "is this material settled?", and leaves on the two ticks — so the row ends
+   * on THREE switches in a run, which is the cheapest possible tail: none of
+   * them holds a value, none opens a reveal, and nothing after one is displaced
+   * by touching it.
+   *
+   * TBA IS A `Toggle` SINCE 2026-08-28 and no longer a `<Select>`, which is why
+   * it now sits happily beside Process and FOC rather than breaking their run.
+   * The earlier note here reasoned that a mid-row `<Select>` "costs nothing it
+   * did not cost at position 2"; that argument is spent — the control it was
+   * about no longer exists.
    *
    * THIS ARRAY IS THE AUTHORITY FOR BOTH. `renderMobileRow` walks `FIELD_GROUPS`
    * and looks each column up by header, so what is rendered — and therefore the
@@ -1089,11 +1104,22 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * that also re-sized would have made the two changes impossible to tell apart
    * the next time this row is reported as crooked.
    *
-   *   one run  4+4+4+3+3+2+2+2+4+2+2 = 32
+   *   one run  4+6+4+3+3+2+2+2+2+2+2 = 32
+   *
+   * 2026-08-28: TBA became a Toggle and moved AFTER Combination at the
+   * client's request. It gave its two columns to Material, which every note
+   * on this row says clips soonest — the run still totals 32, which is the
+   * whole contract of this array.
    */
   [
     { header: H.category, size: "md", weight: "key" },
-    { header: H.material, size: "md", weight: "key" },
+    /* IT TAKES THE TWO COLUMNS TBA GAVE UP (2026-08-28). The run must total 32
+       or the last field drops to a line of its own, so a cell that shrinks has
+       to hand its span somewhere — and this is the field every note on this row
+       says clips soonest: it holds the long slashed spec, and the 08-27 pass
+       recorded it dropping to ~132px as "the trade the client chose". A switch
+       needs none of that width and this does. */
+    { header: H.material, size: "lg", weight: "key" },
     /* A GRAIN READS "Style Ref No / Order Color / Order Size" — the longest
        value on the row after Material, and a native `<Select>` with no reveal
        bubble to rescue it, so it does not go below `md`. */
@@ -1119,18 +1145,6 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        about them changed except where they sit. */
     { header: H.moq, size: "xs", weight: "plain" },
     { header: H.roundTo, size: "xs", weight: "plain" },
-    /* A TWO-OPTION `<Select>` SHOWING "Available Item" on almost every line, so
-       it is sized for a value rather than for a switch — ~107px at 1366@110%,
-       against a ~78px `sm` that would clip it. Holding it at 4 is also what
-       keeps this run at exactly 32.
-
-       IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
-       (2026-08-28), amending their own chain of minutes earlier which had it
-       one place further along. This is the ONE wide cell in the run of five
-       narrow ones that closes the line — see the cell's own doc for why that
-       is deliberate and why it is the first thing an evening-up instinct
-       reaches for. */
-    { header: H.tba, size: "md", weight: "quiet" },
     /* AN ICON BUTTON, NOT A VALUE — the only field on the row with nothing to
        clip, which is what lets it take the smallest span without losing
        anything. The 08-24 instruction that matched it to the Consumption Uom
@@ -1140,6 +1154,19 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        the two on 2026-08-28, so the cells are no longer neighbours and the
        shared `xs` is still right, because it was never a matching exercise. */
     { header: H.combination, size: "xs", weight: "quiet" },
+    /* A SWITCH SINCE 2026-08-28, so it takes the smallest span like every other
+       control on this row that shows no value — the `md` it held was bought
+       specifically to fit the words "Available Item", and there are no words
+       any more.
+
+       THE TWO COLUMNS GO TO MATERIAL, above. The run's whole contract is that
+       it still totals 32; a cell that shrinks without saying where its span
+       went is how the sums drifted to 28 and 36 once already.
+
+       IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
+       (2026-08-28), amending their own chain of minutes earlier which had it
+       one place further along. That placement is unaffected by the resize. */
+    { header: H.tba, size: "xs", weight: "quiet" },
     /* THE TWO SWITCHES, AND THEY CLOSE THE LINE. A `Toggle` draws a ~36px
        switch and shows no value, so 76px is the control with room to spare and
        the widest label ("Process", ~42px) sits on one line. Do not reach for
@@ -4195,7 +4222,77 @@ export function MbaMasterScreen({
           label="Material"
           items={materialsFor(r.category_id, r.item_id)}
           value={r.item_id}
-          onChange={(id) => updItem(r.key, { item_id: id })}
+          /**
+           * A MATERIAL THAT DECLARES ONE UNIT FILLS BOTH CELLS (client
+           * 2026-08-28: "if it only has a single standard unit of measure
+           * defined in the master, the system must automatically populate both
+           * — the user should not have to select the same unit twice").
+           *
+           * THE OTHER HALF OF THE 60-80% RULE. The Purchase cell already fills
+           * Consumption when the operator picks a unit; this fills the pair
+           * when there is only ever going to be one answer, so on the ordinary
+           * material the operator picks nothing at all. The two prompts survive
+           * only for the case that earns them — a thread bought in CONES and
+           * consumed in MTR — which is exactly the client's "only ask when they
+           * differ".
+           *
+           * ## THE SAME THREE GUARDS THE PURCHASE PREFILL STATES
+           *
+           *  1. **ONLY WHILE THE CELL IS BLANK.** A prefill that overwrites is
+           *     the screen disagreeing with the operator. Each cell is tested
+           *     on its own, so a line that already names a Purchase unit still
+           *     gets its Consumption filled.
+           *  2. **ONLY A UNIT THIS MATERIAL DECLARES**, asked with `null` as the
+           *     current value — which makes the question "what would the cell
+           *     OFFER?" rather than "what is on the list?", the same distinction
+           *     that keeps a stale stored unit from being copied across.
+           *  3. **CLEARING THE MATERIAL FILLS NOTHING.** `id` is null on a
+           *     clear, so the branch does not run and the units already there
+           *     stay the operator's to remove.
+           *
+           * EXACTLY ONE, NEVER "THE FIRST OF SEVERAL". A material with an
+           * alternate unit declares two, and which of them a line buys in is
+           * the decision this screen exists to record — defaulting it would put
+           * a value on the field that decides what gets purchased without
+           * anybody having answered.
+           *
+           * ## SWAPPING THE MATERIAL DROPS WHAT THE NEW ONE CANNOT OFFER
+           *
+           * (client 2026-08-28, on being shown the gap.) Both rules — the drop
+           * and the fill — live in `uomPatchForMaterial`
+           * (`lib/orders/material-bom/uom-prefill.ts`), which states each branch
+           * and why it is there. They are ONE function because the drop is what
+           * re-arms the fill: blanking a stale cell lets a single-unit material
+           * refill it in the same keystroke, so the line is never briefly wrong
+           * on screen.
+           *
+           * IT IS A MODULE SO IT CAN BE VECTORED. A rule inside this file cannot
+           * be imported by a `.mts` check, which is the cost `assort-style.ts`
+           * records — and three of these branches only fire on an edit path
+           * nobody exercises by hand.
+           */
+          onChange={(id) => {
+            updItem(r.key, {
+              item_id: id,
+              ...uomPatchForMaterial(
+                r,
+                id,
+                /* WHAT THE NEW MATERIAL OFFERS, asked with `null` as the current
+                   value — the question is "what would the cell offer?", never
+                   "what is on the list?", because `uomOptionsFor` always keeps a
+                   stored value on its list and would answer the second one with
+                   the stale unit this rule exists to drop. */
+                uomOptionsFor(id, null).map((u) => u.id),
+                data.conversions,
+              ),
+            });
+          }}
+          /* THE NAME AND NOTHING ELSE (client 2026-08-28, screenshot 2531).
+             The list showed each material's auto-generated code beside it
+             (BUTTONPLAS, SEWINGTHRE2) — a string no operator types, sitting
+             where the eye is scanning for the spec. Same instruction that took
+             the `(SEW)` / `(PACK)` class bracket off, one field along. */
+          identity="name-only"
           required
           compact
         />
@@ -4710,20 +4807,39 @@ export function MbaMasterScreen({
        * governs typed free text. `type` stays `nullableText` in the input.
        */
       header: H.tba,
-      className: "min-w-[150px]",
+      className: "min-w-[130px]",
+      /**
+       * A SWITCH, NOT A DROPDOWN (client 2026-08-28: "TBA as toggle — if toggle
+       * is enabled To Be Advised, otherwise the state is always Available
+       * Item").
+       *
+       * The list had two entries and one of them was on almost every line, so
+       * the control spent a value-width box saying "Available Item" over and
+       * over. A `Toggle` carries its state in its SHAPE — the same argument the
+       * Process and FOC cells already make — so a BOM with two unsettled lines
+       * in twenty shows them by scanning a column rather than by reading a word.
+       *
+       * THE STORED VALUE IS UNCHANGED: `type` still holds "To be advised" or
+       * "Available Item", through the two named constants, so
+       * `refuseUnsettledMaterials` and every row saved under the `<Select>` keep
+       * working exactly as they did.
+       *
+       * OFF IS "Available Item", NOT BLANK. The empty option is gone with the
+       * dropdown — a switch has no third position — so a line the operator never
+       * touches now states the ordinary case rather than saying nothing. That
+       * matches the 08-21 default (`DEFAULT_MATERIAL_TYPE`), which `blankItem`
+       * has been stamping on new lines since it existed. A row STORED blank
+       * before today reads as off, which says the same thing the blank did and
+       * is what the switch would write anyway.
+       */
       cell: (r) => (
-        <Select
-          value={r.type}
-          onChange={(e) => updItem(r.key, { type: e.target.value })}
-          className="h-8"
-        >
-          <option value=""></option>
-          {MATERIAL_TYPE_OPTIONS.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </Select>
+        <Toggle
+          ariaLabel="To be advised — the final spec is not settled, so no purchase order may be raised for this material"
+          checked={r.type === TBA_MATERIAL_TYPE}
+          onChange={(on) =>
+            updItem(r.key, { type: on ? TBA_MATERIAL_TYPE : DEFAULT_MATERIAL_TYPE })
+          }
+        />
       ),
     },
     {
