@@ -1148,7 +1148,31 @@ export function MasterFullScreen({
           // `data-focus-scope` is what makes `isEditorScope()` true and what
           // `registerContentEdge` keys the section hand-off on, so those two
           // attributes especially must never become conditional on the mount.
-          className="min-h-0 flex-1 overflow-y-auto"
+          //
+          // `bg-surface` ADDED 2026-08-28, AND IT IS WHAT MAKES THE RAIL JOIN
+          // VISIBLE. The pane painted nothing, so the shell root's
+          // `bg-background` (#f6f7f9) showed through while the active rail pill
+          // is `bg-surface` (#ffffff) — a ~2% step, right where the join claims
+          // the two are ONE surface. Three near-identical greys were stacked
+          // (pill #ffffff · pane #f6f7f9 · rail #f1f3f5), so the join rendered
+          // correctly and read as nothing at all (client screenshot 2529).
+          //
+          // The fix is not to darken the rail: it is to make the two halves of
+          // the joined shape the SAME colour and leave the rail as the one that
+          // differs. Now pill and pane are both #ffffff against a #f1f3f5 rail,
+          // which is the figure/ground the reference pattern depends on.
+          //
+          // IT ALSO MAKES THE FOOTER'S OWN COMMENT TRUE. The footer is
+          // `bg-surface` and describes itself as "the same surface as the pane
+          // above"; it has not been, since the pane painted nothing.
+          //
+          // SCOPE IS EVERY MASTER EDITOR IN THE APP, deliberately and with the
+          // client's word on it. A pane that paints its own surface is also what
+          // stops a section's content borrowing whatever the shell happens to be
+          // painted, which is the same class of bug as a transparent `body` in a
+          // themed page. Both themes move together: dark goes #0b0d12 → #14171d,
+          // the same step in the same direction.
+          className="min-h-0 flex-1 overflow-y-auto bg-surface"
           // Field navigation comes from keyboard-nav-provider.tsx; this pane is
           // the navigation boundary because it carries data-focus-scope.
           data-focus-scope
