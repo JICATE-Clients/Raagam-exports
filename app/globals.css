@@ -698,3 +698,404 @@ body {
     box-shadow: none !important;
   }
 }
+
+/* ============================================================================
+ * THE RAAGAM SKIN — the client's reference design, opt-in one screen at a time
+ * ============================================================================
+ *
+ * Turned on by `data-skin="raagam"` on a screen's root and NOWHERE ELSE yet
+ * (client 2026-08-28: "touch these pages only as of now ... if it's okay we can
+ * chnaged all other things"). Material BOM is the only holder today.
+ *
+ * IT IS A STYLE SHEET AND NOT A COMPONENT EDIT, which is the whole reason it
+ * can be scoped. `MobileCardList` sits behind 9 screens and `MasterFullScreen`
+ * behind 41, so restyling either would have redesigned the app on the way to
+ * redesigning one screen. Everything below is scoped inside the subtree, so no
+ * screen outside it can see any of it. Approving the look later is adding the
+ * attribute to more roots — or lifting these rules to `:root` — not redoing it.
+ *
+ * A FIRST VERSION OF THIS WAS TOKENS ONLY AND THE CLIENT COULD NOT SEE IT
+ * ("what did u change it almost looks identical"). It moved `--radius-xl` by
+ * 6px and the canvas by two hex steps, which is a rounding error rather than a
+ * redesign. The lesson is in what the reference actually differs by: its cards
+ * carry NO OUTLINE and separate by shadow, its figures are ~2.5x the label
+ * beside them, its padding is roughly double, and its nav is pills. Only the
+ * first of those is a token; the rest are structure, and structure is why the
+ * subtle version read as unchanged.
+ *
+ * WHAT IS DELIBERATELY NOT COPIED IS THE COLOUR. The palette is already the
+ * logo's and was argued out in the brand block above: `--primary` IS
+ * `--brand-blue` taken down to 4.58:1, and every green is re-hued to the logo's
+ * 83deg at matched luminance. Raw #85c227 carries white text at 2.16:1, so the
+ * reference's green buttons only work because their text is DARK. The green
+ * appears here where it costs no contrast: the canvas tint, the active rail
+ * pill, and a hairline of brand on the card that is hovered.
+ */
+[data-skin="raagam"] {
+  /* Cards at 24px, controls left typeable. `--radius-md` is what an <Input> and
+     a Button take, so it moves least — past ~10px a 36px control reads as a
+     lozenge and stops looking like something you type into. */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+
+  /* PLAIN WHITE, AND THAT IS THE FINAL ANSWER ON GROUNDS (client 2026-08-28:
+     "remove the bg color, white is enpugh fopr me").
+     Four tinted grounds were tried across this session and every one came back:
+     a 6%-saturated sage read as the wrong green; a true 22% tint of #85c227 was
+     too much colour for a whole page; a 7% blue panel was so weak it read as
+     unchanged; and the two-colour blue-to-green sweep across sidebar, content
+     and header was the closest to the reference and still not wanted. The thing
+     the client said yes to every time was the COLOUR ON THE CONTROLS, so that is
+     all that is left: white surfaces, brand on the pills and the buttons.
+     `--surface-muted` is white too — the ITEMS panel and every section body take
+     it, and a grey panel on a white page is the tint coming back by another
+     name. */
+  --background: #ffffff;
+  --surface-muted: #ffffff;
+  /* BOLD ON THE FIELDS, QUIET ON THE PARTITIONS (client 2026-08-28: "no u made
+     all the lines bold ... i will tell which lines to remove").
+     Making `--border` itself bold was the wrong lever, because ONE token draws
+     two different things: the box an operator types into, and the seams between
+     regions. Turning it up made every seam shout; turning it down had made the
+     boxes vanish ("too smooth almost can't see them"). So the token stays quiet
+     and the FIELDS are lifted on their own, below. */
+  --border: #dde5d3;
+  --border-strong: #b9c9a6;
+
+  /* The shadow now does the separating, so it has to be visible. Tinted with
+     the green's hue rather than neutral black, so the lift reads warm. */
+  --elev:
+    0 1px 2px rgb(31 41 25 / 0.05),
+    0 12px 32px -10px rgb(31 41 25 / 0.20);
+  --elev-hi:
+    0 2px 6px rgb(31 41 25 / 0.07),
+    0 22px 48px -12px rgb(31 41 25 / 0.28);
+}
+
+/* THE CARD LOSES ITS OUTLINE. This is the single biggest difference from the
+   reference and it cannot be a token: `--border` also draws every <Input>, and
+   a field with no edge is a field an operator cannot find. So the border is
+   cleared on the CARD only, and the shadow above takes over the job. */
+[data-skin="raagam"] [data-card] {
+  border-color: transparent;
+  background-image: none;
+}
+
+/* Roomier. The reference's cards breathe at roughly double this app's density,
+   which is a deliberate difference — this one carries dense tables — so it is
+   taken part of the way rather than all of it. */
+[data-skin="raagam"] [data-card] > button {
+  padding: 1rem 1.125rem;
+}
+
+/* NO TYPE SCALING IN THE STAT STRIP, and it was tried (client 2026-08-28: "only
+   number got bigger i want previous size").
+   The reference's figures are ~2.5x their label, so this scaled `dd` to 26px and
+   set `dt` in spaced small-caps. Both broke the strip, because the reference's
+   cards hold ONE short figure per tile and these hold THREE across a quarter of
+   the pane, one of which is a date: "10/10/2026" truncated to an ellipsis, and
+   the widened labels ran together into "PRODUCTIONSTYLES".
+   The lesson is that the figure size here is load-bearing rather than cosmetic —
+   `StatStrip` already steps 16px -> 19px on a wide card and holds 13px for the
+   rest, which is what keeps three values and three labels on two lines. Type is
+   therefore left exactly as the component ships it; this skin changes the SHAPE
+   around the numbers, not the numbers. */
+
+/* The header row's buttons become pills. Scoped to the header region so a
+   grid's "+ Add" and the footer's Save keep the app's own shape. */
+/* THE LEFT RAIL IS A SOLID BRAND-BLUE PANEL AND THE CONTENT BESIDE IT IS GREEN
+   (client 2026-08-28: "i want our clients blue colour on full left side bar and
+   the green on right side"). That is the logo's own pairing — blue wordmark,
+   green roundel — turned into the screen's two halves.
+
+   #037bb8 AND NOT #0493db, WHICH MATTERS HERE MORE THAN ANYWHERE. This panel is
+   the first place in the app to put white text on a brand-blue FILL, and the
+   brand block above already did the arithmetic: raw #0493db carries white at
+   3.39:1, under the 4.5 AA needs, while `--primary` is that same hue and
+   saturation taken down to 4.58:1. The rail's labels are 13.5px, so they are
+   normal text and the 4.5 applies — large-text's 3:1 exemption would need
+   ~19px bold. Using the raw logo blue here would fail every section label.
+
+   `role="tab"` + `aria-selected` are ARIA, and therefore the most stable hook
+   the component has — a utility class would break the next time the rail is
+   restyled. */
+/* THE PANEL IS WHITE AND ONLY THE BUTTONS CARRY COLOUR (client 2026-08-28:
+   "left side there is full blue right. but i don't want like that. i want it
+   full white only those 2 buttons should be in blue with curved design at the
+   edges ... same goes to the right side but with the logo green colour").
+   A solid blue rail was the previous reading of "blue on the full left side
+   bar" and it was the wrong one: the colour belongs to the CONTROLS, and the
+   surface behind them stays white. Same rule on the right, in green. */
+/* NO TINTED SURFACES ANYWHERE — white is the ground (client 2026-08-28:
+   "remove the bg color, white is enpugh fopr me").
+   Three grounds were tried and all three are withdrawn: a flooded green canvas,
+   a blue/green pair of washes, and the two-colour sweep across sidebar, content
+   and header. What survives is what the client kept saying yes to — the COLOUR
+   ON THE CONTROLS. The rail is white like everything else; only the selected
+   pill and the buttons carry the blend.
+   Left as one rule rather than deleted so the sidebar still overrides the
+   component's own `bg-surface-muted`, which would otherwise put a grey panel
+   back where the white is wanted. */
+[data-skin="raagam"] [role="tablist"] {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* AN UNSELECTED ITEM HAS NO OUTLINE. In the reference the sidebar is icon +
+   label and nothing else until one is chosen — the outlined pills I had were
+   inventing chrome the design does not have, and made all three read as equally
+   active. */
+[data-skin="raagam"] [role="tab"] {
+  /* THE RAIL BUTTONS TAKE THE FIELD'S SHAPE, NOT A PILL (client 2026-08-28, a
+     screenshot of a field box: "i want this shape for left side buttons").
+     `--radius-md` is the same token the inputs on the right resolve to, so the
+     two sides share one corner radius by reference rather than by two numbers
+     that happen to match today. */
+  border-radius: var(--radius-md);
+  border-color: transparent;
+  background: transparent;
+  color: #44506a;
+}
+/* The icon takes `text-primary` / `text-muted-foreground` from the component;
+   `currentColor` re-ties it to its label so the two cannot disagree as the item
+   moves between selected and not. */
+[data-skin="raagam"] [role="tab"] svg {
+  color: currentColor;
+}
+[data-skin="raagam"] [role="tab"]:hover {
+  background: #ffffff;
+  color: #075985;
+}
+/* PRE-MIXED LITERALS, NOT color-mix(), and this is the second time this file
+   has had to say so — see `--cell-active` in the light block above. Lightning
+   CSS cannot fold a mix whose argument is itself a `var()`, so it emits the
+   SOLID colour as the fallback: written as color-mix these three declarations
+   compiled down to `background: var(--brand-green)` alone, dropping the border
+   and the text colour with them, and the selected rail item rendered as a solid
+   #85c227 slab. Checked in the SERVED stylesheet, not in the source.
+     16% green on white -> #ebf5dc      34% -> #d6eab6
+     22% green on black -> #1d2b09      40% -> #354e10 */
+/* Selected is the FILLED blue, its neighbours the outlined one — so all three
+   read as the same blue button and only the fill says which is open.
+   #037bb8 and not the raw logo #0493db: white on the raw blue is 3.39:1 and
+   these labels are 13.5px normal text, which needs 4.5. #037bb8 is that same
+   hue at 4.64:1 — measured, not eyeballed. */
+[data-skin="raagam"] [role="tab"][aria-selected="true"],
+.dark [data-skin="raagam"] [role="tab"][aria-selected="true"] {
+  /* THE SELECTED PILL IS THE GRADIENT — the reference's "Tracking" item is a
+     violet-to-pink pill and this is its blue-to-green counterpart.
+     #558019 AND NOT #85c227 AT THE FAR END, and this is the whole reason the
+     gradient can carry white text: white on the logo green is 2.16:1, so a pill
+     ending there would be legible at its left edge and unreadable at its right.
+     ONE FAMILY, NOT TWO (client 2026-08-28: "i want the only the blue family
+     mixed like dark blue and light blue mixed"). The sweep now runs the brand
+     blue into a deeper version of itself — #037bb8 -> #02628f -> #01476c, all
+     the same ~200deg hue at falling lightness.
+
+     PASTEL, WHICH IS WHY THE TEXT IS DARK (client 2026-08-28: "this blue is on
+     but it too dark i wnat it in pastel shades of blue").
+     The previous sweep ran #037bb8 -> #01476c and could not go lighter, because
+     WHITE text was on it: #037bb8 is already the brand blue darkened to clear
+     4.5:1, and one step lighter (#0782c0) is 4.23:1. Pastel is unreachable while
+     the label is white — so the label flips, and then the whole pale end of the
+     blue opens up. #0b3a56 on this sweep is 6.71:1 at its worst of 41 sampled
+     points.
+     THE 1px EDGE IS NOT DECORATION. A pastel fill on a white page has almost no
+     boundary of its own — #cfe8f7 against white is 1.2:1 — so without #8cc4e5
+     the button's shape dissolves and only its text says a control is there.
+
+     THE MIDPOINT IS STILL SAMPLED RATHER THAN ASSUMED. An earlier blue-to-GREEN
+     version put a teal through the centre that sat LIGHTER than both ends
+     (3.99:1) — the label passed at each end and failed across the middle third.
+     Within one hue that cannot happen, since lightness now falls monotonically,
+     but the sweep is still checked at 41 points: worst 4.64:1, at the light end.
+
+     A LIGHTER, MORE SEPARATED VERSION WAS TRIED ON 2026-08-28 AND REJECTED.
+     Asked to tone it down and make the two colours read separately, it went to
+     #5cb3e2 -> #a8d45c with the blend held inside the middle 40% and the label
+     flipped to dark (#122a06, 6.62:1). The client's answer was "no i don't like
+     this. atleast before it was good ... bring back the previous one". So the
+     deep sweep is the one that stays, and toning it down is not the direction to
+     retry. */
+  background: linear-gradient(135deg, #cfe8f7 0%, #b1d9f0 52%, #93c9e8 100%);
+  border-color: #8cc4e5;
+  color: #0b3a56;
+}
+
+/* The same skin in the dark theme. Radius carries over; only the surfaces and
+   the shadow need restating, since a green-tinted canvas and a warm shadow are
+   both wrong on a dark ground — the failure the `--border-strong` note above
+   warns about, one token along. */
+.dark [data-skin="raagam"] {
+  --background: #0c100b;
+  --surface-muted: #171d15;
+  --border: #252d20;
+  --border-strong: #5d7049;
+  --elev: 0 1px 2px rgb(0 0 0 / 0.45);
+  --elev-hi: 0 14px 34px rgb(0 0 0 / 0.6);
+}
+
+/* ---------------------------------------------------------------------------
+ * THE BRAND ON THE CONTROLS
+ *
+ * With the canvas back to near-white (see `--background` above), this is where
+ * the client's two colours actually live: the rail is the blue, and the buttons
+ * are the pair. Curved, per the same instruction.
+ * ------------------------------------------------------------------------- */
+
+/* EVERY BUTTON IN THIS SUBTREE IS A PILL, not just the header's. That rule was
+   scoped to `[data-focus-region="header"]` while the ask was only about the top
+   row; "in a curved shape" is the whole surface, so the footer's Save, a grid's
+   "+ Add" and the toolbar all take it too.
+   `:not([role="tab"])` because the rail's items already have their own pill
+   above, and `:not([role="switch"])` so the Process toggle keeps the shape its
+   own component draws. */
+/* ONE CORNER RADIUS FOR THE WHOLE SCREEN (client 2026-08-28, pointing at
+   "Copy from…": "this also make like rectangle some like below schemas").
+   Buttons were pills, which read as a second shape beside the fields and the
+   rail. They now take `--radius-md` — the SAME token the inputs and the rail
+   items resolve to — so the three share one radius by reference and cannot
+   drift apart. The separate pill rule for the header row went with this; it
+   existed only to make that row rounder than the rest, which is the opposite
+   of what is wanted now. */
+[data-skin="raagam"] button:not([role="tab"]):not([role="switch"]):not([data-field-affordance]),
+[data-skin="raagam"] a[class*="inline-flex"] {
+  border-radius: var(--radius-md);
+}
+
+[data-skin="raagam"] [data-card] {
+  box-shadow: var(--elev);
+}
+
+/* THE RIGHT-HAND BUTTONS ARE THE LOGO GREEN AT FULL STRENGTH, and they can be
+   because their text is DARK. #1f3305 on #85c227 is 6.35:1; white on the same
+   fill is 2.16:1, which is why every other green in this app is a lightened
+   derivative rather than the logo colour itself. The reference design's green
+   buttons work for exactly this reason — dark text, not white — so this is the
+   one place the untouched #85c227 can be used as a fill.
+   `bg-primary` is how `Button` draws its primary variant, so this catches Save
+   without the screen passing anything. */
+[data-skin="raagam"] button[class*="bg-primary"]:not([disabled]) {
+  background: linear-gradient(135deg, #cfe8f7 0%, #b1d9f0 52%, #93c9e8 100%);
+  color: #0b3a56;
+  border: 1px solid #8cc4e5;
+}
+[data-skin="raagam"] button[class*="bg-primary"]:not([disabled]):hover {
+  background: linear-gradient(135deg, #bfe0f4 0%, #9fd0ea 52%, #83bfe2 100%);
+}
+
+/* The outlined ones — "+ Add material", "Copy from…", Cancel — take the same
+   green on the border and the text. #3f6612 on white is 6.1:1. */
+/* `:not([data-field-affordance])` ON BOTH RULES, and it is the same slip twice.
+   A field's ✕ is a <button> whose class list contains `border-border` — it is
+   the SLOT's own left border — so an attribute selector written for outlined
+   BUTTONS matched it, and the pill rule above rounded it into a circle. The
+   result was a green ✕ in a green ring floating inside the field (client
+   2026-08-28: "remove this curves"). An affordance drawn ON a control is not a
+   button in the sense either rule means, so it opts out of both. */
+[data-skin="raagam"] button[class*="border-border"]:not([role="tab"]):not([disabled]):not([data-field-affordance]) {
+  border-color: #b7dc7c;
+  color: #3f6612;
+}
+[data-skin="raagam"] button[class*="border-border"]:not([role="tab"]):not([disabled]):not([data-field-affordance]):hover {
+  border-color: #85c227;
+  background: #f2f9e6;
+}
+
+/* THE FOCUSED FIELD IS THE BLUE. `--ring` is already the brand blue, so this
+   only widens the halo so a curved field shows it — at 0.75rem radius a 1px
+   ring disappears into the corner. */
+[data-skin="raagam"] input:focus-visible,
+[data-skin="raagam"] select:focus-visible,
+[data-skin="raagam"] textarea:focus-visible {
+  box-shadow: 0 0 0 3px #d4ecf9;
+}
+
+
+
+
+/* JUST THE ARROW, NO BOX AROUND IT (client 2026-08-28: "right side there is box
+   for arrow mark right. i don't want that box i just need a arrow mark that is
+   enough").
+   THIS REVERSES 2026-08-18, DELIBERATELY. `field-affordance.tsx` draws the ▼ and
+   the ✕ as a SEGMENT of the control — a left border, a fill and a rounded right
+   edge — because the client then asked for the opposite: "that close, drop down
+   button icon look floating into the screen ... we need make it look like
+   integrated with screen look". The later instruction wins, and this undoes it
+   for THIS SKIN ONLY, so the ~160 pickers on every other screen keep the
+   segment. Restoring it here is deleting this rule.
+   The fill is already white under this skin (`--surface-muted`), so the border
+   is the only thing that still drew a box. */
+[data-skin="raagam"] [data-field-affordance] {
+  border-left-color: transparent;
+  background: transparent;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * WHICH LINES ARE DRAWN, ONE BY ONE (client 2026-08-28)
+ * ------------------------------------------------------------------------- */
+
+/* THE FIELD BOXES ARE THE BOLD ONES. Targeted by ELEMENT rather than by the
+   `border-border` class, so it catches exactly the things a value is typed into
+   and nothing structural. A picker's trigger is a real <input> (see
+   data-picker.tsx), so the ~160 pickers come along without a rule of their own.
+   #79b023 is the logo green darkened at its own 83deg hue — 2.61:1 on white,
+   where no PASTEL of it can pass 1.8:1, because the logo green is a light
+   colour to begin with. */
+[data-skin="raagam"] input:not([type="checkbox"]):not([type="radio"]),
+[data-skin="raagam"] select,
+[data-skin="raagam"] textarea {
+  border-color: #79b023;
+}
+
+/* "there is one box surrounding the item right remove that box" — the grid's
+   own frame. The fields inside it now draw their own edges, so the frame was
+   a second boundary around boxes that already had one.
+   THE PADDING HAS TO GO WITH THE BORDER (client 2026-08-28: "the alignment is
+   not good everything strts from same line"). `GRID_FRAME` is
+   `rounded-lg border border-border p-2.5`, so clearing only the border left its
+   10px inset behind — ITEMS, "New material", the Category label and "+ Add
+   material" all stayed indented against "Material BOM" and "Date" above them,
+   held off an edge that was no longer drawn. Only the INLINE padding is
+   dropped: the vertical padding is the gap between the grid and the field above
+   it, which is still wanted. */
+[data-skin="raagam"] [data-grid-card] {
+  border-color: transparent;
+  padding-inline: 0;
+}
+
+/* "below the new material one line is there right remove that one" — the rule
+   between grid rows. `flushRows` draws it so records stay separable without a
+   card each; with the field boxes now bold it is redundant. */
+[data-skin="raagam"] [data-grid-row] {
+  border-bottom-color: transparent;
+}
+
+/* A LABEL NEEDS AIR ABOVE ITS BOX (client 2026-08-28: "the heading of the schema
+   ex ctaegory and that's box is too close. i wnat some good spacing").
+   `LABEL_METRICS` is `mb-0.5` and then `@2xl/editor:mb-0` — so inside a desktop
+   editor the gap is literally ZERO and the label sits on the box. That density
+   is deliberate for the app at large; this skin buys 6px of it back.
+   `label.block` and not `label`: the `Label` component carries `block`, while a
+   `Toggle` is also a <label> and is `inline-flex` — margin there would shove the
+   Process and FOC switches out of the row. */
+[data-skin="raagam"] label.block {
+  margin-bottom: 0.375rem;
+}
+
+/* THE ✕ SITS WITH THE FIELDS, NOT WITH THE HEADING (client 2026-08-28: "the
+   into mark is up i wnat it near to the down line schema").
+   `cornerRemove` pins it `top-1`, which put it level with "New material" — a
+   row's remove control floating beside the row's NAME rather than beside the
+   row. Anchoring to the bottom instead lands it against the control line: the
+   inputs are the last thing in the row and are 36px tall, so a ~28px button at
+   `bottom: 0.25rem` centres within 1px of the input's own centre. Bottom-anchored
+   rather than a magic `top`, so it stays right when the row grows a second line. */
+[data-skin="raagam"] [data-grid-row] > button[data-row-remove],
+[data-skin="raagam"] [data-grid-row] button[data-row-remove].absolute {
+  top: auto;
+  bottom: 0.25rem;
+}

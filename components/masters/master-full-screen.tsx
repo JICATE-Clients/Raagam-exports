@@ -184,6 +184,7 @@ export function MasterFullScreen({
   open,
   onClose,
   modeLabel,
+  footerOnLastSection = false,
   header,
   sections,
   railCollapsed = false,
@@ -228,6 +229,24 @@ export function MasterFullScreen({
   onClose: () => void;
   /** Thin top strip, e.g. <>Editing <b>Acme</b></> — pair with the ✕ it renders. */
   modeLabel: ReactNode;
+  /**
+   * HOLD THE BUTTON BAR BACK UNTIL THE LAST SECTION (client 2026-08-28: "that
+   * batch should show at the last schema which is requirement not in the other
+   * 2"). Off by default, so the 40 other screens mounting this editor keep the
+   * footer on every section.
+   *
+   * It hides the BAR, not the ability to save: Enter off the last field and
+   * Ctrl+S both go through the registered "save" shortcut, which this footer was
+   * never part of. An operator who has filled the first section can still commit
+   * it without hunting for the last tab.
+   *
+   * Only set it where the sections are a SEQUENCE the operator works through in
+   * order and the last one is the summary — Material BOM ends on Requirement,
+   * which is the figure the whole document exists to produce. On a document whose
+   * sections are independent (a customer's Identity / General / Banking) this
+   * would just hide Save behind a tab nobody has a reason to visit.
+   */
+  footerOnLastSection?: boolean;
   /**
    * The sticky identity band. OPTIONAL — omit it and the band is not rendered.
    *
@@ -1067,7 +1086,29 @@ export function MasterFullScreen({
       {/* sticky footer. On a page mount it sticks to the bottom of the viewport
           while the document scrolls behind it, with the safe-area inset Sheet
           already worked out — a short record must not leave the buttons
-          orphaned halfway up (client 2026-08-04). */}
+          orphaned halfway up (client 2026-08-04).
+
+          IT CAN BE HELD BACK UNTIL THE LAST SECTION (`footerOnLastSection`,
+          client 2026-08-28: "that batch should show at the last schema which is
+          requirement not in the other 2"). Opt-in, so the other 40 screens
+          mounting this editor are untouched; Material BOM is the only caller.
+
+          SAFE ONLY BECAUSE THE CONTENT PANE CARRIES `data-focus-scope`. This
+          overlay declares no `role="dialog"` (see the `useModalGuard` note
+          above), so had the footer been the surface's only editor marker,
+          removing it would have made `isEditorScope()` false on the first two
+          sections and handed Tab back to the browser — the whole keyboard
+          contract off on two screens out of three. The pane's own marker is
+          what makes `isEditorScope()` true, so the footer is free to go.
+          Checked, not assumed.
+
+          ENTER AND Ctrl+S STILL SAVE from every section, which is deliberate:
+          `submitSurface` is handed the nav scope and fires the registered "save"
+          shortcut, and the note below already records that this footer is not
+          part of that path. The request was about the BUTTON BAR — an operator
+          who has filled the first section and presses Ctrl+S should still be
+          able to save rather than be told to go and find the last tab. */}
+      {(!footerOnLastSection || active?.key === sections[sections.length - 1]?.key) && (
       <div
         className={cn(
           /**
@@ -1192,6 +1233,7 @@ export function MasterFullScreen({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

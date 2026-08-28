@@ -1246,7 +1246,10 @@ export function MbaMasterScreen({
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
-  const [amendmentNo, setAmendmentNo] = useState<number | null>(null);
+  /* The value has no reader since the header meta line came off (2026-08-28);
+     the setter still runs on load and on reset, so the state stays and only
+     the binding goes. Restoring the meta line is naming it again here. */
+  const [, setAmendmentNo] = useState<number | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [items, setItems] = useState<ItemRow[]>([]);
   const [procs, setProcs] = useState<ProcRow[]>([]);
@@ -1588,7 +1591,9 @@ export function MbaMasterScreen({
    *  order belongs to, and a second copy of that fact is a second thing to keep
    *  true — it also feeds the nominated-vendor rule below. */
   const customerId = selectedOrder?.customer_id ?? null;
-  const customerName = selectedOrder?.customer_name ?? null;
+  /* `customerName` STOOD HERE and came off with the header meta line
+     (2026-08-28). `selectedOrder.customer_name` is still on the row, so
+     it is one derivation away if anything needs it again. */
 
   /* `vendorRule` STOOD HERE — the `{customerId, customerName, vendors,
      nominations}` bundle `NominatedVendorPicker` and the Supply Type Select were
@@ -3338,16 +3343,25 @@ export function MbaMasterScreen({
     return data.uoms.filter((u) => allowed.has(u.id));
   };
 
-  /** Why a Uom cell is empty, in the cell itself. Order matters: "pick a
-   *  material" is actionable here, "its master has no base unit" is a trip to
-   *  another screen, and saying the second while the first is true sends the
-   *  operator to fix something that is not wrong. */
-  const uomEmptyWhy = (itemId: string | null): string | undefined => {
-    if (!itemId) return "Pick a material first";
-    const m = data.items.find((x) => x.id === itemId);
-    if (!m?.base_uom_id) return "This material declares no base unit";
-    return undefined;
-  };
+  /* `uomEmptyWhy` IS RETIRED (client 2026-08-28: "in these there is inside
+   * wordings right. i don't want that. i want these also like other schemas").
+   *
+   * It put the REASON a Uom list was empty into the cell itself — "Pick a
+   * material first", or "This material declares no base unit" — and the ordering
+   * between those two was deliberate, because saying the second while the first
+   * is true sends the operator to fix something that is not wrong.
+   *
+   * WHAT KILLED IT WAS THE WIDTH, NOT THE IDEA. Both Uom cells are `sm` on the
+   * 32-column track — about 130px — so a sentence of that length rendered as
+   * "Pick a mat…". An explanation that cannot be read is not an explanation; it
+   * is two fields looking unlike every other field on the row for no gain. The
+   * de-clutter rule this app already follows (blank field placeholders) says the
+   * same thing from the other side.
+   *
+   * IF THE REASON NEEDS SAYING AGAIN, it belongs somewhere with room for a
+   * sentence — the row's ribbon, or the picker's own empty-list panel — not in a
+   * 130px box. Do not restore it here.
+   */
 
   /**
    * BOTH DERIVED CELLS OF THE QUANTITY CHAIN, drawn once.
@@ -4394,7 +4408,6 @@ export function MbaMasterScreen({
                 }
                 updItem(r.key, patch);
               }}
-              placeholder={uomEmptyWhy(r.item_id)}
               compact
             />
             {choices.length > 0 && (
@@ -4438,7 +4451,6 @@ export function MbaMasterScreen({
           items={uomOptionsFor(r.item_id, r.consumption_uom_id)}
           value={r.consumption_uom_id}
           onChange={(id) => updItem(r.key, { consumption_uom_id: id })}
-          placeholder={uomEmptyWhy(r.item_id)}
           compact
         />
       ),
@@ -5431,14 +5443,18 @@ export function MbaMasterScreen({
               off it, so a new column cannot leave the card and header
               disagreeing. */}
           <ChildGrid<ItemRow>
-            /* THE WORD "ITEMS" HAD TO GO SOMEWHERE. It was the rail row and the
-               `SectionBody` title until the merge above; without this band the
-               materials would sit straight under Remarks with nothing naming
-               them, which is the opposite of what "one clear screen" asked for. */
-            /* grid-caption: exempt -- the note above is the reason: the merge took
-               away the rail row and the SectionBody title, so this band is now the
-               ONLY thing naming these rows. */
-            label="Items"
+            /* NO CAPTION (client 2026-08-28: "remove the items wordings"), and the
+               exemption that used to sit here goes with it.
+               THE REASON IT EXISTED HAS BEEN ANSWERED ELSEWHERE. The band was
+               added because the 08-17 merge took away the rail row and the
+               `SectionBody` title, so nothing named these rows — "the materials
+               would sit straight under Remarks with nothing naming them". Since
+               then the section heading above says "Material BOM" and each line
+               carries its own name at the same weight as that heading, so the
+               rows are named twice before this band says it a third time.
+               Dropping it is also what `--check grid-caption` wants by default:
+               the rule is that a grid says its name once, and the exempt comment
+               was the opt-out. With the reason gone, so is the opt-out. */
             columns={itemColumns}
             rows={items}
             forceCards
@@ -5740,13 +5756,27 @@ export function MbaMasterScreen({
                       single largest thing that was missing.
                       `pr-9` keeps the line clear of the ✕ `ChildGrid` floats
                       into the card's top-right corner. */}
-                  <div className="mb-2 flex items-baseline gap-3 border-b border-border pb-1.5 pr-9">
-                    <Truncated className="min-w-0 text-[13px] font-semibold text-foreground">
+                  {/* NO RULE UNDER THE NAME (client 2026-08-28: "below the new material one
+                       line is there right remove that one"). The field boxes on the
+                       row now draw their own edges, so this was a second boundary
+                       above boxes that already had one. `pb-1.5` goes with it — the
+                       padding existed to hold the name off the rule. */}
+                  <div className="mb-2 flex items-baseline gap-3 pr-9">
+                    {/* THE LINE'S NAME IS SET LIKE THE SECTION'S (client 2026-08-28:
+                        "make the new material heading bolder and bigger like material
+                        bom"). Same three values as `SectionBody`'s <h2> —
+                        `text-[15px] font-bold tracking-tight` — rather than numbers
+                        chosen to look similar, so the two headings cannot drift when
+                        that one is restyled. It was 13px semibold, which read as a
+                        caption under the heading above it rather than as the name of
+                        the record being edited. */}
+                    <Truncated className="min-w-0 text-[15px] font-bold tracking-tight text-foreground">
                       {row.item_id ? itemName(row.item_id) : "New material"}
                     </Truncated>
-                    <span className="shrink-0 text-[10.5px] text-muted-foreground">
-                      Line {i + 1} of {items.length}
-                    </span>
+                    {/* "Line 1 of 1" REMOVED (client 2026-08-28: "remove the line 1
+                        of 1 wodings"). On a one-line BOM it stated the obvious, and
+                        `ChildGrid` already numbers the rows it renders. `i` is still
+                        used by the cells below, so nothing else changes. */}
                     {/* The figure this line produces, where the eye already is.
                         The ribbon below shows HOW it got there; this says WHAT
                         it is, without scrolling to the end of the row. */}
@@ -6143,7 +6173,19 @@ export function MbaMasterScreen({
   ];
 
   return (
-    <>
+    /* THE ONLY HOLDER OF THE NEW SKIN TODAY (client 2026-08-28: "in material bom
+       only change this edit if it's okay we can chnaged all other things ...
+       touch these pages only as of now"). `[data-skin="raagam"]` in globals.css
+       is pure token overrides, so both surfaces below inherit it and no screen
+       outside this subtree can see it.
+       IT WRAPS THE FRAGMENT, NOT JUST THE LIST, because the editor is a SIBLING
+       of the list and `MasterFullScreen` neither portals nor takes a className —
+       skinning only the list would have left the overlay on the old tokens, and
+       the two are the two screens the client named. A plain div is safe around a
+       `fixed` overlay: nothing here sets transform or filter, which are the only
+       things that would make `fixed` resolve against this box instead of the
+       viewport. */
+    <div data-skin="raagam">
       <div className="space-y-4">
         {/* THE PRIMARY ACTION SITS BESIDE "← Back", NOT IN A BAND OF ITS OWN.
             It was a right-aligned div under the toolbar, so the two buttons this
@@ -6302,6 +6344,12 @@ export function MbaMasterScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        /* The bar shows on Requirement and nowhere else (client 2026-08-28).
+           These three sections ARE a sequence — what the BOM is, what happens to
+           it, then what the order therefore needs — and Requirement is the
+           figure the document exists to produce, so the save sits under it.
+           Ctrl+S and Enter still save from the other two. */
+        footerOnLastSection
         open={mode === "edit"}
         onClose={() => setMode("list")}
         modeLabel={
@@ -6316,21 +6364,16 @@ export function MbaMasterScreen({
           badges: dirty ? (
             <span className="text-[11px] font-medium text-warning">● Unsaved</span>
           ) : null,
-          meta: (
-            <>
-              <span>
-                {amendmentNo != null ? (
-                  <>
-                    A. No <span className="font-semibold text-foreground">{amendmentNo}</span>
-                  </>
-                ) : (
-                  "A. No auto"
-                )}
-              </span>
-              {customerName && <span>· {customerName}</span>}
-              {form.amend_date && <span>· {fmtDate(form.amend_date)}</span>}
-            </>
-          ),
+          /* NO META LINE (client 2026-08-28: "remove this wordings", pointing at
+             "A. No auto · 28/08/2026").
+             It carried the amendment number, the customer and the date under the
+             title. All three are still on the record and two of them are on the
+             screen already — the date is the Date field two rows down, and the
+             customer follows from the Garment Order beside it. `amendmentNo` is
+             the one that only lived here, and "A. No auto" is what it says until
+             a save assigns one, which is a placeholder rather than information.
+             `MasterFullScreen` renders the band without it when `meta` is
+             omitted, so nothing else changes. */
           right: (
             <Button
               type="button"
@@ -6407,7 +6450,7 @@ export function MbaMasterScreen({
         onPick={pickCopySource}
         isPending={isPending}
       />
-    </>
+    </div>
   );
 }
 
