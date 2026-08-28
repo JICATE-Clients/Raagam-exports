@@ -130,6 +130,13 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
         // rather than as an error. `material_bom_amendment_item_components` sat
         // in exactly that state from 0436 until 2026-08-22: declared everywhere,
         // selected nowhere. It is the line below; do not lose it again.
+        //
+        // THE ITEM'S OWN COLUMNS ARE `(*)`, so `send_out` (0466) and `is_foc`
+        // (0474) arrive without an edit here. Worth stating because the reverse
+        // is this repo's quietest failure — AGENTS.md records 143 list functions
+        // whose hand-written select named a column's neighbour and not the
+        // column, reading as correct with nothing to resolve. If this ever
+        // becomes a named list, both booleans have to be in it.
         "items:material_bom_amendment_items(*, " +
         "components:material_bom_amendment_item_components(*), " +
         "slices:material_bom_amendment_item_slices(*)), " +

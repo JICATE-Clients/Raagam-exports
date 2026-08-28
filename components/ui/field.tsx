@@ -209,8 +209,33 @@ export const FIELD_TRACK_14 =
  * plus the hover / press-and-hold bubble (AGENTS.md, "Truncated values"). An
  * ellipsis with no way to read past it would not be acceptable at any width.
  */
+/*
+ * `gap-x-2`, NOT the `gap-x-3` every other track uses, and the reason is
+ * arithmetic rather than taste (2026-08-28).
+ *
+ * A 32-column track has THIRTY-ONE gaps, and a gap is a fixed px value that
+ * does not scale with the pane. At `gap-x-3` that is 372px of every row spent
+ * before a single field is drawn, and because the subtraction happens BEFORE
+ * the division — a track is `(W - 372) / 32` — a pane that narrows 9% narrows
+ * every field in it by about 13%. That is what put the Material BOM row's
+ * labels into a ragged two-height band at 110% zoom while every control beneath
+ * them stayed level.
+ *
+ * `gap-x-2` hands back 124px per row. It is NOT sufficient on its own at laptop
+ * widths and was never claimed to be — eleven cells in a ~912px pane is ~83px
+ * each however the spans are arranged — but it is free, it is in the right
+ * direction, and it is the only one of the three available levers that is not a
+ * client decision (the other two are the header WORDING and the 268px master
+ * list).
+ *
+ * SCOPE IS TWO SCREENS, checked rather than assumed: `cols={32}` has exactly two
+ * consumers repo-wide — the Material BOM items grid and the Order Amendment
+ * screen. Both are crowded Orders grids that want the width. The 12- and
+ * 14-column tracks keep `gap-x-3`, where 11 or 13 gaps cost little and the
+ * looser rhythm is what the masters forms were signed off on.
+ */
 export const FIELD_TRACK_32 =
-  "grid items-end gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5 @lg/section:grid-cols-32";
+  "grid items-end gap-x-2 gap-y-2 @2xl/editor:gap-y-1.5 @lg/section:grid-cols-32";
 
 /**
  * A `FieldSize`'s span on the track above. Exported for the same reason

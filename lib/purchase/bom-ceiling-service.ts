@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { roundUpTo } from "@/lib/orders/material-bom/requirement";
+import { isUnsettledMaterialType } from "@/lib/orders/material-bom-amendment/types";
 import { blockedMessage, judgeLine, type BomCeiling } from "./bom-ceiling";
 
 /**
@@ -52,6 +53,52 @@ type ReqRow = {
 
 type LineRow = { id: string; moq: number | null; round_to: number | null };
 
+/**
+ * WHICH BOM ANSWERS FOR THIS ORDER — the lookup both gates below start from.
+ *
+ * Extracted when the TBA gate joined the ceiling (2026-08-28) rather than
+ * copied, because the two must never disagree about WHICH document they are
+ * judging against. A second copy that drifted — one taking the newest amendment
+ * and the other the newest recorded one, say — would give an operator a control
+ * that refuses a material the other control has already priced, with no way to
+ * tell which of the two is looking at the right BOM.
+ *
+ * `goIds` comes back as well as the BOM because the ceiling needs it for the
+ * budget lookup, and re-reading it there would be the same duplication one
+ * query down.
+ *
+ * RECORDED ONLY (`is_draft = false`), newest amendment first. A draft is
+ * somebody's half-finished thinking and neither gate should act on it — for the
+ * ceiling that would cap a purchase against an unfinished plan, and for the TBA
+ * gate it would refuse one against a line nobody has committed to.
+ */
+async function recordedBomForOrder(
+  s: Awaited<ReturnType<typeof createClient>>,
+  salesOrderId: string,
+): Promise<{ goIds: string[]; bom: { id: string; code: string | null } | null }> {
+  // sales_orders -> the garment order documents raised against it. More than one
+  // is possible (the document is amendable), so every one is a candidate and the
+  // newest BOM across them wins.
+  const { data: goRows } = await s
+    .from("garment_order_amendments")
+    .select("id")
+    .eq("sales_order_id", salesOrderId);
+
+  const goIds = ((goRows ?? []) as { id: string }[]).map((r) => r.id);
+  if (goIds.length === 0) return { goIds, bom: null };
+
+  const { data: bomRows } = await s
+    .from("material_bom_amendments")
+    .select("id, code, amendment_no, is_draft, garment_order_id")
+    .in("garment_order_id", goIds)
+    .eq("is_draft", false)
+    .order("amendment_no", { ascending: false })
+    .limit(1);
+
+  const bom = ((bomRows ?? []) as { id: string; code: string | null }[])[0] ?? null;
+  return { goIds, bom };
+}
+
 export async function bomCeilingForOrder(
   salesOrderId: string,
   /**
@@ -66,15 +113,7 @@ export async function bomCeilingForOrder(
 ): Promise<BomCeiling> {
   const s = await createClient();
 
-  // sales_orders -> the garment order documents raised against it. More than one
-  // is possible (the document is amendable), so every one is a candidate and the
-  // newest BOM across them wins below.
-  const { data: goRows } = await s
-    .from("garment_order_amendments")
-    .select("id")
-    .eq("sales_order_id", salesOrderId);
-
-  const goIds = ((goRows ?? []) as { id: string }[]).map((r) => r.id);
+  const { goIds, bom } = await recordedBomForOrder(s, salesOrderId);
   if (goIds.length === 0) return EMPTY;
 
   /*
@@ -102,15 +141,6 @@ export async function bomCeilingForOrder(
   const budgetCell = budgetRaw[0]?.budget ?? null;
   const budget = Array.isArray(budgetCell) ? (budgetCell[0] ?? null) : budgetCell;
 
-  const { data: bomRows } = await s
-    .from("material_bom_amendments")
-    .select("id, code, amendment_no, is_draft, garment_order_id")
-    .in("garment_order_id", goIds)
-    .eq("is_draft", false)
-    .order("amendment_no", { ascending: false })
-    .limit(1);
-
-  const bom = ((bomRows ?? []) as { id: string; code: string | null }[])[0];
   if (!bom) return { ...EMPTY, enforced: false, budgetCode: budget?.code ?? null };
 
   const [{ data: reqRows }, { data: lineRows }] = await Promise.all([
@@ -300,6 +330,146 @@ export async function refuseOverCeiling(
       const verdict = judgeLine(ceiling, { itemId, quantity });
       if (verdict.kind === "blocked") return blockedMessage(verdict);
     }
+  }
+  return null;
+}
+
+/**
+ * THE TBA GATE (client 2026-08-28: a material still "To be advised" or "To be
+ * developed" blocks downstream PO creation until the final size specs are
+ * saved).
+ *
+ * Returns the refusal sentence, or null to allow.
+ *
+ * ## It is a sibling of `refuseOverCeiling`, deliberately, and called beside it
+ *
+ * Same four write paths — create, add a line, edit a line, submit — because a
+ * control on one of them is a control on none. Same signature shape, same
+ * "optional, not merely nullable" keys, same return of a sentence rather than a
+ * throw. Two functions rather than one because they answer different questions
+ * and one of them may say yes while the other says no: the ceiling asks HOW MUCH
+ * and this asks WHETHER THIS THING IS DECIDED YET. Folding the second into the
+ * first would put a specification refusal behind a budget condition it has
+ * nothing to do with — see below.
+ *
+ * ## IT DOES NOT WAIT FOR AN APPROVED BUDGET, AND THAT IS THE ONE PLACE THE TWO
+ * ## GATES DIVERGE ON PURPOSE
+ *
+ * `refuseOverCeiling` refuses only once a budget is approved, because until then
+ * nobody has signed the figure it would be enforcing and a buyer working ahead
+ * of the budget is doing ordinary work. Nothing of that argument transfers here.
+ * A material nobody has specified cannot be bought correctly at any budget
+ * state — the size, the finish and the make-up are all still open, so whatever
+ * arrives will be wrong and will have been paid for. Copying the budget
+ * condition across for symmetry would leave the gate switched off for exactly
+ * the orders that have not been planned yet, which are the ones most likely to
+ * carry a TBA line.
+ *
+ * ## A BLANK TYPE IS NOT A REFUSAL
+ *
+ * `isUnsettledMaterialType` answers false for null and for an empty string, and
+ * that is load-bearing rather than lenient — `type` was blank on every line
+ * written before `DEFAULT_MATERIAL_TYPE` existed, so the other reading would
+ * refuse a purchase against every historic BOM the day this ships. The rule
+ * refuses what an operator has DECLARED unsettled. Its header in
+ * `material-bom-amendment/types.ts` carries the rest of the argument, including
+ * why the comparison is case-normalised.
+ *
+ * ## ONE UNSETTLED LINE REFUSES THE MATERIAL, EVEN IF ANOTHER LINE IS SETTLED
+ *
+ * A PO line names an ITEM; a BOM carries a line per colour, panel and style, so
+ * one trim can sit on several. There is no `item_line_id` on `po_line_items` to
+ * tell which of them the purchase is for — 0424 gave that table `sales_order_id`
+ * and `item_id` and nothing finer. So a material with any unsettled line is
+ * refused whole. Judging it the other way would need a link the schema does not
+ * have, and guessing "probably the settled one" is how a control becomes
+ * decoration.
+ */
+export async function refuseUnsettledMaterials(
+  /* OPTIONAL, not merely nullable, exactly as `refuseOverCeiling` above: general
+     stock buying leaves both keys off entirely, and a line naming no order or no
+     material is simply not checked. A gate that refused what it cannot measure
+     would stop ordinary purchasing. */
+  lines: readonly {
+    sales_order_id?: string | null;
+    item_id?: string | null;
+  }[],
+): Promise<string | null> {
+  // Grouped by order, because the BOM is per order and most POs name one.
+  const byOrder = new Map<string, Set<string>>();
+  for (const l of lines) {
+    if (!l.sales_order_id || !l.item_id) continue;
+    const forOrder = byOrder.get(l.sales_order_id) ?? new Set<string>();
+    forOrder.add(l.item_id);
+    byOrder.set(l.sales_order_id, forOrder);
+  }
+  if (byOrder.size === 0) return null;
+
+  const s = await createClient();
+
+  for (const [salesOrderId, itemIds] of byOrder) {
+    const { bom } = await recordedBomForOrder(s, salesOrderId);
+    // NO RECORDED BOM IS NOT A REFUSAL. It means this purchase is not being made
+    // against a material plan at all, which is the same state `bomCeilingForOrder`
+    // returns EMPTY for — buying ahead of the BOM is ordinary work, and the
+    // ceiling has never stopped it either.
+    if (!bom) continue;
+
+    /* `type` AND the material's NAME, both selected. The name is what makes the
+       refusal actionable — "a material on this BOM is still To be advised" sends
+       the operator through twenty lines looking for it — and AGENTS.md's
+       created-by sweep is the standing lesson about a hand-written select that
+       names a column's neighbour and not the column: the code reads as correct
+       and the sentence comes out with a blank in it. */
+    const { data: lineRows } = await s
+      .from("material_bom_amendment_items")
+      .select("item_id, type, item:items(name)")
+      .eq("amendment_id", bom.id)
+      .in("item_id", [...itemIds]);
+
+    const unsettled: string[] = [];
+    for (const r of (lineRows ?? []) as unknown as {
+      item_id: string | null;
+      type: string | null;
+      /* PostgREST types an embed as an ARRAY even where the FK makes it one row
+         — the same normalisation the budget embed above needs, and the same trap
+         `material-bom-amendment/service.ts` records for its customer embed. */
+      item: { name: string | null } | { name: string | null }[] | null;
+    }[]) {
+      if (!isUnsettledMaterialType(r.type)) continue;
+      const cell = Array.isArray(r.item) ? (r.item[0] ?? null) : r.item;
+      const name = cell?.name?.trim() || "A material";
+      if (!unsettled.includes(name)) unsettled.push(name);
+    }
+    if (unsettled.length === 0) continue;
+
+    /* NAMES THREE AND COUNTS THE REST. A refusal is read in a toast; twenty
+       names in one sentence is a wall the operator closes without reading, and
+       fixing the first three is progress they can see. */
+    const shown = unsettled.slice(0, 3).join(", ");
+    const rest = unsettled.length - Math.min(3, unsettled.length);
+    const subject = rest > 0 ? `${shown} and ${rest} more` : shown;
+    const verb = unsettled.length === 1 && shown !== "A material" ? "is" : "are";
+
+    /* THE BOM'S CODE IS APPENDED ONLY WHEN THERE IS ONE. `code` is nullable, and
+       a sentence reading "on Material BOM ." is the shape that makes an operator
+       distrust the whole message — the refusal is still true and still
+       actionable without it. */
+    const on = bom.code ? ` on Material BOM ${bom.code}` : "";
+    /* BOTH NAMES STAY, though "To be developed" left `MATERIAL_TYPE_OPTIONS` on
+       2026-08-28 and only two values are pickable now. This sentence describes
+       what a row can BE, not what can be picked — and a legacy row genuinely
+       carrying "To be developed" is refused by `isUnsettledMaterialType`, so a
+       message naming only the pickable value would refuse a line while
+       describing a state it is not in, sending the operator to look for a
+       wording they cannot find on the row. Do not trim it to match the
+       dropdown; see the note on `UNSETTLED_MATERIAL_TYPES`. */
+    return (
+      `${subject} ${verb} still marked To be advised / To be developed${on}. ` +
+      `Save the final specification and size against ` +
+      `${unsettled.length === 1 ? "that line" : "those lines"} and set the Type ` +
+      `to Available Item before raising a purchase order.`
+    );
   }
   return null;
 }

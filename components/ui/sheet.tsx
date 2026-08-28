@@ -70,8 +70,41 @@ export function Sheet({
    *  available via `fullScreen={false}` but is currently unused. */
   fullScreen?: boolean;
   /** "lg" = full-screen entity editor; "sm" = centred max-w-md dialog
-   *  (nested pickers / small config dialogs). */
-  size?: "sm" | "lg";
+   *  (nested pickers / small config dialogs); "md" = the SAME contained dialog
+   *  at max-w-6xl, for a surface that holds a real grid.
+   *
+   *  ## WHY "md" EXISTS AND IS NOT "sm WITH A WIDER CLASS"
+   *
+   *  Style Process was `size="lg"` + `fullBleed` — a true full-screen page over
+   *  the amendment behind it — and the client asked for it back inside a
+   *  container ("smaller containerized modals to prevent full-screen context
+   *  loss", 2026-08-28). `sm` had already been tried for it on 2026-08-12 and
+   *  FAILED, and the reason is the number worth writing down here rather than
+   *  rediscovering a third time: `max-w-md` is 448px, minus this branch's `px-5`
+   *  leaves ~408px of content, and `ChildGrid`'s responsive table only appears
+   *  from `@lg` — which is **512px of container, not 1024** (see `tableFrom` in
+   *  child-grid.tsx). The grid fell to stacked cards and lost its column
+   *  headers. It missed by ~104px, which is exactly why it looked like it should
+   *  have worked.
+   *
+   *  The Style Process grid declares 12+16+12+20rem of columns plus ~80px of
+   *  chrome = ~1040px before the table would scroll sideways, which operator
+   *  rule 4 forbids. `max-w-6xl` (1152px) − `px-5` = 1112px of content clears
+   *  it, and on a 1366px laptop still leaves ~107px of the screen behind it down
+   *  each side. THAT is the difference being bought: a box on a scrim rather
+   *  than a `fixed inset-0` covering the app chrome.
+   *
+   *  ## IT REUSES THE CONTAINED BRANCH, DELIBERATELY
+   *
+   *  The branch below selects on `size !== "lg"`, so "md" is the same DOM as
+   *  "sm" with one width class different. A third hand-written branch would be
+   *  a third place for `role="dialog"`, `data-focus-region` and the focus trap
+   *  to drift apart, and those three are what `isEditorScope`, Tab's wrap and
+   *  Escape's one-layer-per-press all read.
+   *
+   *  Ctrl+S needs no change: its gate is already `size !== "sm"`, so "md" keeps
+   *  the save shortcut while nested pickers keep the browser's. */
+  size?: "sm" | "md" | "lg";
   /**
    * DROP THE 1180px READING WIDTH and let the content use the whole pane
    * (client 2026-08-18, on Combos ▸ Structure Details: "make this screen full
@@ -274,9 +307,11 @@ export function Sheet({
         )}
       />
       {fullScreen ? (
-        size === "sm" ? (
-          /* centered dialog box — nested pickers / small config dialogs. A
-             contained box on the scrim; scrolls internally when long. */
+        size !== "lg" ? (
+          /* centered dialog box — nested pickers and small config dialogs
+             ("sm"), and grid-bearing editors that must not cover the screen
+             behind them ("md"). A contained box on the scrim; scrolls
+             internally when long. */
           <div
             className="pointer-events-none fixed inset-0 flex items-center justify-center p-4"
             style={{ zIndex: zIndexBase + 1 }}
@@ -286,7 +321,8 @@ export function Sheet({
               role="dialog"
               aria-modal="true"
               className={cn(
-                "flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
+                "flex max-h-[88vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
+                size === "md" ? "max-w-6xl" : "max-w-md",
                 open ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
               )}
             >
@@ -306,9 +342,66 @@ export function Sheet({
                   </button>
                 </div>
               </div>
-              {/* content — the one scroll */}
+              {/* content — the one scroll.
+
+                  `@container/editor` is the DENSITY container — the compact
+                  control sizes in input/select/combobox/label and the tighter
+                  gaps in DetailSection all key off `@2xl/editor:`. The full-
+                  screen branch has always had it; this branch had none, so a
+                  sheet moved here from "lg" would silently un-compact its
+                  fields, undoing the client's own 2026-08-20 "fields size look
+                  too large, make it compact".
+
+                  ADDING IT IS INERT FOR EVERY EXISTING "sm" SHEET, and that is
+                  measured rather than hoped: the `@2xl/editor:` threshold is
+                  672px and an `sm` pane is ~408px, so nothing there crosses it.
+                  An "md" pane is ~1112px and does — which is the point.
+
+                  THAT INERTNESS DEPENDS ON 672px BEING THE ONLY THRESHOLD IN
+                  USE, and at the time of writing it is: every editor-container
+                  variant in the repo — 35 of them across 19 files — is the 2xl
+                  one. Nothing keys off a smaller container width.
+
+                  THE LOAD-BEARING HALF IS "ONE VARIANT", NOT THE NUMBER. The
+                  count was reported as 97, then 61, then 60, then 35 by three
+                  readers, and the conclusion was identical at every one of
+                  them. Quote it as: one variant in use, 35 occurrences with
+                  comments stripped (60 raw).
+
+                  ON THIS REPO, SEARCH WITH `git grep`, NEVER `grep -r`. A
+                  recursive grep from the root walks `.claude/worktrees` — a
+                  complete gitignored second checkout — which contributed 37 of
+                  that 97, i.e. the same code counted twice. Nothing in the
+                  normal workflow hints at it: the directory is invisible to
+                  `git status` and to `git ls-files`, and `--include` does not
+                  help. Only rooting the search in git does, which both
+                  `git grep` and `git ls-files` do for free. Comments are the
+                  second inflation, and this block is itself an instance —
+                  which is why it names no smaller variant literally.
+
+                  **The day someone adds a threshold below ~408px, every "sm"
+                  sheet in the app starts matching it** — nested pickers and small config dialogs
+                  included — and this paragraph stops being true without
+                  anything in this file changing.
+
+                  To re-check, grep the repo for editor-container variants —
+                  BUT STRIP COMMENTS FIRST, or exclude this file. This
+                  paragraph deliberately does not spell the smaller variants
+                  out, because writing them here would put them in the grep's
+                  own output and make the check report a problem it created.
+                  That is the trap `check:nav-paths` records for the ▸ glyph:
+                  most uses of it in this repo are comments describing what
+                  something USED to say, so it strips comments before scanning.
+
+                  The stronger form of the same fact, and the reason it is safe
+                  today rather than merely unlikely: `Sheet` portals to
+                  `<body>`, so these children had no `@container/editor`
+                  ancestor AT ALL before this wrapper existed. Their
+                  `@2xl/editor:` classes previously matched no container and now
+                  match one that is too small. Identical rendering, different
+                  reason — which is why the check is a grep and not a screenshot. */}
               <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-5 py-3.5">
-                {children}
+                <div className="@container/editor mx-auto w-full">{children}</div>
               </div>
               {/* footer */}
               {footer && (
