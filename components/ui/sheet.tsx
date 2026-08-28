@@ -321,6 +321,20 @@ export function Sheet({
    *    change, so switching section behind the open dialog left the tab pointing
    *    at a stale position.
    *
+   * AND (3) WAS NEVER FULLY WORKING WHEN IT WAS JUDGED — found in review after
+   * the withdrawal, and the single most useful thing to know before trying
+   * again. `openerRef.current` is assigned in a PASSIVE effect; the join
+   * measured in a LAYOUT effect. React runs every layout effect before any
+   * passive effect in the same commit, so on the commit where `open` flips
+   * true the measurement read `openerRef.current` as null on the first ever
+   * open, or the opener from the PREVIOUS open on every one after — and with
+   * deps `[open, joinRail]` nothing ever re-measured. So the first open drew no
+   * join at all, and later opens drew one from a stale opener that happened to
+   * resolve to the same pane. Hook PHASE ordering, not declaration order, is
+   * what broke it: a layout effect cannot read state a passive effect writes in
+   * the same commit. Capture the opener at layout time, or thread it in as a
+   * prop rather than sniffing `document.activeElement`.
+   *
    * THE CLIENT'S DECISION: leave it centred, no further integration with the
    * side section. That is why this is a comment and not a prop.
    *
