@@ -251,11 +251,11 @@ export function MasterFullScreen({
   };
   sections: FullScreenSection[];
   /**
-   * Fold the section rail away and give its 228px to the content.
+   * Fold the section rail away and give its 192px to the content.
    *
    * FOR A SECTION THAT IS ITSELF A LIST PLUS AN EDITOR. Material BOM is the case
    * (client 2026-08-20, screenshot 2402): its items are a list of lines beside
-   * the open line's fields, so with the rail up the operator met 228px of
+   * the open line's fields, so with the rail up the operator met 192px of
    * sections, then 330px of lines, and only then a field — two levels of
    * navigation stacked in front of the work, on a document with 22 fields to
    * fill.
@@ -696,6 +696,32 @@ export function MasterFullScreen({
   const overlay = mount === "overlay";
   const active = sections.find((s) => s.key === section) ?? sections[0];
 
+  /*
+   * ONE ✕, PLACED TWICE — never rendered twice. The strip that used to carry it
+   * is gone whenever a `header` is present (see below), so the button moves into
+   * the identity band; but that band is a grid that stacks on a phone, and a ✕
+   * auto-placed there lands on a THIRD row under the actions instead of beside
+   * the title. So it is offered in two slots, each hidden at the other's width —
+   * `display:none` is not focusable, so exactly one is in the tab order at a
+   * time and the "one ✕ per surface" invariant holds.
+   *
+   * Each slot keeps `data-focus-region="header"` on its wrapper. That attribute
+   * is not decoration: `REGION_ORDER` in `lib/focus.ts` is
+   * `{content: 0, footer: 1, header: 2}`, so it is the ONLY reason the close
+   * button sorts after the fields and the footer rather than into the typing
+   * path. Move the button without it and Tab starts landing on ✕.
+   */
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
+      aria-label="Close"
+    >
+      <X className="h-5 w-5" />
+    </button>
+  );
+
   return (
     <div
       ref={rootRef}
@@ -751,10 +777,24 @@ export function MasterFullScreen({
             "min-h-0 flex-1 overflow-hidden rounded-lg border border-border",
       )}
     >
-      {/* topbar — OVERLAY ONLY. A route already has browser Back, a breadcrumb
-          and the app chrome above it, so a second ✕ is chrome for nothing; the
-          page's own header owns "← Back to list". */}
-      {overlay && (
+      {/* topbar — OVERLAY ONLY, and only when NOTHING ELSE NAMES THE RECORD.
+          A route already has browser Back, a breadcrumb and the app chrome above
+          it, so a second ✕ is chrome for nothing; the page's own header owns
+          "← Back to list".
+
+          `!header` IS THE NEW HALF (client 2026-08-27: "there is a top line
+          remove that"). With a header band present this strip was a second full
+          line whose only content was the record's name — the SAME name, in
+          smaller grey type, directly above the band that states it with its
+          badge and meta. On Material BOM both read "New material BOM".
+
+          It was reported once as a screen bug and answered twice as one: two
+          screens already pass `modeLabel={null}` (Order Amendment, Style) to mute
+          the text. That is the tell — a prop being passed to switch off a line
+          nobody wanted is a default that is wrong, and it left the empty strip
+          behind anyway. So the strip now stands down on its own, and `modeLabel`
+          means what it says: the label for a surface that has no other name. */}
+      {overlay && !header && (
         <div
           className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5"
           // Tab order is fields → footer → ✕: the close button stays reachable by
@@ -762,14 +802,7 @@ export function MasterFullScreen({
           data-focus-region="header"
         >
           <div className="text-xs text-muted-foreground">{modeLabel}</div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          {closeButton}
         </div>
       )}
 
@@ -796,8 +829,31 @@ export function MasterFullScreen({
                 </div>
               )}
             </div>
+            {/* Phone slot: beside the title, where a ✕ is looked for. The band
+                is one column at this width, so leaving it to the grid would put
+                it below the actions. */}
+            {overlay && (
+              <div data-focus-region="header" className="ml-auto md:hidden">
+                {closeButton}
+              </div>
+            )}
           </div>
-          {header.right && <div className="flex flex-col gap-1.5 md:items-end">{header.right}</div>}
+          {(header.right || overlay) && (
+            <div className="flex items-start gap-2 md:justify-end">
+              {header.right && (
+                <div className="flex flex-1 flex-col gap-1.5 md:flex-none md:items-end">
+                  {header.right}
+                </div>
+              )}
+              {/* Desktop slot: trailing edge of the actions cell — the same
+                  top-right corner the removed strip put it in. */}
+              {overlay && (
+                <div data-focus-region="header" className="hidden md:block">
+                  {closeButton}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -807,13 +863,28 @@ export function MasterFullScreen({
           "flex min-h-0 flex-1 flex-col md:grid",
           /* THE RAIL STANDS DOWN WHILE ONE RECORD IS BEING WORKED ON (client
              2026-08-20, screenshot 2402). Material BOM's items are themselves a
-             list-plus-editor, so with the rail up the operator faced 228px of
+             list-plus-editor, so with the rail up the operator faced 192px of
              sections beside 330px of lines before reaching a single field —
              two levels of navigation stacked in front of the work.
              ONLY ON DESKTOP, and only the GRID COLUMN goes: the `<nav>` keeps
              its place in the DOM (below) so the mobile chip strip, the arrow
              keys and a screen reader all still reach the sections. */
-          railCollapsed ? "md:grid-cols-[1fr]" : "md:grid-cols-[228px_1fr]",
+          /* 192px, DOWN FROM 228 (client 2026-08-27: "this section make it less
+             wider"). A rail item spends ~48px on chrome before the label — two
+             10px paddings, a 16px icon, a 10px gap and the border — so the drop
+             takes the label from ~180px to ~144px, about 27 characters to 21.
+
+             WHAT THAT COSTS IS NAMED RATHER THAN GUESSED. Of every section
+             label in the app the longest are "Garment Process Amendment" (25),
+             "Over-budget Confirmation" (24) and "Allowances & Deductions" (23);
+             those three already truncated at 228 and simply truncate sooner.
+             The band that newly loses characters is 22-27, and it is thin.
+
+             IT MATTERS MORE HERE THAN ELSEWHERE because this rail is exempt
+             from truncate-reveal (see the item below) — a clipped label has no
+             bubble to recover it, only the click. So this is about as narrow as
+             it goes without the rail needing that exemption revisited. */
+          railCollapsed ? "md:grid-cols-[1fr]" : "md:grid-cols-[192px_1fr]",
         )}
       >
         <nav
@@ -869,7 +940,7 @@ export function MasterFullScreen({
                 <span className="flex-1 truncate whitespace-nowrap">{s.label}</span>
                 {/* The count REPLACES the done dot rather than sitting beside
                     it: a section with blocking problems is not "done", and two
-                    indicators on a 228px rail item is where the label starts
+                    indicators on a 192px rail item is where the label starts
                     truncating.
 
                     `bg-danger-soft text-danger` is the app's existing danger
@@ -929,7 +1000,7 @@ export function MasterFullScreen({
               1440px, NOT the 1180px a `Sheet` uses, and the difference is the rail
               (client 2026-08-17). `max-w` + `mx-auto` is a CENTRING rule wearing a
               width-limit costume: on a Sheet the two are the same thing, but here
-              228px of rail eats one side, so whatever the cap leaves over is split
+              192px of rail eats one side, so whatever the cap leaves over is split
               evenly into a gap AFTER THE RAIL and a gap before the card's right
               edge — dead space on both sides at once, and the operator reads it as
               padding rather than as centring. At 1180 that was 48px a side on a

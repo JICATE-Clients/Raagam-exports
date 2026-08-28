@@ -9272,8 +9272,25 @@ export function AmendmentScreen({
                The floor drops 120px → 104px because four columns share the room
                two used to. It is a FLOOR, not a width: at 1250px+ each track
                resolves near `term` (176px), and below that the whole card stacks
-               and the halves get the full width anyway. */
-            className="grid grid-cols-[minmax(104px,1fr)_minmax(104px,1fr)_minmax(104px,1fr)_minmax(104px,1fr)_auto] items-end gap-x-3 border-t border-border/60 pt-2 first:border-t-0 first:pt-0"
+               and the halves get the full width anyway.
+
+               A FLOOR IS A FLOOR ON A PHONE TOO, which is what the sentence
+               above missed. "The whole card stacks" is the OUTER track at
+               `min-[1250px]` (line ~8278) letting each half take the full
+               width — it says nothing about this row, whose four 104px floors
+               are unconditional. 4 x 104 + 3 gaps = 452px, plus the ✕, against
+               ~350px of content on a 414px phone: the row could not shrink, so
+               it overflowed its own card.
+
+               So the four-column track now starts at `sm` (640px → ~576px of
+               content, comfortably over the 480px this needs) and the phone
+               gets two columns, ~163px each — still wide enough for a `compact`
+               picker, and half the height a full stack would cost on a card
+               that repeats per part. The ✕ takes the row under them
+               (`col-span-2 justify-self-end` on the Button) rather than being
+               auto-placed into a field's column. Desktop is byte-for-byte what
+               it was. */
+            className="grid grid-cols-2 items-end gap-x-3 gap-y-2 border-t border-border/60 pt-2 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(104px,1fr)_minmax(104px,1fr)_minmax(104px,1fr)_minmax(104px,1fr)_auto]"
           >
             {/* NO `#N`, AND THEREFORE NO BAND (client 2026-08-17, screenshot
                 2332: "remove that #1, #2, all this kind of numbering, making huge
@@ -9486,8 +9503,16 @@ export function AmendmentScreen({
                  titles, so a top-aligned ✕ would sit right on every row except
                  that one, where the titles push the controls ~20px down. The
                  statement is unchanged from when this was absolutely placed;
-                 the grid just makes it without an offset to maintain. */
-              className="text-muted-foreground hover:text-danger"
+                 the grid just makes it without an offset to maintain.
+
+                 ON A PHONE THE ROW IS TWO COLUMNS, so the five children fill
+                 two rows and leave this one auto-placed at the START of a
+                 third — a ✕ under Coordinate, reading as that field's control.
+                 `col-span-2 justify-self-end` gives it the row and pushes it to
+                 the trailing edge, which is where it sits on the wide track. It
+                 is a cells-and-alignment statement only: `data-row-remove`, the
+                 handler and Ctrl+Del are untouched. */
+              className="col-span-2 justify-self-end text-muted-foreground hover:text-danger sm:col-span-1 sm:justify-self-auto"
               onClick={() =>
                 mutComps(r.key, st.key, (cs) =>
                   cs.filter((x) => x.key !== c.key),
@@ -9827,8 +9852,31 @@ export function AmendmentScreen({
                 A trailing empty track is invisible in code review and obvious on
                 screen: nothing errors, the row just stops short of its own
                 frame. Count the children whenever a field leaves a hand-written
-                `grid-cols-[…]`. */}
-            <div className="grid items-end gap-x-3 gap-y-2 grid-cols-[minmax(150px,1.3fr)_minmax(170px,1.7fr)_4.5rem_4.5rem_minmax(130px,1fr)]">
+                `grid-cols-[…]`.
+
+                THE TRACK IS GATED AT `lg`, because its floors add up to more
+                room than most windows give it: 150 + 170 + 72 + 72 + 130 plus
+                four gaps is 642px that cannot shrink. Against ~350px of content
+                on a 414px phone it overflowed the card by nearly 300px — the
+                worst mobile break in this module — and a floored track has no
+                way to answer that except to stop applying.
+
+                Below `lg` the fields stack one per line and each takes the full
+                width, which is the same answer the outer track at
+                `min-[1250px]` already gives the two halves. `lg` (1024px)
+                rather than the ~934px where the arithmetic first fits: the rail
+                is 228px, the content pane 32px of `px-4` and the card its own
+                padding on top, so the tighter bound leaves nothing for the part
+                of the chrome that is not fixed.
+
+                STILL SQUEEZED ABOVE 1250px, AND DELIBERATELY LEFT ALONE. Once
+                the outer track splits, this row lives in the 1.25 half — about
+                527px at a 1250px window, under the 642px it needs — so it wants
+                a real answer somewhere between "stack" and "one line", not a
+                second breakpoint guessed from arithmetic. That is a desktop
+                layout decision with client history behind it (screenshots 2354,
+                2408) and it is not this change. */}
+            <div className="grid items-end gap-x-3 gap-y-2 lg:grid-cols-[minmax(150px,1.3fr)_minmax(170px,1.7fr)_4.5rem_4.5rem_minmax(130px,1fr)]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 

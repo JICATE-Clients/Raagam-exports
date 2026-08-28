@@ -544,7 +544,7 @@ const WEIGHT_CLASS: Record<Weight, string | undefined> = {
   final: "[&_input]:border-transparent",
 };
 
-type GroupCell = { header: string; size: FieldSize; weight: Weight };
+type GroupCell = { header: string; size: FieldSize; weight: Weight; align?: "end" };
 
 /**
  * GRID DENSITY, and it is the difference between the mockup and the screen.
@@ -5685,7 +5685,9 @@ export function MbaMasterScreen({
               const groups = FIELD_GROUPS.map((g) => {
                 const cells = g.flatMap((b) => {
                   const col = itemColumns.find((c) => c.header === b.header);
-                  return col ? [{ col, size: b.size, weight: b.weight }] : [];
+                  return col
+                    ? [{ col, size: b.size, weight: b.weight, align: b.align }]
+                    : [];
                 });
                 /* A RUN CAN NOW BE EMPTY. Run 2 is Style alone since Item Color,
                    Size and Specification became sub-grid columns, and Style hides
@@ -5704,7 +5706,15 @@ export function MbaMasterScreen({
               const named = new Set(FIELD_GROUPS.flat().map((b) => b.header));
               const orphans = itemColumns
                 .filter((c) => !named.has(c.header))
-                .map((col) => ({ col, size: "sm" as FieldSize, weight: "plain" as Weight }));
+                // `align` carried explicitly so an orphan and a declared cell
+                // share ONE shape — `runs` is the union of both, and the
+                // renderer destructures `align` off every member.
+                .map((col) => ({
+                  col,
+                  size: "sm" as FieldSize,
+                  weight: "plain" as Weight,
+                  align: undefined as "end" | undefined,
+                }));
               const withCells = groups.filter((g) => g.length > 0);
               const runs = orphans.length ? [...withCells, orphans] : withCells;
               const t = lineTotals.get(row.key);
@@ -5778,7 +5788,7 @@ export function MbaMasterScreen({
                       className={cn("py-3", gi > 0 && "border-t border-border")}
                     >
                       <FieldGrid cols={32}>
-                        {g.map(({ col, size, weight }, ci) => (
+                        {g.map(({ col, size, weight, align }, ci) => (
                           <Field
                             key={ci}
                             label={col.header}
@@ -5790,7 +5800,17 @@ export function MbaMasterScreen({
                                `audit_layout.py --check grid-required-mobile`. */
                             required={col.required}
                             size={size}
-                            className={cn(DENSE, WEIGHT_CLASS[weight])}
+                            /* `text-right` and not a flex rule: `Field` is a
+                               plain block whose control is inline-level (Toggle
+                               is `inline-flex w-fit`), so text alignment is what
+                               moves it — and the label rides along, which is
+                               what makes the cell read as deliberately
+                               right-hand rather than as a stray control. */
+                            className={cn(
+                              DENSE,
+                              WEIGHT_CLASS[weight],
+                              align === "end" && "text-right",
+                            )}
                           >
                             {col.cell(row, i)}
                           </Field>
