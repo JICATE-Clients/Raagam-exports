@@ -55,6 +55,29 @@ export type ValuedStyle = {
    * piece count. See `priceBasisOf`.
    */
   packs_ordered?: number | string | null;
+  /**
+   * WHICH BOX THIS STYLE SHARES (client 2026-08-28) — the resolved pack-type
+   * name, or null when the style is not packed with anything else.
+   *
+   * ## THE BUG THIS EXISTS TO PREVENT, MEASURED
+   *
+   * A pack rate is a rate per BOX, and one box holds every style in it. This
+   * loop is per STYLE, so a three-style gift box priced at $12 with 400 boxes
+   * valued as 3 x (12 x 400) = 14,400 against a true 4,800 — and reported with
+   * `unresolved: []`, i.e. as a confident correct answer, on the screen that
+   * prints the commercial invoice. Pricing only one style instead was safe and
+   * useless: the other two refused for want of a rate.
+   *
+   * 0467 never exposed it because a set pack was one style per pack. The
+   * multi-style box (2026-08-28) is what made the box and the style stop being
+   * the same thing.
+   *
+   * OPTIONAL, so every existing caller compiles and behaves unchanged: a style
+   * with no group is valued exactly as before. It is only ever consulted on a
+   * PACK basis — two piece-priced styles sharing a carton are still two
+   * separate quantities of garments and must both be counted.
+   */
+  pack_group?: string | null;
 };
 
 /** A Prices-tab row, as much of it as the value needs. */
@@ -110,8 +133,30 @@ function modeAxes(priceType: string | null | undefined): { colour: boolean; size
   const m = (priceType ?? "").trim().toLowerCase();
   return {
     colour: m === "color-wise" || m === "color-wise size-wise",
-    size: m === "size-wise" || m === "color-wise size-wise",
+    size:
+      m === "size-wise" ||
+      m === "color-wise size-wise" ||
+      // 0467's Pack-wise has no axes; its SIZE-WISE sibling (2026-08-28) has
+      // one. A box priced per size is still one rate for one container.
+      m === "pack-wise size-wise",
   };
+}
+
+/**
+ * IS THIS MODE A RATE PER BOX? — the fork that decides the multiplicand.
+ *
+ * `startsWith`, not a list of two, so the pack family can grow without a third
+ * place remembering to grow with it. Nothing else in `PRICE_TYPE_OPTIONS`
+ * begins with these words, and the comparison is on the same trimmed,
+ * lower-cased form every other read here uses.
+ *
+ * EXPORTED because the order screen asks the identical question when it decides
+ * which modes a pack order may choose. That was two hand-written string tests
+ * until 2026-08-28, and the second mode is exactly the edit that would have
+ * updated one of them.
+ */
+export function isPackWise(priceType: string | null | undefined): boolean {
+  return (priceType ?? "").trim().toLowerCase().startsWith("pack-wise");
 }
 
 /**
@@ -140,7 +185,12 @@ export function priceBasisOf(
       .map((p) => (p.price_type ?? "").trim().toLowerCase()),
   );
   if (modes.size !== 1) return null;
-  return [...modes][0] === "pack-wise" ? "pack" : "piece";
+  /* `isPackWise`, never `=== "pack-wise"`. The literal was written when there
+     was one pack mode; "Pack-wise Size-wise" would have fallen through it to
+     "piece" and valued a box rate at the GARMENT count — the exact threefold
+     overstatement the comment above this function warns about, arriving through
+     the fix for it. */
+  return isPackWise([...modes][0]) ? "pack" : "piece";
 }
 
 /**
@@ -271,6 +321,21 @@ export function orderValue(
   const unresolved: string[] = [];
   let gross = 0;
   let qty = 0;
+  /**
+   * A BOX IS VALUED ONCE, however many styles ride in it.
+   *
+   * Keyed on the group name, holding the rate and the box count the first
+   * member reported. A later member of the same group adds its GARMENTS to
+   * `qty` — they are real and the average rate is per garment — and adds
+   * NOTHING to `gross`, because the box it came in has already been paid for.
+   *
+   * FAIL FAST ON A DISAGREEMENT (client's ruling): two members quoting
+   * different rates, or different box counts, for one physical carton is a
+   * contradiction no arithmetic can resolve. Both members are named and the
+   * whole order refuses, exactly as a mixed-mode style does — never the first
+   * answer silently, which would make the value depend on row order.
+   */
+  const groups = new Map<string, { rate: number; boxes: number }>();
 
   for (const s of styles) {
     const key = styleKey(s.style_ref_no);
@@ -301,7 +366,29 @@ export function orderValue(
       if (!unresolved.includes(key)) unresolved.push(key);
       continue;
     }
-    gross += multiplicand * rate;
+
+    /* THE GROUP ONLY APPLIES ON A PACK BASIS — see `pack_group`. Two
+       piece-priced styles that happen to share a carton are two quantities of
+       garments and are both counted. */
+    const group = basis === "pack" ? (s.pack_group ?? "").trim().toUpperCase() : "";
+    if (!group) {
+      gross += multiplicand * rate;
+      continue;
+    }
+
+    const held = groups.get(group);
+    if (held === undefined) {
+      groups.set(group, { rate, boxes: multiplicand });
+      gross += multiplicand * rate;
+      continue;
+    }
+    if (held.rate !== rate || held.boxes !== multiplicand) {
+      /* NAMED, NOT COUNTED. The operator has to find the row that disagrees,
+         and "one style in this pack is priced differently" points at nothing. */
+      if (!unresolved.includes(key)) unresolved.push(key);
+      continue;
+    }
+    // Agreed, and already paid for: the garments count, the box does not.
   }
 
   if (qty <= 0) return { grossValue: null, avgRate: null, unresolved: [] };

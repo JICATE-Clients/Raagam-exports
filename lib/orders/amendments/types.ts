@@ -183,6 +183,7 @@ export const RETIRED_PACK_TYPES: readonly string[] = [
 export const PRICE_TYPE_OPTIONS = [
   "Style-wise",
   "Pack-wise",
+  "Pack-wise Size-wise",
   "Color-wise",
   "Size-wise",
   "Color-wise Size-wise",
@@ -212,6 +213,33 @@ export type PriceType = (typeof PRICE_TYPE_OPTIONS)[number];
  * grid renders this tuple directly, so this is also the dropdown order.
  */
 export const PACK_WISE_PRICE: PriceType = "Pack-wise";
+
+/**
+ * "PACK-WISE SIZE-WISE" IS THE SIXTH MODE (client 2026-08-28): one rate per BOX
+ * per SIZE — "the 5-Piece Gift Pack has a set unit rate for Size S".
+ *
+ * It sits THIRD, beside Pack-wise, because the tuple is the reading order and
+ * the dropdown order, and the two pack modes are one question asked at two
+ * grains. Putting it after "Color-wise Size-wise" would read as a variant of
+ * the colour modes, which it is not: it prices a CONTAINER, and no colour axis
+ * exists on a box that holds several.
+ *
+ * WHAT IT INHERITS AND WHAT IT ADDS. Like Pack-wise it is a rate per BOX, so
+ * `priceBasisOf` must answer "pack" for it and `orderValue` must multiply by
+ * `packs_ordered` — the $12 x 1,000 boxes vs x 3,000 garments fork. Unlike
+ * Pack-wise it has a SIZE axis, so `modeAxes` opens the size grid and
+ * `styleRate` blends the per-size rates.
+ *
+ * THE BLEND NEEDS NO NEW WEIGHT, and this is the one thing about it that is
+ * not obvious. `styleRate` weights by the Quantities tab's PIECES, not by
+ * boxes — but a method has ONE composition applied to every size, so
+ * `pieces(size) = boxes(size) x packSize` with `packSize` constant. The
+ * constant cancels out of a weighted average, so blending by pieces gives the
+ * identical rate to blending by boxes, and `blendedRate x packs_ordered` is
+ * exactly `SUM(rate(size) x boxes(size))`. Vectored, because "it cancels" is
+ * the kind of reasoning that is true until a composition varies by size.
+ */
+export const PACK_WISE_SIZE_PRICE: PriceType = "Pack-wise Size-wise";
 export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
 
 /**

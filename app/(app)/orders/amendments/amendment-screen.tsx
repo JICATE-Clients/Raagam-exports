@@ -61,7 +61,7 @@ import {
   projectionQty,
   totalProductionQty,
 } from "@/lib/orders/amendments/approval-qty";
-import { inrValue, orderValue } from "@/lib/orders/amendments/order-value";
+import { inrValue, isPackWise, orderValue } from "@/lib/orders/amendments/order-value";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Segmented } from "@/components/ui/segmented";
@@ -4887,7 +4887,12 @@ export function AmendmentScreen({
     const m = (mode ?? "").trim().toLowerCase();
     return {
       colour: m === "color-wise" || m === "color-wise size-wise",
-      size: m === "size-wise" || m === "color-wise size-wise",
+      size:
+        m === "size-wise" ||
+        m === "color-wise size-wise" ||
+        // The pack modes' size axis (2026-08-28) — kept in step with
+        // `modeAxes` in `order-value.ts`, which the note above names.
+        m === "pack-wise size-wise",
     };
   };
 
@@ -5216,12 +5221,47 @@ export function AmendmentScreen({
    * would then be averaging rows the screen no longer admits exist.
    */
   const priceModeOptions = (mode: string): { value: string; label: string }[] => {
-    const live: readonly string[] = form.is_set_pack
-      ? [PACK_WISE_PRICE]
+    /* BOTH PACK MODES (2026-08-28). The list was the single `PACK_WISE_PRICE`,
+       so adding the size-wise sibling to the tuple would have left it
+       unreachable on the one kind of order it exists for — the client's
+       "pack-wise AND size-wise" is a box rate per size, and a set pack that
+       could only quote one rate for every size could not express it. Filtered
+       out of the tuple rather than listed by hand, so a third pack mode needs
+       no edit here. */
+    /**
+     * A PACK TYPE BEING ACTIVE IS WHAT SWITCHES THIS ON (client 2026-08-28:
+     * "gate strictly on `pack`, not `is_set_pack`").
+     *
+     * `is_set_pack` is 0467's older "sold in packs" switch and is OFF on this
+     * screen (`SET_PACK_ON_SCREEN = false`), so BOTH pack modes stood down on
+     * every order — including the size-wise one built for exactly this. The
+     * live flag is `pack`, carton sortation, which is what gates Pack type(s)
+     * and the 0473 explosion.
+     *
+     * AND A DECLARED METHOD WITH CONTENTS, not the flag alone. An order may tick
+     * carton sortation and not have written a composition yet; forcing pack
+     * pricing there would take away every per-garment mode and offer a box rate
+     * with no boxes to multiply — a refusal on a document nobody has finished.
+     * "As soon as a pack-type is active" is the client's own wording and this is
+     * it, stated in the terms the engine can check.
+     *
+     * `is_set_pack` is kept in the test rather than replaced, so a genuine
+     * 0467 set pack still narrows if that switch is ever flipped back on.
+     */
+    const packActive =
+      form.is_set_pack ||
+      (form.pack &&
+        packTypes.some(
+          (r) =>
+            r.pack_type.trim() &&
+            PackExplode.packContents(allPackTypeLines, r.pack_type).length > 0,
+        ));
+    const live: readonly string[] = packActive
+      ? PRICE_TYPE_OPTIONS.filter((o) => isPackWise(o))
       : PRICE_TYPE_OPTIONS;
     const out = live.map((o) => ({ value: o, label: o }));
     if (mode && !out.some((o) => o.value === mode)) {
-      out.push({ value: mode, label: `${mode} (not used on a set pack)` });
+      out.push({ value: mode, label: `${mode} (not used on a pack order)` });
     }
     return out;
   };
@@ -5883,7 +5923,14 @@ export function AmendmentScreen({
     l: AssortLineRow,
     sizeId: string,
   ): boolean =>
-    sizesOfRef(assortLineRef(q, l)).some((z) => z.size_id === sizeId);
+    /* THE BOXES ROW SPANS EVERY SIZE THE GRID DRAWS (2026-08-28). One box holds
+       every style at once, so its cells are the union, not one style's. Read
+       through `sizesOfRef` like any other line, a multi-style pack row resolves
+       to no style, every cell came back `readOnly`, and the one row the
+       operator is supposed to type into had nothing typeable on it. */
+    l.is_pack_row
+      ? sizesForOverlay(q).some((z) => z.size_id === sizeId)
+      : sizesOfRef(assortLineRef(q, l)).some((z) => z.size_id === sizeId);
 
   const mutAssort = (
     qtyKey: string,
@@ -5947,19 +5994,71 @@ export function AmendmentScreen({
    * the pack types and the destination's style, so every destination packing
    * one style resolves the same way and no two can disagree.
    */
-  const resolvedPackTypeFor = (q: QuantityRow): string => {
+  /**
+   * EVERY METHOD THAT COULD PACK THIS DESTINATION.
+   *
+   * Split out of `resolvedPackTypeFor` so the screen can ask the question the
+   * resolution cannot answer — "is this ambiguous?" — without re-deriving the
+   * candidate list beside it and drifting from it.
+   */
+  const packTypeCandidatesFor = (q: QuantityRow): string[] => {
     const ref = inheritedStyleFor(q);
-    if (!ref.trim()) return "";
-    const methods = Array.from(
+    const declared = Array.from(
       new Set(
         packTypes
           .map((r) => r.pack_type.trim().toUpperCase())
           .filter(Boolean),
       ),
-    ).filter(
-      (m) => PackExplode.packContents(allPackTypeLines, m, ref).length > 0,
-    );
-    return methods.length === 1 ? methods[0] : "";
+    ).filter((m) => PackExplode.packContents(allPackTypeLines, m).length > 0);
+    /**
+     * NARROWED BY STYLE ONLY WHEN THE DESTINATION NAMES ONE (2026-08-28).
+     *
+     * It used to return "" the moment `inheritedStyleFor` was blank, and on a
+     * MULTI-STYLE ORDER that is always: `inheritedStyleFor` refuses to guess
+     * when several styles are declared, quite correctly. So the explosion
+     * switched itself off on exactly the orders the client built it for — a
+     * baby gift set of three styles resolved to no method, the boxes row never
+     * appeared, and the destination fell back to ordinary typed piece counts
+     * with nothing on screen to say why.
+     *
+     * A box holds every style at once, so a destination shipping a multi-style
+     * pack has no single style to be narrowed by, and asking for one is the
+     * question that has no answer. When the destination DOES name a style the
+     * narrowing still applies and single-style orders behave exactly as before.
+     */
+    return ref.trim()
+      ? declared.filter((m) => PackExplode.packsStyle(allPackTypeLines, m, ref))
+      : declared;
+  };
+
+  /**
+   * WHICH METHOD THIS DESTINATION SHIPS — resolved when it can be, ASKED when it
+   * cannot (client 2026-08-28).
+   *
+   * ONE CANDIDATE IS STILL NEVER ASKED. That was 0473's whole point ("no need to
+   * show it on the quantity tab UI, just inside wiring"), and it holds for the
+   * overwhelming majority of orders: the order states the method once and the
+   * destination's style says which.
+   *
+   * TWO CANDIDATES USED TO RETURN NOTHING, and that is what changed. An order
+   * may legitimately ship a 3-pack to one country and a gift box to another, and
+   * the old rule read that as "cannot tell" and fell back to ordinary typed
+   * piece counts — silently, on a destination the operator had every intention
+   * of packing. Falling back defeats the intent; asking is the honest answer,
+   * and `quantities.pack_type` has existed since 0473 for exactly this.
+   *
+   * THE STORED CHOICE ONLY COUNTS WHILE IT IS STILL A CANDIDATE. Editing the
+   * Pack type(s) tab can retire the method a destination named, and honouring a
+   * value the order no longer declares would explode against a composition that
+   * is not there. Falling back to "" makes the picker reappear, which is the
+   * state the operator can act on.
+   */
+  const resolvedPackTypeFor = (q: QuantityRow): string => {
+    const candidates = packTypeCandidatesFor(q);
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length === 0) return "";
+    const held = q.pack_type.trim().toUpperCase();
+    return candidates.includes(held) ? held : "";
   };
 
   /**
@@ -5971,6 +6070,56 @@ export function AmendmentScreen({
    */
   const packModeOf = (q: QuantityRow): boolean =>
     !!resolvedPackTypeFor(q) && form.pack;
+
+  /**
+   * WHICH BOX THIS STYLE RIDES IN — `ValuedStyle.pack_group` (client 2026-08-28).
+   *
+   * A pack rate is a rate per BOX and one box holds every style in it, so
+   * `orderValue` has to know which style lines share a carton or it values the
+   * same box once per style. Measured on a three-style gift box: 14,400 against
+   * a true 4,800, reported as a resolved answer.
+   *
+   * BLANK WHEN AMBIGUOUS, which is the safe direction: two methods packing one
+   * style means this style's boxes cannot be attributed to one of them, and a
+   * blank group values the line on its own — the behaviour before groups
+   * existed. Never a guess at which box it came in.
+   */
+  const packGroupFor = (ref: string): string => {
+    const methods = Array.from(
+      new Set(
+        packTypes.map((r) => r.pack_type.trim().toUpperCase()).filter(Boolean),
+      ),
+    ).filter((m) => PackExplode.packsStyle(allPackTypeLines, m, ref));
+    return methods.length === 1 ? methods[0] : "";
+  };
+
+  /**
+   * HOW MANY BOXES THE ORDER SHIPS OF THIS STYLE — the pack basis's
+   * multiplicand, off the assortment's own `is_pack_row` lines (0473).
+   *
+   * `packs_ordered` is 0467's per-style figure and is unreachable while
+   * `SET_PACK_ON_SCREEN` is false, so a Pack-wise style would have refused for
+   * want of a box count on every order — the mode selectable and unusable.
+   * The boxes are already typed, one row per destination, per size.
+   *
+   * SUMMED ACROSS DESTINATIONS, because a style may ship to several and each
+   * carries its own boxes. Every style in one box reports the SAME total, which
+   * is correct and is exactly why `pack_group` has to exist: the figure is a
+   * property of the carton, not of the garment.
+   */
+  const boxesForStyle = (ref: string): number => {
+    let total = 0;
+    for (const q of quantities) {
+      if (!packModeOf(q)) continue;
+      const method = resolvedPackTypeFor(q);
+      if (!method || !PackExplode.packsStyle(allPackTypeLines, method, ref)) continue;
+      for (const l of q.assort_lines) {
+        if (!l.is_pack_row) continue;
+        total += l.sizes.reduce((a, z) => a + (Number(z.qty) || 0), 0);
+      }
+    }
+    return total;
+  };
 
   /**
    * REBUILD THE COLOURWAY LINES FROM THE BOXES (0473, client ruling
@@ -5997,7 +6146,6 @@ export function AmendmentScreen({
     q: QuantityRow,
     lines: AssortLineRow[],
   ): AssortLineRow[] => {
-    const ref = inheritedStyleFor(q);
     const method = resolvedPackTypeFor(q);
     const packRow = lines.find((l) => l.is_pack_row);
     if (!packRow || !method) return lines;
@@ -6006,23 +6154,37 @@ export function AmendmentScreen({
         .filter((z) => z.size_id)
         .map((z) => [z.size_id!, z.qty] as const),
     );
-    const cells = PackExplode.explodePacks(allPackTypeLines, method, ref, boxes);
-    /* Grouped by colourway IN COMPOSITION ORDER, so the rows read down the
-       screen the way the pack type's own grid reads — not in whatever order
-       the sizes happened to be typed. */
-    const byCombo = new Map<string, AssortSizeRow[]>();
-    for (const c of PackExplode.packContents(allPackTypeLines, method, ref)) {
-      byCombo.set(c.combo, []);
+    /* EVERY STYLE THE METHOD PACKS, never the destination's one (2026-08-28).
+       A multi-style box is 1 full-sleeve + 1 half-sleeve + 1 sleeveless, and
+       narrowing the composition to a single style produced one third of the
+       order — or, when the destination resolved to no style at all, nothing. */
+    const cells = PackExplode.explodePacks(allPackTypeLines, method, null, boxes);
+    /* Grouped by MEMBER — a (style, colourway) — in composition order, so the
+       rows read down the screen the way the pack type's own grid reads, and two
+       styles that both declare a WHITE stay two rows. Through the module's own
+       `memberKey`, so the grouping here and the collapsing there cannot key the
+       same pack two different ways. */
+    const byMember = new Map<string, { style: string; combo: string; sizes: AssortSizeRow[] }>();
+    for (const c of PackExplode.packContents(allPackTypeLines, method)) {
+      byMember.set(PackExplode.memberKey(c.style_ref_no, c.combo), {
+        style: c.style_ref_no,
+        combo: c.combo,
+        sizes: [],
+      });
     }
     for (const c of cells) {
-      const held = byCombo.get(c.combo);
-      if (held) held.push({ key: newKey(), size_id: c.size_id, qty: String(c.qty) });
+      const held = byMember.get(PackExplode.memberKey(c.style_ref_no, c.combo));
+      if (held) held.sizes.push({ key: newKey(), size_id: c.size_id, qty: String(c.qty) });
     }
     return [
       packRow,
-      ...[...byCombo.entries()].map(([combo, sizes]): AssortLineRow => ({
+      ...[...byMember.values()].map(({ style, combo, sizes }): AssortLineRow => ({
         key: newKey(),
-        style_ref_no: packRow.style_ref_no,
+        /* THE MEMBER'S OWN STYLE. It took `packRow.style_ref_no` — one style for
+           every derived row — which is what made `sizesForOverlay` union to
+           nothing and what would have attributed three styles' pieces to one on
+           every downstream BOM. */
+        style_ref_no: style,
         combo,
         no_of_cartons: "",
         inners_per_carton: "",
@@ -6049,6 +6211,26 @@ export function AmendmentScreen({
    */
   const enterPackLayout = (q: QuantityRow) => {
     if (!packModeOf(q)) return;
+    /**
+     * A MULTI-STYLE BOX IS NOT A SINGLE STYLE PACK (2026-08-28).
+     *
+     * `sizesForOverlay`'s Single branch takes the destination's ONE inherited
+     * style and ignores the lines entirely — so a destination left on Single
+     * (the stored default on any order declaring one style, and on every row
+     * saved before 0433) drew the columns of one style while the rows beneath
+     * it packed three. On a destination whose ref resolves to no style it drew
+     * none at all.
+     *
+     * The composition is the authority here, not the toggle: a method that
+     * packs more than one style has ANSWERED the question the toggle asks, and
+     * leaving the two to disagree is how the grid comes to show a column set
+     * that does not match its own rows. Only ever flipped TOWARDS Multiple —
+     * nothing here turns a genuine multi-style destination back into a single.
+     */
+    if (PackExplode.packStyles(allPackTypeLines, resolvedPackTypeFor(q)).length > 1
+        && q.is_single_style_pack) {
+      setQty(q.key, { is_single_style_pack: false });
+    }
     mutAssort(q.key, (ls) => {
       const packRow: AssortLineRow = ls.find((l) => l.is_pack_row) ?? {
         key: newKey(),
@@ -6438,13 +6620,55 @@ export function AmendmentScreen({
   const ratioTotalOf = (l: AssortLineRow) =>
     l.sizes.reduce((a, z) => a + (Number(z.qty) || 0), 0);
 
+  /**
+   * WHICH BOX THE SIZE RATIO FILLS — the client's "Ratio for Inner or Master?"
+   * (0414's `ratio_for`, CHECKed to this tuple).
+   *
+   *   master  the ratio IS the shipping carton; no sub-bundles exist inside it,
+   *           so Inners counts nothing and takes no part in the arithmetic.
+   *   inner   the ratio is one poly bag, and several fill a master carton.
+   *
+   *     master  pieces = Cartons × Σ ratio
+   *     inner   pieces = Cartons × Inners × Σ ratio
+   *
+   * THE COLUMN HAS EXISTED SINCE 0414 AND NOTHING READ IT. The overlay has
+   * offered this Select since the carton block was emptied on 2026-08-19, the
+   * value saved, and both arithmetics multiplied by Inners unconditionally —
+   * which is the `inner` branch. So an order declared `master` was computed as
+   * an `inner` pack and the operator's declaration was decoration.
+   *
+   * It hid because `inners_per_carton` is 1 on every row in the database, the
+   * same way this file's own header records the previous version of this bug
+   * hiding. The first `master` pack with 10 inners typed would have bought ten
+   * times the cloth, silently: the total is plausible and the breakup balances,
+   * because the balance rule multiplies by the same wrong factor.
+   *
+   * BLANK READS AS `master`, the safe direction — it declines to multiply by a
+   * number whose meaning nobody has confirmed, and it is what the screen already
+   * computed for a blank before this existed, so no stored row changes value.
+   */
+  const ratioScopeOf = (q: QuantityRow): "master" | "inner" =>
+    q.ratio_for.trim().toLowerCase() === "inner" ? "inner" : "master";
+
   /** `|| 1`, never `|| 0` — a blank multiplier means "one", not "none". */
   const innersOf = (l: AssortLineRow) => Number(l.inners_per_carton) || 1;
 
-  const lineQtyOf = (l: AssortLineRow, mode: AssortMode) =>
-    mode === "solid"
-      ? ratioTotalOf(l)
-      : (Number(l.no_of_cartons) || 0) * innersOf(l) * ratioTotalOf(l);
+  /**
+   * HOW MANY RATIOS THIS LINE SHIPS — the multiplication, in one place.
+   *
+   * `lineQtyOf` and `sizePiecesOf` are the same rule one level apart and have
+   * already drifted once (the header above records `pricingWeights`
+   * multiplying by cartons while the total consulted a flag). Both now read
+   * this, so a change to the packing arithmetic is one edit and cannot be half
+   * applied. It takes the DESTINATION because `ratio_for` lives there: a
+   * signature that took only the line is what let every call site forget.
+   */
+  const packFactorOf = (q: QuantityRow, l: AssortLineRow) =>
+    (Number(l.no_of_cartons) || 0) *
+    (ratioScopeOf(q) === "inner" ? innersOf(l) : 1);
+
+  const lineQtyOf = (q: QuantityRow, l: AssortLineRow, mode: AssortMode) =>
+    mode === "solid" ? ratioTotalOf(l) : packFactorOf(q, l) * ratioTotalOf(l);
 
   /**
    * THE PACK ROW'S FIGURE IS BOXES AND MUST NEVER JOIN A PIECE TOTAL (0473).
@@ -6465,7 +6689,7 @@ export function AmendmentScreen({
 
   const assortTotalOf = (q: QuantityRow) => {
     const mode = assortModeOf(q) ?? "solid";
-    return pieceLinesOf(q).reduce((a, l) => a + lineQtyOf(l, mode), 0);
+    return pieceLinesOf(q).reduce((a, l) => a + lineQtyOf(q, l, mode), 0);
   };
 
   /**
@@ -6498,6 +6722,25 @@ export function AmendmentScreen({
     const computed = assortTotalOf(q);
     return computed === 0 ? null : (Number(q.po_qty) || 0) - computed;
   };
+
+  /**
+   * HAS THE OPERATOR TOUCHED THIS LINE? — content, never existence.
+   *
+   * The same columns `assortLineFilled` counts on the way out and
+   * `addAssortLine` counts before it declines, asked a third time here. All
+   * three are one rule and must be edited together; the list has already been
+   * short twice, once when 0432 added inners and once when 0433 added the
+   * line's own style.
+   */
+  const assortLineStarted = (l: AssortLineRow): boolean =>
+    l.no_of_cartons.trim() !== "" ||
+    l.inners_per_carton.trim() !== "" ||
+    l.sizes.some((z) => z.qty.trim() !== "");
+
+  /** The client's test for a destination worth validating (2026-08-28): a pack
+   *  type linked to it, or anything at all typed into its breakup. */
+  const assortStarted = (q: QuantityRow): boolean =>
+    packModeOf(q) || q.assort_lines.some(assortLineStarted);
 
   /**
    * THE WHOLE ORDER'S POSITION, IN ONE FIGURE (2026-08-21).
@@ -6639,7 +6882,7 @@ export function AmendmentScreen({
       const orphans = q.assort_lines.filter(
         (l) =>
           !l.style_ref_no.trim() &&
-          lineQtyOf(l, assortModeOf(q) ?? "solid") > 0,
+          lineQtyOf(q, l, assortModeOf(q) ?? "solid") > 0,
       ).length;
       if (orphans) {
         out.push({
@@ -6648,6 +6891,63 @@ export function AmendmentScreen({
           message: `${who}: ${orphans === 1 ? "one assortment line has" : `${orphans} assortment lines have`} quantities but name no style. Open Details and pick a Style Ref No, or switch back to Single Style.`,
           kind: "custom",
         });
+      }
+    }
+
+    /**
+     * AN ASSORTED PACK MUST DECLARE HOW IT IS PACKED (client 2026-08-28).
+     *
+     * The pieces are `Cartons x [Inners x] ratio`, so with either factor
+     * unstated there is no piece count — only a ratio nobody has multiplied.
+     * Both are blocking, `kind: "custom"` like the balance rule beneath them.
+     *
+     * ## "STARTED" IS THE WHOLE OF THE DESIGN, AND IT IS THE CLIENT'S TEST
+     *
+     * "Compulsory" read literally would deaden Save on every destination the
+     * operator has not reached, and on every order already stored — every one
+     * of which has a blank `ratio_for`, because nothing read the column until
+     * 2026-08-28 and so nothing ever made anyone fill it in. This screen
+     * already refuses that: `assortBalanceOf` answers NULL while the breakup
+     * adds to nothing, because "a row the operator HAS started must balance; a
+     * row they have not started is not yet a claim about anything."
+     *
+     * So the client's ruling names the two things that count as started — a
+     * pack type linked to the destination, or ANY box count, carton figure or
+     * size cell entered on it. A completely untouched destination is unanswered
+     * and bypasses both rules.
+     *
+     * NOT "does it have lines". `addAssortLine` seeds a blank line and
+     * `openAssort` seeds one per declared colour, so a row count is true the
+     * moment the overlay is opened and would deaden Save on a destination
+     * nobody has typed a digit into. The test is on CONTENT, which is the same
+     * question `assortLineFilled` asks on the way out.
+     */
+    const mode = assortModeOf(q) ?? "solid";
+    if (mode === "assort" && assortStarted(q)) {
+      if (!q.ratio_for.trim()) {
+        out.push({
+          section: "quantities",
+          label: "Ratio For",
+          message: `${who}: say whether the size ratio fills an INNER bundle or the MASTER carton — the two give piece counts a factor of the inner count apart.`,
+          kind: "custom",
+        });
+      }
+      /* CARTONS ARE ASKED ONLY WHERE THEY ARE TYPED. Under a pack type the
+         boxes row IS the carton count, per size, and every line beneath it is
+         derived and has no carton cell at all — so requiring one there would
+         name a field that is not on the screen. */
+      if (!packModeOf(q)) {
+        const short = pieceLinesOf(q).filter(
+          (l) => assortLineStarted(l) && !(Number(l.no_of_cartons) > 0),
+        ).length;
+        if (short) {
+          out.push({
+            section: "quantities",
+            label: "Cartons",
+            message: `${who}: ${short === 1 ? "one assortment line has" : `${short} assortment lines have`} a ratio but no carton count, so ${short === 1 ? "it multiplies" : "they multiply"} out to nothing. Open Details and enter Ctns.`,
+            kind: "custom",
+          });
+        }
       }
     }
 
@@ -6836,13 +7136,14 @@ export function AmendmentScreen({
    * AGENTS.md's "one declaration, four enforcers" refuses.
    */
   const sizePiecesOf = (
+    q: QuantityRow,
     l: AssortLineRow,
     z: AssortSizeRow,
     mode: AssortMode,
   ) =>
     mode === "solid"
       ? Number(z.qty) || 0
-      : (Number(l.no_of_cartons) || 0) * innersOf(l) * (Number(z.qty) || 0);
+      : packFactorOf(q, l) * (Number(z.qty) || 0);
 
   /**
    * THE ORDER'S QUANTITY BREAKUP — the Quantities tab flattened to
@@ -6883,7 +7184,7 @@ export function AmendmentScreen({
         style_ref_no: assortLineRef(q, l),
         combo: l.combo,
         size_id: z.size_id,
-        qty: sizePiecesOf(l, z, mode),
+        qty: sizePiecesOf(q, l, z, mode),
       })),
     );
   });
@@ -6900,8 +7201,15 @@ export function AmendmentScreen({
         : (Number(r.po_qty) || 0),
       /* Only consulted when this style's rows say Pack-wise (0467). A rate per
          box multiplied by the garments inside it overstates the order by the
-         set size, on the screen that prints the invoice figure. */
-      packs_ordered: Number(r.packs_ordered) || 0,
+         set size, on the screen that prints the invoice figure.
+         FALLING BACK TO THE ASSORTMENT'S BOXES (2026-08-28) — `packs_ordered`
+         is 0467's field and is unreachable while the set-pack switch is off, so
+         without this a Pack-wise style refuses on every order. */
+      packs_ordered: Number(r.packs_ordered) || boxesForStyle(r.style_ref_no),
+      /* THE BOX IS VALUED ONCE (2026-08-28). Without this a three-style gift
+         box is worth three times what the buyer pays for it, and says so with
+         no styles unresolved. See `pack_group` in `order-value.ts`. */
+      pack_group: packGroupFor(r.style_ref_no) || null,
     })),
     priceDetails.map((r) => ({
       style_ref_no: r.style_ref_no,
@@ -8011,6 +8319,47 @@ export function AmendmentScreen({
           ]}
         />
       </Field>
+      {/* ONLY WHEN THE ORDER LEAVES A CHOICE (client 2026-08-28). One candidate
+          resolves itself and the field never appears — 0473's "no need to show
+          it on the quantity tab UI" holds for every ordinary order. Two or more
+          and the destination has to say, because the alternative is the silent
+          fallback to typed piece counts that this replaced.
+
+          IT LIVES HERE RATHER THAN IN THE QUANTITIES ROW because this is where
+          the packing questions are asked — beside Ratio For, on the surface the
+          operator opens to work on the destination. The row itself is already
+          ten columns wide.
+
+          `enterPackLayout` ON CHANGE, not merely a `setQty`. Pack layout is
+          entered when the overlay OPENS and from nowhere else, so a method
+          chosen after opening would set the column and leave the grid in the
+          shape it was drawn in — the boxes row absent on a destination that
+          now has a method. */}
+      {/* NOT `required`. The star holds the cursor, and AGENTS.md's test for the
+          word is "must the record be unsaveable without it?" — nothing deadens
+          Save on this, and a destination that names no method is a legitimate
+          state: it ships on ordinary typed piece counts. The field APPEARING at
+          all is the signal; a star would be one with nothing behind it. */}
+      {packTypeCandidatesFor(q).length > 1 && (
+        <Field label="Pack Type" w="term">
+          <Select
+            value={q.pack_type}
+            onChange={(e) => {
+              const v = e.target.value;
+              setQty(q.key, { pack_type: v });
+              const next = { ...q, pack_type: v };
+              if (v) enterPackLayout(next);
+            }}
+          >
+            <option value=""></option>
+            {packTypeCandidatesFor(q).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       {/* The last survivor of the carton block below, which the client emptied
           on 2026-08-19. A `FieldRow` sizes by CONTENT rather than by a twelfth
           of the row, so a two-option Select can sit here at its own width —
@@ -8184,6 +8533,14 @@ export function AmendmentScreen({
    */
   const assortGrid = (q: QuantityRow, mode: AssortMode) => {
     const assort = mode === "assort";
+    /* INNERS IS ONLY A QUESTION WHEN THE RATIO FILLS AN INNER (`ratioScopeOf`).
+       On a Master-ratio pack the ratio IS the carton and there are no
+       sub-bundles, so a box asking how many of them fit is a box whose only
+       possible use is to make the answer wrong — the arithmetic ignores it, and
+       a field that changes nothing while looking like it should is worse than
+       one that is absent. Hidden rather than disabled: a disabled control still
+       costs a column on a grid whose width is already the whole problem. */
+    const innerScope = ratioScopeOf(q) === "inner";
     const sizes = sizesForOverlay(q).filter((z) => z.size_id);
     /* THIS DESTINATION IS PACKED TO A DECLARED METHOD (0473) — the size cells
        on the `is_pack_row` line are BOXES and every colourway row beneath it is
@@ -8191,6 +8548,13 @@ export function AmendmentScreen({
        decides what the header says, which cells are editable and what the row
        label reads, and three answers to one question is how they drift. */
     const packMode = packModeOf(q);
+    /* THE METHOD'S STYLES, resolved once beside `packMode` for the same reason:
+       the row label reads it per row, and three answers to one question is how
+       they drift. */
+    const packMemberStyles = PackExplode.packStyles(
+      allPackTypeLines,
+      resolvedPackTypeFor(q),
+    );
 
     /**
      * The widest number this column has to hold — every line's entry, and the
@@ -8216,7 +8580,8 @@ export function AmendmentScreen({
 
     const track = [
       ASSORT_ID_W + "px",
-      ...(assort ? ["4.5rem", "4.5rem"] : []),
+      ...(assort ? ["4.5rem"] : []),
+      ...(assort && innerScope ? ["4.5rem"] : []),
       ...sizes.map(
         (z) =>
           sizeColPx(sizeLabel(z.size_id) || "-", sizeDigits(z.size_id!)) + "px",
@@ -8262,7 +8627,7 @@ export function AmendmentScreen({
               Style / Combo
             </div>
             {assort && <div className={HEAD}>Ctns</div>}
-            {assort && <div className={HEAD}>Inners</div>}
+            {assort && innerScope && <div className={HEAD}>Inners</div>}
             {sizes.map((z) => (
               /* THE SAME TOKEN THE SIZE PICKER DRAWS — mono, tabular, bordered.
                  The size the operator ticked over there is visibly the size they
@@ -8277,8 +8642,35 @@ export function AmendmentScreen({
             <div className={HEAD} />
             <div className={HEAD + " sticky right-0 z-30 justify-end pr-3"}>Qty</div>
 
-            {/* ---- one row per assortment line ---- */}
-            {q.assort_lines.map((l) => {
+            {/* ---- one row per assortment line ----
+                UNDER A PACK TYPE ONLY THE BOXES ROW IS DRAWN (client
+                2026-08-28: "this no need in ui remove it").
+
+                The derived (style, colourway) rows are still COMPUTED and still
+                SAVED — `explodePackLines` runs on every keystroke and
+                `toPayload` writes what it produced. Only the drawing stops.
+                That distinction is the whole of this change and must not be
+                "tidied" into dropping the lines: 0473 exists because Material
+                BOM, Fabric BOM, cutting and costing all read plain piece counts
+                and none of them knows what a pack is, so a destination that
+                stored no pieces buys cloth for nothing. Hiding is not emptying.
+
+                NOTHING ON SCREEN LOSES ITS VALUE EITHER, because every figure is
+                derived from the lines rather than from the rows drawn:
+                `sizeTotal` and `assortTotalOf` both read `pieceLinesOf`, and
+                `sizesForOverlay` takes its columns from the lines' styles. The
+                per-size totals under the grid therefore still show exploded
+                PIECES while the row above them takes BOXES — which is now the
+                whole surface: boxes in, pieces out.
+
+                This reverses the client's own first statement of the feature
+                ("the UI should immediately render a read-only matrix below
+                showing the calculated final piece counts"). The later
+                instruction wins; recorded so it is not "fixed" back. */}
+            {(packMode
+              ? q.assort_lines.filter((l) => l.is_pack_row)
+              : q.assort_lines
+            ).map((l) => {
               /* THE STYLE, from the Style(s) section — never the destination's
                  free-text Ref No. See `assortLineRef`. */
               const ref = assortLineRef(q, l);
@@ -8388,6 +8780,19 @@ export function AmendmentScreen({
                             </span>
                           ) : (
                             <span className="block truncate text-sm">
+                              {/* THE STYLE, ONLY WHEN THE PACK HAS SEVERAL
+                                  (2026-08-28). Two styles in one box may both
+                                  declare a WHITE, and two rows reading "WHITE
+                                  x1/pack" with different figures beside them is
+                                  a table the operator cannot check. Suppressed
+                                  on a single-style pack, where it would repeat
+                                  one answer down every row — the objection the
+                                  client made to the header Style pair. */}
+                              {packMemberStyles.length > 1 && ref ? (
+                                <span className="mr-1.5 text-xs text-muted-foreground">
+                                  {ref}
+                                </span>
+                              ) : null}
                               {l.combo}
                               <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">
                                 {"×"}
@@ -8462,7 +8867,7 @@ export function AmendmentScreen({
                       />
                     </div>
                   )}
-                  {assort && (
+                  {assort && innerScope && (
                     <div className={CELL}>
                       <Input
                         type="number"
@@ -8534,12 +8939,12 @@ export function AmendmentScreen({
                     className={
                       CELL +
                       " sticky right-0 z-10 justify-end border-l bg-surface pr-3 text-sm font-semibold tabular-nums" +
-                      (lineQtyOf(l, mode) > (Number(q.po_qty) || 0)
+                      (lineQtyOf(q, l, mode) > (Number(q.po_qty) || 0)
                         ? " text-danger"
                         : "")
                     }
                   >
-                    {fmtNumber(lineQtyOf(l, mode))}
+                    {fmtNumber(lineQtyOf(q, l, mode))}
                   </div>
                 </div>
               );
@@ -8558,7 +8963,7 @@ export function AmendmentScreen({
               Total
             </div>
             {assort && <div className={FOOT} />}
-            {assort && <div className={FOOT} />}
+            {assort && innerScope && <div className={FOOT} />}
             {sizes.map((z) => (
               <div key={z.size_id} className={FOOT}>
                 {fmtNumber(sizeTotal(z.size_id!))}

@@ -552,6 +552,34 @@ export const purchaseOrderInput = z.object({
 export type PurchaseOrderInput = z.infer<typeof purchaseOrderInput>;
 
 export const grnLineInput = z.object({
+  /**
+   * BOTH PO KEYS ARE OPTIONAL, AND THAT IS ALREADY TRUE — but it does not yet
+   * mean what a reader would assume, and 0474 is what made the difference worth
+   * writing down.
+   *
+   * 0474 put a "Free of Cost Receipt" tick on the Material BOM line: material
+   * the customer sends in, which nobody buys and which therefore has no purchase
+   * order to receive against. `createGrn` accepts such a line today — these two
+   * keys being nullable is the seam it needs — so DO NOT "tighten" them to
+   * required. That change would compile, read as a correctness fix, and close
+   * the only door the FOC route has.
+   *
+   * ## THE LINE IS ACCEPTED AND THEN DROPPED, WHICH IS THE HALF THAT IS MISSING
+   *
+   * `postGrn` opens its loop with `if (!line.po_line_item_id) continue;`, and
+   * the `stockIns.push` that takes goods into the Material store sits INSIDE
+   * that branch, reading `item_id` off the PO line. A GRN line with no PO
+   * therefore saves, posts, reports success and moves nothing into stock — it is
+   * skipped, not rejected, so nothing anywhere says so.
+   *
+   * It cannot simply be let through either: `grn_line_items` carries a
+   * `description` and no `item_id` of its own, so a PO-less line does not name
+   * the material it received. Making the FOC route real needs a column on that
+   * table (and a link back to the BOM item line, or a free receipt cannot be
+   * told apart from a second free receipt of the same trim), plus a posting
+   * branch and a way into the form — none of which is a gate, and none of which
+   * 0474 attempts. Reported to the lead 2026-08-28 rather than half-built.
+   */
   po_line_item_id: z.string().uuid().optional().nullable(),
   purchase_order_id: z.string().uuid().optional().nullable(),
   description: z.string().min(1),

@@ -42,6 +42,7 @@
     "check:requirement-sheet": "npx --yes tsx scripts/check-requirement-sheet.mts",
     "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",
     "check:assort-style": "npx --yes tsx scripts/check-assort-style.mts",
+    "check:blank-row-filter": "npx --yes tsx scripts/check-blank-row-filter.mts",
     "check:size-order": "node --experimental-strip-types scripts/check-size-order.mts",
     "sweep:placeholders": "python scripts/sweep_placeholders.py .",
     "lint": "eslint"

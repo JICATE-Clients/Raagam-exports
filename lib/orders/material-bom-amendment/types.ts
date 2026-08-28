@@ -66,10 +66,31 @@ export const DEFAULT_SUPPLY_TYPE: (typeof SUPPLY_TYPE_OPTIONS)[number] = "Local"
  * rule governs typed free text (`<Input uppercase>` + `capsName()` in the
  * schema), not a fixed option list — the same exemption workflow status keys
  * take. `type` stays `nullableText` in the input for that reason.
+ *
+ * ## "To be developed" WAS REMOVED FROM THIS LIST ON 2026-08-28 (user
+ * ## instruction) AND DELIBERATELY KEPT IN `UNSETTLED_MATERIAL_TYPES` BELOW
+ *
+ * Two options are pickable now. The value did NOT stop existing — it stopped
+ * being OFFERED, and those are different facts about different moments:
+ *
+ *   this list                  what an operator may choose FROM NOW ON
+ *   `UNSETTLED_MATERIAL_TYPES` what the PO gate REFUSES, including old rows
+ *
+ * Rows already stored as "To be developed" are untouched and still unsettled, so
+ * the predicate below still names it. **Deleting it there to "match" this list
+ * is the mistake this note exists to prevent**: `refuseUnsettledMaterials` would
+ * stop refusing exactly the rows it was written for, the gate would fail OPEN,
+ * and nothing would say so — the same silent shape as the case-comparison trap
+ * the predicate's own header describes.
+ *
+ * NO MIGRATION, and no backfill rewriting stored "To be developed" rows to "To
+ * be advised". `material_bom_amendment_items.type` is plain `text` with no CHECK
+ * (0265), so nothing in the database constrains the value; and rewriting one
+ * would overwrite an operator's answer to a question they were asked in good
+ * faith, to no benefit, since the predicate already reads it correctly.
  */
 export const MATERIAL_TYPE_OPTIONS = [
   "To be advised",
-  "To be developed",
   "Available Item",
 ] as const;
 
@@ -88,6 +109,74 @@ export const MATERIAL_TYPE_OPTIONS = [
  * would silently change what the next save writes.
  */
 export const DEFAULT_MATERIAL_TYPE: (typeof MATERIAL_TYPE_OPTIONS)[number] = "Available Item";
+
+/**
+ * THE TWO TYPES THAT MEAN "NOT SETTLED YET" — what a purchase order is refused
+ * against (client 2026-08-28: TBA blocks downstream PO creation until the final
+ * size specs are saved).
+ *
+ * ## IT NO LONGER MATCHES `MATERIAL_TYPE_OPTIONS`, AND THAT IS THE POINT
+ *
+ * "To be developed" left the pickable list on 2026-08-28 and stays here. The two
+ * constants answer different questions and they are now expected to disagree:
+ *
+ *   `MATERIAL_TYPE_OPTIONS`      what may be CHOSEN from now on   (2 values)
+ *   `UNSETTLED_MATERIAL_TYPES`   what is REFUSED, old rows too    (2 values,
+ *                                                                 one retired)
+ *
+ * **DO NOT "tidy" the two into agreement.** A row stored as "To be developed"
+ * still exists and is still unsettled; dropping it here would make
+ * `refuseUnsettledMaterials` stop refusing precisely the legacy rows it was
+ * written for. The gate would compile, run, refuse nothing, and fail **OPEN** —
+ * the identical silent shape as the case trap described below, which is why
+ * both warnings live on this one constant.
+ *
+ * **THIS IS NOT A PICK LIST AND MUST NEVER BE RENDERED AS ONE.** It is the
+ * refusal set, so it necessarily contains a value an operator may no longer
+ * choose; mapping it into a `<Select>` would put the retired option back on the
+ * screen through the back door. The dropdown renders `MATERIAL_TYPE_OPTIONS`.
+ *
+ * ## Why the split lives HERE and not in `lib/orders/bom-status.ts`
+ *
+ * That file owns the DOCUMENT's vocabulary — pending / draft / updated /
+ * recalculate / unresolved, "has this order's BOM been done?". This is a
+ * property of one LINE, and more to the point it is a partition of
+ * `MATERIAL_TYPE_OPTIONS` three lines up. A predicate kept away from the list it
+ * partitions is a list that can grow a fourth option nobody classifies: the new
+ * word would be neither settled nor unsettled, would fall through to "settled"
+ * by omission, and a material nobody had specified would become purchasable
+ * silently. Beside the list, adding an option means meeting this constant.
+ *
+ * ## THE COMPARISON IS NORMALISED, AND THAT IS NOT DEFENSIVENESS
+ *
+ * `material_bom_amendment_items.type` is plain `text` with no CHECK (0265), so
+ * the stored value is whatever was written — by this screen, by a copy, or by a
+ * legacy row. AGENTS.md records the identical trap one module along under
+ * "Nominated vendors": the supply-type enums disagree on case, so a call site
+ * comparing with `===` compiles, runs, and quietly matches nothing. A gate that
+ * matches nothing is a gate that is not there, and it fails OPEN — the
+ * purchase goes through and nobody learns the control was never consulted.
+ */
+export const UNSETTLED_MATERIAL_TYPES: readonly string[] = [
+  "To be advised",
+  "To be developed",
+];
+
+/**
+ * Is this line's material still To be advised / To be developed?
+ *
+ * A BLANK TYPE IS NOT UNSETTLED. `type` is nullable and was blank on every line
+ * written before `DEFAULT_MATERIAL_TYPE` existed, so treating null as unsettled
+ * would refuse a purchase against every BOM in the database on the day this
+ * ships — the gate would read as broken rather than as strict, and the only way
+ * out would be to reopen and re-save each historic line. The rule refuses what
+ * an operator has DECLARED unsettled, never what they never answered.
+ */
+export function isUnsettledMaterialType(type: string | null | undefined): boolean {
+  const t = (type ?? "").trim().toLowerCase();
+  if (!t) return false;
+  return UNSETTLED_MATERIAL_TYPES.some((u) => u.toLowerCase() === t);
+}
 
 /** Where a material sent out for processing has got to. */
 export const PROCESS_STATUS_OPTIONS = [
@@ -235,6 +324,23 @@ export interface MbaItem {
    * UNION, never ticked-only, so un-ticking can never hide a row.
    */
   send_out: boolean;
+  /**
+   * "Free of Cost Receipt" — this material arrives without being bought (0474).
+   *
+   * IT IS A RECEIPT ROUTE, NOT A PRICE. The customer or their nominated
+   * supplier sends the trim in and nobody here raises a purchase order, so the
+   * line may be taken into stock on a Goods Receipt with no PO behind it. The
+   * alternative the storekeeper reaches for otherwise is a zero-value PO, which
+   * pollutes every purchase report and consumes the 0424 ceiling — a free trim
+   * eating a bought one's budget.
+   *
+   * NAMED `is_foc` TO MATCH `po_line_items.is_foc` (0359) and the planning
+   * budgets (0369) rather than the unprefixed `send_out` above it. It is the
+   * same fact those carry and it travels onto a PO line raised from this one;
+   * one concept spelled two ways is the drift `send_out`'s own header warns
+   * about. See 0474 for the argument in full.
+   */
+  is_foc: boolean;
   moq: number | null;
   /** Round the post-MOQ figure UP to the next multiple of this (0437).
    *  NULL = no rounding asked for, which is every row before 0437. */
@@ -695,6 +801,12 @@ export const mbaItemInput = z
        own two booleans take — the default is what keeps every line written
        before this column valid. */
     send_out: z.coerce.boolean().default(false),
+    /* 0474. Same shape as `send_out` above and for the same reason: the default
+       is what keeps every line written before this column valid. NOT `required`
+       — a receipt route the operator has not chosen is `false`, which is the
+       ordinary answer, and marking it required would hold the keyboard cursor on
+       a tick box that can never be blank. */
+    is_foc: z.coerce.boolean().default(false),
     moq: numN,
     round_to: numN,
     no_of_items: numN,

@@ -34,7 +34,7 @@
  * shop-floor sheet are pieces nobody cuts.
  */
 
-import { assortMode } from "@/lib/orders/assort-weights";
+import { assortMode, packFactor, ratioScope } from "@/lib/orders/assort-weights";
 import { assortLineRef, declaredStyleRefs } from "@/lib/orders/amendments/assort-style";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { coordinateLimit, unitKindLabel } from "@/lib/orders/styles/rules";
@@ -124,6 +124,9 @@ export type SrcQuantity = {
   style_ref_no: string | null;
   is_single_style_pack: boolean;
   assortment_type: { code: string | null; name: string | null } | null;
+  /** WHICH BOX THE RATIO FILLS (0414) — `ratioScope` reads it, and without it
+   *  the sheet prints an Inner pack short by its inner count. */
+  ratio_for: string | null;
   po_no: string | null;
   po_qty: number;
   delivery_date: string | null;
@@ -189,10 +192,16 @@ export function sizeCells(src: GosSource): Cell[] {
       style_ref_no: q.style_ref_no,
       assortment_type: q.assortment_type,
     });
+    /* THE SCOPE, RESOLVED ONCE PER DESTINATION, like the mode above it. */
+    const scope = ratioScope({ style_ref_no: q.style_ref_no, ratio_for: q.ratio_for });
     for (const l of bySno(q.assort_lines)) {
-      const cartons = Number(l.no_of_cartons) || 0;
-      const inners = Number(l.inners_per_carton) || 0;
-      const factor = mode === "solid" ? 1 : cartons * inners;
+      /* THROUGH THE SHARED RULE (2026-08-28). This was the fourth hand-written
+         copy of the multiplication, and it carried both of the bugs the copies
+         always carry: it ignored `ratio_for`, so a Master pack printed the Inner
+         answer, and it read a blank inners as ZERO, so such a line printed as no
+         pieces at all. A sheet is what the buyer and the factory both work from,
+         so a wrong figure here is not caught downstream — it IS downstream. */
+      const factor = mode === "solid" ? 1 : packFactor(l, scope);
 
       const raw = assortLineRef(
         src.styles,
@@ -517,10 +526,13 @@ function destinationsOf(src: GosSource): GosDestination[] {
       style_ref_no: q.style_ref_no,
       assortment_type: q.assortment_type,
     });
+    /* The fifth copy, and the one that disagreed with the matrix two functions
+       above it: the destination band's total and the size cells it summarises
+       were computed by two separately-typed expressions. One rule now. */
+    const scope = ratioScope({ style_ref_no: q.style_ref_no, ratio_for: q.ratio_for });
     let qty = 0;
     for (const l of q.assort_lines) {
-      const factor =
-        mode === "solid" ? 1 : (Number(l.no_of_cartons) || 0) * (Number(l.inners_per_carton) || 0);
+      const factor = mode === "solid" ? 1 : packFactor(l, scope);
       for (const z of l.sizes) qty += factor * (Number(z.qty) || 0);
     }
     return {

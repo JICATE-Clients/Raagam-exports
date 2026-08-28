@@ -93,6 +93,7 @@ type Row = {
     delivery_date: string | null;
     earlier_shipment_date: string | null;
     assortment_type: { code: string | null; name: string | null } | null;
+    ratio_for: string | null;
     country: { name: string } | null;
     consignee: { name: string } | null;
     assort_lines: {
@@ -124,7 +125,12 @@ const SELECT =
   "structure:categories(name)," +
   "components:garment_order_amendment_combo_components(sno,coordinate_id,component_id,color_name," +
   "coordinate:items(name),component:components(short_name),print:config_lookups(name)))), " +
-  "quantities:garment_order_amendment_quantities(sno,style_ref_no,is_single_style_pack,po_no,po_qty," +
+  /* `ratio_for` IS PART OF THE ARITHMETIC, not a label (0414, read since
+     2026-08-28). This select is written out by hand and the rows below are
+     re-mapped field by field, so the column has to be named TWICE — the same
+     two-step AGENTS.md records for `created_by` on the sales registers, where
+     a re-mapped row drops a column as silently as a select that never asked. */
+  "quantities:garment_order_amendment_quantities(sno,style_ref_no,is_single_style_pack,ratio_for,po_no,po_qty," +
   "delivery_date,earlier_shipment_date," +
   "assortment_type:config_lookups!garment_order_amendment_quantities_assortment_type_id_fkey(code,name)," +
   "country:countries(name),consignee:consignees(name)," +
@@ -255,6 +261,8 @@ export async function getGarmentOrderSheet(
       // destination with neither prints its own Ref No, which is what the
       // Quantities tab shows the operator.
       destination: q.country?.name ?? q.consignee?.name ?? null,
+      // COPIED ACROSS — see the note on the select above.
+      ratio_for: q.ratio_for ?? null,
       assort_lines: (q.assort_lines ?? []).map((l) => ({
         sno: l.sno,
         style_ref_no: l.style_ref_no,

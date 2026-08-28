@@ -7,6 +7,32 @@
  * boxes. Multiplying the two is the only way the order's colour-wise piece
  * counts can exist at all, and this module is the only place it happens.
  *
+ * ## A MEMBER IS A (STYLE, COLOURWAY) — NOT A COLOURWAY (client 2026-08-28)
+ *
+ * This module keyed its composition on the COLOURWAY alone and took the style
+ * as a filter, so the model it implemented was "one box holds several colours
+ * of ONE style". The client's is "one box holds several STYLES": a baby gift
+ * set is 1 full-sleeve + 1 half-sleeve + 1 sleeveless, three different styles
+ * in one carton.
+ *
+ * THE STORAGE ALWAYS SUPPORTED IT. `garment_order_amendment_pack_type_lines`
+ * carries `style_ref_no` on every line (0472) — it is exactly the client's
+ * `PackComposition(style, colour, qty_per_box)`. The lines went in and this
+ * file dropped the style on the way out, which is why a multi-style pack
+ * exploded into nothing and a multi-style order opened an Assortment with no
+ * size columns at all.
+ *
+ * So the key is `(style, combo)` throughout, and `ExplodedCell` carries the
+ * style it belongs to. Two styles that both declare a WHITE are two members,
+ * because they are two different garments cut from two different patterns —
+ * collapsing them is the bug in miniature.
+ *
+ * THE STYLE ARGUMENT IS NOW A NARROWING FILTER AND IS OPTIONAL. Blank or
+ * omitted means "every style this method packs", which is what a multi-style
+ * box is. Naming one narrows to it, which is what every single-style caller
+ * has always meant. One function, both models, and the single-style answers
+ * are unchanged — the vectors that covered them still pass verbatim.
+ *
  * ## WHY IT IS MANDATORY AND NOT A CONVENIENCE
  *
  * Client's own words: keeping the two grids as unlinked statements is "a
@@ -79,17 +105,61 @@ const n = (v: number | string | null | undefined): number => {
  */
 const key = (v: string | null | undefined): string => (v ?? "").trim().toUpperCase();
 
-/** The lines of ONE method, for ONE style. `styleKey`, never `===`. */
+/**
+ * The lines of ONE method — every style it packs, or just one.
+ *
+ * A BLANK `styleRef` MEANS EVERY STYLE, not "the lines with no style". That
+ * reading is safe because `normalizePackTypeLines` drops a line naming no
+ * style on the way to the database, so a styleless line is not a thing this
+ * can be asked about — and it is the reading a multi-style box needs, where
+ * there is no one style to name. `styleKey`, never `===`.
+ */
 export function linesOf(
   lines: readonly PackTypeLineLike[],
   packType: string | null | undefined,
-  styleRef: string | null | undefined,
+  styleRef?: string | null,
 ): PackTypeLineLike[] {
   const pk = key(packType);
   const sk = styleKey(styleRef ?? "");
   return lines.filter(
-    (l) => key(l.pack_type) === pk && styleKey(l.style_ref_no ?? "") === sk,
+    (l) =>
+      key(l.pack_type) === pk &&
+      (!sk || styleKey(l.style_ref_no ?? "") === sk),
   );
+}
+
+/**
+ * Every style this method packs, in the order its lines were entered.
+ *
+ * The list a multi-style box IS. Read by the order screen to decide which
+ * destinations a method can explode and which size columns the boxes row
+ * spans — a box holds every style at once, so it spans all of their sizes.
+ */
+export function packStyles(
+  lines: readonly PackTypeLineLike[],
+  packType: string | null | undefined,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const l of linesOf(lines, packType)) {
+    const ref = (l.style_ref_no ?? "").trim();
+    const k = styleKey(ref);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(ref);
+  }
+  return out;
+}
+
+/** Does this method pack that style at all? Blank ref asks about no style and
+ *  is therefore false — never "yes, vacuously". */
+export function packsStyle(
+  lines: readonly PackTypeLineLike[],
+  packType: string | null | undefined,
+  styleRef: string | null | undefined,
+): boolean {
+  const sk = styleKey(styleRef ?? "");
+  return !!sk && packStyles(lines, packType).some((r) => styleKey(r) === sk);
 }
 
 /**
@@ -114,25 +184,64 @@ export function piecesOfComboPerPack(
 }
 
 /**
- * Every colourway one pack holds, and how many of each — the composition, in
- * the order the lines were entered.
+ * THE IDENTITY OF A MEMBER, so the module and its callers cannot key it two
+ * ways.
  *
- * Collapses repeats rather than trusting the unique index: `lib/data-io` and a
- * document saved before `uq_goa_pack_type_lines_member` existed can both hand
- * this two rows for one colourway, and a caller counting them as two members
- * would report a pack size the operator never typed.
+ * The order screen groups the exploded cells back into rows and has to match
+ * them against the composition; keying that by hand beside this file is how a
+ * pack whose two styles share a colourway would come to merge in one place and
+ * not the other. Trimmed and case-folded on both halves, matching every other
+ * comparison here.
+ *
+ * JSON-ENCODED RATHER THAN JOINED BY A SEPARATOR: a combo is free text, so any
+ * character picked as a joiner is a character an operator can type, and two
+ * members would collide into one.
+ */
+export function memberKey(
+  styleRef: string | null | undefined,
+  combo: string | null | undefined,
+): string {
+  return JSON.stringify([styleKey(styleRef ?? ""), key(combo)]);
+}
+
+/** One member of a pack: a garment of one style in one colourway, and how many
+ *  of it a single box holds. */
+export type PackMember = {
+  style_ref_no: string;
+  combo: string;
+  qty: number;
+};
+
+/**
+ * Everything one pack holds, and how many of each — the composition, in the
+ * order the lines were entered.
+ *
+ * KEYED ON (STYLE, COLOURWAY). Two styles that both declare WHITE are two
+ * members: two different garments, cut from two different patterns, counted
+ * and costed separately. Keying on the colourway alone silently merged them
+ * and was the whole of the single-style limitation (see the header).
+ *
+ * Collapses genuine repeats rather than trusting the unique index:
+ * `lib/data-io` and a document saved before `uq_goa_pack_type_lines_member`
+ * existed can both hand this two rows for one member, and a caller counting
+ * them as two would report a pack size the operator never typed.
  */
 export function packContents(
   lines: readonly PackTypeLineLike[],
   packType: string | null | undefined,
-  styleRef: string | null | undefined,
-): { combo: string; qty: number }[] {
-  const out = new Map<string, { combo: string; qty: number }>();
+  styleRef?: string | null,
+): PackMember[] {
+  const out = new Map<string, PackMember>();
   for (const l of linesOf(lines, packType, styleRef)) {
-    const ck = key(l.combo);
-    const held = out.get(ck);
+    const mk = memberKey(l.style_ref_no, l.combo);
+    const held = out.get(mk);
     if (held) held.qty += n(l.qty);
-    else out.set(ck, { combo: (l.combo ?? "").trim(), qty: n(l.qty) });
+    else
+      out.set(mk, {
+        style_ref_no: (l.style_ref_no ?? "").trim(),
+        combo: (l.combo ?? "").trim(),
+        qty: n(l.qty),
+      });
   }
   return [...out.values()];
 }
@@ -149,13 +258,18 @@ export function packContents(
 export function piecesPerPack(
   lines: readonly PackTypeLineLike[],
   packType: string | null | undefined,
-  styleRef: string | null | undefined,
+  styleRef?: string | null,
 ): number {
   return packContents(lines, packType, styleRef).reduce((a, c) => a + c.qty, 0);
 }
 
-/** One exploded cell: the pieces of one colourway in one size. */
+/** One exploded cell: the pieces of one MEMBER — a (style, colourway) — in one
+ *  size. */
 export type ExplodedCell = {
+  /** THE MEMBER'S OWN STYLE, not the destination's. On a multi-style box the
+   *  three rows beneath one box count are three different garments, and a cell
+   *  that could not say which was the reason this feature packed only one. */
+  style_ref_no: string;
   combo: string;
   size_id: string;
   /** PIECES. Never boxes — see the header. */
@@ -196,7 +310,12 @@ export function explodePacks(
     if (boxes <= 0 || !size_id) continue;
     for (const c of contents) {
       if (c.qty <= 0) continue;
-      out.push({ combo: c.combo, size_id, qty: boxes * c.qty });
+      out.push({
+        style_ref_no: c.style_ref_no,
+        combo: c.combo,
+        size_id,
+        qty: boxes * c.qty,
+      });
     }
   }
   return out;

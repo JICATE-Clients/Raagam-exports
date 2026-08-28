@@ -38,7 +38,11 @@ import {
   getPoItemSizeDeliveries,
 } from "./po-service";
 import type { BudgetLineRow } from "./po-service";
-import { bomCeilingForOrder, refuseOverCeiling } from "./bom-ceiling-service";
+import {
+  bomCeilingForOrder,
+  refuseOverCeiling,
+  refuseUnsettledMaterials,
+} from "./bom-ceiling-service";
 import type {
   PoSizeDelivery,
   PoDeliverySize,
@@ -337,6 +341,20 @@ export async function createPurchaseOrder(
   const refusal = await refuseOverCeiling(parsed.data.lines);
   if (refusal) return { ok: false, error: refusal };
 
+  /*
+   * THE TBA GATE (client 2026-08-28). A material still "To be advised" or "To be
+   * developed" on the order's BOM cannot be bought — the size, finish and
+   * make-up are all still open, so whatever arrives will be wrong and paid for.
+   *
+   * RUN AT ALL FOUR WRITE PATHS beside the ceiling, for the reason
+   * `refuseOverCeiling`'s own header gives: a control on one of them is a
+   * control on none. It is a SEPARATE call rather than a branch inside that one
+   * because it answers a different question and is deliberately NOT gated on an
+   * approved budget — see its header.
+   */
+  const tba = await refuseUnsettledMaterials(parsed.data.lines);
+  if (tba) return { ok: false, error: tba };
+
   const user = await getAppUser();
   const supabase = await createClient();
   const { lines, ...poFields } = parsed.data;
@@ -393,6 +411,12 @@ export async function addPoLine(
   const addRefusal = await refuseOverCeiling([parsed.data]);
   if (addRefusal) return { ok: false, error: addRefusal };
 
+  // NOTHING TO EXCLUDE, unlike the ceiling above: the TBA gate reads the BOM's
+  // own lines and never sums what is already on a purchase order, so an edit
+  // cannot be judged against itself and there is no exclusion to pass.
+  const addTba = await refuseUnsettledMaterials([parsed.data]);
+  if (addTba) return { ok: false, error: addTba };
+
   const { quantity, unit_price, ...rest } = parsed.data;
   const amount = lineAmount(quantity, unit_price);
 
@@ -432,6 +456,12 @@ export async function updatePoLine(
   // at the same figure — the sibling lines must still count.
   const editRefusal = await refuseOverCeiling([parsed.data], { exclude: { lineId } });
   if (editRefusal) return { ok: false, error: editRefusal };
+
+  // Retyping a line whose material went back to "To be advised" since it was
+  // written is still refused, and should be: the specification is open again,
+  // so the quantity in front of the operator is a guess whichever way it moved.
+  const editTba = await refuseUnsettledMaterials([parsed.data]);
+  if (editTba) return { ok: false, error: editTba };
 
   const { quantity, unit_price, ...rest } = parsed.data;
   const amount = lineAmount(quantity, unit_price);
@@ -499,6 +529,17 @@ export async function submitPo(poId: string): Promise<ActionResult> {
     { exclude: { poId } },
   );
   if (submitRefusal) return { ok: false, error: submitRefusal };
+
+  /*
+   * THE LAST TBA GATE, and the one that catches a draft whose BOM moved UNDER
+   * it — a material re-opened to "To be advised" after the buyer wrote the line.
+   * The create/add/edit checks all judged a specification that has since been
+   * withdrawn, and submit is the moment the document leaves the buyer's hands.
+   */
+  const submitTba = await refuseUnsettledMaterials(
+    (poLines ?? []) as { item_id: string | null; sales_order_id: string | null }[],
+  );
+  if (submitTba) return { ok: false, error: submitTba };
 
   const { error } = await supabase
     .from("purchase_orders")

@@ -182,7 +182,13 @@ export function StyleProcessSheet({
          of stretching: `ChildGrid` hugs when every column states a width, which
          is the compact row being asked for rather than a table ruled across
          1600px. 16rem fits a process name; the `Truncated` treatment inside the
-         picker covers the rare longer one. */
+         picker covers the rare longer one.
+
+         AND IT IS NOW WHAT MAKES THE SHEET'S OWN WIDTH DERIVABLE. 12+16+12+20rem
+         plus ~80px of `#`/remove chrome is ~1040px, which is the number `size`
+         above is chosen against. A column that declares no width contributes an
+         unknown, and the surface can then only be sized by eye — which is how
+         `sm` was picked in the first place. */
       width: "16rem",
       cell: (r) => (
         <RecordPicker
@@ -279,39 +285,58 @@ export function StyleProcessSheet({
       open={open}
       onClose={onClose}
       /**
-       * "lg", AFTER "sm" WAS TRIED AND WAS WRONG (client 2026-08-12, screenshot
-       * 2266).
+       * "md" — A CONTAINED BOX, AFTER BEING FULL-SCREEN AND AFTER `sm` FAILED.
        *
-       * `sm` is `max-w-md`, and sheet.tsx's own category for it — "nested
-       * pickers / small config dialogs" — fitted the ARGUMENT but not the
-       * CONTENT. This surface is a six-field identity block plus a
-       * three-column grid, and in 448px `ChildGrid` did what it is supposed to
-       * do at that width: it fell back to stacked cards. That drops the column
-       * headers, so Type, Process and Details rendered as three unlabelled
-       * boxes and the empty Details box read as a stray extra field the
-       * operator had not asked for.
+       * Client 2026-08-28: "restricts Style Process views to clean, smaller
+       * containerized modals to prevent full-screen context loss". So this is
+       * back inside a container on the scrim, with the amendment visible around
+       * it, instead of a `fixed inset-0` page covering the app chrome.
        *
-       * The lesson is narrower than "use lg": a surface's size is a function of
-       * what is ON it, not of how it is opened. Sizing this by the opener — a
-       * grid cell, therefore small — is what produced a control that degraded
-       * into something unreadable.
+       * ## THIS IS NOT A RETURN TO THE 08-12 STATE, AND THE NUMBER IS WHY
+       *
+       * `sm` was tried for exactly this and was wrong (client 2026-08-12,
+       * screenshot 2266): sheet.tsx's category for it — "nested pickers / small
+       * config dialogs" — fitted the ARGUMENT but not the CONTENT. `max-w-md`
+       * is 448px, less the branch's `px-5` leaves ~408px, and `ChildGrid`'s
+       * responsive table only appears from `@lg`, **which is 512px of container
+       * and not the 1024 the name suggests** (`tableFrom` in child-grid.tsx
+       * documents that trap at length). The grid fell to stacked cards, which
+       * drops the column headers — Type, Process and Details rendered as three
+       * unlabelled boxes and the empty Details box read as a stray extra field
+       * nobody had asked for. It missed by ~104px, which is exactly why it
+       * looked like it should have worked.
+       *
+       * `md` is the same contained DOM at `max-w-6xl`: ~1112px of content
+       * against the ~1040px this grid's four declared widths and the `#`/remove
+       * chrome need before a table would scroll sideways. The table stays a
+       * table, and the box still leaves the screen behind it visible.
+       *
+       * The lesson from 08-12 survives intact and is worth restating, because
+       * "smaller" is the word that will tempt the next reader back to `sm`: a
+       * surface's size is a function of what is ON it, not of how it is opened
+       * or of how small it is described. Sizing this by the opener — a grid
+       * cell, therefore small — is what produced a control that degraded into
+       * something unreadable.
+       *
+       * ## `fullBleed` IS GONE, AND WHAT IT BOUGHT IS KEPT
+       *
+       * It was added on 2026-08-20 ("make full width screen") to drop the
+       * 1180px reading cap, and the cap does not exist on this branch at all —
+       * there is nothing left for the prop to remove, so passing it would be
+       * inert and misleading rather than merely redundant. It is the one of the
+       * three sub-sheets whose client instruction has moved on; Structure
+       * Details and Assortments were not part of this ask and keep theirs.
+       *
+       * **What 08-20 actually cost is NOT being reverted with it.** Declaring a
+       * width on all four grid columns, and moving the six header fields off
+       * `FieldGrid` spans onto `FieldRow` content widths, both stay exactly as
+       * they are — see their own notes below. Those changes made the sheet size
+       * itself from its data instead of from its container, which is what lets
+       * it move between containers at all. Undoing them "because full bleed is
+       * gone" would put the six fields back on a fractional track and hand each
+       * of them a twelfth of 1112px.
        */
-      size="lg"
-      /**
-       * THE WHOLE PANE, not the 1180px reading width (client 2026-08-20:
-       * "make full width screen").
-       *
-       * The same call the Structure Details and Assortments overlays already
-       * made, and the third surface to make it — so the three sub-sheets of this
-       * editor now open the same way instead of one of them insetting itself.
-       *
-       * `size="lg"` STAYS AND IS NOT REDUNDANT. It is the sheet's WIDTH CLASS,
-       * and the note above records what it costs to get wrong: at `sm` the
-       * `ChildGrid` inside fell back to stacked cards and dropped its column
-       * headers. `fullBleed` removes the reading-width INSET; the two answer
-       * different questions and this surface needs both answered.
-       */
-      fullBleed
+      size="md"
       title={styleLabel ? `Process — ${styleLabel}` : "Process"}
       /* STILL NO SAVE OF ITS OWN — the rows are part of the amendment and are
          written by the amendment's Save, so a Save here would imply they commit
@@ -344,12 +369,22 @@ export function StyleProcessSheet({
       {/* `FieldRow`, NOT `FieldGrid` (client 2026-08-20: "but fields size look
           too large, make it compact").
 
-          THIS IS THE COST OF `fullBleed`, PAID PROPERLY. These were `size="md"`
+          THIS WAS THE COST OF `fullBleed`, PAID PROPERLY — AND IT STAYS PAID
+          NOW THAT `fullBleed` IS GONE (2026-08-28). These were `size="md"`
           — `col-span-4` of a twelve-column track — which was right at the old
           1180px reading width and became six ~470px boxes the moment the sheet
           took the whole pane. A SPAN IS A FRACTION OF WHATEVER IT IS GIVEN, so
           widening the container widened every field with it, and `Order Unit`
           got a quarter of a metre to hold "PCS".
+
+          The container has since changed AGAIN — the sheet is a contained
+          `size="md"` box, ~1112px — which is the argument for keeping this
+          rather than the argument for reverting it. A fractional track hands
+          every field a twelfth of whatever the surface happens to be this
+          month; content widths are the same six boxes in all three containers
+          this sheet has had. Being independent of the container is what made
+          the move possible at all, so restoring the spans "because the pane is
+          narrower now" would re-open the bug one container later.
 
           Narrowing the CONTROL inside a fractional cell does not help and is the
           trap `FieldRow`'s own doc records: the cell stays its old width and the
