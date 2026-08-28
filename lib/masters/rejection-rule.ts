@@ -44,6 +44,20 @@ export type RejectionTier = {
  * at the client's word: "maintain the same fields legacy have, only 4 —
  * Range, From, To, Rejection Allowance". Migration 0467 was reverted with it.
  *
+ * THE REVERT LEFT THE COLUMN STANDING, and that cost a round trip on 2026-08-27.
+ * Reverting a commit takes back the file and the code; it does not un-apply SQL.
+ * So the live database carried `min_pieces` with no migration behind it, which
+ * reads EXACTLY like a migration somebody forgot to commit — and 0468 duly
+ * "recovered" it, restoring a column the client had asked to be rid of. 0469
+ * dropped it again and carries the full account.
+ *
+ * The check that would have caught it is the cheap one: a column in the database
+ * with no file behind it is either an uncommitted migration OR a reverted one
+ * whose column outlived it, and the catalog cannot tell those apart. Only this
+ * comment could, and nobody grepped for the column name before writing the
+ * migration. If you are about to restore a column, search the repo for its name
+ * first — you are reading the note that was there all along.
+ *
  * Recorded rather than silently dropped, because the problem it solved is still
  * live and nothing reports it any more. A bracketed percentage cannot say
  * "5%, but never fewer than 3 pieces", so the rate has to step down at a

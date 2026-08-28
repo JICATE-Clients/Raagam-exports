@@ -101,10 +101,40 @@ export { isAccessoryClass, ACCESSORY_CLASS_CODES };
 /**
  * The materials to offer a line, narrowed by the Category beside it.
  *
- * With no category every accessory material is offered, each **prefixed by its
- * class** — because a name repeats across classes and two identical options the
- * operator has to guess between is the other half of the bug this filter fixes
- * (AGENTS.md, cascading filters).
+ * ## THE NAME LEADS AND THE CLASS RIDES BEHIND IT (client 2026-08-28)
+ *
+ * "Displaying the raw Material Name first for readability." Until today the
+ * unscoped branch composed `SEW · BUTTON` — the class code, a middle dot, then
+ * the thing the operator is actually looking for. It now composes
+ * `BUTTON (SEW)`.
+ *
+ * **The class is kept, not dropped, and that half is deliberate.** This branch
+ * fires when NO category is chosen, i.e. when the whole accessory master is on
+ * offer, and AGENTS.md's cascading-filters rule is explicit about that state:
+ * "with no class chosen, prefix each option by its class … two identical
+ * options the operator has to guess between is the other half of the same bug".
+ * Two rows both reading POLY BAG, one Sewing and one Packing, is a coin toss
+ * that saves the wrong FK, and nothing downstream would object. Deleting the
+ * qualifier would answer a readability complaint by reintroducing an ambiguity
+ * complaint.
+ *
+ * **What was actually wrong was the ORDER, and it cost more than a glance.**
+ * `RecordPicker` sorts its rows by what is DISPLAYED (`a.label.localeCompare`),
+ * so a leading class code sorted the entire list by CLASS first: every PACK
+ * material, then every SEW one, with each class's names alphabetised only
+ * inside its own block. An operator hunting BUTTON had to know which class it
+ * was filed under before the alphabet was any use to them — the list read as
+ * unsorted. Putting the name first is what puts the sort back on the name; a
+ * mere cosmetic swap of `·` for a dash would have left that untouched.
+ *
+ * **Parentheses, matching the `(uncategorised)` suffix the other branch already
+ * writes.** The two branches are mutually exclusive — one fires with no
+ * category, the other with one — so a label can never carry both, and using one
+ * shape for both means the operator learns a single rule: the name is the row,
+ * anything in brackets after it is the list telling them why the row is here.
+ *
+ * A material declaring no class is left exactly as it was: a bare name with an
+ * empty bracket beside it says nothing and reads as a rendering fault.
  */
 export function materialsForCategory(
   materials: readonly MaterialOption[],
@@ -115,7 +145,7 @@ export function materialsForCategory(
 
   if (!want) {
     return materials.map((m) =>
-      m.class_code ? { ...m, name: `${m.class_code} · ${m.name}` } : m,
+      m.class_code ? { ...m, name: `${m.name} (${m.class_code})` } : m,
     );
   }
 

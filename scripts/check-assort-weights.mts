@@ -67,9 +67,15 @@ const dest = (
   type: { code: string | null; name: string | null } | null,
   lines: ReturnType<typeof line>[],
   ref = "TSH-001",
+  /* LEFT BLANK BY DEFAULT ON PURPOSE, so every vector that cares about the
+     inner count has to SAY "inner". A default of `"inner"` would reproduce the
+     old unconditional arithmetic, and this whole section would then pass
+     against the bug it exists to pin down. */
+  ratioFor: string | null = null,
 ): AssortQuantity => ({
   style_ref_no: ref,
   assortment_type: type,
+  ratio_for: ratioFor,
   assort_lines: lines,
 });
 
@@ -96,7 +102,7 @@ check(
 
 console.log("\n§2  SOLID/ASSORT — the cell is a RATIO, and inners are part of it");
 
-const assortOrder = [dest(ASSORT, [line("WHITE", 10, 12, [2, 3])])];
+const assortOrder = [dest(ASSORT, [line("WHITE", 10, 12, [2, 3])], "TSH-001", "inner")];
 check("cartons x inners x ratio", total(assortOrder), 10 * 12 * 5);
 // The second bug the copies carried, and the one that hides: every live order
 // has inners = 1, so dropping it changes nothing until one does not.
@@ -107,13 +113,66 @@ check(
 );
 check(
   "with inners of 1 the two readings agree, which is why this hid",
-  total([dest(ASSORT, [line("WHITE", 10, 1, [2, 3])])]),
+  total([dest(ASSORT, [line("WHITE", 10, 1, [2, 3])], "TSH-001", "inner")]),
   50,
 );
 check(
   "an assort pack with no cartons entered yet is genuinely zero",
-  total([dest(ASSORT, [line("WHITE", 0, 12, [2, 3])])]),
+  total([dest(ASSORT, [line("WHITE", 0, 12, [2, 3])], "TSH-001", "inner")]),
   0,
+);
+
+console.log("\n§2b  RATIO FOR — the declaration that had no reader (2026-08-28)");
+
+/* One row, one ratio, one carton count, read twice. The client's own worked
+   examples: 100 cartons x 6-per-ratio = 600 pieces on a Master pack, and the
+   same ratio at 10 inners per carton = 6,000 on an Inner pack. The ratio here
+   is 1:2 (=3), so the two answers are 300 and 3,000 — A FACTOR OF TEN between
+   two orders that differ by one dropdown. That is the size of the mistake the
+   unconditional multiplication was making. */
+const cartonLine = [line("WHITE", 100, 10, [1, 2])];
+const masterPack = [dest(ASSORT, cartonLine, "TSH-001", "master")];
+const innerPack = [dest(ASSORT, cartonLine, "TSH-001", "inner")];
+
+check("master: the ratio IS the carton, so pieces = cartons x ratio", total(masterPack), 300);
+/* THE REGRESSION, STATED AS ITSELF. Every reader multiplied by inners
+   unconditionally until 2026-08-28, so a Master pack returned the Inner answer
+   and would have bought ten times the cloth. `refute` rather than `check`,
+   because here the WRONG answer is the plausible-looking one. */
+refute("master must NOT be the inner answer", total(masterPack), 3000);
+check("inner: the same row, ten bundles deep", total(innerPack), 3000);
+check(
+  "a blank ratio_for reads as master — it declines to multiply by an unconfirmed number",
+  total([dest(ASSORT, cartonLine)]),
+  300,
+);
+check(
+  "and the reading is trimmed and case-folded, like every other stored word",
+  total([dest(ASSORT, cartonLine, "TSH-001", "  Inner ")]),
+  3000,
+);
+/* THE `|| 1` HALF. `assortSizeWeights` read a blank inners as ZERO while the
+   screen beside it read the same blank as ONE, so a line whose
+   `inners_per_carton` arrived NULL weighed NOTHING for the Material BOM and the
+   budget — the exact silent zero this file's header was written about, sitting
+   inside the file. */
+check(
+  "a null inners on an INNER pack is one bundle, never none",
+  total([dest(ASSORT, [line("WHITE", 100, null, [1, 2])], "TSH-001", "inner")]),
+  300,
+);
+refute(
+  "a null inners must NOT zero the line",
+  total([dest(ASSORT, [line("WHITE", 100, null, [1, 2])], "TSH-001", "inner")]),
+  0,
+);
+/* And a Master pack ignores inners ENTIRELY, so a stray 12 left in the box by
+   an operator who switched the dropdown changes nothing. That is what makes
+   HIDING the column on the screen safe rather than merely tidy. */
+check(
+  "master ignores whatever is sitting in the inners box",
+  total([dest(ASSORT, [line("WHITE", 100, 12, [1, 2])], "TSH-001", "master")]),
+  300,
 );
 
 console.log("\n§3  The mode is READ, never inferred");
@@ -164,9 +223,18 @@ console.log("\n§5  Two destinations of different modes in one order");
 // The case a single global reading gets wrong: one order, both arithmetics.
 const mixed = [
   dest(SOLID, [line("WHITE", 0, 1, [100, 200])]),
-  dest(ASSORT, [line("NAVY", 5, 2, [1, 1])], "TSH-002"),
+  dest(ASSORT, [line("NAVY", 5, 2, [1, 1])], "TSH-002", "inner"),
 ];
 check("each destination uses its own mode", total(mixed), 300 + 5 * 2 * 2);
+/* AND ITS OWN RATIO SCOPE. Two assorted destinations of one order may pack to
+   different methods — the same reason 0473 put `pack_type` on the quantity row
+   rather than on the amendment. A single global reading gets one of the two
+   wrong, and the order total still looks like a number. */
+const mixedScope = [
+  dest(ASSORT, [line("WHITE", 100, 10, [1, 2])], "TSH-001", "master"),
+  dest(ASSORT, [line("NAVY", 100, 10, [1, 2])], "TSH-002", "inner"),
+];
+check("each destination uses its own ratio scope", total(mixedScope), 300 + 3000);
 
 
 // ---------------------------------------------------------------------------
@@ -271,6 +339,14 @@ check(
 check(
   "...and still asks for the destination's",
   ASSORT_WEIGHT_SELECT.startsWith("style_ref_no,"),
+  true,
+);
+/* THE SAME TWO HALVES, ONE COLUMN ALONG. `ratio_for` decides the multiplier, so
+   a select that forgets it reads every destination as `master` and under-buys
+   an Inner pack by its inner count — with the code above reading as correct. */
+check(
+  "ASSORT_WEIGHT_SELECT asks for ratio_for",
+  ASSORT_WEIGHT_SELECT.includes("ratio_for"),
   true,
 );
 

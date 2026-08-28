@@ -42,6 +42,14 @@ export type AssortQuantity = {
   country_id?: string | null;
   /** The declared Assortment Type. `null` reads as Solid — see `assortMode`. */
   assortment_type?: { code: string | null; name: string | null } | null;
+  /**
+   * WHAT THE SIZE RATIO DESCRIBES — 0414's tuple, `'master' | 'inner'`.
+   *
+   * On an assorted pack the size cells are a ratio, and this says which BOX
+   * that ratio fills. It is the difference between two orders that look
+   * identical on screen — see `ratioScope`.
+   */
+  ratio_for?: string | null;
   assort_lines?:
     | {
         /**
@@ -95,6 +103,66 @@ export function assortMode(q: AssortQuantity): "solid" | "assort" {
 }
 
 /**
+ * WHICH BOX THE SIZE RATIO FILLS — the client's "Ratio for Inner or Master?".
+ *
+ *   master  the ratio IS the shipping carton. No sub-bundles exist inside it,
+ *           so there is nothing for `inners_per_carton` to count and it takes
+ *           no part in the arithmetic.
+ *   inner   the ratio is one poly bag; several poly bags fill a master carton.
+ *
+ *     master  pieces = cartons x ratio
+ *     inner   pieces = cartons x inners x ratio
+ *
+ * ## WHY THIS FUNCTION EXISTS
+ *
+ * `ratio_for` has had a column since 0414, a CHECK constraint restricting it to
+ * this tuple, and a Select in the Assortments overlay. Until now NOTHING read
+ * it. Both engines multiplied by inners unconditionally, which is the `inner`
+ * branch — so an order declared `master` was computed as though it were
+ * `inner`, and the declaration the operator made was decoration.
+ *
+ * IT HID BECAUSE `inners_per_carton` IS 1 ON EVERY ROW IN THE DATABASE TODAY,
+ * exactly as the file's own header records the previous version of this bug
+ * hiding. The first `master` pack with 10 inners typed would have bought ten
+ * times the cloth, and nothing would have said so: the total is plausible, the
+ * breakup balances against a PO Qty computed by the same wrong factor, and the
+ * failure only becomes visible in a warehouse.
+ *
+ * BLANK READS AS `master`, which is the SAFE direction and matches what the
+ * screen already computes for a blank (`innersOf` returns 1, so the inners drop
+ * out). It is deliberately not a guess in the other direction: reading a blank
+ * as `inner` would multiply by a number nobody has confirmed the meaning of.
+ * The screen blocks Save on a blank, so a stored blank is a row from before
+ * that rule.
+ */
+export function ratioScope(q: AssortQuantity): "master" | "inner" {
+  return (q.ratio_for ?? "").trim().toLowerCase() === "inner" ? "inner" : "master";
+}
+
+/**
+ * The pieces one unit of ratio is worth on an assorted line.
+ *
+ * `|| 1` ON INNERS, NEVER `|| 0`, and that was the second bug in this file: it
+ * read a blank as ZERO, so a line whose `inners_per_carton` arrived NULL weighed
+ * NOTHING for the Material BOM and the budget while the screen beside it read
+ * the same blank as one. The column defaults to 1 (0432) and the screen's
+ * payload writes `?? 1`, so it needed a row from any other path to fire — a
+ * data-io import, a hand-written insert, a row older than the column. "A blank
+ * multiplier means one, not none" is the screen's wording for the same rule;
+ * this is where the two stopped saying it differently.
+ *
+ * Cartons stays `|| 0`: it is a COUNT, not a multiplier, and an assorted pack
+ * with no carton count entered genuinely ships nothing yet.
+ */
+export function packFactor(
+  l: { no_of_cartons: number | null; inners_per_carton?: number | null },
+  scope: "master" | "inner",
+): number {
+  const cartons = Number(l.no_of_cartons) || 0;
+  return scope === "inner" ? cartons * (Number(l.inners_per_carton) || 1) : cartons;
+}
+
+/**
  * Every size cell of every destination, in pieces.
  *
  * ## THE STYLE IS THE LINE'S, FALLING BACK TO THE DESTINATION'S
@@ -140,13 +208,15 @@ export function assortSizeWeights(
 ): SizeWeight[] {
   return (quantities ?? []).flatMap((q) => {
     const mode = assortMode(q);
+    /* Resolved ONCE per destination, like the mode above it: `ratio_for` is a
+       property of the row, and re-reading it per line is how two lines of one
+       carton would come to disagree about what a carton is. */
+    const scope = ratioScope(q);
     return (q.assort_lines ?? []).flatMap((l) => {
-      const cartons = Number(l.no_of_cartons) || 0;
-      const inners = Number(l.inners_per_carton) || 0;
       // The multiplier is the ONLY thing the mode changes — kept as one
       // expression so the two branches cannot drift into reading the row
       // differently.
-      const factor = mode === "solid" ? 1 : cartons * inners;
+      const factor = mode === "solid" ? 1 : packFactor(l, scope);
       return (l.sizes ?? []).map((z) => ({
         style_ref_no: l.style_ref_no ?? q.style_ref_no,
         combo: l.combo,
@@ -162,7 +232,12 @@ export function assortSizeWeights(
 
 /** The PostgREST fragment a caller must select to be able to answer this. */
 export const ASSORT_WEIGHT_SELECT =
-  "style_ref_no,country_id,assortment_type_id," +
+  "style_ref_no,country_id,assortment_type_id,ratio_for," +
+  // `ratio_for` IS THE SECOND HALF OF THE ARITHMETIC and was the second
+  // column this select forgot, after `assort_lines.style_ref_no`. Without it
+  // `ratioScope` reads every destination as `master` and an Inner-ratio pack
+  // is under-counted by its inners — the same shape of failure, one column
+  // along: the code reads as correct and the value never arrives.
   "assortment_type:config_lookups!garment_order_amendment_quantities_assortment_type_id_fkey(code,name)," +
   // `style_ref_no` FIRST on the line, and it is the half that was missing: the
   // column has existed since 0433 and nothing selected it, so the coalesce above

@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import {
   materialBomAmendmentInput,
+  DEFAULT_SUPPLY_TYPE,
   type MaterialBomAmendmentInput,
   type MbaItemInput,
   type BomCopyPayload,
@@ -38,7 +39,8 @@ import {
   sliceKey,
   type SliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
-import { isUsableConversion, toPurchaseQty, uomPrecision } from "@/lib/uom/convert";
+import { toPurchaseQty, uomPrecision } from "@/lib/uom/convert";
+import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -109,6 +111,24 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
          requirement could not price it. Everything real about a line is already
          in that OR-chain. */
       send_out: c.send_out ?? false,
+      /* 0474 — "Free of Cost Receipt". Named here for the reason `send_out`
+         above and `round_to` below both record: this literal is the whole
+         write, so a column left out of it dies at the server boundary with no
+         type error.
+
+         NOT ADDED TO THE BLANK-ROW FILTER BELOW, the same call `send_out`
+         made and for a sharper reason. `false` is the default, and a row
+         carrying nothing but a ticked FOC box names no material — so there is
+         nothing to receive free of cost, and no receipt path could offer it.
+         Everything real about a line is already in that OR-chain.
+
+         NOTHING READS THIS COLUMN YET. 0474 adds the declaration; the receipt
+         path that would consume it does not exist — `postGrn` skips a line with
+         no purchase order and takes nothing into stock. The gap, and what
+         closing it needs, is written up on `grnLineInput` in
+         `lib/purchase/types.ts`. Said here because a flag with no reader looks
+         like a wiring bug to the next person who greps for one. */
+      is_foc: c.is_foc ?? false,
       moq: c.moq ?? null,
       // 0437. Named here for the reason the comment on `component_id`
       // above records: this literal is the whole write, so a column left
@@ -136,7 +156,6 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
     .filter(
       (c) =>
         c.category_id ||
-        c.type ||
         c.item_id ||
         c.attribute_id ||
         c.item_color_id ||
@@ -144,7 +163,49 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
         c.size ||
         c.requirement_basis ||
         c.requirement_grain != null ||
-        c.supply_type ||
+        /* ## `c.type ||` AND `c.supply_type ||` BOTH STOOD HERE AND WERE BOTH
+           ## REMOVED ON 2026-08-28. THE RULE THAT REPLACES THEM:
+           ##
+           ##   NO FIELD `blankItem` GIVES A TRUTHY DEFAULT MAY APPEAR IN THIS
+           ##   OR-CHAIN.
+           ##
+           ## Today that set is exactly {type, supply_type}. Check it before
+           ## adding a clause, and check this chain before adding a default.
+
+           This is one bug with two instances, and it was found one instance at a
+           time — removing only `supply_type` left `type` doing the identical
+           thing on the line above, so the fix read as complete while the
+           behaviour was unchanged. An OR-chain needs only one surviving clause.
+
+           WHY A DEFAULT DESTROYS A CLAUSE. This filter asks "did somebody enter
+           this line?", and each clause answers by testing a field for content.
+           A field `blankItem` stamps is never blank, so its clause is not a test
+           at all — it is the constant `true`, wearing the shape of evidence.
+           `type` gained its default on 2026-08-21 and `supply_type` the same
+           day; from that day the chain could not return false.
+
+           WHAT IT COST. `superRefine` returns no issues for a row with no
+           `item_id` PRECISELY BECAUSE it delegates the drop to this filter (see
+           its comment: "an entirely blank row is how a grid opens and is dropped
+           by `normalizeItems`"). So an untouched "+ Add material" row passed
+           validation by design, passed this filter on two values nobody typed,
+           and was INSERTED as a phantom line naming no material. Two halves each
+           correct alone — a validator that delegates emptiness, and a filter
+           whose emptiness test was invalidated by a default added in another
+           file.
+
+           THE NUMERICS ARE SAFE ONLY BY ACCIDENT OF A CONVERTER ELSEWHERE, which
+           is worth knowing before trusting them. `blankItem` sets `moq`,
+           `no_of_items`, `per_pieces`, `round_to` and `excess_pct` to `""`, and
+           `numN` is `z.coerce.number()`, which turns `""` into **0, not null**.
+           The three `!= null` clauses below would therefore all be permanently
+           true — except that the screen maps `""` to null with `numOrNull`
+           before building the payload. A future payload path that sends the raw
+           strings lights up three more clauses at once.
+
+           This is the same argument the `send_out` and `is_foc` comments above
+           make — a row carrying nothing but a stamped flag is not a line the
+           operator entered — and it is why neither of them was ever added here. */
         c.vendor_id ||
         c.purchase_uom_id ||
         c.consumption_uom_id ||
@@ -155,7 +216,56 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
         c.no_of_items != null ||
         c.per_pieces != null,
     )
-    .map((c, i) => ({ ...c, sno: i + 1 }));
+    /**
+     * SUPPLY TYPE IS DEFAULTED HERE, ON THE SERVER — and the POSITION of this
+     * line, after the filter rather than inside the map above, is the whole of
+     * what makes it safe.
+     *
+     * ## Why the server defaults it at all
+     *
+     * The client had the Supply Type control removed from this screen on
+     * 2026-08-28. `blankItem` is now the only writer of the column anywhere in
+     * the app, it runs on exactly one event — adding a new line — and there is
+     * no control left that can change the value afterwards. So a row that
+     * reaches the server without one can never be repaired from any screen.
+     *
+     * It also settles a divergence that is a bug on its own terms: `blankItem`
+     * opens a new line on "Local", and `clean()` above turns a blank into NULL —
+     * so the form showed Local while the save wrote NULL.
+     *
+     * 0475 sets the same default on the COLUMN, and that is not this line's
+     * duplicate. **A column default applies only when an INSERT omits the
+     * column**; this literal names it on every insert, so the database default
+     * can never fire through this writer. 0475 repairs rows that already exist
+     * and covers writers that omit the column (`lib/data-io`, a hand-written
+     * INSERT); this covers the app. Both are needed and neither is redundant.
+     *
+     * ## WHY IT IS AFTER THE FILTER AND STAYS THERE
+     *
+     * When this line was written the filter still tested `c.supply_type ||` as
+     * evidence that an operator had entered something. Defaulting in the map
+     * above would have made that clause true for every row including an
+     * untouched blank one, turning a latent phantom-row bug into a guaranteed
+     * one. **That clause has since been removed** (see the filter above), so
+     * that particular constraint no longer binds.
+     *
+     * IT STAYS HERE ANYWAY, and the reason is now the general one rather than
+     * the specific one: a value this line stamps must not be able to satisfy a
+     * test of whether the operator entered anything. Keeping the default after
+     * the filter means no FUTURE clause reading `supply_type` can be silently
+     * satisfied by it — the position is insensitive to what the filter happens
+     * to contain, which is a property worth having rather than an accident of
+     * what was there in August.
+     *
+     * That is the same rule the filter states from the other side ("no field
+     * `blankItem` gives a truthy default may appear in the OR-chain"): one
+     * invariant, guarded at both ends, because it has now been broken twice.
+     */
+    .map((c, i) => ({
+      ...c,
+      supply_type: c.supply_type ?? DEFAULT_SUPPLY_TYPE,
+      sno: i + 1,
+    }));
 }
 
 function normalizeProcesses(data: MaterialBomAmendmentInput) {
@@ -210,6 +320,11 @@ function normalizeProcesses(data: MaterialBomAmendmentInput) {
 
 type ConversionRow = {
   id: string;
+  /* WHOSE PACK IT IS. Selected since 2026-08-27 because `resolveLinePack`
+     matches a line's units against ITS OWN material's conversions — without it
+     the server could only look a pack up by the id a line names, which is the
+     lookup that stopped answering when the Purchase Pack cell was removed. */
+  item_id: string;
   alt_qty: number | null;
   alt_uom_id: string | null;
   base_qty: number | null;
@@ -218,17 +333,25 @@ type ConversionRow = {
 
 /** A material's pack sizes and the UOM precisions, for the purchase quantity. */
 type PackContext = {
+  /* BOTH SHAPES OF ONE READ. The map answers "the pack this line names" and the
+     list answers "the packs this material has" — `resolveLinePack` needs the
+     second and the first is what every existing reader holds. One query. */
   conversions: Map<string, ConversionRow>;
+  conversionList: ConversionRow[];
   uomDecimals: Map<string, number | null>;
 };
 
 async function packContext(s: Awaited<ReturnType<typeof createClient>>): Promise<PackContext> {
   const [conv, uoms] = await Promise.all([
-    s.from("material_uom_conversions").select("id, alt_qty, alt_uom_id, base_qty, base_uom_id"),
+    s
+      .from("material_uom_conversions")
+      .select("id, item_id, alt_qty, alt_uom_id, base_qty, base_uom_id"),
     s.from("uoms").select("id, decimal_places_allowed"),
   ]);
+  const conversionList = (conv.data ?? []) as ConversionRow[];
   return {
-    conversions: new Map(((conv.data ?? []) as ConversionRow[]).map((c) => [c.id, c])),
+    conversions: new Map(conversionList.map((c) => [c.id, c])),
+    conversionList,
     uomDecimals: new Map(
       ((uoms.data ?? []) as { id: string; decimal_places_allowed: number | null }[]).map((u) => [
         u.id,
@@ -516,16 +639,29 @@ function requirementRows(
       continue;
     }
 
-    const conv = line.uom_conversion_id
-      ? (packs.conversions.get(line.uom_conversion_id) ?? null)
-      : null;
-    // The pack must convert INTO the unit this line is consumed in. A cone that
-    // holds metres against a line counted in pieces yields a number and a
-    // category error; nothing in the codebase checked this before.
-    const packUsable =
-      !!conv &&
-      isUsableConversion(conv) &&
-      (!line.consumption_uom_id || conv.base_uom_id === line.consumption_uom_id);
+    /*
+     * THE SAME RESOLUTION THE SCREEN MAKES — one function, two readers.
+     *
+     * This was a straight `packs.conversions.get(line.uom_conversion_id)`, and
+     * the pack must still convert INTO the unit the line is consumed in (a cone
+     * that holds metres against a line counted in pieces yields a number and a
+     * category error). What changed on 2026-08-27 is that a line naming NO pack
+     * now resolves one from its material and its two Uoms instead of giving up.
+     *
+     * IT HAS TO HAPPEN HERE AS WELL AS ON THE SCREEN. `purchase_qty` is STORED
+     * from this line, and `bomCeilingForOrder` caps a purchase order against the
+     * stored value — so a screen that resolved a pack the server did not would
+     * show a purchase figure that no control ever enforced.
+     */
+    const { pack: conv, usable: packUsable } = resolveLinePack(
+      {
+        item_id: line.item_id ?? null,
+        purchase_uom_id: line.purchase_uom_id ?? null,
+        consumption_uom_id: line.consumption_uom_id ?? null,
+        uom_conversion_id: line.uom_conversion_id ?? null,
+      },
+      packs.conversionList,
+    );
 
     /* NORMALISED BY `toOverrides`, NOT BY A LITERAL HERE. That literal named
        four of the six fields and dropped `country_id` and `excess_pct` — both
@@ -1268,7 +1404,14 @@ export async function copyMaterialBomFrom(
     // order's, and the screen narrows the cell to the style the line names.
     // Carrying it would offer a sleeve this garment may not have.
     component_id: null,
-    supply_type: (c.supply_type as string) ?? null,
+    /* DEFAULTED, NOT CARRIED AS NULL. This function hands its payload to the
+       FORM, not to the database, so a source row written before the column had
+       a default would open the copied line on blank — while `blankItem` opens a
+       brand-new line on "Local". Two ways to add a line, two different starting
+       values, and no control on the screen to reconcile them.
+       `normalizeItems` would fix it on save either way; this is what makes the
+       line honest in front of the operator in the meantime. */
+    supply_type: (c.supply_type as string) ?? DEFAULT_SUPPLY_TYPE,
     vendor_id: sameCustomer ? ((c.vendor_id as string) ?? null) : null,
     purchase_uom_id: (c.purchase_uom_id as string) ?? null,
     consumption_uom_id: (c.consumption_uom_id as string) ?? null,
@@ -1292,6 +1435,17 @@ export async function copyMaterialBomFrom(
        dropped this would arrive with the plan intact and the line un-ticked,
        reading as though nobody had decided to send it. */
     send_out: (c.send_out as boolean) ?? false,
+    /* TRAVELS WITH THE RECIPE (0474), like `send_out` above and `round_to`
+       below. Who supplies a trim free of charge is a property of the MATERIAL
+       and the trading relationship — a customer who nominates and pays for
+       their own main labels does so on every order they place — not of the
+       source order's styles, colours or quantities, which is what the panels
+       and slices above cannot carry across.
+
+       A copy that dropped it would arrive needing a purchase order for a trim
+       nobody buys, which is the exact state 0474 exists to end; the operator
+       would meet it as "this line will not receive" long after the copy. */
+    is_foc: (c.is_foc as boolean) ?? false,
     moq: numOrNull(c.moq),
     // TRAVELS WITH THE RECIPE (0437). A rounding step is a property of how this
     // material is BOUGHT — a gross of buttons is a gross whichever order needs

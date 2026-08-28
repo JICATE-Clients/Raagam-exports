@@ -11,9 +11,46 @@
   --background: #f6f7f9; /* app canvas */
   --surface: #ffffff; /* cards, tables */
   --surface-muted: #f1f3f5; /* table headers, subtle fills */
-  --foreground: #16181d; /* primary text */
-  --muted-foreground: #5b6472; /* secondary text */
-  --border: #e3e6ea;
+  --foreground: #0d0f13; /* primary text */
+  /* DARKENED FROM #5b6472 ON 2026-08-27 (client: "just add some dark tone to the
+   * font"), replacing the app-wide bold withdrawn the same day.
+   *
+   * THIS IS THE TOKEN THAT WAS ACTUALLY FAILING, which is why weight looked like
+   * the answer. --foreground was already #16181d — all but black, with nowhere
+   * to go — so every screen that read as faint was reading its MUTED text:
+   * `Field`'s labels, `SectionBody`'s captions, the rail's inactive rows, a
+   * grid's header band, every helper line under a control. #5b6472 on #ffffff is
+   * about 6.2:1 — comfortably past WCAG AA and comfortably short of legible on a
+   * glossy monitor at an angle under fluorescent light, which is the room this
+   * app runs in.
+   *
+   * #414a57 takes it to roughly 9:1 while staying clearly SECONDARY to
+   * --foreground. That gap is the point: muted text has to keep reading as
+   * subordinate, or a form becomes a wall of equal-weight words — which is the
+   * failure the bold experiment produced by another route this morning. */
+  --muted-foreground: #414a57; /* secondary text */
+  /* RAISED FROM #e3e6ea ON 2026-08-27 (client: "the table borders and toggles
+   * also not visible that much, add some extra tone").
+   *
+   * #e3e6ea against a #ffffff surface is roughly 1.2:1 — a line that exists in
+   * the stylesheet and not on a shop-floor monitor at an angle under fluorescent
+   * light. This is field chrome AND every table gridline, so it was the one
+   * token making both complaints at once.
+   *
+   * IT MUST NOT CREEP TOWARD --border-strong. That token is the line between two
+   * RECORDS and the client fought for it twice (see its note below); the whole
+   * point is that a record boundary is drawn in visibly different ink from a
+   * text box's edge. #cfd5dd leaves the two about 12 steps apart per channel,
+   * which is more separation than #e3e6ea had against the #cbd2da that was
+   * REJECTED as a separator for being too close to it. If these two ever need
+   * to converge, the separator moves away — this one does not move up. */
+  --border: #cfd5dd;
+  /* The OFF track of a switch. Its own token because it is the one place a grey
+   * fill has to be legible UNDER a white knob rather than beside text — the
+   * toggle read as blank because `bg-surface-muted` (#f1f3f5) and a #ffffff knob
+   * are the same colour at arm's length. Deliberately mid-grey and never near
+   * --primary: "off" has to stay obviously unlike "on", which is blue. */
+  --switch-off: #b3bcc8;
   /* THE LINE BETWEEN TWO RECORDS, and it must outrank the lines INSIDE one
    * (client 2026-08-19, screenshot 2379: "no more clearly separation line, all
    * the lines look same kind, so can't tell the next section").
@@ -184,9 +221,28 @@
   --background: #0b0d12;
   --surface: #14171d;
   --surface-muted: #1b1f27;
-  --foreground: #e7e9ee;
-  --muted-foreground: #9aa4b2;
-  --border: #262b34;
+  --foreground: #f2f4f8;
+  /* Raised with the light-mode value (2026-08-27). "Darker tone" means MORE
+   * CONTRAST AGAINST THE SURFACE, and on a #14171d ground that is LIGHTER — the
+   * same flip `--border-strong` states below. Taking this literally as "darker"
+   * is how muted text disappears in the dark theme. Still clearly below
+   * --foreground, so the hierarchy survives here too. */
+  --muted-foreground: #b3bdcb;
+  /* Raised from #262b34 with the light-mode value (2026-08-27). STRONGER MEANS
+   * MORE CONTRAST AGAINST THE SURFACE, so here that is LIGHTER — the rule the
+   * --border-strong note below states, applied to the token beside it. Written
+   * as "darker" this line is how a gridline disappears in the dark theme. */
+  --border: #333b47;
+  /* The switch's OFF track — lighter than the dark surface, for the same reason
+   * the light-mode value is darker than the light one.
+   *
+   * HELD BELOW --border-strong (#4d5666) ON PURPOSE. The track wears that token
+   * as its outline, so a fill within a few steps of it gives the pill no edge at
+   * all — the light theme gets its edge for free because the outline is DARKER
+   * than the fill there, and the dark theme only gets one if the fill stays
+   * darker than the outline here. #3f4756 keeps both: a clear step up from the
+   * #14171d surface, and a clear step below the outline drawn on it. */
+  --switch-off: #3f4756;
   /* Lighter than --border, not darker — see the light-mode note. Raised with
    * the light value so the two themes stay equally legible. */
   --border-strong: #4d5666;
@@ -241,6 +297,10 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  /* Exposed so the switch can say `bg-switch-off` instead of reaching for an
+     arbitrary value — the token flips with the theme and an arbitrary hex does
+     not. */
+  --color-switch-off: var(--switch-off);
   --color-ring: var(--ring);
 
   --color-brand-green: var(--brand-green);
@@ -264,6 +324,24 @@
     Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
+
+  /* ==========================================================================
+   * THE WEIGHT SCALE IS TAILWIND'S OWN AGAIN (client 2026-08-27, same day:
+   * "restore the old font, remove that all-sections-bold option, maintain the
+   * previous style — just add some dark tone to the font").
+   *
+   * The app-wide bold shipped earlier today (normal 400 -> 600, semibold
+   * 600 -> 700, plus a `body` floor) and was withdrawn hours later. Nothing is
+   * re-pointed here now: `font-normal` is 400 again and every `font-*` utility
+   * means what Tailwind says it means, which is why this block holds a note
+   * rather than overrides.
+   *
+   * WHAT THE COMPLAINT ACTUALLY WAS, both times: text that is hard to read on a
+   * shop-floor monitor. Weight was the first answer and it made the screens
+   * heavy; the second answer is CONTRAST — see `--muted-foreground` above, which
+   * is where the legibility was really being lost. Worth keeping in mind if it
+   * is raised a third time: reach for the colour before the weight.
+   * ========================================================================== */
 
   --color-primary-soft: var(--primary-soft);
   --color-accent-soft: var(--accent-soft);
@@ -366,6 +444,10 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   /* Dense data UIs read better slightly tighter */
   font-size: 14px;
+  /* `font-weight: 600` was here for a few hours on 2026-08-27 and is withdrawn
+   * with the token overrides in @theme — body text inherits the UA's 400 again.
+   * The legibility ask it was answering is served by the darker
+   * `--foreground` / `--muted-foreground` instead. */
   -webkit-font-smoothing: antialiased;
 }
 

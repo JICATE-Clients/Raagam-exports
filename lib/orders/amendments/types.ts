@@ -103,11 +103,19 @@ export function orderUnitLabel(unitKind: string | null | undefined): string {
  * (editing 0400 changes nothing — it has already run). Nothing breaks if they
  * drift; the two tabs just stop reading alike.
  *
- * A ROW MAY HOLD A VALUE THAT IS NOT IN THIS TUPLE. `pack_type` is text with no
- * CHECK, so re-wording an option here does not invalidate what is already
- * saved — but a `<Select>` matches on VALUE, so a stale row would render blank
- * (the same trap RECEIPT_MODES records below). The screen keeps a held
- * off-tuple value on its own option list rather than silently dropping it.
+ * THIS TUPLE NO LONGER CONSTRAINS ANYTHING (2026-08-27). The Pack type(s) cell
+ * was a `<Select>` over these names and is now a typed box (client: "packtype
+ * field manual entry, not a default value"), so what an order may name is
+ * whatever the operator types. `pack_type` is text with no CHECK and
+ * `amendmentPackTypeInput` is `nullableText` and not a `z.enum` of this, which
+ * is what made the change UI-only: nothing already saved became invalid and no
+ * migration was needed.
+ *
+ * SO WHAT IS IT FOR NOW? Two things, both still worth one declaration. The
+ * screen prints it under the grid as the usual wordings, and 0400 seeded these
+ * same names into the lookup the Quantities tab picks from — so re-wording a
+ * method here still means a new migration if the two tabs are to keep reading
+ * alike. It is a vocabulary offered, not a list enforced.
  */
 export const PACK_TYPE_OPTIONS = [
   "Solid Colour / Solid Size",
@@ -129,17 +137,20 @@ export const PACK_TYPE_OPTIONS = [
  * stores, one decision, and only one of them heard it: exactly the drift the
  * comment above predicts in the abstract.
  *
- * KEPT, NOT DELETED, because a stored row may still name one. `pack_type` is
- * text with no CHECK (0399 refuses one deliberately), so nothing rejects the
- * value — but a `<Select>` matches on VALUE and would render a stale row BLANK.
- * `packTypeOptions()` re-admits a held off-tuple value, and tags it
- * `(inactive)` so the operator can see why it is the only one of its kind on
- * the list. That is the "Disabled rows" rule reaching a plain `<Select>`: the
- * one row that survives is the one the record already holds, and it cannot be
- * re-picked once cleared.
+ * AND THE DROPDOWN IT WAS RETIRED FROM IS GONE (2026-08-27). The cell is typed
+ * now, so nothing hides a retired method and nothing stops an operator naming
+ * one — that is what manual entry means, and it is the client's own later
+ * instruction. `packTypeOptions()` went with the `<Select>`: it re-admitted a
+ * held off-tuple value and tagged it `(inactive)`, which was the "Disabled
+ * rows" rule reaching a plain `<Select>`, and a typed box has no option list to
+ * drop a stored value from in the first place.
  *
- * The row ceiling, the "N of M methods" badge and the explainer sentence all
- * read `PACK_TYPE_OPTIONS.length`, so they follow this to 2 without an edit.
+ * KEPT, NOT DELETED, for what it still says: these two are not offered as
+ * examples under the grid. Deleting them would put them back in that sentence,
+ * which is the one place the retirement still has a surface to act on. The row
+ * ceiling and the "N of M methods" badge that used to read
+ * `PACK_TYPE_OPTIONS.length` are both gone — a ceiling counting a list nobody
+ * picks from is a "+ Add" that stops working for no visible reason.
  */
 export const RETIRED_PACK_TYPES: readonly string[] = [
   "Assort Colour / Solid Size",
@@ -172,6 +183,7 @@ export const RETIRED_PACK_TYPES: readonly string[] = [
 export const PRICE_TYPE_OPTIONS = [
   "Style-wise",
   "Pack-wise",
+  "Pack-wise Size-wise",
   "Color-wise",
   "Size-wise",
   "Color-wise Size-wise",
@@ -201,6 +213,33 @@ export type PriceType = (typeof PRICE_TYPE_OPTIONS)[number];
  * grid renders this tuple directly, so this is also the dropdown order.
  */
 export const PACK_WISE_PRICE: PriceType = "Pack-wise";
+
+/**
+ * "PACK-WISE SIZE-WISE" IS THE SIXTH MODE (client 2026-08-28): one rate per BOX
+ * per SIZE — "the 5-Piece Gift Pack has a set unit rate for Size S".
+ *
+ * It sits THIRD, beside Pack-wise, because the tuple is the reading order and
+ * the dropdown order, and the two pack modes are one question asked at two
+ * grains. Putting it after "Color-wise Size-wise" would read as a variant of
+ * the colour modes, which it is not: it prices a CONTAINER, and no colour axis
+ * exists on a box that holds several.
+ *
+ * WHAT IT INHERITS AND WHAT IT ADDS. Like Pack-wise it is a rate per BOX, so
+ * `priceBasisOf` must answer "pack" for it and `orderValue` must multiply by
+ * `packs_ordered` — the $12 x 1,000 boxes vs x 3,000 garments fork. Unlike
+ * Pack-wise it has a SIZE axis, so `modeAxes` opens the size grid and
+ * `styleRate` blends the per-size rates.
+ *
+ * THE BLEND NEEDS NO NEW WEIGHT, and this is the one thing about it that is
+ * not obvious. `styleRate` weights by the Quantities tab's PIECES, not by
+ * boxes — but a method has ONE composition applied to every size, so
+ * `pieces(size) = boxes(size) x packSize` with `packSize` constant. The
+ * constant cancels out of a weighted average, so blending by pieces gives the
+ * identical rate to blending by boxes, and `blendedRate x packs_ordered` is
+ * exactly `SUM(rate(size) x boxes(size))`. Vectored, because "it cancels" is
+ * the kind of reasoning that is true until a composition varies by size.
+ */
+export const PACK_WISE_SIZE_PRICE: PriceType = "Pack-wise Size-wise";
 export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
 
 /**
@@ -327,6 +366,20 @@ export interface AmendmentStyle {
   style_description: string | null;
   order_unit_id: string | null;
   plan_unit_id: string | null;
+  /**
+   * ORDER UNIT — 'piece' (shown PCS) or 'set' (SET), asked of the operator
+   * again from 2026-08-27 (client: "that order unit need to show pcs and set").
+   *
+   * NOT `order_unit_id` above, which stays frozen and answers a different
+   * question: it was a `uoms` FK offering nos / mtr / kg / gross / yard / set —
+   * a stock unit. This is the two-valued vocabulary `COORDINATE_LIMITS` and
+   * `garment_styles.unit_kind` already speak, so the coordinate cap, the Style
+   * master and the order line cannot spell it three ways (0471).
+   *
+   * NULL IS "NOT ANSWERED", never PCS. The word is seeded into
+   * `price_details.unit`, so a guess here is a guess that reaches an invoice.
+   */
+  unit_kind: string | null;
   /**
    * PIECES. Always pieces, on a set pack too — see `packs_ordered`.
    */
@@ -683,13 +736,49 @@ export interface AmendmentApprovalQty {
  *
  * The whole row is its own value: there is nothing to say about a pack method
  * beyond naming it, which is why this is the only child with a single data
- * column. `pack_type` is one of `PACK_TYPE_OPTIONS`, stored as text.
+ * column. `pack_type` is free text since 2026-08-27 — typed, not picked — and
+ * `PACK_TYPE_OPTIONS` is the wording the screen offers as examples.
  */
 export interface AmendmentPackType {
   id: string;
   amendment_id: string;
   sno: number;
   pack_type: string | null;
+}
+
+/**
+ * Pack type(s) ▸ what one packing method actually packs (0472).
+ *
+ * Legacy's Pack type(s) tab is MASTER-DETAIL and the conversion took only the
+ * master — a pack type was a WORD and nothing else, which is why
+ * `AmendmentPackType` above still describes itself as "the only child with a
+ * single data column". Beneath each row legacy carries StyleRefNo | Style No |
+ * Combo | Qty (client 2026-08-27, screenshot 2518).
+ *
+ * KEYED BY `pack_type` TEXT, exactly as the styles' children are keyed by
+ * `style_ref_no`, and legitimately: `uq_goa_pack_types_method` makes
+ * `(amendment_id, pack_type)` unique, so the word identifies its parent. That
+ * is also what keeps this table inside `writeChildren`'s flat
+ * delete-all-then-reinsert instead of needing `writeComboTree`'s pairing.
+ *
+ * `style` IS THE REF ON A TYPED LINE. Legacy's two columns were the master's
+ * code and its name; Style became manual entry on 2026-08-25, so one string
+ * answers both — `combos` and `price_details` already store `style` set to the
+ * ref for this reason, and this follows them rather than inventing a third
+ * convention.
+ */
+export interface AmendmentPackTypeLine {
+  id: string;
+  amendment_id: string;
+  sno: number;
+  /** The pack type this line belongs to, BY VALUE. */
+  pack_type: string | null;
+  style_ref_no: string | null;
+  style: string | null;
+  /** The colourway, as `combos.combo` holds it. */
+  combo: string | null;
+  /** Pieces of this (style, colourway) that the method packs. */
+  qty: number;
 }
 
 /**
@@ -741,6 +830,19 @@ export interface AmendmentQuantity {
   style_no: string | null;
   consignee_id: string | null;
   assortment_type_id: string | null;
+  /**
+   * WHICH PACKING METHOD THIS DESTINATION SHIPS (0473), BY VALUE — matches a
+   * `pack_types` row, which `uq_goa_pack_types_method` makes unique.
+   *
+   * NOT the same question as `assortment_type_id` beside it: that says whether
+   * the cartons are solid or assorted, this says what one box HOLDS. Naming a
+   * method turns the size cells into BOX COUNTS and derives the colourway rows
+   * from the method's composition — see `is_pack_row` on the assort line.
+   *
+   * NULL is a real answer: the destination is not packed to a declared method
+   * and its size cells are ordinary piece counts, exactly as before 0473.
+   */
+  pack_type: string | null;
   /**
    * The buyer PO this destination belongs to (0427), asked only while the
    * header's `multi_order` is on. Null on every single-PO order, where the
@@ -800,6 +902,21 @@ export interface AmendmentAssortLine {
    *  `cartons x inners x ratio` (0432). Ignored by a Solid / Solid line, which
    *  has no ratio and no knowable carton count. */
   inners_per_carton: number;
+  /**
+   * THIS LINE'S SIZE CELLS ARE BOXES, NOT PIECES (0473).
+   *
+   * One box holds every colourway at once, so the count of boxes is a property
+   * of the SIZE — asking it once per colourway row would let the operator type
+   * 100 against WHITE and 90 against BLACK for one size and silently mean two
+   * different pack counts for one physical carton. So one line per style
+   * carries the boxes and every colourway line beneath it carries the pieces
+   * those boxes explode into.
+   *
+   * DECLARED, NOT INFERRED. "The line with no combo" is already a legal state
+   * on a Single Style pack (0433), so reading the flag off a null combo would
+   * make two different things indistinguishable in the table.
+   */
+  is_pack_row: boolean;
   sizes: AmendmentAssortLineSize[];
 }
 
@@ -917,6 +1034,8 @@ export interface GarmentOrderAmendment {
   price_details: AmendmentPriceDetail[];
   approval_qtys: AmendmentApprovalQty[];
   pack_types: AmendmentPackType[];
+  /** What each pack type packs (0472), keyed off `pack_types` by text. */
+  pack_type_lines: AmendmentPackTypeLine[];
   quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
   files: AmendmentFile[];
@@ -964,6 +1083,16 @@ export const amendmentStyleInput = z.object({
   style_description: nullableText,
   order_unit_id: uuidN,
   plan_unit_id: uuidN,
+  /* ORDER UNIT (0471). An ENUM, not `nullableText`, and that is the half the
+     DB check cannot cover on its own: the stored words are 'piece' / 'set'
+     while the operator reads PCS / SET, so the display word is the likeliest
+     thing to arrive from a caller that formats before it saves. Both ends
+     refuse it — this and the column's CHECK — because `lib/data-io` writes
+     straight to Postgres and the action is not on that path. */
+  unit_kind: z
+    .enum(["piece", "set"])
+    .nullish()
+    .transform((v) => v ?? null),
   po_qty: num,
   /* PACKS, beside the piece count (0467). `numN` and not `num`: NULL is "not a
      set pack", 0 is "zero packs ordered", and coercing the first to the second
@@ -1194,6 +1323,28 @@ export const amendmentPackTypeInput = z.object({
 });
 
 /**
+ * One line of a pack type's detail grid (0472).
+ *
+ * `pack_type` IS THE PARENT KEY AND IS PLAIN TEXT, so it is `nullableText` like
+ * every other by-value binding here (`style_ref_no`, `combo`). A line whose
+ * method has since been renamed is dropped on save by `normalizePackTypeLines`
+ * rather than refused by validation — the same call `normalizeStyleSizes`
+ * makes for a size whose style line is gone.
+ *
+ * `qty` is `num`, so a blank box saves as 0 rather than failing. A pack type
+ * line the operator started and left unquantified is a row mid-answer, which is
+ * the rule every child input on this document follows.
+ */
+export const amendmentPackTypeLineInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  pack_type: nullableText,
+  style_ref_no: nullableText,
+  style: nullableText,
+  combo: nullableText,
+  qty: num,
+});
+
+/**
  * One attached document (0416).
  *
  * `doc_kind` is nullable because the operator picks it AFTER the file lands —
@@ -1246,6 +1397,12 @@ export const amendmentAssortLineInput = z.object({
   // CAPS: a colourway name is a field VALUE stored in capitals, and it must
   // match `amendmentComboInput.combo`, which it references by value.
   combo: capsTextNullable(),
+  /**
+   * THIS LINE HOLDS BOXES (0473). Defaults to false, so every line written by
+   * an importer, and every line stored before this column existed, stays a
+   * PIECES line — the direction that cannot rewrite a saved quantity.
+   */
+  is_pack_row: z.boolean().default(false),
   no_of_cartons: num,
   /**
    * DEFAULTS TO 1, NOT 0 (0432) — the one number here that is a MULTIPLIER
@@ -1269,6 +1426,8 @@ export const amendmentQuantityInput = z.object({
   style_no: nullableText,
   consignee_id: uuidN,
   assortment_type_id: uuidN,
+  /** Which pack type(s) method this destination ships (0473). */
+  pack_type: nullableText,
   /* `nullableText`, NOT `capsTextNullable()`, and deliberately so: this is the
      same PO number the HEADER's `po_no` holds, which is `nullableText` below.
      Capsing one of the two would let the same buyer reference read two ways
@@ -1447,6 +1606,7 @@ export const amendmentInput = z.object({
   price_details: z.array(amendmentPriceDetailInput).default([]),
   approval_qtys: z.array(amendmentApprovalQtyInput).default([]),
   pack_types: z.array(amendmentPackTypeInput).default([]),
+  pack_type_lines: z.array(amendmentPackTypeLineInput).default([]),
   quantities: z.array(amendmentQuantityInput).default([]),
   files: z.array(amendmentFileInput).default([]),
 });

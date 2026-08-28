@@ -167,11 +167,54 @@ export async function deleteItemClass(id: string): Promise<DeleteResult> {
 }
 
 // ---------- attribute values (per Item Class; gated by has_attribute) ----------
-/** Replace the value grid for one Item Class. Only classes flagged `has_attribute`
- *  may carry values (the split — Item Class lifecycle lives on its own screen). */
+/**
+ * Save the value grid for one Item Class. Only classes flagged `has_attribute`
+ * may carry values (the split — Item Class lifecycle lives on its own screen).
+ *
+ * ## IT RECONCILES. IT USED TO REPLACE, AND THAT SILENTLY BROKE EVERY SET
+ *
+ * This was `delete().eq("item_class_id", …)` followed by a fresh insert, and the
+ * comment beside the delete reasoned only about what cascades OUT of a value
+ * (`attribute_value_options`). What points IN is
+ * `material_attribute_lines.attribute_id`, **`ON DELETE SET NULL`** — so saving
+ * the value list for a class blanked the attribute on every Material Attribute
+ * line under that class, and the line kept its options, its steps and its unit
+ * while losing the one thing that says what it asks about.
+ *
+ * It was not a risk, it was the live state: **12 of 12 lines** across all five
+ * sets read NULL (2026-08-27), and the timestamps show the mechanism — in every
+ * set the lines were saved BEFORE the class's current values existed, POLY BAG
+ * and TAGS by 50 seconds, ELASTIC and LABEL by 63. `normalizeLines` in
+ * `material-attribute-actions.ts` REFUSES to insert a line with no
+ * `attribute_id`, so the app could not have written those NULLs: the FK did,
+ * after the fact. Nothing recovers them — `audit_log` holds no entry for any
+ * attribute table — so the twelve have to be re-picked by hand.
+ *
+ * ## HOW A VALUE IS RECOGNISED ACROSS A SAVE
+ *
+ * By `id` first, and that is why the parameter now takes one: matching on TEXT
+ * alone makes a RENAME indistinguishable from a delete plus an insert, so
+ * correcting a typo in "GSM" would blank every line pointing at it — the same
+ * bug wearing a smaller hat. The screen sends the id it loaded.
+ *
+ * By trimmed, case-insensitive VALUE second, for `lib/data-io`, which reaches
+ * this action directly and has no ids to send. That is the same key the
+ * duplicate check below uses, so two rows can never resolve to one id.
+ *
+ * A DELETE STILL HAPPENS for a value the operator actually removed, and the
+ * lines pointing at it are still nulled. That is the FK doing what it is for:
+ * the attribute is gone, so a line asking it has no question left. What changed
+ * is that this is now the only path that reaches it.
+ */
 export async function saveAttributeValues(
   itemClassId: string,
-  values: { value: string; input_type?: "option_list" | "numeric_range"; options?: { value: string }[] }[],
+  values: {
+    /** The stored row this one IS, where the caller knows it. See the header. */
+    id?: string | null;
+    value: string;
+    input_type?: "option_list" | "numeric_range";
+    options?: { value: string }[];
+  }[],
 ): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const s = await createClient();
@@ -186,6 +229,7 @@ export async function saveAttributeValues(
 
   const clean = values
     .map((v) => ({
+      id: v.id ?? null,
       value: (v.value ?? "").trim(),
       input_type: v.input_type === "option_list" ? "option_list" : "numeric_range",
       options: (v.options ?? []).map((o) => (o.value ?? "").trim()).filter((x) => x.length > 0),
@@ -206,36 +250,100 @@ export async function saveAttributeValues(
     seen.add(key);
   }
 
-  // Replace wholesale — attribute_value_options cascade-delete with their parent value.
-  const { error: delErr } = await s.from("attribute_values").delete().eq("item_class_id", itemClassId);
-  if (delErr) return fail(delErr.message);
+  // What this class holds today. Read BEFORE anything is written, so a value that
+  // survives the save can be recognised and kept rather than re-created.
+  const { data: existing, error: exErr } = await s
+    .from("attribute_values")
+    .select("id, value")
+    .eq("item_class_id", itemClassId);
+  if (exErr) return fail(exErr.message);
+  const stored = (existing ?? []) as { id: string; value: string | null }[];
 
-  if (clean.length) {
+  const idsHere = new Set(stored.map((r) => r.id));
+  const byText = new Map<string, string>();
+  for (const r of stored) {
+    const key = (r.value ?? "").trim().toUpperCase();
+    // FIRST WINS, so a class that already holds two rows differing only in case
+    // cannot make two incoming rows resolve to one id and lose one of them.
+    if (key && !byText.has(key)) byText.set(key, r.id);
+  }
+
+  /* THE ID IS ONLY TRUSTED WHEN IT IS ONE OF THIS CLASS'S OWN ROWS. A payload
+     naming another class's value would otherwise re-parent it by UPDATE — a
+     value silently moving between Item Classes, which no screen offers and no
+     import should be able to do by accident. */
+  const claimed = new Set<string>();
+  const resolved = clean.map((v, i) => {
+    const byId = v.id && idsHere.has(v.id) ? v.id : null;
+    const id = byId ?? byText.get(v.value.toUpperCase()) ?? null;
+    const keep = id && !claimed.has(id) ? id : null;
+    if (keep) claimed.add(keep);
+    return { id: keep, sno: i + 1, v };
+  });
+
+  // 1 · GONE — the only delete, and the only path that nulls a line's attribute.
+  const removed = stored.map((r) => r.id).filter((id) => !claimed.has(id));
+  if (removed.length) {
+    const { error } = await s.from("attribute_values").delete().in("id", removed);
+    if (error) return fail(error.message);
+  }
+
+  // 2 · KEPT — updated in place, so the id every Material Attribute line points
+  //     at survives. This is the whole fix.
+  for (const r of resolved) {
+    if (!r.id) continue;
+    const { error } = await s
+      .from("attribute_values")
+      .update({ sno: r.sno, value: r.v.value, input_type: r.v.input_type })
+      .eq("id", r.id);
+    if (error) return fail(error.message);
+  }
+
+  // 3 · NEW.
+  const fresh = resolved.filter((r) => !r.id);
+  if (fresh.length) {
     const { data: inserted, error: insErr } = await s
       .from("attribute_values")
       .insert(
-        clean.map((v, i) => ({
-          sno: i + 1,
-          value: v.value,
-          input_type: v.input_type,
+        fresh.map((r) => ({
+          sno: r.sno,
+          value: r.v.value,
+          input_type: r.v.input_type,
           item_class_id: itemClassId,
         })),
       )
       .select("id");
     if (insErr) return fail(insErr.message);
-
-    // Options for categorical attributes (RETURNING preserves VALUES order → index-match).
-    const optRows: { attribute_value_id: string; sno: number; value: string }[] = [];
+    // RETURNING preserves VALUES order → index-match, as before.
     (inserted ?? []).forEach((row, i) => {
-      const v = clean[i];
-      if (v && v.input_type === "option_list") {
-        v.options.forEach((opt, j) => optRows.push({ attribute_value_id: row.id, sno: j + 1, value: opt }));
-      }
+      const r = fresh[i];
+      if (r) r.id = row.id as string;
     });
-    if (optRows.length) {
-      const { error: optErr } = await s.from("attribute_value_options").insert(optRows);
-      if (optErr) return fail(optErr.message);
-    }
+  }
+
+  /* 4 · OPTIONS, replaced per value. Nothing points AT an option row — no FK
+     names `attribute_value_options` — so wholesale replacement is safe here in
+     the way it was never safe one table up. Every value is cleared, including a
+     value that stopped being an option list, or its old options would outlive
+     the switch. */
+  const withIds = resolved.filter((r): r is typeof r & { id: string } => !!r.id);
+  if (withIds.length) {
+    const { error: optDel } = await s
+      .from("attribute_value_options")
+      .delete()
+      .in("attribute_value_id", withIds.map((r) => r.id));
+    if (optDel) return fail(optDel.message);
+  }
+  const optRows: { attribute_value_id: string; sno: number; value: string }[] = [];
+  for (const r of withIds) {
+    if (r.v.input_type !== "option_list") continue;
+    r.v.options.forEach((opt, j) =>
+      optRows.push({ attribute_value_id: r.id, sno: j + 1, value: opt }),
+    );
+  }
+  if (optRows.length) {
+    const { error: optErr } = await s.from("attribute_value_options").insert(optRows);
+    if (optErr) return fail(optErr.message);
   }
   revAttributes();
   return { ok: true };

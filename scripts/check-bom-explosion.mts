@@ -520,16 +520,16 @@ check(
   refusalOf(slicesForAxes(["style_ref", "pack"], ORDER)),
   "Pack Ref No is not on the order yet — no packing reference to split by",
 );
-/* {colour} ALONE — the client's #26. The engine argues against it: a colourway
-   belongs to a style, and collapsing WHITE across two styles lets one absorb the
-   other's target. So it is REFUSED BY NAME rather than quietly answered. */
-check(
-  "colour-across-styles refuses and says why",
-  refusalOf(slicesForAxes(["colour"], ORDER)),
-  "Colour across every style is not a split this engine makes — a colourway belongs to a style (see #26)",
-);
+/* {colour} ALONE — the client's #26, DECIDED AND SERVED on 2026-08-27. It used
+   to refuse by name, on the argument that a colourway belongs to a style and
+   collapsing WHITE across two styles lets one absorb the other's target. The
+   argument is still correct about a TARGET; it is not correct about a PURCHASE,
+   which is what this engine feeds — the red thread bought for two styles is one
+   cone. Nothing absorbs anything because the groups are SUMMED, which is what
+   §14 below asserts against the fixture's own numbers. */
+check("colour-across-styles now produces", refusalOf(slicesForAxes(["colour"], ORDER)), null);
 refute(
-  "...it does not silently answer as {style_ref, colour}",
+  "...and it is NOT the same partition as {style_ref, colour}",
   rowsOf(["colour"]),
   rowsOf(["style_ref", "colour"]),
 );
@@ -655,11 +655,13 @@ check("{size, country} likewise", basisForAxes(["size", "country"]), null);
 check("the whole-order grain is named 'order'", basisForAxes([]), "order");
 refute("...and is emphatically not nameless", basisForAxes([]), null);
 
-/* HOW THE NINE PRODUCIBLE GRAINS SPLIT. Six carry a legacy name and three do
-   not, which is exactly the set 0456's nullable `basis` exists to hold. */
+/* HOW THE THIRTEEN PRODUCIBLE GRAINS SPLIT. Six carry a legacy name and seven do
+   not, which is exactly the set 0456's nullable `basis` exists to hold. It was
+   nine and three until the four coarsened colour grains joined on 2026-08-27 —
+   none of which has a legacy name, because none was expressible before. */
 const named = producibleGrains().filter((g) => basisForAxes(g) !== null);
 check("six producible grains carry a legacy name", named.length, 6);
-check("...and three do not", producibleGrains().length - named.length, 3);
+check("...and seven do not", producibleGrains().length - named.length, 7);
 
 /* -------------------------------------------------------------------------
    THE CLIENT'S 22-ROW ATTRIBUTE LIST
@@ -707,8 +709,17 @@ for (const r of CLIENT_GRAIN_MATRIX) {
   );
 }
 
-check("thirteen of the client's rows produce", servedRows().length, 13);
-check("...and nine refuse", blockedRows().length, 9);
+/* SEVENTEEN NOW PRODUCE — thirteen until 2026-08-27, plus #3, #4, #15 and #17
+   when the client's #26 decision landed. The five that still refuse are the pack
+   rows, and they refuse for a reason no decision can lift: `pack` has no column
+   on this schema. */
+check("seventeen of the client's rows produce", servedRows().length, 17);
+check("...and five refuse", blockedRows().length, 5);
+check(
+  "...all five for want of pack data",
+  blockedRows().filter((r) => r.blocked === "pack_no_data").length,
+  5,
+);
 /* FIVE OF THE THIRTEEN CARRY `trim_colour` and produce their base grain's rows.
    Counted so that reclassifying one back to "blocked" — the mistake this file
    already made once — fails here rather than silently removing an option. */
@@ -767,7 +778,7 @@ const servedKeys = servedRows().map((r) => serializeAxes(orderAxesOf(r.axes)));
    #10 "Style / Combination" plans exactly what #6 "Style" plans. So the distinct
    count is 13 - 5 = 8, and asserting THAT rather than uniqueness is what keeps
    the duplication intentional instead of merely tolerated. */
-check("the thirteen cover eight distinct order grains", new Set(servedKeys).size, 8);
+check("the seventeen cover twelve distinct order grains", new Set(servedKeys).size, 12);
 
 /* THE ENGINE SERVES NINE AND THE CLIENT NAMED EIGHT - and the ninth is kept.
    `producibleGrains()` must be EXACTLY the served rows plus `EXTRA_SERVED`:
@@ -941,7 +952,7 @@ for (const axes of [
  * THESE VECTORS WERE MADE TO FAIL FIRST: against the engine before the fix,
  * every "EXPLODES" line below reported the refusal sentence instead of null.
  * ------------------------------------------------------------------------- */
-console.log("\n\u00a713  a colour grain is refused for the ORDER, not for the grain");
+console.log("\n\u00a713  a single-style order WIDENS its colour grain (keys preserved)");
 
 /* The same fixture with the second style removed. Nothing else changes, so any
    difference below is the style count and only the style count. */
@@ -953,17 +964,12 @@ const ORDER_1S: OrderProductionInput = {
 };
 const ONE_STYLE_TOTAL = 500; // 300 WHITE + 200 NAVY, S1 only
 
-/* The guard still stands where the hazard is real. */
-check(
-  "two styles: Order Color / Order Size is still refused",
-  refusalOf(slicesForAxes(["colour", "size"], ORDER)),
-  "Order Color / Order Size is not a split this order can be exploded by yet",
-);
-check(
-  "two styles: Order Color alone keeps its own sentence",
-  refusalOf(slicesForAxes(["colour"], ORDER))?.startsWith("Colour across every style"),
-  true,
-);
+/* THE MULTI-STYLE CASE NO LONGER REFUSES — it coarsens (2026-08-27). These two
+   asserted the refusal until that decision; they are kept pointing the other way
+   rather than deleted, so a revert of `COARSENED` fails here instead of quietly
+   removing four of the operator's options. */
+check("two styles: Order Color / Order Size produces", refusalOf(slicesForAxes(["colour", "size"], ORDER)), null);
+check("two styles: Order Color alone produces", refusalOf(slicesForAxes(["colour"], ORDER)), null);
 
 /* One style: the same grains produce rows. This is the reported bug. */
 check("one style: Order Color / Order Size EXPLODES", refusalOf(slicesForAxes(["colour", "size"], ORDER_1S)), null);
@@ -1002,5 +1008,84 @@ check(
   refusalOf(slicesForAxes(["colour", "country"], ORDER_1S)) !== null,
   true,
 );
+/* -------------------------------------------------------------------------
+   §14  COLOUR ACROSS STYLES SUMS — the client's #26, decided 2026-08-27
+   -------------------------------------------------------------------------
+
+   THE ONE VECTOR THAT MATTERS IS WHITE. The fixture carries WHITE under BOTH
+   styles — 300 under S1 and 240 under S2 — so an implementation that ABSORBS
+   returns 300 or 240 and one that SUMS returns 540. That is the entire
+   difference between the rule this reverses and the rule it installs, and no
+   other row in the fixture can tell them apart: NAVY exists under one style, so
+   it reads 200 either way.
+
+   MADE TO FAIL FIRST against `coarsenTo` returning `first.qty` instead of the
+   sum: WHITE came back 300 and the total 500, both of which look like perfectly
+   ordinary quantities. Nothing else in the suite moved.
+   ------------------------------------------------------------------------- */
+console.log("\n\u00a714  colour across styles SUMS rather than absorbing");
+
+const COARSE_TOTAL = 740; // 300 S1/WHITE + 200 S1/NAVY + 240 S2/WHITE
+
+function bySlice(axes: Axis[]): Record<string, number> {
+  const out = slicesForAxes(axes, ORDER);
+  if (isRefusal(out)) return { REFUSED: -1 };
+  const m: Record<string, number> = {};
+  for (const s of out) m[s.label] = (m[s.label] ?? 0) + s.qty;
+  return m;
+}
+
+const byColour = bySlice(["colour"]);
+check("WHITE is ONE row carrying both styles' quantity", byColour.WHITE, 540);
+refute("...not one style's absorbing the other", byColour.WHITE, 300);
+refute("...and not the other way round", byColour.WHITE, 240);
+check("NAVY exists under one style and is unchanged", byColour.NAVY, 200);
+check("{colour} is two rows, not three", Object.keys(byColour).length, 2);
+
+/* CONSERVATION, on every coarsened grain. A regrouping that loses or duplicates
+   a garment is the failure this whole module is written to prevent, and it is
+   invisible on any single row. */
+const sumOf = (axes: Axis[]) =>
+  Object.values(bySlice(axes)).reduce((t, v) => t + v, 0);
+for (const g of [
+  ["colour"],
+  ["colour", "size"],
+  ["colour", "country"],
+  ["colour", "size", "country"],
+] as Axis[][]) {
+  check(`${labelFor(g)} still sums to the order`, sumOf(g), COARSE_TOTAL);
+}
+
+/* THE FINER GRAINS, ROW BY ROW. WHITE/S is 100 under S1 and 90 under S2. */
+const byColourSize = bySlice(["colour", "size"]);
+check("WHITE \u00b7 S sums both styles' smalls", byColourSize["WHITE \u00b7 S"], 190);
+check("WHITE \u00b7 M sums both styles' mediums", byColourSize["WHITE \u00b7 M"], 350);
+check("NAVY \u00b7 S is S1's alone", byColourSize["NAVY \u00b7 S"], 80);
+check("{colour, size} is four rows", Object.keys(byColourSize).length, 4);
+
+/* A DROPPED AXIS IS NULLED, not carried from whichever member sorted first —
+   a row covering two styles must not print one style's name as provenance. */
+const colourRows = slicesForAxes(["colour"], ORDER);
+check(
+  "a coarsened row names no style",
+  isRefusal(colourRows) ? "refused" : colourRows.every((s) => s.style_ref_no === null),
+  true,
+);
+check(
+  "...and every row is distinctly keyed",
+  isRefusal(colourRows) ? -1 : new Set(colourRows.map((s) => s.key)).size,
+  2,
+);
+
+/* THE SINGLE-STYLE PATH IS UNTOUCHED. It widens rather than coarsens, so its
+   rows keep the engine's own keys — which is what per-slice overrides are stored
+   against. This asserts the two paths stayed separate. */
+const oneStyleColour = slicesForAxes(["colour"], ORDER_1S);
+check(
+  "a single-style order still widens, keeping its style",
+  isRefusal(oneStyleColour) ? "refused" : oneStyleColour.every((s) => s.style_ref_no === S1),
+  true,
+);
+
 console.log(failed === 0 ? "\nAll BOM explosion vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

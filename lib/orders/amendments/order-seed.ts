@@ -18,6 +18,7 @@ import type {
   AmendmentApprovalQty,
   AmendmentCountrySize,
   AmendmentPackType,
+  AmendmentPackTypeLine,
   AmendmentStyleProcess,
   AmendmentStyleSize,
   AmendmentStyleComponent,
@@ -137,6 +138,16 @@ export interface SeededAmendmentChildren {
    */
   packTypes?: Seeded<AmendmentPackType>[];
   /**
+   * Pack type(s) ▸ what each method packs (0472) — ALWAYS EMPTY FROM AN ORDER,
+   * and optional for the same reason `packTypes` above it is.
+   *
+   * It cannot be otherwise: these lines hang off a pack type by TEXT, and a
+   * `sales_order` names no packing method at all, so there is no parent for a
+   * seeded line to belong to. It is in this type all the same because
+   * `applyRows` maps a SAVED document through the same shape.
+   */
+  packTypeLines?: Seeded<AmendmentPackTypeLine>[];
+  /**
    * Style(s) ▸ per-style sizes (0407) — ALWAYS EMPTY FROM AN ORDER, and
    * optional for the same reason `packTypes` above is.
    *
@@ -238,6 +249,7 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   priceDetails: [],
   approvalQtys: [],
   packTypes: [],
+  packTypeLines: [],
   styleSizes: [],
   styleCoordinates: [],
   packComponents: [],
@@ -600,6 +612,13 @@ export async function seedAmendmentFromOrder(
       style_id: master?.id ?? null,
       approved_sample_id: master?.approved_sample_id ?? null,
       article_no: master?.article_no ?? null,
+      /* ORDER UNIT (0471) — NULL, meaning "not answered", even where a master
+         row was matched above. A seeded line is a legacy order being read into
+         the new shape, and PCS / SET is a word that gets stored on the price
+         rows; taking it from a master the operator did not pick would put an
+         inferred unit onto an invoice. The screen asks for it, and the
+         coordinate derivation still answers where a line has coordinates. */
+      unit_kind: null,
       /* THE NAME AND THE ROW IT RESOLVES TO (0461). The text has always been
          seeded from the embed; the id is what a picker can resolve, and both
          come off the same master row here so they cannot disagree. */
@@ -920,6 +939,11 @@ export async function seedAmendmentFromOrder(
     quantities.push({
       sno: quantities.length + 1,
       country_id: null,
+      /* NO PACKING METHOD EITHER (0473), and for the same reason as the size
+         above: an order declares no pack types at all, so there is nothing to
+         seed. The operator names one on the Quantities row once Pack type(s)
+         has been filled in. */
+      pack_type: null,
       style_ref_no: p.style_ref_no,
       // `styleLabel` names its column `style`; this table's is `style_no`,
       // matching the order children it is keyed against.

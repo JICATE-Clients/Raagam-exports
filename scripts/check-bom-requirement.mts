@@ -55,6 +55,10 @@ import {
   type ProductionSlice,
   type RequirementBasis,
 } from "../lib/orders/material-bom/requirement.ts";
+import {
+  resolveLinePack,
+  type PackRow,
+} from "../lib/orders/material-bom/pack-resolve.ts";
 import type { RejectionTier } from "../lib/masters/rejection-rule.ts";
 import { fmtQty } from "../lib/uom/convert.ts";
 
@@ -1995,6 +1999,141 @@ check(
   "and the consumption total is still the metres both consume",
   twoConeColours(10).excessCalcQty,
   10000,
+);
+
+// ---------------------------------------------------------------------------
+// WHICH PACK A LINE BUYS IN — `resolveLinePack`
+// ---------------------------------------------------------------------------
+//
+// The Purchase Pack cell came off the item grid on 2026-08-21, so no line
+// created since can NAME a pack, and the purchase figure it feeds was dead on
+// every one of them: the Final Quantity showed the consumption figure instead
+// (client 2026-08-27). The resolution moved to the line's own units, and these
+// vectors exist because that number is SPENT — it is stored as `purchase_qty`
+// and `bomCeilingForOrder` caps a purchase order against it.
+//
+// The vector that earns its place is the AMBIGUOUS one. The live data has a
+// sewing thread at both 1 U_CONE = 2500 MTR and 1 U_CONE = 5000 MTR, so "find the
+// conversion for this unit pair" and "find THE conversion for this unit pair"
+// are two implementations that agree everywhere except there — and where they
+// disagree, one of them buys twice what the order needs.
+
+const THREAD = "item-thread";
+const BUTTON = "item-button";
+const MTR = "uom-mtr";
+const U_CONE = "uom-cone";
+const NOS = "uom-nos";
+const U_GROSS = "uom-gross";
+
+const pk = (over: Partial<PackRow> & { id: string }): PackRow => ({
+  item_id: THREAD,
+  alt_qty: 1,
+  alt_uom_id: U_CONE,
+  base_qty: 2500,
+  base_uom_id: MTR,
+  ...over,
+});
+
+/** The two real cone sizes of one thread, plus another material's gross. */
+const PACKS: PackRow[] = [
+  pk({ id: "cone-2500" }),
+  pk({ id: "cone-5000", base_qty: 5000 }),
+  pk({ id: "gross-144", item_id: BUTTON, alt_uom_id: U_GROSS, base_qty: 144, base_uom_id: NOS }),
+];
+
+const bomLine = (over: Partial<Parameters<typeof resolveLinePack>[0]> = {}) => ({
+  item_id: BUTTON,
+  purchase_uom_id: U_GROSS,
+  consumption_uom_id: NOS,
+  uom_conversion_id: null,
+  ...over,
+});
+
+// ONE MATCH RESOLVES. This is the whole fix: the line names no pack and gets one.
+const oneMatch = resolveLinePack(bomLine(), PACKS);
+check("one matching pack resolves from the line's own units", oneMatch.pack?.id, "gross-144");
+check("and it is usable", oneMatch.usable, true);
+check("with no tie to break", oneMatch.choices.length, 0);
+
+// TWO MATCHES RESOLVE TO NOTHING. Neither is guessed at.
+const tie = resolveLinePack(
+  bomLine({ item_id: THREAD, purchase_uom_id: U_CONE, consumption_uom_id: MTR }),
+  PACKS,
+);
+check("two pack sizes of one unit resolve to no pack", tie.pack, null);
+check("and are not usable", tie.usable, false);
+check("both are offered as the tie to break", tie.choices.length, 2);
+refute("the first is not silently taken", tie.pack, PACKS[0]);
+
+// THE TIE, BROKEN. Naming one is what the exception cell on the screen writes.
+const broken = resolveLinePack(
+  bomLine({
+    item_id: THREAD,
+    purchase_uom_id: U_CONE,
+    consumption_uom_id: MTR,
+    uom_conversion_id: "cone-5000",
+  }),
+  PACKS,
+);
+check("a named pack resolves the tie", broken.pack?.id, "cone-5000");
+check("and stops offering a choice", broken.choices.length, 0);
+
+// A STORED PACK IS NEVER RE-DERIVED OVER. A BOM saved before 2026-08-21 chose by
+// hand; re-resolving would move a purchase quantity on a document nobody edited.
+check(
+  "a stored pack wins over what the units would say",
+  resolveLinePack(bomLine({ uom_conversion_id: "cone-2500" }), PACKS).pack?.id,
+  "cone-2500",
+);
+
+// ANOTHER MATERIAL'S PACK IS NOT THIS LINE'S. `item_id` is half the match, and
+// without it a gross of buttons would convert a thread.
+check(
+  "a conversion belonging to another material is ignored",
+  resolveLinePack(bomLine({ item_id: "item-elastic" }), PACKS).pack,
+  null,
+);
+
+// THE PACK MUST CONVERT INTO THE CONSUMED UNIT. A cone of metres against a line
+// counted in pieces yields a number and a category error.
+check(
+  "a pack whose base is not the consumption unit is ignored",
+  resolveLinePack(
+    bomLine({ item_id: THREAD, purchase_uom_id: U_CONE, consumption_uom_id: NOS }),
+    PACKS,
+  ).pack,
+  null,
+);
+
+// NO PURCHASE UNIT, NO HOP TO MAKE.
+check(
+  "a line with no purchase unit resolves nothing",
+  resolveLinePack(bomLine({ purchase_uom_id: null }), PACKS).pack,
+  null,
+);
+
+// A HALF-TYPED CONVERSION IS INERT, not "helpfully" completed — the same rule
+// `conversionFactor` states for a row being typed.
+check(
+  "a conversion with no alt_qty is not a candidate",
+  resolveLinePack(bomLine(), [pk({ id: "half", item_id: BUTTON, alt_uom_id: U_GROSS, base_uom_id: NOS, alt_qty: null })])
+    .pack,
+  null,
+);
+
+// A DERIVED PACK AND A NAMED ONE PRODUCE THE SAME FIGURE. That is the property
+// that matters: the screen resolves and the server resolves, and `purchase_qty`
+// is stored from one while the operator reads the other. (The arithmetic itself
+// is asserted above — `toPurchaseQty` ROUNDS to the unit's decimals rather than
+// ceilinging, the client's "16.67 Gross, not 17".)
+check(
+  "a derived pack buys exactly what the same pack named by hand buys",
+  toPurchaseSlices([2400], oneMatch.pack!, 2),
+  toPurchaseSlices(
+    [2400],
+    resolveLinePack(bomLine({ uom_conversion_id: "gross-144" }), PACKS).pack!,
+    2,
+  ),
 );
 
 console.log(failed === 0 ? "\nAll BOM requirement vectors pass." : `\n${failed} FAILED`);

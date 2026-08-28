@@ -43,8 +43,16 @@ import { fmtQty } from "@/lib/uom/convert";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
-import { NominatedVendorPicker } from "@/components/masters/nominated-vendor-picker";
-import { nominatedVendorOptions } from "@/lib/masters/vendor-nominations";
+/* `NominatedVendorPicker` AND `nominatedVendorOptions` WERE BOTH IMPORTED HERE,
+   and both went on 2026-08-28 with the Vendor cell and then the Supply Type
+   control (client: "no need to hold the vendor field just hide it", then
+   "Supply Type — remove this field").
+   NEITHER THE FIELDS NOR THE RULE ARE GONE — only this screen's controls.
+   `supply_type` and `vendor_id` are still carried and round-tripped (see
+   `ItemRow`), `copyMaterialBomFrom` still blanks a copied vendor the new
+   customer has not nominated, and the purchase order still renders the picker
+   under the full rule. A BOM line can no longer EXPRESS a nomination, which is
+   the accepted consequence: enforcement lives wholly at the PO. */
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CategoryPicker } from "@/components/masters/lookup-picker";
 import {
@@ -88,7 +96,6 @@ import {
   DEFAULT_SUPPLY_TYPE,
   MATERIAL_TYPE_OPTIONS,
   REQUIREMENT_BASIS_LABELS,
-  SUPPLY_TYPE_OPTIONS,
   type BomCopySource,
   type MaterialBomAmendment,
   type MbaItemSlice,
@@ -129,10 +136,11 @@ import {
   sliceKey,
 } from "@/lib/orders/material-bom/slice-consumption";
 import {
-  isUsableConversion,
+  describeConversion,
   toPurchaseQty,
   uomPrecision,
 } from "@/lib/uom/convert";
+import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -165,9 +173,27 @@ interface Props {
 type ItemRow = {
   key: string;
   category_id: string | null;
-  /** How settled this line's material is — To be advised / To be developed /
-   *  Available Item (`MATERIAL_TYPE_OPTIONS`). Descriptive: it has never
-   *  reached the requirement engine and still does not. */
+  /**
+   * How settled this line's material is — To be advised / To be developed /
+   * Available Item (`MATERIAL_TYPE_OPTIONS`).
+   *
+   * NO LONGER PURELY DESCRIPTIVE. It never reached the requirement engine and
+   * still does not, but since 2026-08-28 the two unsettled values BLOCK a
+   * purchase order being raised against the line — `isUnsettledMaterialType`,
+   * declared beside the list it partitions.
+   *
+   * TWO VALUES ON SCREEN, THREE IN THE REFUSAL SET, and the mismatch is
+   * deliberate. "To be developed" was retired from `MATERIAL_TYPE_OPTIONS` on
+   * 2026-08-28 and KEPT in `UNSETTLED_MATERIAL_TYPES`, because a row already
+   * stored as that is still unsettled and must still be refused. So this field
+   * can hold a value the picker no longer offers, and it loads and saves
+   * unchanged when it does.
+   *
+   * THE CONTROL WAS A TICK FOR PART OF THAT DAY — a switch that revealed a
+   * two-option select, so the third value stayed reachable. Retiring the value
+   * removed the reason for the reveal and it is a plain `<Select>` again. See
+   * the "TBA" column for the full sequence; it is not a thing to restore.
+   */
   type: string;
   item_id: string | null;
   /**
@@ -204,6 +230,47 @@ type ItemRow = {
   style_ref_no: string;
   /** The garment panel this material goes on (0423) — descriptive, see MbaItem. */
   component_id: string | null;
+  /**
+   * CARRIED, NOT SHOWN since 2026-08-28 (client) — with `vendor_id` below.
+   *
+   * "Over 90% of BOM lines are Local, and the vendor is decided at the PO stage
+   * anyway." Two cells at the widest end of the row were spending their width
+   * restating a default, and the answer they held was being made again — with
+   * better information — a step later.
+   *
+   * THE WITHDRAWAL PATTERN, NOT A DELETION, and on this screen that is not a
+   * style point: `writeChildren` DELETES AND REINSERTS every child row, so a
+   * field the form stops holding is a field the next save NULLS. Both stay in
+   * `ItemRow`, in `blankItem`, in both load paths and in the save payload, so a
+   * stored supply type and a stored vendor survive an ordinary edit-and-save of
+   * a line whose cells are gone — the same treatment `attribute_id`,
+   * `component_id`, `alternate_uom_id` and `required_by` already carry.
+   *
+   * ## BOTH CONTROLS ARE GONE, AND SUPPLY TYPE GOT THERE IN TWO STEPS
+   *
+   * Vendor went first: it is chosen on the purchase order, which is where
+   * `NominatedVendorPicker` still runs and where the customer's nomination list
+   * is enforced.
+   *
+   * SUPPLY TYPE WAS RELOCATED AND THEN REMOVED, both on 2026-08-28, and the
+   * reversal is worth recording because the intermediate position was
+   * defensible. It was first moved to a strip beneath the row rather than
+   * deleted, on the reading that a supply type is a CONSTRAINT rather than a
+   * label and the ~10% of lines that are Nominated or Import should be able to
+   * say so at BOM stage. The client then asked for it removed outright — the
+   * same answer they had given for Vendor — and the later instruction wins.
+   *
+   * ## SO A BOM LINE CAN NO LONGER EXPRESS A NOMINATION
+   *
+   * Stated plainly because it is the real consequence and it is accepted with
+   * eyes open: the nomination constraint AGENTS.md describes is now enforced
+   * WHOLLY AT THE PURCHASE ORDER, which is where the vendor is actually chosen
+   * and where the better information is. `copyMaterialBomFrom` still applies it
+   * server-side when a BOM is copied onto a different customer.
+   *
+   * `DEFAULT_SUPPLY_TYPE` IS NOW THE ONLY WRITER, which makes it load-bearing
+   * rather than a convenience — see `blankItem`.
+   */
   supply_type: string;
   vendor_id: string | null;
   purchase_uom_id: string | null;
@@ -237,6 +304,21 @@ type ItemRow = {
    * has no cleared state to represent.
    */
   send_out: boolean;
+  /**
+   * FREE OF COST RECEIPT — the customer supplies this trim and we are not
+   * buying it (client 2026-08-28). 0474.
+   *
+   * `is_foc`, NOT `foc`, and deliberately unlike `send_out` two lines up. The
+   * same fact is already spelled `is_foc` on `po_line_items` (0359), on the
+   * planning budgets (0369) and on pricing confirmation (0330), and a PO line
+   * raised from a BOM line copies it straight across. Local table style loses to
+   * cross-table concept naming here — one concept spelled two ways is exactly
+   * the drift `send_out`'s own header warns about.
+   *
+   * A BOOLEAN for the same reason `send_out` is: a tick has no cleared state to
+   * represent, so it needs none of the string-holding every numeric here does.
+   */
+  is_foc: boolean;
   moq: string;
   /* `alternate_uom_id` above is now CARRIED AND NEVER SHOWN (client
      2026-08-19). Its cell came off the grid a second time — withdrawn as "UI
@@ -349,10 +431,17 @@ const blankItem = (key: string): ItemRow => ({
   requirement_grain: null,
   style_ref_no: "",
   component_id: null,
-  /* OPENS ON "Local" (client 2026-08-21) — see `DEFAULT_SUPPLY_TYPE`. A blank
-     supply type offers zero vendors, so a fresh line used to carry a Vendor
-     picker that opened onto nothing. New lines only: both load paths below carry
-     whatever was stored, blank included. */
+  /* OPENS ON "Local" (client 2026-08-21) — see `DEFAULT_SUPPLY_TYPE`.
+     THIS DEFAULT IS NOW THE ONLY WRITER OF `supply_type` ON THIS SCREEN, and
+     that changed what it is for. It began as a convenience: a blank supply type
+     offers zero vendors, so a fresh line used to carry a Vendor picker that
+     opened onto nothing. With both controls removed on 2026-08-28 it is the only
+     thing standing between a new line and a permanently blank supply type —
+     which is the state AGENTS.md's nominated-vendor rule refuses ("blank supply
+     type -> NOTHING, with a line saying to pick the type first"), and one no
+     control on this screen could ever repair. **Do not drop this to `""`.**
+     New lines only: both load paths carry whatever was stored, blank included,
+     because filling one in on read would change what the next save writes. */
   supply_type: DEFAULT_SUPPLY_TYPE,
   vendor_id: null,
   purchase_uom_id: null,
@@ -364,6 +453,9 @@ const blankItem = (key: string): ItemRow => ({
   // on would put every material back on the Processes tab, which is the screen
   // this column exists to shorten.
   send_out: false,
+  // 0474. Off by default and for the plainer reason `send_out` gives: a BOM is a
+  // list of what we buy, and free-issue is the exception the customer declares.
+  is_foc: false,
   moq: "",
   round_to: "",
   no_of_items: "",
@@ -547,6 +639,43 @@ function DaysOut({ iso }: { iso: string }) {
 }
 
 /**
+ * THE ELEVEN COLUMN NAMES, DECLARED ONCE.
+ *
+ * `renderMobileRow` pairs a `FIELD_GROUPS` entry to its column BY HEADER
+ * (`itemColumns.find((c) => c.header === b.header)`), which is deliberate — the
+ * columns are re-ordered often and matching by index would silently shuffle the
+ * row. The cost is that the two lists hold the same eleven STRINGS, and a rename
+ * in one of them does not fail: the column simply stops matching, falls into the
+ * `orphans` bucket, and renders in a run of its OWN. So a one-word edit quietly
+ * turns the single row the user asked for back into two.
+ *
+ * That is not hypothetical maintenance worry — it is exactly the edit that was
+ * being made when this constant was added (client 2026-08-28, shortening the two
+ * Uom headers so their labels stop wrapping at 110% zoom). Both sites now read
+ * from here, so the rename happens in one place and the pairing cannot drift.
+ *
+ * ABBREVIATED, AND THE ABBREVIATION IS THE CLIENT'S. "Purchase Uom" and
+ * "Consumption Uom" are ~68px and ~88px at `DENSE`'s 10.5px, against an `sm`
+ * cell that is ~78px once a 1366 laptop at 110% zoom takes the pane below the
+ * content cap. "Pur. Uom" and "Cons. Uom" are ~44px and ~50px and fit with room.
+ * The header text is the client's to choose and it was put to them; do not
+ * lengthen these back to make a comment read better.
+ */
+const H = {
+  category: "Category",
+  tba: "TBA",
+  material: "Material",
+  attribute: "Attribute",
+  purchaseUom: "Pur. Uom",
+  consumptionUom: "Cons. Uom",
+  combination: "Combination",
+  moq: "MOQ",
+  roundTo: "Round To",
+  process: "Process",
+  foc: "FOC",
+} as const;
+
+/**
  * THE 22 FIELDS, IN THE CLIENT'S ORDER, CUT INTO THREE RUNS.
  *
  * NOT A REORDERING — a reading of the order that was already there. Every run is
@@ -720,81 +849,301 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    *   run 2  4+4+4+4         = 16   (the tail of the form, left-aligned)
    */
   /*
-   * ^ SUPERSEDED 2026-08-27: ONE RUN AGAIN, at the client's direct request —
-   * "here i want this all schema should be in the same line".
+   * ^ SUPERSEDED 2026-08-28. Still two runs, still summing to 32, and every span
+   * on the row is different — because the fields the row carries changed and
+   * because the widths above did not survive a browser at 110%.
    *
-   * THIS IS NOT THE ARRANGEMENT THAT FAILED. The 08-26 note above is right that
-   * "twelve fields never fitted", and it is describing a SPECIFIC attempt: the
-   * one that paid for a new `xs` cell by cutting Type and Supply Type to 2/32
-   * (~88px), where a clear ✕ eats ~30px and the value renders as `A…` / `L…`.
-   * The mistake there was spending the whole squeeze on two victims while nine
-   * fields stayed at 4.
+   * ## THE ROW LOST THREE FIELDS AND GAINED TWO
    *
-   * SPREAD IT INSTEAD AND THE SAME 32 GOES ROUND TWELVE. Everything that shows
-   * a VALUE takes `sm` (3/32, ~132px) and the four that show none take `xs`:
-   * Combination is an icon button, Process a toggle, MOQ and Round To hold two
-   * or three digits. 8x3 + 4x2 = 32, exactly, so nothing drops to a line of its
-   * own.
+   * `Type` became the `TBA` cell, and `Supply Type` and `Vendor` came off
+   * altogether (client 2026-08-28); `FOC` arrived beside `Process`. Eleven
+   * fields where there were twelve. The arithmetic below is re-derived rather
+   * than patched, because the run sums are the whole contract of this array —
+   * "change one size and its run must still make 32, or the last field on it
+   * drops to a second line" — and a table that is edited entry by entry is how
+   * the sums drifted to 28 and 36 once already (see the 08-20 note above).
    *
-   *   Category · Type · Material · Attribute · Purchase Uom ·
-   *   Consumption Uom · Supply Type · Vendor      8 x sm = 24
-   *   Combination · MOQ · Round To · Process      4 x xs =  8
+   * ## THE ZOOM FAULT, WHICH IS ARITHMETIC AND NOT A RENDERING BUG
    *
-   * IT ALSO FIXES THE THING THE CLIENT ACTUALLY POINTED AT ON 08-26. The
-   * complaint was a ragged top edge, and the note above diagnoses it exactly:
-   * `Purchase Uom` and `Consumption Uom` could not fit on one line at 98px, so
-   * two labels wrapped while ten did not and the label band stood at two
-   * heights. At 132px both fit on one line, so the top edge is straight for the
-   * reason it was crooked before — not by breaking the row, but by giving the
-   * labels the width they needed all along.
+   * Reported as "columns slide and the grid stops lining up between 100% and
+   * 110%". It is neither sliding nor a browser quirk, and it is worth writing
+   * down because the obvious suspects are both innocent:
    *
-   * WHAT IT COSTS, PLAINLY: Material drops from `lg` (~264px) to ~132px and
-   * Vendor from `md` (~176px). Those are the two fields the 08-21 note says the
-   * width went to because they hold a slashed spec and a company name, so they
-   * are the two that will now clip soonest — with the reveal bubble every
-   * truncated value in this app gets. That is the trade the client chose:
-   * twelve fields on one line cannot also be twelve wide fields, and the
-   * previous note said the same thing from the other side ("a choice between
-   * scrolling and clipping, not a bug either way").
+   *  - **The `min-w-[…]` on `itemColumns` is NOT the mechanism.** Those bind
+   *    `ChildGrid`'s TABLE layout, and this grid is `forceCards`. Verified in
+   *    `child-grid.tsx`: all four consumers of `c.className` are the `<th>`, the
+   *    `<td>`, the totals `<td>` and the `inlineCards` row; `renderMobileRow`
+   *    (line ~2560) passes the column nothing. The 08-26 note above already said
+   *    this and it is still true — the minimums are inert here.
+   *  - **The `@lg/section` cliff is NOT it either, at any ordinary size.**
+   *    `FIELD_TRACK_32` and every `FIELD_SPAN` are gated on the same 32rem
+   *    container query, so they switch together: below it the run stacks to one
+   *    column, which is a clean fallback, not a misalignment. The detail pane
+   *    here runs ~940px at 100% on a 1366 screen and would need roughly 180%
+   *    zoom to reach 512px.
    *
-   * Reverting is this array and nothing else — the renderer matches by HEADER,
-   * so the shape here is presentation and nothing depends on it.
+   * **IT IS THE GUTTER, WHICH DOES NOT SCALE.** `FIELD_TRACK_32` is
+   * `grid-cols-32 gap-x-3`: 31 gaps of a FIXED 12px, so 372px of every row is
+   * gutter whatever the pane is worth. A track is therefore `(W - 372) / 32`,
+   * and the 372 is subtracted BEFORE the division — so a container that narrows
+   * by 9% narrows every field by about 13%, and the effect accelerates. At 100%
+   * (W ~= 940) a track is 17.8px; at 110% (W ~= 826) it is 14.2px.
+   *
+   * Run that against the spans the table above used and the reported symptom is
+   * exactly what falls out:
+   *
+   *      span   100%     110%     125%
+   *      2      47px     40px     35px      <- Combination
+   *      4      107px    93px     83px      <- eight of the twelve fields
+   *      6      166px    145px    130px
+   *
+   * A 40px cell cannot hold a control, and a 93px cell cannot hold the label
+   * "Consumption Uom" (~88px at `DENSE`'s 10.5px) — so at 110% those labels wrap
+   * to a second line while their neighbours do not, the label band goes to two
+   * heights, and the row reads as crooked. **That is the identical fault the
+   * 08-26 note diagnosed at 98px and answered by splitting the row**; zoom
+   * simply reaches it from the other direction, and the split was sized for one
+   * zoom level rather than for the mechanism.
+   *
+   * ## SO THE FIX IS A FLOOR, NOT A REARRANGEMENT
+   *
+   * Nothing below 3 spans, and no VALUE field below 6:
+   *
+   *      span   100%     110%     125%
+   *      3      66px     59px     53px      <- the two ticks: a switch, no value
+   *      4      107px    93px     83px      <- MOQ, Round To: 3-4 digits
+   *      6      166px    145px    130px     <- every field that shows a value
+   *      8      226px    197px    177px     <- run 1
+   *
+   * The `xs` (2-span) cell is gone entirely, which was the worst offender, and
+   * the narrowest label-bearing cell is now 130px at 125% zoom — comfortably
+   * past the ~88px where "Consumption Uom" wraps. Nothing on this row wraps its
+   * label at any zoom a shop-floor machine is set to.
+   *
+   * ONE WIDTH PER RUN, which is the evenness the client asked for on 08-20 and
+   * again on 08-26. Run 1 is four fields at `xl`; run 2 is three `lg`, two `md`
+   * and two `sm`, stepping DOWN by what the cell holds — a value, then a short
+   * number, then a switch — rather than by where it happens to sit.
+   *
+   * ^ SUPERSEDED THE SAME DAY, BY THE USER: "why did you make two rows, make it
+   * a single row — the core point of removing the field is making a single row
+   * without conflicts."
+   *
+   * They are right and it is the whole point of the change. Taking three columns
+   * off the row to free width and then spending that width on a SECOND RUN
+   * delivers the cost of the removal without its benefit. The two-run split
+   * above was internally sound — every sum correct, every floor met — and was
+   * solving the wrong problem.
+   *
+   * ## THE WIDTH CAME FROM A FLAG THIS SCREEN HAD NEVER SET
+   *
+   * `MasterFullScreen` caps its content pane at 1440px, and at **1720px** when
+   * the active section declares `wide` — a prop written on 2026-08-17 for "a
+   * section whose whole content is one wide `ChildGrid`, a line grid with ten or
+   * more columns", which is this section exactly. It was never declared here.
+   * So eleven cells were being fitted into 1440px while 1720px sat unclaimed,
+   * and the second run is what that missing 280px bought. The flag is now on the
+   * section; see the note there for why it does not repeal the cap's reasoning.
+   *
+   * ## MEASURED, NOT ASSUMED — AND RE-MEASURED AFTER THE GUTTER CHANGED
+   *
+   * At the 1720 cap the pane loses `px-4` (32px) and then the 268px master list
+   * plus its 20px gutter, so the `FieldGrid` gets ~1390px. `FIELD_TRACK_32` is
+   * `gap-x-2` since 2026-08-28, so 31 gaps spend 248px and a track is
+   * `(W - 248) / 32`; a span of n is `n*track + (n-1)*8`:
+   *
+   *                  1720 cap (W~1390)   1366 @110% (W~912)
+   *      xs(2)             79px                50px
+   *      sm(3)            123px                78px
+   *      md(4)            167px               107px
+   *
+   * THE LABELS ARE WHAT BREAK FIRST, not the values, and they are why the
+   * numbers above are checked against a second column. At `DENSE`'s 10.5px a
+   * character is ~5.9px (the file's own figure: "Consumption Uom", 15 chars,
+   * ~88px). Against that, every label on this row fits its cell at the cap, and
+   * at 1366@110% all of them fit except one — see the trade below.
+   *
+   * TWO CHANGES LANDED TOGETHER AND ONLY BOTH ARE SUFFICIENT. `gap-x-2` returned
+   * 124px per row and was never enough on its own: it moves `sm` from 75px to
+   * 78px, against a "Consumption Uom" needing ~88px. What closed those two cells
+   * was SHORTENING THEM — `Pur. Uom` (~47px) and `Cons. Uom` (~53px), the
+   * client's own abbreviations (2026-08-28). A reader tempted to revert either
+   * change should note that reverting one re-breaks the row.
+   *
+   * ## THE TRADE, STATED RATHER THAN HIDDEN
+   *
+   * The 1720 cap only binds on a wide monitor. On a 1366 laptop the pane is
+   * viewport-bound at any zoom — 1440 was not a cap there either, and 1720 is
+   * less of one — so `wide` buys room on a large screen and nothing at all on a
+   * zoomed laptop, where this arithmetic still governs. At 110% there, ONE label
+   * still does not fit: **"Combination" is ~65px in a 50px cell and wraps**, and
+   * "Round To" clears by ~3px. Eleven cells in 912px is ~83px each however the
+   * spans are arranged, and the row is saturated at 32 — there is no slack cell
+   * to move a span from, because every `md` here holds a picked NAME.
+   *
+   * THAT IS COSMETIC, AND `items-end` IS WHY. `FIELD_TRACK_32` bottom-aligns
+   * every cell box and the control is each box's last child, so a wrapped label
+   * lifts its own header text and leaves every CONTROL on one baseline
+   * (`field.tsx`: "it fixes the wrap rather than forbidding it, which is why no
+   * label here has to be abbreviated to keep the row straight"). One raised
+   * header out of eleven is not the 08-26 defect, which was eight of twelve.
+   * Shortening "Combination" would close it and is the same client-wording call
+   * the Uom headers were — ask, do not take it. The other two levers are the
+   * 268px master list (a client decision from 08-20) and splitting the row,
+   * which is the thing the user explicitly rejected: do not split it back to two
+   * runs to fix a zoom complaint without asking them again.
+   *
+   * ## WHAT THE SIZES MEAN HERE
+   *
+   * Four `md` for the cells that show a picked or chosen VALUE — Category,
+   * Material, Attribute and TBA, the last of which reads "Available Item" on
+   * almost every line and so needs the room its two-word value asks for. Two
+   * `sm` for the unit
+   * pickers, whose values are three-letter codes and whose LABELS are the
+   * constraint. Five `xs` for the cells with nothing long to show: an icon
+   * button, two 3-4 digit numerics and two switches.
+   *
+   * `xl` IS GONE, and deliberately — `FIELD_SPAN` documents it as "NOT a field
+   * width … do not reach for this to make a FIELD wider", and although the
+   * prohibition is written for the house 12-track (where 8 spans blows past
+   * LAYOUT.md §3's ~280px cap) and was satisfied on this 32-track, borrowing a
+   * constant across two tracks against its own doc-comment is a thing the next
+   * reader has to re-derive. The single row needs none of it.
+   *
+   * ## THE ORDER, WHICH IS THE CLIENT'S AND HAS BEEN RE-CUT THREE TIMES TODAY
+   *
+   *   Category · Material · Attribute · Pur. Uom · Cons. Uom · MOQ ·
+   *   Round To · TBA · Combination · Process · FOC
+   *
+   * THE MIDDLE OF THE ROW IS DICTATED (client 2026-08-28), and it was dictated
+   * TWICE within the hour. First as a chain — "cons.uom - moq - round to -
+   * combination - tba this order" — and then amended: **"TBA next to the Round
+   * To, remaining all the same."** So TBA and Combination are the reverse of
+   * that first sentence and everything else is it. A rearrangement of these
+   * five cells is a change to a client instruction, not a tidy-up, and the
+   * amendment is the half most likely to be "corrected" back to the chain,
+   * because the chain is the sentence a reader finds quoted first.
+   *
+   * The first four are the identity of the line and have never moved. The last
+   * two were NOT named in either sentence: `Process` and `FOC` are the row's
+   * two bare toggles, they were already trailing, and taking the instruction
+   * literally puts them after it. That reading was given to the client rather
+   * than assumed silently — but it IS a reading, so if the two ticks are ever
+   * reported as being in the wrong place, this paragraph is the thing to
+   * re-ask, not the five cells above it.
+   *
+   * ## TBA HAS HELD FOUR POSITIONS IN ONE DAY, AND ALL FOUR WERE ASKED FOR
+   *
+   * Recorded in sequence because each reversed the one before it, and any of
+   * them could look like the "correct" one to a reader holding only that half:
+   *
+   *  1. **Second**, inherited from the `Type` dropdown it replaced, which is
+   *     where legacy puts it (screenshot 2362). An early version of this note
+   *     said "TBA sits exactly where Type sat"; a reader who finds that quoted
+   *     elsewhere is holding something three decisions out of date.
+   *  2. **Last** (user 2026-08-28: "that TBA button — move it to the last field
+   *     in that same row").
+   *  3. **Ninth, after Combination** — the end of the chain quoted above, the
+   *     same day.
+   *  4. **Eighth, immediately after Round To** — this ("TBA next to the Round
+   *     To, remaining all the same"), the same day again, which moved it one
+   *     cell left and left every other cell where the chain had put it.
+   *
+   * `FOC` has been reversed the same way and for the same reason: it arrived
+   * with 0474 beside `Process`, the two of them the last cells on the row; the
+   * TBA move at step 2 pushed them up one; steps 3 and 4 both put them back at
+   * the end, and step 4 left them alone. **Do not "restore" either field to an
+   * earlier position as a correction** — every one of these positions was
+   * correct on the instruction it came from, and the latest instruction is the
+   * one that ships.
+   *
+   * TAB ORDER IS THIS ORDER. An operator now fills the line's identity, then
+   * its units, then its purchase numbers, answers "is this material settled?"
+   * while still among them, opens the Combination grid, and leaves on the two
+   * ticks. TBA sitting mid-row costs nothing it did not cost at position 2 —
+   * it is a plain `<Select>` with no reveal, so nothing after it is displaced
+   * by touching it, which is what made the end-of-row position worth having
+   * while it was still a tick and what makes giving that position up cheap now.
+   *
+   * THIS ARRAY IS THE AUTHORITY FOR BOTH. `renderMobileRow` walks `FIELD_GROUPS`
+   * and looks each column up by header, so what is rendered — and therefore the
+   * DOM order Tab reads — is this sequence, not `itemColumns`'. The two are kept
+   * in the same order anyway so the file reads honestly; if they ever disagree,
+   * this one is what ships.
+   *
+   * THE ROW ENDS ON AN ICON BUTTON AND THEN ITS TWO TICKS — Combination, then
+   * Process and FOC, all three `xs` (~50px). TBA is a `<Select>` at `md`
+   * (~107px) and now sits clear of them, which resolves a worry the previous
+   * arrangement had to carry: for one afternoon TBA was a THIRD TICK, and when
+   * it later stood between the two switches the `md` was the only thing telling
+   * an operator the middle control of the three was not another switch. The
+   * amendment separates them, so the width no longer has that job. It is still
+   * earned — the select displays a value where the other three display none —
+   * which is why it did not shrink when the reason for it narrowed.
+   *
+   * NOTHING WAS RESIZED TO MAKE THE 08-28 REORDER FIT, deliberately. Every cell
+   * kept the span it had and only the positions changed, so the measurements
+   * above and the one wrapped label below are exactly as they were — a reorder
+   * that also re-sized would have made the two changes impossible to tell apart
+   * the next time this row is reported as crooked.
+   *
+   *   one run  4+4+4+3+3+2+2+2+4+2+2 = 32
    */
   [
-    { header: "Category", size: "sm", weight: "key" },
-    { header: "Type", size: "sm", weight: "quiet" },
-    { header: "Material", size: "sm", weight: "key" },
-    { header: "Attribute", size: "sm", weight: "key" },
-    { header: "Purchase Uom", size: "sm", weight: "auto" },
-    { header: "Consumption Uom", size: "sm", weight: "auto" },
-    // An icon button, not a value — the only field with nothing to clip.
-    { header: "Combination", size: "xs", weight: "quiet" },
-    { header: "Supply Type", size: "sm", weight: "plain" },
-    { header: "Vendor", size: "sm", weight: "plain" },
-    // Two or three digits apiece, so `xs` costs them nothing.
-    { header: "MOQ", size: "xs", weight: "plain" },
-    { header: "Round To", size: "xs", weight: "plain" },
-    /* PROCESS STAYS LAST, and the space after it is answered in the CELL rather
-       than by moving the field (client 2026-08-27: "after process there is some
-       space use that also for the alignment of the schema", then "process was at
-       last before right").
-       Its position is a decision, not an accident — the note above states it:
-       Process sits last so the identity run reads unbroken and the row ends on
-       the question the Processes tab asks. Reordering it away was the wrong
-       currency for a spacing complaint.
-       WHAT THE SPACE ACTUALLY IS: the run sums to 32 either way, so the row
-       always filled the track. The gap was SLACK INSIDE THIS CELL — a toggle
-       draws ~44px in an 88px `xs` cell, and being the last field, that slack sat
-       at the row's right edge and read as a ragged end. The toggle is now
-       right-aligned (`align: "end"` below), so the control lands ON the edge and
-       the slack falls to its left as ordinary spacing.
-       IT CANNOT BE RECLAIMED AS WIDTH on this track: `xs` (2) is the smallest
-       span there is, so a toggle cannot be given less and the freed column
-       handed to Material. The lever for that would be a wider track, and the
-       note at the run renderer records `FIELD_TRACK_40` being dropped for
-       exactly this row after the client reported the cramping it bought
-       (screenshot 2396). */
-    { header: "Process", size: "xs", weight: "plain", align: "end" },
+    { header: H.category, size: "md", weight: "key" },
+    { header: H.material, size: "md", weight: "key" },
+    /* A GRAIN READS "Style Ref No / Order Color / Order Size" — the longest
+       value on the row after Material, and a native `<Select>` with no reveal
+       bubble to rescue it, so it does not go below `md`. */
+    { header: H.attribute, size: "md", weight: "key" },
+    /* THE LABELS ARE THE CONSTRAINT HERE, not the values: "NOS" and "PCS" would
+       fit an `xs`. These are `sm` (~78px at 1366@110%) because the HEADERS have
+       to sit on one line — and they only do because the client shortened them on
+       2026-08-28: "Purchase Uom" and "Consumption Uom" were ~68px and ~88px, and
+       the second wrapped at every width this row reaches on a laptop.
+       `H.purchaseUom` / `H.consumptionUom` are "Pur. Uom" (~47px) and "Cons.
+       Uom" (~53px) now. **Lengthening either header back reopens the wrap**,
+       which is why the old figures are kept here as the reason rather than
+       deleted as history. */
+    { header: H.purchaseUom, size: "sm", weight: "auto" },
+    { header: H.consumptionUom, size: "sm", weight: "auto" },
+    /* THE TWO NUMERIC BOXES, and they now follow the units directly (client
+       2026-08-28: "cons.uom - moq - round to - combination - tba this order").
+       Both 08-28 instructions agree on this pair and on where it sits — the
+       amendment that followed ("TBA next to the Round To, remaining all the
+       same") moved only the cell AFTER them. 3-4 digits in an `xs` cell,
+       right-aligned; the labels ("MOQ" ~18px, "Round To" ~47px) are the
+       smallest on the row and clear their 50px at 1366@110% with room. Nothing
+       about them changed except where they sit. */
+    { header: H.moq, size: "xs", weight: "plain" },
+    { header: H.roundTo, size: "xs", weight: "plain" },
+    /* A TWO-OPTION `<Select>` SHOWING "Available Item" on almost every line, so
+       it is sized for a value rather than for a switch — ~107px at 1366@110%,
+       against a ~78px `sm` that would clip it. Holding it at 4 is also what
+       keeps this run at exactly 32.
+
+       IT IS HERE BECAUSE THE CLIENT PUT IT HERE, "next to the Round To"
+       (2026-08-28), amending their own chain of minutes earlier which had it
+       one place further along. This is the ONE wide cell in the run of five
+       narrow ones that closes the line — see the cell's own doc for why that
+       is deliberate and why it is the first thing an evening-up instinct
+       reaches for. */
+    { header: H.tba, size: "md", weight: "quiet" },
+    /* AN ICON BUTTON, NOT A VALUE — the only field on the row with nothing to
+       clip, which is what lets it take the smallest span without losing
+       anything. The 08-24 instruction that matched it to the Consumption Uom
+       cell was about the two sitting at a common `xs` track; both are now sized
+       by what they hold, which is the same argument one step further on. That
+       reasoning outlived the adjacency: MOQ, Round To and TBA came up BETWEEN
+       the two on 2026-08-28, so the cells are no longer neighbours and the
+       shared `xs` is still right, because it was never a matching exercise. */
+    { header: H.combination, size: "xs", weight: "quiet" },
+    /* THE TWO SWITCHES, AND THEY CLOSE THE LINE. A `Toggle` draws a ~36px
+       switch and shows no value, so 76px is the control with room to spare and
+       the widest label ("Process", ~42px) sits on one line. Do not reach for
+       `xs` for anything that holds a typed or picked value. */
+    { header: H.process, size: "xs", weight: "plain" },
+    { header: H.foc, size: "xs", weight: "plain" },
   ],
 ];
 
@@ -1017,6 +1366,33 @@ export function MbaMasterScreen({
    * The prefix is applied to the NAME rather than shown as a sublabel because
    * `CategoryPicker` already spends the sublabel on `short_spec`, and the
    * selected value has to read unambiguously in the closed trigger too.
+   *
+   * ## IT IS A SUFFIX NOW — `STRING (SEW)`, NOT `SEW · STRING` (client 2026-08-28)
+   *
+   * The same drop that removed the `class_code ·` prefix from the Material list
+   * one cell to the right. THE COLLISION GATE ABOVE IS UNCHANGED and must stay:
+   * the client's words are "no longer show the Item Class Name IN FRONT OF the
+   * category" (2026-08-17) and "eliminates complex dot-notation formatting in
+   * dropdowns" (2026-08-28), and neither says the qualifier itself may go. It
+   * may not — STRING really is a category under both SEW and PACK today, so
+   * stripping it outright puts two identical rows in this list and the operator
+   * picks by coin toss. Behind the name is not in front of it; only the position
+   * moved.
+   *
+   * ## AND THE POSITION IS NOT COSMETIC, BECAUSE IT DECIDES THE SORT
+   *
+   * `RecordPicker` sorts by the DISPLAYED label (`a.label.localeCompare(b.label)`)
+   * and `pickerIdentityParts` puts `name` into `label`. A LEADING code therefore
+   * sorted the whole list by CLASS and alphabetised only within each block — so
+   * an operator hunting a name alphabetically had to know its class first, which
+   * is precisely what a cell offering both classes cannot assume. Moving the
+   * qualifier behind the name puts the sort back on the name. If another option
+   * label in this file is ever reshaped, check whether it feeds a sort first.
+   *
+   * ONE SHAPE ACROSS THE ROW: `NAME (CODE)` here, `BUTTON (SEW)` on Material, and
+   * the `(uncategorised)` suffix `materialsForCategory` already wrote. The
+   * operator learns one rule — the name is the row, anything bracketed after it
+   * is the list explaining why the row is there.
    */
   const accessoryCategories = useMemo(() => {
     const classCode = new Map(
@@ -1037,7 +1413,7 @@ export function MbaMasterScreen({
       const key = (c.name ?? "").trim().toUpperCase();
       if (!key || (classesByName.get(key)?.size ?? 0) < 2) return c;
       const code = c.item_class_id ? classCode.get(c.item_class_id) : null;
-      return code ? { ...c, name: `${code} · ${c.name}` } : c;
+      return code ? { ...c, name: `${c.name} (${code})` } : c;
     });
   }, [data.categories, data.lookups]);
 
@@ -1214,12 +1590,11 @@ export function MbaMasterScreen({
   const customerId = selectedOrder?.customer_id ?? null;
   const customerName = selectedOrder?.customer_name ?? null;
 
-  const vendorRule = {
-    customerId,
-    customerName,
-    vendors: data.vendors,
-    nominations: data.nominations,
-  };
+  /* `vendorRule` STOOD HERE — the `{customerId, customerName, vendors,
+     nominations}` bundle `NominatedVendorPicker` and the Supply Type Select were
+     handed. Both controls came off on 2026-08-28 and it has no reader left.
+     `data.vendors` / `data.nominations` still arrive on the props because the
+     service is not this screen's to change. See the import note at the top. */
 
   const orderItems = useMemo(
     () =>
@@ -2463,6 +2838,10 @@ export function MbaMasterScreen({
         uom_conversion_id: c.uom_conversion_id,
         combination: c.combination ?? "",
         send_out: c.send_out ?? false,
+        /* `?? false` for the same reason as `send_out`: a service that has not yet
+           selected the column must read as "not free of cost", never crash the
+           editor open. 0474. */
+        is_foc: c.is_foc ?? false,
         moq: c.moq != null ? String(c.moq) : "",
         round_to: c.round_to != null ? String(c.round_to) : "",
         no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -2533,9 +2912,16 @@ export function MbaMasterScreen({
     setProcs(next.procs.length ? next.procs : [blankProc(newKey())]);
     setDirty(true);
     setPendingCopy(null);
+    /* THE SENTENCE NAMES THE PURCHASE ORDER, NOT A CELL (2026-08-28). It used to
+       read "vendors were left blank", which was accurate and, once the Vendor
+       cell came off the item row, pointed at nothing the operator could see —
+       sending them hunting for a field that is not there is worse than saying
+       nothing. The FACT is unchanged and still worth saying: the copy action
+       drops a vendor the new customer has not nominated, so the choice really
+       does have to be made again, at the step that now makes it. */
     success(
       next.vendorsDropped
-        ? "Material list copied — vendors were left blank, they are nominated per customer"
+        ? "Material list copied — vendors were not carried over; they are nominated per customer and are chosen on the purchase order"
         : "Material list copied",
     );
   }
@@ -2581,6 +2967,14 @@ export function MbaMasterScreen({
           uom_conversion_id: c.uom_conversion_id ?? null,
           combination: c.combination ?? "",
           send_out: c.send_out ?? false,
+          /* TRAVELS WITH THE RECIPE, unlike the vendor beside it: whether a trim is
+             free-issue is a term of THIS order's arrangement with its customer,
+             and the copy source's customer may be a different one — but the copy
+             action already re-scopes vendors and not this, and an operator
+             copying a BOM is copying the shape of the buy. Untick it where it
+             does not apply; a wrongly-blank FOC is the safer half only if the
+             source is untrusted, and a chosen copy source is not. */
+          is_foc: c.is_foc ?? false,
           moq: c.moq != null ? String(c.moq) : "",
           round_to: c.round_to != null ? String(c.round_to) : "",
           no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -2651,6 +3045,7 @@ export function MbaMasterScreen({
         uom_conversion_id: c.uom_conversion_id,
         combination: c.combination || null,
         send_out: c.send_out,
+        is_foc: c.is_foc,
         moq: numOrNull(c.moq),
         round_to: numOrNull(c.round_to),
         no_of_items: numOrNull(c.no_of_items),
@@ -3033,6 +3428,31 @@ export function MbaMasterScreen({
    * could not answer there is no chain to draw, and printing a sentence in one
    * box beside three dashes reads as three zeroes the engine computed.
    */
+  /*
+   * `lineSettings` STOOD HERE, AND IT LASTED ONE AFTERNOON.
+
+   * Supply Type came off the grid run on 2026-08-28 and was rendered in a strip
+   * of its own beneath the row, on the reading that "hidden from the grid" is
+   * not "removed from the screen" — a supply type is a CONSTRAINT rather than a
+   * label, so the ~10% of lines that are Nominated or Import should still be
+   * able to say so while the BOM is written.
+   *
+   * THE CLIENT DISAGREED, THE SAME DAY: "Supply Type — remove this field." The
+   * later instruction wins, and it is the same answer they had already given for
+   * Vendor. Both are now decided where the vendor is actually chosen.
+   *
+   * This is written down rather than tidied away because the argument above is a
+   * good one and will be made again by the next reader who notices that a BOM
+   * line can no longer express a nomination. It can not, deliberately, and the
+   * consequence is accepted: THE NOMINATION CONSTRAINT IS ENFORCED WHOLLY AT THE
+   * PURCHASE ORDER now. Restoring a control here needs a new client decision.
+   *
+   * `nominatedVendorOptions` and `vendorRule` went with it — the strip's Select
+   * was their last reader on this screen. What did NOT go is
+   * `DEFAULT_SUPPLY_TYPE` in `blankItem`; see the note there, because with no
+   * control left it is the only writer and is now load-bearing.
+   */
+
   const qtyRibbon = (r: ItemRow, t: LineTotal | undefined) => {
     if (!orderProd || !t) return null;
     if (t.refusal) {
@@ -3093,8 +3513,10 @@ export function MbaMasterScreen({
     );
   };
 
-  const packById = (id: string | null) =>
-    id ? (data.conversions.find((c) => c.id === id) ?? null) : null;
+  /* `packById` LIVED HERE and was `packOf`'s only reader; `resolveLinePack`
+     does the id lookup itself now, because resolving by id and resolving by
+     units are two halves of one question and splitting them across two files is
+     how the two readers of that question drift. */
   /** `decimal_places_allowed` (0309), not `decimal_places` (0224) — the latter is
    *  0 on every row in the live DB and would round 16.67 Gross to 17, the
    *  round-up the client rejected. `uomPrecision` clamps it either way. */
@@ -3115,14 +3537,30 @@ export function MbaMasterScreen({
    * error — so the purchase figure declines while the requirement stands.
    */
   const packOf = (r: ItemRow) => {
-    const pack = packById(r.uom_conversion_id);
-    const usable =
-      !!pack &&
-      isUsableConversion(pack) &&
-      (!r.consumption_uom_id || pack.base_uom_id === r.consumption_uom_id);
+    /* RESOLVED FROM THE LINE'S OWN UNITS WHERE IT NAMES NO PACK — see
+       `resolveLinePack`, which the server action calls too.
+
+       This was `packById(r.uom_conversion_id)` and nothing else, which was
+       correct until the client had the Purchase Pack cell removed on
+       2026-08-21: after that no line could ever name one, so `usable` was false
+       on every line an operator could make, and the Final Quantity fell back to
+       the consumption figure on all of them (client 2026-08-27). The material,
+       the Purchase Uom and the Consumption Uom already say which pack it is. */
+    const { pack, usable, choices } = resolveLinePack(
+      {
+        item_id: r.item_id,
+        purchase_uom_id: r.purchase_uom_id,
+        consumption_uom_id: r.consumption_uom_id,
+        uom_conversion_id: r.uom_conversion_id,
+      },
+      data.conversions,
+    );
     return {
       pack,
       usable,
+      /* THE TIE, WHERE THE UNITS NAME TWO PACKS. Empty on every ordinary line;
+         the Purchase Uom cell turns it into a chooser when it is not. */
+      choices,
       /* `decimal_places_allowed` of the ALTERNATIVE unit — a purchase quantity
          is rounded and printed by the pack's precision, never the consumption
          unit's. `toPurchaseQty` takes the two separately for this reason. */
@@ -3564,7 +4002,7 @@ export function MbaMasterScreen({
   // ---- the item grid ---------------------------------------------------------
   const itemColumns: ChildGridColumn<ItemRow>[] = [
     {
-      header: "Category",
+      header: H.category,
       className: "min-w-[150px]",
       /* REQUIRED (client 2026-08-24). Declared on the COLUMN for the header `*`
          and the cell's `RequiredScope`, and again on the control below — the
@@ -3626,56 +4064,7 @@ export function MbaMasterScreen({
       ),
     },
     {
-      header: "Type",
-      className: "min-w-[110px]",
-      /**
-       * HOW SETTLED THIS MATERIAL IS — "To be advised", "To be developed",
-       * "Available Item" (client 2026-08-17: "in the item section, add Type
-       * options for …").
-       *
-       * RESTORED THE SAME DAY IT WAS WITHDRAWN, and that is deliberate rather
-       * than churn. c756d82 took the cell out that morning to get the row from
-       * 22 columns to 19, judging the list it then held — Production / Sample /
-       * Trial — provisional; it was right about the list and the client's own
-       * drop names its replacement. The withdrawal is what made this cheap: the
-       * DB column, the stored values and `mbaItemInput.type` were all kept, so
-       * this is a grid column and nothing else, and no migration
-       * (`material_bom_amendment_items.type` is plain `text`, no CHECK, 0265,
-       * unaltered since).
-       *
-       * NOT `required` — a BOM line saves without it, which is the point of "to
-       * be advised". And not uppercased: a fixed option list is outside the
-       * CAPITALS rule, which governs typed free text.
-       *
-       * IT ARRIVES FILLED IN. A new line opens on "Available Item"
-       * (`DEFAULT_MATERIAL_TYPE`, client 2026-08-21) because that is what almost
-       * every trim is; the other two are the exceptions and the operator picks
-       * them. The blank option stays on the list — a default the operator cannot
-       * clear is a constraint wearing a default's clothes, and this column has
-       * never been one.
-       *
-       * SECOND ON THE LINE, between Category and Material — where legacy puts it
-       * (screenshot 2362). It sat between Component and Supply Type from its
-       * restoration until 2026-08-19, when the whole row was re-ordered onto
-       * legacy's.
-       */
-      cell: (r) => (
-        <Select
-          value={r.type}
-          onChange={(e) => updItem(r.key, { type: e.target.value })}
-          className="h-8"
-        >
-          <option value=""></option>
-          {MATERIAL_TYPE_OPTIONS.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-    {
-      header: "Material",
+      header: H.material,
       className: "min-w-[160px]",
       required: true,
       cell: (r) => (
@@ -3690,7 +4079,7 @@ export function MbaMasterScreen({
       ),
     },
     {
-      header: "Attribute",
+      header: H.attribute,
       /* Wider than the 130px it was: a grain reads "Style Ref No / Order Color /
          Order Size", which is the client's own wording for #19 and is the point
          of the column. */
@@ -3761,9 +4150,16 @@ export function MbaMasterScreen({
          * exactly that — "i can't find that 22 attribute in material bom".
          *
          * So every one of the 22 is listed, in their words and under their
-         * S.No, and the fourteen that cannot be served are DISABLED with the
-         * reason on the row. An operator hunting #19 now finds it and learns
-         * why, instead of concluding it was missed.
+         * S.No. Every row is SELECTABLE ("enable all", 2026-08-26) and the ones
+         * the engine cannot build refuse at explosion time with the reason
+         * printed in the Requirement section — an operator hunting #19 finds it
+         * and learns why, instead of concluding it was missed.
+         *
+         * FIVE STILL REFUSE, and only five: the pack rows (#18-#22), for want of
+         * a column. It was nine until 2026-08-27, when the client's #26 decision
+         * put #3, #4, #15 and #17 onto `COARSENED` in `compose.ts`. The count
+         * lives in `client-matrix.ts` and is asserted there, so this sentence is
+         * the only place it can go stale — it has done so twice.
          *
          * OUR NAME RIDES ALONG WHERE IT DIFFERS — "1. Order No (Whole order)".
          * The read-only Attribute cell and the Combination sheet header both
@@ -3900,70 +4296,141 @@ export function MbaMasterScreen({
         );
       },
     },
+    /*
+     * SUPPLY TYPE AND VENDOR ARE OFF THE ITEM ROW (client 2026-08-28: over 90%
+     * of lines are Local, and the vendor is decided at the purchase order).
+     *
+     * THE TWO WIDEST CELLS ON THE ROW went to the two answers that were already
+     * being made again, better, one step later. `supply_type` opened on "Local"
+     * (client 2026-08-21) and stayed there; `vendor_id` was blank on almost
+     * every line, because a BOM is written before a supplier is chosen.
+     *
+     * BOTH ARE GONE FROM THE SCREEN, and Supply Type took two steps to get
+     * there — relocated to a strip below the row, then removed outright at the
+     * client's instruction, both on 2026-08-28. The full story and the accepted
+     * consequence (a BOM line can no longer express a nomination; enforcement
+     * moves to the PO) are on `supply_type` in `ItemRow`.
+     *
+     * BOTH FIELDS ARE CARRIED REGARDLESS. `writeChildren` deletes and reinserts
+     * every child row, so a value the form stops CARRYING is a value the next
+     * save destroys — both are in `ItemRow`, `blankItem`, both load paths and the
+     * save payload. Restoring the Vendor cell is this block again plus one entry
+     * in `FIELD_GROUPS`; the round trip is what keeps it that cheap, which is the
+     * same reason `type`, `alternate_uom_id` and `combination` each survived
+     * being taken off and put back.
+     */
     {
-      header: "Supply Type",
-      className: "min-w-[120px]",
-      cell: (r) => (
-        <Select
-          value={r.supply_type}
-          // Changing the type drops a vendor the new type no longer allows.
-          // Leaving it would show a value the reopened picker no longer offers —
-          // the row would look valid and save a vendor the rule forbids. Asked of
-          // the SAME function that builds the picker's options.
-          onChange={(e) => {
-            const supply_type = e.target.value;
-            const { items: allowed } = nominatedVendorOptions({
-              ...vendorRule,
-              supplyType: supply_type,
-            });
-            const keepVendor = !r.vendor_id || allowed.some((v) => v.id === r.vendor_id);
-            updItem(r.key, keepVendor ? { supply_type } : { supply_type, vendor_id: null });
-          }}
-          className="h-8"
-        >
-          <option value=""></option>
-          {SUPPLY_TYPE_OPTIONS.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-    {
-      header: "Vendor",
-      className: "min-w-[150px]",
-      // Narrowed per ROW, not per grid: two lines of one BOM can carry different
-      // supply types.
-      cell: (r) => (
-        <NominatedVendorPicker
-          {...vendorRule}
-          supplyType={r.supply_type}
-          value={r.vendor_id}
-          onChange={(id) => updItem(r.key, { vendor_id: id })}
-          compact
-        />
-      ),
-    },
-    {
-      header: "Purchase Uom",
+      header: H.purchaseUom,
       className: "min-w-[130px]",
       // NARROWED TO THE MATERIAL'S OWN UNITS (client 2026-08-19) — see
       // `uomOptionsFor` for why the master list was wrong here and what the
       // empty case says instead of falling back to it.
-      cell: (r) => (
-        <RecordPicker
-          label="Purchase Uom"
-          items={uomOptionsFor(r.item_id, r.purchase_uom_id)}
-          value={r.purchase_uom_id}
-          onChange={(id) => updItem(r.key, { purchase_uom_id: id })}
-          placeholder={uomEmptyWhy(r.item_id)}
-          compact
-        />
-      ),
+      cell: (r) => {
+        /* THE PACK CHOOSER IS AN EXCEPTION CELL, NOT THE RETURN OF THE REMOVED
+           FIELD. `resolveLinePack` derives the pack from this Uom and the
+           Consumption Uom beside it, so on an ordinary line `choices` is empty
+           and nothing renders. It fills only where the material really is bought
+           in two pack sizes OF THIS UNIT — the live data has a sewing thread at
+           1 CONE = 2500 MTR and 1 CONE = 5000 MTR — and there the line's units
+           genuinely do not say which. Guessing there is a purchase quantity
+           wrong by a factor of two, on the figure a PO is capped against.
+
+           IT LIVES INSIDE THIS CELL rather than as a column of its own: the
+           header runs on a 32-column track whose every run must sum to 32
+           exactly (see FIELD_GROUPS), so a 22nd column is a layout change, and
+           this one has nothing to show on almost every line. */
+        const { choices } = packOf(r);
+        return (
+          <>
+            <RecordPicker
+              /* THE FULL WORDS SURVIVE HERE, and the divergence from the `H.purchaseUom`
+                 header above it is deliberate. This prop is the picker's ACCESSIBLE NAME
+                 and its dialog title — it is never drawn in the grid, so abbreviating it
+                 would cost a screen-reader user the word and buy no width at all. The
+                 header is abbreviated because it is the thing that has to fit. */
+              label="Purchase Uom"
+              items={uomOptionsFor(r.item_id, r.purchase_uom_id)}
+              value={r.purchase_uom_id}
+              /**
+               * CHOOSING A PURCHASE UNIT FILLS THE CONSUMPTION UNIT, ONCE
+               * (client 2026-08-28: 60-80% of items buy and consume in the same
+               * unit).
+               *
+               * THREE GUARDS, AND EACH ONE IS THE DIFFERENCE BETWEEN A SHORTCUT
+               * AND A BUG:
+               *
+               *  1. **ONLY WHILE CONSUMPTION IS BLANK.** A prefill that
+               *     overwrites is not a prefill, it is the screen disagreeing
+               *     with the operator — and it would do so on the ordinary edit
+               *     path, where someone opens a saved line to correct the
+               *     PURCHASE unit and silently loses the consumption one. This
+               *     is the same call `alternate_uom_id`'s removal note makes
+               *     about deriving versus destroying.
+               *  2. **ONLY A UNIT THIS MATERIAL DECLARES.** `uomOptionsFor`
+               *     always keeps the CURRENT value in its list even when the
+               *     master no longer allows it, so a line whose stored purchase
+               *     unit has since fallen out of scope would otherwise copy that
+               *     stale unit across into a second cell. Asked with `null` as
+               *     the current value, which is what makes the question "would
+               *     the Consumption cell offer this?" rather than "is it on the
+               *     Purchase list?".
+               *  3. **CLEARING PURCHASE CLEARS NOTHING.** `id` is null on a
+               *     clear, so the branch simply does not run; the consumption
+               *     unit the operator chose is theirs to remove.
+               *
+               * NOT A DEFAULT ON `blankItem`: there is nothing to copy until a
+               * material and a purchase unit are both named, and a value written
+               * before the operator has answered is the "constraint wearing a
+               * default's clothes" this file already warns about.
+               */
+              onChange={(id) => {
+                const patch: Partial<ItemRow> = { purchase_uom_id: id };
+                if (
+                  id &&
+                  !r.consumption_uom_id &&
+                  uomOptionsFor(r.item_id, null).some((u) => u.id === id)
+                ) {
+                  patch.consumption_uom_id = id;
+                }
+                updItem(r.key, patch);
+              }}
+              placeholder={uomEmptyWhy(r.item_id)}
+              compact
+            />
+            {choices.length > 0 && (
+              <>
+                <Select
+                  className="mt-1 h-8"
+                  aria-label="Which pack this line buys"
+                  value={r.uom_conversion_id ?? ""}
+                  onChange={(e) =>
+                    updItem(r.key, { uom_conversion_id: e.target.value || null })
+                  }
+                >
+                  <option value=""></option>
+                  {choices.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {describeConversion(c, uomName)}
+                    </option>
+                  ))}
+                </Select>
+                {/* SAID, NOT LEFT TO BE INFERRED. An unexplained second box under
+                    a Uom reads as a field somebody forgot to label; the line is
+                    what tells the operator the purchase figure is waiting on it.
+                    Amber and advisory — the requirement itself still computes,
+                    and the consumption figure it shows is not wrong, only not
+                    the purchase one. */}
+                <p className="mt-0.5 text-[10px] leading-tight text-amber-600 dark:text-amber-500">
+                  Two pack sizes — pick one for the purchase quantity.
+                </p>
+              </>
+            )}
+          </>
+        );
+      },
     },
     {
-      header: "Consumption Uom",
+      header: H.consumptionUom,
       className: "min-w-[130px]",
       cell: (r) => (
         <RecordPicker
@@ -3977,7 +4444,167 @@ export function MbaMasterScreen({
       ),
     },
     {
-      header: "Combination",
+      header: H.moq,
+      align: "right",
+      className: "min-w-[6rem]",
+      cell: (r) => (
+        <Input
+          type="number"
+          min="0"
+          step="0.001"
+          value={r.moq}
+          onChange={(e) => updItem(r.key, { moq: e.target.value })}
+          className="h-8 text-right"
+        />
+      ),
+    },
+    /* THE COMPONENT CELL WAS HERE AND CAME OUT (client 2026-08-20, "remove
+       from only material bom is enough" — the Style Components tab keeps its
+       own, which is where a panel list belongs).
+
+       It was DESCRIPTIVE from the day it landed (0423): it never split the
+       requirement, because one collar interlining is needed per garment
+       whichever panel it is cut for. `requirement_basis` never read it and the
+       requirement table has no component column — 0423 asserts that — so
+       removing the cell changes no number anywhere in this module. That is the
+       whole reason this is a one-line removal rather than a migration.
+
+       CARRIED, NOT DROPPED: `component_id` stays in `ItemRow`, `mbaItemInput`
+       and `normalizeItems`, and `0423`'s column stays on the table. This screen
+       DELETES AND REINSERTS every child row on save, so a field the form stops
+       holding is a field the next save NULLS — the same trap `alternate_uom_id`
+       and `required_by` are written up for above. Stored panels survive, and a
+       restore is this block again. */
+    {
+      header: H.roundTo,
+      align: "right",
+      className: "min-w-[6rem]",
+      /**
+       * THE OPERATOR'S ROUNDING STEP (0437), not the answer itself.
+       *
+       * Client: "sometimes that excess field will show 567 kind of number value,
+       * that time user will use round to field for round the value." So the box
+       * takes 50, or 144 for a gross, or 12 for a dozen — and Final Quantity
+       * becomes the next multiple UP. A step rather than an override, because an
+       * override is a hand-typed number entering the figure a purchase order is
+       * written from with nothing checking it still covers the requirement.
+       *
+       * BLANK IS THE ORDINARY STATE and passes the figure through untouched. Not
+       * `required`, and never defaulted to 1 — the same call `per_pieces` makes
+       * one column along.
+       */
+      cell: (r) => (
+        <Input
+          type="number"
+          min="0"
+          step="0.001"
+          value={r.round_to}
+          onChange={(e) => updItem(r.key, { round_to: e.target.value })}
+          className="h-8 text-right"
+        />
+      ),
+    },
+    {
+      /**
+       * HOW SETTLED THIS MATERIAL IS — the `type` column, and its THIRD shape in
+       * one day. The sequence is written out because it settled deliberately
+       * rather than drifted, and each step reversed the one before it:
+       *
+       *  1. A three-value `<Select>` — To be advised / To be developed /
+       *     Available Item (client 2026-08-17), defaulted to "Available Item" on
+       *     2026-08-21 "because that is what almost every trim is".
+       *  2. **A tick that REVEALED a two-option select** (client 2026-08-28).
+       *     The case against the dropdown was that a control showing the same
+       *     answer on 99 lines in 100 spends a field's width saying nothing, on
+       *     the row this refinement exists to unclutter; the reveal existed only
+       *     so the third value stayed reachable behind the tick.
+       *  3. **A plain two-option `<Select>` — this** (client 2026-08-28, the same
+       *     day). "To be developed" was REMOVED AS A VALUE, and with two values
+       *     left the tick and the select said the same thing. The user was shown
+       *     all three readings and chose the select.
+       *
+       * So this is step 1's shape with a shorter list, not something new — and
+       * the tick is not a thing to restore, because the reason it existed (a
+       * third value needing somewhere to live) no longer holds.
+       *
+       * ## RENDER `MATERIAL_TYPE_OPTIONS`. NEVER `UNSETTLED_MATERIAL_TYPES`.
+       *
+       * They are two lists with two jobs and they DELIBERATELY DISAGREE:
+       * `MATERIAL_TYPE_OPTIONS` is the pick list and holds two values;
+       * `UNSETTLED_MATERIAL_TYPES` is the PO gate's REFUSAL SET and still holds
+       * "To be developed", because a row already stored as that is still
+       * unsettled and must still be refused — dropping it would make
+       * `refuseUnsettledMaterials` fail open on exactly the legacy rows it was
+       * written for.
+       *
+       * **Nothing in the build catches the confusion.** Both are
+       * `readonly string[]`, so mapping the refusal set here compiles, runs, and
+       * quietly puts a retired option back on screen — which is what the
+       * previous revision of this cell did, one line from here. Ask
+       * `isUnsettledMaterialType()` whether a line is blocked from purchase;
+       * render this list to choose a value.
+       *
+       * ## THE BLANK OPTION STAYS
+       *
+       * A default the operator cannot clear is a constraint wearing a default's
+       * clothes, and this column has never been one. `type` is not `required` —
+       * a BOM line saves without it, which is the point of "to be advised" — and
+       * `DEFAULT_MATERIAL_TYPE` ("Available Item") means a NEW line still opens
+       * filled in. Nothing rewrites a STORED value: a line saved blank, or saved
+       * as "To be developed" before that value was retired, loads exactly as
+       * stored, because filling one in on read would change what the next save
+       * writes.
+       *
+       * ## EIGHTH ON THE LINE, IMMEDIATELY AFTER Round To — AND THAT IS ITS
+       * ## FOURTH POSITION IN ONE DAY
+       *
+       * Client 2026-08-28: **"TBA next to the Round To, remaining all the
+       * same."** That amended a chain given minutes earlier the same day
+       * ("cons.uom - moq - round to - combination - tba this order"), which had
+       * put this cell one place further along, AFTER Combination. Before that
+       * it was LAST, for a few hours ("that TBA button — move it to the last
+       * field in that same row"); before that it was SECOND, having inherited
+       * the position of the `Type` dropdown it replaced, which is where legacy
+       * puts it (screenshot 2362).
+       *
+       * Four positions, four instructions, one afternoon. **Do not move it back
+       * to any of them as a correction** — not to legacy's order, not to the end
+       * of the row on the strength of the quote above, and NOT to the end of
+       * that chain: all three are real quotes from today and all three were
+       * superseded by the one at the top of this note. The chain is the
+       * dangerous one, because it is a complete-looking sentence naming five
+       * cells and it reads as authoritative on its own. `FIELD_GROUPS` carries
+       * the same sequence and the same warning.
+       *
+       * It keeps `md` while sitting between two `xs` numerics and an `xs` icon
+       * button: it shows a VALUE ("Available Item") where none of them shows
+       * one, so it needs the width — and holding it at 4 is also what keeps the
+       * run at exactly 32. NEITHER 08-28 REORDER RESIZED ANYTHING, and this is
+       * the cell an "even up the narrow run" instinct reaches for first, now
+       * that it is the one wide cell in a stretch of five narrow ones.
+       *
+       * NOT UPPERCASED: a fixed option list is outside the CAPITALS rule, which
+       * governs typed free text. `type` stays `nullableText` in the input.
+       */
+      header: H.tba,
+      className: "min-w-[150px]",
+      cell: (r) => (
+        <Select
+          value={r.type}
+          onChange={(e) => updItem(r.key, { type: e.target.value })}
+          className="h-8"
+        >
+          <option value=""></option>
+          {MATERIAL_TYPE_OPTIONS.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      header: H.combination,
       /* THE SAME WIDTH AS CONSUMPTION UOM (client 2026-08-24: "combination field
          ... size also same as consumption field size"), which is the width both
          Uom cells carry.
@@ -3990,7 +4617,17 @@ export function MbaMasterScreen({
          the run stops settling evenly — the defect the de-clutter rule says is
          the one that actually ships. Matching the neighbour is also what makes
          the button land under the same left edge as the boxes above and below
-         it. */
+         it.
+
+         THE 08-24 INSTRUCTION NAMED A CELL, NOT A NEIGHBOUR, and that is what
+         lets it survive the client's 2026-08-28 reorder — given as a chain
+         ("cons.uom - moq - round to - combination - tba this order") and
+         amended within the hour ("TBA next to the Round To, remaining all the
+         same"), which between them put MOQ, Round To and TBA BETWEEN this cell
+         and Consumption Uom. The two are three cells apart now and the width
+         still matches, because "same size as the consumption field" is a
+         statement about how big the box is, not about what it sits next to.
+         Nothing here was resized by either instruction. */
       className: "min-w-[130px]",
       /**
        * ONE CONTROL, AND THE FREE-TEXT BOX IS THE ONE THAT WENT
@@ -4085,67 +4722,6 @@ export function MbaMasterScreen({
       },
     },
     {
-      header: "MOQ",
-      align: "right",
-      className: "min-w-[6rem]",
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.moq}
-          onChange={(e) => updItem(r.key, { moq: e.target.value })}
-          className="h-8 text-right"
-        />
-      ),
-    },
-    /* THE COMPONENT CELL WAS HERE AND CAME OUT (client 2026-08-20, "remove
-       from only material bom is enough" — the Style Components tab keeps its
-       own, which is where a panel list belongs).
-
-       It was DESCRIPTIVE from the day it landed (0423): it never split the
-       requirement, because one collar interlining is needed per garment
-       whichever panel it is cut for. `requirement_basis` never read it and the
-       requirement table has no component column — 0423 asserts that — so
-       removing the cell changes no number anywhere in this module. That is the
-       whole reason this is a one-line removal rather than a migration.
-
-       CARRIED, NOT DROPPED: `component_id` stays in `ItemRow`, `mbaItemInput`
-       and `normalizeItems`, and `0423`'s column stays on the table. This screen
-       DELETES AND REINSERTS every child row on save, so a field the form stops
-       holding is a field the next save NULLS — the same trap `alternate_uom_id`
-       and `required_by` are written up for above. Stored panels survive, and a
-       restore is this block again. */
-    {
-      header: "Round To",
-      align: "right",
-      className: "min-w-[6rem]",
-      /**
-       * THE OPERATOR'S ROUNDING STEP (0437), not the answer itself.
-       *
-       * Client: "sometimes that excess field will show 567 kind of number value,
-       * that time user will use round to field for round the value." So the box
-       * takes 50, or 144 for a gross, or 12 for a dozen — and Final Quantity
-       * becomes the next multiple UP. A step rather than an override, because an
-       * override is a hand-typed number entering the figure a purchase order is
-       * written from with nothing checking it still covers the requirement.
-       *
-       * BLANK IS THE ORDINARY STATE and passes the figure through untouched. Not
-       * `required`, and never defaulted to 1 — the same call `per_pieces` makes
-       * one column along.
-       */
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.001"
-          value={r.round_to}
-          onChange={(e) => updItem(r.key, { round_to: e.target.value })}
-          className="h-8 text-right"
-        />
-      ),
-    },
-    {
       /**
        * "SEND OUT" — THIS MATERIAL GOES OUT FOR A PROCESS (client 2026-08-25:
        * "while adding material they give any tick box that selected item will
@@ -4215,7 +4791,7 @@ export function MbaMasterScreen({
        * check that matters is that a reader can always tell which is meant from
        * the surface they are looking at.
        */
-      header: "Process",
+      header: H.process,
       align: "center",
       className: "min-w-[5rem]",
       cell: (r) => (
@@ -4223,6 +4799,57 @@ export function MbaMasterScreen({
           ariaLabel="Needs a process — send this material out for dyeing, washing or printing"
           checked={r.send_out}
           onChange={(send_out) => updItem(r.key, { send_out })}
+        />
+      ),
+    },
+    {
+      /**
+       * FREE OF COST RECEIPT — the customer supplies this trim (client
+       * 2026-08-28). 0474.
+       *
+       * THE SAME IDIOM AS "Process" ABOVE, on purpose and not by copy-paste
+       * habit: both are a yes/no about the line that changes what happens to it
+       * downstream, both are the exception rather than the rule, and both are
+       * read by scanning a column rather than by reading a word. A `Toggle`
+       * carries its state in its shape, so a BOM with one free-issue line in
+       * twenty shows that line at a glance.
+       *
+       * WHAT IT CHANGES IS DOWNSTREAM, NOT HERE. The requirement arithmetic on
+       * this screen is untouched — the quantity needed is the same whoever pays
+       * for it — and it is `lib/purchase` that reads the flag, to let a goods
+       * receipt be raised against the line with NO purchase order behind it.
+       * That half is T1's; this cell is the declaration.
+       *
+       * IT SITS BESIDE Process, because the two ticks are the same kind of
+       * question and read better together than a switch buried between two
+       * numeric boxes. THE PAIR HAS SURVIVED THREE MOVES IN A DAY WITHOUT EVER
+       * COMING APART, which is the property worth protecting here: they were
+       * the last two cells on the row when FOC landed (0474); TBA moving to the
+       * end on 2026-08-28 pushed them up one; the client's reorder later the
+       * same day ("cons.uom - moq - round to - combination - tba this order")
+       * put them back at the end; and the amendment minutes after that ("TBA
+       * next to the Round To, remaining all the same") left them exactly where
+       * that chain had. Neither 08-28 instruction NAMED these two cells at all —
+       * both describe the run of fields before them — so the ticks close the
+       * line by following it.
+       *
+       * FOC IS LAST AGAIN, and that is a return rather than a restoration: a
+       * reader who finds an intervening note saying "FOC is no longer last" is
+       * holding the middle of the story. The renderer matches by HEADER, so the
+       * position here is presentation and nothing else depends on it.
+       *
+       * `aria-label` for the reason `Toggle.ariaLabel` documents: the column
+       * header does not reach the control in the cards layout, so omitting it
+       * would ship an unnamed checkbox.
+       */
+      header: H.foc,
+      align: "center",
+      className: "min-w-[5rem]",
+      cell: (r) => (
+        <Toggle
+          ariaLabel="Free of cost receipt — the customer supplies this material, so it is received without a purchase order"
+          checked={r.is_foc}
+          onChange={(is_foc) => updItem(r.key, { is_foc })}
         />
       ),
     },
@@ -4238,11 +4865,24 @@ export function MbaMasterScreen({
      * `uom_conversion_id`, so the packs already chosen on live BOMs survive an
      * ordinary edit-and-save of the line.
      *
-     * AND IT IS STILL READ. `packById` feeds `packUsable` in the line totals, so
+     * AND IT IS STILL READ. `packOf` feeds `packUsable` in the line totals, so
      * a stored pack keeps converting the requirement into a purchase figure —
      * this removed the way to CHANGE one, not the effect of having one.
-     * `packsFor` and the `describeConversion` import went with the cell; they had
-     * no other reader.
+     * `packsFor` went with the cell; it had no other reader.
+     *
+     * WHAT THAT SENTENCE MISSED, AND WHAT 2026-08-27 PUT BACK. "A stored pack
+     * keeps converting" was true and was the whole of it: no line created after
+     * the cell went could STORE one, so `packUsable` was false on every new
+     * line and the Final Quantity was the consumption figure on all of them —
+     * which is what the client reported ("need to show the purchase qty as
+     * final ... its showing the consumption qty only"). Removing the field
+     * removed the answer, and nothing was derived in its place.
+     *
+     * `resolveLinePack` derives it now, from the material and the two Uoms the
+     * line already names, and `describeConversion` came back with the tie
+     * chooser that lives inside the Purchase Uom cell. The column is still gone
+     * and is not coming back: what stands there is a control that appears only
+     * where the units name two packs and the app must not guess.
      */
   ];
 
@@ -4643,6 +5283,29 @@ export function MbaMasterScreen({
       label: "Material BOM",
       icon: ClipboardList,
       /*
+       * THE 1440px CAP COMES OFF THIS SECTION (client 2026-08-28, via the single
+       * -row instruction below).
+       *
+       * `wide` was written on 2026-08-17 for exactly this shape — "a section
+       * whose whole content is one wide `ChildGrid`, a line grid with ten or
+       * more columns" — and this screen never declared it. So the item row has
+       * been dividing 1440px when 1720px was there for the asking, and the
+       * two-run split shipped earlier today was, in part, that missing 280px.
+       *
+       * IT MOVES BOTH CAPS, and that is checked rather than assumed:
+       * `master-full-screen.tsx` reads `active?.wide` at the content pane AND at
+       * the footer, because a section that widens its pane and leaves the footer
+       * at 1440 puts Save a couple of inches left of the last column it saves.
+       *
+       * IT DOES NOT REPEAL THE CAP'S REASONING. 1440 stops a FIELD stretching to
+       * an absurd width on a wide monitor; this section's fields are shares of a
+       * 32-column track that stays crowded at any width the cap allows, so there
+       * is no field here the extra 280px could stretch — it buys columns instead.
+       * The other two sections keep the ordinary cap, which is the point of the
+       * flag being per-section rather than per-editor.
+       */
+      wide: true,
+      /*
        * THE HEADER AND THE ITEMS ARE ONE SECTION (client 2026-08-17, "merge the
        * Material and Item sections into a single area" / "the item listing
        * should be a single, clear screen rather than fragmented").
@@ -4928,7 +5591,11 @@ export function MbaMasterScreen({
                right one — the line's identity, and the one value worth changing
                without opening the row. */
             renderFoldedRow={(row, i) => {
-              const material = itemColumns.find((c) => c.header === "Material")!;
+              /* `H.material`, NOT the literal. This `find` carries a `!`, so a header
+                 renamed in one place and not the other stops being a silently
+                 orphaned column and becomes a crash on opening the section. That is
+                 the whole reason the names are declared once. */
+              const material = itemColumns.find((c) => c.header === H.material)!;
               const summary = [
                 // The colour leads: on a trim it is what two lines of the same
                 // material differ by.

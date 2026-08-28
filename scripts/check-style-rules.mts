@@ -20,6 +20,7 @@ import {
   componentRowStarted,
   componentTypeForCategory,
   coordinateLimit,
+  coordinateCap,
   filledCoordinates,
   unitKindFromCoordinates,
   orphanComponents,
@@ -71,6 +72,46 @@ check("set limit", coordinateLimit("set"), { min: 2, max: 6 });
 // rule must stay silent on those rather than declaring history invalid.
 check("no unit kind = no rule", coordinateLimit(null), null);
 check("unknown unit kind = no rule", coordinateLimit("bundle"), null);
+
+/* -------------------------------------------------------------------------
+ * THE CAP THE ORDER SCREEN GROWS A LINE TO (client 2026-08-27: "if Order Unit
+ * is PCS, just the single coordinate — hide the add coordinate option; if they
+ * choose SET they can add multiple").
+ *
+ * `coordinateCap` is `coordinateLimit` with the unanswered case decided. The
+ * fallback is the half that matters: an unanswered unit is DERIVED from the
+ * coordinate count, so capping by it closes a loop the order screen hit once
+ * on 2026-08-25 — one coordinate derives "piece", piece allows one, and no
+ * line can ever hold a second.
+ * ------------------------------------------------------------------------- */
+console.log("\n\u00a7 coordinateCap — the Order Unit gates the coordinate grid");
+
+check("PCS caps at one coordinate", coordinateCap("piece"), { min: 1, max: 1 });
+check("SET allows up to six", coordinateCap("set"), { min: 2, max: 6 });
+
+/* THE FALLBACK, STATED AS ITS OWN VECTOR because it is the one that stops the
+   loop. Not "some range" — the CEILING, so a line can still grow to a Set
+   before anyone has said which it is. */
+check("unanswered falls back to the ceiling", coordinateCap(null), { min: 1, max: 6 });
+check("...and so does a value that is not a kind", coordinateCap("bundle"), { min: 1, max: 6 });
+
+/* THE LOOP, ASSERTED DIRECTLY. With one coordinate entered and no unit typed,
+   the derived kind is "piece" — and if the cap read THAT, a second coordinate
+   could never be added. The cap must stay above the count. */
+check(
+  "one coordinate and no unit: a second is still allowed",
+  coordinateCap(null).max > 1,
+  true,
+);
+check(
+  "...even though the derived kind alone would say piece",
+  unitKindFromCoordinates(1),
+  "piece",
+);
+
+/* A LINE ALREADY OVER ITS CAP still reports the cap, and the caller is what
+   leaves the extra rows alone — see the function's note. */
+check("PCS still reports 1 even when three are entered", coordinateCap("piece").max, 1);
 
 check("piece with one coordinate is fine", sections({ unit_kind: "piece", coordinates: [coord(TOP)] }), []);
 check(
