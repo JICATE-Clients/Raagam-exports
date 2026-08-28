@@ -1,20 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-
-/**
- * `useLayoutEffect` on the client, `useEffect` on the server.
- *
- * This component IS server-rendered — it returns null until `mounted`, but its
- * hooks still run during SSR, and React warns that useLayoutEffect does nothing
- * there. The layout timing is what stops the joined panel painting centred for
- * one frame and then jumping to the rail, so it is worth keeping on the client
- * rather than downgrading both.
- *
- * Assigned ONCE at module scope, so the hook called at that position never
- * changes identity between renders.
- */
-const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { RequiredScope } from "@/components/ui/field";
@@ -163,7 +149,6 @@ export function Sheet({
   size = "lg",
   fullBleed = false,
   origin,
-  joinRail = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -301,38 +286,55 @@ export function Sheet({
    * run would be dead arithmetic on the keystroke path.
    */
   origin?: SheetOrigin | null;
-  /**
-   * JOIN THE PANEL TO THE SECTION RAIL IT WAS OPENED FROM (client 2026-08-28).
+  /*
+   * A RAIL JOIN WAS BUILT HERE AND WITHDRAWN ON 2026-08-28. Read this before
+   * building a fourth one.
    *
    * The client's reference is a navigation rail whose ACTIVE item and content
-   * panel are one continuous shape. Asked for between the Process dialog and
-   * the tab it opens from, it was first built on the rail itself (`09384bb`,
-   * reverted `5b2eec3`) — a misread: the tab they meant is the SECTION tab, and
-   * the thing to join to it is this panel.
+   * panel are drawn as ONE continuous shape — a shared edge is proof of
+   * parentage, where a title can only assert it. Asked for between this dialog
+   * and the tab it opens from, it was attempted three times in one day:
    *
-   * ## WHY IT NEEDS NO CHANGE TO `MasterFullScreen`
+   *  1. ON THE SECTION RAIL (`09384bb`) — the active rail item joined the
+   *     content pane. The wrong target: the client meant this dialog, not the
+   *     pane. Reverted (`5b2eec3`), along with the pane's `bg-surface`, which
+   *     existed only to give that join something to be visible against.
+   *  2. ANCHORED TO THE TRIGGER CELL — the panel hung off a ~180px grid cell,
+   *     which shoved a ~1150px box to the viewport edge and put Done under the
+   *     floating bug-reporter button. Rejected on sight.
+   *  3. JOINED TO THE ACTIVE SECTION TAB (`1012920`) — the panel took the pane's
+   *     box, the scrim's `left` started at the pane so the rail stayed lit, and a
+   *     tab bridged the two. It worked, and it lit the ENTIRE rail rather than
+   *     the one joined tab.
    *
-   * The panel is portaled to `<body>`, so it paints ABOVE the rail. The join is
-   * drawn entirely from this side: a tab on the panel's left edge, at the active
-   * rail item's y, extending left far enough to cover that item's right border.
-   * The rail keeps its ordinary bordered pill and is not edited — which matters,
-   * because the client reverted the last change made to it and asked for the
-   * background left alone.
+   * WHAT (3) WOULD HAVE COST TO FINISH, measured rather than guessed:
    *
-   * ## THE SCRIM STOPS AT THE RAIL
+   *  - `box-shadow: 0 0 0 100vmax` cannot punch the hole on its own. The scrim
+   *    carries `onClick={onClose}` and a box-shadow region is NEVER hit-testable
+   *    — hit testing uses the border box. It needs four rect divs around the
+   *    hole, each dimmed and each carrying the close handler.
+   *  - Raising the tab's z-index instead is not general. `MasterFullScreen`'s
+   *    DEFAULT `mount="overlay"` root is `fixed inset-0 z-[80]`, a stacking
+   *    context — nothing inside can paint above this scrim. It would work only
+   *    for `mount="page"` and silently do nothing everywhere else.
+   *  - The rail was left CLICKABLE, and `joinBox` never re-measured on a section
+   *    change, so switching section behind the open dialog left the tab pointing
+   *    at a stale position.
    *
-   * A join to a DIMMED tab is not a join, so the scrim starts at the pane's left
-   * edge and the rail column stays lit. That is the whole reason this could not
-   * be done while the scrim was `inset-0`.
+   * THE CLIENT'S DECISION: leave it centred, no further integration with the
+   * side section. That is why this is a comment and not a prop.
    *
-   * ## IT DEGRADES TO TODAY, EVERY TIME IT CANNOT MEASURE
+   * `09384bb` holds the geometry if it is ever revisited — the 13px overhang
+   * (the rail's own `p-3` plus `border-r`), the 23px compensating padding that
+   * keeps labels from re-truncating, and the 8px radial-gradient fillets,
+   * including why the cut must be `var(--surface-muted)` and never
+   * `transparent`, which fringes dark on antialiased pixels.
    *
-   * No opener, no `[data-focus-scope]` pane, no `[aria-selected]` rail item, a
-   * collapsed rail, or a viewport below `md` — any of them and `joinBox` stays
-   * null and the panel is the centred box it has always been. There is no half
-   * state: the position, the scrim inset and the tab share one condition.
+   * AND THE LESSON THAT OUTLIVES ALL THREE: the geometry was never what failed.
+   * Attempt 1 was arithmetically exact and read as nothing, because the two
+   * halves it joined were a 2% fill step apart. A join is only a join when both
+   * halves share a fill and the ground differs.
    */
-  joinRail?: boolean;
 }) {
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
@@ -477,67 +479,6 @@ export function Sheet({
   // provider already treats it as the navigation boundary. What stays below is
   // overlay-specific: the focus trap, Escape, and autofocus on open.
 
-  /**
-   * THE PANE AND THE ACTIVE RAIL ITEM, IN VIEWPORT SPACE — or null, meaning
-   * "centre this panel as it always was". See the `joinRail` prop.
-   *
-   * RESOLVED FROM THE OPENER, NOT FROM A GLOBAL QUERY. `openerRef` is the
-   * control that opened the sheet, so `.closest("[data-focus-scope]")` finds
-   * THAT editor's pane even with more than one on the page — a bare
-   * `document.querySelector` would pick the first and silently join the wrong
-   * one. The rail item is then scoped to the same shell rather than the
-   * document, for the same reason.
-   *
-   * MEASURED IN A LAYOUT EFFECT, so the boxes are read before the browser
-   * paints and the panel never appears centred for a frame and then jumps.
-   *
-   * BODY SCROLL IS LOCKED WHILE OPEN (`lockBodyScroll`), so these boxes cannot
-   * drift underneath the panel — the only thing that moves them is a resize,
-   * which is listened for. That lock is why this needs no scroll handling.
-   */
-  const [joinBox, setJoinBox] = useState<{
-    left: number; top: number; width: number; height: number;
-    tabTop: number; tabHeight: number; tabGap: number;
-  } | null>(null);
-
-  useIsoLayoutEffect(() => {
-    if (!open || !joinRail) {
-      setJoinBox(null);
-      return;
-    }
-    const measure = () => {
-      const opener = openerRef.current;
-      const pane = opener?.closest<HTMLElement>("[data-focus-scope]") ?? null;
-      const shell = pane?.parentElement ?? null;
-      const tab = shell?.querySelector<HTMLElement>('[data-section-key][aria-selected="true"]') ?? null;
-      // The rail is `md:`-only; below that it is a horizontal chip strip with no
-      // pane beside it, and a collapsed rail has no tab at all. Both land here.
-      if (!pane || !tab) {
-        setJoinBox(null);
-        return;
-      }
-      const p = pane.getBoundingClientRect();
-      const t = tab.getBoundingClientRect();
-      // A rail item sitting outside the pane's vertical span has nothing to join
-      // to; refuse rather than draw a tab hanging off the panel into space.
-      if (t.bottom < p.top || t.top > p.bottom) {
-        setJoinBox(null);
-        return;
-      }
-      setJoinBox({
-        left: p.left, top: p.top, width: p.width, height: p.height,
-        tabTop: t.top, tabHeight: t.height,
-        // The pill's right edge to the pane's left edge — the nav's own padding
-        // and border. +2 so the tab covers the pill's border rather than butting
-        // against it, which is what makes the two read as one surface.
-        tabGap: Math.max(0, p.left - t.right) + 2,
-      });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [open, joinRail]);
-
   if (!mounted) return null;
 
   /**
@@ -569,7 +510,6 @@ export function Sheet({
    * `window` is safe below the `mounted` guard above — this whole component
    * renders null until it has mounted on the client.
    */
-
   const reducedMotion =
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -608,11 +548,7 @@ export function Sheet({
       {/* scrim */}
       <div
         onClick={onClose}
-        // `left` is what leaves the rail lit. A join to a dimmed tab is not a
-        // join, so the scrim starts where the content pane starts and the rail
-        // column keeps its own colours. Everything else about it is unchanged,
-        // including the click-to-close — the rail is visible, not reachable.
-        style={{ zIndex: zIndexBase, left: joinBox ? joinBox.left : undefined }}
+        style={{ zIndex: zIndexBase }}
         className={cn(
           "fixed inset-0 bg-black/50 transition-opacity duration-200",
           open ? "opacity-100" : "pointer-events-none opacity-0",
@@ -625,48 +561,9 @@ export function Sheet({
              behind them ("md"). A contained box on the scrim; scrolls
              internally when long. */
           <div
-            className={cn(
-              "pointer-events-none fixed flex",
-              // Joined, the wrapper IS the pane's box, so the panel's top is the
-              // pane's top and the tab's offset is plain subtraction — no second
-              // measurement of the panel, which would read a box mid-transition.
-              joinBox ? "" : "inset-0 items-center justify-center p-4",
-            )}
-            style={
-              joinBox
-                ? { zIndex: zIndexBase + 1, left: joinBox.left, top: joinBox.top, width: joinBox.width, height: joinBox.height }
-                : { zIndex: zIndexBase + 1 }
-            }
+            className="pointer-events-none fixed inset-0 flex items-center justify-center p-4"
+            style={{ zIndex: zIndexBase + 1 }}
           >
-            {/* THE JOIN, and it is a SIBLING of the panel rather than a child.
-                The panel is `overflow-hidden` on purpose — it clips its own
-                rounded corners and enforces the single internal scroll — so a
-                tab inside it would be cut off at the very edge it needs to cross.
-                It sits in the wrapper, which is the pane's box, so its offset is
-                plain subtraction from measured numbers.
-
-                `bg-surface` matches BOTH the panel and the rail's active pill.
-                That is the half the first attempt at this shape got wrong: the
-                geometry was exact and read as nothing, because the two fills it
-                joined were a 2% step apart. It also covers the pill's right
-                border (the +2 in `tabGap`), since a border drawn across a
-                continuous surface is what makes it read as two things touching.
-
-                `aria-hidden` and `pointer-events-none`: it is a drawing, it takes
-                no focus, and it must not eat a click meant for the scrim. */}
-            {joinBox && (
-              <span
-                aria-hidden
-                className="pointer-events-none absolute bg-surface"
-                style={{
-                  left: -joinBox.tabGap,
-                  width: joinBox.tabGap,
-                  top: joinBox.tabTop - joinBox.top,
-                  height: joinBox.tabHeight,
-                  zIndex: 1,
-                }}
-              />
-            )}
             <div
               ref={containerRef}
               role="dialog"
@@ -677,13 +574,8 @@ export function Sheet({
                  the `origin` prop. */
               style={{ transformOrigin }}
               className={cn(
-                "flex flex-col overflow-hidden border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
-                joinBox
-                  // Fills the pane exactly, and loses its left rounding and left
-                  // border: a surface continuous with the rail item cannot have
-                  // a rule drawn down the side it is continuous with.
-                  ? "h-full w-full rounded-l-none rounded-r-xl border-l-0"
-                  : cn("max-h-[88vh] w-full rounded-xl", size === "md" ? "max-w-6xl" : "max-w-md"),
+                "flex max-h-[88vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
+                size === "md" ? "max-w-6xl" : "max-w-md",
                 open ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
               )}
             >
