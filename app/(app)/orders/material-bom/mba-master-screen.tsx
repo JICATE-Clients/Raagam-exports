@@ -104,6 +104,7 @@ import {
   DEFAULT_SUPPLY_TYPE,
   TBA_MATERIAL_TYPE,
   REQUIREMENT_BASIS_LABELS,
+  processStageOptions,
   type BomCopySource,
   type MaterialBomAmendment,
   type MbaItemSlice,
@@ -5594,19 +5595,47 @@ export function MbaMasterScreen({
          ("TRIMS DYEING"). */
       header: "Stage",
       className: "min-w-[130px]",
-      /* FREE TEXT, THOUGH LEGACY RENDERS A DROPDOWN. The only value ever
-         observed is "DYED" (screenshot 2484), and one sighting is not a
-         vocabulary — this repo has already paid for inventing one, when a seeded
-         word list "corrected" a Packing Accessories name to COTTON and the
-         client had the feature removed two days later (AGENTS.md, Near misses).
-         It becomes a picker the moment the client supplies the list; the column
-         is text either way, so nothing has to be re-stored. */
+      /**
+       * A DROPDOWN SINCE 2026-08-30 (client: "in that stage field add Greige
+       * and Dyed, these two values as a default dropdown").
+       *
+       * IT WAS FREE TEXT AND SAID WHY, AND THE REASON HAS NOW EXPIRED: *"one
+       * sighting is not a vocabulary — this repo has already paid for inventing
+       * one, when a seeded word list 'corrected' a Packing Accessories name to
+       * COTTON and the client had the feature removed two days later. It becomes
+       * a picker the moment the client supplies the list; the column is text
+       * either way, so nothing has to be re-stored."* The client has supplied
+       * the list, and nothing was re-stored — no migration went with this.
+       *
+       * THE LIST IS UPPERCASE BECAUSE THE WRITER IS. `mbaProcessInput.stage` is
+       * `capsTextNullable()`, and a `<Select>` matches on VALUE — so "Dyed" in
+       * the options would render blank the instant the row came back "DYED".
+       * `PROCESS_STAGE_OPTIONS` carries that reasoning and the precedent that
+       * needed a migration to fix.
+       *
+       * `processStageOptions(r.stage)` RE-ADMITS A THIRD VALUE the row already
+       * holds — the client has mentioned "Print" without asking for it, and a
+       * stage this list does not offer must still render rather than look
+       * unanswered and be overwritten by the next save.
+       *
+       * THE BLANK FIRST OPTION STAYS. A process row is identified by its
+       * PROCESS, not its stage (`normalizeProcesses` keeps a row on any of eight
+       * fields), so a row with a process and no stage is a legitimate
+       * half-entered state rather than something to refuse.
+       */
       cell: (r) => (
-        <Input
+        <Select
           value={r.stage}
           onChange={(e) => updProc(r.key, { stage: e.target.value })}
           className="h-8"
-        />
+        >
+          <option value=""></option>
+          {processStageOptions(r.stage).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
       ),
     },
     {

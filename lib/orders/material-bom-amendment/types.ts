@@ -29,6 +29,70 @@ import { capsTextNullable } from "@/lib/validation/formats";
 export const SUPPLY_TYPE_OPTIONS = ["Local", "Import", "Nominated", "Free Issue"] as const;
 
 /**
+ * PROCESSES ▸ STAGE — the two values the client supplied on 2026-08-30 ("in
+ * that stage field add Greige and Dyed, these two values as a default
+ * dropdown").
+ *
+ * ## THE CELL WAS FREE TEXT UNTIL TODAY, AND WAITING FOR EXACTLY THIS
+ *
+ * Its note said so in as many words: *"FREE TEXT, THOUGH LEGACY RENDERS A
+ * DROPDOWN. The only value ever observed is 'DYED' … and one sighting is not a
+ * vocabulary — this repo has already paid for inventing one, when a seeded word
+ * list 'corrected' a Packing Accessories name to COTTON and the client had the
+ * feature removed two days later. **It becomes a picker the moment the client
+ * supplies the list**; the column is text either way, so nothing has to be
+ * re-stored."*
+ *
+ * This is that moment. The list is the client's, not one this file invented,
+ * which is the whole difference between it and the 2026-07-28 mistake.
+ *
+ * ## UPPERCASE, AND THAT IS NOT A STYLE CHOICE
+ *
+ * `mbaProcessInput.stage` is `capsTextNullable()`, so whatever the operator
+ * picks is STORED uppercase. A `<Select>` matches its options by VALUE, so a
+ * list offering "Dyed" would render blank the moment the row came back as
+ * "DYED" — the field would look empty on every saved BOM and the value would be
+ * intact underneath.
+ *
+ * `RECEIPT_MODES` in the amendment types carries this same warning and a
+ * migration that had to rewrite stored rows to fix it. Here it costs nothing:
+ * the only value ever observed IS "DYED", and the table holds 0 rows today
+ * (measured 2026-08-30), so the list and the data already agree.
+ *
+ * **NOT `PURCHASE_STAGE_GREIGE`, WHICH IS "Greige" IN TITLE CASE.** That is the
+ * ITEM line's `purchase_stage` (0476) — what the goods ARRIVE as — and it is
+ * `nullableText`, so nothing uppercases it. Two columns, two questions, two
+ * casings, each internally consistent with its own writer. Do not "unify" them
+ * without moving a schema: matching the case would silently blank one of the two
+ * fields on every existing row.
+ *
+ * ## NO CHECK CONSTRAINT, DELIBERATELY
+ *
+ * The client has already named a third value in passing — "a brief mention of
+ * Print as a stage value in the context of fabric prints" (2026-08-29) — so the
+ * list is not closed yet, only defaulted. A CHECK would reject that the day it
+ * arrives, from an import with no screen to explain itself. The column stays
+ * text and `processStageOptions` re-admits whatever a row already holds.
+ */
+export const PROCESS_STAGE_OPTIONS = ["GREIGE", "DYED"] as const;
+
+/**
+ * The Stage options for one process row, WITH WHATEVER IT ALREADY HOLDS.
+ *
+ * The same shape as `dyeTypeOptions` in the amendment types, and for the same
+ * reason: a `<Select>` renders a value it does not offer as BLANK, so a row
+ * carrying a third stage — a legacy import, or the "Print" the client has
+ * mentioned but not asked for — would look unanswered and be overwritten by the
+ * next save. Re-admitting it costs one line and makes the list a default rather
+ * than a cage.
+ */
+export function processStageOptions(held?: string | null): string[] {
+  const list: string[] = [...PROCESS_STAGE_OPTIONS];
+  const v = held?.trim();
+  return v && !list.includes(v) ? [...list, v] : list;
+}
+
+/**
  * WHAT A NEW BOM LINE OPENS ON (client 2026-08-21: "a Vendor dropdown is
  * required. By default, it is Local").
  *
