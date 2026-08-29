@@ -12,6 +12,11 @@ import {
   type SeededAmendmentChildren,
 } from "./order-seed";
 import { componentProblems } from "./combo-rules";
+/* The Style master's rules, read by the SAVE as well as by the screen — the
+   "ONE DECLARATION, THREE ENFORCERS" that file's header describes. A
+   `lib/data-io` import reaches this action and not the screen, so a rule the
+   screen alone knew would be a rule an import could walk past. */
+import { componentRowStarted, impliedCoordinateId } from "@/lib/orders/styles/rules";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -60,6 +65,29 @@ function normalizeStyles(data: AmendmentInput) {
       style_description: clean(r.style_description),
       order_unit_id: r.order_unit_id,
       plan_unit_id: r.plan_unit_id,
+      /**
+       * ORDER UNIT AND PACKS — DECLARED EVERYWHERE AND WRITTEN NOWHERE until
+       * 2026-08-29, and this is the shape AGENTS.md keeps recording: the column
+       * exists (0467 · 0471), the Zod input accepts it, `order-seed.ts` reads it
+       * back, the screen has a control for it — and this map, the one place that
+       * puts a value in the INSERT, never listed either. Every half looked
+       * correct on its own, so nothing failed; the value simply never arrived.
+       *
+       * MEASURED, NOT REASONED. `garment_order_amendment_styles` holds 6 style
+       * rows and 0 of them carry a `unit_kind` or a `packs_ordered`. That is
+       * 100% of the orders ever entered, which is what tells you this is a
+       * missing write rather than an operator who has not used the field.
+       *
+       * It matters twice over. `unit_kind` is what caps the Coordinates grid,
+       * seeds PCS coordinates and locks the Components grid's Coordinate cell —
+       * all of which worked in the browser and reset on the next load, because
+       * `unitTextOf`'s FALLBACK re-derived a kind from the coordinate count and
+       * quietly stood in for the stored answer. And `packs_ordered` is the
+       * buyer's box count on a set pack, from which `po_qty` is derived; losing
+       * it leaves the derived piece count with nothing to show its working.
+       */
+      unit_kind: r.unit_kind,
+      packs_ordered: r.packs_ordered,
       po_qty: Number(r.po_qty) || 0,
       description: clean(r.description),
     }))
@@ -78,6 +106,14 @@ function normalizeStyles(data: AmendmentInput) {
         r.style_category_id ||
         r.order_unit_id ||
         r.plan_unit_id ||
+        /* AND THE TWO THAT JUST JOINED THE MAP (2026-08-29). The note above is
+           explicit that leaving a stored field out of this test is "the quiet
+           way this breaks" — a line an operator started by answering only Order
+           Unit would be judged blank and dropped, taking its coordinates and
+           components with it. Adding a column to the map and not to the test is
+           exactly the half-wiring that lost these two in the first place. */
+        r.unit_kind ||
+        r.packs_ordered ||
         r.po_qty ||
         r.description,
     )
@@ -270,6 +306,36 @@ function normalizeStyleComponents(
   const live = new Set(styles.map((r) => styleKey(r.style_ref_no)).filter(Boolean));
   const seen = new Set<string>();
   const perStyle = new Map<string, number>();
+  /**
+   * THE COORDINATE EACH LINE FILLS IN FOR ITSELF, keyed by style (client
+   * 2026-08-29). A PCS line's component rows are BORN holding its one
+   * coordinate, so "does this row hold anything?" stops being the same question
+   * as "did the operator enter anything?" — and this filter asks the first while
+   * meaning the second.
+   *
+   * Without it every blank row `ChildGrid` seeds under a PCS line is saved: a
+   * component with a coordinate, no component and no structure. Nothing would
+   * flag it — its coordinate is perfectly valid, so `orphanComponents` is silent
+   * — and it would reappear as a half-filled row on the next open, once per
+   * visit, for as long as the order exists.
+   *
+   * BUILT FROM THE PAYLOAD, not from the database: this save replaces both grids
+   * wholesale, so the coordinates that matter are the ones in `data`, and the
+   * same reasoning the orphan drop states two bullets up. `impliedCoordinateId`
+   * is the screen's own function, so the row this drops is exactly the row the
+   * screen declined to mark `required` and declined to grow past.
+   */
+  const impliedByStyle = new Map<string, string | null>(
+    data.styles.map((s) => [
+      styleKey(clean(s.style_ref_no)),
+      impliedCoordinateId(
+        s.unit_kind,
+        data.style_coordinates.filter(
+          (c) => styleKey(clean(c.style_ref_no)) === styleKey(clean(s.style_ref_no)),
+        ),
+      ),
+    ]),
+  );
   return data.style_components
     .map((r) => ({
       style_ref_no: clean(r.style_ref_no),
@@ -279,7 +345,13 @@ function normalizeStyleComponents(
       comp_type: clean(r.comp_type),
       item_id: r.item_id,
     }))
-    .filter((r) => r.coordinate_id || r.component_id || r.fabric_category_id)
+    /* THE SCREEN'S PREDICATE, WITH THE SCREEN'S ARGUMENT — one function, three
+       readers (`componentRowStarted`). The hand-written three-field test that
+       stood here answered the same way for years and stopped doing so the
+       moment a row could arrive pre-filled. */
+    .filter((r) =>
+      componentRowStarted(r, impliedByStyle.get(styleKey(r.style_ref_no)) ?? null),
+    )
     .filter((r) => live.has(styleKey(r.style_ref_no)))
     .filter((r) => {
       const k = JSON.stringify([
@@ -382,8 +454,22 @@ function normalizeFiles(data: AmendmentInput) {
 
 function normalizePrints(data: AmendmentInput) {
   return data.prints
-    .map((r) => ({ print_id: r.print_id }))
-    .filter((r) => r.print_id)
+    .map((r) => ({ print_id: r.print_id, print_name: clean(r.print_name) }))
+    /**
+     * A ROW COUNTS ONCE IT NAMES A PRINT, BY EITHER ROUTE (0477).
+     *
+     * This tested `print_id` alone, which was right while the cell was a picker
+     * and an id was the only thing a row could hold. The client asked for manual
+     * entry on 2026-08-29, so a row may now carry a typed name and no id — and
+     * against the old test every one of those was **dropped here, silently, on
+     * save**: no error, no refusal, the grid simply came back one row shorter
+     * than it was left. That is the failure this whole change exists to avoid,
+     * and it lived in a filter three tokens long.
+     *
+     * `clean()` is what makes the test honest about whitespace: a cell holding
+     * spaces is a blank cell, and the grid seeds a blank row on every order.
+     */
+    .filter((r) => r.print_id || r.print_name)
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 

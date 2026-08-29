@@ -89,7 +89,18 @@ function normalizeComponents(data: GarmentStyleInput) {
     // Same predicate the screen marks its mandatory cells with — see
     // `componentRowStarted`. Two copies of "is this row real?" would cage the
     // operator on a row this drops, or drop a row whose fields it required.
-    .filter(componentRowStarted)
+    //
+    // WRAPPED RATHER THAN POINT-FREE, since the predicate gained an optional
+    // second argument (the PCS implied coordinate, 2026-08-29): `.filter` hands
+    // it the row INDEX, which does not type-check. The RESULT would have been
+    // unchanged — an index is a number, a coordinate id is a string, so the
+    // discount never matches — and `check-style-rules.mts` asserts that, so
+    // nobody goes hunting for a data bug that is not there. The compiler is the
+    // guard; this is just the shape that satisfies it.
+    //
+    // The Style master's grid has no auto-fill, so it passes nothing and reads
+    // exactly as it always did. The argument exists for the Garment Order.
+    .filter((c) => componentRowStarted(c))
     .map((c, i) => ({ ...c, sno: i + 1 }));
 }
 

@@ -510,3 +510,153 @@ export function compositionForStructure(
   }
   return found;
 }
+
+/**
+ * MULTI-COMBO FABRIC ANCHORING — the first filled colourway is the source of
+ * truth for every colourway after it (client 2026-08-29).
+ *
+ * A PO in White, Green and Black is ONE fabric in three colours. The cloth's
+ * Composition, GSM, Tolerance and Fabric Type are properties of the cloth, so
+ * they are identical across the three by definition — and the operator was
+ * retyping all four on every combo, on every structure, which is both the
+ * keystrokes and the opportunity for the second combo to disagree with the
+ * first about what the fabric IS.
+ *
+ * ## WHY THE FIRST COMBO AND NOT THE PREVIOUS ONE
+ *
+ * This is the client's own reasoning and it is the whole design: "if subsequent
+ * combos fetched from the immediately preceding combo, any manual editing or
+ * accidental data degradation in the second or third combo would propagate
+ * onwards". Previous-combo chaining makes every combo a source, so one typo in
+ * Green is inherited by Black and by everything after it, and the further down
+ * the list you look the further the values have drifted. Anchoring on the first
+ * gives every combo the same single parent — a drift can affect one row, never
+ * a tail.
+ *
+ * That is the same argument `carryDownGsm` already makes one axis over ("FROM
+ * THE FIRST FABRIC ONLY. Every card would otherwise be a source, and which one
+ * had last been left would decide what the rest held"). This is that rule
+ * between combos rather than between the structures of one.
+ *
+ * ## WHAT "THE FIRST FILLED COMBO" MEANS
+ *
+ * The first combo IN GRID ORDER that has answered any of the four on any
+ * structure — not merely the first row, which on a fresh order is usually still
+ * blank, and not "the most complete", which would make the source move as
+ * editing continued. A combo that says nothing yet cannot be a source of truth
+ * about anything.
+ *
+ * ## MATCHED ON `structure_id`, AND UNMATCHED MEANS NOTHING
+ *
+ * A combo holds several structures — a body, a rib, a collar — and they have
+ * different GSMs. So the anchor is read PER FABRIC CATEGORY: the new combo's
+ * SINGLE JERSEY inherits the anchor's SINGLE JERSEY and nothing else. A
+ * structure the anchor does not carry inherits nothing and stays blank, which
+ * is the only honest answer — copying "whatever the anchor's first row held"
+ * would put a 200gsm jersey figure on a collar.
+ *
+ * A structure with no category cannot be matched at all and is skipped, rather
+ * than being lumped under a `null` key where every unanswered structure of every
+ * combo would collide.
+ *
+ * ## IT ONLY EVER FILLS A BLANK
+ *
+ * `defaultsFor` returns values; applying them is the caller's, and the caller
+ * fills gaps rather than overwriting. That is the contract every other automatic
+ * fill on this screen states — `pickComboStructure`'s "SEEDS, NEVER OVERWRITES",
+ * `carryDownGsm`'s "BLANKS ONLY", the Style master's Type column — and it is
+ * what lets a colourway legitimately differ: a Printed Black over a Solid White
+ * is a real order, and an anchor that overwrote would make it unenterable.
+ */
+export type FabricAnchorLike = {
+  structure_id: string | null;
+  composition_id: string | null;
+  gsm: string;
+  gsm_tolerance: string;
+  item_sub_type: string;
+  fabric_type: string;
+};
+
+export type ComboAnchorLike<S extends FabricAnchorLike = FabricAnchorLike> = {
+  key: string;
+  structures: readonly S[];
+};
+
+/** The four the client named, plus `fabric_type` — which has no control on the
+ *  card today but is stored, and would otherwise be the one property of the
+ *  cloth that still differed between colourways. */
+export type FabricDefaults = Pick<
+  FabricAnchorLike,
+  "composition_id" | "gsm" | "gsm_tolerance" | "item_sub_type" | "fabric_type"
+>;
+
+/** Has this structure answered any of the properties an anchor supplies? */
+function saysAnything(s: FabricAnchorLike): boolean {
+  return !!(
+    s.composition_id ||
+    s.gsm.trim() ||
+    s.gsm_tolerance.trim() ||
+    s.item_sub_type ||
+    s.fabric_type
+  );
+}
+
+/**
+ * The anchor combo's fabric properties, keyed by fabric category.
+ *
+ * `exceptKey` is the combo being filled — a combo can never be its own anchor,
+ * and without this the first combo would "inherit" from itself the moment it
+ * became the first filled one, which is a no-op that reads as working and would
+ * hide the fact that nothing was being copied.
+ *
+ * Returns an EMPTY map when there is no anchor yet, which is the ordinary state
+ * on the first combo of a new order. The caller then seeds nothing extra and
+ * the operator types the fabric once — which is exactly the intent: the first
+ * combo is where the answer is given.
+ */
+export function fabricAnchorDefaults<S extends FabricAnchorLike>(
+  combos: readonly ComboAnchorLike<S>[],
+  exceptKey: string,
+): Map<string, FabricDefaults> {
+  const anchor = combos.find(
+    (c) => c.key !== exceptKey && c.structures.some(saysAnything),
+  );
+  const out = new Map<string, FabricDefaults>();
+  if (!anchor) return out;
+  for (const s of anchor.structures) {
+    if (!s.structure_id || out.has(s.structure_id) || !saysAnything(s)) continue;
+    out.set(s.structure_id, {
+      composition_id: s.composition_id,
+      gsm: s.gsm,
+      gsm_tolerance: s.gsm_tolerance,
+      item_sub_type: s.item_sub_type,
+      fabric_type: s.fabric_type,
+    });
+  }
+  return out;
+}
+
+/**
+ * One structure with the anchor's answers filled into its GAPS.
+ *
+ * Returns the row UNCHANGED — the same object — when there is nothing to add,
+ * so a caller can rely on identity to avoid re-rendering a grid that did not
+ * move, the way `carryDownGsm` already does.
+ */
+export function withFabricDefaults<S extends FabricAnchorLike>(
+  s: S,
+  defaults: Map<string, FabricDefaults>,
+): S {
+  if (!s.structure_id) return s;
+  const d = defaults.get(s.structure_id);
+  if (!d) return s;
+  const patch: Partial<FabricAnchorLike> = {};
+  if (!s.composition_id && d.composition_id) patch.composition_id = d.composition_id;
+  if (!s.gsm.trim() && d.gsm.trim()) patch.gsm = d.gsm;
+  if (!s.gsm_tolerance.trim() && d.gsm_tolerance.trim()) {
+    patch.gsm_tolerance = d.gsm_tolerance;
+  }
+  if (!s.item_sub_type && d.item_sub_type) patch.item_sub_type = d.item_sub_type;
+  if (!s.fabric_type && d.fabric_type) patch.fabric_type = d.fabric_type;
+  return Object.keys(patch).length ? { ...s, ...patch } : s;
+}
