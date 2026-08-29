@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 export function SectionGrid({
   children,
   className,
+  wrap = false,
 }: {
   /**
    * `DetailSection`s — auto-placed, so use this when the sections are peers and
@@ -47,10 +48,50 @@ export function SectionGrid({
    */
   children: ReactNode;
   className?: string;
+  /**
+   * LAY THE SECTIONS OUT AS A WRAPPING ROW instead of a two-column grid, so the
+   * count per line is decided by whether they FIT rather than by a breakpoint.
+   *
+   * Added for the Color/Print tab, which grew a third peer grid (Yarn Dyeing ·
+   * Fabric Dyeing · Fabric Print, client 2026-08-29). Three children under the
+   * two-column default auto-place as 2 + 1 — the third alone on a second row at
+   * half width, visibly a leftover rather than a peer.
+   *
+   * ## WHY NOT A `cols={3}` PROP, WHICH IS THE OBVIOUS SHAPE
+   *
+   * It was written that way first and it did not work, twice, for the same
+   * reason: a column COUNT needs a container width to switch at, and that width
+   * has to be guessed. `@6xl` (1152) divides into three ~376px columns, which is
+   * narrower than a two-field `inlineCards` grid needs — so it would switch at a
+   * width where the content does not fit, which renders as a squeezed grid
+   * rather than as a missing breakpoint. `@7xl` (1280) is above the pane this
+   * tab actually gets and simply never fired.
+   *
+   * A BASIS IS THE SAME DECISION EXPRESSED IN THE UNITS THAT MATTER. The caller
+   * says how wide one section needs to be; the browser fits as many as it can
+   * and wraps the rest. There is no threshold to get wrong, and the answer stays
+   * right at every width including ones nobody measured.
+   *
+   * The caller supplies the basis on each child (`flex-[1_1_23rem]`), because
+   * only the caller knows what its sections hold. This prop just opens the
+   * container that lets one apply.
+   */
+  wrap?: boolean;
 }) {
   return (
     <div className={cn("@container/sections", className)}>
-      <div className="grid items-start gap-3 @4xl/sections:grid-cols-2">{children}</div>
+      {/* STATIC LITERALS in both branches, never an interpolated class name —
+          Tailwind scans source TEXT, so a computed one is generated only by
+          accident and the layout silently falls back to a single column. */}
+      <div
+        className={
+          wrap
+            ? "flex flex-wrap items-start gap-3"
+            : "grid items-start gap-3 @4xl/sections:grid-cols-2"
+        }
+      >
+        {children}
+      </div>
     </div>
   );
 }

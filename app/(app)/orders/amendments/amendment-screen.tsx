@@ -365,7 +365,16 @@ type DyeingRow = {
   /** Pre-0403 colour-card id, carried so a save cannot null it. */
   color_id: string | null;
 };
-type PrintRow = { key: string; print_id: string | null };
+/**
+ * Color/Print ▸ one Fabric Print the ORDER declares.
+ *
+ * TWO FIELDS FOR ONE ANSWER, exactly as `DyeingRow` carries `color_id` beside
+ * `color_name` (0477). `print_name` is THE VALUE — filled whether the operator
+ * picked from the `roll_form_print` master or typed a name of their own;
+ * `print_id` is set only in the first case, and is what keeps
+ * `declaredPrintOptions` able to narrow the Combos tab's list to this order.
+ */
+type PrintRow = { key: string; print_id: string | null; print_name: string };
 /**
  * Color/Print ▸ one fabric structure of the ORDER (0415).
  *
@@ -781,6 +790,9 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
     prints: src.prints.map((x): PrintRow => ({
       key: newKey(),
       print_id: x.print_id,
+      /* `txt`, like every other loaded text field: null and "" are the same
+         state on screen and only one of them is typeable. */
+      print_name: txt(x.print_name),
     })),
     structures: src.structures.map((x): StructureRow => ({
       key: newKey(),
@@ -1095,6 +1107,41 @@ const STYLE_COL_W = "14rem";
  * A width that fits in the arithmetic and not on the screen is worse than one
  * that is visibly too wide, because nothing reports it.
  */
+/**
+ * WHY THIS STYLE CANNOT TAKE PROCESSES YET — or null, meaning it can.
+ *
+ * The two tests are the ones the Process button was disabled by until
+ * 2026-08-29, moved here unchanged when the grid came inline. A REASON rather
+ * than a boolean, for the same argument the button's `title` made: a control
+ * that refuses without naming the field that would turn it on is a dead end.
+ *
+ * THE STYLE TEST IS LOAD-BEARING. `normalizeStyleProcesses` matches rows to
+ * styles BY REF NO AS TEXT and drops every row that matches nothing, so
+ * processes entered against an unnamed style are destroyed by the next save,
+ * silently. This gate is what stops them being enterable in the first place.
+ *
+ * THE PO QTY TEST IS THE CLIENT'S JUDGEMENT, not a structural one — a line
+ * with no quantity is not yet an order for anything. Nothing breaks if it is
+ * lifted; it stays because it is their rule and a layout change is no reason
+ * to quietly relax it.
+ *
+ * ORDER MATTERS: the style is named first in the flow, so a row with neither
+ * answer is told about the style rather than about a quantity it cannot get
+ * to yet.
+ *
+ * MODULE LEVEL, NOT A CLOSURE IN THE COMPONENT. It reads nothing but its
+ * argument, and both callers are inside `styleColumns` and
+ * `componentsAndSizes` — one of which is BUILT above where a `const` in the
+ * body would be initialised. That is safe today only because a cell's arrow
+ * body runs at render rather than at definition, which is a temporal-dead-zone
+ * argument nobody should have to re-derive. Hoisting it removes the question.
+ */
+const processGateReason = (r: StyleRow): string | null => {
+  if (!r.style_id && !r.style_ref_no.trim()) return "Name a style on this row first.";
+  if (!((Number(r.po_qty) || 0) > 0)) return "Enter the PO Qty first.";
+  return null;
+};
+
 const STYLE_FIELD_W: Record<string, FieldWidth> = {
   /* `term` (176) AND NOT `name` (288), SO DESCRIPTION FITS BESIDE IT (client
      2026-08-26: "decrease that style field size a little, then move that
@@ -1112,7 +1159,13 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
   "Article No.": "code",
   "Order Unit": "num",
   "PO Qty": "range",
-  Process: "code",
+  /* `Process` AND `Sizes` ARE NOT ON THIS ROW. Both live on the composition
+     line below it — Sizes beside Coordinate, and the Process [Click] button as
+     that line's fourth section (client 2026-08-29: "just that process single
+     click field, not like this full"). Entries removed rather than left behind:
+     this map is read by HEADER, so a stale key is inert and therefore invisible,
+     and the next reader would find a field width for a field they cannot find on
+     screen. Their 144 and 288px are Description's, the cell that grows. */
   /* DESCRIPTION JOINS THE ROW (client 2026-08-26: "that description also move
      to the style details row"). It took the second line whole until then, on
      `w-full`, because ~155px of a 14-column track is what `FIELD_TRACK_14`'s
@@ -1356,7 +1409,7 @@ export function AmendmentScreen({
     color_name: "",
     color_id: null,
   });
-  const blankPrint = (): PrintRow => ({ key: newKey(), print_id: null });
+  const blankPrint = (): PrintRow => ({ key: newKey(), print_id: null, print_name: "" });
   const blankStructure = (): StructureRow => ({
     key: newKey(),
     structure_id: null,
@@ -1701,6 +1754,17 @@ export function AmendmentScreen({
       .filter((o) => !isInactive(o) || o.id === held)
       .map((o) => ({ id: o.id, name: o.name }));
 
+  /* THE PRINT LIST, SCOPED THE SAME WAY (0477) — a switched-off lookup is gone
+     from the list, EXCEPT the one this row already holds. Dropping that would
+     show a filled field as empty and blank it on the next save, which is the
+     "Disabled rows" rule's stated failure. Written beside `colourPickOptions`
+     rather than generalised: two three-line filters that read identically are
+     cheaper than one helper a reader has to go and check. */
+  const printPickOptions = (held: string | null) =>
+    printOpts
+      .filter((o) => !isInactive(o) || o.id === held)
+      .map((o) => ({ id: o.id, name: o.name }));
+
   /**
    * Add what is being typed to the colour master — the ⊕ half of the icon-field
    * convention, kept alive on a field that also accepts free text.
@@ -1719,6 +1783,23 @@ export function AmendmentScreen({
       return null;
     }
     success(`Colour "${name}" added`);
+    router.refresh();
+    return res.id;
+  };
+
+  /* THE ⊕ HALF OF THE FABRIC PRINT CELL (0477), the same shape as
+     `createColour` above and calling the same action, so a print added from an
+     order is parsed by the Lookup master's own Zod schema, guarded by its
+     duplicate check, and immediately offered at every other `roll_form_print`
+     field. Without it the master stops growing the day free text arrives —
+     which is the failure 0415 records for the colour list. */
+  const createPrint = async (name: string): Promise<string | null> => {
+    const res = await createLookupValue("roll_form_print", name, null);
+    if (!res.ok) {
+      toastError(res.error);
+      return null;
+    }
+    success(`Print "${name}" added`);
     router.refresh();
     return res.id;
   };
@@ -2086,6 +2167,12 @@ export function AmendmentScreen({
    * The same reason `detailComboKey` and `assortFor` are: two lines may name the
    * same style, and a pointer holding the style would open both their sheets at
    * once and write one list into two rows.
+   *
+   * REMOVED AND RESTORED THE SAME DAY (2026-08-29). It went when the grid moved
+   * inline onto the row's panel, and came back with the button — "I think the
+   * process button is lost, restore it with the function". The sheet and the
+   * pane edit the SAME `StyleRow.processes`, so this pointer decides which row's
+   * list a MODAL is showing and nothing else; it is not a second store.
    */
   const [processForKey, setProcessForKey] = useState<string | null>(null);
   const processStyle = styles.find((r) => r.key === processForKey) ?? null;
@@ -2100,8 +2187,7 @@ export function AmendmentScreen({
    *   a centre origin — a silent regression rather than a visible one.
    * - **Beside `processForKey`, not folded into it.** The key identifies the row
    *   the edits belong to and is what `processStyle` resolves; the rect is only
-   *   how the surface animates. Merging them would put a paint concern inside
-   *   the pointer that decides which style's list is being written.
+   *   how the surface animates.
    */
   const [processOrigin, setProcessOrigin] = useState<DOMRect | null>(null);
   /* The Pack Composition sheet's opener, keyed the same way (0467). */
@@ -2735,7 +2821,13 @@ export function AmendmentScreen({
         color_name: r.color_name || null,
         color_id: r.color_id,
       })),
-      prints: prints.map((r) => ({ sno: 0, print_id: r.print_id })),
+      /* BOTH FIELDS, and `sno: 0` because `normalizePrints` renumbers — the
+         same shape every child grid on this payload uses. */
+      prints: prints.map((r) => ({
+        sno: 0,
+        print_id: r.print_id,
+        print_name: r.print_name || null,
+      })),
       structures: structures.map((r) => ({
         sno: 0,
         structure_id: r.structure_id,
@@ -4411,12 +4503,16 @@ export function AmendmentScreen({
     // grid merged into Order Info and that section took `has(styles)` into its
     // own `done`; the split puts the expression back where the rail reads it.
     styles: has(styles),
-    // READS ONLY WHAT THE TAB SHOWS. Prints and Structures came off this tab on
-    // 2026-08-14 and their state stayed (see the tab body), so keeping them in
-    // this expression would light the dot for rows `pickStyle` seeded — a tab
-    // reporting "has data" over two visibly empty dyeing grids, which is the
-    // confident lie the note above is about.
-    colors: has(dyeings),
+    // READS ONLY WHAT THE TAB SHOWS, and the tab shows three grids again since
+    // 2026-08-29 — Fabric Print rejoined the two dyeing ones, so `prints` is
+    // back in this expression with them.
+    //
+    // STRUCTURES STAY OUT. That grid came off on 2026-08-14 and has not
+    // returned, and `pickStyle` SEEDS structures from the style's own fabrics —
+    // so counting them here would light the dot on an order whose Color/Print
+    // tab is visibly empty, which is the confident lie the note above is about.
+    // The test is what the operator can SEE, never what the state holds.
+    colors: has(dyeings) || has(prints),
     combos: has(combos),
     prices: has(priceDetails),
     // STILL `approvalQtys`, and the meaning IMPROVED when 0435 made the rows
@@ -4778,67 +4874,6 @@ export function AmendmentScreen({
           },
         ]
       : []),
-    {
-      header: "Process",
-      /**
-       * THE LEGACY [Click] THAT OPENS THE PROCESS SCREEN — restored 2026-08-20.
-       *
-       * Where the embellishments are defined: a COMPONENT process is work on a
-       * cut panel before it is stitched (printing the Front Body, embroidering a
-       * Sleeve), a GARMENT process is a treatment on the made-up garment (a
-       * bio-wash). `ProcessKind` is those two; the master's `for_components` /
-       * `for_garments` flags are what narrow each list, inside the sheet.
-       *
-       * GATED, AND THE GATE IS THE CLIENT'S: enabled once the row names a style
-       * AND carries a PO qty. Both halves say something real — with no style
-       * there are no components to map a panel process onto, and a line with no
-       * quantity is not yet an order for anything. Same shape as the Assort
-       * gate two grids down, which restored the other legacy [Click].
-       *
-       * THE COUNT IS WHAT MAKES THE LIST VISIBLE FROM OUTSIDE — a style carrying
-       * three processes otherwise looks exactly like one carrying none, which is
-       * the argument the Details button already records.
-       *
-       * `styleProcessRowStarted` and not `.length`: the sheet's grid seeds a
-       * blank row, and counting that would put "1" on every style anyone had
-       * merely opened.
-       */
-      cell: (r) => {
-        const named = !!(r.style_id || r.style_ref_no.trim());
-        const qty = (Number(r.po_qty) || 0) > 0;
-        const started = r.processes.filter(styleProcessRowStarted).length;
-        return (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full"
-            disabled={!named || !qty}
-            /* NAMES THE FIELD THAT TURNS IT ON rather than greying out in
-               silence — the rule the Assort gate states. A disabled control with
-               no reason is a dead end the operator has to guess their way out
-               of. */
-            title={
-              !named
-                ? "Name a style on this row first"
-                : !qty
-                  ? "Enter the PO Qty first"
-                  : undefined
-            }
-            /* Captures the button's own rect so the sheet scales out of THIS
-               row rather than out of the middle of the screen — see
-               `processOrigin`. `currentTarget` and not `target`: the click can
-               land on the text node inside the button. */
-            onClick={(e) => {
-              setProcessOrigin(e.currentTarget.getBoundingClientRect());
-              setProcessForKey(r.key);
-            }}
-          >
-            {started ? `${started} process${started === 1 ? "" : "es"}` : "Click"}
-          </Button>
-        );
-      },
-    },
     /**
      * PACK COMPOSITION — the [Click] that says what one retail pack holds
      * (0467, client 2026-08-25).
@@ -4931,7 +4966,18 @@ export function AmendmentScreen({
   const dyeColumns: ChildGridColumn<DyeingRow>[] = [
     {
       header: "Type",
-      width: "10rem",
+      /* 7rem, DOWN FROM 10 (2026-08-29). The tab went from two grids to three
+         when Fabric Print joined it, so each pane is ~390px rather than ~644.
+         With the index and the ✕, 7 + 11 comes to ~23rem — which is the basis
+         the tab declares on all three panes, so this width and that basis are
+         one decision stated in two places and must move together.
+
+         The value is unaffected: this cell holds "Melange", "Dyed" or "Y/D".
+
+         `structureColumns` further down declares the same 10rem and is NOT
+         touched — that grid came off this tab on 2026-08-14 and is not one of
+         the three sharing the row. */
+      width: "7rem",
       /**
        * A FIXED LIST PER SECTION (client 2026-08-17) — Y/D or Melange on a yarn
        * dyeing, Dyed or Melange on a fabric one. It was a free `<Input>`, which
@@ -4994,9 +5040,16 @@ export function AmendmentScreen({
        * `style_id` / `style` already uses two grids up.
        *
        * THE WIDTH IS NOT OPTIONAL: `hugsContent` is `columns.every((c) => c.width)`,
-       * so dropping it here would stretch all four grids on this tab.
+       * so dropping it here would stretch all three grids on this tab.
+       *
+       * 11rem, DOWN FROM 16 (2026-08-29) — see the note on `Type` above for the
+       * arithmetic. 176px still holds a colour name; the buyer references this
+       * cell also accepts ("0001") were never the long case.
+       *
+       * Trimmed, never dropped: those are different edits with very different
+       * blast radii, and only one of them is safe.
        */
-      width: "16rem",
+      width: "11rem",
       /**
        * TYPE **OR** PICK SINCE 2026-08-17 (client: "allow users to manually
        * type/input color names or numbers, e.g. 0001, rather than forcing a
@@ -5050,24 +5103,69 @@ export function AmendmentScreen({
     },
   ];
 
+  /**
+   * FABRIC PRINT — ONE COLUMN, AND IT IS TYPE-OR-PICK (client 2026-08-29:
+   * "just a single field which is fabric print, allow manual entry").
+   *
+   * ## IT WAS A `LookupDialogPicker`, AND THE CHANGE IS THE MANUAL ENTRY
+   *
+   * The old cell offered the `roll_form_print` master and nothing else, so a
+   * print the master had not been taught could not be entered at all. That was
+   * the state this grid was in when it came off the tab on 2026-08-14; it is
+   * back with the one thing the client asked for.
+   *
+   * ## `TypeOrPick`, WHICH IS THE COLOUR CELL'S OWN ANSWER TO THIS ASK
+   *
+   * Not a plain `<Input>`. The Colour cell in `dyeColumns` was asked the
+   * identical question on 2026-08-17 — "allow users to manually type/input
+   * color names or numbers … rather than forcing a selection strictly from the
+   * master list" — and its note explains why BOTH halves stand rather than
+   * flipping to free text: the master is what keeps naming consistent across
+   * the company, and typing is what lets a buyer's own reference through.
+   *
+   * Reaching for an `<Input>` here would have cost two things that are not
+   * obvious:
+   *
+   *  - **the ⊕**, so the print master would stop growing the day this shipped;
+   *  - **`declaredPrintOptions`**, which narrows the Combos tab's Fabric Print
+   *    list to the prints THIS order declared, and does it by `print_id`. A
+   *    picked print still narrows it. A typed one cannot — that list is a
+   *    picker over uuids — so it falls back to the full master, which is
+   *    exactly what it does today with no prints declared at all. Nothing
+   *    regresses; the narrowing simply keeps working for the rows that can
+   *    support it.
+   *
+   * `print_name` IS THE VALUE either way, which is what makes the hybrid cheap:
+   * nothing downstream has to learn that the id can be null.
+   *
+   * THE PENCIL DOES NOT SURVIVE — `LookupDialogPicker` could rename a print
+   * app-wide from inside an order, and `TypeOrPick` cannot. That was always the
+   * more destructive half of the convention and the Lookup master still owns it,
+   * which is the same trade the Colour cell made and recorded.
+   *
+   * THE WIDTH IS NOT OPTIONAL: `hugsContent` is `columns.every((c) => c.width)`,
+   * so dropping it here would stretch all three grids on this tab.
+   */
   const printColumns: ChildGridColumn<PrintRow>[] = [
     {
-      header: "Print",
+      header: "Fabric Print",
       width: "16rem",
       cell: (r) => (
-        <LookupDialogPicker
-          kind="roll_form_print"
-          label="Print"
-          compact
-          options={printOpts}
-          value={r.print_id}
-          onChange={(id) =>
+        <TypeOrPick
+          label="Fabric Print"
+          createNoun="print"
+          options={printPickOptions(r.print_id)}
+          valueId={r.print_id}
+          text={r.print_name}
+          inputClassName="h-8"
+          onChange={({ id, name }) =>
             setPrints((xs) =>
-              xs.map((x) => (x.key === r.key ? { ...x, print_id: id } : x)),
+              xs.map((x) =>
+                x.key === r.key ? { ...x, print_id: id, print_name: name } : x,
+              ),
             )
           }
-          canCreate={masterPerms.canCreate}
-          canEdit={masterPerms.canEdit}
+          onCreate={masterPerms.canCreate ? createPrint : undefined}
         />
       ),
     },
@@ -11635,27 +11733,88 @@ export function AmendmentScreen({
         * of the pane" rather than carrying a number that reads as a column
         * count and is not one.
         */}
-      <div className={cn(FIELD_SPAN.lg, "grid grid-cols-2 items-start gap-3")}>
-      {/* COORDINATES FIRST — the master's order, and the order the data flows
-          in: this list is what scopes the Coordinate cell in the grid beside it,
-          so reading them the other way round would mean meeting the narrowed
-          control before the thing that narrows it.
-
-          `sm` (3) — it is `narrow` and single-column, so anything wider reserves
-          width it does not draw in. It was `lg` (6) while these three shared a
-          12-column grid of their own. */}
-      {/* TITLED, AND IN THE GRID'S OWN HEADING TYPE (client 2026-08-26).
-          `label=""` drew an EMPTY row here — it reserved the height so this
-          panel started level with the table beside it, and said nothing. Next
-          to a grid whose three columns are captioned in bold, an untitled list
-          reads as part of nothing. `GRID_HEADER_TEXT` is that grid's own
-          `<th>` string, imported rather than retyped, so the two cannot drift.
-
-          "Coordinate", SINGULAR, because it is this grid's own column header
-          (see `coordinatesGrid`) — the same word the row beneath it is an
-          instance of, and the same word the Components grid uses for the
-          column that points back here. */}
-        <div className="min-w-0">
+      {/**
+        * TWO PANES ON THE ROW'S OWN 14-COLUMN TRACK — 6 + 8.
+        *
+        * This is the 2026-08-27 arrangement, restored the same night it was
+        * replaced. For one evening the line held FOUR panes (Coordinate | Sizes
+        * | Components | Process) laid out with `flex-wrap` and per-pane bases,
+        * because the client asked for the Process grid inline as a fourth
+        * section; they then asked for the [Click] button back and for the pane
+        * to go, which leaves this.
+        *
+        * ## WHAT THAT EVENING ESTABLISHED, AND IS WORTH KEEPING
+        *
+        * **The pane is ~1300px, and the way to measure it is to make it wrap.**
+        * A screenshot cannot answer this — display scaling and browser zoom both
+        * scale the image, so one picture is consistent with a 1240px pane and a
+        * 1550px one, and the rendered widths fit either model because the line
+        * fills its container in both. Successive flex bases bracketed it:
+        * 1432 wrapped, 1336 wrapped, 1224 fitted.
+        *
+        * **`ChildGrid` stops being a table below a 512px container** and becomes
+        * stacked cards, which carry no column headers. Two tables therefore cost
+        * 1024px of a line before either holds anything, which is why four panes
+        * never fitted comfortably here and why the pickers were down to ~112px
+        * when they did.
+        *
+        * **Bases decide wrapping; grow decides sharing.** Only the first can
+        * create room, only the second can move it between panes. Lowering a
+        * basis on a line that already fits frees nothing.
+        *
+        * A future ask to put a third grid on this line should start from those
+        * three facts rather than re-deriving them.
+        */}
+      {/**
+        * THREE COLUMNS: COORDINATE · COMPONENTS · PROCESS.
+        *
+        * Sizes used to sit here beside Coordinate and now sits in the field row
+        * above — its own column note carries why they were never really a pair.
+        * What it paid for is this line's fourth section.
+        *
+        * ## THE ARITHMETIC, WHICH IS THE WHOLE DESIGN
+        *
+        * The pane is ~1300px, MEASURED — successive flex bases bracketed it
+        * (1432 wrapped, 1336 wrapped, 1224 fitted) after two wrong answers read
+        * off screenshots. A screenshot cannot settle this: display scaling and
+        * browser zoom both scale the image, so one picture is consistent with a
+        * 1240px pane and a 1550px one.
+        *
+        * **`ChildGrid` stops being a table below a 512px container** and becomes
+        * stacked cards, which carry no column headers. Two tables therefore cost
+        * 1024px before either holds anything, and what is left over is what the
+        * third column can be:
+        *
+        *      Coordinate   flex-[1_1_220px]   220px
+        *      Components   flex-[4_1_32rem]   512px
+        *      Process      flex-[4_1_32rem]   512px
+        *                                     -----
+        *                    plus two 12px gaps = 1268px, inside ~1300
+        *
+        * **32rem IS THE CLIFF ITSELF, NOT A NUMBER NEAR IT.** Setting the basis
+        * to exactly the threshold makes the wrap fire at the last width where
+        * both are still TABLES — a pixel narrower and Process drops to a line of
+        * its own, where it gets the width back. The constraint and the
+        * declaration are the same number, so there is no arithmetic to get wrong.
+        *
+        * BASES DECIDE WRAPPING; GROW DECIDES SHARING. Only the first can create
+        * room; only the second moves it between panes. Lowering a basis on a
+        * line that already fits frees nothing — it just hands the slack to a
+        * neighbour, which is how Process once rendered at 281px and lost its
+        * headers.
+        *
+        * ## WHAT THIS COSTS, STATED
+        *
+        * Components goes from 738px to ~520. Its three pickers drop from ~200px
+        * to ~144px each and lean on the `Truncated` reveal for values like
+        * SINGLE JERSEY. That is the price of the fourth section and it is the
+        * smallest version of that price available at this pane width — the
+        * alternative that keeps Components roomy is moving Coordinate up too,
+        * and a list with its own "+ Add coordinate" button does not belong in a
+        * row of single-line fields.
+        */}
+      <div className="flex flex-wrap items-start gap-3 @lg/section:col-span-14">
+      <div className="min-w-0 flex-[1_1_220px]">
       <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
         {/* THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added on "add the
             border for the coordinate section" (screenshot 2519) while
@@ -11666,29 +11825,14 @@ export function AmendmentScreen({
             prevent. One frame, drawn in one place. */}
         {coordinatesGrid(r)}
       </Field>
-        </div>
-      {/* SECOND IN THE LEFT PANE since 2026-08-27, under Coordinate. It used to
-          be the third CELL, on the far side of the Components table.
-
-          The old note here read "`sm` (3) — the trigger caps itself at 280px and
-          the PANEL is sized independently (40rem), so width beyond the cap buys
-          nothing". Still true and now the reason this move costs nothing: the
-          control does not grow into the wider pane, so putting Sizes beside
-          Coordinate takes no width away from the table it left. */}
-        {/* Each half is a GRID ITEM, so the `Field` inside it is not — its
-            `col-span-12` would otherwise claim both columns of the pane and
-            put Sizes back on the line below (client 2026-08-27, screenshot
-            2517: "still size is second row?"). */}
-        <div className="min-w-0">
-      {/* SAME TREATMENT AS THE COORDINATES PANEL, AND ONE LABEL NOT TWO.
-          `MultiSelect` draws its own `Label` — muted 12px — unless `compact`,
-          so bolding the title here means moving it OUT of the control and into
-          the `<Field>` that was already reserving an empty row for it. Passing
-          both would print "Sizes" twice, which is the trap `DataPicker` and
-          every Field+picker pair on this screen already carry a note about.
-          `label` stays on the control: `compact` routes it to `aria-label`, and
-          `useRequiredHold` words its message from it. */}
-      <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="full">
+      </div>
+      {/* SIZES, BACK BESIDE COORDINATE. It spent one edit up in the field row,
+          on the reasoning that a single trigger is a field rather than a grid.
+          True, and beside the point: the client's four sections are the ones on
+          THIS line, and the fourth is a button — which costs ~150px, not the
+          512px a second grid would have. Nothing had to move to make room. */}
+      <div className="min-w-0 flex-[1_1_220px]">
+        <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="full">
         <MultiSelect
           compact
           label="Sizes"
@@ -11751,20 +11895,17 @@ export function AmendmentScreen({
               : undefined
           }
         />
-      </Field>
-        </div>
+        </Field>
       </div>
-      {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
-          unlabelled `<Field size>` around it is the sanctioned way to give it
-          one (LAYOUT.md §3, "a not-field that SHARES its row"). `label=""`
-          rather than no label: it RESERVES the label row, so the table's header
-          band starts level with the Sizes control beside it instead of ~16px
-          above it.
-
-          `xl` (8) — the widest of the three, because it is the only one holding
-          a table. Three 176px pickers plus a remove button need ~600px, which is
-          what 8 of 14 gives it here. */}
-      <Field label="" size="xl">
+      <div className="min-w-0 flex-[6_1_32rem]">
+      {/* `size="full"`, and it is INERT — a `col-span` does not resolve outside
+          the track it names, and the parent here is a flex row. It stays as the
+          honest "take this cell whole", the same thing Coordinate and Process
+          say beside it. It was `xl` (8 of 14) while this was a grid item; a
+          reader who finds that number elsewhere is holding the pre-flex layout.
+          `label=""` is NOT an oversight: it reserves the label row so this
+          table's header band starts level with the two labelled cells. */}
+      <Field label="" size="full">
         <ChildGrid<StyleComponentRow>
           columns={componentColumns(r)}
           rows={r.components}
@@ -11781,37 +11922,75 @@ export function AmendmentScreen({
           addLabel="+ Add component"
         />
       </Field>
-
+      </div>
       {/**
-        * SIZES ARE CHOSEN, NOT LISTED — and this REVERSES two decisions, so
-        * both are named rather than left for the next reader to discover.
+        * PROCESS — THE [Click] BUTTON AS THE FOURTH SECTION (client 2026-08-29:
+        * "just that process single click field, not like this full").
         *
-        * What stood here was a row of Size pickers laid ACROSS the line
-        * (`sizeGrid`, client 2026-08-14: one per line was ~248px of a 32px row),
-        * seeded by `pickStyle`, each with a ✕ and NO "+ Add" (client
-        * 2026-08-20: a hand-add was "a second way to state something the Style
-        * master is authoritative for").
+        * ## THE WHOLE THREAD TURNED ON THIS ONE WORD
         *
-        * BOTH REASONS EXPIRED IN THE SAME INSTRUCTION. The 08-14 density
-        * complaint is answered better by this control than by the across
-        * layout — fifty sizes are a wrapping tick grid behind one box, not a
-        * line that grows. And 08-20's premise is the exact premise the merge
-        * retires: the Style master is no longer the only place a style's sizes
-        * are stated, so "go and add it there, then pick the style again" is the
-        * trip this whole change removes. It is the same argument that gave the
-        * Components grid beside it a "+ Add component".
+        * "Move Process to this row as a fourth section" was read as moving the
+        * GRID here, and that is what made it hard: a second `ChildGrid` needs
+        * 512px before it stops being a table, two tables cost 1024px of a
+        * ~1300px line, and everything else was squeezed to ~112px to pay for it.
+        * Coordinate and Sizes were stacked, then split, then shrunk; `wide` was
+        * added and withdrawn; the pane's real width had to be measured by
+        * watching flex wrap.
         *
-        * SO THE FULL SIZE MASTER IS OFFERED, with inline create, exactly as on
-        * the Style master. `pickStyle` still seeds the style's own sizes, so
-        * nothing is retyped in the ordinary case; what changes is that an order
-        * running a size the style has not recorded is now enterable instead of
-        * blocked.
+        * **THE BUTTON COSTS 150px AND NONE OF THAT APPLIES.** It shows a value
+        * (`3 processes`) or an invitation (`Click`), and the grid it opens gets
+        * a 1112px modal where it has always fitted. Four sections on the line,
+        * nothing squeezed, no cliff anywhere near it.
         *
-        * PICK-ONCE COMES FREE: a set cannot hold a duplicate, so the shape rules
-        * out the L, L, M, M the old grid needed `usedIds` to prevent.
-        * `normalizeStyleSizes` still de-dupes server-side, which is the guard
-        * that matters for anything writing past the screen.
+        * The lesson is not about CSS: the expensive part was solving for the
+        * wrong artefact. "The Process field" meant the control, not the table
+        * behind it, and one screenshot of the button would have said so.
+        *
+        * ## IT IS OFF THE FIELD ROW ABOVE, WHICH IS WHERE IT SAT ALL DAY
+        *
+        * There it was the seventh of eight cells — a `<Button>` reading "Click"
+        * in a line of `<Input>`s, which is the placement the client objected to
+        * on 2026-08-29 ("the functioning is right but the UI placing needs an
+        * update"). Here it sits with the other three things that describe how
+        * the garment is BUILT, and its 144px go back to Description.
+        *
+        * GATED THROUGH `processGateReason`, the same function the sheet's own
+        * empty state would use — one rule, so the tooltip and any other reader
+        * cannot word it differently.
         */}
+      <div className="min-w-0 flex-[0_1_9.5rem]">
+        <Field label={<span className={GRID_HEADER_TEXT}>Process</span>} size="full">
+          {(() => {
+            const blocked = processGateReason(r);
+            const started = r.processes.filter(styleProcessRowStarted).length;
+            return (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={!!blocked}
+              /* NAMES THE FIELD THAT TURNS IT ON rather than greying out in
+                 silence — the rule the Assort gate states. A disabled control with
+                 no reason is a dead end the operator has to guess their way out
+                 of. */
+              title={blocked ?? undefined}
+              /* Captures the button's own rect so the sheet scales out of THIS
+                 row rather than out of the middle of the screen — see
+                 `processOrigin`. `currentTarget` and not `target`: the click can
+                 land on the text node inside the button. */
+              onClick={(e) => {
+                setProcessOrigin(e.currentTarget.getBoundingClientRect());
+                setProcessForKey(r.key);
+              }}
+            >
+              {started ? `${started} process${started === 1 ? "" : "es"}` : "Click"}
+            </Button>
+            );
+          })()}
+        </Field>
+      </div>
+      </div>
     </>
   );
 
@@ -12313,7 +12492,7 @@ export function AmendmentScreen({
    * reason the prop's own note gives — the flag has to sit on the same object as
    * the fieldless content, or the two eventually disagree.
    */
-  type OrderTab = TabItem & { skipTab?: boolean };
+  type OrderTab = TabItem & { skipTab?: boolean; wide?: boolean };
   const tabs: OrderTab[] = [
     /**
      * ---------------- Style(s) ----------------
@@ -12348,6 +12527,50 @@ export function AmendmentScreen({
     {
       key: "styles",
       label: "Style(s)",
+      /**
+       * ^ WITHDRAWN THE SAME NIGHT. The four-pane row it was bought for is gone
+       * (see `componentsAndSizes`), so the section is a row of fields over ONE
+       * grid again, which is not what the flag is for. The note below is kept
+       * because the reasoning still applies the day a second wide grid lands
+       * here — including the part that says it buys nothing on a laptop.
+       *
+       * THE ONE SECTION THAT LIFTS THE PANE CAP (client 2026-08-29, asked for
+       * by name after the fourth pane kept wrapping).
+       *
+       * `MasterFullScreen` caps its content at 1440px and at 1720px for a
+       * section declaring this. The flag was written on 2026-08-17 for "a
+       * section whose whole content is one wide `ChildGrid`, a line grid with
+       * ten or more columns", and this section did not qualify then — it was a
+       * row of fields over one grid.
+       *
+       * IT QUALIFIES NOW BECAUSE THE ROW CHANGED. Since the Process grid came
+       * inline (2026-08-29) the style row carries TWO wide tables side by side,
+       * Components and Process, each needing 512px before `ChildGrid` drops it
+       * to stacked cards and takes its column headers with it. Four panes need
+       * 1336px of pane; the 1440 cap leaves 1408 after `px-4`, which is 72px of
+       * headroom — and on a display where the cap binds at all, 1720 leaves 1688
+       * and the row has room to breathe rather than to merely fit.
+       *
+       * ## IT DOES NOT REPEAL THE CAP'S REASONING, AND THE FIELDS ARE WHY
+       *
+       * 1180/1440 exists so FIELDS do not stretch to absurd widths — a Year box
+       * 900px across. That argument is about a `FieldGrid`, whose columns divide
+       * the pane between them. The seven fields on the row above are NOT on that
+       * track: they are a `FieldRow`, laid out by fixed widths from
+       * `STYLE_FIELD_W` (`term`, `code`, `num`, `range`), so extra pane width
+       * reaches only Description, the one cell deliberately given `flex-1` to
+       * absorb the remainder. Nothing here stretches that was not already
+       * designed to.
+       *
+       * ## AND IT BUYS NOTHING ON A LAPTOP, WHICH IS NOT A REASON TO SKIP IT
+       *
+       * The cap only binds when the viewport exceeds it. On a 1366 screen the
+       * pane is viewport-bound at ~1110px and 1720 is no less of a cap than 1440
+       * was, so this changes nothing there — the panes wrap, Process takes a full
+       * line, and that is the correct answer at that width. `mba-master-screen`
+       * records the same asymmetry for the same flag.
+       */
+      // wide: true,   <- re-enable if this section ever carries two wide grids
       content: <div className="space-y-4">{stylesGrid}</div>,
     },
     // ---------------- Color / Print Details ----------------
@@ -12391,9 +12614,16 @@ export function AmendmentScreen({
               2026-08-12, screenshot 2273). `fill` suppresses only the hug: the
               fields keep their declared widths and the slack falls to the right
               of them. */}
-          <SectionGrid>
+          {/* THREE PEERS ON ONE LINE, WRAPPING — `wrap` plus a basis per section,
+              never a column count. The basis is ~23rem because that is what one
+              of these grids MEASURES: index + Type (7rem) + Colour (11rem) + ✕
+              and their gaps. A count would have to guess a container width to
+              switch at, and both guesses were wrong — `@7xl` never fired on this
+              pane and `@6xl` would have switched at a width narrower than the
+              content. See `SectionGrid.wrap`. */}
+          <SectionGrid wrap>
             {/* Yarn dyeing */}
-            <div>
+            <div className="min-w-0 flex-[1_1_23rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- TWO grids share the Color/Print Details section; without captions the operator
                    cannot tell which is which. */
@@ -12408,7 +12638,7 @@ export function AmendmentScreen({
               />
             </div>
             {/* Fabric dyeing */}
-            <div>
+            <div className="min-w-0 flex-[1_1_23rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- the other half of the pair above. */
                 label="Fabric Dyeing"
@@ -12419,6 +12649,21 @@ export function AmendmentScreen({
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add fabric dyeing"
+              />
+            </div>
+            {/* Fabric print */}
+            <div className="min-w-0 flex-[1_1_23rem]">
+              <ChildGrid<PrintRow>
+                /* grid-caption: exempt -- the third of three grids in one section; without captions
+                   the operator cannot tell which is which. */
+                label="Fabric Print"
+                columns={printColumns}
+                rows={prints}
+                inlineCards
+                fill
+                onAdd={addPrint}
+                onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add fabric print"
               />
             </div>
             {/* ROLL FORM PRINTS AND STRUCTURES WERE HERE, AND CAME OFF THE TAB
@@ -14224,6 +14469,11 @@ export function AmendmentScreen({
         problems: validity.bySection[t.key],
         // Forwarded, never re-derived — see `OrderTab`.
         skipTab: t.skipTab,
+        /* Style(s) is the only section that sets it today. Forwarded by key
+           rather than hard-coded here for the reason `problems` above is: a
+           second section that needs the wider pane declares it on itself and
+           appears correctly without this line being remembered. */
+        wide: t.wide,
         content: t.content,
       })),
   ];
@@ -14759,26 +15009,25 @@ export function AmendmentScreen({
           readOnly={!perms.canEdit}
         />
       )}
+      {/* MOUNTED AT THE EDITOR ROOT, not inside the grid cell whose button opens
+          it. `ChildGrid` wraps every cell in a `RequiredScope` and that scope
+          follows the RENDER tree, so a sheet rendered from inside a cell would
+          have every optional field within it inherit "required", stamp
+          `data-required-empty` and hold the cursor — the New Yarn bug AGENTS.md
+          records. `Sheet` resets the scope at its portal boundary, and mounting
+          it out here is what puts it on the far side of that boundary. Same
+          placement, and the same reason, as Pack Composition above.
+
+          THE PANEL COPY OF THIS GRID NEEDS NONE OF THAT, and the contrast is
+          worth keeping: a section pane is not a grid cell, so there is no scope
+          to escape and it renders bare. */}
       {processStyle && (
         <StyleProcessSheet
           open
           onClose={() => setProcessForKey(null)}
           styleLabel={processStyle.style_ref_no.trim() || "this style"}
-          /* NO `header` — the six read-only fields it fed (Style Ref No ·
-             Article No · Style No · Style Description · Order Unit · PO Qty)
-             were removed from the sheet on the client's instruction
-             (2026-08-28: "Process — Style ref to PO qty, remove the section, no
-             need this field, remove it from the process tab header also"). The
-             sheet's own note carries the reasoning; what matters here is that
-             NOTHING WAS UNWIRED — every one of the six was a `readOnly` display
-             `<Input>` with no `onChange`, so this prop was a one-way read out of
-             `StyleRow` and dropping it removes no write path. `unitTextOf`,
-             `article_no` and `style_description` are all still live on the row
-             itself. */
           /* The Process cell that opened this — the sheet grows out of that
-             button. See `processOrigin`, and `Sheet`'s `origin` prop for why the
-             MOTION is what this dialog gets instead of the continuous join the
-             client asked about. */
+             button. See `processOrigin`. */
           origin={processOrigin}
           rows={processStyle.processes}
           onChange={(next) => updateStyle(processStyle.key, { processes: next })}
@@ -14786,9 +15035,8 @@ export function AmendmentScreen({
           components={styleComponentOptions(processStyle)}
           newKey={newKey}
           /* No `readOnly`: this editor is only reached through an action already
-             gated on `perms.canEdit`, and the sibling sub-sheets (Assortments,
-             Structure Details) pass none for the same reason. Threading a flag
-             that is always false would read as a mode this screen does not have. */
+             gated on `perms.canEdit`, and the sibling sub-sheets pass none for
+             the same reason. */
         />
       )}
     </div>

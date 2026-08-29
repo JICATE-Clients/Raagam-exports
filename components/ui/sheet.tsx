@@ -295,6 +295,21 @@ export function Sheet({
    * already clamps every transition in the app to 0.01ms for those users, so
    * the panel simply appears; deriving an origin for an animation that does not
    * run would be dead arithmetic on the keystroke path.
+   *
+   * ## NOTHING PASSES THIS TODAY — UNUSED, NOT BROKEN (2026-08-29)
+   *
+   * It was written on 2026-08-28 for one call site, the Garment Order's Process
+   * sheet, and the client moved that grid inline onto the style row the next day
+   * — so the prop outlived its only caller by a day. Said here because a reader
+   * who greps for a usage and finds none will otherwise conclude it never worked.
+   * It does; it is tested by nothing, which is a different claim and the one
+   * worth checking before the next surface leans on it.
+   *
+   * KEPT RATHER THAN DELETED because the capability is the answer to a question
+   * this app has now been asked once and will be asked again — "can the dialog
+   * join the control that opened it?" — and the reasoning above is the whole
+   * reply, including the three reasons it cannot literally join. Deleting the
+   * prop would take that argument with it.
    */
   origin?: SheetOrigin | null;
   /**

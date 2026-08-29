@@ -454,8 +454,22 @@ function normalizeFiles(data: AmendmentInput) {
 
 function normalizePrints(data: AmendmentInput) {
   return data.prints
-    .map((r) => ({ print_id: r.print_id }))
-    .filter((r) => r.print_id)
+    .map((r) => ({ print_id: r.print_id, print_name: clean(r.print_name) }))
+    /**
+     * A ROW COUNTS ONCE IT NAMES A PRINT, BY EITHER ROUTE (0477).
+     *
+     * This tested `print_id` alone, which was right while the cell was a picker
+     * and an id was the only thing a row could hold. The client asked for manual
+     * entry on 2026-08-29, so a row may now carry a typed name and no id — and
+     * against the old test every one of those was **dropped here, silently, on
+     * save**: no error, no refusal, the grid simply came back one row shorter
+     * than it was left. That is the failure this whole change exists to avoid,
+     * and it lived in a filter three tokens long.
+     *
+     * `clean()` is what makes the test honest about whitespace: a cell holding
+     * spaces is a blank cell, and the grid seeds a blank row on every order.
+     */
+    .filter((r) => r.print_id || r.print_name)
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 

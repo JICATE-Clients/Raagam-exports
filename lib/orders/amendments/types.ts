@@ -659,6 +659,8 @@ export interface AmendmentPrint {
   amendment_id: string;
   sno: number;
   print_id: string | null;
+  /** The value — always text, whether picked or typed (0477). See the column. */
+  print_name: string | null;
 }
 
 /** Color/Print tab — a structure row. */
@@ -1292,6 +1294,27 @@ export const amendmentDyeingInput = z.object({
 
 export const amendmentPrintInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
+  /**
+   * THE VALUE, AND THE ONE THE SCREEN WRITES (0477). `print_id` below is set
+   * only when the operator picked a master row; this is filled either way.
+   *
+   * CAPS (AGENTS.md, STANDING) — and in the ZOD, not in the action, for the
+   * reason `amendmentDyeingInput.color_name` states beside it: `lib/data-io`
+   * parses with these same `*Input` schemas and writes straight to Postgres, so
+   * an action-level `.toUpperCase()` misses every path that does not go through
+   * the action. The `<TypeOrPick uppercase>` on the cell is the other half — it
+   * catches the keystroke and adds the CSS transform that reaches rows saved
+   * before this rule.
+   */
+  print_name: capsTextNullable(),
+  /**
+   * KEPT BESIDE THE NAME, never replaced by it. `writeChildren` deletes and
+   * reinserts this grid wholesale, so a field dropped from this input is NULLED
+   * on the next save of every order carrying one — the same argument
+   * `amendmentDyeingInput.color_id` records. It is also what lets
+   * `declaredPrintOptions` still narrow the Combos tab's list to the prints this
+   * order picked.
+   */
   print_id: uuidN,
 });
 
