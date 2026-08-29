@@ -243,6 +243,41 @@ export const PACK_WISE_SIZE_PRICE: PriceType = "Pack-wise Size-wise";
 export const SIZE_WISE_PRICE: PriceType = "Size-wise";
 
 /**
+ * THE ONE MODE AN ORDER WITH NO PACK TYPE IS PRICED IN (client 2026-08-29:
+ * "when Pack Type is No the system locks the grid to standard Style Price
+ * only").
+ *
+ * NAMED, NOT `PRICE_TYPE_OPTIONS[0]`. The tuple's order is its READING order
+ * and the note above says re-ordering it re-orders the dropdown — so an index
+ * would silently become a different mode the first time somebody moved
+ * Color-wise up. The two pack modes beside this are named for the same reason.
+ */
+export const STYLE_WISE_PRICE: PriceType = "Style-wise";
+
+/**
+ * WHAT THE PRICES TAB OFFERS WITH NO PACK TYPE LIVE (client 2026-08-29).
+ *
+ * ## THIS NARROWS; IT DOES NOT REVERSE 2026-08-28
+ *
+ * The pack branch above is untouched — an order WITH a pack type still offers
+ * Pack-wise, Pack-wise Size-wise and Size-wise exactly as that ruling set out.
+ * What changed is the other side of the same `if`, which until now fell through
+ * to the whole six-mode tuple: an order with no pack type could be priced
+ * Color-wise, Size-wise or Color-wise Size-wise, and the client has ruled that
+ * without a pack type there is one rate for the style and nothing else.
+ *
+ * So the two halves are now BOTH narrow, and neither is the full tuple. That is
+ * worth stating because `PRICE_TYPE_OPTIONS` is no longer offered anywhere in
+ * full — it remains the vocabulary (and what `price_type` may hold), not a menu.
+ *
+ * A STORED ROW OUTSIDE THE LIVE LIST IS STILL SHOWN, tagged, by
+ * `priceModeOptions` — the same courtesy the pack branch already extends. A
+ * Color-wise order entered before today reads back as Color-wise rather than
+ * blank, which is the trap the tuple's own note describes.
+ */
+export const NO_PACK_PRICE_MODES: readonly PriceType[] = [STYLE_WISE_PRICE];
+
+/**
  * WHICH MODES THE PRICES TAB OFFERS ONCE A PACK TYPE IS LIVE (client
  * 2026-08-28, second ruling).
  *

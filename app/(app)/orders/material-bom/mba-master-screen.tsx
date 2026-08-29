@@ -59,6 +59,15 @@ import {
   type CombinationRow,
 } from "@/components/orders/bom-combination-sheet";
 import { producibleGrains, slicesForAxes } from "@/lib/orders/bom-explosion/compose";
+/* The purchase stage a raw line starts in, the compounding process-loss rule and
+   its UOM-aware rounding (0476, client 2026-08-29). One module so the screen and
+   the server reach the same Required Qty — two implementations of a purchase
+   quantity is two purchase quantities. */
+import {
+  PURCHASE_STAGE_GREIGE,
+  requiredWithProcessLoss,
+  type ProcessLossRow,
+} from "@/lib/orders/material-bom/process-loss";
 import {
   CLIENT_GRAIN_MATRIX,
   COMBINATION_LOCKED_HINT,
@@ -275,6 +284,20 @@ type ItemRow = {
    * rather than a convenience — see `blankItem`.
    */
   supply_type: string;
+  /**
+   * THE STATE THIS MATERIAL IS BOUGHT IN — "Greige", shown and LOCKED (0476,
+   * client 2026-08-29).
+   *
+   * Carried on the row rather than derived at render, because it is STORED: the
+   * purchase requisition is raised against it, and a value the operator can see
+   * but the record does not hold is a value the next reader cannot trust.
+   *
+   * Distinct from `ProcRow.stage`, four boxes away on the other tab, which is
+   * what a process PRODUCES ("DYED"). 0476's header carries the argument for
+   * keeping them apart; the short version is that one field would have to read
+   * Greige and Dyed at once the moment a line grew a process.
+   */
+  purchase_stage: string;
   vendor_id: string | null;
   purchase_uom_id: string | null;
   consumption_uom_id: string | null;
@@ -446,6 +469,12 @@ const blankItem = (key: string): ItemRow => ({
      New lines only: both load paths carry whatever was stored, blank included,
      because filling one in on read would change what the next save writes. */
   supply_type: DEFAULT_SUPPLY_TYPE,
+  /* GREIGE, and the field is locked on screen — raw stock is what a purchase
+     requisition is raised against (0476). New lines only, exactly as
+     `supply_type` above: both load paths carry whatever was stored, because
+     filling one in on READ would change what the next save writes. A row saved
+     before 0476 reads back blank and the writer's coalesce answers for it. */
+  purchase_stage: PURCHASE_STAGE_GREIGE,
   vendor_id: null,
   purchase_uom_id: null,
   consumption_uom_id: null,
@@ -2865,6 +2894,12 @@ export function MbaMasterScreen({
         style_ref_no: c.style_ref_no ?? "",
         component_id: c.component_id,
         supply_type: c.supply_type ?? "",
+        /* 0476 — MIRRORED, NOT DEFAULTED. A row stored before this column
+           existed reads back blank, and filling it in HERE would change what
+           the next save writes for a line nobody edited. `normalizeItems`
+           coalesces at the boundary instead, which is the one place the
+           substitution is visible. Same call `supply_type` makes above. */
+        purchase_stage: c.purchase_stage ?? "",
         vendor_id: c.vendor_id,
         purchase_uom_id: c.purchase_uom_id,
         consumption_uom_id: c.consumption_uom_id,
@@ -2994,6 +3029,8 @@ export function MbaMasterScreen({
           // the component it named cannot travel either.
           component_id: null,
           supply_type: c.supply_type ?? "",
+          /* 0476 — mirrored, for the reason the other load path states. */
+          purchase_stage: c.purchase_stage ?? "",
           vendor_id: c.vendor_id ?? null,
           purchase_uom_id: c.purchase_uom_id ?? null,
           consumption_uom_id: c.consumption_uom_id ?? null,
@@ -3072,6 +3109,10 @@ export function MbaMasterScreen({
         style_ref_no: c.style_ref_no || null,
         component_id: c.component_id,
         supply_type: c.supply_type || null,
+        /* 0476. NAMED HERE OR IT NEVER LEAVES THE BROWSER — this literal is
+           the whole payload, the trap `component_id` and `requirement_grain`
+           each record on the server side of the same boundary. */
+        purchase_stage: c.purchase_stage || null,
         vendor_id: c.vendor_id,
         purchase_uom_id: c.purchase_uom_id,
         consumption_uom_id: c.consumption_uom_id,
@@ -3706,6 +3747,67 @@ export function MbaMasterScreen({
    *  round-up the client rejected. `uomPrecision` clamps it either way. */
   const uomDecimals = (id: string | null) =>
     data.uoms.find((u) => u.id === id)?.decimal_places_allowed ?? null;
+  /**
+   * THE UNIT'S CODE, for `roundRequirement` (0476).
+   *
+   * `code`, NOT `name` — the pair differ on the one UOM where it matters
+   * (`kg` / "Kilograms"), and a NAME can be re-typed from the master's own
+   * pencil. The same reason `isCircularKnit` matches on a code: a name match
+   * would compile, run and quietly stop rounding.
+   *
+   * A NARROWER PRECEDENT THAN IT LOOKS, and `pieceCoordinateId` is the reason to
+   * say so — it used this idiom to find the coordinate row called PIECES and was
+   * DELETED for it on 2026-08-29, because the rule it served was about how MANY
+   * coordinates a line has, not what one is called. Code-over-name is the right
+   * answer once you genuinely have to identify a specific row; it is no defence
+   * at all against identifying a row you had no business looking up. A UOM
+   * really is that first case: `roundRequirement` has to know THIS unit is
+   * countable, and nothing in the data says so but its code.
+   */
+  const uomCode = (id: string | null) =>
+    data.uoms.find((u) => u.id === id)?.code ?? null;
+
+  /**
+   * THE ITEM'S NAME WITH ITS SPECIFICATIONS FOLDED IN, slash-joined (client
+   * 2026-08-29).
+   *
+   * "Any additional item specifications (like size, label type, printing
+   * details, or fold style) must be dynamically concatenated into the Item Name
+   * field using a slash … instead of cluttering the grid with multiple sparse
+   * columns, merging them into a single, highly readable description column
+   * saves horizontal screen space." Their worked output: `Size Label / Printed /
+   * No Fold`.
+   *
+   * ## THE SPARSE COLUMNS ARE ALREADY FIELDS ON THE LINE
+   *
+   * `specification` and `size` are typed on the Items row and have never had a
+   * column in this grid, which is exactly the client's point: the facts exist
+   * and the requirements grid was not showing them. Nothing new is stored and
+   * nothing is parsed back out — this is a display join, in the one place that
+   * needs it.
+   *
+   * ## BLANKS ARE DROPPED, NOT PRINTED AS GAPS
+   *
+   * A line with no specification reads `BUTTON 4-HOLE`, never `BUTTON 4-HOLE / /`
+   * — an empty segment is the "an unfilled field shows NOTHING" half of the
+   * de-clutter rule, and a trailing separator reads as a value that failed to
+   * load. Each part is trimmed for the same reason: a box holding a space is a
+   * box the operator cleared.
+   *
+   * ## AND IT IS DELIBERATELY NOT `combination` OR `type`
+   *
+   * `combination` is free text nothing has ever read, and its own note warns it
+   * sits four boxes from an unrelated Attribute option reading "Combination
+   * (Color + Size)" — folding it into the NAME would put that ambiguity on every
+   * requirement row. `type` is the material class (already implied by the item)
+   * rather than a specification of it. Both stay off until the client names
+   * them; a join is cheap to extend and expensive to un-teach.
+   */
+  const itemDisplayName = (r: ItemRow) =>
+    [itemName(r.item_id), r.specification, r.size]
+      .map((p) => (p ?? "").trim())
+      .filter(Boolean)
+      .join(" / ");
 
   /**
    * THE LINE'S PACK, AND WHETHER IT MAY BE USED — resolved ONCE.
@@ -3760,10 +3862,51 @@ export function MbaMasterScreen({
    */
   type ReqRow = {
     key: string;
+    /** THE CONCATENATED NAME (client 2026-08-29) — see `itemDisplayName`. */
     material: string;
+    /* `basis` AND `slice` KEPT AS FIELDS, THEIR COLUMNS REMOVED (client
+       2026-08-29: "the fields Basis and Slice must be completely hidden from the
+       user interface … keep the Slice property in your backend business logic as
+       it is still used behind the scenes to handle the splitting calculations").
+
+       BOTH WERE ALWAYS READ-ONLY LABELS HERE — `basis` is derived from the
+       grain by `grainLabel`, `slice` is `slice.label`. Nothing about the
+       explosion reads either, so removing the COLUMNS takes nothing away from
+       the splitting logic; the grain is chosen by the Attribute cell on the
+       Items row, which this change does not touch.
+
+       The fields stay because they cost nothing and the row is a view model
+       rebuilt every render — there is no round trip to break — and because a
+       refusal message is the one place `slice.label` still has to be reachable
+       from. */
     basis: string;
     slice: string;
     colour: string;
+    /**
+     * "Calculated Qty" SINCE 2026-08-29 — AND IT CHANGED WHAT IT HOLDS.
+     *
+     * It was the PRODUCTION count: `slice.qty`, the number of garments in this
+     * slice. The client renamed the label "Production -> Calculated Qty" and, in
+     * the same breath, defined the term: "Calculated Qty clearly signifies the
+     * base theoretical quantity calculated from the marker consumption, and
+     * Required Qty represents the actual final quantity to order after factoring
+     * in process loss", with the worked example "Calculated Qty = 30 Gross".
+     *
+     * A GARMENT COUNT CANNOT BE 30 GROSS, and more to the point the client's own
+     * formula — `Required = Calculated x (1 + loss)` — has to hold between the
+     * two columns an operator can see. Leaving this as garments would print two
+     * adjacent figures whose stated relationship visibly does not hold, which is
+     * worse than either reading on its own.
+     *
+     * So this is now the material requirement BEFORE process loss, and `required`
+     * beside it is the same figure after. The garment count is no longer shown:
+     * it is not one of the four columns the client listed, and it is still one
+     * `slice.qty` away for anything that needs it.
+     *
+     * The FIELD NAME is left alone deliberately — renaming it would touch every
+     * `push()` in a 6,800-line file for no behaviour, and the column header is
+     * what the operator reads.
+     */
     production: number | null;
     required: number | null;
     refusal: string | null;
@@ -3776,6 +3919,20 @@ export function MbaMasterScreen({
     purchase: number | null;
     purchaseUom: string;
     purchaseDecimals: number | null;
+    /**
+     * THE PURCHASE STAGE, CARRIED DOWN FROM THE ITEM LINE (0476).
+     *
+     * The value belongs to the LINE — one `material_bom_amendment_items.
+     * purchase_stage` per material — and every slice a line explodes into
+     * repeats it. That repetition is the honest shape: the stage is a fact
+     * about the goods, not about the split, so a slice cannot disagree with
+     * its line about what arrives in the warehouse.
+     *
+     * OFF THE ROW, NEVER THE CONSTANT: a line SAVED before 0476 renders what it
+     * actually holds — blank included — rather than being shown a "Greige" the
+     * record has not got. `normalizeItems` is the one boundary that substitutes.
+     */
+    stage: string;
   };
 
   /**
@@ -3830,7 +3987,7 @@ export function MbaMasterScreen({
 
     for (const r of items) {
       if (!r.item_id) continue;
-      const material = itemName(r.item_id);
+      const material = itemDisplayName(r);
       /* NAMED FROM THE GRAIN, so a composed one reads "Style Ref No / Order
          Color / Order Size / Country" rather than the dash it would get from a
          `requirement_basis` it does not have. */
@@ -3855,11 +4012,46 @@ export function MbaMasterScreen({
           purchase: null,
           purchaseUom: "—",
           purchaseDecimals: null,
+          /* SET ONCE, HERE, AND NEVER IN A `push()` CALL. Every row this line
+             explodes into carries the line's own stage, including the refusal
+             rows — a slice that cannot be computed still arrives greige, and
+             blanking it there would make the column read as a second failure. */
+          stage: r.purchase_stage,
           ...over,
         });
 
       const uomLabel = uomName(r.consumption_uom_id);
       const uomDp = uomDecimals(r.consumption_uom_id);
+      const uomC = uomCode(r.consumption_uom_id);
+      /**
+       * THIS LINE'S PROCESS CHAIN, as much of it as the loss arithmetic needs
+       * (0476, client 2026-08-29).
+       *
+       * FLAT, AND THAT IS THE HONEST SHAPE TODAY. `prev_row_uid` is a real
+       * column (0446) and `ProcRow` does not carry it — the lifecycle cells that
+       * wrote it were removed on 2026-08-24 — so every row here is a head and
+       * `compoundLossFactor` multiplies them in `sno` order. Passing `null`
+       * rather than inventing a chain is what keeps the fan-out refusal
+       * unreachable instead of accidentally firing on an ordinary line.
+       *
+       * `sno` FROM THE ARRAY INDEX, which is what the save assigns
+       * (`actions.ts`): "sno is assigned at save from the array index". Reading
+       * it any other way here would order the walk differently from the way the
+       * rows are stored.
+       */
+      const lossRows: ProcessLossRow[] = procs
+        .filter((p) => p.item_id === r.item_id)
+        .map((p, i) => ({
+          row_uid: p.row_uid || null,
+          prev_row_uid: null,
+          sno: i + 1,
+          /* A BLANK BOX IS NOT A ZERO AND BOTH MEAN "no loss here" — but they
+             have to reach the rule as `null`, not as `NaN`. `Number("")` is 0
+             and `Number("  ")` is 0, while `Number("abc")` is NaN, and the rule
+             treats a non-finite percentage as absent. Parsed once, here, at the
+             same boundary the payload parses it. */
+          loss_pct: p.loss.trim() ? Number(p.loss) : null,
+        }));
 
       /*
        * THE GRAIN, RESOLVED EXACTLY AS THE SERVER RESOLVES IT (0455).
@@ -4013,7 +4205,33 @@ export function MbaMasterScreen({
         const baseValue = baseRequirementFor(lineInput, slice);
         if (isRefusal(baseValue)) baseTotal = null;
         else if (baseTotal != null) baseTotal += baseValue;
-        const value = requirementFor(lineInput, slice);
+        /**
+         * CALCULATED QTY, then REQUIRED QTY — the two figures the grid now shows
+         * side by side, and the process loss is exactly what separates them
+         * (client 2026-08-29).
+         *
+         *     Calculated Qty = requirementFor(...)          consumption x wastage
+         *     Required Qty   = Calculated x Pi(1 + loss_i)  the dyer's/printer's
+         *
+         * ## WASTAGE AND PROCESS LOSS ARE TWO BUFFERS, NOT ONE
+         *
+         * `requirementFor` already carries the line's own Wastage % — cutting and
+         * handling waste, the client's "two fields not one" from 2026-08-20. The
+         * process loss is what a DYER or PRINTER destroys, declared per stage.
+         * A button can legitimately incur both, so they compose rather than one
+         * replacing the other; `check-process-loss.mts` asserts that composition
+         * ("a dye loss applies on top of the line's wastage").
+         *
+         * ## A LINE WITH NO PROCESSES IS UNCHANGED, TO THE DIGIT
+         *
+         * `requiredWithProcessLoss` returns the base untouched when the factor is
+         * 1 — it does not re-round it. That matters because rounding an already
+         * ceilinged figure a second time is how a number drifts upward for free,
+         * and because 0465's warning was that wiring this "changes every purchase
+         * on a BOM carrying a process". A BOM carrying none must not move at all.
+         */
+        const calculated = requirementFor(lineInput, slice);
+        const value = requiredWithProcessLoss(calculated, lossRows, uomC, uomDp);
         const refused = isRefusal(value);
         const qty = refused ? null : value;
         if (refused) {
@@ -4049,7 +4267,9 @@ export function MbaMasterScreen({
         push({
           slice: slice.label,
           colour: colourOf(r, slice),
-          production: slice.qty,
+          /* THE COLUMN NOW SHOWS THE MATERIAL FIGURE, NOT THE GARMENT COUNT
+             (client 2026-08-29). See the note on `ReqRow.production`. */
+          production: isRefusal(calculated) ? null : calculated,
           required: qty,
           refusal: refused ? value.refused : null,
           purchase:
@@ -5466,31 +5686,74 @@ export function MbaMasterScreen({
     },
   ];
 
+  /**
+   * THE REQUIREMENTS GRID, RE-CUT (client 2026-08-29).
+   *
+   * "Set the grid to display four main columns: Item Name, Item Color,
+   * Calculated Qty, and Required Qty … ensure the grid only shows the
+   * purchase_uom field."
+   *
+   * Was nine: Material · Basis · Slice · Item Color · Production · Required ·
+   * Uom · Purchase Qty · Purchase Uom. What went, and why each one is safe:
+   *
+   * - **Basis and Slice** — read-only labels, derived per render (`grainLabel`,
+   *   `slice.label`). Nothing about the explosion consults either, so hiding
+   *   them takes nothing from the splitting logic, which is exactly the
+   *   client's carve-out ("keep the Slice property in your backend business
+   *   logic"). The grain is still chosen on the Items row's Attribute cell.
+   * - **Purchase Qty** — "having both Required Qty and Purchase Qty as separate
+   *   editable columns in this grid is redundant and confusing. The user only
+   *   needs to see how the quantity is measured for purchase." NEITHER was ever
+   *   editable here, but the redundancy is real: `purchase` is `toPurchaseQty`
+   *   of `required`, the same quantity restated in pack units.
+   *   **THE FIELD STAYS AND IS STILL COMPUTED**, because the LINE's Final
+   *   Quantity and `bomCeilingForOrder` are built from those per-slice figures —
+   *   dropping the computation would change what a purchase order is checked
+   *   against, which is not what "remove a column" asks for.
+   * - **Uom is KEPT**, though the client's four-column list omits it. Required
+   *   Qty is a bare number without it, and the same figure means different
+   *   things in Gross and in Metres — which is the very distinction the new
+   *   rounding rule turns on. Removing it would leave the grid's one important
+   *   number unlabelled.
+   * - **Stage is ADDED**, and it is point 6 of the same six-point message
+   *   ("default … to Greige … and lock/disable the field"). It sits last, after
+   *   the two Uom columns, so the four the client NAMED stay contiguous and
+   *   first. Its own note says why it is on this grid rather than on the Items
+   *   row, which is where the column it reads actually lives.
+   *
+   * Renames are the client's own wording: Production -> Calculated Qty,
+   * Required -> Required Qty. `ReqRow.production` records why the first one also
+   * changed what it HOLDS.
+   */
   const reqColumns: Column<ReqRow>[] = [
-    { header: "Material", cell: (r) => <span className="text-sm">{r.material}</span> },
     {
-      header: "Basis",
-      cell: (r) => <span className="text-xs text-muted-foreground">{r.basis}</span>,
+      /* "Item Name", not "Material" — and it now carries the line's own
+         specification and size, slash-joined (see `itemDisplayName`). */
+      header: "Item Name",
+      cell: (r) => <span className="text-sm">{r.material}</span>,
     },
-    { header: "Slice", cell: (r) => <span className="text-sm">{r.slice}</span> },
     {
       header: "Item Color",
       cell: (r) => <span className="text-sm">{r.colour}</span>,
     },
     {
-      header: "Production",
+      /* THE BASE FIGURE, BEFORE PROCESS LOSS. Muted, because it is the working
+         and `Required Qty` beside it is the answer — the same weighting the two
+         carried as Production and Required. */
+      header: "Calculated Qty",
       align: "right",
       cell: (r) => (
         <span className="tabular-nums text-xs text-muted-foreground">
-          {r.production != null ? fmtNumber(r.production) : "—"}
+          {r.production != null ? fmtQty(r.production, r.decimals) : "—"}
         </span>
       ),
     },
     {
-      header: "Required",
+      header: "Required Qty",
       align: "right",
       // A REFUSAL PRINTS ITS SENTENCE. Not a dash, and never 0: 0 reads as "none
-      // needed", the one answer a material requirement never intends.
+      // needed", the one answer a material requirement never intends. It is also
+      // how a fan-out chain and an impossible loss % reach the operator (0476).
       cell: (r) =>
         r.required != null ? (
           <span className="font-medium tabular-nums">{fmtQty(r.required, r.decimals)}</span>
@@ -5499,16 +5762,62 @@ export function MbaMasterScreen({
         ),
     },
     { header: "Uom", cell: (r) => <span className="text-xs">{r.uom}</span> },
-    {
-      header: "Purchase Qty",
-      align: "right",
-      cell: (r) => (
-        <span className="tabular-nums">
-          {r.purchase != null ? fmtQty(r.purchase, r.purchaseDecimals) : "—"}
-        </span>
-      ),
-    },
     { header: "Purchase Uom", cell: (r) => <span className="text-xs">{r.purchaseUom}</span> },
+    {
+      /**
+       * PURCHASE STAGE — "Greige", SHOWN AND UNCHANGEABLE (0476, client
+       * 2026-08-29: "set the default Stage field value to Greige for all newly
+       * added raw purchase items and lock/disable the field so users cannot
+       * manually change it during entry").
+       *
+       * ## WHY IT IS HERE AND NOT ON THE ITEMS ROW
+       *
+       * It was built there first, which is where the DATA lives — 0476 puts
+       * `purchase_stage` on `material_bom_amendment_items`, one value per line —
+       * and it could not stay. **The Items row is saturated at 32 and every cell
+       * on it is at a floor somebody signed off on.** `FIELD_GROUPS` totals
+       * `4+6+4+3+3+2+2+2+2+2+2`; six of the eleven are already `xs`, the two Uom
+       * cells are `sm` only because their LABELS wrap below that, Attribute
+       * "does not go below `md`" in its own note, and Material holds the two
+       * columns TBA gave it on 2026-08-28. A twelfth cell has to take its span
+       * from one of those, and each one of them is a client decision rather than
+       * a size.
+       *
+       * The alternative is worse: a column not named in `FIELD_GROUPS` falls
+       * into the `orphans` bucket and renders **in a run of its own** — a second
+       * line under the row, which is the exact thing the user rejected in
+       * writing on 2026-08-28 ("why did you make two rows, make it a single row
+       * — the core point of removing the field is making a single row without
+       * conflicts"). Costing them that to display a locked constant is not a
+       * trade worth making silently.
+       *
+       * ## AND THIS IS WHERE THE INSTRUCTION CAME FROM ANYWAY
+       *
+       * The Greige rule arrived as point 6 of a SIX-POINT requirements-screen
+       * spec — the same message that hid Basis and Slice, dropped Purchase Qty,
+       * renamed Production and Required, slashed the Item Name together and
+       * defined the process-loss formula. Every other point lands on this grid.
+       * "Lock/disable the field so users cannot manually change it" is satisfied
+       * more completely by a read-only cell than by a `readOnly` input, and the
+       * client's stated reason — "tracking them as Greige during purchase
+       * prevents inventory systems from incorrectly assuming that pre-colored
+       * materials are already sitting in the warehouse" — is about the figure a
+       * requisition is raised from, which is the number in the column beside it.
+       *
+       * If the client wants the stage on the entry row as well, that is a real
+       * request and a real layout change: it needs 2 spans named out of the
+       * eleven above, from them. Do not take one quietly.
+       *
+       * ## THE VALUE COMES OFF THE ROW, NOT FROM THE CONSTANT
+       *
+       * A line saved before 0476 renders what it holds — a dash if that is
+       * blank — rather than being shown a "Greige" the record does not contain.
+       * `normalizeItems` coalescing on the way in is the one place the
+       * substitution happens, and it is visible there.
+       */
+      header: "Stage",
+      cell: (r) => <span className="text-xs">{r.stage.trim() || "—"}</span>,
+    },
   ];
 
   /*

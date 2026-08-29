@@ -314,6 +314,20 @@ export interface MbaItem {
    */
   component_id: string | null;
   supply_type: string | null;
+  /**
+   * THE STATE THE MATERIAL IS BOUGHT IN — "Greige", locked (0476, client
+   * 2026-08-29).
+   *
+   * Nullable in the TYPE and never null in practice: `normalizeItems` coalesces
+   * a blank to `PURCHASE_STAGE_GREIGE` and the column defaults to it, so the
+   * only way a null arrives is a payload built before this field existed. Typed
+   * loosely for exactly that — a stricter type here would reject an old draft
+   * rather than default it.
+   *
+   * Not to be confused with `processes.stage`, which is what a process PRODUCES
+   * ("Dyed"). 0476's header carries the argument for the two columns.
+   */
+  purchase_stage: string | null;
   vendor_id: string | null;
   purchase_uom_id: string | null;
   consumption_uom_id: string | null;
@@ -809,6 +823,12 @@ export const mbaItemInput = z
     style_ref_no: nullableText,
     component_id: uuidN,
     supply_type: nullableText,
+    /* 0476. `nullableText` and not an enum: the client's stage list is
+       provisional (Greige · Dyed · a "brief mention" of Print), and the
+       neighbouring `processes.stage` is free text for the documented reason that
+       "one sighting is not a vocabulary". A locked control cannot be typed wrong
+       anyway, so a schema enum would only ever fire against an import. */
+    purchase_stage: nullableText,
     vendor_id: uuidN,
     purchase_uom_id: uuidN,
     consumption_uom_id: uuidN,
