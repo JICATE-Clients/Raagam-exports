@@ -70,6 +70,8 @@
     "scripts/check-picker-identity.mts",
     "scripts/check-size-order.mts",
     "scripts/check-composition-match.mts",
+    "scripts/check-process-loss.mts",
+    "scripts/check-combo-anchor.mts",
     "scripts/check-colour-by-type.mts",
     "scripts/check-assort-weights.mts",
     "scripts/check-bom-slices.mts",

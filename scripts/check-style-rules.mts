@@ -21,7 +21,10 @@ import {
   componentTypeForCategory,
   coordinateLimit,
   coordinateCap,
+  coordinatesFull,
+  coordinatesLocked,
   filledCoordinates,
+  impliedCoordinateId,
   unitKindFromCoordinates,
   orphanComponents,
   styleCoordinateIds,
@@ -443,6 +446,250 @@ check("no category leaves Type alone",
   check("forward and backward agree over 1..6", disagree, 0);
 }
 
+
+// ---------------------------------------------------------------------------
+// PCS AUTO-FILL (client 2026-08-29) — `impliedCoordinateId`,
+// `coordinatesLocked`, and the argument they hand to `componentRowStarted`.
+//
+// These three are one rule read from three sides, and the whole feature is safe
+// only while they agree: the screen pre-fills a coordinate, two enforcers then
+// have to NOT read that pre-fill as the operator having started the row. If any
+// one of them drifts, the failure is silent in a different way each time — a
+// caged cursor, Enter stacking blank rows, or junk components saved forever.
+//
+// THERE WAS A FOURTH, `pieceCoordinateId`, AND ITS ABSENCE IS THE POINT. It
+// found the master row whose code was "PIECES" so the Order Unit cell could seed
+// it, and the client removed the idea outright — "no need to choose PIECES also,
+// which is just one coordinate … whatever it is". Its vectors went with it
+// rather than being kept green against a function nothing calls. What is
+// asserted instead, below, is the property that replaced it: NO ASSERTION HERE
+// MENTIONS A COORDINATE'S NAME OR CODE.
+// ---------------------------------------------------------------------------
+{
+  const PIECES = "id-pieces";
+  const TOP = "id-top";
+  const BOTTOM = "id-bottom";
+  // --- impliedCoordinateId: what a component row is pre-filled with ----------
+  const one: CoordinateLike[] = [{ coordinate_id: PIECES }];
+  const two: CoordinateLike[] = [{ coordinate_id: TOP }, { coordinate_id: BOTTOM }];
+  const blank: CoordinateLike[] = [{ coordinate_id: null }];
+
+  check("a PCS line with one coordinate implies it", impliedCoordinateId("piece", one), PIECES);
+  // WHICHEVER IT IS. The pre-fill reads the line's own grid, not the master, so
+  // a legacy PCS line carrying a hand-picked TOP fills with TOP.
+  check(
+    "a PCS line implies whatever its single coordinate is",
+    impliedCoordinateId("piece", [{ coordinate_id: TOP }]),
+    TOP,
+  );
+  check("a PCS line with no coordinate implies nothing", impliedCoordinateId("piece", blank), null);
+  check(
+    "a PCS line over its cap implies nothing — the operator must choose",
+    impliedCoordinateId("piece", two),
+    null,
+  );
+  check("a SET line implies nothing", impliedCoordinateId("set", one), null);
+  // THE LOOP THAT MUST NOT CLOSE. `unitKindFromCoordinates` derives "piece" from
+  // a count of one; if this read that derivation, a line would lock the very
+  // grid the lock was derived from. An unanswered unit implies nothing.
+  check("an unanswered unit implies nothing", impliedCoordinateId(null, one), null);
+  check("blank rows are not counted", impliedCoordinateId("piece", [...one, ...blank]), PIECES);
+
+  // --- coordinatesFull: when "+ Add coordinate" is hidden --------------------
+  // Client 2026-08-29, screenshot 2545: "if I choose order unit as PCS, no need
+  // to '+ Add coordinate' option — hide it, because it is only one for the
+  // order unit PCS."
+  //
+  // DEMONSTRATED FAILING FIRST against the predicate that shipped the bug
+  // (`filledCoordinates(rows) >= cap.max`): 4 of these fell, and the four are
+  // the whole argument for the change — the reported PCS case, the seed
+  // sequence that proves the empty line still opens, and the two SET cases
+  // showing the fault was never only about PCS.
+  const oneBlank: CoordinateLike[] = [{ coordinate_id: null }];
+
+  // THE REPORTED BUG. The line the client was looking at: PCS, one blank row.
+  // `filledCoordinates` read 0 here and the button showed.
+  check("a PCS line on its seeded blank row is full", coordinatesFull("piece", oneBlank), true);
+  check("a PCS line holding its coordinate is full", coordinatesFull("piece", one), true);
+  check("a PCS line over its cap is full", coordinatesFull("piece", two), true);
+
+  // NOT FULL AT ZERO, AND THIS ONE IS LOAD-BEARING RATHER THAN OBVIOUS.
+  // `ChildGrid`'s seedRow effect declines to seed while `hideAdd` is true, so a
+  // rule that answered true here would leave a PCS line with no row, no button
+  // and no way in — the grid would be unreachable, not merely capped.
+  check("an empty PCS line is NOT full — the seed must still fire", coordinatesFull("piece", []), false);
+  check("an empty SET line is not full", coordinatesFull("set", []), false);
+
+  // THE SEQUENCE THAT SETTLES. Written out because it is the argument that the
+  // check above is safe, not merely non-empty: it must terminate at exactly one.
+  {
+    let rows: CoordinateLike[] = [];
+    let seeds = 0;
+    while (!coordinatesFull("piece", rows) && seeds < 5) {
+      rows = [...rows, { coordinate_id: null }];
+      seeds++;
+    }
+    check("a PCS line seeds exactly one row and then stops", seeds, 1);
+  }
+
+  // A SET FILLS AT SIX ROWS, counting the blank one it is sitting on — which is
+  // the pre-existing bug this replaced: 5 filled + 1 blank read as 5, the button
+  // showed at the cap, and `addStyleCoordinate`'s own "last row is blank" guard
+  // declined the click anyway. A button that renders and does nothing.
+  const fiveFilledPlusBlank: CoordinateLike[] = [
+    ...Array.from({ length: 5 }, (_, i) => ({ coordinate_id: `c${i}` })),
+    { coordinate_id: null },
+  ];
+  check("a SET line with 5 filled and a blank is full", coordinatesFull("set", fiveFilledPlusBlank), true);
+  check("a SET line with 5 rows is not", coordinatesFull("set", fiveFilledPlusBlank.slice(0, 5)), false);
+
+  // AN UNANSWERED UNIT TAKES THE CEILING, never the Piece cap — capping it at
+  // one would stop an operator entering a set before they reach the Order Unit
+  // cell, and `coordinateCap` says so in as many words.
+  check("an unanswered unit is not full at one row", coordinatesFull(null, one), false);
+  check("an unanswered unit fills at six", coordinatesFull(null, fiveFilledPlusBlank), true);
+
+  // --- coordinatesLocked: when the row's ✕ may be hidden ---------------------
+  // IT NO LONGER GREYS THE PICKER (client 2026-08-29, "just release"). The
+  // predicate is unchanged and so is every vector below it — what changed is
+  // that the screen hangs one thing off it instead of two. Kept under the old
+  // name for that reason: renaming would churn these assertions to say the same.
+  check("a settled PCS line is locked", coordinatesLocked("piece", one), true);
+  // UNLOCKED WHERE THERE IS STILL SOMETHING TO FIX. Locking either of these
+  // would leave a line `styleProblems` refuses to save with no way to repair it.
+  check("a PCS line with no coordinate is unlocked", coordinatesLocked("piece", blank), false);
+  check("a PCS line over its cap is unlocked", coordinatesLocked("piece", two), false);
+  check("a SET line is never locked", coordinatesLocked("set", two), false);
+  check("an unanswered unit is never locked", coordinatesLocked(null, one), false);
+
+  // A LOCKED GRID IS ALWAYS A SAVEABLE ONE. The lock and the save rule are
+  // written independently, so this is the assertion that keeps them honest.
+  let lockedButUnsaveable = 0;
+  for (const kind of [null, "piece", "set"] as const) {
+    for (const rows of [[], blank, one, two, [...two, { coordinate_id: PIECES }]]) {
+      if (!coordinatesLocked(kind, rows)) continue;
+      const problems = styleProblems({ unit_kind: kind, coordinates: rows, components: [] });
+      if (problems.some((p) => p.section === "coordinates")) lockedButUnsaveable++;
+    }
+  }
+  check("no locked grid is one the save would refuse", lockedButUnsaveable, 0);
+
+  // --- THE RULE IS BLIND TO A COORDINATE'S NAME -----------------------------
+  // The property that replaced `pieceCoordinateId` (client 2026-08-29: "no need
+  // to choose PIECES also, which is just one coordinate … whatever it is").
+  //
+  // Asserted STRUCTURALLY rather than by one more TOP case: a single coordinate
+  // whose id, code and name have nothing to do with "PIECES" — including one the
+  // GAR master has never held — must drive the whole chain identically to the
+  // PIECES row. If a name test is ever reintroduced anywhere in this rule, every
+  // line below flips at once.
+  //
+  // DEMONSTRATED FAILING FIRST, by making `impliedCoordinateId` name-coupled
+  // again (`ids[0].toUpperCase().includes("PIECES") ? ids[0] : null`). Seven
+  // vectors fell, and WHICH seven is the useful part:
+  //
+  //  - the two rules that CALL it — implied and locked — failed on three of the
+  //    four odd ids, plus the pre-existing "whatever its single coordinate is";
+  //  - `componentRowStarted` and `orphanComponents` did NOT, because they take
+  //    the implied id as an ARGUMENT rather than deriving it. That is the seam
+  //    working as intended, and it is why the loop asserts all four rather than
+  //    trusting the first two to speak for the rest.
+  //  - **"id-pieces-not-really" survived the mutation**, which is the near miss
+  //    a substring test always lets through and the reason an id that merely
+  //    LOOKS like the old constant is in the list at all.
+  for (const odd of ["id-sleeve-panel", "id-🙂", "id-", "id-pieces-not-really"]) {
+    const solo: CoordinateLike[] = [{ coordinate_id: odd }];
+    check(`a lone "${odd}" is implied like any other`, impliedCoordinateId("piece", solo), odd);
+    check(`a lone "${odd}" settles the grid`, coordinatesLocked("piece", solo), true);
+    check(
+      `a row pre-filled with "${odd}" is not started`,
+      componentRowStarted({ coordinate_id: odd }, odd),
+      false,
+    );
+    // AND IT IS STILL AN ORPHAN WHEN IT DOES NOT BELONG. Name-blindness must not
+    // become "any coordinate is fine" — the save rule is what keeps that honest.
+    check(
+      `"${odd}" is an orphan under a line that lists PIECES`,
+      orphanComponents([{ coordinate_id: odd }], one),
+      1,
+    );
+  }
+
+  // --- componentRowStarted: the pre-fill is not a start ----------------------
+  const prefilled = { coordinate_id: PIECES, component_id: null, fabric_category_id: null };
+  check("a row holding only the pre-fill is not started", componentRowStarted(prefilled, PIECES), false);
+  // AND EVERY OTHER COORDINATE STILL IS. Choosing TOP on a PCS line took a
+  // decision — and it is the orphan `styleProblems` has to be able to see.
+  check(
+    "a row holding a DIFFERENT coordinate is started",
+    componentRowStarted({ ...prefilled, coordinate_id: TOP }, PIECES),
+    true,
+  );
+  check(
+    "a pre-filled row that names a component is started",
+    componentRowStarted({ ...prefilled, component_id: "c1" }, PIECES),
+    true,
+  );
+  check(
+    "a pre-filled row that names a structure is started",
+    componentRowStarted({ ...prefilled, fabric_category_id: "f1" }, PIECES),
+    true,
+  );
+  // BACKWARD COMPATIBLE. The Style master's grid has no auto-fill and passes
+  // nothing; omitting the argument must answer exactly as it always did.
+  check("with no implied coordinate a coordinate is still a start", componentRowStarted(prefilled), true);
+  check(
+    "an undefined implied coordinate reads as none",
+    componentRowStarted(prefilled, undefined),
+    true,
+  );
+  check("a truly blank row is never started", componentRowStarted({}, PIECES), false);
+  check("a blank row with a null implied is never started", componentRowStarted({}, null), false);
+
+  // THE POINT-FREE CALL SITE. `.filter(componentRowStarted)` hands the row INDEX
+  // as the second argument — which `lib/orders/styles/actions.ts` did, and which
+  // stopped compiling the moment the argument was added. It was wrapped there.
+  //
+  // THE BEHAVIOUR WOULD HAVE BEEN FINE, and saying so is the point of keeping
+  // this: an index is a number and a coordinate id is a string, so
+  // `r.coordinate_id !== 0` is true for every row that has one and the predicate
+  // answers exactly as it did before. The compiler is the whole guard here, and
+  // a reader who assumes a silent data bug would go looking for one that is not
+  // there. Asserted rather than described, so it cannot rot into folklore.
+  const rows = [{}, {}, {}];
+  check(
+    "a point-free filter still drops blank rows — the index is a compile error, not a data bug",
+    // @ts-expect-error the shape that no longer type-checks, kept to prove it is harmless
+    rows.filter(componentRowStarted).length,
+    0,
+  );
+  check("a wrapped filter drops them all", rows.filter((r) => componentRowStarted(r)).length, 0);
+  // AND A ROW THAT HOLDS A COORDINATE IS STARTED EITHER WAY, which is the half
+  // that would actually have mattered had numbers and ids been comparable.
+  check(
+    "an index never masks a real coordinate",
+    [{ coordinate_id: PIECES }].filter((r, i) =>
+      componentRowStarted(r, i as unknown as string),
+    ).length,
+    1,
+  );
+
+  // THE PRE-FILLED ROW IS DROPPED BY THE SAVE, which is the third enforcer and
+  // the one whose failure is permanent — a kept row reappears on every open.
+  const saved = [prefilled, { ...prefilled, component_id: "c1" }].filter((r) =>
+    componentRowStarted(r, PIECES),
+  );
+  check("the save keeps only the row the operator answered", saved.length, 1);
+
+  // AND A PRE-FILLED ROW IS NOT AN ORPHAN. Its coordinate is the line's own, so
+  // nothing here fires — which is exactly why `componentRowStarted` has to be
+  // the thing that drops it.
+  check(
+    "a pre-filled row is not an orphan",
+    orphanComponents([prefilled] as ComponentLike[], one),
+    0,
+  );
+}
 console.log(
   failed === 0 ? "\nAll style-rule vectors passed." : `\n${failed} vector(s) FAILED.`,
 );

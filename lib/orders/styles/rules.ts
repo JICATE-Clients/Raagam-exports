@@ -151,6 +151,56 @@ export function filledCoordinates(rows: readonly CoordinateLike[]): number {
 }
 
 /**
+ * HAS THIS LINE GOT ALL THE COORDINATE ROWS IT MAY HAVE? — the one rule behind
+ * both "+ Add coordinate" being hidden and `addStyleCoordinate` refusing.
+ *
+ * ## IT COUNTS ROWS, NOT FILLED ONES, AND THAT IS THE WHOLE POINT
+ *
+ * Both call sites used to read `filledCoordinates(rows) >= cap.max`, which was
+ * correct only while something wrote the coordinate FOR the operator. It did:
+ * answering Order Unit = PCS seeded a PIECES row, so a Pcs line was at 1 filled
+ * the instant it was answered and the button hid itself.
+ *
+ * That seeding was removed on 2026-08-29 ("no need to choose PIECES also, which
+ * is just one coordinate … whatever it is"), and the button came back — a Pcs
+ * line now sits on ONE BLANK ROW, `filledCoordinates` reads 0, and 0 >= 1 is
+ * false. The client reported it the same day, against screenshot 2545: "if I
+ * choose order unit as PCS, no need to '+ Add coordinate' option — hide it,
+ * because it is only one for the order unit PCS."
+ *
+ * A blank row is a SLOT, and a slot the operator is about to fill still occupies
+ * the line's one allowance. So the arity question is about rows.
+ *
+ * **This is the second bug that removal caused and the first one it exposed.**
+ * Counting filled rows was already wrong on a Set: 5 filled plus the blank 6th
+ * read as 5, so the button showed at the cap — and `addStyleCoordinate` then
+ * declined it anyway, through its separate "last row is still blank" guard. A
+ * button that renders and does nothing is the same defect, one row further
+ * along, and it had been there since 0392.
+ *
+ * ## IT MUST NOT FIRE ON AN EMPTY LINE, AND DOES NOT
+ *
+ * `ChildGrid`'s `seedRow` effect declines to seed while `hideAdd` is true, so a
+ * rule that hid the button at zero rows would leave a Pcs line with no row, no
+ * button and no way in. Zero is below every cap (`COORDINATE_LIMITS.piece.min`
+ * is 1), so the sequence settles on its own: 0 rows -> not full -> seed fires ->
+ * 1 row -> full -> button hides. Deleting the row re-opens it and re-seeds.
+ *
+ * ## AN OVER-CAP LINE IS FULL, NOT BROKEN
+ *
+ * Switch a three-coordinate style to PCS and this answers true — the button
+ * goes, the three rows stay, and `styleProblems` says why the save is refused.
+ * Deleting entered rows because a dropdown changed is the data loss
+ * `coordinateCap` refuses in the same words.
+ */
+export function coordinatesFull(
+  unitKind: string | null | undefined,
+  rows: readonly CoordinateLike[],
+): boolean {
+  return rows.length >= coordinateCap(unitKind).max;
+}
+
+/**
  * The component TYPE a fabric CATEGORY implies — the "Type" cell on a
  * Components row, filled from the Structure cell beside it.
  *
@@ -215,6 +265,136 @@ export function styleCoordinateIds(rows: readonly CoordinateLike[]): Set<string>
 }
 
 /**
+ * NO MASTER ROW IS SPECIAL — "Pcs" MEANS ONE COORDINATE, NOT ONE NAMED "PIECES".
+ *
+ * This is where `PIECE_COORDINATE_CODE` and `pieceCoordinateId` were, and they
+ * are gone rather than deprecated (client 2026-08-29: "no need to choose PIECES
+ * also, which is just one coordinate … whatever it is").
+ *
+ * ## WHAT THEY DID, AND WHY IT LOOKED RIGHT
+ *
+ * A coordinate is a garment (0396), so the master holds BOTTOM, INNER, OUTER,
+ * PIECES and TOP. Four are parts of a set and PIECES names a garment sold on its
+ * own — so Order Unit = Piece was read as "therefore the coordinate is PIECES",
+ * and answering the dropdown seeded that master row into the grid by matching
+ * its code.
+ *
+ * ## WHY IT WAS WRONG
+ *
+ * The cap is a COUNT, not a name. `coordinateCap` says a Piece garment has one
+ * coordinate; it says nothing about which, and nothing stops a customer's Pcs
+ * order being filed under TOP, or under a coordinate this master has not been
+ * taught yet. Matching on the string "PIECES" turned a rule about arity into a
+ * rule about vocabulary, and a vocabulary rule is the one thing this repo has
+ * already paid for inventing (AGENTS.md, Near misses: a seeded word list
+ * "corrected" a Packing Accessories name to COTTON and the client had the
+ * feature removed two days later).
+ *
+ * It also silently coupled the screen to a row nobody promised: rename PIECES to
+ * PIECE in the master and the seeding stops, with no error and no clue — the
+ * grid just goes back to asking. That failure mode is invisible in exactly the
+ * database where it happens.
+ *
+ * ## WHAT REPLACED IT
+ *
+ * Nothing, on the seeding side: a Pcs line opens on the blank row `seedRow`
+ * gives every grid and the operator picks whichever coordinate it is. The
+ * PRE-FILL survives untouched, because `impliedCoordinateId` below never read
+ * the code — it reads the line's own grid and answers "there is exactly one, so
+ * a component's coordinate is not a question". That distinction is the whole
+ * reason only one of the two functions had to go.
+ */
+
+/**
+ * THE COORDINATE EVERY COMPONENT OF THIS LINE BELONGS TO, when there is only
+ * one it could be — the value the Components grid pre-fills (client 2026-08-29:
+ * "because there is only one coordinate option, no dropdown selection is
+ * required, and the user is spared from manual cursor clicks").
+ *
+ * READS THE LINE'S OWN GRID, AND NEVER A MASTER ROW'S NAME. It asks only "does
+ * this line have exactly one coordinate?", so a PCS order filed under TOP fills
+ * its components with TOP — whichever coordinate it is, which is the client's
+ * own correction ("no need to choose PIECES also, which is just one coordinate …
+ * whatever it is", 2026-08-29).
+ *
+ * THAT IS WHY THIS FUNCTION SURVIVED AND ITS SIBLING DID NOT. The seeder asked
+ * "which master row means one garment?" — a question about vocabulary, and one
+ * a renamed row silently breaks. This asks a question about ARITY, which the
+ * data answers on its own. See the note where `pieceCoordinateId` used to be.
+ *
+ * NULL IS THE ANSWER FOR EVERY OTHER STATE, and each of them is a state where
+ * the operator must choose:
+ *
+ *   - a SET line — several coordinates, which is the whole point of a set;
+ *   - a PCS line with no coordinate yet — there is nothing to fill with;
+ *   - a PCS line carrying MORE than one — legacy data, or a line switched to
+ *     PCS after its coordinates were entered. `styleProblems` already refuses
+ *     to save that, and the operator fixes it by hand; pre-filling one of
+ *     several would be picking for them.
+ *   - an UNANSWERED unit — `unitKindFromCoordinates` derives PCS from a count
+ *     of one, and reading that here would close the loop `coordinateCap`'s note
+ *     spells out: a derived PCS would lock the grid that derived it.
+ */
+export function impliedCoordinateId(
+  unitKind: string | null | undefined,
+  rows: readonly CoordinateLike[],
+): string | null {
+  if (unitKind !== "piece") return null;
+  const ids = [...styleCoordinateIds(rows)];
+  return ids.length === 1 ? ids[0] : null;
+}
+
+/**
+ * IS THE LINE'S ONE COORDINATE SETTLED — i.e. may its ✕ be hidden?
+ *
+ * ## THE NAME IS WIDER THAN THE JOB, AND THE JOB SHRANK ON PURPOSE
+ *
+ * It was written for the whole of "the coordinates grid displays exactly one
+ * row and disables any manual adding, editing, or deletion of coordinates"
+ * (client 2026-08-29) and greyed the picker as well as hiding the ✕. The client
+ * released the EDITING half the same day — "just release, no need to choose
+ * there" (screenshot 2544) — so exactly one caller reads this now, and it reads
+ * it for `hideRemove`.
+ *
+ * **The name is deliberately NOT changed to `coordinateRemovable`.** Every
+ * assertion in `check-style-rules.mts` is keyed to it, including the invariant
+ * that matters most ("no locked grid is one the save would refuse"), and a
+ * rename would churn those without changing a single answer. What was wrong was
+ * never this predicate — it returns exactly what it always did — but the number
+ * of things the screen hung off it. Read the caller for what it gates.
+ *
+ * ADDING IS NOT THIS. `coordinateCap` hides "+ Add" and always did; it is the
+ * Style master's rule (a Piece garment has one coordinate, a Set has several)
+ * rather than anything this instruction introduced.
+ *
+ * True only when the line is ALREADY in the state the rule describes — PCS, one
+ * coordinate, and no second row to argue about. That is narrower than the
+ * instruction reads, and the narrowing is the point rather than a hedge:
+ *
+ * **A lock is only safe where there is nothing left to fix.** Switch a
+ * three-coordinate line to PCS and `styleProblems` refuses the save ("A Piece
+ * style allows at most 1 coordinate — there are 3"). Locking THAT grid would
+ * leave the operator holding a line they cannot save and cannot repair, with
+ * the only remedy being to switch the unit back — a dead end produced by a rule
+ * meant to save keystrokes. So a line that is over its cap stays editable until
+ * it is back inside it, and locks itself the moment it is.
+ *
+ * The same reasoning covers the empty case from the other side: a PCS line with
+ * no coordinate is unlocked so the seed, or the operator, can put one there.
+ *
+ * Deliberately NOT a second reading of `coordinateCap`. That answers "may this
+ * line grow?"; this answers "is its one coordinate settled enough that removing
+ * it could only produce an error?", and the two differ on exactly the rows above
+ * — over the cap, growth is refused while the ✕ must stay reachable.
+ */
+export function coordinatesLocked(
+  unitKind: string | null | undefined,
+  rows: readonly CoordinateLike[],
+): boolean {
+  return impliedCoordinateId(unitKind, rows) !== null;
+}
+
+/**
  * Components filed under a coordinate the style does not have.
  *
  * A component with NO coordinate is not an orphan — it is unanswered, and the
@@ -240,16 +420,42 @@ export function orphanComponents(
 /**
  * Has the operator STARTED this component row?
  *
- * ONE PREDICATE, TWO READERS, and they must not drift. The save path drops a
- * component row that holds nothing (`normalizeComponents`), and the screen marks
- * a row's mandatory cells `required` only once it is started. Those are the same
- * question asked from opposite ends: require a field on a row that will be
- * dropped and the operator is caged on a row they never meant to add; drop a row
- * whose fields were required and a half-filled component vanishes silently.
+ * ONE PREDICATE, THREE READERS, and they must not drift. The save path drops a
+ * component row that holds nothing (`normalizeStyleComponents`), the screen
+ * marks a row's mandatory cells `required` only once it is started, and the
+ * "+ Add" button DECLINES while the last row is unstarted so Enter cannot stack
+ * blanks. Those are the same question asked from three directions: require a
+ * field on a row that will be dropped and the operator is caged on a row they
+ * never meant to add; drop a row whose fields were required and a half-filled
+ * component vanishes silently; disagree with either and "+ Add" grows a row the
+ * save then throws away.
  *
  * The trailing blank row is the case this exists for. `ChildGrid` seeds one, and
  * `material-attribute-master-screen.tsx` learned the same lesson with its star
  * row: "requiring it would cage the operator on a row they never meant to add".
+ *
+ * ## `impliedCoordinateId` — A VALUE THE SYSTEM PUT THERE IS NOT A START
+ *
+ * The third reader arrived with the PCS auto-fill (client 2026-08-29): on a
+ * Piece line a new component row is born holding the line's only coordinate,
+ * so the operator does not have to open a one-item dropdown per row. Without
+ * this argument that row reads as started to all three readers at once, and
+ * each of them then does the wrong thing:
+ *
+ *   - `required` fires on a row nobody has touched, and a blank mandatory cell
+ *     HOLDS THE CURSOR (AGENTS.md) — so adding a component would trap the
+ *     operator in it;
+ *   - "+ Add" stops declining, so Enter stacks blank rows without limit;
+ *   - the save keeps a row with a coordinate and no component — junk that
+ *     `orphanComponents` cannot flag, because its coordinate is perfectly valid.
+ *
+ * A convenience that quietly turns three rules off is worse than the two clicks
+ * it saved. So pass the implied coordinate wherever one exists and the predicate
+ * discounts exactly that one value — any OTHER coordinate is still a start,
+ * because choosing it took a decision.
+ *
+ * OPTIONAL, AND OMITTING IT IS THE OLD BEHAVIOUR. The Style master's own grid
+ * has no auto-fill and passes nothing.
  */
 export type ComponentRowLike = {
   coordinate_id?: string | null;
@@ -259,9 +465,14 @@ export type ComponentRowLike = {
   item_id?: string | null;
 };
 
-export function componentRowStarted(r: ComponentRowLike): boolean {
+export function componentRowStarted(
+  r: ComponentRowLike,
+  impliedCoordinate?: string | null,
+): boolean {
+  const coordinateChosen =
+    !!r.coordinate_id && r.coordinate_id !== (impliedCoordinate ?? null);
   return !!(
-    r.coordinate_id ||
+    coordinateChosen ||
     r.component_id ||
     r.fabric_category_id ||
     (r.comp_type && r.comp_type.trim()) ||

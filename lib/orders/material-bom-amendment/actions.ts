@@ -41,6 +41,15 @@ import {
 } from "@/lib/orders/material-bom/slice-consumption";
 import { toPurchaseQty, uomPrecision } from "@/lib/uom/convert";
 import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
+/* The purchase stage every raw line starts in, and the loss rule that inflates
+   a line carrying processes (0476, client 2026-08-29). Imported rather than
+   spelled out: 0475 records on this same table what a hand-typed second copy of
+   a stored literal costs when the cases drift. */
+import {
+  PURCHASE_STAGE_GREIGE,
+  requiredWithProcessLoss,
+  type ProcessLossRow,
+} from "@/lib/orders/material-bom/process-loss";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -94,6 +103,28 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
       // written over a value; the value never left the browser.
       component_id: c.component_id ?? null,
       supply_type: clean(c.supply_type),
+      /**
+       * 0476 — the PURCHASE STAGE, "Greige" and locked (client 2026-08-29).
+       *
+       * Named here for the reason `component_id`, `send_out`, `free_of_cost` and
+       * `round_to` all record on this same literal: it is the whole write, so a
+       * column left out of it dies at the server boundary with no type error and
+       * no null written over a value — the value simply never leaves the browser.
+       *
+       * ## AND THE `??` IS THE HALF 0475 SHIPPED WITHOUT
+       *
+       * A COLUMN DEFAULT ONLY FIRES WHEN THE INSERT OMITS THE COLUMN. 0475 set
+       * `supply_type default 'Local'` and wrote its own gap down: this literal
+       * NAMES the column, `clean()` returns NULL for a blank, "so every insert
+       * this app makes NAMES the column, and the default will never fire through
+       * the application's own writer".
+       *
+       * That is the line directly above, still true and still reported. This one
+       * does not repeat it: the coalesce is what makes the invariant hold through
+       * the app's own save path, and 0476's default then covers the writers this
+       * file is not — a `lib/data-io` import, a hand-written INSERT.
+       */
+      purchase_stage: clean(c.purchase_stage) ?? PURCHASE_STAGE_GREIGE,
       vendor_id: c.vendor_id ?? null,
       purchase_uom_id: c.purchase_uom_id ?? null,
       consumption_uom_id: c.consumption_uom_id ?? null,
@@ -339,6 +370,12 @@ type PackContext = {
   conversions: Map<string, ConversionRow>;
   conversionList: ConversionRow[];
   uomDecimals: Map<string, number | null>;
+  /* THE UNIT'S CODE, for `roundRequirement` — a Gross ceils to a whole unit and
+     a Metre keeps its decimals (0476). Decimals alone cannot answer that: every
+     uom in this database declares 2, including GROSS and PCS, so a rule keyed on
+     precision would round nothing at all. Same read as `uomDecimals`, one more
+     column. */
+  uomCodes: Map<string, string | null>;
 };
 
 async function packContext(s: Awaited<ReturnType<typeof createClient>>): Promise<PackContext> {
@@ -346,18 +383,19 @@ async function packContext(s: Awaited<ReturnType<typeof createClient>>): Promise
     s
       .from("material_uom_conversions")
       .select("id, item_id, alt_qty, alt_uom_id, base_qty, base_uom_id"),
-    s.from("uoms").select("id, decimal_places_allowed"),
+    s.from("uoms").select("id, code, decimal_places_allowed"),
   ]);
   const conversionList = (conv.data ?? []) as ConversionRow[];
+  const uomRows = (uoms.data ?? []) as {
+    id: string;
+    code: string | null;
+    decimal_places_allowed: number | null;
+  }[];
   return {
     conversions: new Map(conversionList.map((c) => [c.id, c])),
     conversionList,
-    uomDecimals: new Map(
-      ((uoms.data ?? []) as { id: string; decimal_places_allowed: number | null }[]).map((u) => [
-        u.id,
-        u.decimal_places_allowed,
-      ]),
-    ),
+    uomDecimals: new Map(uomRows.map((u) => [u.id, u.decimal_places_allowed])),
+    uomCodes: new Map(uomRows.map((u) => [u.id, u.code])),
   };
 }
 
@@ -504,9 +542,57 @@ function requirementRows(
   items: ItemRowWithId[],
   order: OrderProductionInput,
   packs: PackContext,
+  processes: ReturnType<typeof normalizeProcesses>,
 ): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   let sno = 0;
+
+  /*
+   * THE PROCESS ROWS, GROUPED BY MATERIAL — the loss chain each line carries.
+   *
+   * ## WHY THE SERVER HAS TO DO THIS AT ALL
+   *
+   * `required_qty` is what `bomCeilingForOrder` caps a purchase order against.
+   * The screen shows the operator a Required Qty inflated by process loss
+   * (0476); if this function stored the figure BEFORE loss, an operator reading
+   * "31 Gross" and raising a PO for 31 would be refused by a ceiling of 30 —
+   * with nothing on either screen to say why the two disagree. That is this
+   * module's oldest failure shape and its own header names it: *"a screen that
+   * resolved a pack the server did not would show a purchase figure that no
+   * control ever enforced."* Same store, same reading, same answer.
+   *
+   * ## GROUPED BY `item_id`, WHICH IS THE PROCESS ROW'S OWN LINK
+   *
+   * A process names a MATERIAL, not a BOM line — `material_bom_amendment_
+   * processes.item_id` — so two lines buying the same trim share its chain.
+   * That is the grain the screen groups on and it is the grain here; picking a
+   * different one would be the screen/server split all over again.
+   *
+   * A process with no material reaches nothing. It cannot be attributed, and
+   * spreading its loss across every line would inflate materials nobody sends
+   * anywhere.
+   *
+   * ## `prev_row_uid` IS NULL BECAUSE NOTHING WRITES IT
+   *
+   * The column exists and `compoundLossFactor` walks it, so a chain declared
+   * later compounds in order and a FAN-OUT refuses rather than guessing a
+   * branch. Today every row is a head, which the rule reads as one sequence —
+   * `check-process-loss.mts` asserts exactly that ("a flat list is not
+   * fan-out"), because reading several heads AS fan-out would refuse 100% of
+   * real lines.
+   */
+  const lossByItem = new Map<string, ProcessLossRow[]>();
+  for (const p of processes) {
+    if (!p.item_id) continue;
+    const chain = lossByItem.get(p.item_id) ?? [];
+    chain.push({
+      row_uid: p.row_uid ?? null,
+      prev_row_uid: null,
+      sno: chain.length + 1,
+      loss_pct: p.loss_pct ?? null,
+    });
+    lossByItem.set(p.item_id, chain);
+  }
 
   for (const line of items) {
     // A line with no material is scaffolding, not a requirement.
@@ -765,7 +851,7 @@ function requirementRows(
           ? panelConsumption(use, line, split)
           : { no_of_items: use.no_of_items, per_pieces: use.per_pieces };
 
-        const value = requirementFor(
+        const calculated = requirementFor(
           {
             no_of_items: ratio.no_of_items,
             per_pieces: ratio.per_pieces,
@@ -781,6 +867,35 @@ function requirementRows(
               : null,
           },
           slice,
+        );
+
+        /*
+         * PROCESS LOSS ON TOP OF THE CALCULATED FIGURE (0476) — the same
+         * composition the screen makes, from the same function.
+         *
+         * `Required Qty = Calculated Qty x (1 + loss%/100)`, compounding per
+         * stage, then rounded by what the unit IS: a Gross ceils to a whole
+         * unit, a Metre ceils to its declared decimals.
+         *
+         * WASTAGE AND LOSS ARE DIFFERENT BUFFERS AND BOTH APPLY. `calculated`
+         * already carries the line's Excess % — cutting waste, ours — while
+         * this is loss at a DYER or PRINTER on goods that have left the
+         * building. Neither restates the other, which is why they multiply
+         * rather than one replacing the other.
+         *
+         * A REFUSAL FROM EITHER SIDE REACHES `refusal_reason`. `requiredWith
+         * ProcessLoss` passes a base refusal straight through, so the sentence
+         * an operator reads is the first thing that actually went wrong — a
+         * missing ratio stays "Enter how many are used per piece" rather than
+         * being restated as a loss problem.
+         */
+        const value = requiredWithProcessLoss(
+          calculated,
+          lossByItem.get(line.item_id) ?? [],
+          line.consumption_uom_id ? (packs.uomCodes.get(line.consumption_uom_id) ?? null) : null,
+          line.consumption_uom_id
+            ? (packs.uomDecimals.get(line.consumption_uom_id) ?? null)
+            : null,
         );
 
         const refused = isRefusal(value);
@@ -1169,7 +1284,12 @@ async function writeChildren(
 
   if (order && savedItems.length) {
     const packs = await packContext(s);
-    const rows = requirementRows(savedItems, order, packs);
+    /* THE ROWS THAT WERE ACTUALLY INSERTED, not `data.processes` and not a
+       second `normalizeProcesses(data)` — a row the filter dropped as empty is
+       a row with no loss to contribute, and a requirement computed from a
+       process the database has not got is the screen/server split this function
+       exists to close, arriving from the process side. */
+    const rows = requirementRows(savedItems, order, packs, processes);
     if (rows.length) {
       const { error } = await s
         .from("material_bom_amendment_requirements")

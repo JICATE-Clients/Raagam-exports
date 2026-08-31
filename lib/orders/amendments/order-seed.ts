@@ -693,7 +693,26 @@ export async function seedAmendmentFromOrder(
     seenPrint.add(text.toUpperCase());
     const id = printByName.get(text.toUpperCase()) ?? null;
     if (!id && !keepUnmatchedMaster("print", text)) continue;
-    prints.push({ sno: prints.length + 1, print_id: id });
+    /**
+     * THE TEXT CARRIES ACROSS NOW, NOT JUST THE ID (0477).
+     *
+     * This pushed `print_id` alone, so an order naming a print the master has
+     * never heard of seeded a row with an EMPTY cell — the accepted cost the
+     * `keepUnmatchedMaster` note states in as many words: "a seeded amendment
+     * can arrive with blanks that must be filled before it will save."
+     *
+     * The order has always carried the print as free text
+     * (`order_fabric_components.fabric_print`) and this loop has always had it
+     * in `text`; there was simply nowhere on the amendment to put it. There is
+     * now, so the operator sees the print the order actually names and the id
+     * alone is blank — the same shape `color_name` beside it has used since
+     * 2026-08-09, and the reason the two loops now read alike.
+     *
+     * THE DECISION ABOVE IS UNCHANGED. `keepUnmatchedMaster` still returns true
+     * and the row is still kept; what changes is that keeping it is no longer
+     * silent about WHAT was kept.
+     */
+    prints.push({ sno: prints.length + 1, print_id: id, print_name: text });
   }
 
   /**

@@ -132,10 +132,18 @@ drop sequence if exists public.seq_yarn_purchase_rate;
 -- is now PO price → budget rate. Priority numbers keep 0351's values (1 and 3)
 -- so the ordering reads the same and the gap says a tier was withdrawn.
 --
--- This is not cosmetic: trg_stock_ledger_rate calls it BEFORE INSERT on every
--- stock_ledger row, and the body is a string literal Postgres does not
--- dependency-check. Left alone it would fail at the next stock posting.
+-- This is not cosmetic: it is reached on every stock_ledger insert, and the body
+-- is a string literal Postgres does not dependency-check. Left alone it would
+-- fail at the next stock posting rather than here.
 -- Signature, volatility, security and grants are unchanged.
+--
+-- The exact path, verified against live when this was applied (2026-08-01) —
+-- an earlier draft of this note named a trigger `trg_stock_ledger_rate` that
+-- does not exist:
+--   stock_ledger BEFORE INSERT -> trg_stamp_stock_defaults
+--     -> stamp_stock_movement_defaults() -> resolve_item_rate()
+-- After applying, `resolve_item_rate` executes cleanly and no function or view
+-- in the schema references any dropped table.
 -- ---------------------------------------------------------------------------
 create or replace function public.resolve_item_rate(p_item_id uuid, p_as_of date default current_date)
 returns numeric

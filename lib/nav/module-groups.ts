@@ -345,10 +345,25 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // the Amendments group's slug is `changes` — and `owningNavHref`,
       // `backTarget` and nav search all read the LABEL, so the rename reaches
       // every surface without touching a route.
+      //
+      // AND "ORDER PREPARATION" BECAME "ORDER MANAGEMENT" ON 2026-08-28
+      // (client). The reasoning above is unchanged and still rules out
+      // "Order Setup" and "Order Planning"; what the client picked instead is
+      // the wider word, because the group no longer only PREPARES an order —
+      // Approval closes the loop on it, and the row is where an operator goes
+      // for the order itself rather than for one phase of its life. The slug
+      // stays `setup` for the same reason it survived the last rename: a label
+      // is a name, a slug is an address.
+      //
+      // A RENAME IS NEVER JUST THE REGISTRY. Every ▸ path written in prose
+      // names this row by hand and the registry cannot reach a string — that is
+      // the whole reason `npm run check:nav-paths` exists. Run it after
+      // touching this label, and fix the WORDING to match the registry rather
+      // than the reverse.
       {
         kind: "group",
         slug: "setup",
-        label: "Order Preparation",
+        label: "Order Management",
         description:
           "Order entry to approved budget — the six steps a bulk order passes through",
         // Colour Cards was the other half of this group and was removed with its
@@ -700,7 +715,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens are off the Orders menu — the first three because Order Preparation replaces them, and All Orders and Style by request. They all still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — the first three because Order Management replaces them, and All Orders and Style by request. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },

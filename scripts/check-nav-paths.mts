@@ -19,7 +19,7 @@
 // `lib/nav/module-groups.ts` points somewhere real. It says nothing about the
 // OTHER place the menu is written down: the prose. Sentences like
 //
-//     "Raise one on Orders > Order Preparation > Order Entry."
+//     "Raise one on Orders > Order Management > Order Entry."
 //     "There are no styles yet — add one under Master Data > Materials."
 //
 // are directions, and a direction naming a row that no longer exists is worse
@@ -27,8 +27,9 @@
 // concludes the SCREEN is broken rather than the sentence.
 //
 // This was not hypothetical. Renaming the Orders "Order Setup" sub-module to
-// "Order Preparation" (client 2026-08-25) reached every surface the registry
-// drives — sidebar, hub, palette, breadcrumb — and reached NONE of the prose,
+// "Order Preparation" (client 2026-08-25) — and again to "Order Management"
+// (client 2026-08-28) — reached every surface the registry drives: sidebar,
+// hub, palette, breadcrumb. It reached NONE of the prose,
 // because prose is a string. Two empty states and a back-link still recited the
 // old name, and the only reason they were caught is that a human went looking.
 // The same sweep turned up `Orders > Approve` against a row labelled
