@@ -71,6 +71,55 @@ function fromUTC(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/** The SHAPE of a `YYYY-MM-DD`, and nothing about whether the day exists. */
+const ISO_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Is this a real day on the calendar?
+ *
+ * ## THE SHAPE AND THE CALENDAR ARE TWO DIFFERENT QUESTIONS
+ *
+ * This is the distinction the next reader will collapse, so it is worth being
+ * blunt: `/^\d{4}-\d{2}-\d{2}$/` asks whether a string LOOKS like a date. It
+ * says nothing about whether that date happened. `2026-02-31` passes the shape
+ * test, and every function in this file treats `Date.UTC` as a calendar, which
+ * silently ROLLS IT OVER to March 3 rather than erroring.
+ *
+ * That rollover is the dangerous kind of wrong. It does not throw, it does not
+ * return null, and it does not produce anything an operator could look at and
+ * call wrong — it produces a different real date. `2026-00-10` lands in
+ * DECEMBER 2025, a month and a year away from where it reads.
+ *
+ * It reached a scheduler. The T&A ladder derives every date backwards from one
+ * anchor, so an anchor of `2026-02-31` dated the whole plan off a day that does
+ * not exist and the derived dates STRADDLED it — Feb 27 and Mar 2 either side of
+ * an anchor printed as Feb 31 — with no refusal anywhere and every individual
+ * date a real one.
+ *
+ * ## A ROUND TRIP, NOT A BIGGER REGEX
+ *
+ * Build the date and compare it back to the input. February, leap years and the
+ * 30/31-day months then answer for themselves: `2026-02-29` rebuilds as
+ * `2026-03-01` and fails, `2028-02-29` rebuilds as itself and passes, and
+ * nothing here holds a month-length table or a leap-year rule that could
+ * disagree with the arithmetic the rest of the file does.
+ *
+ * A regex enumerating month lengths would be a SECOND statement of the calendar,
+ * free to drift from `Date.UTC`'s — and the century rule (2100 is not a leap
+ * year, 2000 is) is exactly the sort of thing a hand-written pattern gets wrong
+ * once and nobody re-reads.
+ *
+ * One caveat, deliberate: `Date.UTC` maps years 0–99 onto 1900–1999, so
+ * `0026-02-01` rebuilds as `1926-02-01` and is refused. A four-digit year in the
+ * first century is not a date this business has, and refusing is the safe way to
+ * be wrong about it.
+ */
+export function isCalendarDate(value: string): boolean {
+  if (!ISO_SHAPE.test(value)) return false;
+  const [y, m, d] = parts(value);
+  return fromUTC(Date.UTC(y, m - 1, d)) === value;
+}
+
 /** Shift a YYYY-MM-DD by whole days. Uses UTC internally purely as a calendar. */
 export function addDays(iso: string, days: number): string {
   const [y, m, d] = parts(iso);

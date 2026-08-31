@@ -1,5 +1,26 @@
 "use client";
 
+/**
+ * mount: exempt -- DELIBERATELY DARK. This screen is registered in no
+ * sub-module and mounted by no route, and that is a client decision, not rot.
+ *
+ * The canonical statement is the removal note in `lib/masters/submodules.ts`,
+ * where these entries used to sit: it names the whole list and the reason
+ * ("not part of this business process", 2026-08-01), and it records that the
+ * TABLES were deliberately kept so the rows survive and the master can be
+ * restored from git if the decision reverses. Read it there rather than here --
+ * one statement with nine pointers, because a reason copied nine times is nine
+ * things to keep in step.
+ *
+ * THIS COMMENT EXISTS BECAUSE ITS ABSENCE COST AN HOUR. Employee was removed in
+ * the same block and restored on 2026-08-31; on the way, three agents grepped
+ * its screen for a reason, found none, and concluded it had been dropped by
+ * accident -- and a restore was approved on that false premise before the note
+ * in `submodules.ts` was found. A removal leaves a comment, not a symbol, so
+ * the reason has to sit where the grep lands. If this screen is ever restored,
+ * delete this block; `--check mount` will then hold it to being mounted.
+ */
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";

@@ -3,8 +3,28 @@ import withSerwistInit from "@serwist/next";
 
 // PWA / offline support. Serwist injects the precache manifest and emits
 // public/sw.js at build time (webpack only — see package.json "build" script,
-// which uses `--webpack` since Next 16 defaults to Turbopack). The SW is
-// disabled in development so it never interferes with `next dev` / HMR.
+// which uses `--webpack` since Next 16 defaults to Turbopack).
+//
+// `disable` BELOW STOPS IT BEING GENERATED IN DEV. IT DOES NOT STOP IT BEING
+// SERVED, and that distinction cost a debugging session (2026-08-31).
+//
+// This comment used to read "disabled in development so it never interferes
+// with `next dev` / HMR". That is only true of a tree where no production build
+// has ever run. `swDest` is **`public/sw.js`**, `next dev` serves `public/`
+// statically, and the file is gitignored — so after any `npm run build` the dev
+// server happily hands out a PRODUCTION service worker at `/sw.js`, on the same
+// `http://localhost:3000` origin. A browser that registers it keeps it
+// registered across restarts and intercepts every request the page makes,
+// including the Supabase auth POST — which surfaces as a bare
+// `TypeError: Failed to fetch` from `signInWithPassword`, with the network,
+// the project and the anon key all provably fine.
+//
+// TWO THINGS FIX IT, AND THE FIRST ALONE IS NOT ENOUGH: delete
+// `public/sw.js` + `public/swe-worker-*.js` (both gitignored build output, so
+// this is safe and `next build` recreates them), AND unregister the worker in
+// the browser — DevTools ▸ Application ▸ Service Workers ▸ Unregister. Removing
+// the file cannot unregister an already-installed worker; it only stops the
+// next one being handed out.
 const withSerwist = withSerwistInit({
   swSrc: "app/sw.ts",
   swDest: "public/sw.js",

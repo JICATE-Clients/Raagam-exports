@@ -29,6 +29,15 @@ import {
   orphanComponents,
   styleCoordinateIds,
   styleProblems,
+  styleLineProblems,
+  styleLineStarted,
+  duplicateComponents,
+  componentsTakenUnder,
+  coordinateCountMessage,
+  orphanComponentsMessage,
+  duplicateComponentsMessage,
+  duplicateRefCounts,
+  type StyleLineLike,
   type CoordinateLike,
   type ComponentLike,
 } from "../lib/orders/styles/rules.ts";
@@ -690,6 +699,318 @@ check("no category leaves Type alone",
     0,
   );
 }
+
+// ---------------------------------------------------------------------------
+// THE STYLE LINE'S OWN COMPLETENESS (client 2026-08-31)
+//
+// These run on ONE ROW of the Garment Order's Style(s) tab. The load-bearing
+// assertion is WHICH FIELD each problem names — the wording is allowed to
+// change, but a problem naming the wrong cell sends the cursor to a field that
+// is already filled, which is worse than no landing at all.
+// ---------------------------------------------------------------------------
+{
+  const CAT = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+  const FRONT = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+  const SLEEVE = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+  const SIZE_M = "55555555-5555-5555-5555-555555555555";
+
+  const fields = (r: StyleLineLike) => styleLineProblems(r).map((p) => p.field);
+
+  // A BLANK LINE IS NOT A BROKEN LINE. `ChildGrid` seeds one so Tab has a field
+  // to land on, and a rule that flagged it would open every new order trapped —
+  // the same argument `componentRowStarted` makes one level down.
+  check("a blank line is not started", styleLineStarted({}), false);
+  check(
+    "a blank line with a blank component row is not started",
+    styleLineStarted({ components: [{}], coordinates: [coord(null)], sizes: [] }),
+    false,
+  );
+  check("a blank line has no problems", fields({}), []);
+
+  // ONE TYPED CHARACTER STARTS IT, and then everything else is owed.
+  check("a bare style ref starts the line", styleLineStarted({ style_ref_no: "RN-1" }), true);
+  check(
+    "a bare style ref owes the other five",
+    fields({ style_ref_no: "RN-1" }),
+    ["style_category", "order_unit", "description", "coordinates", "sizes"],
+  );
+
+  // STARTED FROM THE COMMERCIAL END COUNTS TOO. An operator who typed only a PO
+  // Qty has begun a line, and a rule that could not see that would let exactly
+  // the half-filled row the client is asking about through.
+  check("a bare PO Qty starts the line", styleLineStarted({ po_qty: "500" }), true);
+  check("a zero-length PO Qty does not", styleLineStarted({ po_qty: "" }), false);
+  check("a bare article no starts the line", styleLineStarted({ article_no: "23" }), true);
+
+  // A FINISHED PCS LINE IS SILENT.
+  const done: StyleLineLike = {
+    style_ref_no: "RN-1",
+    style_category_id: CAT,
+    unit_kind: "piece",
+    description: "MENS TEE",
+    coordinates: [coord(TOP)],
+    sizes: [{ size_id: SIZE_M }],
+    components: [{ coordinate_id: TOP, component_id: FRONT }],
+  };
+  check("a finished Pcs line has no problems", fields(done), []);
+
+  // AND EACH FIELD FAILS ON ITS OWN, so a landing can never be aimed at a cell
+  // that is already filled.
+  check("a missing category names its own cell", fields({ ...done, style_category_id: null }), ["style_category"]);
+  check("a missing unit names its own cell", fields({ ...done, unit_kind: null }), ["order_unit"]);
+  check("a blank description names its own cell", fields({ ...done, description: "  " }), ["description"]);
+  check("no size ticked names sizes", fields({ ...done, sizes: [] }), ["sizes"]);
+  check("no coordinate names coordinates", fields({ ...done, coordinates: [], components: [] }), ["coordinates"]);
+
+  // A HALF-FILLED COMPONENT ROW IS THE CLIENT'S "empty rows in downstream
+  // reports", and the trailing blank one is not.
+  // ISOLATED ON PURPOSE: the row names the line's OWN coordinate, so nothing
+  // else fires. A structure with no component is started (`componentRowStarted`)
+  // and unfinished, which is exactly the row that reaches a report as a blank.
+  check(
+    "a started component row with no component_id is half-filled",
+    fields({
+      ...done,
+      components: [{ coordinate_id: TOP, component_id: null, fabric_category_id: "fab-a" }],
+    }),
+    ["components"],
+  );
+  // AND A ROW CAN BE WRONG TWICE. Filed under a coordinate the line does not
+  // have AND missing its component: both fire, and both should — they are
+  // different repairs. This vector exists because the first draft of the one
+  // above accidentally tested this case and read the second message as a bug.
+  check(
+    "half-filled and orphaned are two problems, not one",
+    fields({ ...done, components: [{ coordinate_id: BOTTOM, component_id: null }] }),
+    ["components", "components"],
+  );
+  check(
+    "a trailing blank component row is not a problem",
+    fields({ ...done, components: [{ coordinate_id: TOP, component_id: FRONT }, {}] }),
+    [],
+  );
+  // The PCS pre-fill is discounted: a row born holding the line's one coordinate
+  // is not "started", so it is not "half-filled" either. Both readers discount
+  // the SAME value, which is the whole reason `impliedCoordinateId` is computed
+  // inside the rule rather than passed in.
+  check(
+    "a row holding only the Pcs pre-fill is not half-filled",
+    fields({ ...done, components: [{ coordinate_id: TOP, component_id: FRONT }, { coordinate_id: TOP }] }),
+    [],
+  );
+
+  // ---- NO COMPONENT TWICE UNDER ONE COORDINATE --------------------------
+  check("one component once is not a duplicate", duplicateComponents([{ coordinate_id: TOP, component_id: FRONT }]), 0);
+  check(
+    "the same component twice under one coordinate is one duplicate",
+    duplicateComponents([
+      { coordinate_id: TOP, component_id: FRONT },
+      { coordinate_id: TOP, component_id: FRONT },
+    ]),
+    1,
+  );
+  check(
+    "three of them is two duplicates — the count is rows to fix, not rows involved",
+    duplicateComponents([
+      { coordinate_id: TOP, component_id: FRONT },
+      { coordinate_id: TOP, component_id: FRONT },
+      { coordinate_id: TOP, component_id: FRONT },
+    ]),
+    2,
+  );
+  // THE LOOSENING THAT MAKES A SET GARMENT ENTERABLE. A FRONT BODY on the TOP
+  // and a FRONT BODY on the BOTTOM are two panels, two fabrics, one legitimate
+  // style — the literal "filter it out of every later row" reading would make
+  // that garment impossible to enter.
+  check(
+    "the same component under two coordinates is not a duplicate",
+    duplicateComponents([
+      { coordinate_id: TOP, component_id: FRONT },
+      { coordinate_id: BOTTOM, component_id: FRONT },
+    ]),
+    0,
+  );
+  // STRICTER THAN THE DATABASE, DELIBERATELY. 0457's index also keys on
+  // fabric_category, so it would accept this pair; the client chose the BOM
+  // argument over the contrast yoke on 2026-08-31.
+  check(
+    "two fabrics of one component under one coordinate is still a duplicate",
+    duplicateComponents([
+      { coordinate_id: TOP, component_id: FRONT, fabric_category_id: "fab-a" },
+      { coordinate_id: TOP, component_id: FRONT, fabric_category_id: "fab-b" },
+    ]),
+    1,
+  );
+  check(
+    "an unanswered row is a duplicate of nothing",
+    duplicateComponents([{ coordinate_id: TOP }, { coordinate_id: TOP }]),
+    0,
+  );
+  check(
+    "two unfiled rows naming one component do collide",
+    duplicateComponents([{ component_id: FRONT }, { component_id: FRONT }]),
+    1,
+  );
+  check(
+    "a duplicate reaches the line as a components problem",
+    fields({
+      ...done,
+      components: [
+        { coordinate_id: TOP, component_id: FRONT },
+        { coordinate_id: TOP, component_id: FRONT },
+      ],
+    }),
+    ["components"],
+  );
+
+  // ---- WHAT THE DROPDOWN HIDES ------------------------------------------
+  const taken = (siblings: Parameters<typeof componentsTakenUnder>[0], c: string | null) =>
+    [...componentsTakenUnder(siblings, c)].sort();
+  check(
+    "a sibling under the same coordinate is hidden",
+    taken([{ coordinate_id: TOP, component_id: FRONT }], TOP),
+    [FRONT],
+  );
+  check(
+    "a sibling under another coordinate is not",
+    taken([{ coordinate_id: BOTTOM, component_id: FRONT }], TOP),
+    [],
+  );
+  check(
+    "an unfiled sibling is hidden only from other unfiled rows",
+    taken([{ component_id: FRONT }], null),
+    [FRONT],
+  );
+  check(
+    "an unfiled sibling does not narrow a filed row",
+    taken([{ component_id: FRONT }], TOP),
+    [],
+  );
+  check(
+    "only the answered siblings count",
+    taken([{ coordinate_id: TOP }, { coordinate_id: TOP, component_id: SLEEVE }], TOP),
+    [SLEEVE],
+  );
+
+  // ---- TWO LINES MAY NOT SHARE A STYLE REF ------------------------------
+  // Keys arrive ALREADY NORMALISED — `styleKey` is the Orders join key and lives
+  // in its own file precisely so there is one copy of it. These vectors are
+  // therefore about COUNTING, not about casing.
+  check("no repeats is empty", duplicateRefCounts(["A", "B", "C"]), []);
+  check(
+    "a repeat is reported with its count",
+    duplicateRefCounts(["A", "B", "A"]),
+    [{ ref: "A", count: 2 }],
+  );
+  check(
+    "three of a kind counts three, not two",
+    duplicateRefCounts(["A", "A", "A"]),
+    [{ ref: "A", count: 3 }],
+  );
+  // BLANKS ARE NOT A COLLISION. `styleKey` returns "" for an unnamed row, and
+  // two unnamed lines are two lines nobody has started.
+  check("blank keys never collide", duplicateRefCounts(["", "", "A"]), []);
+  check(
+    "two separate repeats both reported, in first-seen order",
+    duplicateRefCounts(["B", "A", "B", "A"]),
+    [
+      { ref: "B", count: 2 },
+      { ref: "A", count: 2 },
+    ],
+  );
+  check("an empty list is empty", duplicateRefCounts([]), []);
+  // ---- THE MASTER IS GUARDED TOO ----------------------------------------
+  // `garment_style_components` has NO unique index and `normalizeComponents`
+  // de-dupes nothing, so `styleProblems` IS the whole guard there — and it
+  // reaches the server through `garmentStyleInput`'s superRefine.
+  check(
+    "the master reports a repeated component",
+    styleProblems({
+      coordinates: [coord(TOP)],
+      components: [
+        { coordinate_id: TOP, component_id: FRONT },
+        { coordinate_id: TOP, component_id: FRONT },
+      ],
+    }).map((p) => p.section),
+    ["components"],
+  );
+  check(
+    "the master allows one component under two coordinates",
+    styleProblems({
+      coordinates: [coord(TOP), coord(BOTTOM)],
+      unit_kind: "set",
+      components: [
+        { coordinate_id: TOP, component_id: FRONT },
+        { coordinate_id: BOTTOM, component_id: FRONT },
+      ],
+    }),
+    [],
+  );
+  // A LEGACY STYLE IS NOT RETROACTIVELY INVALIDATED by anything else here, but
+  // it IS by this — a style already holding a repeat cannot be saved again
+  // until the repeat goes. That is the deliberate trade (no migration adds a
+  // unique index, because nothing can decide which of a pair is the real one).
+  check(
+    "a duplicate fires even with no unit_kind",
+    styleProblems({
+      components: [
+        { component_id: FRONT },
+        { component_id: FRONT },
+      ],
+    }).map((p) => p.section),
+    ["components"],
+  );
+  check(
+    "the master and the order line word the duplicate identically",
+    styleProblems({
+      coordinates: [coord(TOP)],
+      components: [
+        { coordinate_id: TOP, component_id: FRONT },
+        { coordinate_id: TOP, component_id: FRONT },
+      ],
+    })
+      .filter((p) => p.section === "components")
+      .map((p) => p.message),
+    [
+      duplicateComponentsMessage([
+        { coordinate_id: TOP, component_id: FRONT },
+        { coordinate_id: TOP, component_id: FRONT },
+      ]),
+    ],
+  );
+  // ---- ONE WORDING, TWO SCREENS -----------------------------------------
+  // The point of extracting `coordinateCountMessage`: the Style master and the
+  // order line must not say "exactly 1" and "at most 1" about one rule.
+  const twoOnAPiece: StyleLineLike = { ...done, coordinates: [coord(TOP), coord(BOTTOM)] };
+  check(
+    "the master and the order line word the coordinate count identically",
+    styleProblems({ unit_kind: "piece", coordinates: [coord(TOP), coord(BOTTOM)] })
+      .filter((p) => p.section === "coordinates")
+      .map((p) => p.message),
+    styleLineProblems(twoOnAPiece)
+      .filter((p) => p.field === "coordinates")
+      .map((p) => p.message),
+  );
+  check(
+    "an unanswered unit has no range to be outside of",
+    coordinateCountMessage(null, [coord(TOP), coord(BOTTOM)]),
+    null,
+  );
+  check(
+    "a Set line with one coordinate is short",
+    coordinateCountMessage("set", [coord(TOP)]) !== null,
+    true,
+  );
+  // AND THE ORPHAN WORDING TOO.
+  check(
+    "the master and the order line word the orphan count identically",
+    styleProblems({ coordinates: [coord(TOP)], components: [comp(SLEEVE_SET)] })
+      .filter((p) => p.section === "components")
+      .map((p) => p.message),
+    [orphanComponentsMessage([comp(SLEEVE_SET)], [coord(TOP)])],
+  );
+}
+
 console.log(
   failed === 0 ? "\nAll style-rule vectors passed." : `\n${failed} vector(s) FAILED.`,
 );

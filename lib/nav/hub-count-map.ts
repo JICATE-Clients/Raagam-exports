@@ -69,6 +69,12 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/orders/packing-advice": "packing_advices",
   "/orders/cancellations": "order_cancellations",
   "/orders/completions": "order_completions",
+  // Deliberately uncounted. The map counts a whole table, and the whole table
+  // here is every T&A activity ever scheduled on every order — a number this
+  // screen never shows and nobody is waiting on. What the card would want is
+  // "how many are due today, for you", which is per-user, per-day and filtered,
+  // so a table count would be a confident wrong number rather than a missing one.
+  "/orders/ta-worklist": null,
   "/orders/ta-masters": "ta_activities",
   "/orders/ta-department-assign": "ta_department_assigns",
   // A MATRIX, NOT A LIST (W3's audit). `ta_user_rights` holds one row per user

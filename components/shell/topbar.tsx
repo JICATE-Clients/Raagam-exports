@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Bug, ChevronDown, LogOut, Search } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
+import { setCurrentLocation } from "@/lib/auth/location-actions";
 import { useAppUser } from "@/lib/auth/permission-context";
+import { useLocationState } from "@/lib/auth/location-context";
+import { confirmDiscard } from "@/lib/reload-guard";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
@@ -11,19 +15,61 @@ import { Select } from "@/components/ui/select";
 import { bugPortalUrl, bugReporterConfigured } from "@/lib/bug-reporter";
 import { cn } from "@/lib/utils";
 
-interface Location {
-  id: string;
-  code: string;
-  name: string;
-}
-
-export function Topbar({ locations }: { locations: Location[] }) {
+export function Topbar() {
   const user = useAppUser();
   const search = useSearch();
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [locationId, setLocationId] = useState(
-    user.defaultLocationId ?? locations[0]?.id ?? "",
-  );
+  const [switching, startSwitch] = useTransition();
+
+  /**
+   * THE UNIT NOW COMES FROM THE SESSION, NOT FROM LOCAL STATE.
+   *
+   * This `<Select>` shipped from the first build with its value in a
+   * `useState` that nothing else read: changing it changed nothing, anywhere,
+   * and reported nothing. The list was also every active location in the
+   * database rather than the ones this operator may act in.
+   *
+   * Both halves now come from `LocationProvider`, seeded server-side by
+   * `getCurrentLocation()` — so the dropdown shows what the server will
+   * actually use, and cannot drift from it.
+   */
+  const { current, allowed, source } = useLocationState();
+
+  const [error, setError] = useState<string | null>(null);
+
+  function onSwitchUnit(nextId: string) {
+    if (!nextId || nextId === current?.id) return;
+
+    /**
+     * A SWITCH REFRESHES THE TREE, SO IT MUST ASK FIRST.
+     *
+     * Per AGENTS.md's standing auto-reload guard, the only thing between a
+     * re-render and a half-typed order is `lib/reload-guard.ts`. Changing unit
+     * re-runs every Server Component, which throws away in-progress edits
+     * exactly as a deploy would — and worse than a deploy, because the operator
+     * asked for something small and lost something large.
+     *
+     * `confirmDiscard()` is the same question Escape asks before abandoning an
+     * editor, so the wording an operator sees here is the wording they already
+     * know. It returns true immediately when nothing is dirty, so the common
+     * case is uninterrupted.
+     */
+    if (!confirmDiscard()) return;
+
+    setError(null);
+    startSwitch(async () => {
+      const result = await setCurrentLocation(nextId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      // `profiles.current_location_id` is written and the layout path
+      // revalidated; this re-renders the current route against the new unit.
+      // Every RLS policy narrows to that column, so the data changes with it.
+      router.refresh();
+    });
+  }
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
@@ -57,17 +103,59 @@ export function Topbar({ locations }: { locations: Location[] }) {
             half-rendered avatar is a control the operator cannot press. Above
             `sm` it is 176px exactly as before. */}
         <Select
-          value={locationId}
-          onChange={(e) => setLocationId(e.target.value)}
+          value={current?.id ?? ""}
+          onChange={(e) => onSwitchUnit(e.target.value)}
+          disabled={switching || allowed.length === 0}
           aria-label="Location"
+          aria-describedby={error ? "location-switch-error" : undefined}
           className="h-8 w-28 text-xs font-medium sm:w-44 md:text-xs"
         >
-          {locations.map((l) => (
+          {/* No unit resolved. Shown rather than auto-picking `allowed[0]`,
+              which is how the old code answered "which company's books?" by
+              array order. An empty value is a prompt; a wrong one is silent. */}
+          {!current && (
+            <option value="">
+              {allowed.length === 0 ? "No unit assigned" : "Select unit…"}
+            </option>
+          )}
+          {allowed.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name}
             </option>
           ))}
         </Select>
+
+        {/* THE OPERATOR DID NOT CHOOSE THIS UNIT, SO IT IS SAID OUT LOUD.
+            `"default"` is their home unit; `"fallback"` is the house default
+            (Head Office), which they land on when their profile names no unit
+            at all. Neither is a silent move: an operator who does not notice
+            which GST entity they are in posts documents to the wrong company's
+            books, and it looks entirely ordinary. */}
+        {(source === "default" || source === "fallback") && (
+          <span
+            title={
+              source === "fallback"
+                ? "You have not chosen a unit, so you are working in the default one. Pick another from this box if that is not right."
+                : "Working in your home unit. Your previous unit was never set, or is no longer available to you."
+            }
+            className="hidden text-xs text-warning lg:inline"
+          >
+            default
+          </span>
+        )}
+
+        {/* `text-danger`, NOT `text-destructive` — this repo defines `--danger`
+            and has no `--destructive`, so the shadcn-habitual name compiles to
+            nothing and would render this message invisible. */}
+        {error && (
+          <span
+            id="location-switch-error"
+            role="alert"
+            className="hidden text-xs text-danger lg:inline"
+          >
+            {error}
+          </span>
+        )}
       </div>
 
       <div className="flex items-center gap-1">

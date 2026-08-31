@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { requireUser } from "@/lib/auth/server";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentLocation } from "@/lib/auth/location";
 import { PermissionProvider } from "@/lib/auth/permission-context";
+import { LocationProvider } from "@/lib/auth/location-context";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { MobileNav } from "@/components/shell/mobile-nav";
@@ -17,24 +18,28 @@ export default async function AppLayout({
 }) {
   const user = await requireUser();
 
-  const supabase = await createClient();
-  const { data: locations } = await supabase
-    .from("locations")
-    .select("id, code, name")
-    .eq("is_active", true)
-    .order("code");
+  // THE UNIT IS RESOLVED ONCE, HERE, FOR THE WHOLE REQUEST.
+  //
+  // This replaced a direct `from("locations").eq("is_active", true)` that
+  // offered EVERY unit to EVERY operator regardless of their roles — harmless
+  // while HO was the only one, and an access hole the day Unit 2 has rows.
+  // `getCurrentLocation()` goes through `my_locations()` (0483), which
+  // delegates to `has_location_access()`, so this list and Phase 1's RLS read
+  // one rule.
+  const { location, allowed, source } = await getCurrentLocation();
 
   const stores = await listStoreNavLinks();
 
   return (
     <PermissionProvider user={user}>
+      <LocationProvider value={{ current: location, allowed, source }}>
       <SearchProvider>
         <ShortcutsProvider>
           <KeyboardNavProvider>
           <div className="flex h-screen overflow-hidden">
             <Sidebar stores={stores} />
             <div className="flex min-w-0 flex-1 flex-col">
-              <Topbar locations={locations ?? []} />
+              <Topbar />
               {/* `pb-20` below md is clearance for MobileNav's floating bar;
                   `md:pb-6` is ordinary page padding. A page-mounted
                   MasterFullScreen CANCELS the md value with `-mb-6` so its
@@ -50,6 +55,7 @@ export default async function AppLayout({
           </KeyboardNavProvider>
         </ShortcutsProvider>
       </SearchProvider>
+      </LocationProvider>
     </PermissionProvider>
   );
 }

@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { capsTextNullable } from "@/lib/validation/formats";
+import { capsTextNullable, requiredKind } from "@/lib/validation/formats";
+/* Client-safe (no `server-only`), same as `inactive.ts` itself — the option
+   rules below run in the browser, inside the picker. */
+import type { Deactivatable } from "@/lib/masters/inactive";
 import { isUnitKind, type UnitKind } from "@/lib/orders/styles/rules";
 import { styleProcessInput, type ProcessKind } from "./style-processes";
 /* TYPE-ONLY, so the client component is erased at compile time and never
@@ -19,6 +22,325 @@ import type { AttachmentKind } from "@/components/ui/file-attachments";
 // customer_contacts / config_lookups (kinds department, ship_type, agent,
 // payment_term, structure, roll_form_print).
 // ============================================================================
+
+// ============================================================================
+// CASE-DUPLICATE MASTER ROWS
+// ============================================================================
+/**
+ * The key two rows fold onto when they differ only by capitalisation — client
+ * 2026-08-31, of the Customer dropdown: "ROJA" and "roja" are one entry.
+ *
+ * Trim as well as fold. A stored " ROJA" is the same customer as "ROJA" and
+ * differs in a character nobody can see, which is the harder half of the same
+ * problem: the operator looking at two identical-looking rows has no way to tell
+ * which is which, so the fold has to be at least as tolerant as the eye.
+ *
+ * IT LIVES HERE, NOT IN `service.ts`, because both halves of the rule need it
+ * and one of them runs in the browser: the service stamps the key onto each row
+ * and the screen collapses on it, and a screen cannot import a `server-only`
+ * module. One definition, two readers — the same reason `styleKey` sits where
+ * the normalizers and the seed can both reach it.
+ */
+export function caseFoldKey(name: string | null | undefined): string {
+  return (name ?? "").trim().toUpperCase();
+}
+
+/** A row `collapseCaseDuplicates` can fold: an id, a name, and the key. */
+export type CaseFoldable = {
+  id: string;
+  name: string;
+  code?: string | null;
+  dedupe_key: string;
+  inactive?: boolean | null;
+};
+
+/**
+ * Collapse rows that differ only by capitalisation, KEEPING THE ONE THE RECORD
+ * ALREADY HOLDS.
+ *
+ * ## WHY `heldId` IS NOT OPTIONAL
+ *
+ * Because forgetting it is the whole danger. These are distinct master rows with
+ * distinct uuids; a fold picks a winner, and if the order in front of the
+ * operator holds the loser then its Customer field renders EMPTY — not wrong,
+ * not flagged, just blank — and the next save writes that blank over a perfectly
+ * good FK. That is the silent data loss AGENTS.md's "Disabled rows" section
+ * exists to prevent, arriving through a different door, and it is why the
+ * service refuses to fold and hands the caller a key instead.
+ *
+ * Pass `null` when there genuinely is no held value (a new record). Making the
+ * parameter required means that is a decision rather than an omission.
+ *
+ * ## WHICH ROW WINS, AND WHY IT IS STABLE
+ *
+ * In order: the held row; then an ACTIVE row over a switched-off one (choosing a
+ * retired master when a live twin exists helps nobody); then a row that has a
+ * `code` over one that does not (a coded row is the maintained one); then the
+ * lowest id.
+ *
+ * That last tie-break is arbitrary and is chosen for being STABLE. The
+ * alternative — "whichever the sort happened to put first" — depends on the
+ * database's collation for two names that differ only in case, so the same
+ * operator could be shown a different winner on different days and never be able
+ * to say what changed.
+ *
+ * ## IT REPORTS WHAT IT HID
+ *
+ * `folded` names every value that had more than one row, so the screen can say
+ * so in one line and the operator can merge the masters. Hiding a real master row
+ * without saying so would leave a customer permanently unreachable and nothing
+ * anywhere to explain it — the fold is a workaround for legacy data, and a
+ * workaround that never asks to be fixed becomes the fix.
+ */
+export function collapseCaseDuplicates<T extends CaseFoldable>(
+  rows: readonly T[],
+  heldId: string | null,
+): { rows: T[]; folded: string[] } {
+  const groups = new Map<string, T[]>();
+  for (const r of rows) {
+    const g = groups.get(r.dedupe_key);
+    if (g) g.push(r);
+    else groups.set(r.dedupe_key, [r]);
+  }
+
+  const out: T[] = [];
+  const folded: string[] = [];
+  for (const group of groups.values()) {
+    if (group.length > 1) folded.push(group[0].name);
+    out.push(
+      group.reduce((best, r) => {
+        if (r.id === heldId) return r;
+        if (best.id === heldId) return best;
+        const rOff = !!r.inactive;
+        const bestOff = !!best.inactive;
+        if (rOff !== bestOff) return rOff ? best : r;
+        const rCoded = !!(r.code && r.code.trim());
+        const bestCoded = !!(best.code && best.code.trim());
+        if (rCoded !== bestCoded) return rCoded ? r : best;
+        return r.id < best.id ? r : best;
+      }),
+    );
+  }
+  return { rows: out, folded };
+}
+
+// ============================================================================
+// THE MERCHANDISER OPTION LIST
+// ============================================================================
+/** A row `merchandiserOptions` can narrow. `MerchandiserRow` satisfies it. */
+export type MerchandiserLike = {
+  id: string;
+  name: string;
+  is_merchandiser: boolean;
+} & Deactivatable;
+
+/**
+ * Narrowed options for the Merchandiser field, PLUS the line to show when there
+ * are none — deliberately the same three-field shape `nominatedVendorOptions`
+ * returns, because it is the same rule.
+ */
+export type MerchandiserOptions<T> = {
+  items: T[];
+  /** Rendered under the field when the list is narrowed to nothing. */
+  hint: string | null;
+  /** The same reason in a few words, for a compact picker's placeholder. */
+  shortHint: string | null;
+};
+
+/**
+ * The employees this order may name as its merchandiser (client 2026-08-31:
+ * Designation *or* Department is "Merchandiser").
+ *
+ * ## EMPTY-AND-EXPLAIN, NEVER A FALLBACK TO EVERY EMPLOYEE
+ *
+ * This is AGENTS.md's "Nominated vendors" rule, and it is the same shape down to
+ * the return type: *"Empty-and-explain, never fall back to the full list: a
+ * silent fallback makes the nomination list advisory and the operator never
+ * learns it needs filling in."* Widening to all employees when none matches
+ * would let an order be attributed to somebody who is not a merchandiser, and
+ * would guarantee nobody ever finds out the master is unpopulated.
+ *
+ * It is not polish here, it is the difference between a diagnosable failure and
+ * an undiagnosable one. Merchandiser became MANDATORY in the same change, so an
+ * empty list makes Order Entry unsaveable — and an empty dropdown reads as
+ * "nothing has been set up yet", which is a real and unremarkable answer. The
+ * operator retries, gives up, and reports "I cannot save orders" rather than
+ * "the merchandiser list is empty". The hint is what turns the second sentence
+ * into the one they file.
+ *
+ * ## AND IT IS NOT ONE MESSAGE, BECAUSE THERE ARE TWO EMPTINESSES
+ *
+ * Measured on the live catalog 2026-08-31, which is why both branches are real
+ * rather than defensive: `employees` holds ONE row, its `code` is NULL, its
+ * designation is 'Test Designation', and no `config_lookups` row anywhere
+ * contains the word "merchandiser". So today this returns the SECOND message —
+ * there are employees, none of them is a merchandiser. Telling the operator
+ * "no employees have been entered" there would send them to fix something that
+ * is not broken.
+ *
+ * ## NO MENU PATH IS NAMED, DELIBERATELY
+ *
+ * The obvious hint would say where to go and fix it. There is nowhere: the
+ * Employee master screen exists in the codebase but no route mounts it and
+ * `submodules.ts` has no entry for it, so any path this sentence named would be
+ * a direction to a row that does not exist — worse than no direction, because
+ * the operator goes looking, fails, and concludes the screen is broken rather
+ * than the sentence (AGENTS.md, "A LABEL IS ALSO WRITTEN DOWN IN THE PROSE").
+ * When the master is registered, add the path here and `check:nav-paths` will
+ * hold it honest from then on.
+ *
+ * ## THE HELD EMPLOYEE ALWAYS SURVIVES
+ *
+ * Same rescue `nominatedVendorOptions` performs and for the same reason: an
+ * order naming a merchandiser who has since changed department, or been
+ * switched off, must still resolve — otherwise the field renders empty and the
+ * next save blanks the FK ("Disabled rows"). The rescue also empties
+ * `shortHint`, because a box with the held row in it is not an empty box; the
+ * paragraph stays, since the reason the OTHERS are missing is still worth
+ * saying.
+ */
+export function merchandiserOptions<T extends MerchandiserLike>(
+  rows: readonly T[],
+  currentValue: string | null,
+): MerchandiserOptions<T> {
+  const items = rows.filter((r) => r.is_merchandiser);
+
+  let hint: string | null = null;
+  let shortHint: string | null = null;
+  if (items.length === 0) {
+    if (rows.length === 0) {
+      hint =
+        "No employees have been entered yet, so there is nobody to name here. " +
+        "The Employee master has to be filled in first.";
+      shortHint = "No employees entered";
+    } else {
+      hint =
+        "No employee has a Designation or Department of “Merchandiser”, " +
+        "so there is nobody to name here. Set one on the Employee master.";
+      shortHint = "No merchandisers set up";
+    }
+  }
+
+  if (!currentValue || items.some((r) => r.id === currentValue)) {
+    return { items, hint, shortHint };
+  }
+  const held = rows.find((r) => r.id === currentValue);
+  return held
+    ? { items: [...items, held], hint, shortHint: null }
+    : { items, hint, shortHint };
+}
+
+// ============================================================================
+// EVERY STYLE CARRIES AT LEAST ONE FILE
+// ============================================================================
+/**
+ * The style keys that have no document attached (client 2026-08-31: Add File is
+ * "mandatory before the style profile can be saved or progressed").
+ *
+ * ## ONE FUNCTION, THREE CALLERS — THE `missingRequiredMaterialFields` SHAPE
+ *
+ * AGENTS.md names that function as the pattern for a requirement the Zod field
+ * types cannot express: *"one exported function the screen, the Save button and
+ * both actions call"*. This is the same situation — "has a file" is a fact about
+ * a style's relationship to a SIBLING array, which no field-level `required` can
+ * state — and so it takes the same shape rather than being written twice.
+ *
+ * It lives here, not in `actions.ts`, for the reason `file-rows.ts` records:
+ * that module is `"use server"`, so nothing in it can be imported by the screen
+ * or by a vector.
+ *
+ * ## KEYED THROUGH `styleKey`'s RULE, TRIM + UPPER
+ *
+ * Deliberately the same fold `normalizeStyleSizes` and the four other per-style
+ * children compare by. A file attached under "st-1" belongs to the style "ST-1";
+ * anything stricter would report a style as missing its document while the
+ * document sits on it, which is the worst possible failure for a rule that
+ * blocks Save.
+ *
+ * **It re-states the fold rather than calling `styleKey`, and that equivalence
+ * is CHECKED rather than assumed.** T3-styles ran the two over 24 inputs —
+ * empty, single and multiple spaces, tab, newline, null, undefined, mixed case,
+ * leading and trailing whitespace, the slashed codes 0402 introduced
+ * (`STL/2627/0001`), `"0"` and `" 0 "`, and five Unicode case-folding edge cases
+ * (`ß`, `İ`, `ı`, `ﬁ`, fullwidth `ＳＴ－１`) — with **zero divergences**.
+ *
+ * `"0"` is the one that could have bitten and is the reason to keep the finding
+ * rather than the verdict. `styleKey` is
+ * `(refNo?.trim() || styleNo?.trim() || "").toUpperCase()`, so a FALSY trimmed
+ * value falls through to the next branch — but `"0"` is a non-empty string and
+ * therefore truthy, and the only falsy trimmed result is `""`, which the
+ * fallback produces anyway. **If that helper ever gains a branch where a
+ * legitimate trimmed value can be falsy, these two part company silently** and
+ * this function must switch to calling it. Until then the restatement is safe
+ * and keeps `types.ts` free of an import the screen does not need.
+ *
+ * ## A STYLE WITH NO REFERENCE IS NOT REPORTED
+ *
+ * A line the operator has opened and not yet named has nothing to attach a file
+ * TO, and `normalizeStyles` may drop it entirely. Refusing the save over it
+ * would make a blank row somebody tabbed into an unsaveable order — the same
+ * abstention `comboTreeProblem` makes for a part that says nothing at all.
+ */
+export function stylesMissingFiles(
+  styles: readonly { style_ref_no?: string | null }[],
+  files: readonly { style_ref_no?: string | null; storage_path?: string | null }[],
+): string[] {
+  const withFiles = new Set(
+    files
+      /**
+       * A ROW WITH NO PATH IS A FAILED UPLOAD, NOT A DOCUMENT — the same test
+       * `normalizeFileRows` keys the whole table on. Counting it would let a
+       * style pass this guard on an attachment that resolves to nothing when
+       * production clicks it months later.
+       *
+       * IT IS NOT DEFENSIVE. It is the one thing this predicate does that the
+       * screen's own guard did not, and T3-styles measured the gap rather than
+       * arguing it: 105 cases compared across {blank / whitespace / matching /
+       * differently-cased / other ref} × {no file / matching / differently-cased
+       * / order-level / blank path / whitespace path / other style's} × {row
+       * started by its ref, by a PO Qty, by a Description} — **12 divergences,
+       * and all 12 were this filter.**
+       *
+       * The case is REACHABLE, which is why it earns a comment this long.
+       * Nothing the screen uploads can produce it (`FileAttachments` appends a
+       * row only once the upload returns a path) but the SEED can:
+       * `openEdit` maps `storage_path: f.storage_path ?? ""`, so a legacy row
+       * with a null path arrives as one. Under the screen's old per-row test
+       * that style satisfied the button and failed the server — **Save enabled,
+       * save refused, and nothing on screen saying why**. That is the "server
+       * stricter than the screen" half of the drift this shared predicate
+       * exists to prevent, and it was already live before the predicate landed.
+       *
+       * The 13th difference was outside that matrix: two style rows sharing one
+       * reference are reported ONCE here and were reported twice by the per-row
+       * test, so the rail badge no longer counts one missing document as two.
+       */
+      .filter((f) => !!(f.storage_path && f.storage_path.trim()))
+      .map((f) => (f.style_ref_no ?? "").trim().toUpperCase())
+      .filter(Boolean),
+  );
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of styles) {
+    const ref = (s.style_ref_no ?? "").trim();
+    if (!ref) continue;
+    const key = ref.toUpperCase();
+    if (withFiles.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(ref);
+  }
+  return out;
+}
+
+/**
+ * The sentence shown when a style has no document — T3-styles' wording, and the
+ * reason it is a function is that the SCREEN and the SERVER must say it
+ * identically. A blocked Save reads it out loud, and "attach the style's
+ * document" would leave the operator guessing which document.
+ */
+export function styleFileMessage(styleRef: string): string {
+  return `${styleRef}: attach the tech pack, sketch or spec image for this style before saving.`;
+}
 
 // Fixed dropdowns — legacy option lists (confirm exact values via screenshots).
 // WITHDRAWN FROM THE FORM 2026-08-11 (client) and kept for the same reason
@@ -354,12 +676,18 @@ export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
  * value that cannot be right there.
  *
  * NOT TO BE CONFUSED WITH `ITEM_SUB_TYPE_OPTIONS` (combo-rules.ts), which is
- * the STRUCTURE's Fabric Type — Solid / Melange / Yarn Dyed / Printed. That one
- * decides which aesthetic field a component fills (`takesDyedColour`); this one
- * describes how a declared dyeing is done and drives nothing. They share two
- * words and no meaning, so they are deliberately separate constants: merging
- * them would put `printed` and `solid` into a dyeing dropdown and `Y/D` into a
- * rule that tests for `yarn_dyed`.
+ * the STRUCTURE's Fabric Type — Solid / Melange / Yarn Dyed since the client
+ * removed `printed` on 2026-08-31 ("an aesthetic processing step, not a base
+ * fabric type"). That one decides HOW A PART'S COLOUR CELL IS ANSWERED —
+ * `componentColourEntry`, three answers: a filtered list, a typed description,
+ * or nothing at all. This one describes how a declared dyeing is done and
+ * drives nothing.
+ *
+ * Neither `takesDyedColour` nor `takesAllOverPrint` is named here any more:
+ * both are deleted, and a comment naming a deleted gate is how the next reader
+ * comes to restore it. They share two words and no meaning, so they stay
+ * deliberately separate constants — merging them would put `solid` into a
+ * dyeing dropdown and `Y/D` into a rule that tests for `yarn_dyed`.
  */
 export const DYE_TYPE_OPTIONS = {
   yarn: ["Y/D", "Melange"],
@@ -679,14 +1007,20 @@ export interface AmendmentStructure {
    */
   structure_id: string | null;
   /**
-   * Solid / Melange / Yarn Dyed / Printed (0415) — the client's "see the Type
-   * for each fabric structure immediately", and what decides which T&A
-   * processing deadlines apply.
+   * Solid / Melange / Yarn Dyed (0415) — the client's "see the Type for each
+   * fabric structure immediately", and what decides which T&A processing
+   * deadlines apply.
    *
-   * NULL is a real state, not a missing default: `takesDyedColour` and
-   * `takesAllOverPrint` both answer false for it, so an unanswered Type offers
-   * neither list. Defaulting to 'solid' would put an invented answer on a row
-   * nobody has read yet.
+   * THREE VALUES, NOT FOUR, SINCE 2026-08-31. `printed` is gone from
+   * `ITEM_SUB_TYPE_OPTIONS` and from both CHECKs (0480) on the client's own
+   * reasoning — "an aesthetic processing step, not a base fabric type" — and
+   * the catalog held none in either amendment table on the day it went, which
+   * is what made the constraint safe to tighten rather than carry for ever.
+   *
+   * NULL IS STILL A REAL STATE, not a missing default: `componentColourEntry`
+   * answers `null` for it, so an unanswered Type neither offers a colour list
+   * nor makes a part's Colour cell mandatory. Defaulting to 'solid' would put
+   * an invented answer on a row nobody has read yet.
    */
   item_sub_type: string | null;
 }
@@ -737,8 +1071,46 @@ export interface AmendmentComboStructure {
   composition_id: string | null;
   gsm: number | null;
   gsm_tolerance: number | null;
-  /** "Fabric Type" — 'solid' | 'melange' | 'yarn_dyed'. */
+  /**
+   * "Fabric Type" — 'solid' | 'melange' | 'yarn_dyed' (`ITEM_SUB_TYPE_OPTIONS`).
+   *
+   * `printed` was the fourth value and is gone (client 2026-08-31, 0480). It
+   * used to decide WHICH aesthetic cell a part filled — a colour or a print,
+   * never both — and that job ended on 2026-08-20 when the client put Colour
+   * and Fabric Print side by side on every part, so the option outlived its
+   * reason before it was removed.
+   *
+   * WHAT IT DECIDES NOW is `componentColourEntry`: a filtered list of this
+   * order's declared colours (solid, melange), a typed description
+   * (yarn_dyed — see `yarn_colors` below), or nothing at all (unanswered).
+   */
   item_sub_type: string | null;
+  /**
+   * "Yarn Color" — the colours of the PRE-DYED YARNS this cloth is knitted
+   * from (client 2026-08-31, column added by 0480).
+   *
+   * A PROPERTY OF THE CLOTH, WHICH IS WHY IT IS ON THE STRUCTURE AND NOT ON
+   * THE PART. A yarn-dyed fabric is knitted from yarns that were dyed before
+   * knitting, so its yarn colours are settled by the fabric itself — every
+   * part cut from that cloth is made of the same yarns. Putting it on the
+   * component would let the front body and the back body of one fabric
+   * disagree about what the fabric is made of, which is not a state that
+   * exists, and would ask the operator the same question once per part.
+   *
+   * The part-level field it is often confused with is `color_name` below,
+   * which is the FINISHED panel's colour — a description like
+   * "WHITE/BLUE STRIPE" on a yarn-dyed cloth, typed rather than picked
+   * precisely because no single declared colour can state a blend. The two are
+   * complementary: this says which yarns went in, that says what came out.
+   *
+   * ALWAYS AN ARRAY, NEVER NULL FROM THE DATABASE — the column is
+   * `text[] not null default '{}'` (0480), so a fabric with no yarn colours
+   * reads `[]`. `| null` is here for the seed and the screen, which build rows
+   * that have not been round-tripped through Postgres yet, and for the same
+   * reason every other column on this interface is nullable: a payload that
+   * stops carrying it must be visibly absent rather than silently `[]`.
+   */
+  yarn_colors: string[] | null;
   /** The overlay's nested grid. */
   components: AmendmentComboComponent[];
   // Gsm Range is DERIVED (`gsmRange` in combo-rules.ts) and has no column.
@@ -877,6 +1249,79 @@ export interface AmendmentPackTypeLine {
 }
 
 /**
+ * Order Entry ▸ T&A — one activity of the order's Time & Action ladder (0481).
+ *
+ * Client: "an order cannot be saved without its T&A path being defined", and
+ * the reason legacy T&A died is that NOTHING EVER READ IT. So this row is
+ * written on the order and READ BY THE DASHBOARD, which is what makes it unlike
+ * every sibling child on this document.
+ *
+ * ## IT IS THE ONE CHILD WHOSE COLUMNS ARE NOT ALL ENTERED ON THIS SCREEN
+ *
+ *     entered on the ORDER, on the T&A tab   activity_id · days_required
+ *     derived by the ladder, on both ends    target_date
+ *     entered on the DASHBOARD, days later   actual_date · status · notes
+ *
+ * `writeChildren` deletes every child row and reinserts, which is lossless for
+ * a pack type or a price line because the form holds their whole truth. It is
+ * not lossless here: an operator reopening the order to fix a typo would
+ * destroy every completion record on it, silently. `row_uid` is what stops
+ * that — see it below, and `normalizeTaActivities` in `actions.ts` for the
+ * merge itself.
+ */
+export interface AmendmentTaActivity {
+  id: string;
+  amendment_id: string;
+  /**
+   * THE ANCHOR (0481) — the 0446 pattern, a second time.
+   *
+   * Minted client-side, never shown, never edited, ROUND-TRIPPED BY THE FORM.
+   * It is the only thing about this row that survives a save: `id` is re-minted
+   * by the reinsert and `sno` is renumbered by the normalizer, so a completion
+   * entered on the dashboard can be carried across by nothing else.
+   *
+   * Not nullable, unlike `mbaProcessInput.row_uid`, which is optional so an
+   * older client cannot fail to save. This table has no older client — it is
+   * created today — and the failure modes are not comparable: a lost anchor
+   * there leaves a findable orphan challan line, a lost anchor here loses a
+   * completion invisibly.
+   */
+  row_uid: string;
+  /** Execution order — Fabric Plan first, Shipment last. Dense, 1..n on save. */
+  sno: number;
+  /** The `ta_activities` master row (0035 · 0266). The Dept column is read
+   *  THROUGH this, off `ta_activities.department` — never copied onto the row,
+   *  which would be a second answer that goes stale when the master is edited. */
+  activity_id: string | null;
+  /**
+   * Working days this step needs, counted back from the step after it.
+   *
+   * NULL IS NOT ZERO. A row the grid seeded and nobody has filled in is legal,
+   * and `backwardSchedule` already refuses it BY NAME ("Knitting: enter how
+   * many days it needs"). Treating it as 0 would collapse two steps onto one
+   * date and the plan would still look complete.
+   */
+  days_required: number | null;
+  /**
+   * The date this step must be COMPLETE by. STORED, not derived — the one place
+   * in this module that breaks the house rule, because the daily dashboard asks
+   * Postgres "what is due today across every open order" and a working-day
+   * ladder with a holiday set is not a question SQL can answer.
+   *
+   * Safe only because the screen and the server action resolve it through the
+   * SAME `orderTaLadder()`: both halves or neither, the rule `purchase_qty`
+   * already follows.
+   */
+  target_date: string | null;
+  /** Entered on the DASHBOARD. Carried across a save by `row_uid`. */
+  actual_date: string | null;
+  /** `pending` | `in_progress` | `done`. Set on the dashboard; the values are
+   *  `ta_plan_activities`' (0401) verbatim, one spelling of one state machine. */
+  status: string;
+  notes: string | null;
+}
+
+/**
  * A document attached to the order (0416) — the style JPG, the buyer's original
  * PDF order sheet, a shade card.
  *
@@ -905,6 +1350,22 @@ export interface AmendmentFile {
   storage_path: string | null;
   mime_type: string | null;
   size_bytes: number | null;
+  /**
+   * WHICH STYLE LINE THIS DOCUMENT BELONGS TO (0479) — by the operator's own
+   * reference, the same key the sizes, components, coordinates and pack
+   * components are filed under, compared through `styleKey()`.
+   *
+   * NOT an id and not an ordinal: `writeChildren` deletes and reinserts the
+   * styles wholesale on every save so a uuid does not survive one, and
+   * `normalizeStyles` re-numbers `sno` by position so a file keyed to "style 2"
+   * would silently follow the wrong garment the moment a line above it was
+   * removed. The migration header spells both out.
+   *
+   * NULL is a document filed against the ORDER rather than a garment — which is
+   * what every row saved before 2026-08-31 is, since the field lived on the
+   * header until then. It is a real state, not a missing answer.
+   */
+  style_ref_no: string | null;
   created_at: string;
 }
 
@@ -1131,6 +1592,8 @@ export interface GarmentOrderAmendment {
   pack_types: AmendmentPackType[];
   /** What each pack type packs (0472), keyed off `pack_types` by text. */
   pack_type_lines: AmendmentPackTypeLine[];
+  /** The order's Time & Action ladder (0481). Merged on save, never replaced. */
+  ta_activities: AmendmentTaActivity[];
   quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
   files: AmendmentFile[];
@@ -1322,7 +1785,7 @@ export const amendmentStructureInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   structure_id: uuidN,
   /**
-   * Solid / Melange / Yarn Dyed / Printed (0415).
+   * Solid / Melange / Yarn Dyed (0415, narrowed 2026-08-31).
    *
    * VALIDATED AGAINST THE ONE VOCABULARY rather than left as free text, because
    * `lib/data-io` parses imports with this schema and writes straight to
@@ -1330,9 +1793,21 @@ export const amendmentStructureInput = z.object({
    * CHECK as a raw database error rather than a field-level message. `""` maps
    * to null so a cleared `<Select>` reads as "not answered" and not as an
    * invalid member.
+   *
+   * `printed` IS GONE, AND THE TUPLE IS NOW EXACTLY `order_fabrics`' THREE
+   * VALUES — which is what makes narrowing it safe rather than a way to lock an
+   * operator out of a document they can already open. Three things had to be
+   * true at once and were, on 2026-08-31: the ORDER side never had a fourth
+   * value (0329's CHECK), so a seeded amendment cannot arrive holding one; the
+   * catalog holds 0 rows with `printed` in either amendment table, so no saved
+   * document parses differently today; and 0480 tightened both CHECKs, so
+   * nothing can write one from here on. Had any live row held it, the honest
+   * move would have been `nullableText` and a screen that shows the stale value
+   * — the reasoning `RECEIPT_MODES` records — not a schema that refuses to open
+   * the record.
    */
   item_sub_type: z
-    .enum(["solid", "melange", "yarn_dyed", "printed"])
+    .enum(["solid", "melange", "yarn_dyed"])
     .nullable()
     .or(z.literal("").transform(() => null))
     .default(null),
@@ -1377,6 +1852,53 @@ export const amendmentComboStructureInput = z.object({
   gsm: z.coerce.number().nullable().default(null),
   gsm_tolerance: z.coerce.number().nullable().default(null),
   item_sub_type: nullableText,
+  /**
+   * "Yarn Color" — the colours of the pre-dyed yarns this cloth is knitted
+   * from (client 2026-08-31, 0480). See `AmendmentComboStructure.yarn_colors`
+   * for why it is a property of the CLOTH rather than of a part.
+   *
+   * CAPS IN THE SCHEMA, NOT IN THE ACTION, for the reason `print_name` states
+   * above and AGENTS.md states under CAPITALS: `lib/data-io` parses imports
+   * with these same `*Input` schemas and writes straight to Postgres, so an
+   * action-level `.toUpperCase()` misses every path that does not go through
+   * the action.
+   *
+   * NOT A SHARED `capsList()` IN `lib/validation/formats.ts`, deliberately.
+   * That file holds the SCALAR pair `capsName` / `capsTextNullable`, and this
+   * is the only array-valued text column in the app today — a shared helper
+   * with exactly one caller is a guess at a shape rather than a rule three
+   * callers share, which is the test AGENTS.md actually applies. Two of the
+   * four steps below are also specific to a TICK LIST rather than to capitals
+   * (see the ordering note), so promoting this wholesale would export those
+   * decisions to a field that has not made them. The moment a second array
+   * column needs it, move these five lines there and let both call it.
+   *
+   * TRIM → UPPER → DROP BLANKS → DE-DUPE, IN THAT ORDER. The cell is a tick
+   * list over `yarnColourOptions`, whose options are already trimmed and
+   * upper-cased, so a value that skipped either step would render as an
+   * unticked box beside an identical ticked one — the same colour offered
+   * twice, which is the near-miss defect one door along. `""` ticks nothing
+   * and goes; a repeat is one colour stated twice and goes, because the column
+   * is a SET.
+   *
+   * THE OPERATOR'S ORDER IS KEPT. `yarnColourOptions` offers the colourways in
+   * the order the Combos grid lists them, so re-sorting here would make the
+   * stored value disagree with the list it was picked from. The diff sorts for
+   * its OWN comparison instead (`joinYarnColours` in diff.ts), which is where
+   * "re-ordering is not a change" belongs — a store that sorted would make the
+   * two indistinguishable and lose the operator's order for nothing.
+   */
+  yarn_colors: z
+    .array(z.string())
+    .default([])
+    .transform((xs) => {
+      const out: string[] = [];
+      for (const x of xs) {
+        const v = x.trim().toUpperCase();
+        if (v && !out.includes(v)) out.push(v);
+      }
+      return out;
+    }),
   components: z.array(amendmentComboComponentInput).default([]),
 });
 
@@ -1461,6 +1983,66 @@ export const amendmentPackTypeLineInput = z.object({
 });
 
 /**
+ * One activity of the order's Time & Action ladder (0481).
+ *
+ * ## THIS INPUT IS DELIBERATELY NARROWER THAN THE ROW
+ *
+ * `AmendmentTaActivity` has nine data columns. Four of them are here. The five
+ * that are missing are missing ON PURPOSE, and the omission is the safety
+ * property rather than an oversight:
+ *
+ *   * `target_date` is COMPUTED BY THE SERVER, by the same `orderTaLadder()`
+ *     the screen renders from. Accepting it on the input would let a client
+ *     state an opinion about a value the server also decides — two answers to
+ *     one question, which is exactly the failure "BOTH HALVES OR NEITHER" names.
+ *     Leaving it off means the client CANNOT disagree, which is a stronger
+ *     guarantee than agreeing.
+ *
+ *   * `actual_date`, `status` and `notes` BELONG TO THE DASHBOARD. They are
+ *     entered days or weeks after the order was saved, by someone else, on
+ *     another screen. `writeChildren` deletes and reinserts every child row, so
+ *     they are carried across a save by `row_uid` — from the DATABASE, never
+ *     from the payload. Off the input, a stale form cannot carry a completion
+ *     value at all, so the merge has nothing to prefer and no order in which to
+ *     prefer it. Accepting them and then ignoring them would work today and
+ *     stop working the first time somebody "fixed" the writer to honour them.
+ *
+ *   * `id` is re-minted by the reinsert. `row_uid` is the identity here.
+ *
+ * ## `row_uid` IS REQUIRED, AND `mbaProcessInput`'s IS NOT
+ *
+ * That difference is deliberate. 0446 made its anchor optional so "a payload
+ * from an older client cannot fail to save — it produces a visibly
+ * un-dispatched row instead", and there the worst case is a findable orphan
+ * challan line. Here the worst case is a completion record deleted with nothing
+ * on screen to say so. This table is created today, so there is no older client
+ * to protect; requiring the anchor turns the dangerous silent case into a loud
+ * one-edit failure.
+ *
+ * `days_required` is `numN`-shaped and NOT bounded here. A negative or absent
+ * lead time is refused by `backwardSchedule`, which names the ROW — "Knitting:
+ * enter how many days it needs" — where a Zod bound would say "Number must be
+ * greater than or equal to 0" against a ladder of ten identical-looking boxes.
+ * The whole-number constraint IS enforced here, because the column is `int` and
+ * Postgres would silently round 2.5 to 2 rather than complain.
+ */
+export const amendmentTaActivityInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  row_uid: z
+    .string()
+    .uuid(
+      "Every T&A row needs its anchor — reload the order rather than saving a " +
+        "form that has lost one, or the completions already recorded against it " +
+        "cannot be matched back.",
+    ),
+  activity_id: uuidN,
+  days_required: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? null : v),
+    z.coerce.number().int("Days must be a whole number of days").nullable(),
+  ),
+});
+
+/**
  * One attached document (0416).
  *
  * `doc_kind` is nullable because the operator picks it AFTER the file lands —
@@ -1474,6 +2056,14 @@ export const amendmentPackTypeLineInput = z.object({
  */
 export const amendmentFileInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
+  /**
+   * The style this document belongs to (0479). `nullableText`, and NOT
+   * `capsTextNullable()` — it must match `garment_order_amendment_styles.
+   * style_ref_no`, which is `nullableText` too, and a key capsed on one side of
+   * a join and not the other is a join that stops matching. `styleKey()` is what
+   * folds the case, on both sides, at comparison time.
+   */
+  style_ref_no: nullableText,
   doc_kind: z
     .enum(["sketch", "order_sheet", "approval"] satisfies readonly AttachmentKind[])
     .nullable()
@@ -1544,11 +2134,20 @@ export const amendmentQuantityInput = z.object({
   assortment_type_id: uuidN,
   /** Which pack type(s) method this destination ships (0473). */
   pack_type: nullableText,
-  /* `nullableText`, NOT `capsTextNullable()`, and deliberately so: this is the
-     same PO number the HEADER's `po_no` holds, which is `nullableText` below.
-     Capsing one of the two would let the same buyer reference read two ways
-     depending on which switch was on when it was typed. */
-  po_no: nullableText,
+  /* CAPSED SINCE 2026-08-31, and the reason it was not is the reason it now is.
+     This comment used to say `nullableText`, NOT `capsTextNullable()`, "because
+     the HEADER's `po_no` is `nullableText` below — capsing one of the two would
+     let the same buyer reference read two ways depending on which switch was on
+     when it was typed." That premise is gone: the header's PO No became
+     `requiredKind("doc_ref")` in the same change, whose transform is `upper`.
+     Leaving this one alone would have created the very divergence the old note
+     was written to avoid, one switch the other way.
+     It stays OPTIONAL and free-form in SHAPE. Blank on a row is the normal case
+     — it inherits the header's PO (`lib/orders/po-no.ts`) — and applying the
+     alphanumeric rule here would refuse values already stored in this grid for a
+     requirement the client stated about the header field. See the header's own
+     `po_no` for the open question that leaves. */
+  po_no: capsTextNullable(),
   po_qty: num,
   // Dates are plain ISO strings here, as everywhere in this module — the input
   // is `<input type="date">`, whose value is always ISO regardless of the
@@ -1626,9 +2225,51 @@ export const amendmentInput = z.object({
   // OXBOW at all. Renamed as well as repointed; a `buyer_id` holding a customer
   // uuid is the FK landmine 0355 and 0375/0376 were written to clear up.
   customer_id: z.string().uuid("Customer is required"),
-  po_no: nullableText,
+  /**
+   * MANDATORY, AND SHAPED LIKE A DOCUMENT REFERENCE (client 2026-08-31: "PO No
+   * strictly mandatory … accepts alphanumeric values only"; widened by the user
+   * the same day to permit `-` and `/`, which is what a real PO number is built
+   * from — `DOC_REF_RE` records that exchange and the evidence that decided it).
+   *
+   * `requiredKind` and not a hand-rolled `.min(1).regex()`, because the kind
+   * carries four things the regex alone does not: the message wording the
+   * `<ValidatedInput>` shows, the `transform: "upper"` that makes this the
+   * CAPITALS half as well, the same normalise-then-validate order every other
+   * format uses, and one place to change the rule. The write-side transform
+   * belongs HERE rather than in the action for the standing reason — the action
+   * is not the only write path.
+   *
+   * ## THE SHAPE RULE IS NOT ON THE ROW-LEVEL PO, AND THAT IS NOT AN OVERSIGHT
+   *
+   * `amendmentQuantityInput.po_no` above is the SAME buyer reference, one grain
+   * down, and it stays free text. The client's instruction was about this field;
+   * tightening the grid cell would additionally refuse values already stored in
+   * it — and a row PO is optional by design (blank inherits the header's), so
+   * there is no mandatory half to go with it. The two are capsed alike, so they
+   * cannot disagree on case.
+   *
+   * The widening narrowed that gap rather than closing it: `PO-1000` is now
+   * legal at BOTH levels, so the divergence is no longer "the header refuses
+   * what the row accepts" for any shape an operator is likely to type. What
+   * remains is that the row would still accept a space or a comma. Left as an
+   * open question for the client rather than decided here.
+   */
+  po_no: requiredKind("doc_ref", "PO No is required"),
   po_date: nullableText,
-  merchandiser_id: uuidN,
+  /**
+   * MANDATORY, and an `employees` row rather than a login since 0478.
+   *
+   * Stated the same way `customer_id` is, three lines up: a `uuid()` whose
+   * message is the requirement. `uuidN` would have accepted null, and a field
+   * carrying a red `*` that the server then saves empty is the star/hold
+   * divergence AGENTS.md's "one declaration, four enforcers" exists to make
+   * impossible.
+   *
+   * This is where the requirement is ENFORCED. The column is deliberately left
+   * nullable (0478) so an order that predates the rule fails with this sentence
+   * rather than a 23502 naming a column the operator never touched.
+   */
+  merchandiser_id: z.string().uuid("Merchandiser is required"),
   season: nullableText,
   // `amend_year` WITHDRAWN 2026-08-14 (client): the year is already on the
   // linked Style Master, so the order asked for it twice. Its COLUMN and stored
@@ -1723,10 +2364,192 @@ export const amendmentInput = z.object({
   approval_qtys: z.array(amendmentApprovalQtyInput).default([]),
   pack_types: z.array(amendmentPackTypeInput).default([]),
   pack_type_lines: z.array(amendmentPackTypeLineInput).default([]),
+  /**
+   * The order's Time & Action ladder (0481). MERGED on save rather than
+   * replaced — see `amendmentTaActivityInput` for why this list is narrower
+   * than the rows it writes, and `normalizeTaActivities` for the merge.
+   */
+  ta_activities: z.array(amendmentTaActivityInput).default([]),
   quantities: z.array(amendmentQuantityInput).default([]),
   files: z.array(amendmentFileInput).default([]),
-});
+})
+  /**
+   * DELI.DT · SEASON · REJECTION RULE — MANDATORY ON A REAL SAVE, NOT ON A DRAFT
+   * (client 2026-08-31).
+   *
+   * ## WHY A REFINE RATHER THAN CHANGING THE THREE FIELD TYPES
+   *
+   * Making `delivery_date` a `z.string().min(1)` the way `amend_date` is would
+   * require it on a DRAFT too — and `is_draft` exists precisely so an operator
+   * can park an order that is not finished yet. The header's other hard-required
+   * fields (`customer_id`, `merchandiser_id`) are order IDENTITY: without them
+   * there is no order to be a draft OF. A delivery date, a season and a
+   * rejection rule are details of a known order, so requiring them at draft time
+   * would make "Save as Draft" mean "save a finished draft" — the same sentence
+   * the T&A ladder guard used to carry one file over, for the same reason.
+   *
+   * ## THIS IS THE THIRD OF THREE ENFORCERS AND THE ONLY ONE THAT IS A GUARD
+   *
+   * The `*` and the cursor hold come from `<Field required>` on the screen, and
+   * the blocked Save from `sectionValidity`. Both are courtesies: they run in a
+   * browser. This runs in the action, so it is what actually holds when a stale
+   * client, a replayed request or a future writer skips the screen — the split
+   * `checkDuplicateName` already states ("the screen check is a courtesy; this
+   * one is the guard").
+   *
+   * The messages are the words ON the fields, because they are read out loud by
+   * a failed save: "Deli.Dt", not "Delivery Date".
+   */
+  .superRefine((v, ctx) => {
+    if (v.is_draft) return;
+    const missing: [keyof typeof v, string][] = [
+      ["delivery_date", "Deli.Dt is required"],
+      ["season", "Season is required"],
+      ["rejection_rule_id", "Rejection Rule is required"],
+    ];
+    for (const [key, message] of missing) {
+      const value = v[key];
+      // Blank and whitespace both count as unanswered — a box the operator
+      // cleared is not an answer, which is the same test `purchaseStageOrGreige`
+      // makes about its own column.
+      if (typeof value === "string" ? !value.trim() : value == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key as string], message });
+      }
+    }
+  });
 export type AmendmentInput = z.infer<typeof amendmentInput>;
+
+// ============================================================================
+// T&A — THE MERGE (0481)
+// ============================================================================
+/**
+ * The two rules that stop a Save destroying the order's completion records,
+ * stated ONCE and as PURE FUNCTIONS so they can be proved.
+ *
+ * ## WHY THESE ARE NOT IN `actions.ts`
+ *
+ * `writeChildren` deletes every child row and reinserts. For this one table that
+ * is not lossless: `actual_date`, `status` and `notes` are entered on the T&A
+ * DASHBOARD, days or weeks after the order was saved, so an operator reopening
+ * the order to fix a typo would destroy every completion on it — silently, with
+ * no error. AGENTS.md and the Material Attribute post-mortem record that exact
+ * bug happening: "12/12 lines + 10 answers destroyed and unrecoverable."
+ *
+ * A merge that is merely WRITTEN is not a merge that is KNOWN to work, and a
+ * server action cannot be vectored — it needs a Supabase client, a session and a
+ * database. So the decisions live here, where they are pure, and `actions.ts`
+ * supplies the two things only a server can: the saved rows, and the dates.
+ * `scripts/check-ta-merge.mts` proves them; `npm run check:ta-merge`.
+ *
+ * This is the shape `missingRequiredMaterialFields` already uses — one exported
+ * function that the screen, the Save button and both actions call, rather than a
+ * rule restated at each caller.
+ */
+
+/** What identifies and describes a ladder step. The T&A tab owns all of it. */
+export type TaRowCore = {
+  row_uid: string;
+  sno: number;
+  activity_id: string | null;
+  days_required: number | null;
+};
+
+/** What the DASHBOARD owns. Never on `amendmentTaActivityInput`; see its note. */
+export type TaCompletion = {
+  actual_date: string | null;
+  status: string | null;
+  notes: string | null;
+};
+
+/** A row as it comes back out of the database. */
+export type SavedTaRow = TaRowCore & TaCompletion;
+
+/** A row as it goes in, dates resolved and completions carried across. */
+export type MergedTaRow = TaRowCore & { target_date: string | null } & {
+  actual_date: string | null;
+  status: string;
+  notes: string | null;
+};
+
+/**
+ * WHICH LADDER THIS SAVE IS WRITING — the payload's, or the stored one.
+ *
+ * `ta_activities` defaults to `[]` in the Zod input, so ANY payload that does
+ * not know about this tab arrives with an empty list: a stale client, a `curl`,
+ * a caller written before today. Under the flat delete-and-reinsert that would
+ * empty the table and take every completion with it, which is the disaster the
+ * whole anchor exists to prevent.
+ *
+ * So AN EMPTY LIST MEANS "this save says nothing about the ladder", NOT "delete
+ * the ladder": the saved rows are re-emitted and written back.
+ *
+ * THE PRICE IS REAL AND IS THE CHEAP HALF OF THE TRADE. An operator who deletes
+ * every row of the ladder and saves will find it still there on reload — visible,
+ * and one edit from being fixed. A payload silently destroying completion
+ * records is neither visible nor fixable. The ladder is mandatory on the screen
+ * anyway, so "no activities at all" is not a state the operator is heading for.
+ *
+ * `sno` IS RENUMBERED DENSE from the winning list's own order, on both branches.
+ * The saved rows are re-emitted in the order they were given, so the caller has
+ * to hand them over sorted — the ladder is the operator's sequence and a
+ * function that re-sorted it would move dates nobody edited.
+ */
+export function taRowsToWrite(
+  typed: readonly TaRowCore[],
+  saved: readonly SavedTaRow[],
+): TaRowCore[] {
+  const winner: readonly TaRowCore[] = typed.length ? typed : saved;
+  return winner.map((r, i) => ({
+    row_uid: r.row_uid,
+    sno: i + 1,
+    activity_id: r.activity_id,
+    days_required: r.days_required,
+  }));
+}
+
+/**
+ * CARRY THE DASHBOARD'S COLUMNS ACROSS THE SAVE, by `row_uid`.
+ *
+ * NEVER BY `id`, which the reinsert re-mints, and never by `sno`, which
+ * `taRowsToWrite` above has just renumbered. `row_uid` is minted client-side,
+ * never shown, never edited and round-tripped by the form — it is the only thing
+ * about a row that survives a save. Same anchor, same reason, as
+ * `material_bom_amendment_processes.row_uid` (0446/0459).
+ *
+ * A row with no saved counterpart is NEW and starts at `pending` with nothing
+ * recorded. A saved row whose anchor is absent from the incoming list has been
+ * DELETED by the operator and its completion goes with it — that is a deliberate
+ * act on the ladder, not a side effect of saving something else, which is the
+ * whole distinction this function draws.
+ *
+ * `status` IS COALESCED HERE RATHER THAN LEFT TO THE COLUMN DEFAULT — 0475's
+ * lesson, inverted. The column is `not null default 'pending'`, and a default
+ * applies only when the INSERT OMITS the column; this writer names it on every
+ * row, so without the `??` a brand-new step would violate not-null and fail the
+ * entire save.
+ *
+ * `targetDates` is index-for-index with `rows`. An entry is `null` when the
+ * ladder refused — which reaches here only on a DRAFT, because a real save
+ * returns the refusal instead of writing. An undated row appears on no worklist,
+ * which is the honest reading of a plan nobody has finished writing.
+ */
+export function mergeTaCompletions(
+  rows: readonly TaRowCore[],
+  saved: readonly SavedTaRow[],
+  targetDates: readonly (string | null)[],
+): MergedTaRow[] {
+  const prior = new Map(saved.map((r) => [r.row_uid, r]));
+  return rows.map((r, i) => {
+    const was = prior.get(r.row_uid);
+    return {
+      ...r,
+      target_date: targetDates[i] ?? null,
+      actual_date: was?.actual_date ?? null,
+      status: was?.status ?? "pending",
+      notes: was?.notes ?? null,
+    };
+  });
+}
 
 export function amendmentStatusTone(
   a: Pick<GarmentOrderAmendment, "is_draft">,

@@ -21,6 +21,7 @@
 // The rule in one line: A HOLD REFUSES MOVEMENT AND NEVER REFUSES CHOOSING.
 
 import {
+  autoFilledField,
   enterTicks,
   keyFills,
   keyMovesBackward,
@@ -74,6 +75,32 @@ for (const [name, probe] of Object.entries({
 })) {
   check(`${name}: Tab refused`, keyFills(probe, "Tab"), false);
 }
+
+// ---------------------------------------------------------------------------
+// A PLAIN BUTTON FILLS NOTHING — which is why a mandatory control must be a
+// `data-field-trigger` and never a bare `<Button>` (0479, Styles Details ▸ Files).
+//
+// The Files cell on a style row had to be mandatory, and the obvious build was
+// the `control` variant of `FileAttachments` — a `<Button data-row-add>` that
+// opens the OS file dialog. It cannot carry the rule, and this is the half that
+// is invisible until an operator hits it: a held cell refuses every key
+// `keyFills` says false to, and on a plain BUTTON that is EVERY key it has.
+// Enter on that button IS the click that opens the dialog, so the operator could
+// neither attach a file nor leave the cell — the unsatisfiable cage this whole
+// file was written for, one control along.
+//
+// `data-field-trigger` is the fix and the assertions below are the reason it
+// works: ↓ still opens the dialog on a held cell, so the hold can be satisfied
+// from the keyboard. `TRIGGER` above already covers that direction; what was
+// missing is the NEGATIVE — that the same shape without the marker is dead.
+const BARE_BUTTON: FillProbe = {
+  tag: "BUTTON", role: null, ariaExpanded: null, fieldTrigger: false,
+};
+console.log("\nA BARE <button> CAN NEVER HOLD — it has no key that fills");
+for (const key of ["Enter", "ArrowDown", "ArrowUp", " ", "Tab"]) {
+  check(`bare button: ${key === " " ? "Space" : key} fills nothing`, keyFills(BARE_BUTTON, key), false);
+}
+check("marked trigger: ↓ DOES fill — the marker is the whole difference", keyFills(TRIGGER, "ArrowDown"), true);
 
 console.log("\n←/→ are never a FILL — the hold handles them by caret position");
 for (const [name, probe] of Object.entries({ TEXT, PICKER_OPEN, NATIVE_SELECT })) {
@@ -221,6 +248,71 @@ tick("an opt-in box with a field after it ticks too", enterTicks({ ...box(true),
 // implicit submit), so it ticks even though nothing follows it.
 tick("nothing to commit TO — ticks", enterTicks({ ...box(false), canSubmit: false }), true);
 tick("nothing to commit TO, and not a box — untouched", enterTicks({ ...box(false), canSubmit: false, tickBox: false }), false);
+
+// ---------------------------------------------------------------------------
+// A FIELD OFF THE TAB PATH MUST NEVER ALSO HOLD THE CURSOR (2026-08-31).
+//
+// The third way to build an unsatisfiable cage, and the newest. The two above
+// are about a hold refusing the keys that FILL a field; this one is about a hold
+// on a field Tab can never DELIVER the operator to. `data-focus-optional` takes
+// a control off Tab and Enter; `data-required-empty` refuses Tab, Enter, ↓ and →
+// while the control is blank. Set both and the operator can neither arrive by
+// the route Tab offers nor leave once they get there by some other route — and
+// Save stays dead with nothing reachable on screen to fix.
+//
+// It became reachable on 2026-08-31, when Order Entry's Unit and Date were taken
+// off the Tab path (client: "the keyboard tab navigation must completely bypass
+// the Entry Date and Location/Unit fields") while both remained mandatory for
+// the record. Two independent props would have expressed the cage perfectly
+// happily. `autoFilledField` derives both from ONE boolean instead, so the
+// broken combination cannot be written down — the same move `keyFills` makes for
+// "which keys does a held field still answer", and the same reason it is a pure
+// function rather than a rule living in a screen.
+//
+// VERIFIED BY BEING MADE TO FAIL FIRST: with the body returning
+// `{ offTabPath: filled, required: true }` — i.e. requiredness kept
+// unconditional, which is what the field declared the day before — the second
+// vector below reported
+//   FAIL  filled: it is off the Tab path, so it must NOT hold — expected false
+// before the fix was written.
+console.log("\nAN AUTO-FILLED FIELD — bypassed, or held, never both");
+function auto(label: string, actual: boolean, expected: boolean) {
+  if (actual === expected) {
+    console.log(`  ok    ${label}`);
+  } else {
+    failures++;
+    console.log(`  FAIL  ${label} — expected ${expected}`);
+  }
+}
+
+// The ordinary case: the app filled it in, so the operator has no reason to stop
+// on it and Tab steps over.
+auto("filled: Tab steps over it", autoFilledField(true).offTabPath, true);
+auto("filled: it is off the Tab path, so it must NOT hold", autoFilledField(true).required, false);
+// The fallback that makes the feature safe: no default location on the profile
+// and no active unit to fall back on. The field is an ordinary mandatory field
+// again — reachable, starred, and holding until it is answered.
+auto("empty: back on the Tab path", autoFilledField(false).offTabPath, false);
+auto("empty: and mandatory again", autoFilledField(false).required, true);
+// The invariant itself, stated as the thing that is actually being asserted, so
+// a future change to the derivation is checked against the RULE and not against
+// the two rows above. Both states, exhaustively — there are only two.
+for (const filled of [true, false]) {
+  const f = autoFilledField(filled);
+  auto(
+    `filled=${filled}: never off-the-Tab-path AND holding at once`,
+    f.offTabPath && f.required,
+    false,
+  );
+  // And never NEITHER, which is the opposite failure and just as wrong: a
+  // mandatory field that is on the Tab path but draws no `*` and does not hold
+  // is a field the operator tabs through with nothing saying it is needed.
+  auto(
+    `filled=${filled}: and never neither — one of the two always applies`,
+    f.offTabPath || f.required,
+    true,
+  );
+}
 
 console.log(failures === 0 ? "\nall good\n" : `\n${failures} FAILURE(S)\n`);
 process.exit(failures === 0 ? 0 : 1);

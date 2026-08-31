@@ -33,11 +33,68 @@ export type PickerIdentity = "name" | "code" | "name-only";
  * `process-hsn-assign-screen`, `default-account-head-screen`) — without the
  * containment guard those would read `6109 — T-SHIRTS   6109`.
  */
+/**
+ * The longest an auto-generated code can be — `generateUniqueCode` slices to 10
+ * (`lib/masters/auto-code.ts`). Read from there in prose rather than imported,
+ * because that module is server-side and this one runs in the browser.
+ */
+const AUTO_CODE_MAX = 10;
+
+/** Uppercase with every non-alphanumeric removed — what `generateUniqueCode` does. */
+function squash(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9]+/g, "");
+}
+
 export function redundantBeside(other: string, primary: string): boolean {
   if (!other) return true;
   const o = other.toUpperCase();
   const p = primary.toUpperCase();
-  return o === p || p.includes(o);
+  if (o === p || p.includes(o)) return true;
+
+  /**
+   * ## AN AUTO-GENERATED CODE IS THE NAME AGAIN, WITH THE SPACES TAKEN OUT
+   *
+   * Client 2026-08-31, screenshot 2558: the Customer list read
+   * `AARSAN AMERICAS LLC   AARSANAMER` and `ASMARA   ASMARA3` — *"customer value
+   * showing two times ... no need that second time customer name ... this kind
+   * of this is a lot of place, fix it global"*.
+   *
+   * `generateUniqueCode` builds the code FROM the name: uppercase, strip
+   * everything non-alphanumeric, truncate to `AUTO_CODE_MAX`, then a collision
+   * integer. So it is not a second fact about the record — it is the first one,
+   * squashed. And **removing the spaces is exactly what defeats the containment
+   * guard above**: `"AARSAN AMERICAS LLC".includes("AARSANAMER")` is false.
+   *
+   * ## WHY THIS RATHER THAN MAKING `name-only` THE DEFAULT
+   *
+   * That was the other way to answer "fix it global", and it is worse. The
+   * sublabel is also how a row is FOUND — `DataPicker` searches `label +
+   * sublabel` — so defaulting to `name-only` would silently drop every code from
+   * search, including the ones operators actually type: an HSN, an account head,
+   * a ledger code. Those are not repeats of the name and were never the
+   * complaint. This clause removes exactly the duplication that was reported and
+   * leaves every code that carries information.
+   *
+   * ## THE LENGTH RULE IS WHAT SEPARATES THEM
+   *
+   * A derived code is either the WHOLE squashed name (short names) or a
+   * `AUTO_CODE_MAX`-character truncation of it (long ones) — never a two-letter
+   * prefix. So a match only counts when it is at least
+   * `min(name length, AUTO_CODE_MAX)` characters. Without that floor, `AH001`
+   * beside `AH Sundry Debtors` would fold on the shared `AH` and a real account
+   * code would vanish.
+   *
+   * The trailing-digit strip is the collision suffix (`ASMARA` → `ASMARA3`), and
+   * it is guarded on a non-empty remainder: a purely numeric code like an HSN
+   * `6109` strips to `""`, and an empty prefix matches everything.
+   */
+  const os = squash(other);
+  const ps = squash(primary);
+  if (!os || !ps) return false;
+  const floor = Math.min(ps.length, AUTO_CODE_MAX);
+  if (ps.startsWith(os)) return os.length >= floor;
+  const base = os.replace(/[0-9]+$/, "");
+  return !!base && ps.startsWith(base) && base.length >= floor;
 }
 
 /**

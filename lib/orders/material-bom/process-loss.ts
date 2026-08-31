@@ -92,6 +92,32 @@ import { isRefusal, type Refusal } from "./requirement";
 export const PURCHASE_STAGE_GREIGE = "Greige";
 
 /**
+ * THE COALESCE THAT MAKES 0476'S DEFAULT HOLD THROUGH THIS APP'S OWN WRITER.
+ *
+ * `normalizeItems` NAMES `purchase_stage` on every insert, and **a column
+ * default never fires when the writer names the column with an explicit NULL**.
+ * That is not a hypothetical: 0475 shipped exactly that gap on this very table
+ * and wrote it down. So the app half has to coalesce, and 0476's DB default
+ * then covers only the writers this app is not — a `lib/data-io` import, a
+ * hand-written INSERT.
+ *
+ * EXTRACTED HERE PURELY SO IT CAN BE ASSERTED. It was `clean(c.purchase_stage)
+ * ?? PURCHASE_STAGE_GREIGE`, inline in `actions.ts` — correct, and unreachable
+ * by any vector: that file is `"use server"` and pulls in `next/cache` and the
+ * Supabase server client, so nothing can import it. A vector re-typing the
+ * expression would assert its own copy and pass while the real writer drifted,
+ * which is the shape AGENTS.md calls a check that never inspected anything.
+ *
+ * Behaviour is `clean()`'s, unchanged: trimmed, and a blank or whitespace-only
+ * value is not a value. Lives beside the constant because the case is
+ * load-bearing (0475) and a coalesce that reached for a different literal is
+ * the drift nobody would ever see on a field the operator cannot type in.
+ */
+export function purchaseStageOrGreige(v: string | null | undefined): string {
+  return v && v.trim() ? v.trim() : PURCHASE_STAGE_GREIGE;
+}
+
+/**
  * A process row, as much of it as the loss arithmetic needs.
  *
  * Deliberately structural rather than importing the screen's `ProcRow`: this

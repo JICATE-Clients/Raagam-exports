@@ -507,7 +507,10 @@ export type StyleRuleInput = {
    */
   style_year?: number | string | null;
   coordinates?: readonly CoordinateLike[];
-  components?: readonly ComponentLike[];
+  /* WIDENED 2026-08-31 from `ComponentLike` (coordinate only) so the duplicate
+     rule can see `component_id`. `ComponentLike` is assignable to this, so every
+     existing caller is untouched. */
+  components?: readonly ComponentRowLike[];
 };
 
 /**
@@ -551,23 +554,13 @@ export function styleProblems(input: StyleRuleInput): StyleProblem[] {
     });
   }
 
-  const limit = coordinateLimit(input.unit_kind);
-  if (limit) {
-    const n = filledCoordinates(input.coordinates ?? []);
-    if (n < limit.min) {
-      problems.push({
-        section: "coordinates",
-        message:
-          limit.min === limit.max
-            ? `A Piece style needs exactly ${limit.min} coordinate.`
-            : `A Set style needs at least ${limit.min} coordinates — there ${n === 1 ? "is" : "are"} ${n}.`,
-      });
-    } else if (n > limit.max) {
-      problems.push({
-        section: "coordinates",
-        message: `A ${input.unit_kind === "piece" ? "Piece" : "Set"} style allows at most ${limit.max} coordinate${limit.max === 1 ? "" : "s"} — there are ${n}.`,
-      });
-    }
+  /* THE WORDING MOVED TO `coordinateCountMessage` (2026-08-31) and the branch
+     did not change — the Garment Order's Style(s) tab now applies the identical
+     rule to each of its LINES, and two copies of a sentence about arity is how
+     one screen ends up saying "exactly 1" while the other says "at most 1". */
+  const countMessage = coordinateCountMessage(input.unit_kind, input.coordinates ?? []);
+  if (countMessage) {
+    problems.push({ section: "coordinates", message: countMessage });
   }
 
   /**
@@ -584,16 +577,428 @@ export function styleProblems(input: StyleRuleInput): StyleProblem[] {
    * four components with it. Blocking here puts the choice back on them —
    * re-add the coordinate, or remove the components.
    */
-  const orphans = orphanComponents(input.components ?? [], input.coordinates ?? []);
-  if (orphans > 0) {
-    problems.push({
-      section: "components",
-      message:
-        orphans === 1
-          ? "1 component is filed under a coordinate this style no longer has — give it one of the style's coordinates, or remove it."
-          : `${orphans} components are filed under a coordinate this style no longer has — give them one of the style's coordinates, or remove them.`,
-    });
+  /* Worded once, in `orphanComponentsMessage` — same reason as the count above. */
+  const orphans = orphanComponentsMessage(input.components ?? [], input.coordinates ?? []);
+  if (orphans) {
+    problems.push({ section: "components", message: orphans });
+  }
+
+  /**
+   * NO COMPONENT TWICE UNDER ONE COORDINATE — ON THE MASTER TOO (2026-08-31).
+   *
+   * THE MASTER WAS THE UNGUARDED HALF, and that is why this is here rather than
+   * only on the order line. `garment_style_components` has NO unique index (all
+   * 12 migrations touching it declare non-unique ones) and
+   * `normalizeComponents` in `actions.ts` has no de-dupe pass at all — only the
+   * blank filter and the renumber. So N identical rows went screen-to-database,
+   * and Fabric BOM, MBA and TA Plan all read that table.
+   *
+   * THIS IS THE WHOLE GUARD, AND IT IS ENOUGH. `garmentStyleInput` replays
+   * `styleProblems` in its `superRefine`, so the rule reaches the Save button,
+   * the rail badge and the server action from this one place. No migration was
+   * added: a unique index would refuse rows that ALREADY EXIST in the live
+   * table, and nothing here decides which of a duplicate pair is the real one.
+   * Blocking the next save is the honest repair — the same call `orphanComponents`
+   * makes one paragraph up ("the alternative is data loss the operator never
+   * sees").
+   */
+  const dups = duplicateComponentsMessage(input.components ?? []);
+  if (dups) {
+    problems.push({ section: "components", message: dups });
   }
 
   return problems;
+}
+
+/* ==========================================================================
+ * THE STYLE LINE'S OWN COMPLETENESS (client 2026-08-31)
+ *
+ * "Several fields in the Style Creation screen are promoted to strictly
+ * mandatory status ... to prevent incomplete data entries that cause empty rows
+ * in downstream planning and operational reports."
+ *
+ * WHAT FOLLOWS IS ABOUT ONE ROW OF A GRID, WHICH IS WHY IT IS NOT `styleProblems`
+ * ABOVE. That function judges the Style MASTER — one record, its problems tagged
+ * with the master's own rail sections. These judge ONE LINE of the Garment
+ * Order's Style(s) tab, where every problem lives in the same tab and what the
+ * operator needs instead is WHICH CELL of which row to look at. Different
+ * question, different return shape.
+ *
+ * THE TWO SHARED RULES ARE SHARED, not restated: the coordinate-count message
+ * and the orphan message are each one function, called from both. They drifted
+ * once already in this module's history (`comp_type` had four readings), and a
+ * message that says "at most 1 coordinate" on one screen and "exactly 1" on the
+ * other is the same defect wearing prose.
+ * ========================================================================== */
+
+/** One ticked size on a style line. */
+export type SizeLike = { size_id?: string | null };
+
+/**
+ * A style LINE, declared structurally so the screen can pass its live row and
+ * the server can pass its payload without either building the other's shape.
+ * The same reasoning `StyleRuleInput` above records.
+ *
+ * `po_qty`, `article_no` and `approved_sample_id` are governed by NO rule below.
+ * They are here only so `styleLineStarted` can see a row somebody began from the
+ * commercial end — an operator who typed a PO Qty and nothing else has started a
+ * line, and a completeness rule that could not see that would let exactly the
+ * half-filled row the client is asking about through.
+ */
+export type StyleLineLike = {
+  style_ref_no?: string | null;
+  style_category_id?: string | null;
+  unit_kind?: string | null;
+  description?: string | null;
+  po_qty?: string | number | null;
+  article_no?: string | null;
+  approved_sample_id?: string | null;
+  coordinates?: readonly CoordinateLike[];
+  sizes?: readonly SizeLike[];
+  components?: readonly ComponentRowLike[];
+};
+
+/**
+ * WHICH CELL IS AT FAULT. Not a DOM id — this module is pure and must stay
+ * loadable by plain Node (see the header) — but a name the screen maps to one,
+ * so `revealFirstProblem` can land the cursor rather than merely switching tab.
+ */
+export const STYLE_LINE_FIELDS = [
+  "style",
+  "style_category",
+  "order_unit",
+  "description",
+  "coordinates",
+  "sizes",
+  "components",
+] as const;
+
+export type StyleLineField = (typeof STYLE_LINE_FIELDS)[number];
+
+export type StyleLineProblem = { field: StyleLineField; message: string };
+
+const filled = (v: string | number | null | undefined) => String(v ?? "").trim() !== "";
+
+/**
+ * HAS THE OPERATOR STARTED THIS LINE?
+ *
+ * THE WHOLE RULE HANGS ON THIS, and it is the same argument
+ * `componentRowStarted` above makes one level down. `ChildGrid` seeds a blank
+ * row so Tab has a field to land on; a rule that called that row incomplete
+ * would put a red badge on the Style(s) tab of an order nobody has typed a
+ * character into, refuse to let the operator leave it, and — since a blank
+ * mandatory cell HOLDS THE CURSOR (AGENTS.md) — cage them in a row they never
+ * asked for. A new order would open trapped.
+ *
+ * So an untouched row is not wrong, it is empty, and the save drops it. Only a
+ * row somebody has begun has to be finished.
+ *
+ * THE IMPLIED COORDINATE IS DISCOUNTED, exactly as `componentRowStarted`
+ * discounts it: on a Pcs line every component row is BORN holding the line's one
+ * coordinate, so counting that as a start would make a line "started" by a value
+ * the system wrote. `impliedCoordinateId` is computed here rather than passed in
+ * so the two readers cannot be handed different answers.
+ */
+export function styleLineStarted(r: StyleLineLike): boolean {
+  const implied = impliedCoordinateId(r.unit_kind, r.coordinates ?? []);
+  return !!(
+    filled(r.style_ref_no) ||
+    r.style_category_id ||
+    filled(r.unit_kind) ||
+    filled(r.description) ||
+    filled(r.po_qty) ||
+    filled(r.article_no) ||
+    r.approved_sample_id ||
+    filledCoordinates(r.coordinates ?? []) > 0 ||
+    (r.sizes ?? []).some((z) => !!z.size_id) ||
+    (r.components ?? []).some((c) => componentRowStarted(c, implied))
+  );
+}
+
+/**
+ * THE COORDINATE COUNT, WORDED ONCE — read by `styleProblems` (the master) and
+ * by `styleLineProblems` (the order line). Null when the count is legal, or when
+ * the unit is unanswered and there is therefore no range to be outside of.
+ *
+ * A LEGACY STYLE WITH NO `unit_kind` IS NOT INVALIDATED. Every style created
+ * before 2026-08-10 has none, and `coordinateLimit` returning null is what keeps
+ * this silent on them rather than declaring historical records broken.
+ */
+export function coordinateCountMessage(
+  unitKind: string | null | undefined,
+  coordinates: readonly CoordinateLike[],
+): string | null {
+  const limit = coordinateLimit(unitKind);
+  if (!limit) return null;
+  const n = filledCoordinates(coordinates);
+  if (n < limit.min) {
+    return limit.min === limit.max
+      ? `A Piece style needs exactly ${limit.min} coordinate.`
+      : `A Set style needs at least ${limit.min} coordinates — there ${n === 1 ? "is" : "are"} ${n}.`;
+  }
+  if (n > limit.max) {
+    return `A ${unitKind === "piece" ? "Piece" : "Set"} style allows at most ${limit.max} coordinate${limit.max === 1 ? "" : "s"} — there are ${n}.`;
+  }
+  return null;
+}
+
+/**
+ * THE DUPLICATE MESSAGE, WORDED ONCE — the master (`styleProblems`) and the
+ * order line (`styleLineProblems`) both say it, and a rule about double-counted
+ * trim consumption must not read two ways depending on which screen found it.
+ */
+export function duplicateComponentsMessage(
+  components: readonly ComponentRowLike[],
+): string | null {
+  const n = duplicateComponents(components);
+  if (n === 0) return null;
+  return n === 1
+    ? "A component is listed twice under the same coordinate — remove the repeat, or file it under another coordinate."
+    : `${n} components are listed twice under the same coordinate — remove the repeats, or file them under another coordinate.`;
+}
+
+/** The orphan message, worded once, for the same reason as the one above. */
+export function orphanComponentsMessage(
+  /* THE WIDER OF THE TWO ROW SHAPES. `ComponentLike` declares
+     `coordinate_id` present-and-nullable; `ComponentRowLike` declares it
+     optional, because a screen row may simply not carry the key yet. Taking
+     the wider one here means both callers pass their own rows unconverted —
+     the master its payload, the order line its live grid state — and the
+     `?? null` below is the one place the two readings meet. */
+  components: readonly ComponentRowLike[],
+  coordinates: readonly CoordinateLike[],
+): string | null {
+  const n = orphanComponents(
+    components.map((c) => ({ coordinate_id: c.coordinate_id ?? null })),
+    coordinates,
+  );
+  if (n === 0) return null;
+  return n === 1
+    ? "1 component is filed under a coordinate this style no longer has — give it one of the style's coordinates, or remove it."
+    : `${n} components are filed under a coordinate this style no longer has — give them one of the style's coordinates, or remove them.`;
+}
+
+/* --------------------------------------------------------------------------
+ * NO COMPONENT TWICE UNDER ONE COORDINATE (client 2026-08-31)
+ *
+ * "Allowing a user to accidentally add 'Neck Rib' twice results in duplicated
+ * trim consumption calculations, which corrupts the final automated Material
+ * BOM."
+ *
+ * ## THE KEY IS THE PAIR, AND THE CHOICE OF KEY IS THE WHOLE RULE
+ *
+ * The instruction as written — "that component must be filtered out of the
+ * dropdown for row 2, row 3" — reads as "a component appears at most once per
+ * STYLE". It is deliberately implemented one notch looser than that, on
+ * (coordinate, component), and the reason is that a set garment legitimately
+ * repeats a part: a two-coordinate style has a FRONT BODY on the TOP and a FRONT
+ * BODY on the BOTTOM, and those are two different panels cut from two different
+ * fabrics. Hiding the second is not a stricter rule, it is a garment that cannot
+ * be entered — the shape AGENTS.md records under "Mandatory fields" as
+ * unsatisfiable rather than strict.
+ *
+ * On a Pcs line the two readings COINCIDE, because every row of that grid holds
+ * the line's single coordinate — so the client's literal case ("Neck Rib twice")
+ * behaves exactly as asked, and the loosening is invisible except on the sets
+ * where it is load-bearing.
+ *
+ * ## WHAT THIS DOES *NOT* MATCH, AND THAT IS DELIBERATE
+ *
+ * 0457's unique index is `(amendment, style, coordinate, component,
+ * fabric_category)` — one column wider — because FRONT BODY in single jersey
+ * beside FRONT BODY in 1x1 rib is a contrast yoke. This rule is therefore
+ * STRICTER than the database: it refuses a pair the index would accept.
+ *
+ * That is the client's call, chosen over matching the index (2026-08-31), and it
+ * costs the contrast yoke, which now has to be modelled as one component row.
+ * The BOM argument is what carried it: a duplicated pair is far more often a
+ * mis-click that double-budgets a trim than it is a yoke, and the failure is
+ * silent money. If the yoke comes back, widen `componentPairKey` to include
+ * `fabric_category_id` and the index and the rule agree again — the reason this
+ * is ONE function and not a comparison written at three call sites.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The pair a component row is unique on. Null while the row names no component
+ * — an unanswered row is not a duplicate of anything, and the grid's own
+ * `required` says so on its own.
+ *
+ * A row with NO coordinate keys on `""`, so two blank-coordinate rows naming one
+ * component DO collide. That is right rather than incidental: on a Set line the
+ * operator has simply not filed them yet, and the pair is as duplicated as it
+ * will ever be.
+ */
+function componentPairKey(c: ComponentRowLike): string | null {
+  if (!c.component_id) return null;
+  return `${c.coordinate_id ?? ""}::${c.component_id}`;
+}
+
+/** How many rows repeat a (coordinate, component) pair some earlier row already
+ *  holds. The FIRST occurrence is never counted — the operator is being told how
+ *  many rows to fix, not how many rows are involved. */
+export function duplicateComponents(components: readonly ComponentRowLike[]): number {
+  const seen = new Set<string>();
+  let dups = 0;
+  for (const c of components) {
+    const key = componentPairKey(c);
+    if (!key) continue;
+    if (seen.has(key)) dups++;
+    else seen.add(key);
+  }
+  return dups;
+}
+
+/**
+ * The component ids already spoken for under one coordinate — what the dropdown
+ * hides.
+ *
+ * THE CALLER PASSES SIBLINGS, NOT THE WHOLE GRID, and that is not a convenience:
+ * a row must never filter itself out of its own list. Dropping the value a row
+ * already holds is the "Disabled rows" data loss AGENTS.md refuses everywhere —
+ * the cell would render filled-then-empty and blank the FK on the next save. The
+ * screen owns the row keys, so it owns the exclusion; this function owns the
+ * rule.
+ */
+export function componentsTakenUnder(
+  siblings: readonly ComponentRowLike[],
+  coordinateId: string | null,
+): Set<string> {
+  const taken = new Set<string>();
+  for (const c of siblings) {
+    if (!c.component_id) continue;
+    if ((c.coordinate_id ?? null) !== (coordinateId ?? null)) continue;
+    taken.add(c.component_id);
+  }
+  return taken;
+}
+
+/**
+ * WHICH KEYS APPEAR MORE THAN ONCE, and how many times (client 2026-08-31: "a
+ * UNIQUE style identifier must be selected or entered before proceeding").
+ *
+ * ## IT TAKES KEYS, NOT ROWS, AND THAT IS THE WHOLE DESIGN
+ *
+ * `style_ref_no` is the Orders module's TEXT join key, and normalising it is
+ * `styleKey`'s job — one function, in its own file, whose header says outright
+ * that "two copies of a key rule stay identical exactly until one of them is
+ * 'improved'". This module cannot import it: `rules.ts` declares itself
+ * import-free so `scripts/check-style-rules.mts` can load it with plain Node,
+ * and reaching for `@/lib/...` breaks that while a `.ts` extension breaks the
+ * Next build. So the CALLER normalises and this counts. The rule stays testable;
+ * the key stays singular.
+ *
+ * ## WHY IT MATTERS MORE THAN AN ORDINARY DUPLICATE
+ *
+ * Two lines sharing a ref is not an untidy list — it is silent corruption.
+ * Price Details, Combos, Quantities and Approval Qty all resolve on this text,
+ * so a repeated ref makes every one of them ambiguous; and
+ * `normalizeStyleComponents` de-dupes on `(styleKey, coordinate, component,
+ * fabric_category)`, so the two lines' component grids are MERGED and pruned
+ * against each other at save. The operator sees two rows and stores one.
+ *
+ * Blanks are the caller's to drop (`styleKey` returns "" for an unnamed row):
+ * two unnamed lines are two lines nobody has started, not a collision.
+ */
+export function duplicateRefCounts(
+  keys: readonly string[],
+): { ref: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const k of keys) {
+    if (!k) continue;
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  /* INSERTION ORDER, which for a Map is first-seen order — so the message names
+     the repeats in the order the operator entered them, not alphabetically. */
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([ref, count]) => ({ ref, count }));
+}
+/**
+ * EVERYTHING UNFINISHED ABOUT ONE STYLE LINE, in the order the row reads.
+ *
+ * Empty on a line nobody has started — see `styleLineStarted`. Every message is
+ * a completeness claim about the record, which is why the screen files them all
+ * as `kind: "custom"`: `isBlocking` in `lib/screens/validity.ts` treats those as
+ * blocking, and blocking is the point — the client's whole reason for the
+ * promotion is that these rows reach downstream reports.
+ *
+ * DESCRIPTION IS IN HERE AND THAT IS A REVERSAL. It has been an optional remark
+ * since the tab was built; the client made it mandatory on 2026-08-31 because
+ * "reports pull directly from this text to identify style specifications".
+ *
+ * SO IS ORDER UNIT, and that one reverses a decision made four days earlier. The
+ * 2026-08-27 note on the cell reads: "NOT `required`, deliberately ... holding an
+ * operator on a two-option dropdown they have no way to skip would cage every
+ * half-entered line." The premise was wrong, not the caution: `keyFills` in
+ * `lib/focus.ts` gives a native `<select>` its ↑/↓ back under a hold precisely
+ * so the operator can ANSWER it — a hold refuses movement and never refuses
+ * choosing. The cage it feared cannot happen, and Ctrl+Del still removes the row.
+ *
+ * COORDINATES ARE REQUIRED, THE "Pcs" DEFAULT IS NOT RESTORED. The client's
+ * sentence pairs the two ("must be defined. If the Order Unit is Pcs, it defaults
+ * to Pcs automatically"), and the second half was built and then withdrawn by the
+ * client on 2026-08-29 — see the long note on `impliedCoordinateId` above for
+ * why matching a master row named PIECES turned a rule about arity into a rule
+ * about vocabulary. The requirement stands on its own; the seeding does not come
+ * back with it.
+ */
+export function styleLineProblems(r: StyleLineLike): StyleLineProblem[] {
+  const out: StyleLineProblem[] = [];
+  if (!styleLineStarted(r)) return out;
+
+  if (!filled(r.style_ref_no)) {
+    out.push({ field: "style", message: "Style is required." });
+  }
+  if (!r.style_category_id) {
+    out.push({ field: "style_category", message: "Style Category is required." });
+  }
+  if (!filled(r.unit_kind)) {
+    out.push({ field: "order_unit", message: "Order Unit is required — Pcs or Set." });
+  }
+  if (!filled(r.description)) {
+    out.push({ field: "description", message: "Description is required." });
+  }
+
+  const coordinates = r.coordinates ?? [];
+  if (filledCoordinates(coordinates) === 0) {
+    /* SAID SEPARATELY FROM THE COUNT RULE BELOW, because the count rule is
+       silent on a line whose unit is unanswered — and "no coordinate at all" is
+       wrong whatever the unit turns out to be. Without this a Set line with an
+       empty grid would report only the missing Order Unit and look finished the
+       moment it was answered. */
+    out.push({ field: "coordinates", message: "Name at least one coordinate." });
+  } else {
+    const count = coordinateCountMessage(r.unit_kind, coordinates);
+    if (count) out.push({ field: "coordinates", message: count });
+  }
+
+  if (!(r.sizes ?? []).some((z) => !!z.size_id)) {
+    out.push({ field: "sizes", message: "Tick at least one size." });
+  }
+
+  const components = r.components ?? [];
+  const implied = impliedCoordinateId(r.unit_kind, coordinates);
+  /* STARTED ROWS ONLY — the client's own wording is "if a style has components,
+     the component entries must be fully defined". The trailing blank row every
+     grid seeds is not an entry. */
+  const unfinished = components.filter(
+    (c) => componentRowStarted(c, implied) && (!c.coordinate_id || !c.component_id),
+  ).length;
+  if (unfinished > 0) {
+    out.push({
+      field: "components",
+      message:
+        unfinished === 1
+          ? "1 component row is half-filled — give it a coordinate and a component, or remove it."
+          : `${unfinished} component rows are half-filled — give each a coordinate and a component, or remove them.`,
+    });
+  }
+
+  const dups = duplicateComponentsMessage(components);
+  if (dups) out.push({ field: "components", message: dups });
+
+  const orphans = orphanComponentsMessage(components, coordinates);
+  if (orphans) out.push({ field: "components", message: orphans });
+
+  return out;
 }

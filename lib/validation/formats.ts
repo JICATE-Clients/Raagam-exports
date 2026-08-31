@@ -77,6 +77,55 @@ export const YEAR_RE = /^[1-9][0-9]{3}$/;
 export const GST_STATE_RE = /^(0[1-9]|[1-2][0-9]|3[0-8])$/;
 export const CURRENCY_RE = /^[A-Z]{3}$/;
 
+/**
+ * A DOCUMENT REFERENCE THE OTHER PARTY MINTED — the buyer's PO number, and
+ * anything else shaped like it. Letters, digits, `-` and `/`, starting with a
+ * letter or digit. No spaces and no other punctuation.
+ *
+ * Upper-case in the class because the kind's `transform` is `"upper"`, so a
+ * value reaching the test has already been capitalised on both sides: while
+ * typing (`applyTransform`) and on save (`normalizeForStore`, through
+ * `requiredKind`). A lower-case letter can therefore only arrive from a writer
+ * that is neither, and refusing it is correct rather than unkind.
+ *
+ * ## IT WAS `alphanum`, AND BOTH HALVES OF THAT WERE WRONG
+ *
+ * The client's words on 2026-08-31 were "accepts alphanumeric values only", and
+ * the first cut implemented them literally as `^[A-Z0-9]+$`. **The evidence
+ * against it was already in this repo**: `scripts/check-po-no.mts` uses
+ * "PO-1000" and "4471-B" as its vectors — the shapes the author of that suite
+ * reached for when asked to imagine a real PO number. So the literal reading
+ * refused the values the codebase itself documents as normal, and since PO No
+ * became mandatory in the same change, an order holding one could not be saved
+ * until somebody retyped it without the hyphen. The user chose the wider rule
+ * (2026-08-31). "Alphanumeric" is honoured in spirit: what it was excluding was
+ * spaces and free punctuation, not the separators a reference is built from.
+ *
+ * **And the NAME had to go with the regex.** A kind called `alphanum` whose
+ * pattern admits `-` and `/` lies to its next caller — they pick it by name,
+ * get something other than what the name promises, and nothing fails. That is
+ * the same trap `file-attachments.tsx` records in its `MIME_WORDS` note: a
+ * hard-coded description beside a rule that has since moved. The kind is named
+ * for what it accepts, so `ALPHANUM_RE` is gone rather than widened in place.
+ *
+ * ## THE FIRST CHARACTER MUST BE ALPHANUMERIC, AND THE MESSAGE SAYS SO
+ *
+ * `A/2024` passes and `/2024/A` does not. A leading separator is a typo far
+ * more often than it is a reference, and admitting it would also admit the
+ * degenerate values `-` and `/` on their own — which satisfy "letters, digits
+ * and separators" and are not a PO number. The asymmetry is invisible from the
+ * regex at a glance, so `message` names the starting rule as well as the
+ * character set rather than leaving the operator to infer it (T2-header,
+ * reviewing this).
+ *
+ * It fails LOUDLY rather than silently, which is the half that matters. The
+ * transform is `"upper"`, which deletes nothing, so a value with a space in it
+ * is rejected with a message the operator can act on rather than quietly stored
+ * with the space removed — the `account` kind below records why that
+ * distinction is worth the strictness.
+ */
+export const DOC_REF_RE = /^[A-Z0-9][A-Z0-9/-]*$/;
+
 // Yarn count: 10'S | 2/10'S | 40 DINER (integer counts only; apostrophe-S required).
 export const YARN_COUNT_RE = /^(\d+(\/\d+)?'S|\d+ DINER)$/;
 
@@ -111,7 +160,8 @@ export type FormatKind =
   | "year"
   | "gst_state"
   | "currency"
-  | "yarn_count";
+  | "yarn_count"
+  | "doc_ref";
 
 /** How the client input should coerce keystrokes before storing/validating. */
 export type Transform = "upper" | "digits" | "none" | "phone";
@@ -234,6 +284,39 @@ export const FORMATS: Record<FormatKind, FormatSpec> = {
   gst_state: { re: GST_STATE_RE, message: "Enter a 2-digit GST state code (01–38)", transform: "digits", inputMode: "numeric", maxLength: 2 },
   currency: { re: CURRENCY_RE, message: "Enter a 3-letter ISO currency code (e.g. INR)", transform: "upper", inputMode: "text", maxLength: 3 },
   yarn_count: { re: YARN_COUNT_RE, message: "Use 10'S, 2/10'S or 40 DINER", transform: "upper", inputMode: "text", maxLength: 15 },
+  /**
+   * NO `maxLength`, DELIBERATELY. Every other kind here has a statutory or
+   * structural length — a PAN is ten characters because the Income Tax
+   * Department says so. A buyer's PO number is whatever the buyer's system
+   * mints, and capping it would silently TRUNCATE the tail of a long one as it
+   * was typed: `maxLength` is enforced by the browser, so the operator gets no
+   * error, just a shorter number than the one on the paperwork.
+   *
+   * The message names what IS allowed rather than what was wrong, because a
+   * half-typed value is the NORMAL state of this box: it is live under the
+   * field on every keystroke, and "PO1" on the way to "PO1000" is invalid the
+   * whole way there. "Invalid PO number" would sit there through all of it,
+   * saying nothing the operator could act on.
+   *
+   * IT IS NOT A CURSOR HOLD, and this comment said it was until T2-header
+   * corrected it. `useRequiredHold` stamps `data-required-empty` on an EMPTY
+   * required field only; a hold must never key off `aria-invalid`, precisely
+   * because that flag is live for the half-typed value above and would cage the
+   * operator on a value they are getting right (AGENTS.md, "Mandatory fields",
+   * and the `raagam-keyboard-contract` skill). What actually happens to a
+   * malformed PO No: the message shows live, `aria-invalid` stops Enter
+   * COMMITTING while still letting it move, Save stays enabled because
+   * `isBlocking()` treats a format complaint as non-blocking — and
+   * `requiredKind` below is the guard that actually refuses the save. Blank is
+   * the only state that holds the cursor here.
+   */
+  doc_ref: {
+    re: DOC_REF_RE,
+    message:
+      "Use letters, digits, hyphens and slashes, starting with a letter or digit",
+    transform: "upper",
+    inputMode: "text",
+  },
 };
 
 /** Apply a format's keystroke transform (uppercase / digits-only). */

@@ -4,6 +4,7 @@ import { styleKey } from "./style-key";
 import {
   asItemSubType,
   compositionForStructure,
+  DEFAULT_GSM_TOLERANCE,
   type CompositionBlend,
   type FabricBlend,
   type MixingShare,
@@ -19,6 +20,7 @@ import type {
   AmendmentCountrySize,
   AmendmentPackType,
   AmendmentPackTypeLine,
+  AmendmentTaActivity,
   AmendmentStyleProcess,
   AmendmentStyleSize,
   AmendmentStyleComponent,
@@ -187,6 +189,23 @@ export interface SeededAmendmentChildren {
   styleComponents?: Seeded<AmendmentStyleComponent>[];
   /** Style(s) ▸ Process (0411). Keyed by `style_ref_no`, like the sizes. */
   styleProcesses?: Seeded<AmendmentStyleProcess>[];
+  /**
+   * Order Entry ▸ T&A — the order's Time & Action ladder (0481). ALWAYS EMPTY
+   * FROM AN ORDER, and optional for the same reason `packTypes` above is.
+   *
+   * A `sales_order` records no T&A path of its own: `ta_plan_docs` (0401) is a
+   * separate document keyed to the order, not a child of it, and seeding from
+   * one would make a plan somebody else wrote read as this order's own. The
+   * ladder is seeded on the SCREEN instead, from `ta_activities` ordered by
+   * `sequence`, at the moment the tab is first opened.
+   *
+   * It is in this type all the same, because `applyRows` maps a SAVED document
+   * through the same shape — without it the ladder would be the one grid whose
+   * stored rows had no way back onto the screen, and its `row_uid` is the one
+   * value that MUST round-trip or every save loses the completions recorded
+   * against it.
+   */
+  taActivities?: Seeded<AmendmentTaActivity>[];
   /** Still seeded and still diffed (scripts/check-amendment-diff.mts), but the
    *  Country/Sizewise TAB was withdrawn on 2026-08-10, so the screen no longer
    *  consumes it. Optional rather than deleted: the diff vectors are the only
@@ -255,6 +274,7 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   packComponents: [],
   styleComponents: [],
   styleProcesses: [],
+  taActivities: [],
   quantities: [],
   countrySizes: [],
 };
@@ -397,14 +417,37 @@ export async function seedAmendmentFromOrder(
     combo: string | null;
   }[];
 
+  /**
+   * The order's own yarn-dyed colours, read TWICE from here on (0480).
+   *
+   * They have always seeded the Color/Print tab's yarn-section dyeings — the
+   * order's declared palette. They now ALSO seed each combo structure's
+   * `yarn_colors`, the client's new "which pre-dyed yarns is this cloth knitted
+   * from" (2026-08-31), because the order states that answer and a seeded
+   * amendment that asked for it again would be asking the operator to re-type
+   * something their order sheet already settled — the cost this whole file
+   * exists to avoid.
+   *
+   * `fabric_component_id` IS NOW SELECTED, and without it the second reading is
+   * impossible rather than merely wrong: the rows are keyed to a COMPONENT, the
+   * amendment's field hangs off the STRUCTURE, and the hop between them is
+   * `order_fabric_components.order_fabric_id`. Selecting only the value was
+   * correct while the only consumer was a flat palette.
+   */
   const componentIds = componentRows.map((c) => c.id);
   const { data: yarnColors } = componentIds.length
     ? await s
         .from("order_fabric_yarn_colors")
-        .select("sno, yarn_dyed_color")
+        .select("sno, fabric_component_id, yarn_dyed_color")
         .in("fabric_component_id", componentIds)
         .order("sno")
-    : { data: [] as { sno: number; yarn_dyed_color: string }[] };
+    : {
+        data: [] as {
+          sno: number;
+          fabric_component_id: string;
+          yarn_dyed_color: string;
+        }[],
+      };
 
   // ---- the masters the text has to resolve against ------------------------
   const [{ data: styleRows }, { data: colorRows }, { data: lookupRows }] = await Promise.all([
@@ -759,8 +802,12 @@ export async function seedAmendmentFromOrder(
     // it a few lines down. Seeding it is what stops a seeded amendment asking
     // the operator to re-answer a question their order sheet settled.
     //
-    // 'printed' cannot arrive here, and that is not a gap: it is the amendment's
-    // own fourth value (0412) and `order_fabrics` has no way to express it.
+    // 'printed' cannot arrive here, and it is now not a value ANYWHERE. It was
+    // the amendment's own fourth value (0412) and `order_fabrics` never had a
+    // way to express it, so `asItemSubType` narrowing it away changed nothing
+    // on this path either before or after the client removed it on 2026-08-31
+    // — the two vocabularies are the same three words again, which is what
+    // makes this a copy rather than a translation.
     structures.push({
       sno: structures.length + 1,
       structure_id: id,
@@ -837,6 +884,79 @@ export async function seedAmendmentFromOrder(
     else componentsByFabric.set(c.order_fabric_id, [c]);
   }
 
+  /**
+   * THE ORDER'S YARN COLOURS, ROLLED UP FROM THE PART TO THE CLOTH (0480).
+   *
+   * The two sides state the same fact at different GRAINS.
+   * `order_fabric_yarn_colors` hangs off a fabric COMPONENT; the amendment's
+   * `yarn_colors` hangs off the STRUCTURE, on the client's own reasoning that a
+   * yarn-dyed cloth's yarns are a property of the cloth — every part cut from
+   * it is made of the same yarns. So the union of a fabric's parts' yarn
+   * colours IS that fabric's yarn colours, and the roll-up loses nothing that
+   * the amendment's model says can exist.
+   *
+   * A UNION, AND THE DE-DUPE IS THE WHOLE POINT. A tee whose front body and
+   * back body are both WHITE + BLUE holds four rows on the order side and must
+   * seed two colours, not four — the column is a SET and the cell is a tick
+   * list, so a repeat would render as one colour offered twice.
+   *
+   * UPPER-CASED HERE RATHER THAN LEFT AS TYPED, which is one step further than
+   * the dyeing seed above takes the same text. The reason is the cell: this is
+   * a tick list over `yarnColourOptions`, whose options are already upper-cased,
+   * so a seeded "White" would tick nothing and sit beside an untickable WHITE.
+   * A free-text colour has no such list to disagree with, which is why the
+   * dyeings keep the order's own spelling.
+   *
+   * GATED ON THE FABRIC'S TYPE — but on a type that CONTRADICTS yarn-dyed,
+   * never on one that is merely unanswered. The gate went through both wrong
+   * shapes in one afternoon and both are worth stating, because each is the
+   * obvious answer to the other's failure.
+   *
+   * UNGATED WAS THE FIRST CUT, on the argument this file makes everywhere else:
+   * the rows exist because somebody entered them on the order, and dropping
+   * them because the Type cell beside them is blank would be inventing an
+   * absence — the same call `keepUnmatchedMaster` makes for a structure the
+   * masters do not know. What makes that insufficient is not the argument but
+   * the arithmetic: `writeComboTree` refuses to STORE yarn colours on a fabric
+   * positively typed as something else, and the screen clears them when the
+   * type moves off Yarn Dyed. An ungated seed would therefore put a value on
+   * such a card that nothing shows, nothing edits, and the first save
+   * discards — worse than not seeding it, because an absence the operator can
+   * see is a prompt while a value that evaporates on save is the shape
+   * AGENTS.md records under `created_by`, where the code reads as correct and
+   * the value never arrives.
+   *
+   * STRICT `=== 'yarn_dyed'` WAS THE SECOND CUT AND IT IS WORSE. It reads as
+   * the safe answer and it destroys the very data this roll-up exists to carry:
+   * `order_fabrics.item_sub_type` is NULLABLE and usually null — every one of
+   * the 21 rows in `garment_order_amendment_structures` is null today — so a
+   * fabric whose order sheet named its yarn colours and never named its type
+   * would be seeded EMPTY, and the seed is the only writer that could ever have
+   * supplied them. "NULL is a real state, not a missing default" is the
+   * sentence this column already carries in `types.ts`; "not answered" is not
+   * "answered something else".
+   *
+   * SO THE RULE IS THE ASYMMETRIC ONE, STATED ONCE AND OBEYED THREE TIMES —
+   * seed, screen, action. It has to be the same asymmetry in all three: a
+   * stricter gate anywhere in the chain decides the outcome on its own and
+   * turns every looser gate downstream into reasoning about a value that never
+   * arrives. READ FROM `f.item_sub_type` UNCHANGED, because that is the value
+   * seeded into `item_sub_type` on the same row a few lines down; testing
+   * anything else would let the two disagree about the row they both describe.
+   */
+  const yarnColoursByFabric = new Map<string, string[]>();
+  const fabricIdByComponentId = new Map<string, string>();
+  for (const c of componentRows) fabricIdByComponentId.set(c.id, c.order_fabric_id);
+  for (const y of yarnColors ?? []) {
+    const fabricId = fabricIdByComponentId.get(y.fabric_component_id);
+    if (!fabricId) continue;
+    const name = (y.yarn_dyed_color ?? "").trim().toUpperCase();
+    if (!name) continue;
+    const list = yarnColoursByFabric.get(fabricId);
+    if (!list) yarnColoursByFabric.set(fabricId, [name]);
+    else if (!list.includes(name)) list.push(name);
+  }
+
   for (const f of fabricRows) {
     const combo = f.combo?.trim();
     if (!combo) continue;
@@ -872,8 +992,55 @@ export async function seedAmendmentFromOrder(
         compositionBlends,
       ),
       gsm: f.gsm ?? null,
-      gsm_tolerance: f.gsm_tolerance ?? null,
+      /**
+       * ±5% WHERE THE ORDER STATED NOTHING (client 2026-08-31), not null.
+       *
+       * This is the one place in this file where an absent order value becomes
+       * a number rather than a blank, so it needs saying why it is not the
+       * "plausible wrong default" the Quantities note a few tabs up refuses.
+       *
+       * A SEED CREATES THESE ROWS. It is row initialisation in exactly the
+       * sense `blankStruct()` is on the screen — the difference between a
+       * seeded fabric and a hand-added one is only where the structure came
+       * from, and ±5% is the standard baseline the client named for a fabric
+       * card that is being opened for the first time. Leaving it null would
+       * make the same field disagree with itself on one overlay: the order's
+       * fabric blank, the fabric added beside it prefilled 5.
+       *
+       * IT IS A PREFILL, NOT AN ANSWER, and stays fully editable — 3% for a
+       * buyer with tighter parameters, 8% for a looser one. `toleranceStated`
+       * is what keeps the distinction honest downstream, so a structure whose
+       * only content is this number still counts as empty.
+       *
+       * A STATED 0 SURVIVES. `??` tests for null/undefined, not truthiness, so
+       * an order that deliberately allows no variance keeps its 0 rather than
+       * being handed a 5 it never asked for.
+       */
+      gsm_tolerance: f.gsm_tolerance ?? DEFAULT_GSM_TOLERANCE,
       item_sub_type: f.item_sub_type ?? null,
+      /* The order's own yarn colours, rolled up from its components — see
+         `yarnColoursByFabric` above, which is also where the gate is argued. It
+         is repeated here rather than folded into the map because the map is
+         keyed by FABRIC and the type is a column of THIS row: a gated map would
+         be a second place the same fabric's type was read.
+
+         THE SAME ASYMMETRY `writeComboTree` USES, AND IT MUST BE THE SAME ONE.
+         Refuse a type that CONTRADICTS yarn-dyed; never one that is merely
+         unanswered. `order_fabrics.item_sub_type` is nullable and usually null
+         — all 21 rows in `garment_order_amendment_structures` are null today —
+         so a strict `=== "yarn_dyed"` here drops the order's yarn colours
+         BEFORE they ever reach the amendment, and the action's deliberate
+         permissiveness about null would then be guarding a value nothing had
+         handed it. Two gates on one fact must agree, or the stricter one
+         decides and the looser one's reasoning is dead code.
+
+         `[]` rather than null for a fabric with none, matching what the column
+         reads back as (`not null default '{}'`, 0480), so a seeded row and a
+         saved one compare equal in the diff. */
+      yarn_colors:
+        f.item_sub_type && f.item_sub_type !== "yarn_dyed"
+          ? []
+          : (yarnColoursByFabric.get(f.id) ?? []),
       components: (componentsByFabric.get(f.id) ?? []).map((c, i) => ({
         sno: i + 1,
         coordinate_id: coordinateByName.get((c.coordinate ?? "").trim().toUpperCase()) ?? null,

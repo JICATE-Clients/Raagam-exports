@@ -39,6 +39,7 @@ export const getAppUser = cache(async (): Promise<AppUser | null> => {
     fullName: profile?.full_name ?? null,
     isSuperAdmin: profile?.is_super_admin ?? false,
     defaultLocationId: profile?.default_location_id ?? null,
+    currentLocationId: profile?.current_location_id ?? null,
     roleNames: ((roles ?? []) as { name: string }[]).map((r) => r.name),
     permissions,
   };

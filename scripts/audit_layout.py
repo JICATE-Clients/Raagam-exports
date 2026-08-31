@@ -2484,6 +2484,112 @@ def check_color_token(path: Path, code: str, slug: str):
             f"...) or a Button `variant`, or add a `color-token: exempt -- <reason>` comment",
         )
 
+# --------------------------------------------------------------------------
+# mount
+# --------------------------------------------------------------------------
+
+MOUNT_EXEMPT = re.compile(r"mount:\s*exempt\b")
+
+# `from "…/thing"` / `from './thing'` — any module specifier. Only the last
+# segment is kept, so an alias import and a relative one match the same file.
+IMPORT_SPEC = re.compile(r"""from\s+["']([^"']+)["']""")
+
+# Computed once per run: every module basename imported ANYWHERE in the tree.
+_IMPORTED: set[str] | None = None
+
+
+def _root_of(path: Path, slug: str) -> Path:
+    """The scan root, recovered from a path and its slug."""
+    return path.parents[len(Path(slug).parts) - 1]
+
+
+def _imported_basenames(root: Path) -> set[str]:
+    global _IMPORTED
+    if _IMPORTED is None:
+        names: set[str] = set()
+        for p in iter_sources(root):
+            try:
+                src = strip_comments(p.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            for m in IMPORT_SPEC.finditer(src):
+                names.add(m.group(1).rsplit("/", 1)[-1])
+        _IMPORTED = names
+    return _IMPORTED
+
+
+def check_mount(path: Path, code: str, slug: str):
+    """A master screen that NOTHING imports is dead code on the menu's behalf.
+
+    2026-08-01 removed twelve entries from `lib/masters/submodules.ts` and the
+    matching branches from the `[submodule]/[entity]` route. The COMPONENTS were
+    left behind, so ten `*-screen.tsx` files sat complete, compiling and
+    unreachable for a month -- Employee among them, which is what made
+    `employees` hold a single test row and blocked the Merchandiser deploy step
+    that 0478 depends on.
+
+    Nothing detected it, and the reason is exact: **no other check asks what
+    MOUNTS a component.** An unimported screen is an ABSENCE, not a broken
+    reference. `tsc` is clean because dead code compiles; every layout and
+    keyboard check stayed at baseline because they walk `components/masters/**`
+    regardless of whether anything renders it. The screens were correct and
+    merely unreachable, which is the one state the whole audit suite cannot see.
+
+    ## WHY THE RULE IS "ANYTHING IMPORTS IT", NOT "THE ROUTE IMPORTS IT"
+
+    A screen reached through another screen is legitimately mounted, so keying
+    on the route file alone would report false positives on every nested one.
+    The weaker rule still catches the thing that actually happened: an entry
+    deleted from the registry leaves its component imported by nobody at all.
+
+    Known limitation, stated rather than engineered around: two orphaned screens
+    that import EACH OTHER would both pass. Building a reachability graph from
+    the route down would close it, and is not worth the machinery for a case
+    that has never occurred -- the ten found on 2026-08-31 had no imports at all
+    outside prose comments.
+
+    ## THE EXEMPTION IS THE POINT, NOT AN ESCAPE HATCH
+
+    Nine of those ten are dark ON PURPOSE: the client removed them as "not part
+    of this business process". They are meant to stay in git -- their tables were
+    deliberately kept -- so this check must not nag about them forever.
+
+    But the decision lived only in a comment in `submodules.ts`, and the screens
+    said nothing. Three agents in one session grepped a screen, found no reason,
+    and concluded it had been dropped by accident; the lead approved restoring it
+    on that false premise. `mount: exempt -- <reason>` puts the reason WHERE THE
+    GREP LANDS. That is the whole exercise: it converts an invisible absence into
+    a declared decision.
+
+    Verified by being made to FAIL FIRST, and against the real broken state
+    rather than a manufactured one -- nine orphans existed in the tree when this
+    was written, and it found exactly those nine before any exemption was added.
+    Positive control: `vendor-master-screen.tsx` resolves to a real import, so
+    the check demonstrably distinguishes mounted from orphaned.
+    """
+    if not slug.startswith("components/masters/") or not slug.endswith("-screen.tsx"):
+        return
+    if path.stem in _imported_basenames(_root_of(path, slug)):
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    # Read from RAW text: `code` has had its comments blanked, and the
+    # exemption IS a comment.
+    if MOUNT_EXEMPT.search(raw):
+        return
+    # Line 1: the fault is the absence of an importer, which has no line in
+    # this file to point at.
+    yield Finding(
+        "mount", path, 1,
+        f"nothing imports {path.name} -- a master screen no route mounts is "
+        "unreachable, and no other check can see it. Register it in "
+        "lib/masters/submodules.ts + the [submodule]/[entity] route, or add a "
+        "`mount: exempt -- <reason>` comment saying why it is deliberately dark",
+    )
+
+
 CHECKS = {
     "grid-required-mobile": check_grid_required_mobile,
     "cascade-filter": check_cascade_filter,
@@ -2511,6 +2617,7 @@ CHECKS = {
     "placeholder-blank": check_placeholder_blank,
     "date-year": check_date_year,
     "color-token": check_color_token,
+    "mount": check_mount,
 }
 
 

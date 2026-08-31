@@ -71,6 +71,23 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "consignee", label: "Consignee", singular: "Consignee", description: "Export consignees", type: "custom", custom: "consignee" },
       { slug: "payment-term", label: "Payment Term", singular: "Payment Term", description: "Payment terms", type: "custom", custom: "payment_term" },
       { slug: "vendor", label: "Vendor", singular: "Vendor", description: "Suppliers / vendors", type: "custom", custom: "vendor" },
+      /**
+       * RESTORED 2026-08-31 (user), after being removed on 08-01 — see the
+       * note below, from which Employee has been struck.
+       *
+       * The 08-01 removal called this "not part of this business process", and
+       * that was true of the master ON ITS OWN. It stopped being true the same
+       * month: the client made Merchandiser mandatory on Order Entry and
+       * sourced it from the HR staff master (0478), so `employees` rows are now
+       * a dependency of entering an order. Nobody could create one — this row
+       * is the only door to the screen — which is why the live table holds a
+       * single test employee. Restoring it was put to the user against the two
+       * alternatives (hold 0478, or ship a mandatory field nothing can satisfy)
+       * and this is the one they chose.
+       *
+       * Position is the legacy one: Associates ▸ Employee sits after Vendor.
+       */
+      { slug: "employee", label: "Employee", singular: "Employee", description: "Employee master", type: "custom", custom: "employee" },
       // A test bench, not a master: type a GSTIN and every detail the system can
       // derive is listed, including the ones it CANNOT (those need the paid
       // lookup). Saves nothing, owns no table.
@@ -78,13 +95,39 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "our-banks", label: "Our Banks", singular: "Our Bank", description: "Company's own bank accounts", type: "custom", custom: "our_bank" },
       { slug: "zones", label: "Zones", singular: "Zone", description: "Sales territory zones", type: "custom", custom: "zone" },
       // ----------------------------------------------------------------------
-      // REMOVED 2026-08-01 (client): Employee, Account Group, Account Head,
-      // Merchandising Team, Courier Delivery Address, TCS Assign to Customers,
-      // GST Assign to Vendors, GST Assign to Customers, Certifications and
-      // Default Account Head are not part of this business process. Screens,
-      // services, actions and types are gone; their TABLES were deliberately
-      // KEPT, so the rows survive and the masters can be restored from git if
-      // the decision reverses. Do not re-add one of these without asking.
+      // REMOVED 2026-08-01 (client): Account Group, Account Head, Merchandising
+      // Team, Courier Delivery Address, TCS Assign to Customers, GST Assign to
+      // Vendors, GST Assign to Customers, Certifications and Default Account
+      // Head are not part of this business process. Their TABLES were
+      // deliberately KEPT, so the rows survive and the masters can be restored
+      // from git if the decision reverses. Do not re-add one of these without
+      // asking.
+      //
+      // **EMPLOYEE WAS ON THIS LIST AND CAME BACK** (user, 2026-08-31) — it is
+      // registered above. Struck from here rather than left in, because an
+      // entity that is both listed as removed and present in the array is a
+      // file arguing with itself, and the next reader has no way to tell which
+      // half is current.
+      //
+      // TWO THINGS THIS EPISODE PROVED, both worth more than the entry itself:
+      //
+      // The sentence "screens, services, actions and types are gone" was NEVER
+      // TRUE. Only the registry entry and the route branch were removed;
+      // `employee-master-screen.tsx` and `employee-{service,actions,types}.ts`
+      // stayed, and so did the screens for Account Group, Account Head,
+      // Merchandising Team and Courier Delivery Address. That is why the code
+      // reads as live and why `tsc` never noticed — an unimported component is
+      // an ABSENCE, and absences do not fail type checks. Corrected here rather
+      // than deleted, because the claim is what made this look like an accident
+      // to three separate readers.
+      //
+      // And a REMOVAL LEAVES A COMMENT, NOT A SYMBOL. Three of us grepped for
+      // `custom: "employee"`, found nothing, read commit 918815a's message
+      // (which is about truncation reveals and date filters and never mentions
+      // dropping a master), and concluded it had been dropped by accident. The
+      // reason was sitting in these lines the whole time. Grep can only find a
+      // consequence; to find a DECISION you have to read where the thing used
+      // to be.
       // ----------------------------------------------------------------------
     ],
   },

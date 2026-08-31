@@ -371,6 +371,7 @@ export function Field({
   hint,
   htmlFor,
   skipTab,
+  offTabPath,
   className,
   children,
 }: {
@@ -422,6 +423,30 @@ export function Field({
    * See `.claude/skills/raagam-keyboard-contract`.
    */
   skipTab?: boolean;
+  /**
+   * OFF THE DEFAULT TYPING PATH, BUT STILL A LIVE FIELD — `data-focus-optional`
+   * (lib/focus.ts). Tab and Enter step over the cell; ↑↓←→ and the mouse still
+   * land in it, and typing there works normally.
+   *
+   * NOT `skipTab`, and the difference is what the operator can still do. `skipTab`
+   * writes `tabIndex={-1}`, which `FOCUSABLE_SELECTOR` excludes from every walk —
+   * the field leaves the arrows and the focus trap too, which is right for a value
+   * that cannot be typed into (a derived name, the RE No) and wrong for one the
+   * app merely filled in.
+   *
+   * IT MARKS THE WRAPPER, NOT THE CONTROL, and that is the only shape that works
+   * for every control. The attribute has to be readable from the focusable node,
+   * and a clone would put a React PROP on `<RecordPicker>` / `<Select>` /
+   * `<Toggle>`, none of which spread it — a dead prop, which is worse than a
+   * missing one because the call site reads as correct. `isOffTabPath` walks
+   * ancestors for exactly this reason; see its note.
+   *
+   * PAIR IT WITH `required` THROUGH ONE CONDITION. A cell that is off the Tab path
+   * *and* mandatory-and-blank holds a cursor Tab can never deliver — an
+   * unsatisfiable cage. `autoFilledField()` in lib/focus.ts derives both flags from
+   * one boolean so they cannot disagree.
+   */
+  offTabPath?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -452,7 +477,14 @@ export function Field({
      * A dead prop is worse than a missing one. A missing prop makes a call site
      * fail to compile; this one accepted the instruction and dropped it.
      */
-    <div className={cn(w ? FIELD_WIDTH[w] : SPAN[size], "min-w-0", className)}>
+    <div
+      className={cn(w ? FIELD_WIDTH[w] : SPAN[size], "min-w-0", className)}
+      // `"" : undefined` rather than a boolean: React drops an `undefined`
+      // attribute entirely, and `[data-focus-optional]` matches an empty value —
+      // so the cell is either marked or carries nothing at all. `false` would
+      // render `data-focus-optional="false"` and STILL match the selector.
+      data-focus-optional={offTabPath ? "" : undefined}
+    >
       {label != null && (
         <Label
           htmlFor={htmlFor}

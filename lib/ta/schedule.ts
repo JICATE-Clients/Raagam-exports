@@ -47,7 +47,13 @@
  * cannot answer returns a `Refusal` carrying the sentence the screen prints.
  */
 
-import { addDays, dayOfWeek, daysBetween, today } from "@/lib/calendar";
+import {
+  addDays,
+  dayOfWeek,
+  daysBetween,
+  isCalendarDate,
+  today,
+} from "@/lib/calendar";
 import { isRefusal, type Refusal } from "@/lib/orders/material-bom/requirement";
 
 export type { Refusal };
@@ -65,7 +71,19 @@ const SUNDAY = 0;
  */
 const MAX_WALK = 3650;
 
-const ISO = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * A REAL day, not merely a `YYYY-MM-DD`-shaped string.
+ *
+ * This used to be a local `/^\d{4}-\d{2}-\d{2}$/`, which is a SHAPE test:
+ * `2026-02-31` passed it and `Date.UTC` rolled it silently to March 3, so a plan
+ * could be dated off a day that does not exist with every derived date landing
+ * on a real one and nothing refusing. `isCalendarDate` round-trips the value
+ * through the same arithmetic this file uses, so the two cannot disagree.
+ *
+ * It lives in `lib/calendar.ts` because the copy here was not the only one -
+ * `order-ladder.ts` had rebuilt the identical regex, and two statements of one
+ * rule is what let the defect ship twice.
+ */
 
 /**
  * Is this a day the factory works?
@@ -91,7 +109,7 @@ export function previousWorkingDay(
   iso: string,
   holidays?: ReadonlySet<string>,
 ): string | Refusal {
-  if (!ISO.test(iso)) return { refused: `"${iso}" is not a date` };
+  if (!isCalendarDate(iso)) return { refused: `"${iso}" is not a date` };
   let at = iso;
   for (let i = 0; i <= MAX_WALK; i++) {
     if (isWorkingDay(at, holidays)) return at;
@@ -122,7 +140,7 @@ export function subtractWorkingDays(
   days: number,
   holidays?: ReadonlySet<string>,
 ): string | Refusal {
-  if (!ISO.test(iso)) return { refused: `"${iso}" is not a date` };
+  if (!isCalendarDate(iso)) return { refused: `"${iso}" is not a date` };
   if (!Number.isFinite(days) || !Number.isInteger(days)) {
     return { refused: "Lead time must be a whole number of days" };
   }
@@ -156,7 +174,7 @@ export function addWorkingDays(
   days: number,
   holidays?: ReadonlySet<string>,
 ): string | Refusal {
-  if (!ISO.test(iso)) return { refused: `"${iso}" is not a date` };
+  if (!isCalendarDate(iso)) return { refused: `"${iso}" is not a date` };
   if (!Number.isFinite(days) || !Number.isInteger(days)) {
     return { refused: "Lead time must be a whole number of days" };
   }
@@ -241,7 +259,7 @@ export function backwardSchedule(input: {
 }): Schedule | Refusal {
   const delivery = (input.deliveryDate ?? "").trim();
   if (!delivery) return { refused: "Enter the delivery date before scheduling" };
-  if (!ISO.test(delivery)) return { refused: `"${delivery}" is not a date` };
+  if (!isCalendarDate(delivery)) return { refused: `"${delivery}" is not a date` };
   if (input.steps.length === 0) {
     return { refused: "No activities to schedule — add them to the plan first" };
   }
@@ -288,9 +306,9 @@ export function holidaySet(
   const out = new Set<string>();
   for (const r of rows) {
     const from = (r.holiday_date ?? "").trim();
-    if (!ISO.test(from)) continue;
+    if (!isCalendarDate(from)) continue;
     const to = (r.end_date ?? "").trim();
-    if (!ISO.test(to) || daysBetween(from, to) < 0) {
+    if (!isCalendarDate(to) || daysBetween(from, to) < 0) {
       out.add(from);
       continue;
     }

@@ -250,7 +250,17 @@ function stripComments(src: string): { code: string; comments: string[] } {
 // containing a lowercase word would be clipped instead — it would then fail to
 // resolve and be REPORTED, never silently passed, which is the right way round
 // for a guess to fail.
-const WORD = "(?:[A-Z0-9][A-Za-z0-9&'()/-]*|&)";
+/* A word may START with "(" — because a registered LABEL does. "Time & Action
+   (TA)" (module-groups.ts) clipped to "Time & Action" under the old
+   `[A-Z0-9]` opener, which then failed to resolve: the check could not express
+   the very sub-module it polices, and the only way to satisfy it was to write a
+   path that did not name it. A checker that rejects the correct sentence
+   teaches the wrong one, so this is a fix to the CHECK and not to the prose —
+   the same direction the failure message itself insists on ("fix the WORDING
+   to match the registry, never the registry to match the sentence").
+   Comments are stripped before scanning, so a parenthetical in prose cannot
+   reach this, and an in-scope path still has to resolve against the registry. */
+const WORD = "(?:[A-Z0-9(][A-Za-z0-9&'()/-]*|&)";
 const SEGMENT = `${WORD}(?: ${WORD})*`;
 const PATH = new RegExp(`${SEGMENT}(?:\\s*${SEP}\\s*${SEGMENT})+`, "g");
 
