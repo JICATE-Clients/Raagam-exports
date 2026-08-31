@@ -14772,7 +14772,29 @@ export function GarmentOrderScreen({
           THIS line, and the fourth is a button — which costs ~150px, not the
           512px a second grid would have. Nothing had to move to make room. */}
       <div className="min-w-0 flex-[1_1_220px]">
-        <Field label={<span className={GRID_HEADER_TEXT}>Sizes</span>} size="full">
+        {/* `required` HERE AS WELL AS ON THE CONTROL, and it is the star that
+            needs it (client 2026-08-31: "styles sizes field is a mandatory but
+            there is no star").
+            `MultiSelect` draws its own label and star — but only when it is NOT
+            `compact`, and this call site is compact, so the whole
+            `<Label>{label} *</Label>` block is skipped and the visible heading is
+            the one on this `<Field>`. The control's own `required` was therefore
+            buying the HOLD and nothing else: the record was unsaveable without a
+            size and the field said so nowhere.
+            THE PRIMITIVE CANNOT FIX THIS, which is why the declaration is
+            doubled rather than moved. `compact` MEANS "the caller draws the
+            label", so a compact MultiSelect has no label of its own to hang a
+            star on — the same shape as `ChildGrid`'s stacked-cards rule in
+            AGENTS.md, where a per-column `required` cannot reach a row the screen
+            renders itself.
+            SAFE TO DOUBLE: `useRequiredHold` ORs the control's `required` with
+            any surrounding `<Field required>`, so the hold is unchanged and does
+            not fire twice. */}
+        <Field
+          label={<span className={GRID_HEADER_TEXT}>Sizes</span>}
+          required
+          size="full"
+        >
         <MultiSelect
           compact
           label="Sizes"
