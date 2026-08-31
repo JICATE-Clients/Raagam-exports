@@ -46,7 +46,7 @@ import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
    spelled out: 0475 records on this same table what a hand-typed second copy of
    a stored literal costs when the cases drift. */
 import {
-  PURCHASE_STAGE_GREIGE,
+  purchaseStageOrGreige,
   requiredWithProcessLoss,
   type ProcessLossRow,
 } from "@/lib/orders/material-bom/process-loss";
@@ -124,7 +124,7 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
        * the app's own save path, and 0476's default then covers the writers this
        * file is not — a `lib/data-io` import, a hand-written INSERT.
        */
-      purchase_stage: clean(c.purchase_stage) ?? PURCHASE_STAGE_GREIGE,
+      purchase_stage: purchaseStageOrGreige(c.purchase_stage),
       vendor_id: c.vendor_id ?? null,
       purchase_uom_id: c.purchase_uom_id ?? null,
       consumption_uom_id: c.consumption_uom_id ?? null,

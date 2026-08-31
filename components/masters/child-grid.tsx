@@ -57,6 +57,32 @@ const ACROSS_COMPACT_TRACK =
  * row's Remove ✕ while the arrows stepped over it, on the same row of the same
  * grid. The radio is the ONE difference, and it is a difference about ↑/↓ rather
  * than about what a field is.
+ *
+ * ## IT IS NOT THE ONLY DIFFERENCE. THERE IS A SECOND, UNRESOLVED ONE
+ * (found 2026-08-31, recorded rather than fixed.)
+ *
+ * **This selector has no `tabindex` guard and `FOCUSABLE_SELECTOR` does** — every
+ * branch of that one carries `:not([tabindex="-1"])` (lib/focus.ts:40). So a
+ * field carrying `tabIndex={-1}` — which is every `readOnly` `<Input>`, since
+ * `Input` sets it itself, and every `Field skipTab` — is invisible to EVERY key
+ * outside a grid, and is still ON THE ROW AXIS inside one.
+ *
+ * That is the same class of disagreement as the `[disabled]` one two paragraphs
+ * up, unfixed. It is why the Combos tab's collapsed Style ref cell needs an
+ * explicit `data-focus-optional` on its wrapper: `tabIndex={-1}` alone would take
+ * it off Tab anywhere else in the app, and does not here.
+ *
+ * **The call-site rule it implies, since nothing else states it:** a `readOnly` or
+ * auto-filled cell INSIDE a `ChildGrid` needs `data-focus-optional`; the same cell
+ * OUTSIDE a grid does not.
+ *
+ * NOT changed here, and the reason is blast radius rather than doubt: this
+ * selector backs 26 `ChildGrid` screens plus the ~22 that hand-roll a row, and it
+ * deliberately COUNTS controls `FOCUSABLE_SELECTOR` would drop for other reasons
+ * (a checkbox, per the 2026-07-28 fix for dead arrows on a tick-box cell). Adding
+ * `:not([tabindex="-1"])` to five branches is a one-line diff and an app-wide
+ * behaviour change, so it wants its own change with its own verification — not a
+ * footnote to a comment fix.
  */
 const ROW_FIELDS =
   'input:not([type="button"]):not([type="hidden"]):not([type="radio"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [data-field-trigger]:not([disabled]), [data-row-open]:not([disabled])';
@@ -484,9 +510,39 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
   //
   // Applied to the DESTINATION only — see `tabFieldsIn` for why the axis this
   // walks must stay unfiltered.
+  /*
+   * A DERIVED CELL IS NOT A TAB STOP, INSIDE A GRID EITHER (client 2026-08-31:
+   * Prices ▸ "the field is already filled, no need to focus go the field ...
+   * directly move to the price type").
+   *
+   * `tabIndex={-1}` is the app's standing marker for a field nothing types into
+   * — `Input` stamps it on every `readOnly` box itself, and AGENTS.md's
+   * auto-field rule says derived fields are therefore skipped. That was true on
+   * a form and FALSE in here: `FOCUSABLE_SELECTOR` (lib/focus.ts:40) carries
+   * `:not([tabindex="-1"])` on every branch, `ROW_FIELDS` carries no tabindex
+   * guard at all, and inside a `data-grid-row` THIS function owns Tab. So the
+   * same read-only cell left the typing path on Prices — where it sits in a
+   * `<Field>` — and stayed on it in T&A, where it sits in a row. One rule, two
+   * answers, decided by which container the cell happened to be in.
+   *
+   * The T&A columns' own note asserts the opposite ("the cell leaves the Tab
+   * path with no per-screen opt-out"), which is the shape that gets a marker
+   * deleted as dead code: a claim a reader can falsify in a minute. It is true
+   * as written now.
+   *
+   * ## DESTINATION ONLY — `ROW_FIELDS` IS DELIBERATELY UNTOUCHED
+   *
+   * Guarding the selector itself would take these cells off ↑ ↓ ← → as well,
+   * and the arrows are how an operator READS a derived value they cannot type
+   * into. That is the same split `isOffTabPath` already uses one line up, and
+   * the same reason `ROW_FIELDS` counts a checkbox on purpose (2026-07-28).
+   * Tab skips; the arrows and the mouse still arrive.
+   */
+  const skipAsDestination = (el: HTMLElement) =>
+    isOffTabPath(el) || el.getAttribute("tabindex") === "-1";
   const step = (from: HTMLElement[], at: number) => {
     for (let i = at + dir; i >= 0 && i < from.length; i += dir) {
-      if (!isOffTabPath(from[i])) return from[i];
+      if (!skipAsDestination(from[i])) return from[i];
     }
     return undefined;
   };
@@ -983,6 +1039,7 @@ export function ChildGrid<T extends { key: string }>({
   centerHeaders = false,
   lockExisting = false,
   hideRemove = false,
+  keepOne = true,
   inlineCards = false,
   across = false,
   fill = false,
@@ -1181,6 +1238,77 @@ export function ChildGrid<T extends { key: string }>({
    * second rule.
    */
   hideRemove?: boolean;
+  /**
+   * THE LAST ROW CANNOT BE DELETED — for a grid the record cannot be saved
+   * without (client 2026-08-31: "every tab must retain a minimum of one active
+   * section or row … the grid becomes completely blank, leaving the tab in an
+   * invalid state").
+   *
+   * ## IT IS THE DEFAULT, AND THAT REVERSED LATER THE SAME DAY
+   *
+   * It shipped opt-IN, and four grids took it — Styles, Combos, Prices,
+   * Quantities. The client then hit the same defect on a grid that had not
+   * (screenshot 2561: Color/Print ▸ Yarn Dyeing, Fabric Dyeing and Roll Form
+   * Prints all deleted down to nothing, three bare "+ Add" buttons and a tab in
+   * the invalid state the first report described) and asked for it **as a
+   * global condition**.
+   *
+   * The reversal is the one `uppercase` already made in `Input` and for the
+   * identical reason, which AGENTS.md states under CAPITALS: a rule every screen
+   * has to remember is a rule that holds until someone writes a new screen. Opt-
+   * in put the burden on the author of grid number 30 to know about a decision
+   * taken for grid number 4. **Never answer a recurrence of this with another
+   * call site** — the four that pass it explicitly are now redundant and are
+   * kept only because their comments record why *that* grid in particular cannot
+   * be empty.
+   *
+   * ## WHAT IT DOES AND DOES NOT DO
+   *
+   * It refuses the last DELETION. It does not seed: a grid sitting at zero rows
+   * — as those three were when this was reported — stays at zero until someone
+   * adds one, and is then held at one. Seeding every grid to a blank row would
+   * write meaningless children for an order that genuinely has no yarn dyeing,
+   * which is a different and worse defect.
+   *
+   * ## OPTING OUT
+   *
+   * `keepOne={false}`, with a comment saying why zero rows is a legitimate state
+   * for that grid. Reach for it only when emptiness is an ANSWER rather than an
+   * omission.
+   *
+   * It is folded into `locked` rather than written beside it, which is what
+   * makes it ONE rule instead of four: all four layouts read `locked`, and so
+   * does Ctrl+Del — it drives the row's own `[data-row-remove]` by `.click()`,
+   * so a button that is not rendered is a key that declines. The mouse and the
+   * keyboard cannot disagree about this without someone adding a second test.
+   *
+   * DISTINCT FROM `seedRow`, and the two answer the same worry differently.
+   * `seedRow` lets the last row go and puts a fresh BLANK one back; this refuses
+   * the deletion outright. Prefer `seedRow` where the row is a container the
+   * operator may legitimately want to empty (clearing a line, then retyping it),
+   * and this where the row's EXISTENCE is the answer — an order with no style
+   * line, a price group with no rate.
+   *
+   * NOT A CAGE, and that was checked against the mandatory-field hold
+   * (AGENTS.md): the hold's escape hatch is "Ctrl+Del still removes a row the
+   * operator should not have added", and here there is no such row — the one
+   * that survives is the one the record requires, so filling it is the only
+   * correct move and Escape still leaves the surface. Do NOT set this on a grid
+   * whose sole row can be a blank the operator has no way to complete.
+   *
+   * IT IS ONLY THE SCREEN'S HALF, AND THERE IS NO SERVER HALF YET (corrected
+   * 2026-08-31). This note previously said the rule was "one the server also
+   * states" and pointed at `emptyMandatoryGrid` in
+   * `lib/orders/amendments/actions.ts`. **That function does not exist**, in
+   * that file or anywhere in the repo — the claim was aspirational and reads as
+   * settled, which is the shape that stops the next person writing the guard
+   * because they believe it is already there.
+   *
+   * So, stated honestly: a hidden button cannot stop a stale client or a direct
+   * post from sending an empty array, and nothing currently refuses one. Writing
+   * that guard is worth doing; until it is, this is a UI rule and no more.
+   */
+  keepOne?: boolean;
   /** One flex row per record with a single shared header, honouring each
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
@@ -1723,7 +1851,13 @@ export function ChildGrid<T extends { key: string }>({
    */
   const [storedKeys] = useState<Set<string>>(() => new Set(rows.map((r) => r.key)));
   /** Withhold the ✕ — and with it Ctrl+Del, which drives that same button. */
-  const locked = (row: T) => hideRemove || (lockExisting && storedKeys.has(row.key));
+  const locked = (row: T) =>
+    hideRemove ||
+    // The sole survivor keeps no ✕ — see `keepOne`. `rows`, not `view`: with
+    // `pageSize` set, page 2 holding one row must not lock it while nine sit on
+    // page 1.
+    (keepOne && rows.length <= 1) ||
+    (lockExisting && storedKeys.has(row.key));
 
   return (
     // TWO ELEMENTS, TWO JOBS — the outer one is the CONTAINER-QUERY element and
@@ -2030,6 +2164,14 @@ export function ChildGrid<T extends { key: string }>({
                       </RequiredScope>
                     </div>
                   ))}
+                  {/* A RESERVED SLOT, for the reason the inline layout's note
+                      gives at length: a record that loses its ✕ must not hand
+                      the width back to the control beside it, or two records on
+                      one track draw their boxes at two different widths.
+                      `w-4` is the icon's own width — the button is `px-0` here,
+                      unlike the inline layout's `w-8` — so a record that still
+                      has its ✕ is unchanged. */}
+                  <span className="flex w-4 shrink-0 items-center">
                   {!locked(row) && (
                     <Button
                       type="button"
@@ -2043,6 +2185,7 @@ export function ChildGrid<T extends { key: string }>({
                       <X className="h-4 w-4 shrink-0" />
                     </Button>
                   )}
+                  </span>
                 </div>
               );
             })}
@@ -2214,8 +2357,27 @@ export function ChildGrid<T extends { key: string }>({
                     </RequiredScope>
                   </div>
                 ))}
-                {!locked(row) && (
-                <span className="flex min-h-9 shrink-0 items-center @2xl/editor:min-h-8">
+                {/* THE TRACK IS UNCONDITIONAL; ONLY THE BUTTON INSIDE IT COMES
+                    AND GOES — the same shape the table layout has always had,
+                    where the `<td>` is always emitted and only the `<Button>` is
+                    gated.
+
+                    IT WAS THE WHOLE `<span>` THAT WAS GATED, and that is a
+                    layout bug rather than a tidy-up. The header band and the
+                    totals row below both reserve `w-8` unconditionally, so a
+                    row with no ✕ handed 32px + an 8px gap back to its `flex-1`
+                    columns and drew them 40px wider than the header above and
+                    than every unlocked row beside it. `lockExisting` withholds
+                    the ✕ PER ROW, so on the five grids that combine it with
+                    `inlineCards` (Material ▸ Mixing / Composition, Composition
+                    master, Size Group, Category) a STORED line and a freshly
+                    added one sat on two different tracks — the fields
+                    "misaligning and drifting" after a row is added or deleted.
+
+                    `w-8` on the span reproduces the button's own width exactly,
+                    so nothing moves on a row that still has its ✕. */}
+                <span className="flex min-h-9 w-8 shrink-0 items-center @2xl/editor:min-h-8">
+                  {!locked(row) && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -2227,8 +2389,8 @@ export function ChildGrid<T extends { key: string }>({
                   >
                     <X className="h-4 w-4 shrink-0" />
                   </Button>
+                  )}
                 </span>
-                )}
               </div>
               );
             })}

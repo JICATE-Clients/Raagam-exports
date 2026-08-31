@@ -4,19 +4,38 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import { amendmentInput, type AmendmentInput } from "./types";
+import {
+  amendmentInput,
+  mergeTaCompletions,
+  styleFileMessage,
+  stylesMissingFiles,
+  taRowsToWrite,
+  type AmendmentInput,
+  type SavedTaRow,
+} from "./types";
 import { normalizeFileRows } from "./file-rows";
+import {
+  assortBalanceMessage,
+  crossTabPoQtyMessage,
+  totalQuantityPoQty,
+} from "./qty-balance";
 import {
   seedAmendmentFromOrder,
   styleKey,
   type SeededAmendmentChildren,
 } from "./order-seed";
-import { componentProblems } from "./combo-rules";
+import { componentProblems, toleranceStated } from "./combo-rules";
 /* The Style master's rules, read by the SAVE as well as by the screen — the
    "ONE DECLARATION, THREE ENFORCERS" that file's header describes. A
    `lib/data-io` import reaches this action and not the screen, so a rule the
    screen alone knew would be a rule an import could walk past. */
 import { componentRowStarted, impliedCoordinateId } from "@/lib/orders/styles/rules";
+/* The T&A ladder (0481). THE SAME FUNCTION THE SCREEN RENDERS FROM — client-safe
+   on purpose, the `bom-ceiling.ts` split this repo already uses. `target_date`
+   is a stored column, so the screen and this action resolving different ladders
+   would be a date no control enforces: BOTH HALVES OR NEITHER, the rule
+   `purchase_qty` already follows. */
+import { orderTaLadder, isRefusal } from "@/lib/orders/ta/order-ladder";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -448,8 +467,17 @@ function normalizeDyeings(data: AmendmentInput) {
  * its filter differs from every sibling here in a way that invites being
  * "corrected" into a bug. See that file.
  */
-function normalizeFiles(data: AmendmentInput) {
-  return normalizeFileRows(data.files);
+function normalizeFiles(
+  data: AmendmentInput,
+  styles: ReturnType<typeof normalizeStyles>,
+) {
+  /* THE SAME `live` SET the five per-style normalizers above build, and built
+     from the SAME `styles` argument for the same reason `normalizeStyleSizes`
+     is handed it: recomputing it here would be a second answer to "which styles
+     is this save writing?". A document filed against no style survives it —
+     see the filter's own comment in `./file-rows`. */
+  const live = new Set(styles.map((r) => styleKey(r.style_ref_no)).filter(Boolean));
+  return normalizeFileRows(data.files, live);
 }
 
 function normalizePrints(data: AmendmentInput) {
@@ -507,15 +535,39 @@ function normalizeCombos(data: AmendmentInput) {
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
-/** Does this structure row say anything at all? */
+/**
+ * Does this structure row say anything at all?
+ *
+ * THE TWIN OF `structSaysSomething` (amendment-screen.tsx), and the two must
+ * agree. That one decides whether `seedComboFromStyle` stands down; this one
+ * decides whether `writeComboTree` stores the row. A row one of them calls
+ * empty and the other calls filled is a row that is written and then treated as
+ * a reason never to seed again.
+ *
+ * WHICH IS WHY THE TOLERANCE CLAUSE IS `toleranceStated`, NOT `r.gsm_tolerance`
+ * (client 2026-08-31). The screen now PREFILLS 5 into every structure it opens,
+ * so a truthiness test would read every blank fabric as filled: one empty
+ * structure row per combo, written on every save, for ever — and the twin above
+ * would then read those rows back as real and the [Detail] overlay would
+ * quietly stop seeding itself from the style. Nothing errors either way, which
+ * is exactly why the test is one exported function both files call rather than
+ * two `!== 5` comparisons that drift the first time the baseline moves.
+ *
+ * YARN COLOURS COUNT (0480). A fabric whose only content is the colours of the
+ * yarns it is knitted from is a fabric the operator has described — dropping it
+ * would delete an answer they typed. `?.length` rather than a truthiness test
+ * because `[]` is what the column reads as when nothing is ticked, and `[]` is
+ * truthy.
+ */
 function structureFilled(r: AmendmentInput["combos"][number]["structures"][number]) {
   return (
     r.structure_id ||
     r.fabric_type ||
     r.composition_id ||
     r.gsm ||
-    r.gsm_tolerance ||
+    toleranceStated(r.gsm_tolerance) ||
     r.item_sub_type ||
+    r.yarn_colors?.length ||
     r.components.some(componentFilled)
   );
 }
@@ -540,8 +592,26 @@ function componentFilled(
  *
  * The screen check is a courtesy; this one is the guard. It calls the SAME
  * `componentProblems` the cells and the Save button call, so the conditional
- * Colour clause — required only where the fabric's type gives the cell a
- * palette — cannot be stated one way here and another way there.
+ * Colour clause cannot be stated one way here and another way there.
+ *
+ * THAT CLAUSE IS NO LONGER "REQUIRED WHERE THE FABRIC'S TYPE GIVES THE CELL A
+ * PALETTE", which is what this comment said until 2026-08-31 and which now
+ * UNDER-REQUIRES. Having a list and being mandatory were one question for as
+ * long as there were two answers; Yarn Dyed separated them, so
+ * `componentColourEntry` gives three:
+ *
+ *   "list"    Solid / Melange — the cell offers this order's declared colours
+ *             of the matching dye type, and Colour is REQUIRED.
+ *   "manual"  Yarn Dyed — the cell offers NOTHING and Colour is STILL
+ *             REQUIRED. A yarn-dyed panel has no single colour; it has a
+ *             description ("WHITE/BLUE STRIPE"), which is typed. The yarns it
+ *             was knitted from are named on the structure's own `yarn_colors`.
+ *   null      Fabric Type unanswered — not required. There is nothing to
+ *             answer from yet, and holding an operator on a cell the app
+ *             cannot fill is the AGENTS.md "unanswerable field" trap.
+ *
+ * Reverting the test to `colourSourceFor(...) !== null` compiles, runs, and
+ * silently makes Colour optional on every yarn-dyed part.
  *
  * ONLY ROWS THAT SURVIVE `componentFilled`. A part saying nothing at all is
  * dropped a few lines below by `writeComboTree` rather than refused, and
@@ -569,6 +639,155 @@ function comboTreeProblem(data: AmendmentInput): string | null {
     }
   }
   return null;
+}
+
+/**
+ * EVERY STYLE MUST CARRY A DOCUMENT — the fourth enforcer (client 2026-08-31:
+ * Add File is "mandatory before the style profile can be saved or progressed").
+ *
+ * ## WHY THE SCREEN'S TWO HALVES WERE NOT ENOUGH
+ *
+ * The rule already existed twice — the `<Field required>` and `styleFileProblems`
+ * in `validity` — and BOTH of those only decide whether the Save button is
+ * enabled. `submit` is reachable without it. AGENTS.md's wording for the
+ * duplicate guard is exact here: *"The screen check is a courtesy; this one is
+ * the guard."* A disabled button is a suggestion; a refused save is a rule.
+ *
+ * ## IT SHARES THE SCREEN'S PREDICATE RATHER THAN RESTATING IT
+ *
+ * `stylesMissingFiles` and `styleFileMessage` are in `./types`, called by this
+ * action and by the screen. Two implementations of one rule is exactly how the
+ * star/hold divergence AGENTS.md describes comes about — and here it would be
+ * worse than cosmetic: a server stricter than the screen means a live Save
+ * button that fails, and a server looser than the screen means the rule is not
+ * enforced at all.
+ *
+ * ## IT IS UNCONDITIONAL, AND THAT IS A MEASURED CHOICE
+ *
+ * Grandfathering was the obvious alternative — apply it only to styles added in
+ * this save — because an unconditional rule makes every order that predates it
+ * unsaveable until somebody uploads a document for each of its styles. That is a
+ * data-quality rule turning into a work stoppage, and it would be the right
+ * worry on a populated system.
+ *
+ * It is not one here, and this is MEASURED against the live database rather than
+ * estimated (2026-08-31):
+ *
+ *     style lines (total)                     6
+ *     distinct orders with style lines        6
+ *     garment order amendments (total)        6
+ *     amendment files (total)                 0
+ *     style lines that ALREADY have a file    0
+ *
+ * The second figure is the one that settles it, and neither this comment's first
+ * draft nor the person who asked for the count thought to ask for it:
+ * `garment_order_amendment_files` is **empty**. So the blast radius is not "up
+ * to six" — it is exactly six, all of them, with certainty. Not one existing
+ * style line can satisfy this rule today.
+ *
+ * The honest phrasing is therefore "**all existing orders**", not "six orders".
+ * They are the same set and the first sentence is the true one: six uploads,
+ * one per order, and the affected set is fully enumerable because it is every
+ * order there is.
+ *
+ * **THE NUMBER IS SIX *TODAY*.** If this ships weeks from now against a live
+ * order book, re-run the query rather than trusting the figure above — the same
+ * caveat that was correctly attached to the earlier estimate (drawn from 0471's
+ * header and the 08-29 `normalizeStyles` correction, which said 4 and 6) applies
+ * to this measurement too, one source later. A count is evidence with a date on
+ * it, not a constant.
+ *
+ * Grandfathering also costs something structural: "which styles are new?" is not
+ * in the payload, so the action would need to read the stored styles first — and
+ * the SCREEN would need the same rule, from the same cut-off, or the two halves
+ * disagree about which lines are exempt. One rule with no exemption cannot drift.
+ *
+ * ## IT REFUSES WITH A SENTENCE
+ *
+ * Same reasoning as declining `not null` on `merchandiser_id` in 0478: an order
+ * that predates the rule should fail with something the operator can read and
+ * act on, not a constraint violation naming a table.
+ */
+function styleFileProblem(data: AmendmentInput): string | null {
+  /* THE NORMALIZED ROWS, NOT THE RAW PAYLOAD. `normalizeStyles` drops a line
+     that answers nothing and `normalizeFileRows` drops a row whose upload
+     failed, so testing the raw arrays would refuse a save over a blank line the
+     operator opened and abandoned — the abstention `comboTreeProblem` makes for
+     the same reason one screen along. */
+  const missing = stylesMissingFiles(
+    normalizeStyles(data),
+    normalizeFileRows(data.files),
+  );
+  return missing.length ? styleFileMessage(missing[0]) : null;
+}
+
+/**
+ * THE DOUBLE LOCK ON QUANTITIES, SERVER SIDE (client 2026-08-31).
+ *
+ * Two rules the browser has enforced since 08-18 and 08-30 and the server has
+ * not enforced at all:
+ *
+ *   1. **Inside a destination** — the size/colour breakup must sum exactly to
+ *      that destination's PO Qty. The Details overlay's Done button refuses.
+ *   2. **Across the tabs** — total Style PO Qty must equal total Quantities
+ *      PO Qty. Next and Save refuse.
+ *
+ * ## WHY IT NEEDED A SERVER HALF
+ *
+ * Both were UI-only. A dead Save and a refusing Done cannot stop a stale client,
+ * a double-submit or a direct post, and AGENTS.md is explicit that the screen
+ * check is the courtesy and this one is the guard. The client's own words for
+ * what an unbalanced order does downstream are that logistics, planning and
+ * procurement end up working from different numbers.
+ *
+ * ## THE ARITHMETIC IS NOT RESTATED HERE
+ *
+ * Every figure comes from `lib/orders/amendments/qty-balance.ts`, which the
+ * screen's own helpers now delegate to. Restating it would be two
+ * implementations of one rule — the state that let the amber cell line and the
+ * dead Save disagree for an afternoon in August, and the state
+ * `stylesMissingFiles` was created to end one rule over.
+ *
+ * ## NEITHER CHECK NEEDS A DATABASE READ, AND THAT IS BY CONSTRUCTION
+ *
+ * - The style side is already PIECES: `styles[].po_qty` is documented as
+ *   "always pieces, on a set pack too", and the screen sends `stylePoQty(r)`,
+ *   which explodes a set through `derivedPoQty` before it leaves the browser.
+ *   Comparing boxes against pieces would report a mismatch on every correctly
+ *   entered set order, by exactly the set size.
+ * - The assortment MODE rides on the row as `is_ratio_wise_pack`. That column
+ *   exists for precisely this: its own note says it "stays because a reader of
+ *   the row needs it to interpret the size cells without joining back to the
+ *   lookup table". So the guard reads the row rather than re-deriving the mode
+ *   from `assortment_type_id`, which would need `config_lookups` and could
+ *   disagree with the flag actually stored.
+ *
+ * ## IT ABSTAINS EXACTLY WHERE THE SCREEN ABSTAINS
+ *
+ * `assortBalance` returns null on a breakup that adds to nothing, and
+ * `crossTabPoQtyMessage` is silent while the quantity side is empty. Both are
+ * the same refusal to invent a disagreement out of an unanswered section — and
+ * both matter here more than on the screen, because this path also carries the
+ * draft an operator saves halfway through entry.
+ *
+ * THE NORMALIZED ROWS, for the reason `styleFileProblem` gives one function up:
+ * a blank destination the operator opened and abandoned is dropped on save, so
+ * testing the raw array would refuse a save over a row that never reaches the
+ * database.
+ */
+function qtyBalanceProblem(data: AmendmentInput): string | null {
+  const quantities = normalizeQuantities(data);
+
+  // 1. Each destination against its own breakup.
+  for (const q of quantities) {
+    const mode = q.is_ratio_wise_pack ? "assort" : "solid";
+    const why = assortBalanceMessage(q, mode, q.style_ref_no ?? "");
+    if (why) return why;
+  }
+
+  // 2. The two tabs against each other.
+  const styleTotal = normalizeStyles(data).reduce((a, s) => a + (Number(s.po_qty) || 0), 0);
+  return crossTabPoQtyMessage(styleTotal, totalQuantityPoQty(quantities));
 }
 
 function normalizePriceDetails(data: AmendmentInput) {
@@ -804,6 +1023,258 @@ function normalizeQuantities(data: AmendmentInput) {
 }
 
 /**
+ * The order's Time & Action ladder (0481) — the ROWS AS TYPED.
+ *
+ * The dates are NOT here; `taActivityRows` below resolves them through
+ * `orderTaLadder()` and merges the dashboard's columns on. This half does what
+ * every sibling normalizer does and nothing else: drop the blanks, refuse a
+ * repeat, renumber `sno` dense.
+ *
+ * A ROW IS BLANK ONLY WHEN IT ANSWERS NOTHING. An activity with no Days is NOT
+ * blank — it is the ordinary state of a ladder mid-entry, and it is the row
+ * `backwardSchedule` refuses BY NAME ("Knitting: enter how many days it needs").
+ * Dropping it would silence that refusal and produce a shorter plan that looks
+ * complete, which is the failure `assortLineFilled` records one grid over: "a
+ * completeness test that enumerates the columns has to be extended with the
+ * columns".
+ *
+ * DE-DUPLICATES ON `row_uid`, which no sibling has to. The anchor is unique per
+ * amendment (`uq_goa_ta_activities_row_uid`), so a payload repeating one would
+ * take a 23505 and fail the whole save — and worse, the merge below reads the
+ * saved completions into a Map keyed by it, so two rows sharing an anchor would
+ * both claim one completion. The FIRST wins, matching `normalizePackTypes`.
+ */
+function normalizeTaActivities(data: AmendmentInput) {
+  const seen = new Set<string>();
+  return data.ta_activities
+    .map((r) => ({
+      row_uid: r.row_uid,
+      activity_id: r.activity_id,
+      days_required: r.days_required,
+    }))
+    .filter((r) => r.activity_id || r.days_required != null)
+    .filter((r) => {
+      if (seen.has(r.row_uid)) return false;
+      seen.add(r.row_uid);
+      return true;
+    })
+    .map((r, i) => ({ ...r, sno: i + 1 }));
+}
+
+/**
+ * THE T&A LADDER'S ROWS, MERGED — the one child of this document that is not
+ * replaced wholesale, and the reason is worth the length.
+ *
+ * ## WHY THIS CANNOT BE AN ORDINARY NORMALIZER
+ *
+ * `writeChildren` deletes every child row and reinserts. That is lossless for a
+ * price line or a pack type, because the form holds their whole truth. Two of
+ * this table's columns are never on this form at all:
+ *
+ *     entered on the ORDER, on the T&A tab   activity_id · days_required
+ *     entered on the DASHBOARD, days later   actual_date · status · notes
+ *
+ * So an operator reopening the order to fix a typo in Pay Terms and pressing
+ * Save would DESTROY EVERY COMPLETION RECORD ON THE ORDER — silently, with no
+ * error, because deleting a child grid and writing it back is the ordinary
+ * thing this writer does.
+ *
+ * That is not hypothetical. AGENTS.md and the Material Attribute post-mortem
+ * record it happening: "BOTH writers replaced child grids wholesale over an ON
+ * DELETE SET NULL FK; 12/12 lines + 10 answers destroyed and unrecoverable."
+ *
+ * ## THE MERGE IS BY `row_uid`, AND IT READS BEFORE THE DELETE
+ *
+ * Reading first is not an optimisation — after the delete loop there is nothing
+ * left to compare against. `writeChildren` calls this while building its
+ * `inserts` table, which is before the first `.delete()`, and the same reason
+ * the dispatched-challan read in `material-bom-amendment/actions.ts` sits where
+ * it does.
+ *
+ * `row_uid` and never `id`: the reinsert re-mints `id`, and the normalizer
+ * renumbers `sno`, so the anchor is the only thing that crosses a save. It is
+ * the 0446/0459 pattern, applied a second time.
+ *
+ * ## THE PAYLOAD CANNOT CARRY A COMPLETION, BY CONSTRUCTION
+ *
+ * `amendmentTaActivityInput` has no `actual_date`, `status` or `notes` field.
+ * That is the safety property: the three columns come from the DATABASE and
+ * from nowhere else, so there is no precedence rule to get wrong and no stale
+ * form that can overwrite a completion with a blank. See the schema's own note.
+ *
+ * ## AN EMPTY INCOMING LIST FALLS BACK TO THE SAVED LADDER
+ *
+ * This is the asymmetry that matters, and it is deliberate. `ta_activities`
+ * defaults to `[]` in the Zod input, so ANY payload that does not know about
+ * this tab — a stale client, a `curl`, a caller written before today — arrives
+ * with an empty list. Under the flat delete-and-reinsert that would empty the
+ * table and take every completion with it, which is precisely the disaster the
+ * paragraphs above are about.
+ *
+ * So an empty list means "this save says nothing about the ladder", not "delete
+ * the ladder": the SAVED rows are re-emitted, re-dated, and written back.
+ *
+ * THE PRICE IS REAL AND IS THE CHEAP HALF: an operator who deletes every row of
+ * the ladder and saves will find it still there on reload. That is visible and
+ * one edit from being fixed. A payload silently destroying completion records is
+ * neither. The ladder is mandatory on the screen anyway, so "no activities at
+ * all" is not a state the operator is trying to reach.
+ *
+ * ## THE DATES ARE RESOLVED HERE, THROUGH THE SCREEN'S OWN FUNCTION
+ *
+ * `orderTaLadder()` is client-safe and the T&A tab renders from it, so the
+ * stored `target_date` is never a second opinion — BOTH HALVES OR NEITHER, the
+ * rule `purchase_qty` already follows. Whichever list won above is the list that
+ * is dated, so a stale payload's save still leaves the ladder dated against the
+ * delivery date THIS save wrote, rather than against the one it replaced.
+ *
+ * HOLIDAYS ARE PASSED BY NEITHER HALF, AND THAT IS WHY THEY AGREE. Nothing in
+ * this repo consults the `holidays` master yet (`holidaySet()` has no caller),
+ * so both sides run Sunday-only and match by construction. **If either side ever
+ * starts passing a holiday set, both must, in the same change** — a screen
+ * resolving a ladder over a calendar the server does not know about is a date no
+ * control enforces, which is the whole failure this note exists to prevent.
+ *
+ * ## A REFUSAL NO LONGER BLOCKS THE SAVE — REVERSED 2026-08-31, AND
+ * ## DELIBERATELY, NOT AS A BUGFIX
+ *
+ * The client made the T&A tab OPTIONAL the same day it was built: *"make it
+ * optional now will implement it later as required"*. So this reads:
+ *
+ *     if (isRefusal(plan)) → every `target_date` is NULL, and the save proceeds
+ *
+ * **What it used to read, and why it cannot stay that way.** The gate was
+ * `if (isRefusal(plan) && !data.is_draft) return { ok: false, error: … }` —
+ * a real save whose ladder refused was rejected before the delete loop, the
+ * shape `comboTreeProblem` uses for rules Zod cannot state. That was correct
+ * while the SCREEN was also mandatory: the operator met the refusal on a
+ * disabled Save button, with a rail badge and `revealFirstProblem` steering the
+ * cursor to the offending row.
+ *
+ * With the screen gate gone, the same server gate becomes the worst of both:
+ * Save is enabled, the operator presses it, and a round trip returns a toast
+ * with **no badge, no problem routing and no cursor steer**, because that
+ * machinery has been removed. AGENTS.md names this exact failure under Mandatory
+ * fields — *"requiring a hidden field is a record that cannot be saved with
+ * nothing on screen to say why"*. Client-optional plus server-mandatory is
+ * strictly worse than either end being consistent.
+ *
+ * **`is_draft` therefore does not appear in this function at all any more.** The
+ * draft branch is not merely unused, it is meaningless: undated-on-refusal was
+ * the draft behaviour and is now the only behaviour. A dead `data.is_draft` left
+ * in the condition would read as a rule that still discriminates.
+ *
+ * **RESTORING IT IS ONE LINE, AND IT IS COMING BACK.** The client said "later as
+ * required". When it does, the gate goes back exactly as quoted above — and the
+ * SCREEN gate must go back in the same change, which is why `ui` kept
+ * `taProblems` built and `{ key: "ta" }` declared in `sectionValidity`'s
+ * `sections`. Do not restore this half alone, and do not delete it as dead code.
+ *
+ * **THE COST OF OPTIONAL, STATED SO NOBODY DISCOVERS IT.** A half-filled ladder
+ * now SAVES, with every row undated — and an undated row matches no worklist
+ * query (`target_date <= today`), so the dashboard shows nothing due for that
+ * order. That reads as "nothing is due", not as "this ladder was never
+ * finished": the empty-report failure the contract names, and indistinguishable
+ * from a legitimate answer. The operator is not left in the dark — the screen
+ * renders the same refusal sentence as advisory text, from this same
+ * `orderTaLadder` — but nothing downstream chases an order whose ladder was
+ * abandoned. Surfacing that belongs to the dashboard, not here.
+ *
+ * ## `created_by` IS NOT NAMED, SO ITS DEFAULT FIRES
+ *
+ * The inverse of 0475's lesson, and worth stating because the neighbouring
+ * `status` needs the opposite treatment: a default applies only when the INSERT
+ * omits the column, so `created_by` is left off and `auth.uid()` stamps it,
+ * while `status` is named on every row (the merge carries it) and therefore has
+ * to be coalesced HERE rather than relying on the column default.
+ */
+async function taActivityRows(
+  s: Awaited<ReturnType<typeof createClient>>,
+  amendmentId: string,
+  data: AmendmentInput,
+  quantityRows: ReturnType<typeof normalizeQuantities>,
+): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string }> {
+  // READ BEFORE ANY DELETE. On a create this is a new id and comes back empty,
+  // which is correct and costs one round trip.
+  const { data: savedRaw, error: savedErr } = await s
+    .from("garment_order_amendment_ta_activities")
+    .select("row_uid, sno, activity_id, days_required, actual_date, status, notes")
+    .eq("amendment_id", amendmentId);
+  if (savedErr) return { ok: false, error: savedErr.message };
+  /* SORTED BY `sno` HERE, because `taRowsToWrite` re-emits them IN THE ORDER IT
+     IS GIVEN THEM — a ladder is the operator's sequence, and a pure function
+     that re-sorted it would move dates nobody edited. PostgREST makes no
+     ordering promise, so leaving this out would reorder the ladder on a save
+     that said nothing about it. */
+  const saved = ((savedRaw ?? []) as SavedTaRow[]).slice().sort((a, b) => a.sno - b.sno);
+
+  /* WHICH LADDER THIS SAVE IS WRITING. Pure, declared in `types.ts` and
+     vectored by `npm run check:ta-merge` — a merge that is merely written is
+     not a merge that is known to work. */
+  const rows = taRowsToWrite(normalizeTaActivities(data), saved);
+  if (!rows.length) return { ok: true, rows: [] };
+
+  /* THE ACTIVITY'S NAME, SO A REFUSAL CAN NAME THE ROW. `backwardSchedule`
+     prints "<label>: enter how many days it needs" and falls back to "A
+     process" — which, on a ladder of ten identical-looking boxes, sends the
+     operator hunting. One `in` query, only over the ids actually used.
+
+     ITS ONLY CONSUMER IS DORMANT AND IT IS KEPT ANYWAY. `label` is read by
+     nothing but a refusal message, and since 2026-08-31 this action discards
+     that message rather than returning it (see the header). Deleting the lookup
+     would make restoring the gate a TWO-piece job — one line for the guard and
+     one to re-add this — and the half that would get forgotten is the one whose
+     absence nobody notices: a refusal reading "A process: enter how many days it
+     needs" instead of naming Knitting. `ui` engineered its own half the same way
+     round, so the requirement comes back as one line on each side.
+
+     It costs an `in` over at most ten uuids per save, and it does not touch the
+     DATES: `label` appears in no arithmetic, so both halves still resolve the
+     same ladder whatever this returns. */
+  const activityIds = [...new Set(rows.map((r) => r.activity_id).filter((v): v is string => !!v))];
+  const labels = new Map<string, string>();
+  if (activityIds.length) {
+    const { data: acts, error: actErr } = await s
+      .from("ta_activities")
+      .select("id, name")
+      .in("id", activityIds);
+    if (actErr) return { ok: false, error: actErr.message };
+    for (const a of (acts ?? []) as { id: string; name: string | null }[]) {
+      if (a.name) labels.set(a.id, a.name);
+    }
+  }
+
+  const plan = orderTaLadder({
+    rows: rows.map((r) => ({
+      row_uid: r.row_uid,
+      activity_id: r.activity_id,
+      label: (r.activity_id && labels.get(r.activity_id)) || "",
+      days_required: r.days_required,
+    })),
+    // The quantity rows THIS SAVE IS WRITING, not `data.quantities` — a blank
+    // destination row is dropped by `normalizeQuantities`, and a date on a row
+    // that is about to be discarded must not anchor the whole factory's plan.
+    quantities: quantityRows,
+    deliveryDate: data.delivery_date ?? null,
+    // holidays: deliberately absent on BOTH halves. See the header.
+  });
+
+  /* A REFUSAL DATES NOTHING AND DOES NOT BLOCK THE SAVE (client 2026-08-31: the
+     tab is optional "now will implement it later as required"). Draft or not —
+     see the header for what this used to be, why it changed, and the one line
+     that puts it back when the requirement returns. */
+  const targetDates = isRefusal(plan)
+    ? rows.map(() => null)
+    : plan.rows.map((r) => r.target_date);
+
+  /* CARRY THE DASHBOARD'S COLUMNS ACROSS. Pure, declared in `types.ts`, and
+     vectored — see `mergeTaCompletions` there for why the rule lives outside
+     this file. `created_by` is deliberately NOT named on the row, so the
+     column's `default auth.uid()` fires (0475's lesson, inverted). */
+  return { ok: true, rows: mergeTaCompletions(rows, saved, targetDates) };
+}
+
+/**
  * Does this assortment line say anything at all?
  *
  * EVERY TYPEABLE CELL COUNTS, and the two added on 2026-08-19 are the point:
@@ -868,6 +1339,25 @@ async function writeChildren(
   // not survive de-duplication and restamps the rest with the spelling that
   // did — it has to be handed the same list, not a second computation of it.
   const packTypeRows = normalizePackTypes(data);
+  /* Computed once and shared with the T&A ladder below, which anchors on the
+     EARLIEST `earlier_shipment_date` across these very rows — recomputing it
+     there would be a second answer to "which destinations is this save
+     writing?", and a destination dropped for being blank must not date the
+     factory's plan. */
+  const quantityRows = normalizeQuantities(data);
+
+  /**
+   * The T&A ladder (0481) — RESOLVED BEFORE THE DELETE LOOP, and that is the
+   * whole point of where this line sits.
+   *
+   * It reads the saved completions (which the delete would otherwise destroy),
+   * merges them onto the incoming rows by `row_uid`, and dates the ladder. A
+   * refusal returns HERE, with nothing deleted and nothing written — the shape
+   * `comboTreeProblem` uses for a rule Zod cannot state, arriving one layer
+   * further in because this rule needs the database as well as the payload.
+   */
+  const ta = await taActivityRows(s, amendmentId, data, quantityRows);
+  if (!ta.ok) return fail(ta.error);
 
   const inserts: [string, Record<string, unknown>[]][] = [
     ["garment_order_amendment_styles", styleRows],
@@ -899,17 +1389,26 @@ async function writeChildren(
     // on, and handed the very rows being inserted — the same dependency and
     // the same resolution as the style sizes above.
     ["garment_order_amendment_pack_type_lines", normalizePackTypeLines(data, packTypeRows)],
+    /* The order's Time & Action ladder (0481). MERGED, NOT REPLACED — the rows
+       were built above, before the delete loop, carrying each row's stored
+       `actual_date` / `status` / `notes` across by `row_uid`. It is in this
+       list all the same, so the delete-and-reinsert still happens: the rows
+       being reinserted are simply not the payload's alone. Read
+       `taActivityRows` before changing anything here — putting
+       `normalizeTaActivities(data)` in this slot instead would compile, pass
+       every check, and destroy every completion record on the order. */
+    ["garment_order_amendment_ta_activities", ta.rows],
     // THIS LIST DRIVES THE DELETE LOOP AS WELL AS THE INSERTS. An entry added
     // only to the insert side would leave the previous rows in place and add
     // the new ones beside them, doubling the grid on every save.
-    ["garment_order_amendment_quantities", normalizeQuantities(data)],
+    ["garment_order_amendment_quantities", quantityRows],
     /* The attached documents (0416). METADATA ONLY — the delete below drops
        rows, never objects, and that asymmetry is deliberate: the file uploads
        the moment it is chosen and the row is written on Save, so a delete that
        reached into the bucket would make Cancel destroy a file the operator may
        have no other copy of. Orphaned objects accumulate instead, which
        `file-attachments.tsx` records as a known, accepted remainder. */
-    ["garment_order_amendment_files", normalizeFiles(data)],
+    ["garment_order_amendment_files", normalizeFiles(data, styleRows)],
   ];
 
   // Delete-all-then-reinsert each child grid wholesale.
@@ -1113,6 +1612,14 @@ async function writeComboTree(
       if (!structureFilled(st)) continue;
       sno += 1;
       structSrc.set(pairKey(comboId, sno), st);
+      /* READ ONCE, BECAUSE TWO COLUMNS ANSWER TO IT. `item_sub_type` is what is
+         stored AND what decides whether `yarn_colors` may be, so the gate below
+         has to test the value this row actually writes — not the raw payload it
+         came from. `nullableText` is `z.string().optional().nullable()` and does
+         NOT trim, which is the whole reason `clean()` is here at all: with the
+         two spellings apart, a payload of `" yarn_dyed "` would be STORED as
+         yarn_dyed and have its yarn colours wiped in the same statement. */
+      const subType = clean(st.item_sub_type);
       structRows.push({
         combo_id: comboId,
         sno,
@@ -1121,7 +1628,67 @@ async function writeComboTree(
         composition_id: st.composition_id,
         gsm: st.gsm,
         gsm_tolerance: st.gsm_tolerance,
-        item_sub_type: clean(st.item_sub_type),
+        item_sub_type: subType,
+        /* NAMED, NEVER OMITTED (0480) — the same rule `fabric_type` above and
+           `processed_as_trim` below are here under, and the one
+           `amendmentPrintInput.print_id` states from the schema side: this
+           walker DELETES AND REINSERTS the whole tree, so a column the payload
+           stops carrying is not frozen at what it held, it is written back at
+           its default on the next save of ANY tab. Drop this line and every
+           yarn-dyed fabric in the order silently loses its yarn colours the
+           first time somebody edits a price.
+
+           AND GATED ON THE TYPE, which is the server's half of a rule the
+           SCREEN already applies on the Fabric Type `<Select>` (`patchStruct`,
+           on the change and deliberately not in an effect). Its comment there
+           states the reason the value must not survive the type: Yarn Color
+           exists only under Yarn Dyed, so on any other type its names are a
+           value the operator cannot see, cannot edit and cannot remove — the
+           inverse of AGENTS.md's "requiring a hidden field", a hidden field
+           that keeps writing.
+
+           THIS IS NOT REDUNDANT WITH THE SCREEN, and it is not redundant with
+           the database either. 0480 deliberately carries NO cross-column CHECK,
+           because `item_sub_type` is nullable and a constraint would make the
+           ORDER the operator fills two cells in decide whether the save
+           succeeds. So nothing under this line enforces it: a `lib/data-io`
+           import, a stale tab still sending the pre-08-31 payload, or any
+           writer that is not this screen reaches Postgres unchallenged. "The
+           screen check is a courtesy; this one is the guard" — AGENTS.md says
+           it of duplicates, and it holds here.
+
+           IT REFUSES ONLY A TYPE THAT CONTRADICTS IT, NEVER AN UNANSWERED ONE,
+           and that asymmetry is the whole correctness of this line.
+
+           The obvious gate is `subType === "yarn_dyed" ? keep : []`. It is
+           wrong, and it became wrong the moment `order-seed.ts` learned to read
+           `order_fabric_yarn_colors`: a seeded structure carries the ORDER's own
+           yarn colours while `order_fabrics.item_sub_type` is NULLABLE and
+           frequently null — every one of the 21 rows in
+           `garment_order_amendment_structures` is null today. So a fabric whose
+           order sheet named its yarn colours, but never named its type, would
+           have arrived with them and lost them on the first save of any tab,
+           silently and unrecoverably. The one writer that can restore them is
+           the seed, and the seed only runs once.
+
+           NULL IS A REAL STATE, NOT A MISSING DEFAULT — the sentence this file
+           and `types.ts` both already carry about this exact column. "Not
+           answered" is not "answered solid". A value is destroyed here only
+           when the operator has positively said the cloth is something else, at
+           which point the screen has already cleared it on the change and this
+           is agreeing with it rather than acting alone.
+
+           The cost is stated rather than hidden: an unanswered structure may
+           carry yarn colours nothing on screen displays. They are the order's
+           own words, they cost nothing, and answering the Fabric Type — the
+           very next thing anyone does to such a row — resolves them either way.
+
+           `[]`, NEVER null, on the refusing branch: the column is
+           `not null default '{}'` (0480). `?? []` on the keeping branch for the
+           same reason — the interface allows null for a row the seed or the
+           screen built and the database has never seen. */
+        yarn_colors:
+          subType && subType !== "yarn_dyed" ? [] : (st.yarn_colors ?? []),
       });
     }
   });
@@ -1208,6 +1775,9 @@ function headerOnly(data: AmendmentInput) {
     pack_types: _pt,
     // 0472, and the child of the pack types above rather than a header column.
     pack_type_lines: _ptl,
+    // 0481 — the order's Time & Action ladder, a child table like every name
+    // above it. See `taActivityRows`: its rows are merged rather than replaced.
+    ta_activities: _ta,
     quantities: _qt,
     files: _files,
     // NOT A COLUMN HERE. `location_id` belongs to the `sales_orders` row this
@@ -1230,6 +1800,7 @@ function headerOnly(data: AmendmentInput) {
   void _aq;
   void _pt;
   void _ptl;
+  void _ta;
   void _qt;
   return header;
 }
@@ -1244,6 +1815,15 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
      same reason, as `missingRequiredMaterialFields`. */
   const comboProblem = comboTreeProblem(p.data);
   if (comboProblem) return fail(comboProblem);
+  /* Every style carries a document (0479 · client 2026-08-31). The screen
+     deadens Save on the same predicate; this is the half `submit` cannot skip. */
+  const fileProblem = styleFileProblem(p.data);
+  if (fileProblem) return fail(fileProblem);
+  /* The quantity double lock (client 2026-08-31). Same predicate the Details
+     overlay's Done button and the dead Save read; this is the half a stale
+     client or a direct post cannot skip. */
+  const qtyProblem = qtyBalanceProblem(p.data);
+  if (qtyProblem) return fail(qtyProblem);
   const s = await createClient();
 
   /**
@@ -1292,11 +1872,24 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
         order_date: p.data.amend_date,
         currency_code: p.data.currency_code,
         ship_date: p.data.delivery_date,
-        // Spread, not `merchandiser_id: … ?? null`. The column defaults to
-        // `auth.uid()`, and PostgREST applies a default only for an ABSENT key —
-        // sending an explicit null would override it and leave the order with no
-        // merchandiser whenever the operator named none.
-        ...(p.data.merchandiser_id ? { merchandiser_id: p.data.merchandiser_id } : {}),
+        /**
+         * THE MERCHANDISER IS NO LONGER MIRRORED (0478), and this is the same
+         * move 0404 made for the party a few lines down.
+         *
+         * `garment_order_amendments.merchandiser_id` is an `employees` row from
+         * 2026-08-31 — a member of HR staff. `sales_orders.merchandiser_id`
+         * still references `profiles`, because it is a LOGIN: 0006 defaults it
+         * to `auth.uid()` and `sync_order_channel_members` (0458) seeds the
+         * order's discussion channel with it as a `user_id`. Writing one into
+         * the other is the FK rejection the repoint exists to avoid, and it
+         * would have failed EVERY save from the moment 0478 applied.
+         *
+         * Omitting the key rather than sending null is what keeps the default
+         * working: PostgREST applies a column default only for an ABSENT key, so
+         * the order is owned by whoever saved it — which is exactly what the
+         * channel wants and what this column has always meant. The two
+         * questions now have two columns, which is the point.
+         */
       })
       .select("id")
       .single();
@@ -1340,6 +1933,15 @@ export async function updateAmendment(
      same reason, as `missingRequiredMaterialFields`. */
   const comboProblem = comboTreeProblem(p.data);
   if (comboProblem) return fail(comboProblem);
+  /* Every style carries a document (0479 · client 2026-08-31). The screen
+     deadens Save on the same predicate; this is the half `submit` cannot skip. */
+  const fileProblem = styleFileProblem(p.data);
+  if (fileProblem) return fail(fileProblem);
+  /* The quantity double lock (client 2026-08-31). Same predicate the Details
+     overlay's Done button and the dead Save read; this is the half a stale
+     client or a direct post cannot skip. */
+  const qtyProblem = qtyBalanceProblem(p.data);
+  if (qtyProblem) return fail(qtyProblem);
   const s = await createClient();
   /**
    * NEVER BLANK THE ORDER LINK. `sales_order_id` is nullable on input because a
@@ -1364,6 +1966,14 @@ export async function updateAmendment(
    * THE PARTY IS NO LONGER MIRRORED (0404). It is a `customers` row now, and
    * `sales_orders.buyer_id` references `buyers`; writing one into the other is
    * the FK rejection this repoint exists to avoid. The shell keeps a null buyer.
+   *
+   * NOR IS THE MERCHANDISER (0478), for exactly the same reason one repoint
+   * later: this document's merchandiser is an `employees` row from 2026-08-31,
+   * and `sales_orders.merchandiser_id` references `profiles` because it is a
+   * LOGIN — `sync_order_channel_members` (0458) seeds a chat member from it.
+   * Sending an employees uuid here would have failed every update the moment
+   * 0478 applied. The order keeps the owner it was created with, which is what
+   * that column has always meant. See the create path above.
    */
   if (sales_order_id) {
     await s
@@ -1371,7 +1981,6 @@ export async function updateAmendment(
       .update({
         currency_code: p.data.currency_code,
         ship_date: p.data.delivery_date,
-        merchandiser_id: p.data.merchandiser_id,
       })
       .eq("id", sales_order_id);
   }

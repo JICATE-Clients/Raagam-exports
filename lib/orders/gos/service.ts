@@ -193,7 +193,7 @@ export async function getGarmentOrderSheet(
 
   const [sizeNames, merchandiser] = await Promise.all([
     sizeNameMap(),
-    profileName(row.merchandiser_id),
+    merchandiserName(row.merchandiser_id),
   ]);
 
   const src: GosSource = {
@@ -304,19 +304,50 @@ async function sizeNameMap(): Promise<Record<string, string>> {
 }
 
 /**
- * One profile's display name, through `creator_names()`.
+ * The merchandiser's name — OUT OF THE HR EMPLOYEE MASTER since 0478.
  *
- * NOT A POSTGREST EMBED, for the reason `lib/created-by.ts` sets out at length:
- * `profiles_read_own` lets a user select only their OWN profile row, so
- * `merchandiser:profiles(full_name)` resolves to null for every merchandiser
- * who is not the person printing the sheet. The embed compiles, runs and
- * returns a blank — which on this sheet would read as "no merchandiser
- * assigned". `creator_names()` is SECURITY DEFINER and returns id + name only.
+ * ## WHY THIS CHANGED, AND WHY IT WOULD OTHERWISE HAVE FAILED SILENTLY
+ *
+ * This used to be `profileName()`, resolving the id through `creator_names()`.
+ * That was right while `garment_order_amendments.merchandiser_id` was a
+ * `profiles` FK. 0478 repointed it at `public.employees` (client 2026-08-31:
+ * the Merchandiser comes off the HR staff master), and an `employees` uuid
+ * looked up in `profiles` resolves to NOTHING.
+ *
+ * The failure has no error in it. `creator_names()` would return an empty
+ * array, `row?.full_name ?? null` would hand back null, and the sheet — the
+ * document production works from and the one that goes out on paper — would
+ * simply print no merchandiser. Nobody reports a blank field on a printout
+ * they have never seen filled.
+ *
+ * `npm run check:gos` does NOT catch it: those vectors feed `buildGosSheet` a
+ * `GosSource` whose merchandiser is already a string, so the whole suite passes
+ * while the resolution beneath it is broken. That is "a check passing means
+ * nothing on its own", exactly.
+ *
+ * ## A PLAIN SELECT IS ENOUGH HERE, AND `creator_names()` WOULD NOT BE
+ *
+ * The old note explained that `profiles` could not be read directly:
+ * `profiles_read_own` lets a user select only their OWN row, so an embed or a
+ * select resolves to null for everyone else and the SECURITY DEFINER RPC was
+ * the way round it. `employees` has no such restriction — `employees_read` is
+ * `for select to authenticated using (true)` (0243) — so the name is simply
+ * readable, and routing it through an RPC that only knows about `profiles`
+ * would return nothing at all.
+ *
+ * `maybeSingle()` and not `single()`: an order whose merchandiser was cleared
+ * by 0478's remap has a null id and never gets here, but a row deleted from the
+ * master afterwards would make `single()` throw and take the whole sheet down
+ * over a missing name.
  */
-async function profileName(id: string | null): Promise<string | null> {
+async function merchandiserName(id: string | null): Promise<string | null> {
   if (!id) return null;
   const s = await createClient();
-  const { data } = await s.rpc("creator_names", { ids: [id] });
-  const row = ((data ?? []) as { id: string; full_name: string | null }[])[0];
-  return row?.full_name ?? null;
+  const { data, error } = await s
+    .from("employees")
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load the merchandiser: ${error.message}`);
+  return (data as { name: string | null } | null)?.name ?? null;
 }

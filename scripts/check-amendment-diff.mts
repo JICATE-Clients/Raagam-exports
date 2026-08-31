@@ -119,6 +119,9 @@ check(
     "approvalQtys",
     "quantities",
     "packTypes",
+    // 0481 — the order's Time & Action ladder, the first child of this document
+    // with a stable per-row anchor to key on.
+    "taActivities",
     "countrySizes",
   ],
 );
@@ -871,6 +874,131 @@ check(
   tab(diffAmendment(unitBefore, unitBefore), "styles").filter((r) => r.kind === "changed").length,
   0,
 );
+// ---------- T&A (0481) ---------------------------------------------------
+//
+// THE TAB THAT REPORTS LESS THAN IT STORES, on purpose, and every one of these
+// vectors is about a column that is deliberately NOT reported. A spec that
+// merely omits a field looks identical to a spec that forgot one, so the
+// omissions are asserted rather than left to the comment above them.
+
+const ta = (
+  uid: string,
+  sno: number,
+  activity: string | null,
+  days: number | null,
+  patch: Record<string, unknown> = {},
+) => ({
+  id: "",
+  amendment_id: "",
+  row_uid: uid,
+  sno,
+  activity_id: activity,
+  days_required: days,
+  target_date: null as string | null,
+  actual_date: null as string | null,
+  status: "pending",
+  notes: null as string | null,
+  ...patch,
+});
+
+const taBefore = seed({ taActivities: [ta("uid-1", 1, "act-knit", 3)] });
+
+check(
+  "a Days edit is one changed row",
+  tab(diffAmendment(taBefore, seed({ taActivities: [ta("uid-1", 1, "act-knit", 5)] })), "taActivities"),
+  [
+    {
+      kind: "changed",
+      key: "uid-1#0",
+      label: "Step 1",
+      fields: [{ field: "days_required", label: "Days", before: "3", after: "5" }],
+    },
+  ],
+);
+
+// THE PAYOFF OF A STABLE ANCHOR. Every other tab in this file has to report a
+// re-described row as removed + added, because its key is made of the very
+// values that changed. Here the key is `row_uid`, so swapping the activity on a
+// ladder step is one CHANGED row — which is what actually happened.
+check(
+  "swapping the activity on one step is CHANGED, not removed + added",
+  tab(
+    diffAmendment(taBefore, seed({ taActivities: [ta("uid-1", 1, "act-dye", 3)] })),
+    "taActivities",
+  ).map((r) => r.kind),
+  ["changed"],
+);
+
+// THE FLOOD THIS SPEC EXISTS TO PREVENT. `target_date` is derived from the
+// anchor on the Quantities tab, so moving the shipment date by a week moves
+// every date in the ladder. Reporting them would bury the one edit an operator
+// actually made under ten rows nobody touched.
+check(
+  "a target_date that moved on its own reports NOTHING",
+  tab(
+    diffAmendment(
+      seed({ taActivities: [ta("uid-1", 1, "act-knit", 3, { target_date: "2026-10-07" })] }),
+      seed({ taActivities: [ta("uid-1", 1, "act-knit", 3, { target_date: "2026-10-14" })] }),
+    ),
+    "taActivities",
+  ).length,
+  0,
+);
+
+// A COMPLETION IS NOT AN AMENDMENT. These three are entered on the T&A
+// dashboard by another department and `amendmentTaActivityInput` has no field
+// for them, so this document cannot change them — an amendment announcing
+// "Status: pending -> done" would report the factory's progress as if the
+// merchandiser had amended the order.
+check(
+  "a completion entered on the dashboard reports NOTHING",
+  tab(
+    diffAmendment(
+      taBefore,
+      seed({
+        taActivities: [
+          ta("uid-1", 1, "act-knit", 3, {
+            actual_date: "2026-10-06",
+            status: "done",
+            notes: "FINISHED EARLY",
+          }),
+        ],
+      }),
+    ),
+    "taActivities",
+  ).length,
+  0,
+);
+
+// Inserting a step above shifts every `sno` beneath it. The KEY is the anchor,
+// not the position, so the untouched step must not be reported as changed —
+// only the new one added. (Its LABEL does move, which the spec's header states
+// as the known cost of having no activity name to print.)
+check(
+  "inserting a step reports the new one only",
+  tab(
+    diffAmendment(
+      taBefore,
+      seed({ taActivities: [ta("uid-0", 1, "act-fabric", 2), ta("uid-1", 2, "act-knit", 3)] }),
+    ),
+    "taActivities",
+  ).map((r) => `${r.kind}:${r.key}`),
+  ["added:uid-0#0"],
+);
+
+check(
+  "an unfilled Days is blank in the summary, never 0",
+  (() => {
+    const rows = tab(
+      diffAmendment(seed({ taActivities: [ta("uid-1", 1, "act-knit", null)] }), taBefore),
+      "taActivities",
+    );
+    const f = rows[0]?.fields.find((x) => x.field === "days_required");
+    return f ? `${f.before}|${f.after}` : "(none)";
+  })(),
+  "—|3",
+);
+
 console.log(
   failed === 0 ? "\nAll amendment-diff vectors passed." : `\n${failed} vector(s) FAILED.`,
 );

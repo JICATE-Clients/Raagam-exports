@@ -79,6 +79,34 @@ export type FullScreenSection = {
    */
   skipTab?: boolean;
   /**
+   * THE SECTION CANNOT BE ENTERED AT ALL — a stronger `skipTab` (client
+   * 2026-08-31: "if pack no means it should disable the focus, no need to go the
+   * section … if yes only that time only need to allow the focus to move to the
+   * section").
+   *
+   * `skipTab` takes a section off the TYPING path and deliberately leaves the
+   * rail's arrows and the mouse able to reach it, because the section's own
+   * button was how it switched itself back on. This goes further: the rail row
+   * is a disabled `<button>`, so it is not focusable, not clickable, and
+   * `railButtons` filters it out of the arrow / Home / End walk. The Tab and
+   * Enter hand-off skips it too — `disabled` implies `skipTab`, so a caller
+   * cannot set one and forget the other.
+   *
+   * ## ONLY WHERE THE SWITCH LIVES SOMEWHERE ELSE
+   *
+   * This is the difference between a gate and a dead end, and it is the same
+   * trap the Styles grid hit when `hideAdd` removed the only route to a second
+   * style. Pack type(s) is safe because `Pack` is a field on **Order Info** — the
+   * operator turns it on where they turned it off. **Never set this on a section
+   * whose own content holds the only control that re-enables it**: the section
+   * would be unreachable and the switch inside it unreachable with it.
+   *
+   * A disabled section is still LISTED, greyed, so the operator keeps their map
+   * of the document — a rail whose rows come and go loses them their place, and
+   * the row is what says the section exists and is switched off.
+   */
+  disabled?: boolean;
+  /**
    * BLOCKING problems in this section — a red count on the rail, replacing the
    * `done` dot, and where `goToSection(key, "problem")` steers.
    *
@@ -137,6 +165,37 @@ export type FullScreenSection = {
 };
 
 /**
+ * WHY A FORWARD STEP IS REFUSED, AND HOW FAR THE REFUSAL REACHES.
+ *
+ * `stepGuard` returning a bare STRING is the original behaviour and is
+ * unchanged: Next refuses, the rail stays free. The object form exists
+ * because the two guards this shell now carries want different reaches, and
+ * the difference is not a preference — it is a property of where the fix is.
+ *
+ *   - The Quantities guard (2026-08-30) refuses a breakup that contradicts a
+ *     PO Qty typed on ANOTHER tab. Its own note is emphatic that the rail must
+ *     stay open, because "the only cell that can satisfy the rule would be
+ *     behind the rule". Bare string. Nothing about it changes.
+ *   - The Style(s) guard (client 2026-08-31: "block progress to subsequent
+ *     tabs") refuses a line missing its own mandatory cells. Every one of
+ *     those cells is ON the Style(s) tab, so there is no repair trip to
+ *     protect and the locked-room argument does not arise. `sealRail: true`.
+ *
+ * BACKWARD IS ALWAYS FREE, WHICHEVER FORM IS USED, and that is what makes the
+ * seal safe rather than a trap: the rail refuses only a move to a LATER
+ * section, so an operator held on Style(s) can still go back to Order Info,
+ * and one held anywhere can always retreat. `goToSection` — the imperative
+ * path `revealFirstProblem` uses — is never guarded at all, so "take me to the
+ * problem" outranks every seal.
+ */
+export type StepBlock = {
+  /** What the operator is told. The screen owns the wording. */
+  reason: string;
+  /** Also refuse a FORWARD rail click and Tab off the last field. */
+  sealRail?: boolean;
+};
+
+/**
  * Where the cursor lands after a section switch.
  *
  * `"problem"` and `{fieldId}` are consulted only AFTER the target section has
@@ -173,8 +232,22 @@ export type MasterFullScreenHandle = {
 };
 
 /** The rail's section buttons, in order. */
+/**
+ * `:not([disabled])` — A SWITCHED-OFF SECTION IS NOT A STOP ON THE RAIL EITHER
+ * (client 2026-08-31: "if pack no means it should disable the focus, no need to
+ * go the section … if yes only that time only need to allow the focus to move
+ * to the section").
+ *
+ * Filtering here rather than at each reader is what makes it one rule: the
+ * arrows, Home/End and the "which row is focused" lookup all walk this list, so
+ * a disabled row leaves every one of them at once. A disabled `<button>` is also
+ * not clickable and not focusable natively, so the mouse and native Tab agree
+ * without a third test.
+ */
 function railButtons(rail: HTMLElement | null): HTMLElement[] {
-  return rail ? Array.from(rail.querySelectorAll<HTMLElement>("[data-section-key]")) : [];
+  return rail
+    ? Array.from(rail.querySelectorAll<HTMLElement>("[data-section-key]:not([disabled])"))
+    : [];
 }
 
 export function MasterFullScreen({
@@ -378,6 +451,37 @@ export function MasterFullScreen({
      * does not want a wizard. Nothing changes for a caller that omits it.
      */
     stepper?: boolean;
+    /**
+     * REFUSE A FORWARD STEP OUT OF ONE NAMED SECTION. Return the reason, or
+     * null to allow the move. Consulted ONLY by the footer's Next button.
+     *
+     * This is a deliberate, narrow exception to the note on the Next button
+     * below — "Next is a MOVE, and a section is routinely left half-filled on
+     * the way past". That reasoning stands and is not being softened: what the
+     * client asked for (Garment Order entry) is not "the section must be
+     * complete before you may leave it", it is one cross-tab arithmetic rule
+     * that cannot be repaired anywhere but here. A number typed on Quantities
+     * that contradicts a number typed on Style(s) is not a half-filled field —
+     * it is two answers to one question, and carrying it forward means the
+     * operator discovers it at Save, several tabs from the cell that caused it.
+     *
+     * WHICH IS WHY THIS IS A CALLER-SUPPLIED, PER-SECTION GUARD AND NOT A
+     * `canSave` GATE. A gate on `canSave` would trap the operator on step one
+     * of a 22-field document — the exact wizard the Next button's comment
+     * refuses to become. The screen names the one section it can defend and
+     * every other section steps forward untouched.
+     *
+     * Called during render as well, to dim the button; it must be pure.
+     */
+    stepGuard?: (fromKey: string) => string | StepBlock | null;
+    /**
+     * Called with that reason when `stepGuard` refuses. The screen owns the
+     * message, exactly as it owns `onBlockedSave`'s — a shell that toasted its
+     * own wording would say it in a voice the screen cannot correct, and the
+     * reason here is arithmetic the screen alone can phrase ("Assortment
+     * breakup is 1,180 against a PO Qty of 1,200").
+     */
+    onStepBlocked?: (reason: string) => void;
   };
 }) {
   const firstKey = initialSection ?? sections[0]?.key ?? "";
@@ -561,8 +665,34 @@ export function MasterFullScreen({
    * which is the exact premature save Enter-advance exists to remove (client
    * 2026-07-31).
    */
+  /**
+   * THE FORWARD-STEP GUARD, BEHIND A REF — same reason `navRef` above is.
+   * `onContentEdge` is a `useCallback([])` registered once with
+   * `registerContentEdge`, so it cannot close over a prop that is a fresh
+   * value on every render. Filled just below `stepBlockOf`, which is where
+   * the two return shapes are normalised.
+   */
+  const guardRef = useRef<{
+    block: (k: string) => StepBlock | null;
+    report?: (reason: string) => void;
+  }>({ block: () => null });
   const onContentEdge = useCallback((dir: 1 | -1) => {
     const { sections: list, section: current } = navRef.current;
+    /* THE THIRD FORWARD DOOR. Tab off the last field of a sealed section is
+       the same move the rail and Next make, so it answers the same way —
+       otherwise "block progress to subsequent tabs" would hold at two doors
+       out of three and the keyboard would be the way around it.
+
+       `return true` CONSUMES THE KEY WITHOUT MOVING, which is the refusal:
+       declining (`false`) would let Tab wrap or escalate, and the operator
+       would read a wrap as the seal not working. Backward is untouched. */
+    if (dir === 1) {
+      const blocked = guardRef.current.block(current);
+      if (blocked?.sealRail) {
+        guardRef.current.report?.(blocked.reason);
+        return true;
+      }
+    }
     /**
      * SKIP A SECTION THERE IS NOTHING TO TYPE IN (client 2026-08-19,
      * screenshot 2365: "the pack type is on — if user click the tab navigation
@@ -591,7 +721,11 @@ export function MasterFullScreen({
      * section switches itself back on.
      */
     let next = list.findIndex((s) => s.key === current) + dir;
-    while (next >= 0 && next < list.length && list[next].skipTab) next += dir;
+    // `disabled` IMPLIES `skipTab` — one flag cannot be set without the other
+    // taking effect, so a caller marking a section unreachable never has to
+    // remember to take it off the typing path as well.
+    while (next >= 0 && next < list.length && (list[next].skipTab || list[next].disabled))
+      next += dir;
     // Off the end of the last section: decline. Tab wraps to the section's first
     // field as it would on any other surface, and Enter saves.
     if (next < 0 || next >= list.length) return false;
@@ -644,6 +778,44 @@ export function MasterFullScreen({
     if (footer.canSave) footer.onSave();
     else footer.onBlockedSave?.();
   };
+
+  /**
+   * WHY NEXT WOULD REFUSE, read at RENDER time — for the dim only. See
+   * `footer.stepGuard`.
+   *
+   * Only asked while `stepping`, so a screen that supplies a guard and reaches
+   * its last section is not paying for a call whose answer nothing reads.
+   *
+   * THE CLICK RE-ASKS rather than reusing this value. The two can only differ
+   * if the guard's inputs changed without a re-render, which React does not
+   * permit — so this is not correctness, it is where the rule is written down.
+   * The refusal has to be legible at the site it happens, because the one thing
+   * that must never happen is the guard migrating into `goToSection` (below).
+   */
+  /**
+   * THE GUARD'S ANSWER, IN ONE SHAPE. A bare string is the original
+   * Next-only refusal; the object form can also seal the rail. Normalised here
+   * so the four call sites below read one type and a caller can keep passing
+   * either — see `StepBlock`.
+   */
+  const stepBlockOf = (fromKey: string): StepBlock | null => {
+    const r = footer.stepGuard?.(fromKey);
+    if (!r) return null;
+    return typeof r === "string" ? { reason: r } : r;
+  };
+
+  /* FILLED IN AN EFFECT, DECLARED ABOVE `onContentEdge` — that callback is
+     where it is read, and a ref declared after its reader reads as an
+     accident. The effect (rather than a bare assignment during render) is
+     what `navRef` above already does, and what `react-hooks/refs` requires:
+     a ref written during render can be read by a concurrent render that then
+     gets thrown away. Nothing can consult it before mount — `onContentEdge`
+     is only reachable once `registerContentEdge` has run in its own effect. */
+  useEffect(() => {
+    guardRef.current = { block: stepBlockOf, report: footer.onStepBlocked };
+  });
+
+  const stepBlockedWhy = stepping ? (stepBlockOf(section)?.reason ?? null) : null;
 
   // Ctrl/⌘+S saves the open editor (checklist keyboard shortcut).
   useRegisterShortcut("save", fireSave, open);
@@ -968,7 +1140,49 @@ export function MasterFullScreen({
                 type="button"
                 role="tab"
                 data-section-key={s.key}
-                onClick={() => setSection(s.key)}
+                /* See `disabled` on FullScreenSection: not focusable, not
+                   clickable, and filtered out of `railButtons` so the arrows
+                   and Home/End step over it too. */
+                disabled={s.disabled}
+                /**
+                 * FORWARD ONLY, AND ONLY WHEN THE GUARD ASKS FOR IT (client
+                 * 2026-08-31: "block progress to subsequent tabs").
+                 *
+                 * THE NOTE ON THE Next BUTTON SAYS "THE RAIL STAYS FREE", and
+                 * this does not contradict it — it completes it. That note's
+                 * actual argument is about a REPAIR TRIP: an operator blocked on
+                 * Quantities "could no longer click BACK to Style(s) to fix the
+                 * number that blocked them". Backward is exactly what stays free
+                 * here, because the guard is consulted only when the target sits
+                 * LATER in the rail. The locked room the note refuses cannot be
+                 * built out of a rule that only ever refuses to go on.
+                 *
+                 * `sealRail` IS OPT-IN PER GUARD, so the Quantities guard keeps
+                 * the behaviour its own note reasoned for and the Style(s) guard
+                 * gets the one the client asked for. One shell, two reaches,
+                 * each declared where its argument lives.
+                 *
+                 * IT REPORTS AND LANDS rather than refusing in silence. The
+                 * operator clicked something that did not happen; empty-and-
+                 * explain is the standing rule, and the landing puts the cursor
+                 * on the field that owes an answer — the same move a blocked
+                 * Save makes.
+                 */
+                onClick={() => {
+                  const list = sections;
+                  const from = list.findIndex((x) => x.key === section);
+                  const to = list.findIndex((x) => x.key === s.key);
+                  if (to > from) {
+                    const blocked = stepBlockOf(section);
+                    if (blocked?.sealRail) {
+                      footer.onStepBlocked?.(blocked.reason);
+                      landingRef.current = "problem";
+                      window.setTimeout(land, 0);
+                      return;
+                    }
+                  }
+                  setSection(s.key);
+                }}
                 aria-current={isActive}
                 aria-selected={isActive}
                 // Roving tab stop: the whole rail costs ONE Tab stop instead of
@@ -980,6 +1194,10 @@ export function MasterFullScreen({
                   isActive
                     ? "border-border bg-surface font-semibold text-foreground shadow-sm"
                     : "border-transparent text-muted-foreground hover:bg-surface hover:text-foreground",
+                  /* SWITCHED OFF: still listed, visibly not available, and no
+                     hover affordance promising a click that cannot happen. The
+                     row stays so the operator keeps their map of the document. */
+                  s.disabled && "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
                 )}
               >
                 <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
@@ -1225,9 +1443,46 @@ export function MasterFullScreen({
             an operator who cannot get to Logistic until Order Info is perfect
             has a wizard that traps them on step one. Save still refuses at the
             end, and `onBlockedSave` still brings them back to the field.
+
+            THE ONE EXCEPTION IS `footer.stepGuard`, and it lives HERE, at the
+            click site, rather than inside `goToSection`. That placement is the
+            whole design and not a convenience:
+
+            `goToSection` is also what the RAIL rows call, and what the
+            parent's imperative handle calls for `revealFirstProblem`. Put the
+            guard inside it and an operator blocked on Quantities could no
+            longer click back to Style(s) to fix the number that blocked them —
+            the only cell that can satisfy the rule would be behind the rule.
+            That is not a guard, it is a locked room, and it is the reason this
+            is not a `canLeave` on the section either: a section-level "may I
+            leave" cannot tell a forward step from a repair trip. THE RAIL STAYS
+            FREE. Only Next is refused, and only forward.
+
+            AND NEXT STAYS ENABLED — dimmed, `data-blocked`, but carrying
+            neither `disabled` nor `aria-disabled`, exactly as Save does a few
+            lines below and for the same reason spelled out there: it DOES
+            something when clicked (it reports why), so announcing it as
+            unavailable would be a lie about a control that acts. A greyed
+            control with no reason beside it is the failure AGENTS.md names
+            under the nominated-vendor rule — empty-and-explain, never
+            empty-and-silent. `disabled` would also hand Enter and Ctrl+S to the
+            button before it, which is the 2026-07-25 `submitTargetOf` bug; on a
+            stepping section that button is Cancel.
           */}
           {stepping && (
-            <Button size="md" onClick={() => goToSection(nextSectionKey!, "first")}>
+            <Button
+              size="md"
+              data-blocked={stepBlockedWhy ? true : undefined}
+              className={cn(stepBlockedWhy && "opacity-60")}
+              onClick={() => {
+                const blocked = stepBlockOf(section);
+                if (blocked) {
+                  footer.onStepBlocked?.(blocked.reason);
+                  return;
+                }
+                goToSection(nextSectionKey!, "first");
+              }}
+            >
               Next
             </Button>
           )}

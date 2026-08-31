@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useRequiredHold } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
 import { SketchThumbnail, useSignedUrl } from "@/components/ui/sketch-thumbnail";
@@ -59,6 +60,32 @@ export type AttachmentRow = {
   storage_path: string;
   mime_type: string;
   size_bytes: number;
+  /**
+   * WHICH STYLE THIS DOCUMENT BELONGS TO — null for a document that belongs to
+   * the ORDER (client 2026-08-31: "the Add File control is relocated from the
+   * general order header directly into the Style section … technical packs,
+   * design sketches, or specification images belong to the specific garment
+   * style").
+   *
+   * TEXT, NOT AN ORDINAL AND NOT AN ID, and that is the one decision here worth
+   * reading twice. `writeChildren` deletes and reinserts every child table
+   * wholesale on save, so a uuid PK does not survive — but neither does an
+   * ordinal: the screen sends `sno: 0` on every style and the server normalizer
+   * renumbers, so the client never knows the final number, and a blank style row
+   * dropped by the normalizer shifts every ordinal past it. Files would silently
+   * re-point at the WRONG style, which is the failure that has no symptom.
+   *
+   * `style_ref_no` is what all five sibling children of a style already use —
+   * `style_sizes`, `style_coordinates`, `pack_components`, `style_components`,
+   * `style_processes` — so this is the sixth member of a family, not a new idea.
+   *
+   * NULL IS A REAL STATE, not "not set yet": every row saved before this column
+   * existed is an order-level document, and the Order Info header keeps a corner
+   * for exactly those. A ref that matches no style is demoted back to null
+   * server-side rather than dropped, because the object is still sitting in the
+   * bucket and dropping the row is the one way to make it unreachable.
+   */
+  style_ref_no: string | null;
 };
 
 const DEFAULT_ACCEPT = "image/jpeg,image/png,application/pdf";
@@ -113,6 +140,9 @@ export function FileAttachments({
   label = "Attachments",
   hint = "JPG, PNG or PDF — the style sketch, the buyer order sheet, and any approvals.",
   variant = "panel",
+  required,
+  disabledReason,
+  styleRefNo = null,
 }: {
   rows: AttachmentRow[];
   onChange: (next: AttachmentRow[]) => void;
@@ -124,6 +154,40 @@ export function FileAttachments({
   disabled?: boolean;
   label?: string;
   hint?: string;
+  /**
+   * Mandatory: hold the cursor while nothing is attached. `cell` ONLY — see the
+   * note on that variant for why the other three cannot honour it.
+   *
+   * ORed with the surrounding `<Field required>` inside `useRequiredHold`, the
+   * same call `DataPicker` and `MultiSelect` make, so wrapping this in one
+   * cannot silently un-require it and the star and the hold come from one
+   * declaration.
+   */
+  required?: boolean;
+  /**
+   * Why this control is refusing, when it is `disabled`. `cell` only, where it
+   * becomes the trigger's `title`.
+   *
+   * A disabled control that does not name the field that would turn it on is a
+   * dead end the operator has to guess their way out of — the same rule the
+   * Process [Click] button beside it states, and the reason `processGateReason`
+   * returns a sentence rather than a boolean.
+   */
+  disabledReason?: string;
+  /**
+   * The style every file added HERE belongs to (`AttachmentRow.style_ref_no`).
+   *
+   * STAMPED BY THE COMPONENT, NOT BY THE CALLER, because the caller cannot tell
+   * an added row from a kept one — `handleFiles` appends to `rows` and hands the
+   * whole array back, and a caller re-stamping the lot would silently re-file
+   * every row it was shown. Uploading is the only moment a row's style is
+   * decided, so it is decided here.
+   *
+   * Null (the default) is an ORDER-LEVEL document, which is what the `panel`,
+   * `control` and `tiles` callers all produce and what every row saved before
+   * 0479 is. So this prop changes nothing for them.
+   */
+  styleRefNo?: string | null;
   /**
    * WHICH HALF OF THE PANEL TO DRAW, so the add control can sit in a field row
    * while the files it adds stay full width (client 2026-08-26, screenshot 2496:
@@ -142,17 +206,35 @@ export function FileAttachments({
    *   displaying") — once the sketch was on screen in the header's corner, a
    *   strip repeating its name, size and kind underneath was a second answer to
    *   a question already answered.
+   * `cell` — a FIELD, for one row of a child grid: a trigger showing how many
+   *   files this row carries, the tiles stacked under it, and nothing else. See
+   *   the block comment on the `cell` branch below — it is the only variant that
+   *   can be mandatory, and the reason is a keyboard one rather than a visual
+   *   one.
    *
    * The two halves are two ELEMENTS, not two components: both are driven by the
    * same `rows`/`onChange`, so nothing is duplicated but the JSX. Only `control`
-   * mounts the hidden `<input type="file">`, so there is exactly one of those
-   * however many times this is rendered.
+   * and `cell` mount the hidden `<input type="file">`, so there is exactly one of
+   * those per rendered add control.
    */
-  variant?: "panel" | "control" | "tiles";
+  variant?: "panel" | "control" | "tiles" | "cell";
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Read UNCONDITIONALLY — it is a hook — and spread only by `cell`.
+   *
+   * The other three variants ignore it deliberately rather than by omission: a
+   * `<Button>` carries no `data-field-trigger`, so `keyFills` (lib/focus.ts)
+   * answers false for every key it has, and a `data-required-empty` on it would
+   * refuse the Enter that IS the click that opens the file dialog. That is the
+   * unsatisfiable cage AGENTS.md records ("a hold refuses movement and never
+   * refuses choosing"), so the marker belongs only where a key can still fill
+   * the field.
+   */
+  const hold = useRequiredHold(!disabled && rows.length === 0, { required, label });
 
   const accepted = accept.split(",").map((s) => s.trim());
   const maxBytes = maxSizeMb * 1024 * 1024;
@@ -194,6 +276,10 @@ export function FileAttachments({
           storage_path: path,
           mime_type: file.type,
           size_bytes: file.size,
+          /* Decided HERE and nowhere else — see `styleRefNo`. An order-level
+             control leaves it null, which is what the three original variants
+             all do and what every row predating 0479 holds. */
+          style_ref_no: styleRefNo,
         });
       }
       if (added.length) onChange([...rows, ...added]);
@@ -218,6 +304,25 @@ export function FileAttachments({
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
+  /* THE OS FILE DIALOG, on its own so BOTH add controls can drive it.
+     Hidden on purpose: a bare file input is unstyleable, and being field-like to
+     nobody it would sit in the tab order doing nothing.
+     autofill: exempt -- a file input has no suggestion list */
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      multiple
+      accept={accept}
+      className="hidden"
+      onChange={(e) => {
+        const fs = e.target.files;
+        if (fs && fs.length) handleFiles(fs);
+        e.target.value = "";
+      }}
+    />
+  );
+
   /* The hidden input, the add button and the error line — everything the
      `control` variant is, and the top half of `panel`. */
   const addControl = (
@@ -238,21 +343,7 @@ export function FileAttachments({
         )}
         {busy ? "Uploading" : "+ Add file"}
       </Button>
-      {/* Hidden on purpose: a bare file input is unstyleable, and being
-          field-like to nobody it would sit in the tab order doing nothing.
-          autofill: exempt -- a file input has no suggestion list */}
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={accept}
-        className="hidden"
-        onChange={(e) => {
-          const fs = e.target.files;
-          if (fs && fs.length) handleFiles(fs);
-          e.target.value = "";
-        }}
-      />
+      {fileInput}
     </>
   );
 
@@ -269,23 +360,134 @@ export function FileAttachments({
     );
   }
 
-  if (variant === "tiles") {
-    /* Nothing at all when empty — not an empty state. See `variant`. */
-    if (!rows.length) return null;
+  /* The stacked pictures, shared by `tiles` and `cell` — the SAME element, so a
+     file looks and behaves identically whether it hangs beside the header or
+     under a style row. Empty renders nothing at all rather than an empty state
+     (see `variant`), which is what lets both callers mount it unconditionally. */
+  const tileList = rows.length ? (
+    <ul className="space-y-1.5">
+      {rows.map((r) => (
+        <li key={r.key}>
+          <AttachmentTile
+            row={r}
+            bucket={bucket}
+            disabled={disabled}
+            onOpen={() => open(r)}
+            onRemove={() => onChange(rows.filter((x) => x.key !== r.key))}
+          />
+        </li>
+      ))}
+    </ul>
+  ) : null;
+
+  if (variant === "tiles") return tileList;
+
+  /**
+   * ONE STYLE ROW'S DOCUMENTS (client 2026-08-31): "the Add File control is
+   * relocated from the general order header directly into the Style section …
+   * this upload field is designated as mandatory before the style profile can be
+   * saved". Per style ROW, not per style section.
+   *
+   * ## IT IS A `data-field-trigger`, AND THAT IS THE WHOLE DESIGN
+   *
+   * `control` is a `<Button>`, and a button cannot carry this rule. Two separate
+   * reasons, and either one alone is fatal:
+   *
+   *   · **Tab never reaches it.** Tab lands on FIELDS (`isFieldLike`,
+   *     lib/focus.ts) and `isRowAdd` is deliberately NOT folded into that
+   *     predicate. So `data-required-empty` on a `<Button>` sits on an element
+   *     the cursor never stands on, and a hold nothing can land on is not a hold.
+   *   · **The hold would refuse the one key that fills the field.** `keyFills`
+   *     answers false for every key on a plain BUTTON — so the held cell would
+   *     refuse Enter, and Enter on this control is the native click that opens
+   *     the file dialog. The operator could neither attach a file nor leave the
+   *     cell, and the only way on would be the mouse. That is the exact
+   *     unsatisfiable cage AGENTS.md records shipping once already ("a hold
+   *     refuses movement and never refuses choosing").
+   *
+   * `data-field-trigger` fixes both at once and adds nothing else: `isFieldLike`
+   * counts it, so Tab stops here; `keyFills` sees `fieldTrigger` and lets ↓
+   * through; and `arrowOpensPicker` clicks it on ↓, so ↓ opens the file dialog
+   * exactly as it opens a picker's list two cells to the left. One marker, and
+   * the field is on the contract every other cell on the row is on.
+   *
+   * There is one more link in that chain and it is the one worth naming, because
+   * a grid row would otherwise break it: `ownsArrowKeys` returns true for
+   * anything under a `[data-grid-row]`, so ↓ inside a grid means "next row". It
+   * survives because `gridKeyNav` (child-grid.tsx) declines ↓ over a trigger
+   * WITHOUT calling `preventDefault`, precisely so the key carries on to
+   * `arrowOpensPicker`. Take that decline away and this cell becomes the cage
+   * again — held, and with nothing left that opens it.
+   *
+   * **↓ IS THE OPENER, AND ENTER IS NOT.** While the hold is on, `keyFills`
+   * answers false for Enter (it only fills on a list that is already open), so
+   * Enter is refused here. That is not a defect and it is not special to this
+   * control — it is what every picker in the app does, and AGENTS.md states it:
+   * "a CLOSED list opens on ↓ — the only keyboard route to reaching a value".
+   * Worth knowing anyway, because an operator reaching for Enter on a button
+   * gets a dead key and the reason is two files away.
+   *
+   * **NO `data-row-add`.** The two markers must not meet on one element: a
+   * control that is both a field and a grid's add button would be walked by
+   * ↑↓←→ and diffed by `landOnAddedRow`. This is a field that happens to upload;
+   * it is not a grid growing a row.
+   *
+   * ## WHY IT SHOWS A COUNT AND NOT THE FILES
+   *
+   * A file ROW is an icon, a name, a size, a 176px kind `<Select>` and a remove —
+   * ~290px before the name gets a pixel, which is why the Order Info header put
+   * the add control in a `<Field>` and the files somewhere else entirely. A grid
+   * row is tighter than that header cell, not wider. So the trigger states the
+   * count and the pictures stack beneath it at the cell's own width; shrinking
+   * that `<Select>` to fit would be sizing a control by its container instead of
+   * by its content, which is the mistake `FIELD_WIDTH` exists to stop.
+   *
+   * The kind `<Select>` therefore does not appear here at all — `doc_kind` stays
+   * the mime-type guess, and the correction is remove-and-re-add. That is not new
+   * with this variant: it is exactly what `AttachmentTile`'s own note records
+   * losing when the strip came off on 2026-08-26, and this variant inherits the
+   * remainder rather than creating it.
+   *
+   * ## "Click", NOT A PLACEHOLDER
+   *
+   * The empty word matches the Process [Click] button standing beside it on the
+   * same line (client 2026-08-29). A blank button is not an unfilled field
+   * showing nothing — it is a control with no affordance, and one word means one
+   * thing on this line.
+   */
+  if (variant === "cell") {
     return (
-      <ul className="space-y-1.5">
-        {rows.map((r) => (
-          <li key={r.key}>
-            <AttachmentTile
-              row={r}
-              bucket={bucket}
-              disabled={disabled}
-              onOpen={() => open(r)}
-              onRemove={() => onChange(rows.filter((x) => x.key !== r.key))}
-            />
-          </li>
-        ))}
-      </ul>
+      <div className="space-y-1.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-field-trigger
+          /* The same marker `MultiSelect` sets, so anything reading "is this
+             field answered" off the DOM reads one attribute across the app. */
+          data-field-empty={rows.length ? "false" : "true"}
+          {...hold}
+          disabled={disabled || busy}
+          title={disabled ? disabledReason : undefined}
+          aria-label={label}
+          className="w-full"
+          onClick={() => inputRef.current?.click()}
+        >
+          {busy ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          ) : (
+            <Upload className="h-4 w-4 shrink-0" />
+          )}
+          {busy
+            ? "Uploading"
+            : rows.length
+              ? `${rows.length} file${rows.length === 1 ? "" : "s"}`
+              : "Click"}
+        </Button>
+        {fileInput}
+        {error && <p className="text-xs text-danger">{error}</p>}
+        {tileList}
+      </div>
     );
   }
 

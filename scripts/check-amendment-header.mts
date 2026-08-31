@@ -42,13 +42,39 @@ const ROOT = process.cwd();
 const TYPES = join(ROOT, "lib/orders/amendments/types.ts");
 const ACTIONS = join(ROOT, "lib/orders/amendments/actions.ts");
 
-/** Top-level `name: z.array(...)` fields of the `amendmentInput` object. */
+/**
+ * Top-level `name: z.array(...)` fields of the `amendmentInput` object.
+ *
+ * BOUNDED BY THE DECLARATION THAT FOLLOWS IT, NOT BY A CHARACTER COUNT — and
+ * that change (2026-08-31, with the T&A array of 0481) is the whole reason this
+ * comment exists.
+ *
+ * It used to read `src.slice(at, at + 12000)`, which was true when it was
+ * written and had quietly become a near miss: the object had grown to 10,054
+ * characters, so `quantities` and `files` sat 60 and 120 characters from falling
+ * outside the window. Two more commented fields and the last arrays on the list
+ * would have stopped being scanned — and the check would have gone on printing
+ * `check:amendment-header OK`, because a shorter list of arrays produces no
+ * problems at all. That is the repo's standing warning about a blind check:
+ * "`0 findings` prints identically whether a check inspected the file or
+ * returned early."
+ *
+ * Two-space indent = a direct property of that object literal. A nested array
+ * inside a child's own schema is indented further and is not ours.
+ */
 function inputArrays(src: string): string[] {
   const at = src.indexOf("export const amendmentInput");
   if (at === -1) throw new Error("amendmentInput not found in types.ts");
-  // Two-space indent = a direct property of that object literal. A nested
-  // array inside a child's own schema is indented further and is not ours.
-  const body = src.slice(at, at + 12000);
+  const end = src.indexOf("export type AmendmentInput", at);
+  if (end === -1) {
+    // Not a silent fallback to a slice: if the terminator moves, the parser is
+    // stale and must SAY so rather than scan a window it guessed at.
+    throw new Error(
+      "`export type AmendmentInput` no longer follows `export const amendmentInput` — " +
+        "this parser bounds the object by that line and cannot guess where it ends.",
+    );
+  }
+  const body = src.slice(at, end);
   return [...body.matchAll(/^ {2}(\w+):\s*z\.array\(/gm)].map((m) => m[1]!).sort();
 }
 

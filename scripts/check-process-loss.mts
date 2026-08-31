@@ -27,6 +27,8 @@
 import {
   compoundLossFactor,
   isWholeUnitUom,
+  PURCHASE_STAGE_GREIGE,
+  purchaseStageOrGreige,
   requiredWithProcessLoss,
   roundRequirement,
   type ProcessLossRow,
@@ -91,6 +93,17 @@ function row(p: Partial<ProcessLossRow> = {}): ProcessLossRow {
     "the client's example: 100 x 1.02 x 1.03 -> 106 Gross",
     requiredWithProcessLoss(100, [row({ sno: 1, loss_pct: 2 }), row({ sno: 2, loss_pct: 3 })], "GROSS", 2),
     106,
+  );
+  // ...AND THE UNROUNDED FIGURE THE CLIENT PUBLISHED, 105.06, WHICH THE GROSS
+  // VECTOR ABOVE CANNOT SEE. It reads the figure through a `ceil`, so it asserts
+  // only that the answer lands in (105, 106] — every wrong result inside that
+  // window passes. Measured, not assumed: summing gives 105 and DOES fail it,
+  // but a rewrite landing on 105.5 passes it and fails this one. Read on a
+  // MEASURED unit, where the digits survive the rounding intact.
+  check(
+    "the client's example unrounded: 100 x 1.02 x 1.03 = 105.06",
+    requiredWithProcessLoss(100, [row({ sno: 1, loss_pct: 2 }), row({ sno: 2, loss_pct: 3 })], "MTR", 2),
+    105.06,
   );
   check(
     "the single-stage example: 30 Gross at 2% -> 31",
@@ -169,12 +182,23 @@ function row(p: Partial<ProcessLossRow> = {}): ProcessLossRow {
   check("GROSS is a whole unit", isWholeUnitUom("GROSS"), true);
   check("PCS is a whole unit", isWholeUnitUom("pcs"), true);
   check("NOS is a whole unit", isWholeUnitUom(" nos "), true);
+  // NBR IS THE FOURTH UNIT THE CLIENT NAMED and was the only one of the four
+  // with no vector — in the constant, exercised by nothing. A list is edited
+  // when the UOM master grows (see `WHOLE_UNIT_UOM_CODES`), and an entry no
+  // vector reads is one an edit can drop without anything failing.
+  check("NBR is a whole unit", isWholeUnitUom("NBR"), true);
   check("ROLLS is named though the master has none yet", isWholeUnitUom("ROLLS"), true);
   check("MTR is measured", isWholeUnitUom("MTR"), false);
   check("KGS is measured", isWholeUnitUom("KGS"), false);
   check("an unknown unit is measured — it fails SAFE", isWholeUnitUom("FURLONG"), false);
   check("a null unit is measured", isWholeUnitUom(null), false);
 
+  // THE CLIENT'S OWN ROUNDING PAIR, read on the rounder directly: the same
+  // 105.06 is 106 in a countable unit and stays 105.06 in a measured one. That
+  // contrast IS the rule, and asserting the two sides side by side is what a
+  // "simplify it to Math.ceil everywhere" rewrite has to break to pass.
+  check("105.06 Gross rounds up to 106", roundRequirement(105.06, "GROSS", 2), 106);
+  check("105.06 metres stays 105.06", roundRequirement(105.06, "MTR", 2), 105.06);
   check("30.6 Gross rounds up to 31", roundRequirement(30.6, "GROSS", 2), 31);
   check("30.1 Gross rounds up to 31", roundRequirement(30.1, "GROSS", 2), 31);
   check("an exact 30 Gross stays 30", roundRequirement(30, "GROSS", 2), 30);
@@ -225,6 +249,39 @@ function row(p: Partial<ProcessLossRow> = {}): ProcessLossRow {
     requiredWithProcessLoss(30.6, [row({ loss_pct: 2 })], "MTR", 2),
     31.22, // 30.6 * 1.02 = 31.212 -> 31.22
   );
+}
+
+// ---------------------------------------------------------------------------
+// The purchase stage — the ONE STRING a locked field depends on
+// ---------------------------------------------------------------------------
+{
+  /**
+   * THE CASE IS LOAD-BEARING AND NOBODY WOULD EVER SEE IT WRONG. The field is
+   * locked on screen, so a drift to "GREIGE" or "greige" produces no error, no
+   * rejected save and nothing an operator could report — just two spellings of
+   * one value accumulating in one column, which is the failure 0475 documents
+   * on this exact table. 0476 copies its DB default FROM this constant, so the
+   * literal and its case are what keep the two halves agreeing.
+   */
+  check("the purchase stage is 'Greige', in title case", PURCHASE_STAGE_GREIGE, "Greige");
+
+  /**
+   * AND THE APP-SIDE COALESCE, WHICH THE MIGRATION CANNOT ASSERT. 0476's DO
+   * block proves the COLUMN defaults correctly; it says nothing about the
+   * writer. `normalizeItems` NAMES `purchase_stage` on every insert, and a
+   * column default never fires against an explicit NULL — so the DB half can be
+   * perfect while the app writes blanks for ever and nothing fails. That is not
+   * hypothetical: 0475 shipped precisely that gap here.
+   */
+  check("a null purchase stage becomes Greige", purchaseStageOrGreige(null), "Greige");
+  check("...and so does an empty string", purchaseStageOrGreige(""), "Greige");
+  check("...and so does whitespace, which is a box the operator cleared", purchaseStageOrGreige("   "), "Greige");
+  check("...and an undefined one", purchaseStageOrGreige(undefined), "Greige");
+
+  /* A REAL VALUE SURVIVES, TRIMMED. The coalesce fills a blank; it does not
+     overwrite an answer. A line saved before 0476 renders what it holds. */
+  check("a stated stage is kept", purchaseStageOrGreige("DYED"), "DYED");
+  check("...and trimmed", purchaseStageOrGreige("  DYED  "), "DYED");
 }
 
 console.log(

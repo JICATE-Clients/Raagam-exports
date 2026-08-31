@@ -122,6 +122,32 @@ const guards: [string, string, string, boolean][] = [
   ["contained mid-string is redundant","ABC",  "X ABC Y",          true],
   ["unrelated is NOT redundant",       "VKS",  "Kandagiri",        false],
   ["partial overlap is NOT redundant", "ABCD", "ABC — Something",  false],
+
+  /*
+   * AN AUTO-GENERATED CODE IS THE NAME AGAIN, SQUASHED (client 2026-08-31,
+   * screenshot 2558: "customer value showing two times ... no need that second
+   * time customer name").
+   *
+   * `generateUniqueCode` (lib/masters/auto-code.ts) builds the code FROM the
+   * name: uppercase, strip everything non-alphanumeric, truncate to 10, then a
+   * collision integer. So the code is not a second fact about the record, it is
+   * the first one with the spaces taken out — and the containment guard above
+   * cannot see it, because removing the spaces is exactly what stops
+   * `"AARSAN AMERICAS LLC".includes("AARSANAMER")` being true.
+   */
+  ["a squashed auto-code is redundant",   "AARSANAMER", "AARSAN AMERICAS LLC", true],
+  ["a collision suffix is redundant",     "ASMARA3",    "ASMARA",              true],
+  ["punctuation-stripped is redundant",   "TAPEALOEIL", "TAPE A 'L' OEIL",     true],
+
+  /*
+   * ...and the other side of it. A code that is NOT derived from the name is
+   * real information and must survive — an HSN, an account head, a ledger code.
+   * The length rule is what separates them: an auto-code is either the whole
+   * squashed name or a 10-character truncation of it, never a two-letter prefix.
+   */
+  ["an HSN code is NOT redundant",        "6109",       "T-SHIRTS",            false],
+  ["a short prefix is NOT redundant",     "AH001",      "AH Sundry Debtors",   false],
+  ["a numeric code is NOT redundant",     "4021",       "4021 Freight",        true],
 ];
 for (const [label, other, primary, want] of guards) {
   const got = redundantBeside(other, primary);

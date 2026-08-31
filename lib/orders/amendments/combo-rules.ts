@@ -30,6 +30,53 @@ function num(n: number): string {
  * that was computed and came out empty. With no GSM there is no answer at all
  * and the cell stays blank rather than printing a stray "0".
  */
+/**
+ * ±5% IS THE PREFILL A NEW FABRIC STARTS ON (client 2026-08-31: "the Tolerance
+ * input field must automatically default to 5 … a ±5% weight/GSM variance is the
+ * standard baseline tolerance in garment manufacturing").
+ *
+ * Editable, always — 3% for a buyer with tighter parameters, 8% for a looser
+ * one. What a default cannot be allowed to become is an ANSWER, which is what
+ * `toleranceStated` below exists to say.
+ */
+export const DEFAULT_GSM_TOLERANCE = 5;
+
+/**
+ * DOES THIS TOLERANCE COUNT AS SOMETHING THE OPERATOR SAID?
+ *
+ * A prefill is not an answer, and on this screen the difference is load-bearing
+ * in three places at once — which is why it is one exported function rather than
+ * three `!== "5"` tests that would drift the first time the baseline changed.
+ *
+ * The trap this closes, stated in full because it is silent in all three:
+ *
+ * 1. `structSaysSomething` (amendment-screen.tsx) is what makes
+ *    `seedComboFromStyle` stand down — it seeds the tree from the style ONLY
+ *    while no structure says anything. A blank fabric carrying a prefilled 5
+ *    says something, so the seed would never run again on any order. Nothing
+ *    errors; the [Detail] overlay just quietly stops filling itself in.
+ * 2. `structureFilled` (actions.ts) is what decides whether a row is worth
+ *    STORING. The same prefill would write one empty structure row per combo,
+ *    for ever, and its twin above would then read them back as real.
+ * 3. `carryDownGsm` copies fabric 1's GSM and tolerance into the fabrics below
+ *    it, "blanks only" (client 2026-08-21). With a prefill, no tolerance is ever
+ *    blank — so the carry-down the client asked for would decline every time.
+ *
+ * A DELIBERATE 5 IS INDISTINGUISHABLE FROM THE PREFILL and that is accepted, not
+ * overlooked: the only row it costs is one whose sole content is a hand-typed
+ * tolerance of exactly the default, which is a row that says nothing about the
+ * cloth. Every other field on the structure votes independently.
+ *
+ * A GARBAGE VALUE IS CONTENT. `Number("abc")` is NaN and NaN !== 5, so a
+ * half-typed or non-numeric tolerance reads as stated and the row is kept —
+ * dropping it would delete what the operator was in the middle of typing.
+ */
+export function toleranceStated(v: string | number | null | undefined): boolean {
+  const s = typeof v === "number" ? String(v) : (v ?? "").trim();
+  if (!s) return false;
+  return Number(s) !== DEFAULT_GSM_TOLERANCE;
+}
+
 export function gsmRange(
   gsm: number | string | null | undefined,
   tolerance: number | string | null | undefined,
@@ -65,6 +112,13 @@ export function isCircularKnit(familyCode: string | null | undefined): boolean {
 export type ComboStructureLike = {
   structure_id: string | null;
   gsm: string | number | null;
+  /* The three added 2026-08-31 — see `structureProblems`. Optional on the type
+     so an older caller that has not been widened still compiles rather than
+     silently passing `undefined` through a required field and reporting every
+     row as incomplete. */
+  composition_id?: string | null;
+  gsm_tolerance?: string | number | null;
+  item_sub_type?: string | null;
 };
 
 /**
@@ -97,6 +151,44 @@ export function structureProblems(
   if (isCircularKnit(familyCode) && !row.gsm && row.gsm !== 0) {
     problems.push("GSM is required for a circular-knit structure");
   }
+  /*
+   * COMPOSITION · TOLERANCE · FABRIC TYPE — UNCONDITIONALLY REQUIRED once the
+   * row names a structure (client 2026-08-31).
+   *
+   * ## THEY JOIN THE GSM RULE RATHER THAN BECOMING `required` PROPS
+   *
+   * A `required` prop on each cell would have been less code and is the wrong
+   * shape here, for the reason this function's header already gives about GSM:
+   * the answer depends on the ROW, not on the column, and every one of these
+   * complaints has to stand down for a row that has not chosen a fabric yet.
+   * Three cell props plus the existing case rule would be four statements of
+   * "what does this structure still need", free to disagree — and the one that
+   * disagreed would be the one nobody reads, since a star is visible and a
+   * blocked Save is not.
+   *
+   * So the row's requiredness is stated once, here, and the screen renders what
+   * this returns. `undefined` is treated as missing exactly like `null`: a
+   * caller that has not been widened yet should report the row as incomplete
+   * rather than silently pass it, which is the direction that fails loudly.
+   *
+   * ## THE `!row.structure_id` GUARD ABOVE COVERS ALL FOUR, DELIBERATELY
+   *
+   * It is the same "a row the operator is still filling in" argument, and it is
+   * what stops a freshly-added fabric printing four complaints before the
+   * operator has typed anything — the premature-complaint failure the parts
+   * grid's own `structTouched` gate exists to prevent one level down.
+   */
+  const blank = (v: string | number | null | undefined) =>
+    v === null || v === undefined || (typeof v === "string" && !v.trim());
+
+  if (blank(row.composition_id)) problems.push("Composition is required");
+  /* `!== 0` for the same reason GSM carries it: a tolerance of zero is an
+     ANSWER — "no tolerance on this cloth" — and `!row.gsm_tolerance` alone
+     would report it as unanswered and refuse a figure the operator meant. */
+  if (blank(row.gsm_tolerance) && row.gsm_tolerance !== 0) {
+    problems.push("Tolerance is required");
+  }
+  if (blank(row.item_sub_type)) problems.push("Fabric Type is required");
   return problems;
 }
 
@@ -119,25 +211,42 @@ export const FABRIC_TYPE_OPTIONS = [
 ] as const;
 
 /**
- * Solid / Melange / Yarn Dyed / Printed — the "Fabric Type" column.
+ * Solid / Melange / Yarn Dyed — the "Fabric Type" column.
  *
- * The first three are `order_fabrics.item_sub_type` (0329), which the Color/Print
- * tab already counts to explain why a melange or yarn-dyed fabric needs no dyeing
+ * These are `order_fabrics.item_sub_type` (0329), which the Color/Print tab
+ * already counts to explain why a melange or yarn-dyed fabric needs no dyeing
  * row (`FabricTypeCounts` in order-seed.ts): melange takes its colour from the
  * purchased yarn, yarn-dyed is coloured before knitting.
  *
- * PRINTED IS THE AMENDMENT'S OWN FOURTH (0412, client 2026-08-12). The order side
- * never needed it — its three answers exist to settle "does this fabric need a
- * dyeing row?", and a printed fabric is not a fourth way of being dyed. Here it
- * decides which aesthetic field applies, so it has to be sayable. The consequence
- * is worth knowing: a SEEDED amendment can never arrive holding `printed`, because
- * the order it seeds from cannot express it — the operator sets it.
+ * ## `printed` IS GONE, AND IT WAS NOT A TIDY-UP (client 2026-08-31)
+ *
+ * "Fabric Type is meant to define the structural weave or dye category of the
+ * fabric. 'Printed' is an aesthetic processing step, not a base fabric type.
+ * Leaving it in the construction list causes planning confusion and corrupts
+ * downstream material requirements."
+ *
+ * It was the amendment's own fourth answer (0412, client 2026-08-12), added
+ * because Fabric Type used to decide WHICH aesthetic cell a part filled — a
+ * colour or a print, never both. That job no longer exists: the client put
+ * Colour and Fabric Print side by side on every part on 2026-08-20 (screenshots
+ * 2403 · 2407), leaving `printed` deciding only which of two always-present
+ * cells was allowed a list. So the option outlived its reason before it was
+ * removed, which is why removing it costs nothing on screen.
+ *
+ * THE THREE VALUES NOW MATCH `order_fabrics` EXACTLY, which is what 0329's CHECK
+ * always said. A seeded amendment could never arrive holding `printed` (the
+ * order side cannot express it) and the catalog confirms none ever did: 0 rows
+ * across both amendment tables on 2026-08-31, which is what made the CHECK safe
+ * to tighten rather than having to carry a stale value for ever.
+ *
+ * **`takesAllOverPrint` WENT WITH IT.** See the note where it used to stand,
+ * below `colourSourceFor` — a gate keyed on a value nothing can hold is not a
+ * strict gate, it is a permanently closed one.
  */
 export const ITEM_SUB_TYPE_OPTIONS = [
   { value: "solid", label: "Solid" },
   { value: "melange", label: "Melange" },
   { value: "yarn_dyed", label: "Yarn Dyed" },
-  { value: "printed", label: "Printed" },
 ] as const;
 
 export type ItemSubType = (typeof ITEM_SUB_TYPE_OPTIONS)[number]["value"];
@@ -153,33 +262,42 @@ export type ItemSubType = (typeof ITEM_SUB_TYPE_OPTIONS)[number]["value"];
  *
  * "" MAPS TO NULL rather than being rejected, because "" is what a cleared
  * Select reads as and "not answered" is a legitimate state here — the branch
- * `takesDyedColour` and `takesAllOverPrint` both answer false for.
+ * `componentColourEntry` answers `null` for.
+ *
+ * IT ALSO NARROWS `printed` AWAY, and that is deliberate rather than incidental
+ * (client 2026-08-31). Nothing produces one: `order_fabrics`' CHECK never had
+ * it, the catalog holds none, and 0478 removed it from both amendment CHECKs.
+ * The one path that could still carry the word is a hand-written import through
+ * `lib/data-io`, and mapping it to null there is the honest answer — the column
+ * would refuse it anyway, as a raw database error instead of an empty cell.
  */
 export function asItemSubType(v: string | null | undefined): ItemSubType | null {
   return ITEM_SUB_TYPE_OPTIONS.some((o) => o.value === v) ? (v as ItemSubType) : null;
 }
 
 /**
- * WHICH AESTHETIC FIELD A COMPONENT FILLS, decided by its structure's Fabric
- * Type (client 2026-08-12). One pair, because the two cells must agree: if both
- * answered "yes" the operator would be asked for a colour AND a print on one
- * fabric, and if both answered "no" the row could not be described at all.
+ * `takesAllOverPrint` STOOD HERE AND IS DELETED (client 2026-08-31).
  *
- *   solid | melange | yarn_dyed → a colour, from the matching half of the
- *                                order's declared palette (`colourSourceFor`)
- *   printed                     → an all-over print, from the declared prints
- *   (blank)                     → neither, and this is the branch that matters.
- *                                A rule phrased as "restrict only when melange"
- *                                leaks through every state that is not melange
- *                                — how the nominated-vendor rule broke twice.
+ * It answered `itemSubType === "printed"`, and it is the reason removing one
+ * dropdown option is not a one-line change: with `printed` unsayable, the gate
+ * could never again return true, and the per-part **Fabric Print** picker it
+ * gates would have offered an empty list on every part of every order, for ever.
+ * Nothing would have errored. A live cell would simply have stopped working —
+ * the shape AGENTS.md records twice under `created_by` and the item-report
+ * filter bar, where the code reads as correct and the value never arrives.
  *
- * NEITHER IS A HARD BLOCK. These decide which list is OFFERED; the colour cell
- * still accepts free text, because an order part-way through entry must stay
- * fillable. Guided, never caged — the same line `keyFills` draws.
+ * THE CLIENT'S OWN RATIONALE IS THE FIX. "Printed is an aesthetic processing
+ * step, not a base fabric type" — so printing is ORTHOGONAL to what the cloth is
+ * made of, and any fabric may be printed. Fabric Print is therefore ungated:
+ * `declaredPrintOptions` (amendment-screen.tsx) offers the prints this order
+ * declared on the Color/Print tab, falling back to the `roll_form_print` master
+ * when it declared none — its own three clauses, unchanged.
+ *
+ * WHAT IS NOT LOST: the 2026-08-12 pairing rule ("the operator must not be asked
+ * for a colour AND a print on one fabric") was already overruled on 2026-08-20,
+ * when the client put both cells on every part. This removes the last thing that
+ * gate still did, which was to decide which of the two was allowed a list.
  */
-export function takesAllOverPrint(itemSubType: string | null | undefined): boolean {
-  return itemSubType === "printed";
-}
 
 /**
  * WHICH DECLARED COLOURS A FABRIC MAY TAKE — client 2026-08-20:
@@ -226,10 +344,68 @@ export function colourSourceFor(
   itemSubType: string | null | undefined,
 ): ColourSource | null {
   if (itemSubType === "solid") return { types: ["Dyed"], sections: ["fabric"] };
-  if (itemSubType === "yarn_dyed") return { types: ["Y/D"], sections: ["yarn"] };
   if (itemSubType === "melange")
     return { types: ["Melange"], sections: ["yarn", "fabric"] };
+  // `yarn_dyed` HAD A BRANCH HERE (`{ types: ["Y/D"], sections: ["yarn"] }`)
+  // and it is withdrawn by `componentColourEntry` below, not by an oversight.
+  // Read that note before restoring it: a yarn-dyed part's colour is a BLEND
+  // ("WHITE/BLUE STRIPE") and no single declared colour can state it.
   return null;
+}
+
+/**
+ * HOW A PART'S COLOUR CELL IS ANSWERED — the one decision behind three
+ * behaviours (client 2026-08-31).
+ *
+ *   "list"   the cell offers this order's declared colours and is REQUIRED
+ *   "manual" the cell offers NOTHING, takes typed text, and is REQUIRED
+ *   null     the cell offers nothing and is NOT required — the fabric has not
+ *            said what kind of cloth it is yet, so there is nothing to answer
+ *            from and a hold would cage the operator on an unanswerable cell.
+ *
+ * ## WHY THIS EXISTS AT ALL — the coupling it replaces
+ *
+ * `componentProblems` used to ask `colourSourceFor(...) !== null`, and the
+ * comment beside it said so in capitals: "the list the cell OFFERS and the
+ * requiredness of the cell are one decision", never a second reading of the
+ * Fabric Type literals. That was right and Yarn Dyed breaks it — a yarn-dyed
+ * part must still be REQUIRED to state its colour while being offered NO list
+ * at all. Two independent tests would drift on the next change; one function
+ * with three answers cannot.
+ *
+ * ## WHY YARN DYED IS "manual" (client 2026-08-31)
+ *
+ * "The system must exclude and hide the base fabric colors and the colors
+ * selected in the Yarn Color field from appearing in the Component color list …
+ * the field must be locked to manual-entry text input only."
+ *
+ * A yarn-dyed cloth is knitted from PRE-DYED yarns of several colours, so the
+ * finished panel has no single solid colour — its colour is a description
+ * ("WHITE/BLUE STRIPE"). The yarns themselves are named on the structure's own
+ * **Yarn Color** field (`yarnColourOptions`), which is where those two colours
+ * belong. Offering WHITE or BLUE on the part as well would let an operator
+ * record a striped panel as plain WHITE, and the client's word for what that
+ * does to the order's colourways is "corrupt".
+ *
+ * SO THE EXCLUSION IS TOTAL, AND THAT IS THE POINT. "Exclude the base fabric
+ * colours and the yarn colours" removes both halves of everything this cell
+ * could ever have offered — the declared palette IS those colours — so the
+ * honest implementation is an empty list and a text box, not a filtered
+ * dropdown that happens to come out empty. `declaredColoursFor` returns `[]`
+ * here for exactly that reason.
+ *
+ * WHAT IS NOT A REASON TO WIDEN THIS: "the operator can still type anything".
+ * True on every branch — the cell has always been free text — and it does not
+ * make a wrong OFFER harmless. A list is a recommendation, and this one would
+ * recommend the wrong answer.
+ */
+export type ComponentColourEntry = "list" | "manual" | null;
+
+export function componentColourEntry(
+  itemSubType: string | null | undefined,
+): ComponentColourEntry {
+  if (itemSubType === "yarn_dyed") return "manual";
+  return colourSourceFor(itemSubType) ? "list" : null;
 }
 
 /** One Color/Print dyeing row, as the colour filter reads it. */
@@ -276,6 +452,77 @@ export function declaredColoursFor(
   return out;
 }
 
+/* ------------------------------------------------------------------------- *
+ * YARN COLOURS — the colours a yarn-dyed fabric is knitted FROM (0478)
+ * ------------------------------------------------------------------------- */
+
+/** A combo of this order, as the yarn-colour list reads it. */
+export type ColourwayLike = {
+  style_ref_no?: string | null;
+  combo?: string | null;
+};
+
+/**
+ * THE COLOURS OFFERABLE AS YARN COLOURS — client 2026-08-31:
+ * "it must dynamically list ONLY the colors previously defined for the style's
+ * master colorways (e.g. if the user set up White and Blue combos, only White
+ * and Blue are selectable as yarn colors)."
+ *
+ * A combo IS a colourway, and on this order they are literally colour names —
+ * WHITE, NAVY, GREY MELANGE, RED, GREEN, YELLOW, BLUE (catalog 2026-08-31). So
+ * the source is the Combos grid itself, and that is not merely the cheapest
+ * reading of the sentence: it is the ONLY source that cannot be empty where the
+ * field appears. Yarn Color lives inside one combo's [Detail] overlay, so at
+ * least one combo — the one being edited — always exists to offer.
+ *
+ * THE COLOR/PRINT PALETTE WAS THE OTHER CANDIDATE AND IT WOULD HAVE SHIPPED
+ * DEAD. `declaredColoursFor(rows, "yarn_dyed")` read the yarn grid's `Y/D` rows,
+ * and the catalog holds **no yarn-section dyeing row at all** — all seven
+ * declared colours are `section = 'fabric'`. A Yarn Color dropdown sourced there
+ * would have been empty on every live order on the day it shipped, which is the
+ * `Y/D`-shaped hole `colourSourceFor` used to have and nobody noticed because
+ * the cell also took free text.
+ *
+ * SCOPED TO THE COMBO'S OWN STYLE — "the STYLE's master colorways". A PO with
+ * two styles has two independent sets of colourways, and offering style 2's
+ * NAVY under style 1 is the cascading-filter defect one door along (AGENTS.md,
+ * "Cascading filters"): the facet must narrow to the facet beside it.
+ *
+ * A COMBO NAMING NO STYLE IS OFFERED EVERYTHING, and this is the deliberate
+ * OPPOSITE of the nominated-vendor "empty and explain". There a blank parent
+ * means the answer is genuinely unapprovable; here it means an operator has not
+ * typed a style ref onto a combo yet, and the colourways of the order are still
+ * the right vocabulary. Same three clauses `scopedStructures` and
+ * `declaredPrintOptions` already use on this screen: nothing to scope by falls
+ * back to the whole list, never to nothing.
+ *
+ * ORDER IS FIRST-SEEN, NOT SORTED. The Combos grid is the operator's own list
+ * and its order is the one they built; re-sorting it alphabetically would make
+ * the dropdown disagree with the grid it came from.
+ */
+export function yarnColourOptions(
+  combos: readonly ColourwayLike[],
+  styleRefNo: string | null | undefined,
+): string[] {
+  const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
+  const want = norm(styleRefNo);
+  const pick = (scoped: boolean) => {
+    const out: string[] = [];
+    for (const c of combos) {
+      if (scoped && norm(c.style_ref_no) !== want) continue;
+      const name = norm(c.combo);
+      if (name && !out.includes(name)) out.push(name);
+    }
+    return out;
+  };
+  if (!want) return pick(false);
+  const scoped = pick(true);
+  // A style ref that matches no combo can only mean the grid has moved on
+  // beneath this overlay; the order's colourways are still the vocabulary, and
+  // an empty list here would read as "this style has no colours".
+  return scoped.length ? scoped : pick(false);
+}
+
 /**
  * ONE PART OF A FABRIC, as the mandatory-field rule needs to see it.
  *
@@ -319,10 +566,17 @@ function componentSaysSomething(c: ComboComponentLike): boolean {
  * nothing on screen to say why" trap in AGENTS.md, one door along: not hidden,
  * but unanswerable. Requiredness here is a property of the field FOR A STATE.
  *
- * IT ASKS `colourSourceFor`, NEVER THE FOUR LITERALS. The list the cell offers
- * and the requiredness of the cell are then one decision — re-testing
- * `=== "printed"` here would compile, run, and drift the first time the palette
- * rule changed (which it already has once, on 2026-08-20).
+ * IT ASKS `componentColourEntry`, NEVER THE LITERALS. The list the cell offers
+ * and the requiredness of the cell are still one decision — re-testing
+ * `=== "yarn_dyed"` here would compile, run, and drift the first time the
+ * palette rule changed (which it has now done twice, on 2026-08-20 and again on
+ * 2026-08-31).
+ *
+ * IT USED TO ASK `colourSourceFor` AND THAT IS NO LONGER THE SAME QUESTION.
+ * A yarn-dyed fabric has no colour SOURCE — its parts are described by hand —
+ * but it is still required to be described, so the test moved to the function
+ * that answers all three states. Reverting it to `colourSourceFor(...) !== null`
+ * silently makes Colour optional on every yarn-dyed part.
  *
  * A PART THAT SAYS NOTHING AT ALL IS NOT AN ERROR. `addComp` opens a blank row
  * for the operator to type into and `componentFilled` (actions.ts) drops it on
@@ -340,7 +594,7 @@ export function componentProblems(
   if (!componentSaysSomething(comp)) return problems;
   if (!comp.coordinate_id) problems.push("Coordinate is required");
   if (!comp.component_id) problems.push("Component is required");
-  if (colourSourceFor(itemSubType) && !(comp.color_name ?? "").trim()) {
+  if (componentColourEntry(itemSubType) && !(comp.color_name ?? "").trim()) {
     problems.push("Colour is required");
   }
   return problems;

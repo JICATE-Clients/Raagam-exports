@@ -13,6 +13,11 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { ProcessOption } from "./style-processes";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import type { GarmentOrderAmendment } from "./types";
+/* A VALUE import, and the only one this file takes from `./types` — see
+   `caseFoldKey` there for why the case fold is declared in a client-safe module
+   rather than here: the service stamps the key and the SCREEN collapses on it,
+   and a screen cannot import a `server-only` module. */
+import { caseFoldKey } from "./types";
 import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 import type { ComponentScopeRow } from "@/lib/masters/component-coordinates";
 /* TYPE ONLY — erased at compile time, so naming it here does not pull the
@@ -41,6 +46,76 @@ export type PickerRow = { id: string; code: string | null; name: string } & Deac
  * the screen (`consigneeOptions`), which is where the order's customer is.
  */
 export type ConsigneeRow = PickerRow & { customer_id: string | null };
+
+/**
+ * A T&A activity, as the ladder's Activity picker and Dept column need it
+ * (0481) — the `ta_activities` master (0035 · 0266).
+ *
+ * A `PickerRow` with four extra fields rather than a reshaped one, the same
+ * additive shape `ConsigneeRow` above uses and for the same reason: it is handed
+ * straight to `RecordPicker`, and the rules that read the extra keys live on the
+ * SCREEN, which is where the ladder is.
+ *
+ * `code` IS THE SHORT NAME. `ta_activities` has no `code` column — legacy's
+ * "Short Name" is the identifier an operator types (0266), so it fills the slot
+ * the picker searches and displays as a code. `short_name` is carried under its
+ * own name as well, because the screen's `taLabel` falls back to it when an
+ * activity has no `name` and mapping only into `code` would make that fallback
+ * read a field that means something else.
+ *
+ * `department` RIDES ALONG AND IS NEVER COPIED ONTO THE ORDER'S ROW. It belongs
+ * to the activity, so a copy stored on the order goes stale the day somebody
+ * moves Knitting from one department to another — and the order would then
+ * schedule work for a department that no longer does it. The Dept column reads
+ * THROUGH this, which is the same call `AmendmentTaActivity` records.
+ *
+ * `sequence` is the axis the ladder is built on: `orderTaLadder` reverses on the
+ * way in and back on the way out, so a row seeded out of order produces a
+ * complete, plausible ladder of dates that are simply wrong.
+ */
+export type TaActivityOption = PickerRow & {
+  short_name: string | null;
+  department: string | null;
+  sequence: number | null;
+  /** The master's planned offset. Seeds "Days" when positive; see the screen. */
+  default_offset_days: number;
+};
+
+/**
+ * A customer, plus the key its case-duplicates fold onto (client 2026-08-31:
+ * "ROJA" and "roja" must be one entry in the dropdown).
+ *
+ * The same shape of extension as `ConsigneeRow` above and for the same reason:
+ * it is still handed straight to a picker, and the rule that READS the extra key
+ * lives where the held value is — on the screen. `collapseCaseDuplicates` in
+ * `./types` is that rule, written once so the picker and anything else that
+ * needs it cannot disagree.
+ *
+ * THE SERVICE DELIBERATELY DOES NOT COLLAPSE. These are distinct `customers`
+ * rows with distinct uuids, so folding them here means one uuid wins and an
+ * order holding the loser resolves to nothing — the field renders empty and the
+ * next save blanks the FK, which is the silent data loss "Disabled rows" exists
+ * to prevent. Only the caller knows which uuid the record already holds, so
+ * only the caller can guarantee it survives.
+ */
+export type CustomerRow = PickerRow & { dedupe_key: string };
+
+/**
+ * A merchandiser — a row of the HR EMPLOYEE master (0478), not a login.
+ *
+ * `is_merchandiser` is the client's narrowing (Designation *or* Department is
+ * "Merchandiser") carried as a FLAG rather than applied as a filter, exactly as
+ * `inactive` is on every other list here. Same reason, and it is not a
+ * preference: `getAmendmentFormData()` takes no arguments — it is one options
+ * bundle for the list screen and the editor — so this function cannot know
+ * which employee the order being opened already names. Filter in SQL and an
+ * order whose merchandiser has since moved department renders an empty field,
+ * and the next save blanks the FK.
+ *
+ * The picker narrows to `is_merchandiser`, keeps the held row whatever it says,
+ * and hides `inactive` the way it always did.
+ */
+export type MerchandiserRow = PickerRow & { is_merchandiser: boolean };
 
 /**
  * A FABRIC material, plus the category it sits in (0430).
@@ -111,6 +186,13 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         // `pack_type` TEXT and PostgREST can only nest across a real FK.
         // The screen re-nests it; `style_sizes` above is the same shape.
         "pack_type_lines:garment_order_amendment_pack_type_lines(*), " +
+        // The order's Time & Action ladder (0481). `*` on purpose: the screen
+        // needs `row_uid` to round-trip the anchor — without it every save
+        // re-mints the row and loses the completion it carried — and the three
+        // dashboard-owned columns (`actual_date`, `status`, `notes`) are
+        // read-only here but must be SHOWN, since the tab is where an operator
+        // sees how far the order has actually got.
+        "ta_activities:garment_order_amendment_ta_activities(*), " +
         // The Assort tree (0414). Two levels of embed under the quantity row —
         // and, like every other name here, ONE unresolvable relationship
         // fails the WHOLE query rather than this branch of it, which is why
@@ -165,6 +247,11 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     approval_qtys: bySno(r.approval_qtys),
     pack_types: bySno(r.pack_types),
     pack_type_lines: bySno(r.pack_type_lines),
+    /* EXECUTION ORDER, and `sno` is the only thing that states it. The ladder
+       is Fabric Plan → … → Shipment; `target_date` runs the other way and would
+       sort a refused (undated) row to the front, so sorting on the date would
+       be a second, disagreeing answer to "what order is this ladder in?". */
+    ta_activities: bySno(r.ta_activities),
     quantities: bySno(r.quantities).map((q) => ({
       ...q,
       // Size cells have no `sno` — the ORDER of a ratio is the column order,
@@ -233,14 +320,46 @@ async function getOrderRows(): Promise<OrderPickerRow[]> {
  * This also unblocks the Style picker's customer half — `garment_styles.customer_id`
  * points at `customers` too, so the two finally key on one table. Turning that
  * narrowing on is a separate, deliberate change; see `style-options.ts`.
+ *
+ * ## `dedupe_key` — THE CASE-DUPLICATE FOLD (client 2026-08-31)
+ *
+ * "ROJA" and "roja" are two rows of this master and one customer. The key is
+ * the folded name; the COLLAPSE happens on the screen, because only the screen
+ * knows which of the pair the order in front of the operator already holds —
+ * see `CustomerRow` above, and `collapseCaseDuplicates` in `./types`, which is
+ * the single definition of both halves.
+ *
+ * This is a LEGACY row problem and saying so is the point. Since 2026-08-18
+ * every `<Input>` in this app capitalises as you type and the write-side
+ * transform lives in the Zod schema, so a case-differing pair cannot be created
+ * by typing any more — it can only have been created before that date, or by an
+ * import that predates it. That is why this is a fold over what is already
+ * stored rather than a validation rule refusing new ones: a rule would guard a
+ * door that is already shut, and would do nothing about the rows behind it.
+ *
+ * The fold HIDES a real master row, which is a thing worth telling somebody
+ * about rather than doing quietly — `collapseCaseDuplicates` returns the names
+ * it folded so the screen can say so and the operator can merge the masters.
  */
-async function getCustomerRows(): Promise<PickerRow[]> {
+async function getCustomerRows(): Promise<CustomerRow[]> {
   const s = await createClient();
-  const { data } = await s
+  /**
+   * THROW RATHER THAN HAND BACK AN EMPTY LIST — `getRejectionRuleRows()` below
+   * carries the full reasoning, and this is a Customer picker on the screen's
+   * mandatory first field: empty reads as "no customers have been set up yet",
+   * which is a real and unremarkable answer, so nobody reports it.
+   */
+  const { data, error } = await s
     .from("customers")
     .select("id, code, name, inactive")
     .order("name");
-  return (data ?? []) as PickerRow[];
+  if (error) {
+    throw new Error(`Could not load customers: ${error.message}`);
+  }
+  return ((data ?? []) as PickerRow[]).map((r) => ({
+    ...r,
+    dedupe_key: caseFoldKey(r.name),
+  }));
 }
 
 /**
@@ -298,23 +417,103 @@ async function getPortRows(): Promise<PickerRow[]> {
   return (data ?? []) as PickerRow[];
 }
 
-/** App users for the "Merchand." picker. */
-async function getMerchandiserRows(): Promise<PickerRow[]> {
+/**
+ * The Merchandiser picker — THE HR EMPLOYEE MASTER, not the login accounts
+ * (client 2026-08-31, and 0478 repoints the FK to match).
+ *
+ * It used to read `profiles`, which is whoever can sign in: neither every
+ * merchandiser (one who does not use the system has no row) nor only
+ * merchandisers (every storekeeper has one). `profiles` also carries no
+ * designation and no department, so the client's narrowing could not be stated
+ * against it at all. `employees` (0243) is the only one of the three candidate
+ * tables with BOTH `designation_id` and `department_id`; `staff` (0013) has a
+ * free-text designation and no department.
+ *
+ * ## `inactive`, NOT `blocked` — THE COLUMN NAME, NOT THE FIELD NAME
+ *
+ * 0243 created this table with `blocked` and **0299 renamed it to `inactive`**
+ * along with 42 other masters. Selecting `blocked` would be the exact failure
+ * `getRejectionRuleRows()` below records: PostgREST rejects the WHOLE query for
+ * one unknown column, and an empty Merchandiser dropdown reads as "nobody has
+ * been set up yet". Read from the catalog, never from memory — `isInactive()`'s
+ * own header carries the query for it.
+ *
+ * It is SELECTED and not filtered in SQL, for the standing reason: an employee
+ * an order already names must still resolve or the next save blanks the FK.
+ *
+ * ## THE NARROWING IS A FLAG, NOT A `WHERE`
+ *
+ * Same reasoning one step further out, and `MerchandiserRow` above states it:
+ * `getAmendmentFormData()` takes no arguments, so this function cannot know
+ * which employee the record being opened holds. Narrowing here would drop that
+ * employee the day their designation changed, and the field would render empty
+ * on an order that names them perfectly well.
+ *
+ * The COST is that every employee crosses the wire. Six small columns per row,
+ * and this list is staff rather than the shop floor (`workers` is its own
+ * table), so it is the cheaper of the two mistakes. Should it ever stop being
+ * so, the fix is to give this function the held id — not to add a `WHERE`.
+ *
+ * ## MATCHING THE NAME
+ *
+ * "Merchandiser" is matched case- and whitespace-insensitively against the
+ * `config_lookups` rows the two FKs point at, in TypeScript rather than in the
+ * query, because `.ilike()` matches neither a stray trailing space nor the
+ * lookups whose name the operator typed as "MERCHANDISER".
+ *
+ * The lookup query is NOT constrained by `kind`. Both columns are FKs to
+ * `config_lookups` and each already says which question it answers, so adding
+ * `kind in ('designation','department')` could only ever DROP a match — a
+ * designation stored under a differently-spelled kind would silently stop
+ * counting, and the symptom would again be a dropdown that is merely short.
+ */
+async function getMerchandiserRows(): Promise<MerchandiserRow[]> {
   const s = await createClient();
-  const { data } = await s
-    .from("profiles")
-    .select("id, employee_code, full_name, is_active")
-    .order("full_name");
+
+  const { data: lookupData, error: lookupErr } = await s
+    .from("config_lookups")
+    .select("id, name");
+  if (lookupErr) {
+    throw new Error(
+      `Could not load the designation/department list: ${lookupErr.message}`,
+    );
+  }
+  const merchandiserLookupIds = new Set(
+    ((lookupData ?? []) as { id: string; name: string | null }[])
+      .filter((l) => (l.name ?? "").trim().toLowerCase() === "merchandiser")
+      .map((l) => l.id),
+  );
+
+  const { data, error } = await s
+    .from("employees")
+    .select("id, code, name, inactive, designation_id, department_id")
+    .order("name");
+  /**
+   * THROW RATHER THAN HAND BACK AN EMPTY LIST. `getRejectionRuleRows()` below
+   * carries the full argument; this is the field it now matters most on,
+   * because Merchandiser became mandatory in the same change — a silently
+   * broken query would leave the operator unable to save an order at all, with
+   * nothing on screen saying why.
+   */
+  if (error) {
+    throw new Error(`Could not load merchandisers: ${error.message}`);
+  }
+
   return ((data ?? []) as {
     id: string;
-    employee_code: string | null;
-    full_name: string | null;
-    is_active: boolean;
+    code: string | null;
+    name: string | null;
+    inactive: boolean | null;
+    designation_id: string | null;
+    department_id: string | null;
   }[]).map((r) => ({
     id: r.id,
-    code: r.employee_code,
-    name: r.full_name ?? "(unnamed)",
-    is_active: r.is_active,
+    code: r.code,
+    name: r.name ?? "(unnamed)",
+    inactive: r.inactive ?? false,
+    is_merchandiser:
+      (!!r.designation_id && merchandiserLookupIds.has(r.designation_id)) ||
+      (!!r.department_id && merchandiserLookupIds.has(r.department_id)),
   }));
 }
 
@@ -606,8 +805,12 @@ export type RejectionRuleOption = {
 
 export type AmendmentFormData = {
   orders: OrderPickerRow[];
-  customers: PickerRow[];
-  merchandisers: PickerRow[];
+  /* Carries `dedupe_key`; the picker collapses on it, keeping the held row.
+     See `CustomerRow` — the fold cannot happen here. */
+  customers: CustomerRow[];
+  /* Carries `is_merchandiser`; the picker narrows on it, keeping the held row.
+     See `MerchandiserRow` — the narrowing cannot happen in SQL. */
+  merchandisers: MerchandiserRow[];
   contacts: PickerRow[];
   countries: Country[];
   currencies: Currency[];
@@ -700,7 +903,65 @@ export type AmendmentFormData = {
    * a `PickerRow`, so nothing that only wanted id/name had to change.
    */
   componentRows: (PickerRow & ComponentScopeRow)[];
+  /**
+   * T&A (0481) — the `ta_activities` master the ladder is seeded and labelled
+   * from. Carries `sequence`, `department` and `default_offset_days`; see
+   * `TaActivityOption`.
+   */
+  taActivities: TaActivityOption[];
 };
+
+/**
+ * The T&A activity master, for the ladder's Activity picker (0481).
+ *
+ * ORDERED BY `sequence`, which is not decoration: it is the axis the ladder is
+ * built on, and a screen that seeded its rows in insertion order would produce a
+ * complete, plausible plan whose every date is wrong. Ordered here as well as
+ * sorted on the screen, so the list is right whichever consumer reads it.
+ *
+ * `is_active` IS SELECTED AND NOT FILTERED IN SQL — the "Disabled rows" rule.
+ * Filtering here satisfies half of it and breaks the other half: an activity
+ * retired from the master after an order was written would resolve to nothing,
+ * the Activity cell would render empty on a ladder that names it perfectly well,
+ * and the next save would blank the FK. `RecordPicker` hides it from the list
+ * and keeps the held row; `seedTaLadder` skips it when building a fresh ladder.
+ *
+ * A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST. An empty activity master gives
+ * a T&A tab with nothing to pick, which reads exactly like "nobody has set the
+ * activities up yet" — a real and unremarkable answer, and so one that gets
+ * believed rather than reported.
+ */
+async function getTaActivityRows(): Promise<TaActivityOption[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("ta_activities")
+    .select("id, short_name, name, department, sequence, default_offset_days, is_active")
+    .order("sequence");
+  if (error) throw new Error(`Could not load the T&A activity master: ${error.message}`);
+  return ((data ?? []) as {
+    id: string;
+    short_name: string | null;
+    name: string | null;
+    department: string | null;
+    sequence: number | null;
+    default_offset_days: number | null;
+    is_active: boolean | null;
+  }[]).map((r) => ({
+    id: r.id,
+    // See `TaActivityOption`: legacy's Short Name is what an operator types.
+    code: r.short_name,
+    name: r.name ?? r.short_name ?? "",
+    short_name: r.short_name,
+    department: r.department,
+    sequence: r.sequence,
+    /* `?? 0` and not `?? null`: the column is `not null default 0`, and the
+       screen reads `> 0` to decide whether to prefill Days. A null would make
+       that comparison false anyway, but stating the column's own default here
+       keeps the two ends saying the same thing. */
+    default_offset_days: r.default_offset_days ?? 0,
+    is_active: r.is_active,
+  }));
+}
 
 /**
  * Coordinates — `items` of class GAR (0396).
@@ -1105,6 +1366,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     componentRows,
     processes,
     rejectionRules,
+    taActivities,
   ] = await Promise.all([
     getOrderRows(),
     getCustomerRows(),
@@ -1128,6 +1390,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getComponentPickerRows(),
     getProcessRows(),
     getRejectionRuleRows(),
+    getTaActivityRows(),
   ]);
   return {
     orders,
@@ -1155,5 +1418,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     componentRows,
     processes,
     rejectionRules,
+    taActivities,
   };
 }

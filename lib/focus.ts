@@ -294,9 +294,141 @@ const OFF_TAB_PATH = "[data-focus-optional]";
  * Exported for `child-grid.tsx` alone, and for the same reason `ROW_FIELDS` there
  * is written as "`isFieldLike` expressed as a selector": the grid states the axis
  * in its own terms but must not own a second definition of what is off it.
+ *
+ * `closest`, NOT `matches` (2026-08-31), AND THAT IS ABOUT WHICH CONTROLS CAN
+ * DECLARE IT AT ALL.
+ *
+ * The marker has to land on the FOCUSABLE element — that is the node every walk
+ * here tests — and until now that meant only a control whose call site can spread
+ * an arbitrary DOM attribute onto it could ever be marked. Both existing uses are
+ * a raw `<input>` (Material ▸ Fabric ▸ Direct Purchase, Material Attributes ▸
+ * Blocked), so the limit never showed. It shows the moment the control is a
+ * PICKER: `RecordPicker` and `DataPicker` take explicit prop lists with no rest
+ * spread, so `data-focus-optional` passed to one is a React prop that lands
+ * nowhere — the "dead prop" failure `Field`'s own `w` note records, where the
+ * call site reads as correct and the instruction is silently dropped.
+ *
+ * The alternatives were both worse and both are the treadmill this file exists to
+ * refuse: a pass-through prop on `DataPicker` fixes pickers and leaves `Select`,
+ * `Toggle` and the next primitive to be found one at a time; and `Field` cloning
+ * the attribute onto its child cannot work either, since a clone puts a PROP on a
+ * component that ignores it — the same dead prop, one layer up.
+ *
+ * Reading the ancestor chain instead lets a WRAPPER declare it — `<Field
+ * offTabPath>` marks the cell and every control shape inside it obeys, which is
+ * the contract-level answer rather than a per-component one. It is a strict
+ * superset of the old behaviour: an element carrying the marker itself is its own
+ * `closest`, so neither existing use changes.
+ *
+ * THE COST IS REACH, and it is real: a marker on a large container silently takes
+ * every field inside it off the Tab path, which on a keyboard-only screen is a
+ * region nobody can type into. Put it on the smallest wrapper that means it — a
+ * `<Field>` cell, a grid cell — and never on a section or a form.
  */
 export function isOffTabPath(el: HTMLElement): boolean {
-  return el.matches(OFF_TAB_PATH);
+  return !!el.closest(OFF_TAB_PATH);
+}
+
+/**
+ * A FIELD THE APP FILLS IN FOR THE OPERATOR — off the Tab path while it holds a
+ * value, and an ordinary mandatory field the moment it does not.
+ *
+ * Order Entry's Unit and Date are the case (client 2026-08-31: "the keyboard tab
+ * navigation must completely bypass the Entry Date and Location/Unit fields …
+ * these fields are automatically determined by the workstation's active branch
+ * location and the current calendar date"). Both are auto-determined, both are
+ * still mandatory for the record, and the RE No is built out of the pair.
+ *
+ * ## THE TWO FLAGS COME FROM ONE BOOLEAN, AND THAT IS THE WHOLE POINT
+ *
+ * A field that Tab can never reach and that ALSO holds the cursor is not a strict
+ * rule, it is an **unsatisfiable cage**: `data-required-empty` refuses Tab, Enter,
+ * ↓ and → while blank, so an operator who somehow lands on a blank one can neither
+ * fill it by the route Tab offers nor be brought to it by Tab in the first place —
+ * and Save stays dead with nothing on screen reachable to fix. AGENTS.md records
+ * that exact shape shipping once already ("A HOLD REFUSES MOVEMENT AND NEVER
+ * REFUSES CHOOSING"), and the two halves being separate props is how it happened.
+ *
+ * So they are not separate props here. `offTabPath` and `required` are derived
+ * from the same `filled`, which makes "off the Tab path AND holding" *unrepresentable*
+ * rather than merely discouraged — the same move `FieldCheck` makes for a hidden
+ * mandatory field. Vectors in `scripts/check-keyboard-holds.mts`.
+ *
+ * ## WHAT THIS DOES **NOT** DO
+ *
+ * It does not stand the record's own guard down. `required` here is the ON-SCREEN
+ * declaration — the red `*` and the cursor hold — and the record staying
+ * unsaveable is a separate, unconditional statement in the screen's `validity`
+ * `fields`. That split is the point: the star and the hold are what the client
+ * asked to remove from a field the operator should not be stopping on; the
+ * enforcement is not theirs to remove.
+ *
+ * It also does not make the field read-only. `data-focus-optional` keeps ↑↓←→ and
+ * the mouse, so an auto-filled Date can still be corrected DELIBERATELY — which is
+ * what keeps the client's 2026-08-29 instruction ("fully permitting past date
+ * entries": a PO booked on paper last week is typed in today with last week's
+ * date) alive alongside this one. Making it `readOnly` would have satisfied
+ * "stops users from accidentally editing" by revoking a capability asked for two
+ * days earlier; taking it off the TYPING PATH is what the client actually asked
+ * for, and it removes the accident without removing the edit.
+ *
+ * ## WHAT THIS GUARANTEES, AND THE ONE SHAPE THAT DEFEATS IT
+ *
+ * `useRequiredHold` (components/ui/field.tsx) stamps `data-required-empty` when
+ * `(ctx.required || own.required) && empty` — TWO doors into `required` and an
+ * `empty` gate in front of both. It is worth knowing which of the three this
+ * function actually stands on, because the obvious answer is the wrong one.
+ *
+ * **It is the `empty` gate, not `required`.** `offTabPath` is `filled`, and every
+ * caller's `empty` is exactly that control having no value — `!value` in
+ * `DataPicker` (:312), `holdEmpty(props.value)` in `Input` (:259). `filled` and
+ * `empty` are complements, so wherever this function sets `offTabPath`, the hold
+ * has already declined. That closes BOTH doors at once, `own.required` included,
+ * and it closes them however `required` was declared.
+ *
+ * So the second flag is belt to the `empty` gate's braces rather than the load-
+ * bearing part — which is why the guarantee survives a case that looks like it
+ * should break it: Orders ▸ T&A's Activity cell sits in a `ChildGrid` column
+ * declaring `required: true`, so `ctx.required` is unconditionally true there and
+ * has never passed through this function. It still cannot cage, because when the
+ * cell is off the Tab path it is filled, and a filled control is not empty.
+ *
+ * **THE SHAPE THAT DOES DEFEAT IT is an `offTabPath` that does not track the
+ * control's emptiness.** A hand-written `offTabPath={true}`, or one derived from
+ * some other condition — a mode flag, a permission, "this is usually left alone"
+ * — on a field that CAN be empty and IS required rebuilds the cage exactly, and
+ * nothing here would stop it: the marker never came from `filled`, so there is no
+ * complement for the `empty` gate to be the other half of.
+ *
+ * Hence: get `offTabPath` from this function, or from something that is provably
+ * the same "does this control have a value" the hold tests. Do not set it from a
+ * condition that merely correlates.
+ *
+ * Every `data-focus-optional` site in the repo today falls into one of three
+ * groups, none of which can cage — enumerated with `grep "data-focus-optional"`,
+ * NOT `grep "data-focus-optional="`, because the marker is also written as a bare
+ * boolean attribute and an `=` in the pattern silently drops those (it dropped
+ * one from an earlier version of this very list, which is why the warning is
+ * here rather than in a commit message):
+ *
+ *  - **From this function** — Order Info's Unit and Date, Style's ref cell, T&A's
+ *    Activity. Safe by the complement above.
+ *  - **A checkbox marked while UNTICKED** — Material ▸ Fabric ▸ Direct Purchase,
+ *    Material Attributes ▸ Blocked. A tick box cannot hold at all (`NEVER_HOLDS`,
+ *    input.tsx): "off" is a real value, not an empty one.
+ *  - **Around a `readOnly` control** — the Style ref cell's collapsed branch. A
+ *    `readOnly` field never holds either (AGENTS.md, "Mandatory fields"), because
+ *    it has no exit.
+ */
+export type AutoField = {
+  /** Stamp `data-focus-optional`: Tab and Enter step over it. */
+  offTabPath: boolean;
+  /** `<Field required>` — the red `*` and the blank-field cursor hold. */
+  required: boolean;
+};
+
+export function autoFilledField(filled: boolean): AutoField {
+  return { offTabPath: filled, required: !filled };
 }
 
 /**

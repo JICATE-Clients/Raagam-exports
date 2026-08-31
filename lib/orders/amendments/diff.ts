@@ -184,6 +184,7 @@ type StyleSizeRow = NonNullable<Children["styleSizes"]>[number];
 type StyleComponentRow = NonNullable<Children["styleComponents"]>[number];
 type StyleCoordinateRow = NonNullable<Children["styleCoordinates"]>[number];
 type CountryRow = NonNullable<Children["countrySizes"]>[number];
+type TaActivityRow = NonNullable<Children["taActivities"]>[number];
 
 const styleName = (r: { style_ref_no: string | null }) => r.style_ref_no?.trim() || "(no style)";
 
@@ -347,7 +348,37 @@ type FlatStructure = {
   gsm: number | null;
   gsm_tolerance: number | null;
   item_sub_type: string | null;
+  /** A STRING, not the stored `text[]` — see `joinYarnColours`. */
+  yarn_colors: string | null;
 };
+
+/**
+ * The yarn colours of one structure as ONE COMPARABLE STRING (0480).
+ *
+ * `display()` and `same()` are SCALAR comparators — `String(v).trim()`, then
+ * upper-cased — and there is deliberately no array branch in either. An array
+ * reaching them would be compared as `String(["WHITE","BLUE"])`, i.e. by
+ * `Array.prototype.toString`: it would happen to work, by accident rather than
+ * by design, and it would print "WHITE,BLUE" at the approver. Flattening at the
+ * boundary is what keeps every field of every tab going through one comparator
+ * instead of growing a second kind of sameness beside it.
+ *
+ * SORTED BEFORE JOINING, AND THAT IS THE POINT OF DOING IT HERE. The column
+ * preserves the operator's own tick order (see `amendmentComboStructureInput`),
+ * so unsorted, dragging WHITE below BLUE would report
+ * "BLUE / WHITE → WHITE / BLUE" as a change to what the cloth is made of.
+ * Re-ordering a tick list is not a change anybody approving an amendment needs
+ * to read. Sorting in the STORE instead would fix the diff and lose the order
+ * the dropdown is picked in, so the two halves live apart on purpose.
+ *
+ * EMPTY IS `null`, NOT `""`. `display()` then prints "—" — the same em dash a
+ * cleared colour or a blank GSM prints — and `same(null, [])` is true, so a
+ * fabric that never had yarn colours does not report a change on every save.
+ */
+function joinYarnColours(v: readonly string[] | null | undefined): string | null {
+  if (!v?.length) return null;
+  return [...v].sort().join(" / ") || null;
+}
 
 function flattenStructures(combos: ComboRow[]): FlatStructure[] {
   const out: FlatStructure[] = [];
@@ -362,6 +393,7 @@ function flattenStructures(combos: ComboRow[]): FlatStructure[] {
         gsm: st.gsm,
         gsm_tolerance: st.gsm_tolerance,
         item_sub_type: st.item_sub_type,
+        yarn_colors: joinYarnColours(st.yarn_colors),
       });
     }
   }
@@ -390,6 +422,13 @@ const COMBO_STRUCTURES: TabSpec<FlatStructure> = {
     { field: "gsm", label: "GSM" },
     { field: "gsm_tolerance", label: "Tolerance" },
     { field: "item_sub_type", label: "Fabric Type" },
+    // 0480, and it belongs here for the reason stated above this tab: a child
+    // grid that is WRITTEN but not DIFFED is a change the amendment silently
+    // fails to show whoever approves it. This one restates what the cloth is
+    // made of — a different set of pre-dyed yarns is a different purchase and a
+    // different price, so an approver signing "no material change" on a fabric
+    // whose yarn colours were re-picked has been misled by omission.
+    { field: "yarn_colors", label: "Yarn Colours" },
   ],
 };
 
@@ -616,6 +655,65 @@ const COUNTRY_SIZES: TabSpec<CountryRow> = {
 };
 
 /**
+ * T&A (0481) — the order's Time & Action ladder.
+ *
+ * ## THE ONLY TAB WITH A REAL, STABLE KEY
+ *
+ * Every other spec in this file opens by explaining which natural key it had to
+ * assemble, because "a seeded row has no id yet and a re-typed row would
+ * otherwise read as removed + added". This tab has `row_uid` — minted
+ * client-side, immutable, round-tripped, and the anchor the writer merges
+ * completions by. So a row that swaps its activity is genuinely the SAME ladder
+ * step being re-described, and reporting it as one changed row is the truthful
+ * reading rather than the convenient one.
+ *
+ * ## `target_date` IS NOT A FIELD, AND IT IS THE MOST TEMPTING ONE
+ *
+ * It is stored, so it looks exactly like every other column an approver ought to
+ * see. It is also entirely DERIVED — from `days_required`, which is right here,
+ * and from the anchor, which is `earlier_shipment_date` on the Quantities tab
+ * and is already reported there. Listing it would print one edit twice under two
+ * headings (`APPROVAL_QTYS` refuses `qty` on exactly this test), and worse:
+ * moving the shipment date by a week would fill this tab with ten "changed"
+ * rows nobody touched, burying the one Days edit that was actually made.
+ *
+ * ## `actual_date`, `status` AND `notes` ARE NOT FIELDS EITHER, AND THIS IS A
+ * ## REAL EXCEPTION TO A STANDING RULE
+ *
+ * "A column that is written but not diffed is a change an amendment silently
+ * fails to report" is the sentence that keeps the two frozen unit columns in
+ * `STYLES` and put the component list in `STYLE_COMPONENTS`. It does not reach
+ * these three, because they are not amendments: they are entered on the T&A
+ * DASHBOARD, days or weeks later, by someone in another department, and
+ * `amendmentTaActivityInput` has no field for them at all — this document
+ * cannot change them, so there is no change of this document's to report. An
+ * amendment that announced "Status: pending → done" would be reporting the
+ * factory's progress as if the merchandiser had amended the order.
+ *
+ * ## THE ROW LABEL IS A POSITION, HONESTLY
+ *
+ * `diff.ts` takes no database, so the activity can only be printed as its raw
+ * uuid — which identifies the row to nobody reading the amendment, and is what
+ * `creatorName()` refuses to do in an audit column. `APPROVAL_QTYS` makes the
+ * same call about sizes and states the fix: resolving names before the diff is a
+ * change to every id-valued column on this document, not to this one spec. So
+ * the label is the ladder position, which is right at the moment it is read and
+ * shifts if a step is inserted above it. The KEY is unaffected — it is the
+ * anchor, not the position — so buckets, counts and verdicts are all correct;
+ * only the wording of the line is approximate.
+ */
+const TA_ACTIVITIES: TabSpec<TaActivityRow> = {
+  tab: "taActivities",
+  label: "T&A",
+  key: (r) => r.row_uid ?? "",
+  rowLabel: (r) => `Step ${r.sno}`,
+  fields: [
+    { field: "activity_id", label: "Activity" },
+    { field: "days_required", label: "Days" },
+  ],
+};
+
+/**
  * The whole amendment, tab by tab. Tabs with nothing changed are KEPT with an
  * empty `rows` array rather than dropped, so a caller can render a stable set
  * of badges without re-listing the tabs itself.
@@ -638,6 +736,7 @@ export function diffAmendment(
     diffTab(APPROVAL_QTYS, before.approvalQtys, after.approvalQtys),
     diffTab(QUANTITIES, before.quantities ?? [], after.quantities ?? []),
     diffTab(PACK_TYPES, before.packTypes ?? [], after.packTypes ?? []),
+    diffTab(TA_ACTIVITIES, before.taActivities ?? [], after.taActivities ?? []),
     // The tab was withdrawn from the SCREEN on 2026-08-10; the seed still
     // produces these rows and check-amendment-diff.mts still asserts on them.
     diffTab(COUNTRY_SIZES, before.countrySizes ?? [], after.countrySizes ?? []),

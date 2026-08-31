@@ -4,6 +4,36 @@
  * These 6 entities have their own CRUD tables but many picker screens still
  * consume ConfigLookup[]. Rather than rewriting every picker component, we
  * map at the resolver-page boundary so the components stay unchanged.
+ *
+ * ## ⚠ A SHIM IS ONLY SAFE WHERE THE COLUMN'S FK POINTS AT THE DEDICATED TABLE
+ *
+ * These functions hand a picker rows whose `id` is `<master>.id`. If the column
+ * being filled still `references public.config_lookups(id)`, the save is
+ * rejected outright — and `LookupDialogPicker`'s inline **+ Add** creates a
+ * `config_lookups` row, so ADDING a value succeeds while PICKING an existing one
+ * fails. That asymmetry is why it survives: the operator who adds works, the
+ * operator who picks is told nothing useful.
+ *
+ * **Diff the FK TARGET, never the column name or the master's label** — "the
+ * Designation master" names two different tables in this codebase.
+ *
+ * Current state of each, checked 2026-08-31:
+ *
+ * - `statesAsLookups` — SAFE. 0355 repointed 7 FKs at `public.states`.
+ * - `paymentTermsAsLookups` — SAFE. 0375 repointed at `public.payment_terms`.
+ * - `hsnDetailsAsLookups`, `categoriesAsLookups` — used where the column
+ *   references the dedicated table.
+ * - **`departmentsAsLookups`, `designationsAsLookups`, `employeeCategoriesAsLookups`
+ *   HAVE NO SAFE CALLER TODAY.** Every `department_id`, `designation_id` and
+ *   `category_id` column in the schema (0124 · 0126 · 0238 · 0239 · 0240 · 0243 ·
+ *   0245 · 0252 · 0267) references `config_lookups`. They fed Applicant,
+ *   Customer, Notify and Consignee until 2026-08-31 and rejected every save on a
+ *   picked designation or department; those four now read
+ *   `all.filter(l => l.kind === …)`. **Do not reach for these three again
+ *   without first repointing the column** — they are kept only because that
+ *   repoint is the other half of the fix and has not been decided.
+ *
+ * The class, with its history: [[raagam-lookup-compat-fk-mismatch]].
  */
 
 import type { ConfigLookup } from "./extras-types";

@@ -15,6 +15,22 @@
  *
  * Runs under `tsx` for `check-bom-requirement.mts`'s reason: the module imports
  * a `@/lib/...` alias at runtime and Node's ESM resolver does not read it.
+ *
+ * ## THE OTHER FILE RULE IS NOT IN THIS SUITE, AND THAT IS WORTH KNOWING
+ *
+ * "Every style carries at least one document" — `stylesMissingFiles` and
+ * `styleFileMessage` — is vectored in **`check-customer-dedup.mts`**, not here
+ * (`npm run check:customer-dedup`). Not because it belongs there by subject, but
+ * because that suite is where the pure rules exported from
+ * `lib/orders/amendments/types.ts` are exercised, and those two live there
+ * rather than in `file-rows.ts` so the SCREEN can import them: the screen's
+ * `styleFileMissing` and the server's `styleFileProblem` are one predicate, and
+ * a suite per module is what keeps the import graph honest.
+ *
+ * Written down because a reader looking for the file rule looks in the
+ * file-named suite first and concludes it is untested (T3-styles, who did
+ * exactly that). This file covers `normalizeFileRows` — which rows get WRITTEN;
+ * that one covers which styles are IN BREACH.
  */
 import { normalizeFileRows, type FileRowInput } from "../lib/orders/amendments/file-rows.ts";
 
@@ -66,6 +82,7 @@ check(
       storage_path: "abc/po.pdf",
       mime_type: "application/pdf",
       size_bytes: 1024,
+      style_ref_no: null,
       sno: 1,
     },
   ],
@@ -154,6 +171,7 @@ check(
     storage_path: "abc/po.pdf",
     mime_type: null,
     size_bytes: 1024,
+    style_ref_no: null,
     sno: 1,
   },
 );
@@ -168,6 +186,122 @@ check(
   null,
 );
 check("nothing in, nothing out", normalizeFileRows([]), []);
+
+// ---------------------------------------------------------------------------
+// 5. THE STYLE LINK (0479) — and the SECOND rule in this file that differs from
+//    its siblings on purpose
+//
+// A document now belongs to a style line. The five per-style normalizers in
+// `actions.ts` DROP a child whose style is not among the ones the save is
+// writing. This one DEMOTES it: the reference is nulled and the row is kept.
+//
+// The asymmetry is about the bucket. A size whose style vanished is a size with
+// no meaning. A file whose style ref was retyped still has an object in
+// `garment-order-docs` that this row is the only reference to — dropping the
+// row orphans those bytes with nothing left to reach or delete them by.
+// Demoting keeps the document in the header's attachment corner, where it can
+// be re-filed or removed properly.
+//
+// So the row COUNT never changes across this pass. That is what these vectors
+// pin, because "make it consistent with normalizeStyleSizes" is the tidy-up
+// that would silently start deleting documents.
+// ---------------------------------------------------------------------------
+
+const live = (...keys: string[]) => new Set(keys);
+
+check(
+  "a document under a live style survives, carrying its key",
+  normalizeFileRows([file({ style_ref_no: "ST-1" })], live("ST-1")).map((r) => [
+    r.style_ref_no,
+    r.sno,
+  ]),
+  [["ST-1", 1]],
+);
+
+// THE ONE THAT MATTERS, and the one the siblings answer the other way.
+check(
+  "a document under a style this save is NOT writing is DEMOTED, not dropped",
+  normalizeFileRows([file({ style_ref_no: "ST-GONE" })], live("ST-1")).map((r) => [
+    r.style_ref_no,
+    r.storage_path,
+  ]),
+  [[null, "abc/po.pdf"]],
+);
+refute(
+  "the sibling rule — drop a child whose style is not live — would orphan its bucket object",
+  normalizeFileRows([file({ style_ref_no: "ST-GONE" })], live("ST-1")).length,
+  0,
+);
+check(
+  "demotion never changes the row count, whatever the style list says",
+  [
+    normalizeFileRows([file({ style_ref_no: "ST-GONE" })], live("ST-1")).length,
+    normalizeFileRows([file({ style_ref_no: "ST-GONE" })], live()).length,
+    normalizeFileRows([file({ style_ref_no: "ST-1" })], live("ST-1")).length,
+  ],
+  [1, 1, 1],
+);
+
+check(
+  "keys are compared case- and whitespace-insensitively, like styleKey()",
+  normalizeFileRows([file({ style_ref_no: "  st-1  " })], live("ST-1")).map(
+    (r) => r.style_ref_no,
+  ),
+  ["st-1"],
+);
+refute(
+  "…so a case difference does not silently demote a document off its style",
+  normalizeFileRows([file({ style_ref_no: "st-1" })], live("ST-1"))[0].style_ref_no,
+  null,
+);
+
+// Every stored row today has a null style. It must pass through untouched.
+check(
+  "an ORDER-LEVEL document (no style) is untouched",
+  normalizeFileRows([file({ style_ref_no: null })], live("ST-1")).map((r) => [
+    r.style_ref_no,
+    r.sno,
+  ]),
+  [[null, 1]],
+);
+check(
+  "…and when the order has no styles at all",
+  normalizeFileRows([file({ style_ref_no: null })], live()).map((r) => r.sno),
+  [1],
+);
+
+// An ABSENT set is "do not resolve references"; an EMPTY set is "this order has
+// no styles". Collapsing the two would demote every style-filed document the
+// moment a caller forgot to pass the set.
+check(
+  "no set at all leaves every reference alone",
+  normalizeFileRows([file({ style_ref_no: "ST-ANYTHING" })])[0].style_ref_no,
+  "ST-ANYTHING",
+);
+check(
+  "an EMPTY set is not the same answer — it demotes",
+  normalizeFileRows([file({ style_ref_no: "ST-ANYTHING" })], live())[0].style_ref_no,
+  null,
+);
+
+check(
+  "sno is ONE sequence across the order, not one per style",
+  normalizeFileRows(
+    [
+      file({ storage_path: "a/1.pdf", style_ref_no: "ST-1" }),
+      file({ storage_path: "a/2.pdf", style_ref_no: "ST-2" }),
+      file({ storage_path: "a/3.pdf", style_ref_no: null }),
+    ],
+    live("ST-1", "ST-2"),
+  ).map((r) => r.sno),
+  [1, 2, 3],
+);
+
+check(
+  "a blank style ref is a null style, not a style named \"\"",
+  normalizeFileRows([file({ style_ref_no: "   " })], live("ST-1"))[0]?.style_ref_no,
+  null,
+);
 
 console.log(failed === 0 ? "\nOK — every amendment file vector holds." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { resolveWriteLocation } from "@/lib/auth/location";
 import { writeAudit } from "@/lib/audit";
 import {
   iwoInput,
@@ -32,10 +33,17 @@ export async function createInternalWorkOrder(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
+  // The unit comes from the session — `new-iwo-form.tsx` hardcoded
+  // `location_id: null`, so every IWO belonged to no GST entity. Stamped in the
+  // action for the same reason as `createReceivable`: a rule at the call site
+  // is a rule the next call site can forget.
+  const loc = await resolveWriteLocation();
+  if (!loc.ok) return { ok: false, error: loc.error };
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("internal_work_orders")
-    .insert(parsed.data)
+    .insert({ ...parsed.data, location_id: loc.locationId })
     .select("id")
     .single();
 

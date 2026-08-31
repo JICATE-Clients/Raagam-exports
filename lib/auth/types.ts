@@ -70,13 +70,45 @@ export const ACTIVE_MODULES: Module[] = [
   "system_admin",
 ];
 
+/**
+ * A unit (GST entity) the operator may act in — `public.locations`, as returned
+ * by `my_locations()` (0483).
+ *
+ * Declared HERE rather than beside the resolver in `lib/auth/location.ts`
+ * because that file is `server-only` and the chrome switcher is a Client
+ * Component. `isolatedModules` would erase a type-only import across that
+ * boundary today, but the erasure is a compiler setting rather than a promise —
+ * this file already exists to be "shared across server + client", so the shared
+ * type belongs in it.
+ */
+export interface AppLocation {
+  id: string;
+  code: string;
+  name: string;
+  /**
+   * The house default unit (`locations.is_default`) — Head Office. Exactly one
+   * location carries it. Carried on every row so the client can compute the
+   * same landing fallback `current_location()` does, from the same list,
+   * without a second query and therefore without a chance to disagree (0489).
+   */
+  isDefault: boolean;
+}
+
 export interface AppUser {
   id: string;
   email: string | null;
   phone: string | null;
   fullName: string | null;
   isSuperAdmin: boolean;
+  /** Where this person USUALLY works — an administrator's statement. Fallback only. */
   defaultLocationId: string | null;
+  /**
+   * The unit they are working in RIGHT NOW (`profiles.current_location_id`).
+   * Every RLS policy narrows to `coalesce(current, default)` via
+   * `current_location()`, so this is not a display preference — it decides what
+   * every query in the request returns.
+   */
+  currentLocationId: string | null;
   roleNames: string[];
   /** Effective permission keys, e.g. "orders:approve". */
   permissions: PermissionKey[];

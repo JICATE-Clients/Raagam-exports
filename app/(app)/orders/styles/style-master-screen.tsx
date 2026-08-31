@@ -50,6 +50,7 @@ import {
   coordinateLimit,
   isUnitKind,
   componentRowStarted,
+  componentsTakenUnder,
   componentTypeForCategory,
   styleCoordinateIds,
   styleProblems,
@@ -1017,11 +1018,46 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
            * starts working the moment an operator unticks the box on a
            * component and lists its sections.
            */
+          /* ...MINUS WHAT THIS STYLE ALREADY USES UNDER THAT COORDINATE (client
+             2026-08-31: "the system must prevent duplicate entries of the same
+             component for a single style ... allowing a user to accidentally add
+             Neck Rib twice results in duplicated trim consumption calculations,
+             which corrupts the final automated Material BOM").
+
+             THIS GRID WAS THE UNGUARDED ONE. `garment_style_components` has no
+             unique index and `normalizeComponents` de-dupes nothing, so N
+             identical rows went screen-to-database — and Fabric BOM, MBA and TA
+             Plan all read that table. The order line at least had 0457's index
+             behind it.
+
+             THE PAIR, NOT THE COMPONENT. A FRONT BODY on the TOP and a FRONT BODY
+             on the BOTTOM are two panels of a set garment; hiding the second is
+             not a stricter rule, it is a garment that cannot be entered. On a
+             one-coordinate style the two readings coincide, which is the client's
+             literal case.
+
+             SIBLINGS ONLY — a row must never filter itself out of its own list,
+             which would render a filled cell empty and blank the FK on the next
+             save ("Disabled rows"). `componentsForCoordinate` keeps the held
+             value too, so it survives twice over.
+
+             `componentsTakenUnder` IS THE SAME FUNCTION THE ORDER LINE HIDES BY
+             and the same pair `duplicateComponents` refuses in `styleProblems` —
+             which this screen already replays through `garmentStyleInput`. A
+             dropdown narrower or wider than the guard would offer a click that
+             lands on an error. */
           components={componentsForCoordinate(componentOpts, {
             coordinateId: r.coordinate_id,
             coordinates: coordinateOpts,
             currentValue: r.component_id,
-          })}
+          }).filter(
+            (o) =>
+              o.id === r.component_id ||
+              !componentsTakenUnder(
+                comps.filter((x) => x.key !== r.key),
+                r.coordinate_id,
+              ).has(o.id),
+          )}
           // The `components` master (0228), not the empty 'style_component'
           // lookup kind this used to read (0396).
           //

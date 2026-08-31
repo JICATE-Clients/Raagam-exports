@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
+import { resolveWriteLocation } from "@/lib/auth/location";
 import { writeAudit } from "@/lib/audit";
 import {
   receivableInput,
@@ -34,6 +35,21 @@ export async function createReceivable(
   const { amount_fc, exchange_rate, ...rest } = parsed.data;
   const amount_inr = forexToInr(amount_fc, exchange_rate);
 
+  // THE UNIT COMES FROM THE SESSION, NOT FROM THE FORM.
+  //
+  // `new-receivable-form.tsx` hardcoded `location_id: null`, so every invoice
+  // ever raised here belonged to no GST entity. Stamping in the ACTION rather
+  // than the form is the same choice AGENTS.md makes for the CAPITALS
+  // transform: a rule at the call site is a rule the next call site can forget,
+  // and this action has more than one caller ahead of it.
+  //
+  // `rest` is spread BEFORE this, so the session value wins over anything the
+  // client sent — a payload is not allowed to name a unit the operator has not
+  // switched to. RLS would refuse it anyway (0484's WITH CHECK), but failing
+  // here says why in words the operator can act on.
+  const loc = await resolveWriteLocation();
+  if (!loc.ok) return { ok: false, error: loc.error };
+
   const user = await getAppUser();
   const supabase = await createClient();
 
@@ -41,6 +57,7 @@ export async function createReceivable(
     .from("receivables")
     .insert({
       ...rest,
+      location_id: loc.locationId,
       amount_fc,
       exchange_rate,
       amount_inr,
