@@ -4546,8 +4546,14 @@ export function MbaMasterScreen({
              The list showed each material's auto-generated code beside it
              (BUTTONPLAS, SEWINGTHRE2) — a string no operator types, sitting
              where the eye is scanning for the spec. Same instruction that took
-             the `(SEW)` / `(PACK)` class bracket off, one field along. */
-          identity="name-only"
+             the `(SEW)` / `(PACK)` class bracket off, one field along.
+
+             This used to say `identity="name-only"`. That opt-in is gone
+             because the DEFAULT now does it: the client repeated the same
+             instruction for Customer and then Merchandiser (screenshot 2571,
+             "fix it globally"), so hiding the code became the rule rather than
+             a per-field escape. The code is still searchable. */
+          identity="name"
           required
           compact
         />

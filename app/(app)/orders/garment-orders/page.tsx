@@ -1,5 +1,5 @@
-import { AmendmentScreen } from "../amendments/amendment-screen";
-import { loadGarmentOrderProps } from "../amendments/loader";
+import { GarmentOrderScreen } from "../_garment-order/garment-order-screen";
+import { loadGarmentOrderProps } from "../_garment-order/loader";
 
 /**
  * THE ENTRY DOOR — Order Entry ▸ Garment Order. Where a garment order is
@@ -14,11 +14,22 @@ import { loadGarmentOrderProps } from "../amendments/loader";
  * one character from the old hub, a pairing the registry had already rejected
  * in writing.
  *
- * The COMPONENT deliberately still lives under `amendments/`. Moving 5,500
- * lines buys nothing an operator can see, and `scripts/audit_layout.py` keys
- * three checks on that file's path. The folder name is not the route.
+ * THE COMPONENT MOVED OUT OF `amendments/` ON 2026-08-31 (client: "the order
+ * entry child name routing is in amendment name, which will make confusion in
+ * future"). It had stayed there on the argument that moving it "buys nothing an
+ * operator can see" — true, and beside the point: the cost was to the next
+ * READER, who found the screen that RAISES an order filed under the word for
+ * changing one. The routes were corrected on 08-13 and the folder was the half
+ * left behind.
+ *
+ * It lives in `_garment-order/` — underscore-prefixed, so Next.js excludes it
+ * from routing. That matters: the screen answers BOTH doors, so putting it
+ * inside either route folder would recreate the same confusion mirrored, with
+ * the amend route importing from `garment-orders/`. A shared thing belongs in a
+ * folder that is not a route at all. It stays under `app/(app)` so
+ * `scripts/audit_layout.py` keeps scanning it.
  */
 export default async function GarmentOrderEntryPage() {
   const props = await loadGarmentOrderProps();
-  return <AmendmentScreen {...props} />;
+  return <GarmentOrderScreen {...props} />;
 }

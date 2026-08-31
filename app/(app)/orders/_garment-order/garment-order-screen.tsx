@@ -310,6 +310,9 @@ interface Props {
   masterPerms: { canCreate: boolean; canEdit: boolean };
   /** The operator's home Unit (`profiles.default_location_id`), or null. */
   defaultLocationId: string | null;
+  /** The RE No this order WOULD get, resolved on the server so the box is
+   *  filled on first paint rather than a round trip later. See the loader. */
+  initialOrderNo?: string | null;
   /**
    * WHICH DOOR THE OPERATOR CAME THROUGH.
    *
@@ -1435,13 +1438,14 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
   Description: "range",
 };
 
-export function AmendmentScreen({
+export function GarmentOrderScreen({
   rows,
   bomStatus,
   data,
   perms,
   masterPerms,
   defaultLocationId,
+  initialOrderNo = null,
   purpose = "entry",
 }: Props) {
   /** Read this, never `purpose` directly, so every site asks the same question. */
@@ -2287,7 +2291,11 @@ export function AmendmentScreen({
    * stays the sole authority, so the STORED value is always right.
    */
   const [savedOrderNo, setSavedOrderNo] = useState<string | null>(null);
-  const [previewNo, setPreviewNo] = useState<string | null>(null);
+  /* SEEDED FROM THE SERVER, not left blank for the effect below to fill
+     (client 2026-08-31). The effect still runs and still re-answers when the
+     Unit or the Date changes; what it no longer does is decide whether the
+     operator sees a number AT ALL on the first paint. */
+  const [previewNo, setPreviewNo] = useState<string | null>(initialOrderNo);
   useEffect(() => {
     if (mode !== "edit" || editId) return;
     let cancelled = false;
@@ -17694,6 +17702,9 @@ export function AmendmentScreen({
                    it `text-ellipsis` plus the hover bubble, so a 176px cell clips
                    it visibly and readably rather than silently. */
                 placeholder={merchandisers.shortHint ?? undefined}
+                /* AND IN THE PANEL — the closed field is not where an operator
+                   discovers the list is empty; they open it first. */
+                emptyHint={merchandisers.hint}
                 value={form.merchandiser_id}
                 onChange={(id) => set({ merchandiser_id: id })}
               />

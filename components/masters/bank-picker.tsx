@@ -61,7 +61,10 @@ export function BankPicker({
     () =>
       [...all]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((b) => ({ id: b.id, label: b.name, sublabel: b.bank_type, inactive: isInactive(b) })),
+        // Bank type is SEARCHABLE, NOT DISPLAYED (client 2026-08-31). Codes and
+        // second values are gone from every name-led picker; typing "nationalised"
+        // still finds the row. See lib/masters/picker-identity.ts.
+        .map((b) => ({ id: b.id, label: b.name, search: b.bank_type, inactive: isInactive(b) })),
     [all],
   );
 

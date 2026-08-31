@@ -45,6 +45,20 @@ export type PickerRow = {
   label: string;
   sublabel?: string | null;
   /**
+   * MATCHED BY THE SEARCH, RENDERED NOWHERE.
+   *
+   * A row's code, for the ~50 name-led pickers that stopped displaying it
+   * (client 2026-08-31, screenshot 2571 — `SAMPLE MERCHANDISER EMP-MERCH-01`:
+   * "no need to add that sub-name behind the value … fix it globally").
+   *
+   * It exists because the objection to hiding codes was always that the
+   * sublabel is ALSO how a row is found, so hiding it would make an HSN or a
+   * ledger code untypeable. Display and search are separated here instead, and
+   * the objection goes away: the operator can still type the code, they just
+   * never have it printed at them. See `pickerIdentityParts`.
+   */
+  search?: string | null;
+  /**
    * What the TRIGGER shows once this row is chosen, where that is shorter than
    * the label — the list, the search and the hover bubble all keep the label.
    *
@@ -223,6 +237,7 @@ export function DataPicker({
   label,
   title,
   rows,
+  emptyHint,
   value,
   onChange,
   usedIds,
@@ -246,6 +261,17 @@ export function DataPicker({
    *  header already names the field, so `label` is blank. */
   title?: string;
   rows: PickerRow[];
+  /**
+   * WHAT TO SAY INSTEAD OF "No <noun> found." WHEN THE MASTER IS EMPTY.
+   *
+   * For a list that is narrowed by a rule rather than merely unfilled — a
+   * merchandiser must hold the Merchandiser designation, a nominated vendor must
+   * be on the customer's list. The generic sentence is true and tells the
+   * operator nothing they can act on; this one names the fix.
+   *
+   * Ignored while a search is narrowing the list — see the panel for why.
+   */
+  emptyHint?: string | null;
   value: string | null;
   onChange: (id: string | null) => void;
   /**
@@ -422,7 +448,11 @@ export function DataPicker({
       const needle = q.trim().toLowerCase();
       if (!needle) return selectable;
       return selectable.filter((r) =>
-        `${r.label} ${r.sublabel ?? ""}`.toLowerCase().includes(needle),
+        // `search` is the hidden half — a name-led row's code lives here rather
+        // than in `sublabel`, so it stays findable without being displayed.
+        `${r.label} ${r.sublabel ?? ""} ${r.search ?? ""}`
+          .toLowerCase()
+          .includes(needle),
       );
     },
     [selectable],
@@ -788,8 +818,27 @@ export function DataPicker({
         className="max-h-72 overflow-auto py-1"
       >
         {filtered.length === 0 && (
+          /**
+           * EMPTY-AND-EXPLAIN, WHERE THE OPERATOR IS ACTUALLY LOOKING
+           * (client 2026-08-31, screenshot 2570: the Merchandiser list opened on
+           * "No merchand. found." — true, useless, and identical to the sentence
+           * a mis-typed search produces).
+           *
+           * `nominatedVendorOptions` and `merchandiserOptions` both already
+           * compute a reason ("no employee is designated Merchandiser"), and it
+           * was rendered on the CLOSED trigger as a placeholder — which is the
+           * one moment the operator is not reading it. They open the list
+           * precisely because they expect names, and the panel is where the
+           * absence is discovered.
+           *
+           * ONLY WHEN THE MASTER ITSELF IS EMPTY, never when a search narrowed
+           * to nothing. `rows.length === 0` is the test, not `filtered` — a
+           * typo'd query is not evidence that nobody is set up, and telling an
+           * operator to go and create a merchandiser because they misspelled one
+           * would send them to fix something that is not broken.
+           */
           <li className="px-3 py-6 text-center text-sm text-muted-foreground">
-            No {noun.toLowerCase()} found.
+            {emptyHint && rows.length === 0 ? emptyHint : `No ${noun.toLowerCase()} found.`}
           </li>
         )}
         {filtered.map((r) => {

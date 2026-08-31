@@ -18,6 +18,12 @@ export interface ComboboxOption {
   label: string;
   sublabel?: string;
   /**
+   * Matched by the search, rendered nowhere — same contract as
+   * `PickerRow.search` in data-picker.tsx, and here for the same reason: a
+   * name-led row's code stays findable without being printed at the operator.
+   */
+  search?: string | null;
+  /**
    * Shown, greyed, and not choosable — by the mouse, by Enter, or by ↑/↓.
    *
    * This is what `<option disabled>` means, and until now a desktop `<Select>`
@@ -128,7 +134,9 @@ export function Combobox({
       const needle = q.trim().toLowerCase();
       if (!needle) return options;
       return options.filter((o) =>
-        `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(needle),
+        `${o.label} ${o.sublabel ?? ""} ${o.search ?? ""}`
+          .toLowerCase()
+          .includes(needle),
       );
     },
     [options],

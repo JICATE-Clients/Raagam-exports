@@ -61,7 +61,9 @@ export function AssetsClient({ rows, locations, items, canCreate }: Props) {
   const [value, setValue] = useState("");
 
   const itemOptions = useMemo(
-    () => items.map((i) => ({ value: i.id, label: i.name, sublabel: i.category ?? undefined })),
+    // Category is SEARCHABLE, NOT DISPLAYED (client 2026-08-31). It is still
+    // COPIED onto the asset on pick — see below; that is unaffected.
+    () => items.map((i) => ({ value: i.id, label: i.name, search: i.category ?? undefined })),
     [items],
   );
 

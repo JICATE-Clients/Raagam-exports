@@ -6,10 +6,10 @@
  */
 
 /**
- * `"name"` — the default and the house rule: the closed field shows the name and
- * the code rides as the row's sublabel. Codes are backend-only
- * (client 2026-07-23), so a Vendor field reads `Kandagiri Spinning`, not
- * `VKS — Kandagiri Spinning`.
+ * `"name"` — the default and the house rule: the closed field AND the list show
+ * the name, and nothing else. Codes are backend-only (client 2026-07-23), so a
+ * Vendor field reads `Kandagiri Spinning`, not `VKS — Kandagiri Spinning` and
+ * not `Kandagiri Spinning   VKS`.
  *
  * `"code"` — for a record whose NUMBER is its identity: an SC No, an Enquiry No.
  * There the "name" is a property of the document (its customer), not its name,
@@ -17,8 +17,15 @@
  * the Garment Order Amendment screen's `SCNo` field listed five rows all reading
  * `Aurelia Retail` (client 2026-08-10). `currency-picker.tsx` already does this
  * for the same reason: an ISO code IS the currency.
+ *
+ * ## `"name-only"` IS GONE, BECAUSE `"name"` NOW MEANS WHAT IT MEANT
+ *
+ * It existed for one thing — suppressing the code beside the name — and that is
+ * now the behaviour of the default. Keeping a second word for it would leave two
+ * ways to say one thing, which is how `employee-picker.tsx` ended up
+ * hand-rolling `sublabel: i.code` and bypassing this file entirely.
  */
-export type PickerIdentity = "name" | "code" | "name-only";
+export type PickerIdentity = "name" | "code";
 
 /**
  * A value adds nothing beside another when it IS that one, or is already inside
@@ -98,40 +105,77 @@ export function redundantBeside(other: string, primary: string): boolean {
 }
 
 /**
- * What one picker row displays: `label` in the closed field and the list,
- * `sublabel` muted beside it in the list only (`data-picker.tsx` renders the
- * trigger from `label` alone, which is why a code-identified record must put its
- * code THERE and not in the sublabel).
+ * What one picker row displays, and what it can be FOUND by:
+ *
+ *   `label`    — the closed field and the list
+ *   `sublabel` — muted beside the label, IN THE LIST ONLY, and only for a
+ *                code-led row (`data-picker.tsx` renders the trigger from
+ *                `label` alone, which is why a code-identified record must put
+ *                its code THERE and not in the sublabel)
+ *   `search`   — matched by the filter and rendered NOWHERE
+ *
+ * The third field is what let the name-led branch stop printing codes without
+ * making them unfindable. See the note inside.
  */
 export function pickerIdentityParts(
   code: string | null | undefined,
   name: string | null | undefined,
   identity: PickerIdentity = "name",
-): { label: string; sublabel: string | null } {
+): { label: string; sublabel: string | null; search: string | null } {
   const c = (code ?? "").trim();
   const n = (name ?? "").trim();
-  // `&& c` is the fallback that keeps a codeless row from rendering a blank
-  // field: an order with no number still shows its customer.
+
   /**
-   * `"name-only"` SUPPRESSES THE SECOND HALF ENTIRELY (client 2026-08-28,
-   * screenshot 2531: "after the material name I can see again one more thing —
-   * don't need that").
+   * ## A NAME-LED ROW NO LONGER DISPLAYS ITS CODE AT ALL
    *
-   * A THIRD VALUE RATHER THAN A `hideSublabel` FLAG, because this is the same
-   * question the other two answer — what identifies this record to the operator
-   * — and a boolean beside an enum is a second way to say one thing. It is also
-   * what keeps the choice greppable: every picker's identity is one word.
+   * Client 2026-08-31, screenshot 2571 — the Merchandiser field listing
+   * `SAMPLE MERCHANDISER   EMP-MERCH-01`: *"already I told, no need to add that
+   * sub-name behind the value … this is already we fixed in customer field,
+   * again it's happening in merchandiser field … we need to fix it globally."*
    *
-   * WHAT IT COSTS, STATED PLAINLY: `DataPicker` searches `label + sublabel`, so
-   * a row whose code is not displayed can no longer be FOUND by its code. That
-   * is a real capability and it is given up deliberately — on the Material list
-   * the codes are truncated auto-generated strings (BUTTONPLAS, SEWINGTHRE2)
-   * that no operator types. Do not reach for this on a field whose code IS the
-   * thing people know it by (an HSN, an account head, a PO number).
+   * THIS IS THE THIRD TIME AND THE RULE IS WHAT WAS WRONG, NOT THE CALL SITE.
+   * Material (08-28, screenshot 2531) was answered with a `name-only` opt-in at
+   * one call site. Customer (08-31, screenshot 2558) was answered with the
+   * `redundantBeside` auto-code clause below. Both were narrower than the
+   * instruction, so the next field with a code that is not a squashed copy of
+   * its name reported the same bug again — and `EMP-MERCH-01` is exactly that:
+   * hand-typed, unrelated to the name, so every duplication guard correctly let
+   * it through. AGENTS.md: *"A per-component fix for a contract-level rule
+   * always leaves a remainder."*
+   *
+   * ## THE OBJECTION THAT KEPT THIS NARROW, AND WHY IT NO LONGER HOLDS
+   *
+   * This file used to argue against exactly this change: *"the sublabel is also
+   * how a row is FOUND — `DataPicker` searches `label + sublabel` — so
+   * defaulting to name-only would silently drop every code from search,
+   * including the ones operators actually type: an HSN, an account head, a
+   * ledger code."*
+   *
+   * That was true and it is now answered rather than overruled. The objection
+   * assumed DISPLAY and SEARCH are the same string. They are separated: the code
+   * is returned as `search`, which the pickers add to their filter and render
+   * NOWHERE. An operator can still type `EMP-MERCH-01`, or an HSN, or a ledger
+   * code, and land on the row. Nothing is lost — the code simply stops being
+   * printed at the operator.
+   *
+   * `identity: "code"` is untouched, and the distinction is the whole shape of
+   * every complaint so far: each one has been a CODE shown after a NAME. A NAME
+   * shown after a code was never reported — it was *requested* (2026-08-10), and
+   * it is what stops five SC No rows all reading `Aurelia Retail`.
    */
-  if (identity === "name-only") return { label: n || c, sublabel: null };
-  const codeLeads = identity === "code" && !!c;
+  if (identity !== "code") {
+    // `n || c` keeps a codeless row from rendering a blank field: an order with
+    // no number still shows its customer.
+    return { label: n || c, sublabel: null, search: c || null };
+  }
+
+  // `&& c` is the same fallback in the other direction.
+  const codeLeads = !!c;
   const primary = codeLeads ? c : n;
   const other = codeLeads ? n : c;
-  return { label: primary, sublabel: redundantBeside(other, primary) ? null : other };
+  return {
+    label: primary,
+    sublabel: redundantBeside(other, primary) ? null : other,
+    search: null,
+  };
 }

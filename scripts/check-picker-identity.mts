@@ -19,11 +19,28 @@
 //
 // Exits non-zero on the first mismatch so it can gate a commit if wanted.
 
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import {
   pickerIdentityParts,
   redundantBeside,
   type PickerIdentity,
 } from "../lib/masters/picker-identity.ts";
+
+/** Every .ts/.tsx under the app's own source roots. */
+function walkSources(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir)) {
+      if (e === "node_modules" || e === ".next" || e === ".claude" || e === ".git") continue;
+      const full = join(dir, e);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (full.endsWith(".tsx") || full.endsWith(".ts")) out.push(full);
+    }
+  };
+  for (const root of ["app", "components", "lib"]) walk(root);
+  return out;
+}
 
 let failed = 0;
 
@@ -71,45 +88,74 @@ check("a blank-string code falls back too",
   "   ", "ABASIC", "code", "ABASIC", null);
 
 // ---------------------------------------------------------------------------
-// identity="name" — the ~50 defaults. The closed field must still read the NAME
-// (codes are backend-only), with the code searchable beside it in the list.
+// identity="name" — the ~50 defaults. THE NAME AND NOTHING ELSE IS DISPLAYED
+// (client 2026-08-31, screenshot 2571, third report of the same thing:
+// "no need to add that sub-name behind the value ... fix it globally").
+// The code moves to `search`: still typeable, never printed.
 // ---------------------------------------------------------------------------
 
 // The commonest shape: vendors, customers, items, UOMs, activities.
-check("Vendor reads its name, code rides along",
-  "VKS", "Kandagiri Spinning", "name", "Kandagiri Spinning", "VKS");
+check("Vendor reads its name, code hidden but searchable",
+  "VKS", "Kandagiri Spinning", "name", "Kandagiri Spinning", null, "VKS");
+
+// THE REPORTED BUG, as a vector. `EMP-MERCH-01` is hand-typed and unrelated to
+// the name, so every duplication guard correctly let it through — which is why
+// the rule, not the guard, had to change.
+check("Merchandiser does not print the employee code",
+  "EMP-MERCH-01", "SAMPLE MERCHANDISER", "name", "SAMPLE MERCHANDISER", null, "EMP-MERCH-01");
+
+// The codes the old objection was about. Each is real information an operator
+// types — and each is still findable, which is what makes hiding them safe.
+check("an HSN is hidden but still searchable",
+  "6109", "T-SHIRTS", "name", "T-SHIRTS", null, "6109");
+check("an account head code is hidden but still searchable",
+  "AH001", "AH Sundry Debtors", "name", "AH Sundry Debtors", null, "AH001");
+
+// Material, the 2026-08-28 report that used to need `identity="name-only"`.
+// The default now does it, which is why that opt-in was removed.
+check("Material needs no opt-in to hide its auto-code",
+  "BUTTONPLAS", "BUTTON PLASTIC", "name", "BUTTON PLASTIC", null, "BUTTONPLAS");
+
+// A code-led row is UNAFFECTED, and this is the distinction the whole change
+// rests on: every complaint has been a CODE printed after a NAME. A NAME after
+// a code was never reported — it was requested (2026-08-10).
+check("code-led rows still show the name beside the number",
+  "SO/26-27/0401", "ABASIC", "code", "SO/26-27/0401", "ABASIC", null);
 
 // ---------------------------------------------------------------------------
-// The redundancy guard. Each of these is a real call site that would otherwise
-// print the same text twice.
+// The redundancy guard. It no longer decides anything for a NAME-led row (those
+// print no second value at all now), but it is still what stops a CODE-led row
+// printing the same text twice — TA Plan passes order_number as both halves.
+// These vectors stay because `redundantBeside` is still live on that branch and
+// is exercised directly below.
 // ---------------------------------------------------------------------------
 
 // material-hsn-assign-screen.tsx:25 pre-composes `${code} — ${name}` into name
 // to work around the dropped code. Without the containment guard this reads
 // "6109 — T-SHIRTS   6109".
 check("HSN does not repeat a pre-composed code",
-  "6109", "6109 — T-SHIRTS", "name", "6109 — T-SHIRTS", null);
+  "6109", "6109 — T-SHIRTS", "name", "6109 — T-SHIRTS", null, "6109");
 
 // default-account-head-screen.tsx:135 does the same with short_name.
 check("Account Head does not repeat its short name",
-  "SAL", "SAL — Salaries", "name", "SAL — Salaries", null);
+  "SAL", "SAL — Salaries", "name", "SAL — Salaries", null, "SAL");
 
 // customer-master-screen.tsx:1549 passes `name: name ?? short_name`, so on the
 // fallback the two halves are identical.
 check("Port on its short-name fallback shows one value",
-  "TUT", "TUT", "name", "TUT", null);
+  "TUT", "TUT", "name", "TUT", null, "TUT");
 
 // ta-plan-screen.tsx:313 passes order_number as BOTH code and name.
 check("TA Plan SC No, where code and name are one value",
-  "SO-0003", "SO-0003", "name", "SO-0003", null);
+  "SO-0003", "SO-0003", "name", "SO-0003", null, "SO-0003");
 
 // Case-insensitively identical still counts as redundant.
 check("case difference is still redundant",
-  "tut", "TUT", "name", "TUT", null);
+  "tut", "TUT", "name", "TUT", null, "tut");
 
 // Services that hardcode `code: null` (Contact, Process).
-check("a null code adds no sublabel",
-  null, "R. Kumar", "name", "R. Kumar", null);
+check("a null code adds no sublabel and no search text",
+  null, "R. Kumar", "name", "R. Kumar", null, null);
 
 // ---------------------------------------------------------------------------
 // The guard itself, directly.
@@ -157,6 +203,85 @@ for (const [label, other, primary, want] of guards) {
   } else {
     console.log(`ok    guard: ${label}`);
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// SOURCE SCAN - a picker may not hand-roll a CODE into a displayed sublabel.
+//
+// THE VECTORS ABOVE WOULD NOT HAVE CAUGHT THE REPORTED BUG ON THEIR OWN, and
+// that is why this exists. `employee-picker.tsx` built its own rows and never
+// called `pickerIdentityParts`, so the Merchandiser field printed
+// `SAMPLE MERCHANDISER   EMP-MERCH-01` no matter what the shared rule said.
+// Fixing the rule alone would have left it broken with every vector green - the
+// "the check passing means nothing on its own" shape AGENTS.md records for the
+// created_by sweep.
+//
+// A DESCRIPTIVE sublabel is fine and deliberately NOT flagged: bank_type,
+// account_type, category, short_description are other FACTS about the record,
+// not the record's own name repeated. Every complaint so far has been a code.
+// ---------------------------------------------------------------------------
+const SUB = "sublabel:";
+const NEWLINE = String.fromCharCode(10);
+
+// The two files that OWN the rule and legitimately assign a sublabel:
+// picker-identity.ts decides it for a code-led row, record-picker.ts restores it
+// on colliding rows. Skipping them is not an exemption, it is not scanning the
+// implementation for uses of itself.
+const OWNERS = ["picker-identity.ts", "record-picker.tsx"];
+
+/** Is this line ASSIGNING a value to a displayed sublabel? */
+function displaysASecondValue(line: string): boolean {
+  const at = line.indexOf(SUB);
+  if (at < 0) return false;
+  // A type declaration is `sublabel?:` and never matches the string above.
+  const value = line.slice(at + SUB.length).trim();
+  // `sublabel: null` is the rule doing its job, not a violation.
+  return value.length > 0 && !value.startsWith("null");
+}
+
+/**
+ * Does an exemption marker sit on this line, or anywhere in the comment block
+ * directly above it?
+ *
+ * Reaching BACKWARDS over the whole block rather than checking one line is the
+ * same shape `nav-path: exempt` uses, and for the same reason: the reason a line
+ * is exempt rarely fits beside it, so forcing it there produces either a
+ * truncated reason or no exemption at all.
+ */
+function exempted(lines: string[], at: number): boolean {
+  if (lines[at].includes("picker-code: exempt")) return true;
+  for (let j = at - 1; j >= 0; j--) {
+    const t = lines[j].trim();
+    if (t === "") continue;
+    if (!(t.startsWith("//") || t.startsWith("*") || t.startsWith("/*"))) return false;
+    if (t.includes("picker-code: exempt")) return true;
+  }
+  return false;
+}
+
+for (const file of walkSources()) {
+  if (OWNERS.some((o) => file.endsWith(o))) continue;
+  const lines = readFileSync(file, "utf8").split(NEWLINE);
+  lines
+    .forEach((line, i) => {
+      const t = line.trim();
+      // Prose, not code. Several files describe this pattern while doing the
+      // right thing, and flagging a comment trains people to ignore the check
+      // (same reason check-nav-paths strips them).
+      if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return;
+      if (!displaysASecondValue(line)) return;
+      if (exempted(lines, i)) return;
+      failed++;
+      console.error("FAIL  " + file + ":" + (i + 1) + " displays a second value beside the name");
+      console.error("      " + t);
+      console.error("      A picker shows the NAME and nothing else (client 2026-08-31,");
+      console.error("      screenshot 2571, third report: 'no need to add that sub-name");
+      console.error("      behind the value ... fix it globally'). Codes, types, categories");
+      console.error("      and short descriptions all go in `search`: hidden, still typeable.");
+      console.error("      A CODE-LED row is the one exception - label IS the code, so the");
+      console.error("      name beside it is wanted. Mark it `picker-code: exempt -- <reason>`.");
+    });
 }
 
 console.log(

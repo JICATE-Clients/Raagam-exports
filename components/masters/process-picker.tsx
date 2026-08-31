@@ -45,9 +45,10 @@ export function ProcessPicker({
       processes.map((p) => ({
         id: p.id,
         label: p.name,
-        // The sublabel is where the old dialog's second column goes — here the
-        // short description, which is what tells two similar processes apart.
-        sublabel: p.short_description ?? undefined,
+        // The old dialog's second column — the short description — is now
+        // SEARCHABLE rather than displayed (client 2026-08-31, "fix it
+        // globally"). Two similar processes are still told apart by typing it.
+        search: p.short_description ?? undefined,
         inactive: isInactive(p),
       })),
     [processes],

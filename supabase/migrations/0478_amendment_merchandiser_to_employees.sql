@@ -211,7 +211,14 @@ declare
   mapped  integer := 0;
   cleared integer := 0;
 begin
-  /* A code is an identity only when it is unambiguous on BOTH sides. The two
+  /* `(array_agg(id))[1]`, NOT `min(id)` — Postgres has no `min(uuid)`, and this
+     migration was written and reviewed but never run, so nothing caught it
+     until it was applied for real on 2026-08-31 (`42883: function min(uuid)
+     does not exist`). The two are equivalent HERE only because the `having
+     count(*) = 1` below means the group holds exactly one id; the aggregate is
+     picking the sole member, not the smallest.
+
+     A code is an identity only when it is unambiguous on BOTH sides. The two
      `having count(*) = 1` clauses are not belt-and-braces: one profile sharing
      a code with two employees, or two profiles sharing one code, is exactly the
      case where a "match" would assign an order to the wrong person. */
@@ -221,7 +228,7 @@ begin
      where employee_code is not null and btrim(employee_code) <> ''
   ),
   unique_profile as (
-    select code, min(id) as id from profile_code group by code having count(*) = 1
+    select code, (array_agg(id))[1] as id from profile_code group by code having count(*) = 1
   ),
   employee_code as (
     select id, upper(btrim(code)) as code
@@ -229,7 +236,7 @@ begin
      where code is not null and btrim(code) <> ''
   ),
   unique_employee as (
-    select code, min(id) as id from employee_code group by code having count(*) = 1
+    select code, (array_agg(id))[1] as id from employee_code group by code having count(*) = 1
   ),
   pairs as (
     select p.id as profile_id, e.id as employee_id

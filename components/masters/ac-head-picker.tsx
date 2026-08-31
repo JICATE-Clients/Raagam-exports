@@ -10,8 +10,13 @@ import { isInactive } from "@/lib/masters/inactive";
  * "Ac Head" red ⓘ field on the GST Structure / Levy screen.
  *
  * No inline Add: the chart of accounts is maintained in Finance, and an account
- * created without its type would not post. The account type rides along as the
- * row's sublabel, which is the column the old dialog showed beside the name.
+ * created without its type would not post.
+ *
+ * THE ACCOUNT TYPE IS SEARCHABLE, NOT DISPLAYED. It used to render beside the
+ * name because that is the column the old dialog showed — and the client has now
+ * asked three times for the second value to go from every picker (2026-08-31,
+ * screenshot 2571, "fix it globally"). Legacy parity lost that argument. Typing
+ * the type still finds the row.
  *
  * Thin adapter over `DataPicker`; props and import path unchanged from the modal
  * dialog this replaced (client 2026-07-29).
@@ -38,7 +43,7 @@ export function AcHeadPicker({
         .map((a) => ({
           id: a.id,
           label: a.name,
-          sublabel: a.account_type,
+          search: a.account_type,
           inactive: isInactive(a),
         })),
     [accounts],
