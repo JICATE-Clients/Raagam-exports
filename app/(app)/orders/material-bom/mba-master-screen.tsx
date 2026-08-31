@@ -6768,19 +6768,14 @@ export function MbaMasterScreen({
   ];
 
   return (
-    /* THE ONLY HOLDER OF THE NEW SKIN TODAY (client 2026-08-28: "in material bom
-       only change this edit if it's okay we can chnaged all other things ...
-       touch these pages only as of now"). `[data-skin="raagam"]` in globals.css
-       is pure token overrides, so both surfaces below inherit it and no screen
-       outside this subtree can see it.
-       IT WRAPS THE FRAGMENT, NOT JUST THE LIST, because the editor is a SIBLING
-       of the list and `MasterFullScreen` neither portals nor takes a className —
-       skinning only the list would have left the overlay on the old tokens, and
-       the two are the two screens the client named. A plain div is safe around a
-       `fixed` overlay: nothing here sets transform or filter, which are the only
-       things that would make `fixed` resolve against this box instead of the
-       viewport. */
-    <div data-skin="raagam">
+    /* NO `data-skin` WRAPPER HERE ANY MORE — it moved to
+       `app/(app)/orders/layout.tsx` on 2026-08-29, when the client approved the
+       look and asked for the whole Orders module to wear it. This screen carried
+       the only one in the app while the colours were being settled; keeping it as
+       well as the layout's would be two sources for one decision.
+       BACK TO A FRAGMENT, because what it wrapped is SIBLINGS — the list and the
+       `MasterFullScreen` overlay — so the wrapper cannot simply be deleted. */
+    <>
       <div className="space-y-4">
         {/* THE PRIMARY ACTION SITS BESIDE "← Back", NOT IN A BAND OF ITS OWN.
             It was a right-aligned div under the toolbar, so the two buttons this
@@ -7045,7 +7040,7 @@ export function MbaMasterScreen({
         onPick={pickCopySource}
         isPending={isPending}
       />
-    </div>
+    </>
   );
 }
 
