@@ -753,7 +753,21 @@ body {
      it, and a grey panel on a white page is the tint coming back by another
      name. */
   --background: #ffffff;
-  --surface-muted: #ffffff;
+  /* NOT WHITE, AND THIS WAS A REGRESSION FOR TWO DAYS (found 2026-08-31).
+     `--surface-muted` went white on 2026-08-28 so panels would layer on top of a
+     FLOODED GREEN canvas. The canvas is white again, so the white bought nothing
+     — while still being drawn by 75 components. Three affordances were dead
+     across all 46 Orders routes, and none of them exist on Material BOM, which
+     is why the screen it was tuned on never showed it:
+       - `data-table.tsx:62`  a table's HEADER row (`bg-surface-muted`) — white on
+         white, so headers stopped reading as headers;
+       - `data-table.tsx:106` / `child-grid.tsx:1875` row hover
+         (`hover:bg-surface-muted/60` and `/40`) — hovering a row did nothing;
+       - `sheet.tsx` x3, icon-button hover.
+     #f0f8e5 is 12% of the logo green on white: 1.090:1 against the surface,
+     against the app default #f1f3f5's 1.112:1 — so it bands as visibly as the
+     grey it replaces, and holds dark text at 16.4:1. */
+  --surface-muted: #f0f8e5;
   /* BOLD ON THE FIELDS, QUIET ON THE PARTITIONS (client 2026-08-28: "no u made
      all the lines bold ... i will tell which lines to remove").
      Making `--border` itself bold was the wrong lever, because ONE token draws
@@ -828,6 +842,18 @@ body {
    A solid blue rail was the previous reading of "blue on the full left side
    bar" and it was the wrong one: the colour belongs to the CONTROLS, and the
    surface behind them stays white. Same rule on the right, in green. */
+/* `[aria-orientation="vertical"]` SCOPES THESE TO THE SECTION RAIL, and without it
+   they reach a control they were never designed for.
+   `MasterFullScreen`'s rail is a `role="tablist"`, and so is `components/ui/tabs.tsx`
+   — the app's ordinary horizontal tab strip, which THREE Orders screens use (Order
+   Amendment, the order detail tabs, Price Confirmation). Keyed on `role` alone, the
+   rules below dressed those strips as a vertical rail: a panel background behind
+   them and a blue GRADIENT pill on the selected tab.
+   The rail declares `aria-orientation="vertical"` and `Tabs` declares
+   `"horizontal"`, so the discriminator is already in the markup and needs no new
+   marker. The rail sets it unconditionally — its own comment records that the
+   mobile chip strip is visually horizontal but the attribute stays "vertical" to
+   avoid a hydration mismatch — so this holds at every width. */
 /* NO TINTED SURFACES ANYWHERE — white is the ground (client 2026-08-28:
    "remove the bg color, white is enpugh fopr me").
    Three grounds were tried and all three are withdrawn: a flooded green canvas,
@@ -838,7 +864,7 @@ body {
    Left as one rule rather than deleted so the sidebar still overrides the
    component's own `bg-surface-muted`, which would otherwise put a grey panel
    back where the white is wanted. */
-[data-skin="raagam"] [role="tablist"] {
+[data-skin="raagam"] [role="tablist"][aria-orientation="vertical"] {
   background: var(--surface);
   border-color: var(--border);
 }
@@ -847,7 +873,7 @@ body {
    label and nothing else until one is chosen — the outlined pills I had were
    inventing chrome the design does not have, and made all three read as equally
    active. */
-[data-skin="raagam"] [role="tab"] {
+[data-skin="raagam"] [aria-orientation="vertical"] [role="tab"] {
   /* THE RAIL BUTTONS TAKE THE FIELD'S SHAPE, NOT A PILL (client 2026-08-28, a
      screenshot of a field box: "i want this shape for left side buttons").
      `--radius-md` is the same token the inputs on the right resolve to, so the
@@ -861,10 +887,10 @@ body {
 /* The icon takes `text-primary` / `text-muted-foreground` from the component;
    `currentColor` re-ties it to its label so the two cannot disagree as the item
    moves between selected and not. */
-[data-skin="raagam"] [role="tab"] svg {
+[data-skin="raagam"] [aria-orientation="vertical"] [role="tab"] svg {
   color: currentColor;
 }
-[data-skin="raagam"] [role="tab"]:hover {
+[data-skin="raagam"] [aria-orientation="vertical"] [role="tab"]:hover {
   background: #ffffff;
   color: #075985;
 }
@@ -882,8 +908,8 @@ body {
    #037bb8 and not the raw logo #0493db: white on the raw blue is 3.39:1 and
    these labels are 13.5px normal text, which needs 4.5. #037bb8 is that same
    hue at 4.64:1 — measured, not eyeballed. */
-[data-skin="raagam"] [role="tab"][aria-selected="true"],
-.dark [data-skin="raagam"] [role="tab"][aria-selected="true"] {
+[data-skin="raagam"] [aria-orientation="vertical"] [role="tab"][aria-selected="true"],
+.dark [data-skin="raagam"] [aria-orientation="vertical"] [role="tab"][aria-selected="true"] {
   /* THE SELECTED PILL IS THE GRADIENT — the reference's "Tracking" item is a
      violet-to-pink pill and this is its blue-to-green counterpart.
      #558019 AND NOT #85c227 AT THE FAR END, and this is the whole reason the
