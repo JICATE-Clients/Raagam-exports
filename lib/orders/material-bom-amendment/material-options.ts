@@ -128,10 +128,21 @@ export { isAccessoryClass, ACCESSORY_CLASS_CODES };
  * The ambiguity is narrowed rather than reintroduced whole, and it is worth
  * knowing why before anyone "restores" the suffix as a fix:
  *
- *  - **The picker shows the material CODE beneath the name.** `RecordPicker`
- *    renders `pickerIdentityParts(code, name)`, so two POLY BAGs are two rows
- *    with different codes under them — visibly different, just not classified.
- *    A material with no code is the case this does not cover.
+ *  - **The picker shows the material CODE beside the name WHEN, AND ONLY WHEN,
+ *    TWO ROWS READ ALIKE.** So two POLY BAGs are two rows with different codes
+ *    beside them — visibly different, just not classified — while a list of
+ *    distinct names shows no codes at all.
+ *
+ *    This sentence was WRONG between 2026-08-28 and 08-31 and the correction is
+ *    worth keeping. It claimed the code was always shown; the field actually
+ *    passed `identity="name-only"`, which suppressed it outright, so two
+ *    same-named materials were genuinely indistinguishable here — the failure
+ *    this paragraph exists to rule out, live, while the paragraph said it could
+ *    not happen. `RecordPicker` now restores the code on colliding rows only
+ *    (client 2026-08-31 asked for codes gone globally, screenshot 2571), which
+ *    is what makes both halves true at once.
+ *
+ *    A material with no code is still the case this does not cover.
  *  - **The unscoped list is the exception, not the rule.** This branch fires
  *    only while no Category is chosen; the ordinary flow picks a category first
  *    and never sees a cross-class list at all.

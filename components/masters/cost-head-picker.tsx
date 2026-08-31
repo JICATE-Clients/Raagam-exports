@@ -32,7 +32,8 @@ export function CostHeadPicker({
     () =>
       [...costHeads]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((c) => ({ id: c.id, label: c.name, sublabel: c.category, inactive: isInactive(c) })),
+        // Category is SEARCHABLE, NOT DISPLAYED (client 2026-08-31).
+        .map((c) => ({ id: c.id, label: c.name, search: c.category, inactive: isInactive(c) })),
     [costHeads],
   );
 

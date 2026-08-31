@@ -67,6 +67,11 @@ export function CurrencyPicker({
         // No `inactive`: `public.currencies` (0004) is code / name / symbol and
         // has no disable column — an ISO currency is retired by deleting the row.
         // Flag-less by construction, see FLAGLESS_PICKERS in audit_layout.py.
+        // picker-code: exempt -- CODE-LED. An ISO code IS the currency, so the
+        // label is the code and the name is the human half beside it. This is
+        // identity="code", the shape the client asked FOR (2026-08-10, five SC No
+        // rows all reading "Aurelia Retail"), not the name-plus-code shape they
+        // asked to be removed.
         .map((c) => ({ id: c.code, label: c.code, sublabel: c.name })),
     [all],
   );

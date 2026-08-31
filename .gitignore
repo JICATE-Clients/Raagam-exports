@@ -114,3 +114,6 @@ __pycache__/
 # The dev server log this session redirects `next dev` stdout into — the panic
 # chain lives only there, and .next/dev/logs/ just echoes the useless one-liner.
 /.next-dev.log
+
+# Supabase CLI scratch (version cache), not project source.
+/supabase/.temp/

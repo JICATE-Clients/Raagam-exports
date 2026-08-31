@@ -51,6 +51,7 @@ export type PickerItem = { id: string; code: string | null; name: string } & Dea
 export function RecordPicker({
   label,
   items,
+  emptyHint,
   value,
   onChange,
   usedIds,
@@ -64,6 +65,9 @@ export function RecordPicker({
 }: {
   label: string;
   items: PickerItem[];
+  /** Shown in the open panel instead of "No <noun> found." when the master
+   *  itself is empty — see `emptyHint` on `DataPicker`. */
+  emptyHint?: string | null;
   value: string | null;
   onChange: (id: string | null) => void;
   /**
@@ -117,15 +121,51 @@ export function RecordPicker({
     // Sorted by what is DISPLAYED, not always by `name`. For the default that is
     // the same ordering as before — `primary` is the name — so nothing reorders
     // except the code-led fields, where sorting by customer was the complaint.
-    return [...items]
+    const decorated = [...items]
       .map(decorate)
       .sort((a, b) => a.label.localeCompare(b.label));
+
+    /**
+     * ## THE ONE PLACE A HIDDEN CODE COMES BACK: TWO ROWS THAT READ ALIKE
+     *
+     * `identity="name"` stopped displaying codes (client 2026-08-31, screenshot
+     * 2571). That is right in the ordinary case and UNUSABLE in one specific
+     * case, and this repo has already paid for that case once: the Garment Order
+     * Amendment `SCNo` field listed five rows all reading `Aurelia Retail` and
+     * the operator could not tell which order was which (client 2026-08-10).
+     * Hiding the code globally re-creates exactly that failure wherever two
+     * records share a name — and AGENTS.md says where that is guaranteed to
+     * happen: *"never check `employees.name` — two workers legitimately share a
+     * name; the identity there is the employee ID."* The Merchandiser field in
+     * screenshot 2571 is an employee picker.
+     *
+     * So the code is restored as a visible sublabel ONLY on the rows that
+     * collide. Nothing shows on a list where every name is distinct, which is
+     * the instruction; and where two rows would otherwise be indistinguishable,
+     * the operator gets the one piece of text that tells them apart.
+     *
+     * It is done HERE rather than in `pickerIdentityParts` because it is not a
+     * property of a row — it is a property of the LIST. One row cannot know
+     * another row shares its label. Same reason the cascading-filter rule lives
+     * at the caller that can see both facets.
+     */
+    const seen = new Map<string, number>();
+    for (const r of decorated) {
+      const k = r.label.toLowerCase();
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+    return decorated.map((r) =>
+      r.sublabel == null && r.search && (seen.get(r.label.toLowerCase()) ?? 0) > 1
+        ? { ...r, sublabel: r.search }
+        : r,
+    );
   }, [items, identity]);
 
   return (
     <DataPicker
       label={label}
       rows={rows}
+      emptyHint={emptyHint}
       value={value}
       onChange={onChange}
       usedIds={usedIds}

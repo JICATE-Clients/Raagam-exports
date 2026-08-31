@@ -1,5 +1,5 @@
-import { AmendmentScreen } from "./amendment-screen";
-import { loadGarmentOrderProps } from "./loader";
+import { GarmentOrderScreen } from "../_garment-order/garment-order-screen";
+import { loadGarmentOrderProps } from "../_garment-order/loader";
 
 /**
  * THE AMEND DOOR — Amendments ▸ Order Amendment.
@@ -18,5 +18,5 @@ import { loadGarmentOrderProps } from "./loader";
  */
 export default async function OrderAmendmentsPage() {
   const props = await loadGarmentOrderProps();
-  return <AmendmentScreen {...props} purpose="amend" />;
+  return <GarmentOrderScreen {...props} purpose="amend" />;
 }

@@ -1344,10 +1344,8 @@ async function getRejectionRuleRows(): Promise<RejectionRuleOption[]> {
 
 export async function getAmendmentFormData(): Promise<AmendmentFormData> {
   const [
-    orders,
     customers,
     merchandisers,
-    contacts,
     countries,
     currencies,
     lookups,
@@ -1356,8 +1354,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     uoms,
     locations,
     consignees,
-    warehouses,
-    ports,
     categories,
     fabrics,
     compositions,
@@ -1368,10 +1364,8 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     rejectionRules,
     taActivities,
   ] = await Promise.all([
-    getOrderRows(),
     getCustomerRows(),
     getMerchandiserRows(),
-    getContactRows(),
     listCountries(),
     listCurrencies(),
     listConfigLookups(),
@@ -1380,8 +1374,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getUomRows(),
     getLocationRows(),
     getConsigneeRows(),
-    getWarehouseRows(),
-    getPortRows(),
     listCategories(),
     getFabricRows(),
     listCompositionsForPicker(),
@@ -1393,10 +1385,25 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getTaActivityRows(),
   ]);
   return {
-    orders,
+    /**
+     * NOT FETCHED ANY MORE (2026-08-31). `getOrderRows()` selected EVERY
+     * `sales_orders` row with a `buyers` embed and no limit — 93 today, growing
+     * with the order book — to fill the SCNo dropdown, which this screen
+     * documents as UNREACHABLE SINCE 2026-08-11.
+     *
+     * The key stays and answers `[]` rather than being deleted: the screen's
+     * `orderItems` / `onSelectOrder` machinery is deliberately KEPT pending a
+     * decision on where amendments live, and its own note says not to silence
+     * the unused-variable warnings. An empty list is what an unreachable picker
+     * already showed, so nothing an operator can see changes. Restore
+     * `getOrderRows()` here in the same change that gives that picker a door.
+     */
+    orders: [],
     customers,
     merchandisers,
-    contacts,
+    /* NOT FETCHED (2026-08-31) — nothing in the repo reads `data.contacts`.
+       The Logistic "Contact" picker it was written for does not exist. */
+    contacts: [],
     countries,
     currencies,
     lookups,
@@ -1408,8 +1415,10 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     uoms,
     locations,
     consignees,
-    warehouses,
-    ports,
+    /* NOT FETCHED (2026-08-31) — zero references anywhere in the repo. */
+    warehouses: [],
+    /* NOT FETCHED (2026-08-31) — zero references anywhere in the repo. */
+    ports: [],
     categories,
     fabrics,
     compositions,

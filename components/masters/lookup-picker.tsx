@@ -60,7 +60,10 @@ export function LevyPicker({
       levies.map((l) => ({
         id: l.id,
         label: l.description || `Entry #${l.entry_no}`,
-        sublabel: `Entry #${l.entry_no}`,
+        // SEARCHABLE, NOT DISPLAYED. This was also the "value showing two
+        // times" bug in its purest form: a levy with no description took
+        // `Entry #N` as its LABEL and printed it again as the sublabel.
+        search: `Entry #${l.entry_no}`,
         inactive: isInactive(l),
       })),
     [levies],
@@ -442,7 +445,12 @@ export function CategoryPicker({
       all.map((c) => ({
         id: c.id,
         label: c.name || c.short_name || "—",
-        sublabel: c.short_spec,
+        // Short spec is SEARCHABLE, NOT DISPLAYED (client 2026-08-31).
+        // NOTE for mba-master-screen.tsx:1428, which reasons that "CategoryPicker
+        // already spends the sublabel on short_spec" and therefore prefixes the
+        // NAME instead: the sublabel is free again, but that screen's choice is
+        // unchanged and still correct — the prefix is what the client asked for.
+        search: c.short_spec,
         inactive: isInactive(c),
       })),
     [all],
