@@ -40,7 +40,6 @@ import { useRouter } from "next/navigation";
 import {
   Layers,
   ListChecks,
-  Calculator,
   Palette,
   Waypoints,
   Ruler,
@@ -773,9 +772,11 @@ export function FabricBomScreen({
    *  - **No stale flash.** `order` is only read when `forOrder` matches the
    *    order currently picked, so switching orders shows "Reading the order…"
    *    rather than the previous order's quantities until the reply lands. With
-   *    three cells that gap is a real render, and the Calculated Quantities
-   *    section would spend it multiplying this order's lines by that order's
-   *    target.
+   *    three cells that gap is a real render, and the requirement preview would
+   *    spend it multiplying this order's lines by that order's target. (The
+   *    Calculated Quantities SECTION that used to show it went on 2026-09-01;
+   *    `preview` survives it and still feeds Yarn Process through
+   *    `fabricGross`, so the hazard is unchanged.)
    *  - **The effect sets state only in its CALLBACK.** Clearing three cells
    *    synchronously in the effect body is what `react-hooks/set-state-in-effect`
    *    is about, and the rule is right here — the clear was a second render that
@@ -2592,27 +2593,6 @@ export function FabricBomScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order, entries, lines, data.fabrics, data.structures, data.uoms, seedRows]);
 
-  const previewColumns: ChildGridColumn<PreviewRow>[] = [
-    { header: "Fabric", cell: (r) => <Truncated>{r.fabric}</Truncated> },
-    { header: "Slice", width: "12rem", cell: (r) => <Truncated>{r.slice}</Truncated> },
-    {
-      header: "Required",
-      align: "right",
-      width: "10rem",
-      cell: (r) =>
-        // A REFUSAL IS PRINTED, NEVER A ZERO. "Nothing needed" and "the operator
-        // has not answered yet" produce the same empty cell otherwise, and only
-        // one of those is something anybody can act on.
-        r.refusal ? (
-          <span className="text-xs text-danger">{r.refusal}</span>
-        ) : (
-          <span className="tabular-nums">
-            {fmtNumber(r.qty ?? 0)} {r.unit}
-          </span>
-        ),
-    },
-  ];
-
   // ---- Yarn Process: the rows the fabrics imply (0493) ---------------------
   //
   // BELOW `preview`, NOT BESIDE THE OTHER GRIDS, and the position is load-bearing
@@ -2865,7 +2845,6 @@ export function FabricBomScreen({
          order from the one the operator sees. */
       { key: "yarns" },
       { key: "process" },
-      { key: "qty" },
     ],
     values: form,
     fields: [
@@ -3279,9 +3258,9 @@ export function FabricBomScreen({
        * THE ANSWER — each colourway's net, grossed by the treatments that apply
        * to it, summed.
        *
-       * A REFUSAL IS PRINTED, NEVER A ZERO. The Calculated Quantities preview
-       * makes the same call in the same words: "'nothing needed' and 'the
-       * operator has not answered yet' produce the same empty cell otherwise,
+       * A REFUSAL IS PRINTED, NEVER A ZERO. `preview` makes the same call in the
+       * same words: "'nothing needed' and 'the operator has not answered yet'
+       * produce the same empty cell otherwise,
        * and only one of those is something anybody can act on." It matters more
        * here, because this figure is a PURCHASE — a zero reads as "buy nothing"
        * for a yarn the cloth cannot be knitted without.
@@ -3984,9 +3963,8 @@ export function FabricBomScreen({
               columns={yarnColumns}
               rows={yarnRows}
               /* `6xl`, THE ONE THRESHOLD EVERY GRID ON THIS SCREEN TAKES —
-                 Fabric Lines, Manual, Calculated Quantities and both route
-                 grids. Its declared widths sum to ~832px plus ~80 of `#`/remove
-                 chrome, so it would fit from 1024 (@5xl), and it USED to say so
+                 Fabric Lines, Manual and both route grids. Its declared widths
+                 sum to ~832px plus ~80 of `#`/remove chrome, so it would fit from 1024 (@5xl), and it USED to say so
                  while claiming in the same breath to match "the two route
                  grids" — which are 6xl. The claim was the intent and the number
                  was the drift: between 1024 and 1152px of pane this tab alone
@@ -4202,39 +4180,21 @@ export function FabricBomScreen({
               Without it `loss_pct` reads as a figure this screen ought to be
               multiplying by — and the reason it is not (0426 reserves process
               loss for step 4, "applying it here as well charges the same loss
-              twice") is invisible from the grid. An operator who expects
-              Calculated Quantities to move when they type 5% and finds it does
-              not has no way to tell a rule from a bug. */}
+              twice") is invisible from the grid. An operator who expects the
+              stored requirement to move when they type 5% and finds it does not
+              has no way to tell a rule from a bug.
+
+              IT NO LONGER NAMES A SECTION. Calculated Quantities was removed on
+              2026-09-01 and a sentence pointing at a row that is not there is
+              worse than none — the operator goes looking, fails, and concludes
+              the screen is broken rather than the sentence (AGENTS.md says this
+              of menu paths; it is truer of a line the operator can read). */}
           {procs.some((p) => !!p.process_id) && (
             <p className="mt-4 text-xs text-muted-foreground">
               These losses are planned with on Fabric Plan, which solves each
-              step backwards from the requirement. They do not change Calculated
-              Quantities here — that figure carries the cutting wastage only.
+              step backwards from the requirement. They do not change the
+              quantities this BOM computes — those carry the cutting wastage only.
             </p>
-          )}
-        </SectionBody>
-      ),
-    },
-    {
-      key: "qty",
-      label: "Calculated Quantities",
-      icon: Calculator,
-      done: preview.some((p) => p.qty != null),
-      content: (
-        <SectionBody title="Calculated Quantities">
-          {!form.garment_order_id ? (
-            <p className="text-sm text-muted-foreground">Pick a garment order first.</p>
-          ) : orderErr ? (
-            <p className="text-sm text-danger">{orderErr}</p>
-          ) : (
-            <ChildGrid<PreviewRow>
-              columns={previewColumns}
-              rows={preview}
-              hideAdd
-              lockExisting
-              onAdd={() => false}
-              onRemove={() => {}}
-            />
           )}
         </SectionBody>
       ),
