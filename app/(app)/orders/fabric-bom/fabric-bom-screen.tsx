@@ -142,20 +142,44 @@ type DiaRow = {
 type PaletteRow = { key: string; type: string; value: string };
 
 /**
- * NO ORDER PICKED, OR NONE DECLARED, IS AN EMPTY GRID — never a placeholder row.
+ * AN EMPTY PANEL RENDERS ONE DASH ROW, AND THE FIRST CUT WAS WRONG ABOUT THIS.
  *
- * `ChildGrid` draws its own empty state, and a fabricated "—" row would read as
- * a dyeing the order had entered badly. `undefined` (the order has not answered
- * yet) and `[]` (it declared none) deliberately render the same: both mean
- * "nothing to cover", and distinguishing them would need a third state on
- * screen to say which — for a panel the operator cannot act on either way.
+ * It returned `[]` and argued that a fabricated row "would read as a dyeing the
+ * order had entered badly". What actually happens is worse and was visible the
+ * moment it shipped (client screenshot 2580, 2026-09-01: "this screen is
+ * nothing"): `ChildGrid`'s prose empty state was REMOVED app-wide in the
+ * 2026-08-17 de-clutter pass, and in `inlineCards` mode a grid with no rows
+ * renders no header row either — so three read-only panels with nothing in them
+ * came out as three bare words, YARN DYEING · FABRIC DYEING · ROLL FORM PRINTS,
+ * with no columns, no box and no rows under them. The section read as unbuilt.
+ *
+ * THE DASH IS THE RULE THIS APP ALREADY WROTE DOWN, one surface along. From the
+ * de-clutter pass itself: "in a table a dash is right and stays right
+ * (`created-columns.tsx`), because a column of blanks is ambiguous with a column
+ * that failed to load" — and the same pass blanks a FORM FIELD's placeholder,
+ * because a field already has a box and a chevron saying a value goes there.
+ * These panels are the table case, not the field case: they are read-only and
+ * have no box of their own, so nothing but content can say they exist.
+ *
+ * IT COSTS NOTHING TO READ CORRECTLY because every cell in these two columns
+ * already prints `|| "—"`, so the empty row needs no special case and cannot
+ * drift from the filled ones. What the operator sees is a list with a dash in
+ * it — "declared: nothing" — instead of a heading with a void beneath it.
+ *
+ * `undefined` (no order picked yet) and `[]` (the order declared none) still
+ * render the same, deliberately. Which of the two it is belongs in the
+ * conditional line above the panels, where there is room to say it in words.
  */
+const DASH_ROW: PaletteRow = { key: "none", type: "", value: "" };
+
 const paletteRows = (rows: OrderPalette["yarn"] | undefined): PaletteRow[] =>
-  (rows ?? []).map((r) => ({
-    key: `d${r.sno}`,
-    type: r.dye_type ?? "",
-    value: r.color_name ?? "",
-  }));
+  (rows ?? []).length
+    ? (rows ?? []).map((r) => ({
+        key: `d${r.sno}`,
+        type: r.dye_type ?? "",
+        value: r.color_name ?? "",
+      }))
+    : [DASH_ROW];
 
 type Form = { garment_order_id: string | null; bom_date: string; remark: string };
 
@@ -1220,7 +1244,19 @@ export function FabricBomScreen({
 
               GATED ON THE ORDER BEING READ (`palette !== null`), or it would
               flash during the round trip and read as an answer. */}
-          {palette &&
+          {!form.garment_order_id ? (
+            /* THE STATE SCREENSHOT 2580 WAS ACTUALLY IN, and the first cut had no
+               words for it. A new fabric BOM names no order yet, so there is no
+               palette to mirror — and three dash rows with no explanation say
+               "this order declared nothing", which is a different and wrong
+               claim. The order picker is one section up, so the sentence points
+               at it rather than describing the emptiness. */
+            <p className="mb-3 text-xs text-muted-foreground">
+              Pick a garment order under Fabric BOM — the dyeing colours and
+              prints it declares are shown here.
+            </p>
+          ) : (
+            palette &&
             !palette.yarn.length &&
             !palette.fabric.length &&
             !palette.prints.length && (
@@ -1229,7 +1265,8 @@ export function FabricBomScreen({
                 entered on Orders ▸ Order Management ▸ Order Entry, under
                 Color/Print Details.
               </p>
-            )}
+            )
+          )}
           {/* FOUR PEERS ON ONE LINE, WRAPPING — the same `SectionGrid wrap` plus
               a per-panel basis the Garment Order's own Color/Print tab uses, and
               for the reason recorded there: a COLUMN COUNT has to guess a
@@ -1271,11 +1308,18 @@ export function FabricBomScreen({
                 /* grid-caption: exempt -- the third of four grids in one section. */
                 label="Roll form prints"
                 columns={printPaletteColumns}
-                rows={(palette?.prints ?? []).map((p) => ({
-                  key: `p${p.sno}`,
-                  type: "",
-                  value: p.print_name ?? "",
-                }))}
+                /* THE SAME DASH ROW as the two dyeing panels — see
+                   `paletteRows`. Mapped inline rather than through it because a
+                   print has no `dye_type` to carry. */
+                rows={
+                  palette?.prints.length
+                    ? palette.prints.map((p) => ({
+                        key: `p${p.sno}`,
+                        type: "",
+                        value: p.print_name ?? "",
+                      }))
+                    : [DASH_ROW]
+                }
                 inlineCards
                 fill
                 hideAdd
