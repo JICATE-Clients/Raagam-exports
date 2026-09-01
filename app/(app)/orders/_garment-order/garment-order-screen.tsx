@@ -167,6 +167,12 @@ import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { TypeOrPick } from "./type-or-pick";
 import { lookupLabel } from "@/lib/masters/extras-types";
 import {
+  loadSqOptions,
+  loadSqFabricEstimation,
+  type SqOption,
+  type SqFabricRow,
+} from "@/lib/orders/amendments/sq-copy";
+import {
   gsmRange,
   structureProblems,
   structureRequiredCells,
@@ -1204,6 +1210,8 @@ type HeaderForm = {
   pay_terms_id: string | null;
   /** Supplies Approval Qty's Projection buffer (0413). Null = no projection. */
   rejection_rule_id: string | null;
+  /** The Style Quotation this order was raised from (0511). */
+  sq_detail_id: string | null;
   ex_rate: string;
   avg_rate: string;
   gross_value: string;
@@ -1242,6 +1250,7 @@ const BLANK: HeaderForm = {
   pay_mode: "",
   pay_terms_id: null,
   rejection_rule_id: null,
+  sq_detail_id: null,
   ex_rate: "",
   avg_rate: "",
   gross_value: "",
@@ -3508,6 +3517,7 @@ export function GarmentOrderScreen({
       pay_mode: r.pay_mode ?? "",
       pay_terms_id: r.pay_terms_id,
       rejection_rule_id: r.rejection_rule_id,
+      sq_detail_id: r.sq_detail_id,
       ex_rate: r.ex_rate ? String(r.ex_rate) : "",
       avg_rate: r.avg_rate ? String(r.avg_rate) : "",
       gross_value: r.gross_value ? String(r.gross_value) : "",
@@ -3628,6 +3638,7 @@ export function GarmentOrderScreen({
       delivery_date: form.delivery_date || null,
       excess_pct: numOrNull(form.excess_pct) ?? 0,
       rejection_rule_id: form.rejection_rule_id,
+      sq_detail_id: form.sq_detail_id,
       pack: form.pack,
       is_set_pack: form.is_set_pack,
       mult_ord: form.mult_ord,
@@ -5567,6 +5578,85 @@ export function GarmentOrderScreen({
    * rather than a preference: `garment_style_components` has no such columns.
    * They stay the operator's (client 2026-08-17, same message).
    */
+  /**
+   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
+   *
+   * Client 2026-09-01: "copying from the SQ No should instantly pull the
+   * structure, estimated compositions, and initial parameters into the Confirmed
+   * Order (RE) layout to eliminate repetitive manual data entry", against the
+   * client's own template proposal: "copy the SQ's generic structure rows and
+   * associate them by default with all active combos on the RE … keep these
+   * fields fully editable".
+   *
+   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
+   * screen states four times over. The LIST is a picker's options and may arrive
+   * whenever; the COPY writes into combos, and an effect that wrote would refill
+   * a structure the operator had deliberately cleared, and would fire again the
+   * moment a SAVED order re-opened.
+   */
+  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadSqOptions().then((res) => {
+      if (!cancelled && res.ok) setSqOptions(res.rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * WHICH COMBOS A COPY WOULD REACH — computed from state, never counted inside
+   * the `setCombos` updater.
+   *
+   * React may invoke an updater twice (StrictMode, and any re-render it decides
+   * to replay), so a counter incremented in there reports double and the toast
+   * lies about what happened. Derived here, it is read once and is the same
+   * number the copy then acts on.
+   *
+   * THE GUARD IS `structSaysSomething`, borrowed rather than re-stated: it is
+   * exactly what `seedComboFromStyle` stands down on, and what `structureFilled`
+   * on the server agrees with. A combo whose fabrics say ANYTHING keeps them —
+   * the copy adds where there was nothing and can never argue with an answer.
+   */
+  const combosOpenToSqCopy = combos.filter(
+    (r) => !r.structures.some(structSaysSomething),
+  );
+
+  const copyFromSq = (rows: SqFabricRow[]) => {
+    const open = new Set(combosOpenToSqCopy.map((r) => r.key));
+    setCombos((xs) =>
+      xs.map((r) =>
+        open.has(r.key)
+          ? {
+              ...r,
+              /* EVERY FIELD THE ESTIMATE COULD RESOLVE, AND NOTHING IT COULD
+                 NOT. `sq-copy.ts` returns a null id for a structure or
+                 composition whose name matches no master, and this carries the
+                 null through rather than dropping the row — an unresolved line
+                 arrives as a blank Structure the operator can fill, which is
+                 visibly incomplete, where a dropped one is an estimate silently
+                 missing. Same reasoning as the orphan-part rule in the Combos
+                 overlay. Tolerance keeps `blankStruct`'s ±5: the costing sheet
+                 does not carry one, and inventing 0 would read as stated. */
+              structures: rows.map((f) => ({
+                ...blankStruct(),
+                structure_id: f.structure_id,
+                composition_id: f.composition_id,
+                gsm: f.gsm == null ? "" : String(f.gsm),
+                item_sub_type: f.item_sub_type ?? "",
+              })),
+            }
+          : r,
+      ),
+    );
+    /* NO `setDirty` — this screen has none. Its unsaved state is derived from
+       the form itself (see `useUnsavedGuard` at the top), which is why
+       `seedComboFromStyle` beside this one also just calls `setCombos`. A
+       hand-rolled flag here would be a second answer to "is this dirty" that
+       nothing keeps in step with the first. */
+  };
+
   const seedComboFromStyle = (comboKey: string) => {
     setCombos((xs) =>
       xs.map((r) => {
@@ -17557,6 +17647,82 @@ export function GarmentOrderScreen({
                 value={savedOrderNo ?? previewNo ?? ""}
               />
             </Field>
+            {/* COPY FROM SQ NO (0511, client 2026-09-01).
+                
+                TWO CONTROLS, ONE FIELD: the picker RECORDS which quotation this
+                order came from — it is stored, and the legacy screen shows SQ No
+                on the Fabric BOM header beside SC No for the same reason — and
+                the button PERFORMS the copy. Splitting them is what lets an
+                operator record the provenance without re-running a copy over
+                combos they have since filled in, and lets them re-run the copy
+                later without re-picking.
+
+                NOT `required`, and it must never become so: most orders are
+                booked straight off a customer PO and never had a quotation.
+
+                HIDDEN WHEN THERE ARE NO QUOTATIONS. `sq_details` is empty today
+                (measured 2026-09-01), and an always-visible picker that can only
+                ever open on nothing is the "permanently closed gate" this module
+                has been told off for once already. It appears the day the first
+                SQ exists. */}
+            {sqOptions.length > 0 && (
+              <Field label="Copy from SQ No" w="name" htmlFor="hd-sqno">
+                <div className="flex items-center gap-2">
+                  <RecordPicker
+                    id="hd-sqno"
+                    label="SQ No"
+                    compact
+                    items={sqOptions}
+                    value={form.sq_detail_id}
+                    onChange={(id) => set({ sq_detail_id: id })}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!form.sq_detail_id || isPending}
+                    onClick={() => {
+                      const id = form.sq_detail_id;
+                      if (!id) return;
+                      start(async () => {
+                        const res = await loadSqFabricEstimation(id);
+                        if (!res.ok) {
+                          toastError(res.error);
+                          return;
+                        }
+                        /* THREE OUTCOMES, THREE DIFFERENT SENTENCES. "Nothing
+                           happened" is the answer an operator cannot act on, so
+                           each dead end says WHICH one it is: the quotation
+                           carries no fabric estimate at all, or it does but every
+                           combo already has fabrics and the copy would have had
+                           to overwrite them. */
+                        if (!res.rows.length) {
+                          toastError(
+                            "That quotation has no fabric estimate to copy — its costing sheet declares none.",
+                          );
+                          return;
+                        }
+                        if (!combosOpenToSqCopy.length) {
+                          toastError(
+                            combos.length
+                              ? "Every combo already has fabrics — clear one to copy the estimate into it."
+                              : "Add a combo first, then copy the estimate into it.",
+                          );
+                          return;
+                        }
+                        const n = combosOpenToSqCopy.length;
+                        copyFromSq(res.rows);
+                        success(
+                          `Copied ${res.rows.length} fabric${res.rows.length > 1 ? "s" : ""} into ${n} combo${n > 1 ? "s" : ""}`,
+                        );
+                      });
+                    }}
+                  >
+                    Copy
+                  </Button>
+                </div>
+              </Field>
+            )}
             {/* AUTO-DETERMINED AND OFF THE TAB PATH (client 2026-08-31: "the
                 keyboard tab navigation must completely bypass the Entry Date and
                 Location/Unit fields … automatically determined by the
