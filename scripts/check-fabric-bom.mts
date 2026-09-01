@@ -49,6 +49,19 @@ import {
   type AssortSizeRow,
   type OrderProductionInput,
 } from "../lib/orders/material-bom/requirement.ts";
+import {
+  GRAMS_CONVERSION,
+  calcModeOf,
+  calculatedGrams,
+  consumptionMap,
+  effectiveLength,
+  gramsFor,
+  grossKg,
+  manualProblem,
+  netKg,
+  takenComponentIds,
+  type ManualSizeInput,
+} from "../lib/orders/fabric-bom/manual.ts";
 import type { RejectionTier } from "../lib/masters/rejection-rule.ts";
 
 let failed = 0;
@@ -127,6 +140,30 @@ const line = (over: Partial<FabricLineInput> = {}): FabricLineInput => ({
   consumption: 0.25,
   wastage_pct: 0,
   decimals: 2,
+  ...over,
+});
+
+/** One Manual-tab size row (0494), in DIRECT mode — a size and its typed gram
+ *  weight. The measurement cells are the CALCULATED mode's inputs and are left
+ *  null here, so a vector using this fixture cannot accidentally be answered by
+ *  the formula instead of by the figure. */
+const sizeRow = (size_id: string, grams: number | null): ManualSizeInput => ({
+  size_id,
+  dia: null,
+  purchase_width: null,
+  grams,
+  table_width: null,
+  length: null,
+  length_tolerance: null,
+});
+
+/** One entry, as `manualProblem` wants it. */
+const entry = (over: Partial<Parameters<typeof manualProblem>[0]> = {}) => ({
+  style_ref_no: S1,
+  structure_id: "s-1",
+  calc_mode: "direct",
+  component_ids: ["c-front"],
+  sizes: [sizeRow(SZ_S, 200), sizeRow(SZ_M, 220)],
   ...over,
 });
 
@@ -508,6 +545,386 @@ refute(
   "...material does NOT pick up the 690 fabric now plans",
   isRefusal(materialRows) ? materialRows.refused : materialRows.map((r) => r.qty),
   [690],
+);
+
+// ---------------------------------------------------------------------------
+// 7. THE MANUAL TAB — size-wise gram weights (0494)
+//
+// The client's own framing: fabric and yarn are 70-80% of an order's value, so
+// "any minor error in this screen will collapse the downstream purchasing,
+// knitting, dyeing, and budgeting calculations". Four things can go wrong and
+// only one of them is arithmetic:
+//
+//   · the per-size map is IGNORED and something else answers — plausible,
+//     silent, and it produces a well-formed BOM off a figure nobody typed;
+//   · an EMPTY map falls back rather than refusing — the same failure arriving
+//     through a `length > 0` test instead of through the code;
+//   · grams and kilograms are confused by a factor of 1000, which is the single
+//     easiest mistake to make in this module and the most expensive;
+//   · a component is counted in two entries, which double-buys its cloth.
+//
+// Every vector below is built so the wrong answer is a NUMBER rather than a
+// crash, because that is the only kind this suite can catch.
+// ---------------------------------------------------------------------------
+
+/* 0.20 kg on S and 0.40 kg on M — deliberately NOT averaging to the 0.25 scalar.
+   With 300 pieces of each, size-wise gives 60 + 120 = 180 and the scalar gives
+   150, so the two cannot be confused. An even split would have made every vector
+   in this section pass against an engine that ignored the map entirely. */
+const bySizeLine = line({ bySize: { [SZ_S]: 0.2, [SZ_M]: 0.4 } });
+
+check(
+  "the size's own consumption is what multiplies, per size",
+  rows("colour_size", WHITE, bySizeLine),
+  [
+    { label: "WHITE · S", value: 60 },
+    { label: "WHITE · M", value: 120 },
+  ],
+);
+refute("…and the line's scalar is not what answered", total("colour_size", WHITE, bySizeLine), 150);
+
+/* THE SCALAR IS STILL SET ON THAT LINE (0.25, from `line()`), which is the point
+   of this pair: an engine preferring the scalar would look correct on any
+   document where nobody had typed one. */
+check("a size-wise line ignores its own consumption entirely", total("colour_size", WHITE, bySizeLine), 180);
+
+check(
+  "wastage still multiplies on the size-wise route",
+  total("colour_size", WHITE, line({ bySize: { [SZ_S]: 0.2, [SZ_M]: 0.4 }, wastage_pct: 5 })),
+  189,
+);
+
+/* THE CEILING IS THE SHARED ONE. 300 x 0.23212 = 69.636 -> 69.64 on both sizes,
+   which is what proves `sizedRequirement` is one function rather than two — a
+   second copy would be free to round the size-wise route differently, and the
+   difference would only ever show on figures landing on a boundary. */
+check(
+  "size-wise rounds UP at the same precision as direct",
+  rows("colour_size", WHITE, line({ bySize: { [SZ_S]: 0.23212, [SZ_M]: 0.23212 } })),
+  [
+    { label: "WHITE · S", value: 69.64 },
+    { label: "WHITE · M", value: 69.64 },
+  ],
+);
+
+// -- the refusals -----------------------------------------------------------
+
+check(
+  "a size map on the colour basis refuses, naming the split",
+  refusalOf(fabricRequirementRows("colour", WHITE, bySizeLine, order())),
+  "Size-wise consumption needs the Colour + Size split",
+);
+refute(
+  "…rather than averaging the two figures onto one colourway row",
+  total("colour", WHITE, bySizeLine),
+  180,
+);
+
+/* AN EMPTY MAP IS 'answered by size, nothing filled in' AND MUST NOT FALL BACK.
+   This is the presence-vs-length vector: `Object.keys(bySize).length > 0`
+   compiles, passes every other vector here, and sends exactly this line back to
+   its scalar — 150 kg planned off a number the planner abandoned. An ENTRY has
+   no scalar at all, so on the 0494 path the same slip would plan nothing and
+   report it as an answer. */
+check(
+  "an empty size map refuses, naming the first slice",
+  refusalOf(fabricRequirementRows("colour_size", WHITE, line({ bySize: {} }), order())),
+  "Enter the consumption for WHITE · S",
+);
+refute("…and never answers 150 from the scalar", total("colour_size", WHITE, line({ bySize: {} })), 150);
+
+/* ONE MISSING SIZE REFUSES THE WHOLE LINE, exactly as one bad slice does on the
+   direct route. A partial explosion — S answered, M dropped — yields a SMALLER
+   total that looks like a correct answer. */
+check(
+  "one unanswered size refuses, and names that size",
+  refusalOf(fabricRequirementRows("colour_size", WHITE, line({ bySize: { [SZ_S]: 0.2 } }), order())),
+  "Enter the consumption for WHITE · M",
+);
+refute(
+  "…rather than shipping the sizes that were answered",
+  total("colour_size", WHITE, line({ bySize: { [SZ_S]: 0.2 } })),
+  60,
+);
+
+check(
+  "a size entered as 0 is unanswered, not free",
+  refusalOf(
+    fabricRequirementRows(
+      "colour_size",
+      WHITE,
+      line({ bySize: consumptionMap("direct", [sizeRow(SZ_S, 200), sizeRow(SZ_M, 0)], null) }),
+      order(),
+    ),
+  ),
+  "Enter the consumption for WHITE · M",
+);
+
+// -- grams to kilograms, which is where a factor of 1000 hides ---------------
+
+/* THE UNIT BOUNDARY, asserted on its own. The tab works in GRAMS and the engine
+   in the line's unit; `consumptionMap` is the single /1000, and every other
+   function in the module stays in grams. Getting this wrong is a thousandfold
+   error in a purchase weight, and it would still look like a plausible table. */
+check(
+  "consumptionMap converts grams to kilograms, once",
+  consumptionMap("direct", [sizeRow(SZ_S, 200), sizeRow(SZ_M, 220)], null),
+  { [SZ_S]: 0.2, [SZ_M]: 0.22 },
+);
+refute(
+  "…and does not hand the engine grams",
+  consumptionMap("direct", [sizeRow(SZ_S, 200)], null)[SZ_S],
+  200,
+);
+check("a size with no weight is absent, not zero", consumptionMap("direct", [sizeRow(SZ_S, null)], null), {});
+check("a zero weight is absent too", consumptionMap("direct", [sizeRow(SZ_S, 0)], null), {});
+
+// -- THE CLIENT'S OWN WORKED EXAMPLE ----------------------------------------
+
+/* Formula 1, verbatim from the spec: 10,510 pcs x 50 g Neck (Rib) / 1000 =
+   525.5 Kg. It is here because it is the one figure the client stated as an
+   ANSWER rather than as a rule, so it is the one this module can be wrong about
+   without any reviewer noticing. */
+check("10,510 pcs x 50 g = 525.5 kg (the client's Neck/Rib example)", netKg(10510, 50), 525.5);
+check("Formula 2 — 5% wastage on 525.5 = 551.775", grossKg(525.5, 5), 551.775);
+check("no wastage leaves Net unchanged", grossKg(525.5, 0), 525.5);
+check("a null Net is not a zero Gross", grossKg(null, 5), null);
+refute("…and never 0, which reads as 'no cloth needed'", grossKg(null, 5), 0);
+check("a wastage outside 0-100 refuses rather than scaling", grossKg(100, 150), null);
+
+/* THE THREE ENTRIES OF THE CLIENT'S OWN SCENARIO B, summed. 180 + 20 + 50 =
+   250 g of cloth per garment, and the entries partition the panels so the sum is
+   the garment's weight exactly once. This is the vector that would catch a
+   grouped entry being multiplied per component. */
+check(
+  "Scenario B's three entries sum to one garment's 250 g",
+  [
+    netKg(10510, 180),
+    netKg(10510, 20),
+    netKg(10510, 50),
+  ].reduce((a, b) => a + (b ?? 0), 0),
+  netKg(10510, 250),
+);
+
+// -- the calculated mode -----------------------------------------------------
+
+/* THE TOLERANCE IS ADDED, NOT SCALED. Legacy prints Length, Length Tolerance and
+   a second Length in one row of the same units; reading the middle one as a
+   percentage compiles and is wrong by a factor of the length. 70 + 2 = 72; the
+   percentage reading gives 71.4 — close enough to look plausible on screen and
+   wrong on every panel. */
+check("effective length adds the tolerance", effectiveLength(70, 2), 72);
+check("…and a missing tolerance is 0, not a missing length", effectiveLength(70, null), 70);
+check("a tolerance with no length is not a length", effectiveLength(null, 2), null);
+
+/* 55cm x 72cm x 180 g/m² / 1e4 = 71.28 g. cm² to m², x gsm, and the result is
+   GRAMS — the unit the whole tab works in.
+
+   NO x2, AND THIS IS THE VECTOR THAT SAYS SO. The first cut doubled it for
+   "front and back panel"; the client's field-by-field spec states the formula
+   without it, `TableWidth` being the panel width the planner types. The doubling
+   was also wrong on its own terms for a neck rib, which is ONE panel — so it is
+   refuted by name here rather than merely absent. */
+const measured = { table_width: 55, length: 70, length_tolerance: 2 };
+check("the panel weight is tableWidth x eff.length x gsm / 1e4, in grams", calculatedGrams(measured, 180), 71.28);
+refute("…never doubled for a front-and-back that nobody asked for", calculatedGrams(measured, 180), 142.56);
+refute("…and not 0.07128, which would be kilograms leaking in", calculatedGrams(measured, 180), 0.07128);
+
+/* THE CONSTANT IS NAMED AND PROVISIONAL — the client has said it "will be
+   adjusted and verified in a later discussion". Asserting the formula THROUGH
+   the constant means the day it moves, this vector moves with it in one place
+   and every other vector here still pins the shape. */
+check(
+  "the divisor is GRAMS_CONVERSION, not a literal buried in the expression",
+  calculatedGrams(measured, 180),
+  (55 * 72 * 180) / GRAMS_CONVERSION,
+);
+
+/* IT MULTIPLIES `table_width`, NEVER `dia`. They were one word until 0495 and
+   the client separated them: dia is the ROLL's diameter and a constraint,
+   table_width is the panel on the cutting table. A reader that grabbed the wrong
+   one gets a plausible number — 60 dia against a 55cm panel is only 9% out,
+   which is exactly the size of error that survives review. */
+check("a dia on the row changes nothing", calculatedGrams({ ...measured, dia: 60 } as never, 180), 71.28);
+check("no table width is not a weight", calculatedGrams({ ...measured, table_width: null }, 180), null);
+check("no length is not a weight", calculatedGrams({ ...measured, length: null }, 180), null);
+check("no GSM is not a weight", calculatedGrams(measured, null), null);
+refute("…and an unstated GSM never reads as zero cloth", calculatedGrams(measured, null), 0);
+
+/* THE MODE DECIDES WHICH FIGURE IS REAL, and `gramsFor` is the only place that
+   decision is made. The row below carries BOTH a typed 999 and measurements, so
+   a reader that consulted the wrong one answers with a number that exists. */
+const bothRow: ManualSizeInput = {
+  size_id: SZ_S,
+  dia: null,
+  purchase_width: null,
+  grams: 999,
+  table_width: 55,
+  length: 70,
+  length_tolerance: 2,
+};
+check("direct mode reads the typed grams", gramsFor("direct", bothRow, 180), 999);
+check("calculated mode reads the measurements", gramsFor("calculated", bothRow, 180), 71.28);
+check("an unreadable mode falls back to direct, never to a computed figure", gramsFor("nonsense", bothRow, 180), 999);
+check("calcModeOf normalises case", calcModeOf("CALCULATED"), "calculated");
+
+/* AND THE MAP FOLLOWS THE MODE. This is the vector that catches a screen
+   printing one weight while the server stores another. */
+check(
+  "consumptionMap is mode-aware",
+  consumptionMap("calculated", [bothRow], 180),
+  { [SZ_S]: 0.07128 },
+);
+
+// -- the "no duplicate component allocation" rule ---------------------------
+
+/* THE RULE THAT MAKES THE ARITHMETIC ADD UP, not a tidiness rule. Entries are
+   the counting unit, so the garment's weight is their sum — and that sum is only
+   right while the entries partition the panels. */
+const S2 = "PLO-002";
+const ENTRIES = [
+  { key: "e1", style_ref_no: S1, component_ids: ["c-front", "c-back"] },
+  { key: "e2", style_ref_no: S1, component_ids: ["c-sleeve"] },
+  { key: "e3", style_ref_no: S2, component_ids: ["c-front"] },
+  { key: "e4", style_ref_no: null, component_ids: ["c-collar"] },
+];
+
+check(
+  "a component used by another entry ON THE SAME STYLE is withdrawn",
+  [...takenComponentIds(ENTRIES, { key: "e2", style_ref_no: S1 })].sort(),
+  ["c-back", "c-collar", "c-front"],
+);
+/* AN ENTRY'S OWN CHOICES ALWAYS SURVIVE. Without the `except`, opening a saved
+   entry would show it as having selected nothing and the first edit would clear
+   it — silent data loss dressed up as a filter. */
+check(
+  "…but never its own",
+  [...takenComponentIds(ENTRIES, { key: "e1", style_ref_no: S1 })].sort(),
+  ["c-collar", "c-sleeve"],
+);
+
+/* THE STYLE SCOPE, WHICH IS THE WHOLE OF 0495's CHANGE HERE. FRONT BODY is used
+   by e1 on the tee and by e3 on the polo, and both are legitimate — they are two
+   panels wearing one master row. Under 0494's document-wide rule the polo could
+   not have named it at all. */
+check(
+  "a component used on ANOTHER style is not withdrawn",
+  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: S2 })].sort(),
+  ["c-collar", "c-front"],
+);
+refute(
+  "…so the tee's back and sleeve do not block the polo",
+  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: S2 })].sort(),
+  ["c-back", "c-collar", "c-front", "c-sleeve"],
+);
+
+/* AN UNSCOPED ENTRY COLLIDES BOTH WAYS, and that is the safe reading rather than
+   a gap. `null` means "every style", so e4's collar is used on every style — and
+   an unscoped entry in turn sees every style's panels. The alternative lets an
+   unscoped entry silently double-count against a scoped one. */
+check(
+  "an unscoped entry's panels are withdrawn from every style",
+  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: S2 })].includes("c-collar"),
+  true,
+);
+check(
+  "and an unscoped entry sees every style's panels",
+  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: null })].sort(),
+  ["c-back", "c-collar", "c-front", "c-sleeve"],
+);
+
+// -- what the Save gate and the Done button both read ------------------------
+
+const NEEDED = [
+  { size_id: SZ_S, label: "S" },
+  { size_id: SZ_M, label: "M" },
+];
+
+check(
+  "an entry with no structure is refused first",
+  manualProblem(entry({ structure_id: null }), NEEDED, null)?.refused,
+  "Choose the fabric structure this weight is for",
+);
+check(
+  "…then one with no components",
+  manualProblem(entry({ component_ids: [] }), NEEDED, null)?.refused,
+  "Choose which components this weight covers",
+);
+check(
+  "an order stating no sizes is its own refusal, not a pass",
+  manualProblem(entry(), [], null)?.refused,
+  "This order states no sizes for this structure",
+);
+check(
+  "it names the sizes still blank",
+  manualProblem(entry({ sizes: [sizeRow(SZ_S, 200)] }), NEEDED, null)?.refused,
+  "Enter the weight for M",
+);
+check(
+  "and stands down once every size is answered",
+  manualProblem(entry(), NEEDED, null),
+  null,
+);
+
+/* THE CALCULATED MODE'S OWN PRECONDITION, named separately because the fix is on
+   a DIFFERENT SCREEN. Without it every size reports blank and the planner goes
+   looking at the size cells for a fault that is on the order. */
+check(
+  "calculated mode with no GSM says so, and says where to fix it",
+  manualProblem(entry({ calc_mode: "calculated" }), NEEDED, null)?.refused,
+  "This structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
+);
+refute(
+  "…rather than reporting every size as blank",
+  manualProblem(entry({ calc_mode: "calculated" }), NEEDED, null)?.refused,
+  "Enter the measurements for S, M",
+);
+check(
+  "with a GSM it asks for the measurements, in the calculated mode's words",
+  manualProblem(entry({ calc_mode: "calculated" }), NEEDED, 180)?.refused,
+  "Enter the measurements for S, M",
+);
+
+// -- an entry plans its OWN style, and only that one (0495) ------------------
+
+/* TWO STYLES, ONE ORDER. The fixture order above has one style; this one adds a
+   second so the scope has something to exclude. Without the scope an entry for
+   the tee would plan the polo's pieces as well — silently, and the total would
+   look like a healthy larger number rather than an error. */
+const twoStyles = order({
+  approvals: [approval(600, "WHITE", S1), approval(400, "WHITE", "PLO-002")],
+  combos: [combo("WHITE", S1), combo("WHITE", "PLO-002")],
+  assortSizes: [
+    assort(SZ_S, 1, "WHITE", S1),
+    assort(SZ_M, 1, "WHITE", S1),
+    assort(SZ_S, 1, "WHITE", "PLO-002"),
+    assort(SZ_M, 1, "WHITE", "PLO-002"),
+  ],
+});
+
+const scoped: FabricLineScope = { style_ref_no: S1, combo: null };
+const unscoped: FabricLineScope = { style_ref_no: null, combo: null };
+const perSize = line({ bySize: { [SZ_S]: 0.2, [SZ_M]: 0.2 } });
+
+check(
+  "an entry scoped to one style plans only its 600 pieces",
+  total("colour_size", scoped, perSize, twoStyles),
+  120,
+);
+refute(
+  "…never 200, which is both styles' 1,000 pieces",
+  total("colour_size", scoped, perSize, twoStyles),
+  200,
+);
+check(
+  "an UNSCOPED entry still plans every style — null means 'every'",
+  total("colour_size", unscoped, perSize, twoStyles),
+  200,
+);
+check(
+  "and its rows name the style they belong to",
+  rows("colour_size", unscoped, perSize, twoStyles).length,
+  4,
 );
 
 console.log(failed === 0 ? "\nOK — every fabric requirement vector holds." : `\n${failed} FAILED`);

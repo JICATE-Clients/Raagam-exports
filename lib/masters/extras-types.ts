@@ -104,6 +104,23 @@ export const LOOKUP_KINDS = [
   // waiting on a master screen. Deliberately unseeded — a defaulted colour list
   // is the mistake the near-miss rule records (AGENTS.md, "Near misses").
   "fabric_color",
+  // Orders ▸ Fabric BOM ▸ Fabric Process (0492). Three ▾ columns on the legacy
+  // tab whose vocabularies the screenshot does not fully reveal — the same case
+  // `vendor_item_form` / `vendor_supply_type` above are here for. `fabric_stage`
+  // is seeded with the two values the client's own screen shows (GREY, DYED) and
+  // `process_loss_for` with the one it shows; `fabric_process_type` is blank on
+  // both rows there, so it is seeded with NOTHING rather than with a guess.
+  "fabric_stage",
+  "process_loss_for",
+  "fabric_process_type",
+  // Orders ▸ Fabric BOM ▸ Yarn Process (0504). Its OWN stage list, not the
+  // `fabric_stage` above: legacy's fabric stages also hold WASH and PRINT, which
+  // no yarn can be in, so one shared kind would offer a value the planner has to
+  // read past. Seeded with GREY and DYED — the two the client's own screen
+  // shows. There is no yarn `process_loss_for`: 0493's flat tab had a "Loss for"
+  // column and 0504's does not, because the `For` column now names a COLOURWAY
+  // and does arithmetic with it.
+  "yarn_stage",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -162,6 +179,10 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   vendor_service_type: "Vendor Service Types",
   assortment_type: "Assortment Types",
   fabric_color: "Fabric Colours",
+  fabric_stage: "Fabric Stages",
+  process_loss_for: "Process Loss Bases",
+  fabric_process_type: "Fabric Process Types",
+  yarn_stage: "Yarn Stages",
 };
 
 /**

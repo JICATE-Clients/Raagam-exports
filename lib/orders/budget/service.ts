@@ -287,13 +287,37 @@ export async function pullCostLines(
   if (garmentOrderIds.length === 0) return { lines: [], skipped: 0 };
   const s = await createClient();
 
-  const [fabricRes, materialRes] = await Promise.all([
+  const [fabricRes, yarnRes, yarnStageRes, materialRes] = await Promise.all([
     s
       .from("order_fabric_bom_requirements")
       .select(
         "item_id, required_qty, consumption_uom_id, slice_label, " +
           "line:order_fabric_bom_lines(rate), " +
           "bom:order_fabric_boms(garment_order_id, is_draft)",
+      ),
+    /* THE YARN PURCHASE (0493). A third pulled source, from the Fabric BOM's
+       Yarn Process tab — one row per yarn its fabrics are made of, carrying a
+       weight the BOM computed. `process:processes(name)` rides along for the
+       description; see the branch below on why it is only shown when set. */
+    s
+      .from("order_fabric_bom_yarns")
+      .select(
+        "item_id, purchase_qty, uom_id, refusal_reason, " +
+          "bom:order_fabric_boms(garment_order_id, is_draft)",
+      ),
+    /* THE YARN TREATMENTS (0504) — the tab's SECOND budget section. One line per
+       step that names a process, quantified by what that step handles rather
+       than by the yarn's total: a stage marked For = PURPLE is quoted on the
+       purple lot alone. Read from the stage rather than recomputed, for the
+       reason every pulled source here is read: the quantity is a figure the
+       Fabric BOM computed and re-deriving it would be a second answer. */
+    s
+      .from("order_fabric_bom_yarn_stages")
+      .select(
+        "process_qty, uom_id, combo, " +
+          "process:processes(name), " +
+          "yarn:order_fabric_bom_yarns(item_id, " +
+          "bom:order_fabric_boms(garment_order_id, is_draft))",
       ),
     s
       .from("material_bom_amendment_requirements")
@@ -343,6 +367,96 @@ export async function pullCostLines(
       qty: Number(r.required_qty),
       uom_id: r.consumption_uom_id,
       rate: r.line?.rate == null ? null : Number(r.line.rate),
+    });
+  }
+
+  type YarnRow = {
+    item_id: string | null;
+    purchase_qty: number | null;
+    uom_id: string | null;
+    refusal_reason: string | null;
+    bom: { garment_order_id: string; is_draft: boolean } | null;
+  };
+
+  for (const r of (yarnRes.data ?? []) as unknown as YarnRow[]) {
+    // A DRAFT BOM IS NOT PULLED, for the fabric branch's reason exactly.
+    if (!r.bom || r.bom.is_draft || !wanted.has(r.bom.garment_order_id)) continue;
+    /* A REFUSED YARN IS SKIPPED AND COUNTED, not pulled as a zero. Its
+       `refusal_reason` says the weight could not be worked out — most often a
+       fabric whose yarns declare no blend percentages — and a 0 in a budget
+       reads as "this yarn is free", which is the one reading nobody would
+       question. `skipped` is what the screen reports, so the planner is told a
+       line was left out rather than discovering it missing. */
+    if (r.purchase_qty == null) {
+      skipped++;
+      continue;
+    }
+    if (r.item_id) itemIds.add(r.item_id);
+    lines.push({
+      source: "yarn",
+      garment_order_id: r.bom.garment_order_id,
+      item_id: r.item_id,
+      /* JUST THE YARN. The treatment is no longer squeezed into this line's
+         description — it has a line of its own now (0504), which is the client's
+         "Yarn Purchase AND Yarn Process sections" read properly. This one is the
+         PURCHASE: what to buy, priced per kg of yarn. The item name is appended
+         below, so "—" is the placeholder rather than the final text. */
+      description: "—",
+      qty: Number(r.purchase_qty),
+      uom_id: r.uom_id,
+      /* NO RATE. The Yarn Process tab stores none — it is a quantity document,
+         not a priced one — so the planner types it here, exactly as the Material
+         BOM branch below leaves it null. Defaulting to a last-purchase price is
+         what the header refuses: "a budget that quietly priced itself from
+         history is a budget nobody checked." */
+      rate: null,
+    });
+  }
+
+  type YarnStageRow = {
+    process_qty: number | null;
+    uom_id: string | null;
+    combo: string | null;
+    process: { name: string } | null;
+    yarn: {
+      item_id: string | null;
+      bom: { garment_order_id: string; is_draft: boolean } | null;
+    } | null;
+  };
+
+  for (const r of (yarnStageRes.data ?? []) as unknown as YarnStageRow[]) {
+    const bom = r.yarn?.bom;
+    if (!bom || bom.is_draft || !wanted.has(bom.garment_order_id)) continue;
+    /* NO PROCESS, NO LINE — the client's "if a yarn has no process assigned, any
+       associated yarn processing cost fields are automatically hidden or locked
+       in the budget sheet", in its strongest form. `process_qty` is NULL on such
+       a stage precisely so this test needs no second condition, and it is not
+       counted as `skipped`: nothing was left out, because nothing was owed. */
+    if (!r.process?.name) continue;
+    if (r.process_qty == null) {
+      /* A step whose weight could not be worked out IS counted, because
+         something WAS owed and is missing — the planner is told a line was left
+         out rather than discovering it absent. */
+      skipped++;
+      continue;
+    }
+    if (r.yarn?.item_id) itemIds.add(r.yarn.item_id);
+    lines.push({
+      source: "yarn_process",
+      garment_order_id: bom.garment_order_id,
+      item_id: r.yarn?.item_id ?? null,
+      /* THE TREATMENT, AND THE COLOURWAY WHEN IT NAMES ONE. A blank For covers
+         every colourway, so saying so would be noise on the ordinary line; a
+         named one is what distinguishes two dyeing lines on one yarn, and
+         without it they read as a duplicate. */
+      description: [r.process.name, r.combo].filter(Boolean).join(" · "),
+      qty: Number(r.process_qty),
+      uom_id: r.uom_id,
+      /* NO RATE. The Yarn Process tab stores none — it is a quantity document,
+         not a priced one — so the planner types it here. Defaulting to a
+         last-purchase price is what the header refuses: "a budget that quietly
+         priced itself from history is a budget nobody checked." */
+      rate: null,
     });
   }
 

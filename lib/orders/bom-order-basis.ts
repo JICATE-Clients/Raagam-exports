@@ -52,7 +52,17 @@ export const ORDER_SELECT =
   "id, code, po_no, amend_date, delivery_date, excess_pct, rejection_rule_id, " +
   "customer:customers(id,code,name), " +
   "sales_order:sales_orders(id,order_number), " +
-  "styles:garment_order_amendment_styles(style_ref_no), " +
+  /* THREE MORE COLUMNS ON THE STYLE (0495), for the Fabric BOM's Manual tab,
+     whose header row is legacy's S No / StyleRefNo / StyleNo / ArticleNo and
+     whose Component Unit is `unit_kind` (0471).
+
+     WIDENED HERE RATHER THAN READ AGAIN. This is the same join on the same
+     table for the same orders; a second query in the fabric service would be a
+     second answer to "what styles does this order have", free to drift from
+     this one. The Material BOM ignores the three — it maps `styles` to a count
+     and a ref list — so the widening costs it nothing but the bytes. */
+  "styles:garment_order_amendment_styles(style_ref_no, article_no, unit_kind, " +
+  "style:garment_styles(id, code)), " +
   "approval_qtys:garment_order_amendment_approval_qtys(style_ref_no,combo,qty,approval_qty), " +
   "combos:garment_order_amendment_combos(style_ref_no,combo), " +
   // THE FRAGMENT COMES FROM THE RULE, not retyped beside it. `assortSizeWeights`
@@ -70,7 +80,17 @@ export type OrderRow = {
   rejection_rule_id: string | null;
   customer: { id: string; code: string | null; name: string } | null;
   sales_order: { id: string; order_number: string | null } | null;
-  styles: { style_ref_no: string | null }[] | null;
+  styles:
+    | {
+        style_ref_no: string | null;
+        article_no: string | null;
+        /** 'pcs' | 'sets' (0471). */
+        unit_kind: string | null;
+        /** The Style master row, for its code. NULL where the order names a
+         *  style by ref only, which 0457 made an ordinary state. */
+        style: { id: string; code: string | null } | null;
+      }[]
+    | null;
   approval_qtys:
     | { style_ref_no: string | null; combo: string | null; qty: number; approval_qty: number }[]
     | null;

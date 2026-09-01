@@ -93,7 +93,12 @@ check("a line's amount is qty x rate", lineAmount(line("fabric", 1000, 200)), 20
 check(
   "cost is broken out by source",
   budgetTotals(LINES, ORDERS).costBySource,
-  { fabric: 200_000, material: 50_000, process: 0, cmt: 0, expense: 0, income: 0 },
+  /* `yarn: 0` IS PART OF THE ASSERTION, not padding. Every source appears with a
+     zero even when nothing uses it, so the breakdown has a fixed shape a screen
+     can render without asking which keys exist — and so a source ADDED without
+     being initialised (0493 nearly did exactly that) fails here rather than
+     reaching a total as `undefined`. */
+  { fabric: 200_000, yarn: 0, yarn_process: 0, material: 50_000, process: 0, cmt: 0, expense: 0, income: 0 },
 );
 
 // ---------------------------------------------------------------------------
@@ -219,8 +224,14 @@ check(
 // 7. The vocabulary
 // ---------------------------------------------------------------------------
 
-check("the six sources", [...BUDGET_SOURCES], [
+/* SEVEN SINCE 0493, and the ORDER is asserted as well as the membership: the
+   budget screen groups its lines by walking this array, so `yarn` sitting beside
+   `fabric` is what puts the Yarn Purchase section next to the fabric it comes
+   out of rather than at the bottom under the typed costs. */
+check("the eight sources", [...BUDGET_SOURCES], [
   "fabric",
+  "yarn",
+  "yarn_process",
   "material",
   "process",
   "cmt",
