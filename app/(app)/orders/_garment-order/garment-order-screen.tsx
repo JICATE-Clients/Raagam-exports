@@ -1541,15 +1541,21 @@ export function GarmentOrderScreen({
    */
   const [showPriceQty, setShowPriceQty] = useState(false);
   /**
-   * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the "GSM is
-   * required for a circular-knit structure" advisory (client 2026-08-18:
-   * "remove this message; if they moved on without filling it then show at that
-   * time only, no need to show it statically").
+   * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the
+   * `structureProblems` advisory (client 2026-08-18: "remove this message; if
+   * they moved on without filling it then show at that time only, no need to
+   * show it statically").
    *
    * The line used to render the moment a Circular Knit structure was picked, so
    * it accused the operator of missing a field they had not reached yet — the
    * cursor was still two boxes to the left. Marked on focus LEAVING the row, it
    * says the same thing at the only moment it is true.
+   *
+   * IT MATTERS MORE SINCE 2026-09-01, NOT LESS. The advisory then named one
+   * field on one family of cloth; it now speaks for five cells on every fabric,
+   * so an ungated version would greet a freshly-added blank card with five
+   * complaints. The stars and holds are what say "these are needed" up front —
+   * this line is only ever for a row they LEFT unfinished.
    *
    * A row key set, not a boolean per row: `ComboStructRow`s are re-created by
    * `mutStructs` on every edit, so a flag on the row would be rewritten by the
@@ -2332,10 +2338,11 @@ export function GarmentOrderScreen({
    * / Woven is the FAMILY that category belongs to.
    *
    * The three rows are not orphaned by this: `categories.fabric_structure_id`
-   * still points at them, which is how `isCircularKnit` decides whether GSM is
-   * compulsory. The family is DERIVED from the picked category now — read
-   * through `categoryById`, never asked as its own question, so the two can no
-   * longer disagree on one row.
+   * still points at them, and the Category master, the Material master and
+   * `lib/orders/styles/rules.ts` all read that column. What it no longer drives
+   * is GSM — the "Circular Knit → compulsory" carve-out was withdrawn on
+   * 2026-09-01 and `familyCodeOf` went with it, so this screen derives no knit
+   * family at all any more. See `structureRequiredCells` in combo-rules.ts.
    */
 
   const printOpts = useMemo(
@@ -2466,9 +2473,13 @@ export function GarmentOrderScreen({
    * the operator the knit family directly). It is the second hop of a
    * DERIVATION: a component names a fabric CATEGORY, the category names its
    * family, and `compTypeFor` turns that into the `comp_type` this screen now
-   * stores alongside the Style master. `familyCodeOf` below makes the same two
-   * hops for the GSM rule and reads `lookups` directly; this memo is the same
-   * fact shaped as `{id, name}` because that is what the shared rule takes.
+   * stores alongside the Style master. This memo is that same fact shaped as
+   * `{id, name}` because that is what the shared rule takes.
+   *
+   * `familyCodeOf` USED TO SIT BELOW and make the same two hops for the GSM
+   * rule. It went on 2026-09-01 with the rule it served — GSM is required on
+   * every fabric now — so `compTypeFor` is the only reader of the family left
+   * on this screen.
    */
   const fabricStructureOpts = useMemo(
     () =>
@@ -2560,20 +2571,6 @@ export function GarmentOrderScreen({
     () => new Map(data.categories.map((c) => [c.id, c])),
     [data.categories],
   );
-  /**
-   * The picked Structure's knit family CODE — `circular` / `flat_knit` / `woven`.
-   *
-   * Two hops, both deliberate: the row names a category, the category names its
-   * family. That is what makes GSM-compulsory a consequence of one answer
-   * rather than a second question the operator could contradict.
-   */
-  const familyCodeOf = (structureId: string | null): string | null => {
-    const cat = structureId ? categoryById.get(structureId) : null;
-    const fam = cat?.fabric_structure_id
-      ? lookups.find((l) => l.id === cat.fabric_structure_id)
-      : null;
-    return fam?.code ?? null;
-  };
   /**
    * The colours THIS amendment declared, offered to a component's Fabric Color.
    *
@@ -6562,9 +6559,11 @@ export function GarmentOrderScreen({
    * THE CLIENT TOOK THAT DECISION ON 2026-09-01 ("the composition, gsm,
    * Tolerance, Fabric type, color these field are required field"), so the
    * contrast the instruction drew now holds. `structureRequiredCells` in
-   * combo-rules.ts is the declaration; Composition, Tolerance and Fabric Type
-   * carry the star, the hold and a blocked Save, and GSM does on a circular
-   * knit. **Roll form print is unchanged and is now genuinely the exception it
+   * combo-rules.ts is the declaration, and all five — Composition, GSM,
+   * Tolerance, Fabric Type and Colour — carry the star, the hold and a blocked
+   * Save. (GSM shipped conditional that morning and went unconditional the same
+   * day: "gsm also need required for all fabric type".) **Roll form print is
+   * unchanged and is now genuinely the exception it
    * was described as** — which is worth saying plainly, because the paragraph
    * this replaces argued the opposite and a reader finding it quoted elsewhere
    * is holding something superseded.
@@ -10079,7 +10078,7 @@ export function GarmentOrderScreen({
          versus what is cut from it), the reveal lands in the same place either
          way, and merging them would produce "missing Composition · Colour" —
          a sentence that reads as one row owing both. */
-      const own = structureProblems(st, familyCodeOf(st.structure_id));
+      const own = structureProblems(st);
       const bad = st.components
         .map((c) => componentProblems(c, st.item_sub_type))
         .filter((m) => m.length);
@@ -13386,10 +13385,7 @@ export function GarmentOrderScreen({
         ]
           .filter(Boolean)
           .join("  ·  ");
-        const foldedProblems = structureProblems(
-          st,
-          familyCodeOf(st.structure_id),
-        );
+        const foldedProblems = structureProblems(st);
         return (
           /* THE OPEN CARD'S RAIL, TRANSPARENT — see the long note in
              `renderMobileRow`. Same width, same padding, no colour: the two
@@ -13442,8 +13438,7 @@ export function GarmentOrderScreen({
       /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
       addClassName={STRUCTURE_ADD_W}
       renderMobileRow={(st) => {
-        const familyCode = familyCodeOf(st.structure_id);
-        const problems = structureProblems(st, familyCode);
+        const problems = structureProblems(st);
         /* THE STARS AND THE HOLDS COME FROM THE RULE, NEVER FROM A LITERAL
            (client 2026-09-01). `structureRequiredCells` is the same declaration
            `problems` above is derived from and the same one `comboProblems`
@@ -13451,10 +13446,13 @@ export function GarmentOrderScreen({
            with — the star/hold divergence AGENTS.md's "one declaration, four
            enforcers" exists to prevent.
 
-           IT IS READ PER FABRIC, NOT PER SCREEN: GSM's requiredness follows the
-           knit family this row's Structure resolves to, so two fabrics in one
-           combo legitimately answer differently. */
-        const need = structureRequiredCells(familyCode);
+           IT TAKES NO ARGUMENT, and that is the 2026-09-01 change: all five
+           cells are unconditional, so every fabric on every combo answers the
+           same. It stays a CALL rather than a module constant because the
+           question "what does a fabric owe" belongs to the rule module, and an
+           inlined object here would be the second statement this indirection
+           exists to prevent. */
+        const need = structureRequiredCells();
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
@@ -13772,18 +13770,25 @@ export function GarmentOrderScreen({
                   unless this IS the first fabric, so the handler is harmless
                   here and the rule stays stated in one place rather than being
                   half-expressed as a condition on the JSX. */}
-              {/* GSM'S STAR FOLLOWS THE KNIT FAMILY, and it is the one of the
-                  five the client named on 2026-09-01 that did NOT become
-                  unconditional — "Circular Knit → GSM compulsory; Woven or Flat
-                  Knit → optional" (client 2026-08-10) is the narrower and older
-                  statement, so it stands. The reasoning is in
-                  `structureRequiredCells`; do not re-decide it here.
+              {/* GSM IS REQUIRED ON EVERY FABRIC (client 2026-09-01: "gsm also
+                  need required for all fabric type").
 
-                  SO THIS STAR CAN APPEAR AND DISAPPEAR — picking a woven
-                  Structure takes it off. That is the only flickering star on
-                  this card and it is the honest rendering of a case rule: the
-                  alternative is a permanent star the Save button ignores on two
-                  families out of three. */}
+                  IT SHIPPED CONDITIONAL EARLIER THE SAME DAY and this comment
+                  said so — "Circular Knit → GSM compulsory; Woven or Flat Knit →
+                  optional" (client 2026-08-10) was read as the narrower and
+                  older statement and left standing. The client was shown that
+                  reading and overruled it in one line, so the 08-10 carve-out is
+                  WITHDRAWN, not overlooked: a later instruction wins, and
+                  restoring it needs a new decision rather than someone noticing
+                  `isCircularKnit` still exists (it does, uncalled, and its own
+                  doc explains why).
+
+                  SO THE STAR NO LONGER FLICKERS. It used to appear when you
+                  picked a knit Structure and vanish on a woven one — the one
+                  case-driven star on this card. Nothing here is conditional now,
+                  which is why `need.gsm` reads as a constant: it is still routed
+                  through the rule so the star, the hold and the Save gate cannot
+                  drift apart. */}
               <Field label="GSM" required={need.gsm} w="num">
                 <Input
                   type="number"
