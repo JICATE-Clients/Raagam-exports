@@ -129,6 +129,28 @@ export type FabricLineInput = {
   wastage_pct: number | null;
   /** `uoms.decimal_places_allowed` of the consumption unit. */
   decimals: number | null;
+  /**
+   * SIZE-WISE CONSUMPTION, keyed by `config_lookups` size id — the Manual tab
+   * (0491), and the ONLY thing on this line that can override `consumption`.
+   *
+   * ## PRESENT MEANS 'manual'. THE ENGINE NEVER SEES THE MODE COLUMN.
+   *
+   * `order_fabric_bom_lines.consumption_mode` is the operator's switch, and the
+   * caller resolves it: a 'direct' line passes nothing here, a 'manual' line
+   * passes its map. So there is one statement of the rule rather than a column
+   * this module also has to interpret — and a caller that forgets the mode
+   * cannot produce a line that is manual in the database and direct in the
+   * arithmetic.
+   *
+   * ## AND IT NEVER FALLS BACK TO THE SCALAR
+   *
+   * With this set, a slice whose size is not in the map is REFUSED. Falling back
+   * to `consumption` would answer with the figure the operator switched away
+   * from, on the sizes they had not reached yet — a BOM short on exactly the
+   * runs nobody had checked, reading as a complete document. Same call
+   * `fabricSlices` makes for a scope that matches nothing.
+   */
+  bySize?: Readonly<Record<string, number>> | null;
 };
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -249,8 +271,42 @@ export function fabricRequirementFor(
   line: FabricLineInput,
   slice: ProductionSlice,
 ): number | Refusal {
+  /*
+   * THE SIZE'S OWN CONSUMPTION WINS, AND ONLY A SIZED SLICE HAS ONE (0491).
+   *
+   * A 'manual' line states a different figure per size — an XXL body takes more
+   * cloth than an S — and the only basis that carries a size axis is
+   * `colour_size`. On a `colour` line every slice has `size_id` NULL, so there
+   * is nowhere to put those figures: rolling them up to one average would invent
+   * a number the operator never typed, and taking the line's scalar would
+   * silently use the figure they had switched away from.
+   *
+   * So it refuses, and the SCREEN says the same sentence beside the Split cell.
+   * The migration declines to make this a CHECK constraint because the two
+   * columns are edited in either order and a constraint would refuse the
+   * intermediate state; this is where it is actually enforced.
+   */
+  /* PRESENCE, NOT SIZE. `bySize` being a map at all is what means 'manual' —
+     an EMPTY one is a size-wise line nobody has filled in yet, and testing
+     `Object.keys(...).length` would send exactly that line back to the scalar
+     it was switched away from. That is the silent fallback this whole branch
+     exists to refuse, arriving through the test rather than through the code. */
+  const bySize = line.bySize;
+  if (bySize) {
+    if (!slice.size_id) {
+      return { refused: "Size-wise consumption needs the Colour + Size split" };
+    }
+    const own = num(bySize[slice.size_id]);
+    if (own == null || own <= 0) {
+      // NAME THE SLICE. `slice.label` is what the Calculated Quantities grid
+      // prints in the row beside this message, so the operator is told which of
+      // twenty rows to go and fill rather than that one of them is empty.
+      return { refused: `Enter the consumption for ${slice.label}` };
+    }
+    return sizedRequirement(own, line, slice);
+  }
+
   const consumption = num(line.consumption);
-  const wastage = num(line.wastage_pct) ?? 0;
 
   // 0 is not "no fabric needed" — every grid opens on a blank row (the seedRow
   // rule) and a half-filled one carries 0. Same call `styleRate` makes for a
@@ -258,6 +314,24 @@ export function fabricRequirementFor(
   if (consumption == null || consumption <= 0) {
     return { refused: "Enter the fabric consumption per garment" };
   }
+  return sizedRequirement(consumption, line, slice);
+}
+
+/**
+ * The multiply, shared by the direct and the size-wise routes.
+ *
+ * EXTRACTED RATHER THAN COPIED when 0491 added the second route. The wastage
+ * range check and the ceiling are the two things that must not differ between
+ * them: a size-wise line rounding at a different precision from a direct one is
+ * a discrepancy nobody would look for, and it would appear only on the sizes
+ * whose figures happen to land on a boundary.
+ */
+function sizedRequirement(
+  consumption: number,
+  line: FabricLineInput,
+  slice: ProductionSlice,
+): number | Refusal {
+  const wastage = num(line.wastage_pct) ?? 0;
   if (wastage < 0 || wastage > 100) return { refused: "Wastage must be between 0 and 100" };
 
   const qty = num(slice.qty) ?? 0;

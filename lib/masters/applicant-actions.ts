@@ -67,7 +67,64 @@ async function syncAlsoFlags(
   const seed = partySeed(data);
   const cust = await publishParty(s, PARTY_LINKS.applicantCustomer, id, data.also_customer, seed);
   if (!cust.ok) return cust;
-  const cons = await publishParty(s, PARTY_LINKS.applicantConsignee, id, data.also_consignee, seed);
+
+  /**
+   * A PARTY THAT IS BOTH A CUSTOMER AND A CONSIGNEE PUBLISHES THEM LINKED
+   * (client 2026-09-01: "if a customer is flagged as 'Also Customer' = YES and
+   * 'Also Consignee' = YES, their name and shipping details must automatically
+   * list and auto-populate in the Consignee section of the order").
+   *
+   * ## THE BUG THIS FIXES, AND WHY IT LOOKED LIKE AN ORDER-SCREEN BUG
+   *
+   * `customer-actions.ts` has always published its consignee with
+   * `{ customer_id: id }`. This did not — it passed no `extra` at all — so an
+   * applicant with BOTH boxes ticked created a customer and a consignee that
+   * were the same real party and pointed at each other through nothing.
+   *
+   * Order Entry narrows the Consignee list to `consignees.customer_id`, and
+   * since 2026-08-29 it does so with no fallback ("it will retrieve and list
+   * ONLY the consignees registered under the selected Buyer/Customer"). So the
+   * unlinked rows resolved to an empty list, on exactly the customers whose
+   * consignee had been created FROM the applicant — which is why it read as
+   * "the consignee list fails to load for certain customers" rather than as a
+   * missing foreign key. The order screen was right; the data it read was not.
+   * Measured 2026-09-01: 3 of the 4 both-ticked applicants were unlinked
+   * (AARSAN AMERICAS LLC, JOSTENS, TAPE A 'L' OEIL); 0502 backfills them.
+   *
+   * ## READ BACK, RATHER THAN RETURNING THE ID FROM `publishParty`
+   *
+   * Returning it would change a signature five masters share, and this is the
+   * only caller that needs it. The read is keyed on `source_applicant_id`,
+   * which is the same column `publishParty` just wrote and the one it looks a
+   * published row up by — so this cannot find a different row than the line
+   * above created.
+   *
+   * ## `extra` IS INSERT-ONLY, WHICH IS CORRECT AND IS WHY 0502 EXISTS
+   *
+   * On the update path `publishParty` deliberately touches only the name — "the
+   * rest of this row belongs to whoever has been editing it" — so this cannot
+   * re-link a consignee that already exists, and must not: an operator who
+   * deliberately pointed one at a different customer keeps their answer. Rows
+   * created before today are repaired once, by migration, not on every save.
+   */
+  let consigneeExtra: Record<string, unknown> | undefined;
+  if (data.also_customer && data.also_consignee) {
+    const { data: published } = await s
+      .from("customers")
+      .select("id")
+      .eq("source_applicant_id", id)
+      .maybeSingle();
+    if (published?.id) consigneeExtra = { customer_id: published.id };
+  }
+
+  const cons = await publishParty(
+    s,
+    PARTY_LINKS.applicantConsignee,
+    id,
+    data.also_consignee,
+    seed,
+    consigneeExtra,
+  );
   if (!cons.ok) return cons;
   revalidatePath("/masters/associates/customer");
   revalidatePath("/masters/associates/consignee");

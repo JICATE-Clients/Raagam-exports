@@ -1,0 +1,77 @@
+-- ============================================================================
+-- Raagam ERP — 0510 Link the consignees an Applicant published to the customer
+--                    the SAME applicant published
+--
+-- NUMBERED 0510, APPLIED AS 0502. It was applied on 2026-09-01 under the name
+-- `0502_link_applicant_published_consignees`, and another session then landed an
+-- approval set that is still GROWING — 0500 · 0501 · 0502 · 0503 appeared while
+-- this was being renumbered. So it moved clear of the series rather than to the
+-- next free number, which would have collided again. The FILE moved and the applied
+-- record keeps the name it was stamped with — `supabase_migrations` orders by
+-- timestamp, not by this prefix, so nothing about the applied history changes.
+-- Re-applying is harmless in any case: the statement only ever fills a NULL, so
+-- a second run matches no rows.
+--
+-- Client 2026-09-01: "a critical bug where the Consignee list was failing to
+-- display or load for certain customers … under the Applicant setup master, if
+-- a customer is flagged as 'Also Customer' = YES and 'Also Consignee' = YES,
+-- their name and shipping details must automatically list and auto-populate in
+-- the Consignee section of the order".
+--
+--
+-- WHAT WAS ACTUALLY WRONG — NOT THE ORDER SCREEN
+--
+-- `lib/masters/customer-actions.ts` has always published its consignee with
+-- `{ customer_id: id }`. `applicant-actions.ts` passed no extra columns at all,
+-- so an applicant with BOTH boxes ticked created a customer row and a consignee
+-- row that were the same real party and pointed at each other through nothing.
+--
+-- Order Entry narrows the Consignee list to `consignees.customer_id`, and since
+-- 2026-08-29 it does so with NO fallback, on the client's own instruction ("it
+-- will retrieve and list ONLY the consignees registered under the selected
+-- Buyer/Customer … ensures that users cannot accidentally assign an order to an
+-- unrelated customer's consignee"). So those unlinked rows resolved to an empty
+-- list — and only on the customers whose consignee had been created FROM the
+-- applicant, which is why it presented as "fails to load for certain customers"
+-- rather than as a missing foreign key. The screen was right; its data was not.
+--
+-- The code half is fixed in `applicant-actions.ts`. This is the other half:
+-- `publishParty`'s `extra` applies to the INSERT only — deliberately, because on
+-- the update path "the rest of this row belongs to whoever has been editing it"
+-- — so rows created before today are repaired here, once, rather than on every
+-- save.
+--
+--
+-- MATCHED ON `source_applicant_id`, NEVER ON THE NAME
+--
+-- Both rows carry the id of the applicant that published them, so this joins on
+-- the fact rather than on a string. A name match would be the same trap
+-- `isCircularKnit` records one module away: it compiles, runs, and silently
+-- mis-links the first pair whose names drift apart — and a consignee is exactly
+-- the row an operator renames ("TAPE A 'L' OEIL" → "TAPE A L OEIL").
+--
+--
+-- IT ONLY EVER FILLS A NULL
+--
+-- `g.customer_id is null` is the whole safety of this statement. A consignee an
+-- operator deliberately pointed at a DIFFERENT customer keeps their answer —
+-- that is a legitimate arrangement (a buying house shipping to one warehouse for
+-- several customers), and repairing a gap must not overwrite a decision.
+--
+-- Verified before applying, on 2026-09-01: 4 applicants carry both flags, and
+-- exactly 3 of their consignees were unlinked — AARSAN AMERICAS LLC, JOSTENS and
+-- TAPE A 'L' OEIL. ASMARA was already linked and this statement does not touch
+-- it. Each of the three resolves to the same-named customer published from its
+-- own applicant, so no row is linked to a party it is not.
+--
+-- NOT IDEMPOTENT BY ACCIDENT BUT BY SHAPE: run it twice and the second run
+-- matches nothing, because the first left no NULLs behind that share an
+-- applicant with a customer.
+-- ============================================================================
+
+update public.consignees g
+set    customer_id = c.id
+from   public.customers c
+where  c.source_applicant_id = g.source_applicant_id
+  and  g.source_applicant_id is not null
+  and  g.customer_id is null;

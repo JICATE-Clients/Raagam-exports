@@ -11,6 +11,7 @@ import {
   ArrowLeftRight,
   BarChart3,
   LineChart,
+  CheckCheck,
   Database,
   Shield,
   type LucideIcon,
@@ -161,6 +162,21 @@ export const NAV: NavItem[] = [
     label: "Analytics",
     module: "reports",
     icon: LineChart,
+  },
+  {
+    /* APPROVALS — the engine's own two screens (0500–0503).
+       TWO ROWS, NOT ONE PER WORKFLOW. The queue is deliberately cross-module —
+       one place to see everything waiting on you, rather than four inboxes to
+       remember to check — so it belongs beside Analytics as its own module
+       rather than repeated under Orders and Purchase.
+       `Approval Flows` is the admin half and is a sub-module of it, which is the
+       "two levels in the sidebar, the third on the page" shape: it lives at
+       /approvals/flows, genuinely beneath the row above it. */
+    href: "/approvals",
+    label: "Approvals",
+    module: "approvals",
+    icon: CheckCheck,
+    children: [{ href: "/approvals/flows", label: "Approval Flows" }],
   },
   {
     href: "/masters",

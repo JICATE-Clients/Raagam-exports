@@ -101,8 +101,22 @@ export function gsmRange(
  * MATCHED ON THE LOOKUP'S `code`, NOT ITS NAME. The three rows are seeded
  * `circular` / `flat_knit` / `woven`, and a code is what survives someone
  * renaming "Circular Knit" to "Circular Knitting" from the picker's pencil —
- * which is a thing that list allows. A name match would compile, run, and
- * quietly stop making GSM compulsory.
+ * which is a thing that list allows. A name match would compile and run, and
+ * silently answer `false` for every circular knit in the database.
+ *
+ * ## IT NO LONGER DECIDES ANYTHING, AND IS KEPT ON PURPOSE
+ *
+ * Its one caller was `structureRequiredCells`, gating GSM on the knit family
+ * until the client withdrew that carve-out on 2026-09-01 ("gsm also need
+ * required for all fabric type"). Nothing calls it today. It survives because
+ * three other files — the Structure lookups memo and the `code`-matching notes
+ * in `mba-master-screen.tsx` and `process-loss.ts` — cite it BY NAME as this
+ * repo's worked example of matching a lookup on its code rather than its label,
+ * and deleting it would leave those pointing at nothing.
+ *
+ * **So do not read its existence as evidence that GSM is still conditional.**
+ * If a future rule needs the knit family, this is the right predicate to call;
+ * if nothing ever does, it is three lines and a citation target.
  */
 export function isCircularKnit(familyCode: string | null | undefined): boolean {
   return (familyCode ?? "").trim().toLowerCase() === "circular";
@@ -121,74 +135,158 @@ export type ComboStructureLike = {
   item_sub_type?: string | null;
 };
 
+/** Which cells of a structure row the operator must answer. */
+export type StructureRequiredCells = {
+  structure: boolean;
+  composition: boolean;
+  gsm: boolean;
+  gsm_tolerance: boolean;
+  item_sub_type: boolean;
+};
+
+/**
+ * WHICH CELLS THIS FABRIC MUST STATE — the one declaration, four readers
+ * (client 2026-09-01: "the composition, gsm, Tolerance, Fabric type, color
+ * these field are required field .. why is it not updated").
+ *
+ * ## WHY THIS EXISTS RATHER THAN A `required` PROP PER CELL
+ *
+ * `structureProblems` below already said, in capitals, that Composition,
+ * Tolerance and Fabric Type are unconditionally required — and then declined to
+ * put `required` on the cells, reasoning that four separate declarations of
+ * "what does this structure still need" would be free to disagree. That
+ * reasoning is right and is kept. What it got wrong is the CONCLUSION: it left
+ * the rule as an amber sentence only, so on screen there was no red `*`, no
+ * cursor hold and no blocked Save — every one of the four things this app means
+ * by "required" (AGENTS.md, "Mandatory fields"). The client read the screen and
+ * reported the field as not done, which it was.
+ *
+ * So the rule stays stated once and the cells DERIVE their `required` from it.
+ * A star that appears without this function agreeing is the star/hold
+ * divergence AGENTS.md exists to make impossible.
+ *
+ * ## IT TAKES NOTHING, AND THAT IS THE 2026-09-01 CHANGE
+ *
+ * Requiredness is a property of the COLUMN, never of how far the operator has
+ * got — a `*` that appears once you pick a Structure and vanishes when you
+ * clear it is a label that flickers. The "is this row merely unfinished"
+ * judgement belongs to the caller, and `structureProblems` below is where it is
+ * made.
+ *
+ * ## GSM IS UNCONDITIONAL NOW, AND THAT WITHDRAWS THE 2026-08-10 RULE
+ *
+ * This function shipped earlier the same day with `gsm: isCircularKnit(family)`,
+ * arguing that "Circular Knit → GSM compulsory; Woven or Flat Knit → optional"
+ * (client 2026-08-10) was the narrower and older statement and so beat a list
+ * read off a screenshot. The client was shown that reading and answered it
+ * directly — **"gsm also need required for all fabric type"** — so the 08-10
+ * carve-out is withdrawn, not overlooked. A later instruction wins; restoring
+ * the case rule needs a new client decision, not a tidy-up.
+ *
+ * THE PARAMETER WENT WITH IT. The knit family was this function's only input and
+ * GSM was the family's only reader on this screen, so keeping `familyCode` would
+ * have left an argument nobody reads — and `familyCodeOf` in the screen
+ * computing a value for nobody, and a doc comment in service.ts saying
+ * `categories.fabric_structure_id` is selected so "structureProblems decides
+ * that GSM is compulsory". Three statements describing a rule that no longer
+ * exists is precisely the drift this whole function was extracted to prevent.
+ * (The COLUMN is untouched and is not dead: the Category master, the Material
+ * master and `lib/orders/styles/rules.ts` all still read it.)
+ */
+export function structureRequiredCells(): StructureRequiredCells {
+  return {
+    structure: true,
+    composition: true,
+    gsm: true,
+    gsm_tolerance: true,
+    item_sub_type: true,
+  };
+}
+
 /**
  * What is wrong with this structure row — empty array means nothing.
  *
- * "Circular Knit → GSM compulsory; Woven or Flat Knit → optional" (client
- * 2026-08-10, recorded in 0397's header). Requiredness that is a property of
- * the CASE rather than of the column, which is exactly why it cannot be a
- * `required` prop on the cell and cannot be a CHECK in SQL: the row stores a
- * category uuid, and neither Zod nor Postgres can see through it to the family
- * without a join. 0397 said as much and had nowhere to put the rule; this is
- * the somewhere.
+ * WHICH CELLS is `structureRequiredCells` above; this asks the second question,
+ * the one that function deliberately refuses — **is this row merely unfinished,
+ * or is it wrong?** Two functions because the answers have different shapes: a
+ * `*` is a property of the column and must not flicker, while a complaint is a
+ * property of the row and must stand down while the row is still being typed.
  *
- * IT TAKES THE FAMILY CODE AS AN ARGUMENT rather than looking it up, so the
- * caller that already holds the categories list does the resolving once. A
- * function that fetched would be unusable in the Save button, which has to
- * answer on every keystroke.
+ * IT USED TO CARRY THE KNIT FAMILY, and the paragraph here used to explain why
+ * GSM could not be a `required` prop or a SQL CHECK: the row stores a category
+ * uuid and neither Zod nor Postgres can see through it to the family without a
+ * join (0397's header). **That argument retired with the rule on 2026-09-01** —
+ * all five cells are now unconditional, so requiredness is visible to the cell,
+ * and the parameter went. What is still true is the half about SQL: a CHECK
+ * would make the ORDER the thing that cannot be saved rather than the field
+ * that cannot be left, which is not what a mandatory field means here.
  *
  * A STRUCTURE THAT NAMES NO CATEGORY IS NOT AN ERROR HERE. It is a row the
  * operator is still filling in, and the blank Structure cell is what says so —
  * reporting a missing GSM for a row that has not chosen a fabric yet would
  * scold them for the wrong field.
  */
-export function structureProblems(
-  row: ComboStructureLike,
-  familyCode: string | null | undefined,
-): string[] {
+export function structureProblems(row: ComboStructureLike): string[] {
   const problems: string[] = [];
   if (!row.structure_id) return problems;
-  if (isCircularKnit(familyCode) && !row.gsm && row.gsm !== 0) {
-    problems.push("GSM is required for a circular-knit structure");
+  const need = structureRequiredCells();
+  /* "GSM is required", NOT "…for a circular-knit structure" — the message named
+     the case rule that was withdrawn on 2026-09-01, and a sentence naming a
+     condition that no longer applies would send an operator looking for a knit
+     family to change instead of a number to type. */
+  if (need.gsm && !row.gsm && row.gsm !== 0) {
+    problems.push("GSM is required");
   }
   /*
    * COMPOSITION · TOLERANCE · FABRIC TYPE — UNCONDITIONALLY REQUIRED once the
-   * row names a structure (client 2026-08-31).
+   * row names a structure (client 2026-08-31), and GSM joined them on
+   * 2026-09-01 ("gsm also need required for all fabric type").
    *
-   * ## THEY JOIN THE GSM RULE RATHER THAN BECOMING `required` PROPS
+   * ## THEY DID BECOME `required` PROPS — DERIVED, NOT RESTATED
    *
-   * A `required` prop on each cell would have been less code and is the wrong
-   * shape here, for the reason this function's header already gives about GSM:
-   * the answer depends on the ROW, not on the column, and every one of these
-   * complaints has to stand down for a row that has not chosen a fabric yet.
-   * Three cell props plus the existing case rule would be four statements of
-   * "what does this structure still need", free to disagree — and the one that
-   * disagreed would be the one nobody reads, since a star is visible and a
-   * blocked Save is not.
+   * This block used to argue the opposite: that a `required` prop per cell
+   * would be a second statement of "what does this structure still need", free
+   * to disagree with this one. **The premise was right and the conclusion was
+   * wrong**, and the client reported it the next morning — with no `*`, no
+   * cursor hold and no blocked Save, the rule existed only as an amber sentence
+   * and read as never having been built (2026-09-01: "why is it not updated").
    *
-   * So the row's requiredness is stated once, here, and the screen renders what
-   * this returns. `undefined` is treated as missing exactly like `null`: a
-   * caller that has not been widened yet should report the row as incomplete
-   * rather than silently pass it, which is the direction that fails loudly.
+   * The answer to "two statements could drift" is to DERIVE the second from the
+   * first, never to omit it. `structureRequiredCells` above is the one
+   * statement; this function, every `<Field required>` on the card and
+   * `comboProblems`'s Save gate all read it. A star this function disagrees
+   * with is now unrepresentable rather than merely discouraged.
    *
-   * ## THE `!row.structure_id` GUARD ABOVE COVERS ALL FOUR, DELIBERATELY
+   * `undefined` is treated as missing exactly like `null`: a caller that has not
+   * been widened yet should report the row as incomplete rather than silently
+   * pass it, which is the direction that fails loudly.
+   *
+   * ## THE `!row.structure_id` GUARD ABOVE COVERS ALL FIVE, DELIBERATELY
    *
    * It is the same "a row the operator is still filling in" argument, and it is
-   * what stops a freshly-added fabric printing four complaints before the
+   * what stops a freshly-added fabric printing five complaints before the
    * operator has typed anything — the premature-complaint failure the parts
    * grid's own `structTouched` gate exists to prevent one level down.
    */
   const blank = (v: string | number | null | undefined) =>
     v === null || v === undefined || (typeof v === "string" && !v.trim());
 
-  if (blank(row.composition_id)) problems.push("Composition is required");
+  if (need.composition && blank(row.composition_id)) {
+    problems.push("Composition is required");
+  }
   /* `!== 0` for the same reason GSM carries it: a tolerance of zero is an
      ANSWER — "no tolerance on this cloth" — and `!row.gsm_tolerance` alone
      would report it as unanswered and refuse a figure the operator meant. */
-  if (blank(row.gsm_tolerance) && row.gsm_tolerance !== 0) {
+  if (
+    need.gsm_tolerance &&
+    blank(row.gsm_tolerance) &&
+    row.gsm_tolerance !== 0
+  ) {
     problems.push("Tolerance is required");
   }
-  if (blank(row.item_sub_type)) problems.push("Fabric Type is required");
+  if (need.item_sub_type && blank(row.item_sub_type)) {
+    problems.push("Fabric Type is required");
+  }
   return problems;
 }
 

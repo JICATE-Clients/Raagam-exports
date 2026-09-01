@@ -167,8 +167,15 @@ import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { TypeOrPick } from "./type-or-pick";
 import { lookupLabel } from "@/lib/masters/extras-types";
 import {
+  loadSqOptions,
+  loadSqFabricEstimation,
+  type SqOption,
+  type SqFabricRow,
+} from "@/lib/orders/amendments/sq-copy";
+import {
   gsmRange,
   structureProblems,
+  structureRequiredCells,
   componentProblems,
   // FABRIC_TYPE_OPTIONS is deliberately NOT imported any more — the only control
   // that offered it was the withdrawn "Type" field (see the structure card). The
@@ -1203,6 +1210,8 @@ type HeaderForm = {
   pay_terms_id: string | null;
   /** Supplies Approval Qty's Projection buffer (0413). Null = no projection. */
   rejection_rule_id: string | null;
+  /** The Style Quotation this order was raised from (0511). */
+  sq_detail_id: string | null;
   ex_rate: string;
   avg_rate: string;
   gross_value: string;
@@ -1241,6 +1250,7 @@ const BLANK: HeaderForm = {
   pay_mode: "",
   pay_terms_id: null,
   rejection_rule_id: null,
+  sq_detail_id: null,
   ex_rate: "",
   avg_rate: "",
   gross_value: "",
@@ -1540,15 +1550,21 @@ export function GarmentOrderScreen({
    */
   const [showPriceQty, setShowPriceQty] = useState(false);
   /**
-   * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the "GSM is
-   * required for a circular-knit structure" advisory (client 2026-08-18:
-   * "remove this message; if they moved on without filling it then show at that
-   * time only, no need to show it statically").
+   * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the
+   * `structureProblems` advisory (client 2026-08-18: "remove this message; if
+   * they moved on without filling it then show at that time only, no need to
+   * show it statically").
    *
    * The line used to render the moment a Circular Knit structure was picked, so
    * it accused the operator of missing a field they had not reached yet — the
    * cursor was still two boxes to the left. Marked on focus LEAVING the row, it
    * says the same thing at the only moment it is true.
+   *
+   * IT MATTERS MORE SINCE 2026-09-01, NOT LESS. The advisory then named one
+   * field on one family of cloth; it now speaks for five cells on every fabric,
+   * so an ungated version would greet a freshly-added blank card with five
+   * complaints. The stars and holds are what say "these are needed" up front —
+   * this line is only ever for a row they LEFT unfinished.
    *
    * A row key set, not a boolean per row: `ComboStructRow`s are re-created by
    * `mutStructs` on every edit, so a flag on the row would be rewritten by the
@@ -2331,10 +2347,11 @@ export function GarmentOrderScreen({
    * / Woven is the FAMILY that category belongs to.
    *
    * The three rows are not orphaned by this: `categories.fabric_structure_id`
-   * still points at them, which is how `isCircularKnit` decides whether GSM is
-   * compulsory. The family is DERIVED from the picked category now — read
-   * through `categoryById`, never asked as its own question, so the two can no
-   * longer disagree on one row.
+   * still points at them, and the Category master, the Material master and
+   * `lib/orders/styles/rules.ts` all read that column. What it no longer drives
+   * is GSM — the "Circular Knit → compulsory" carve-out was withdrawn on
+   * 2026-09-01 and `familyCodeOf` went with it, so this screen derives no knit
+   * family at all any more. See `structureRequiredCells` in combo-rules.ts.
    */
 
   const printOpts = useMemo(
@@ -2465,9 +2482,13 @@ export function GarmentOrderScreen({
    * the operator the knit family directly). It is the second hop of a
    * DERIVATION: a component names a fabric CATEGORY, the category names its
    * family, and `compTypeFor` turns that into the `comp_type` this screen now
-   * stores alongside the Style master. `familyCodeOf` below makes the same two
-   * hops for the GSM rule and reads `lookups` directly; this memo is the same
-   * fact shaped as `{id, name}` because that is what the shared rule takes.
+   * stores alongside the Style master. This memo is that same fact shaped as
+   * `{id, name}` because that is what the shared rule takes.
+   *
+   * `familyCodeOf` USED TO SIT BELOW and make the same two hops for the GSM
+   * rule. It went on 2026-09-01 with the rule it served — GSM is required on
+   * every fabric now — so `compTypeFor` is the only reader of the family left
+   * on this screen.
    */
   const fabricStructureOpts = useMemo(
     () =>
@@ -2559,20 +2580,6 @@ export function GarmentOrderScreen({
     () => new Map(data.categories.map((c) => [c.id, c])),
     [data.categories],
   );
-  /**
-   * The picked Structure's knit family CODE — `circular` / `flat_knit` / `woven`.
-   *
-   * Two hops, both deliberate: the row names a category, the category names its
-   * family. That is what makes GSM-compulsory a consequence of one answer
-   * rather than a second question the operator could contradict.
-   */
-  const familyCodeOf = (structureId: string | null): string | null => {
-    const cat = structureId ? categoryById.get(structureId) : null;
-    const fam = cat?.fabric_structure_id
-      ? lookups.find((l) => l.id === cat.fabric_structure_id)
-      : null;
-    return fam?.code ?? null;
-  };
   /**
    * The colours THIS amendment declared, offered to a component's Fabric Color.
    *
@@ -3510,6 +3517,7 @@ export function GarmentOrderScreen({
       pay_mode: r.pay_mode ?? "",
       pay_terms_id: r.pay_terms_id,
       rejection_rule_id: r.rejection_rule_id,
+      sq_detail_id: r.sq_detail_id,
       ex_rate: r.ex_rate ? String(r.ex_rate) : "",
       avg_rate: r.avg_rate ? String(r.avg_rate) : "",
       gross_value: r.gross_value ? String(r.gross_value) : "",
@@ -3630,6 +3638,7 @@ export function GarmentOrderScreen({
       delivery_date: form.delivery_date || null,
       excess_pct: numOrNull(form.excess_pct) ?? 0,
       rejection_rule_id: form.rejection_rule_id,
+      sq_detail_id: form.sq_detail_id,
       pack: form.pack,
       is_set_pack: form.is_set_pack,
       mult_ord: form.mult_ord,
@@ -5219,12 +5228,36 @@ export function GarmentOrderScreen({
     );
 
   /**
-   * THE FIRST FABRIC'S GSM AND TOLERANCE CARRY DOWN TO THE ONES BELOW IT
-   * (client 2026-08-21: "if i fill the tolerance gsm apply for remaining below
-   * structure section").
+   * THE FIRST COMBO'S GSM AND TOLERANCE CARRY ACROSS TO THE SAME FABRIC IN THE
+   * OTHER COMBOS (client 2026-09-01).
    *
-   * A tee is three fabrics and usually one tolerance, so ±5 was being typed
-   * once per card. The first fabric answers and the rest inherit.
+   * ## THIS REVERSED THE AXIS ON 2026-09-01, AND THE OLD ONE WAS WRONG
+   *
+   * It used to copy fabric 1's numbers DOWN the fabrics of one combo (client
+   * 2026-08-21: "if i fill the tolerance gsm apply for remaining below structure
+   * section"). The client reported the result: "when entering the first color,
+   * the system was incorrectly duplicating/repeating the single GSM value across
+   * other fields instead of correctly applying it only to the second combo".
+   *
+   * They are right, and the physics says so. Within ONE combo the fabrics are
+   * DIFFERENT CLOTHS — a Single Jersey body at 200 and a 1×1 rib at 240 — so
+   * that axis is exactly where the values legitimately differ, and copying along
+   * it puts the body's weight on the rib. Across combos it is the SAME CLOTH in
+   * a different colourway, and a colourway does not change a GSM. So the old
+   * rule copied where it must not and the new one copies where it always may.
+   *
+   * The 08-21 ask is not lost so much as re-aimed: an operator still types one
+   * GSM per fabric instead of one per fabric per colourway, which on a 3-fabric
+   * 4-combo order is 3 numbers instead of 12.
+   *
+   * ## MATCHED ON `structure_id`, NOT ON POSITION
+   *
+   * "The same fabric" is the same category, not the third card down. Combos are
+   * seeded from the style and are usually parallel, but a colourway may
+   * legitimately carry an extra fabric or list them in another order — and
+   * index-matching would then put the rib's GSM on a collar. A structure that
+   * names no category matches nothing and is skipped, which is the same
+   * abstention `structureProblems` makes for a row still being filled in.
    *
    * ON BLUR, NOT ON EVERY KEYSTROKE, AND THAT IS THE WHOLE TRAP. Typing `200`
    * fires `onChange` three times — `2`, `20`, `200`. Copying on change would
@@ -5247,14 +5280,23 @@ export function GarmentOrderScreen({
    * the two lines in the body. Read the doc on `toleranceStated`; this is one of
    * the three places that prefill would otherwise have broken in silence.
    *
-   * FROM THE FIRST FABRIC ONLY. Every card would otherwise be a source, and
-   * which one had last been left would decide what the rest held.
+   * FROM THE FIRST COMBO ONLY. Every colourway would otherwise be a source, and
+   * which one had last been left would decide what the rest held. It is the same
+   * anchoring the seed already uses, so the two agree about which combo speaks.
+   *
+   * ANY FABRIC OF IT, NOT ONLY THE FIRST. The old gate existed because every
+   * card in one combo was a candidate source for the cards under it; across
+   * combos each fabric feeds only its own twin, so there is nothing for a second
+   * source to argue with and gating on the first card would just mean the rib's
+   * GSM never travelled.
    */
   const carryDownGsm = (comboKey: string, structKey: string) =>
-    mutStructs(comboKey, (sts) => {
-      const first = sts[0];
-      if (!first || first.key !== structKey) return sts;
-      const gsm = first.gsm.trim();
+    setCombos((xs) => {
+      const anchor = xs[0];
+      if (!anchor || anchor.key !== comboKey) return xs;
+      const src = anchor.structures.find((st) => st.key === structKey);
+      if (!src || !src.structure_id) return xs;
+      const gsm = src.gsm.trim();
       /* "BLANK" FOR A TOLERANCE MEANS `!toleranceStated`, NOT `!trim()`
          (2026-08-31). Every fabric now OPENS on ±5 (`blankStruct`), so an empty
          string is no longer the state this rule was written against: read
@@ -5264,25 +5306,32 @@ export function GarmentOrderScreen({
          The source side moves with it — carrying the prefill down would be
          copying a default onto a default, which is a no-op that reads as the
          feature working. Only a tolerance the operator STATED travels. */
-      const tol = toleranceStated(first.gsm_tolerance)
-        ? first.gsm_tolerance.trim()
+      const tol = toleranceStated(src.gsm_tolerance)
+        ? src.gsm_tolerance.trim()
         : "";
-      if (!gsm && !tol) return sts;
+      if (!gsm && !tol) return xs;
       let changed = false;
-      const next = sts.map((st, i) => {
-        if (i === 0) return st;
-        const patch: Partial<ComboStructRow> = {};
-        if (gsm && !st.gsm.trim()) patch.gsm = gsm;
-        if (tol && !toleranceStated(st.gsm_tolerance)) patch.gsm_tolerance = tol;
-        if (!Object.keys(patch).length) return st;
+      const next = xs.map((combo, ci) => {
+        if (ci === 0) return combo;
+        let rowChanged = false;
+        const structures = combo.structures.map((st) => {
+          if (st.structure_id !== src.structure_id) return st;
+          const patch: Partial<ComboStructRow> = {};
+          if (gsm && !st.gsm.trim()) patch.gsm = gsm;
+          if (tol && !toleranceStated(st.gsm_tolerance)) patch.gsm_tolerance = tol;
+          if (!Object.keys(patch).length) return st;
+          rowChanged = true;
+          return { ...st, ...patch };
+        });
+        if (!rowChanged) return combo;
         changed = true;
-        return { ...st, ...patch };
+        return { ...combo, structures };
       });
       // Same array back when nothing filled in. Blur fires on every departure
-      // from these two boxes, and the common case is that every fabric below is
-      // already answered — so the identity check keeps the ordinary Tab out of
-      // a GSM box from re-creating every structure row beneath it.
-      return changed ? next : sts;
+      // from these two boxes, and the common case is that every twin is already
+      // answered — so the identity check keeps the ordinary Tab out of a GSM box
+      // from re-creating every combo on the tab.
+      return changed ? next : xs;
     });
 
   /**
@@ -5383,7 +5432,7 @@ export function GarmentOrderScreen({
    *     would "say something", and `seedComboFromStyle` stands down the moment
    *     any structure does, so the tree-from-style seed would never run again on
    *     any order. Nothing errors; the overlay just stops filling itself in.
-   *   · `carryDownGsm` above — it copies fabric 1's numbers into BLANKS only,
+   *   · `carryDownGsm` above — it copies the first combo's numbers into BLANKS only,
    *     and with a prefill nothing below is ever blank, so the carry-down the
    *     client asked for on 2026-08-21 would decline every time.
    *   · `structureFilled` in actions.ts, the server twin of the first, which
@@ -5529,6 +5578,85 @@ export function GarmentOrderScreen({
    * rather than a preference: `garment_style_components` has no such columns.
    * They stay the operator's (client 2026-08-17, same message).
    */
+  /**
+   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
+   *
+   * Client 2026-09-01: "copying from the SQ No should instantly pull the
+   * structure, estimated compositions, and initial parameters into the Confirmed
+   * Order (RE) layout to eliminate repetitive manual data entry", against the
+   * client's own template proposal: "copy the SQ's generic structure rows and
+   * associate them by default with all active combos on the RE … keep these
+   * fields fully editable".
+   *
+   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
+   * screen states four times over. The LIST is a picker's options and may arrive
+   * whenever; the COPY writes into combos, and an effect that wrote would refill
+   * a structure the operator had deliberately cleared, and would fire again the
+   * moment a SAVED order re-opened.
+   */
+  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadSqOptions().then((res) => {
+      if (!cancelled && res.ok) setSqOptions(res.rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * WHICH COMBOS A COPY WOULD REACH — computed from state, never counted inside
+   * the `setCombos` updater.
+   *
+   * React may invoke an updater twice (StrictMode, and any re-render it decides
+   * to replay), so a counter incremented in there reports double and the toast
+   * lies about what happened. Derived here, it is read once and is the same
+   * number the copy then acts on.
+   *
+   * THE GUARD IS `structSaysSomething`, borrowed rather than re-stated: it is
+   * exactly what `seedComboFromStyle` stands down on, and what `structureFilled`
+   * on the server agrees with. A combo whose fabrics say ANYTHING keeps them —
+   * the copy adds where there was nothing and can never argue with an answer.
+   */
+  const combosOpenToSqCopy = combos.filter(
+    (r) => !r.structures.some(structSaysSomething),
+  );
+
+  const copyFromSq = (rows: SqFabricRow[]) => {
+    const open = new Set(combosOpenToSqCopy.map((r) => r.key));
+    setCombos((xs) =>
+      xs.map((r) =>
+        open.has(r.key)
+          ? {
+              ...r,
+              /* EVERY FIELD THE ESTIMATE COULD RESOLVE, AND NOTHING IT COULD
+                 NOT. `sq-copy.ts` returns a null id for a structure or
+                 composition whose name matches no master, and this carries the
+                 null through rather than dropping the row — an unresolved line
+                 arrives as a blank Structure the operator can fill, which is
+                 visibly incomplete, where a dropped one is an estimate silently
+                 missing. Same reasoning as the orphan-part rule in the Combos
+                 overlay. Tolerance keeps `blankStruct`'s ±5: the costing sheet
+                 does not carry one, and inventing 0 would read as stated. */
+              structures: rows.map((f) => ({
+                ...blankStruct(),
+                structure_id: f.structure_id,
+                composition_id: f.composition_id,
+                gsm: f.gsm == null ? "" : String(f.gsm),
+                item_sub_type: f.item_sub_type ?? "",
+              })),
+            }
+          : r,
+      ),
+    );
+    /* NO `setDirty` — this screen has none. Its unsaved state is derived from
+       the form itself (see `useUnsavedGuard` at the top), which is why
+       `seedComboFromStyle` beside this one also just calls `setCombos`. A
+       hand-rolled flag here would be a second answer to "is this dirty" that
+       nothing keeps in step with the first. */
+  };
+
   const seedComboFromStyle = (comboKey: string) => {
     setCombos((xs) =>
       xs.map((r) => {
@@ -6554,14 +6682,21 @@ export function GarmentOrderScreen({
    *
    * The instruction reads "unlike basic fabric properties (Composition, GSM,
    * Tolerance) which are mandatory, the Roll form prints input must remain
-   * strictly optional". **None of those three is mandatory today.** None carries
-   * `required` (Combos ▸ Structure Details), Composition's own note says the
-   * hold "is a client decision nobody has taken", and GSM's "Circular Knit →
-   * compulsory" is an amber advisory that only appears once the row is touched.
-   * So Fabric Print was never the odd one out. Nothing was changed on that
-   * account — the ask was to keep this optional and it is — but if the client
-   * meant the other half too, making those three mandatory is a SEPARATE
-   * decision with its own cursor-hold consequences.
+   * strictly optional". **None of those three was mandatory when that was
+   * written**, so this note recorded that Fabric Print was not in fact the odd
+   * one out, and called making them mandatory a separate decision.
+   *
+   * THE CLIENT TOOK THAT DECISION ON 2026-09-01 ("the composition, gsm,
+   * Tolerance, Fabric type, color these field are required field"), so the
+   * contrast the instruction drew now holds. `structureRequiredCells` in
+   * combo-rules.ts is the declaration, and all five — Composition, GSM,
+   * Tolerance, Fabric Type and Colour — carry the star, the hold and a blocked
+   * Save. (GSM shipped conditional that morning and went unconditional the same
+   * day: "gsm also need required for all fabric type".) **Roll form print is
+   * unchanged and is now genuinely the exception it
+   * was described as** — which is worth saying plainly, because the paragraph
+   * this replaces argued the opposite and a reader finding it quoted elsewhere
+   * is holding something superseded.
    *
    * NOT TO BE CONFUSED WITH A PLACEMENT PRINT — a chest logo screened onto a
    * panel AFTER cutting is a secondary PROCESS and lives on the style row's
@@ -10061,24 +10196,53 @@ export function GarmentOrderScreen({
          lines, three on the rail badge, and one place to go. The count of PARTS
          is carried in the words instead, and the missing cells are the union
          across them. */
+      /* THE FABRIC'S OWN CELLS, WHICH THIS NEVER USED TO ASK (client
+         2026-09-01). `structureProblems` has stated since 2026-08-31 that
+         Composition, Tolerance and Fabric Type are required, and nothing read
+         it but an amber line inside the overlay — so a fabric missing all three
+         saved silently. It is the same rule the stars and holds are derived
+         from, so the three now agree by construction rather than by review.
+
+         IT IS ONE PROBLEM FOR THE FABRIC AND ONE FOR ITS PARTS, not a merged
+         line: they are missing different KINDS of thing (what the cloth is
+         versus what is cut from it), the reveal lands in the same place either
+         way, and merging them would produce "missing Composition · Colour" —
+         a sentence that reads as one row owing both. */
+      const own = structureProblems(st);
       const bad = st.components
         .map((c) => componentProblems(c, st.item_sub_type))
         .filter((m) => m.length);
-      if (!bad.length) return [];
+      if (!own.length && !bad.length) return [];
       const cells = [...new Set(bad.flat())].map((m) =>
         m.replace(" is required", ""),
       );
       return [
-        {
-          section: "combos",
-          label: "Structure Details",
-          message: `${who} ▸ ${fabric}: ${
-            bad.length === 1 ? "a part is" : `${bad.length} parts are`
-          } missing ${cells.join(" · ")}. Open Details and fill ${
-            bad.length === 1 ? "it" : "them"
-          } in.`,
-          kind: "custom",
-        },
+        ...(own.length
+          ? [
+              {
+                section: "combos" as const,
+                label: "Structure Details",
+                message: `${who} ▸ ${fabric}: ${own.join(" · ")}. Open Details and fill ${
+                  own.length === 1 ? "it" : "them"
+                } in.`,
+                kind: "custom" as const,
+              },
+            ]
+          : []),
+        ...(bad.length
+          ? [
+              {
+                section: "combos" as const,
+                label: "Structure Details",
+                message: `${who} ▸ ${fabric}: ${
+                  bad.length === 1 ? "a part is" : `${bad.length} parts are`
+                } missing ${cells.join(" · ")}. Open Details and fill ${
+                  bad.length === 1 ? "it" : "them"
+                } in.`,
+                kind: "custom" as const,
+              },
+            ]
+          : []),
       ];
     });
   });
@@ -13351,10 +13515,7 @@ export function GarmentOrderScreen({
         ]
           .filter(Boolean)
           .join("  ·  ");
-        const foldedProblems = structureProblems(
-          st,
-          familyCodeOf(st.structure_id),
-        );
+        const foldedProblems = structureProblems(st);
         return (
           /* THE OPEN CARD'S RAIL, TRANSPARENT — see the long note in
              `renderMobileRow`. Same width, same padding, no colour: the two
@@ -13407,7 +13568,21 @@ export function GarmentOrderScreen({
       /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
       addClassName={STRUCTURE_ADD_W}
       renderMobileRow={(st) => {
-        const problems = structureProblems(st, familyCodeOf(st.structure_id));
+        const problems = structureProblems(st);
+        /* THE STARS AND THE HOLDS COME FROM THE RULE, NEVER FROM A LITERAL
+           (client 2026-09-01). `structureRequiredCells` is the same declaration
+           `problems` above is derived from and the same one `comboProblems`
+           gates Save on, so a cell cannot show a `*` the Save button disagrees
+           with — the star/hold divergence AGENTS.md's "one declaration, four
+           enforcers" exists to prevent.
+
+           IT TAKES NO ARGUMENT, and that is the 2026-09-01 change: all five
+           cells are unconditional, so every fabric on every combo answers the
+           same. It stays a CALL rather than a module constant because the
+           question "what does a fabric owe" belongs to the rule module, and an
+           inlined object here would be the second statement this indirection
+           exists to prevent. */
+        const need = structureRequiredCells();
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
@@ -13577,14 +13752,25 @@ export function GarmentOrderScreen({
                   Composition truncates sooner as a result, and that is accepted: it
                   is a picker, so it carries the `text-ellipsis` + reveal every picker
                   gets (LAYOUT.md §14) and the whole value stays reachable. */}
-              <Field label="Structure" required w="term" className="w-full">
+              {/* `need.structure` RATHER THAN A BARE `required`, and it reads
+                  `true` unconditionally. This cell was already correct on
+                  2026-09-01 — it is rewired only so that every cell on the card
+                  asks the SAME function what it owes. A hard-coded `required`
+                  sitting beside four derived ones is the literal that survives
+                  the next rule change and quietly disagrees with it. */}
+              <Field
+                label="Structure"
+                required={need.structure}
+                w="term"
+                className="w-full"
+              >
                 {/* A fabric CATEGORY (0409). The knit family beside it is
                     DERIVED from this one answer — never asked again, so the
                     two cannot disagree. */}
                 <RecordPicker
                   label="Structure"
                   compact
-                  required
+                  required={need.structure}
                   items={scopedStructures(r, st.structure_id)}
                   value={st.structure_id}
                   onChange={(id) => pickComboStructure(r.key, st.key, id)}
@@ -13630,14 +13816,28 @@ export function GarmentOrderScreen({
                   Do NOT "settle" this row back to 12. The sums-to-12 rule is
                   about a fractional track; a content-width row has no twelfths
                   to leave over. `lib/ui/sizes.ts` has the vocabulary. */}
-              <Field label="Composition" w="term" className="w-full">
+              <Field
+                label="Composition"
+                required={need.composition}
+                w="term"
+                className="w-full"
+              >
                 {/* THE COMPOSITION MASTER, WHOLE (0434), and fetched on top:
                     picking a Structure whose category holds one fabric
                     pre-selects the composition stating that fabric's blend
                     (`pickComboStructure`), and the list is never narrowed, so
-                    the cell is answerable before a Structure exists. It is not
-                    `required` — that would engage the cursor hold, which is a
-                    client decision nobody has taken.
+                    the cell is answerable before a Structure exists.
+
+                    THE HOLD IS NOW TAKEN (client 2026-09-01) — the decision this
+                    comment used to say "nobody has taken". `required` comes from
+                    `structureRequiredCells`, never from a literal here.
+
+                    IT IS SATISFIABLE FROM A COLD START, which is the test
+                    AGENTS.md sets for any hold: the list is the whole master and
+                    is never narrowed by anything above it, so a held Composition
+                    can always be answered where the operator stands. That is not
+                    true of Colour one column over, which is why that one is
+                    conditional and this one is not.
 
                     `items` is passed straight from the service: the rows carry
                     their own `inactive`, and `DataPicker` hides a switched-off
@@ -13646,6 +13846,7 @@ export function GarmentOrderScreen({
                     <RecordPicker
                       label="Composition"
                       compact
+                      required={need.composition}
                   items={data.compositions}
                   value={st.composition_id}
                   onChange={(id) =>
@@ -13696,10 +13897,31 @@ export function GarmentOrderScreen({
                 * summary uses a few hundred lines down.
                 */}
               {/* `onBlur` ON BOTH BOXES — see `carryDownGsm`. It declines
-                  unless this IS the first fabric, so the handler is harmless
-                  here and the rule stays stated in one place rather than being
-                  half-expressed as a condition on the JSX. */}
-              <Field label="GSM" w="num">
+                  unless this is a fabric of the FIRST COMBO, so the handler is
+                  harmless on every other card and the rule stays stated in one
+                  place rather than being half-expressed as a condition on the
+                  JSX. (Until 2026-09-01 the gate was "unless this is the first
+                  FABRIC" — the axis moved, the placement did not.) */}
+              {/* GSM IS REQUIRED ON EVERY FABRIC (client 2026-09-01: "gsm also
+                  need required for all fabric type").
+
+                  IT SHIPPED CONDITIONAL EARLIER THE SAME DAY and this comment
+                  said so — "Circular Knit → GSM compulsory; Woven or Flat Knit →
+                  optional" (client 2026-08-10) was read as the narrower and
+                  older statement and left standing. The client was shown that
+                  reading and overruled it in one line, so the 08-10 carve-out is
+                  WITHDRAWN, not overlooked: a later instruction wins, and
+                  restoring it needs a new decision rather than someone noticing
+                  `isCircularKnit` still exists (it does, uncalled, and its own
+                  doc explains why).
+
+                  SO THE STAR NO LONGER FLICKERS. It used to appear when you
+                  picked a knit Structure and vanish on a woven one — the one
+                  case-driven star on this card. Nothing here is conditional now,
+                  which is why `need.gsm` reads as a constant: it is still routed
+                  through the rule so the star, the hold and the Save gate cannot
+                  drift apart. */}
+              <Field label="GSM" required={need.gsm} w="num">
                 <Input
                   type="number"
                   className="text-right"
@@ -13708,7 +13930,13 @@ export function GarmentOrderScreen({
                   onBlur={() => carryDownGsm(r.key, st.key)}
                 />
               </Field>
-              <Field label="Tolerance" w="num">
+              {/* TOLERANCE IS REQUIRED AND ALSO PREFILLED TO 5, which is not a
+                  contradiction: `addStruct` seeds ±5 so the hold is satisfied on
+                  arrival and the operator only meets it if they CLEAR the box.
+                  A field they emptied on purpose is exactly the one worth
+                  refusing to leave blank, and zero still reads as an answer
+                  (`structureProblems`). */}
+              <Field label="Tolerance" required={need.gsm_tolerance} w="num">
                 <Input
                   type="number"
                   className="text-right"
@@ -13754,8 +13982,22 @@ export function GarmentOrderScreen({
                   vocabulary is what made a four-to-three change a one-line change
                   — the cost was entirely in `takesAllOverPrint`, the gate that
                   read the withdrawn value. */}
-              <Field label="Fabric Type" w="term" className="w-full">
+              {/* REQUIRED SINCE 2026-09-01, AND IT IS THE KEYSTONE OF THE FIVE.
+                  Colour one column over is required only once this cell is
+                  answered (`componentColourEntry`), because a blank Fabric Type
+                  leaves Colour with no list to fill from — an unsatisfiable
+                  hold. Holding HERE is what closes that gap: the operator cannot
+                  tab past a blank Fabric Type, so by the time they reach Colour
+                  it always has either a list or the yarn-dyed text box. The two
+                  rules interlock; do not make Colour unconditional instead. */}
+              <Field
+                label="Fabric Type"
+                required={need.item_sub_type}
+                w="term"
+                className="w-full"
+              >
                 <Select
+                  required={need.item_sub_type}
                   value={st.item_sub_type}
                   onChange={(e) => {
                     const next = e.target.value;
@@ -17427,6 +17669,82 @@ export function GarmentOrderScreen({
                 value={savedOrderNo ?? previewNo ?? ""}
               />
             </Field>
+            {/* COPY FROM SQ NO (0511, client 2026-09-01).
+                
+                TWO CONTROLS, ONE FIELD: the picker RECORDS which quotation this
+                order came from — it is stored, and the legacy screen shows SQ No
+                on the Fabric BOM header beside SC No for the same reason — and
+                the button PERFORMS the copy. Splitting them is what lets an
+                operator record the provenance without re-running a copy over
+                combos they have since filled in, and lets them re-run the copy
+                later without re-picking.
+
+                NOT `required`, and it must never become so: most orders are
+                booked straight off a customer PO and never had a quotation.
+
+                HIDDEN WHEN THERE ARE NO QUOTATIONS. `sq_details` is empty today
+                (measured 2026-09-01), and an always-visible picker that can only
+                ever open on nothing is the "permanently closed gate" this module
+                has been told off for once already. It appears the day the first
+                SQ exists. */}
+            {sqOptions.length > 0 && (
+              <Field label="Copy from SQ No" w="name" htmlFor="hd-sqno">
+                <div className="flex items-center gap-2">
+                  <RecordPicker
+                    id="hd-sqno"
+                    label="SQ No"
+                    compact
+                    items={sqOptions}
+                    value={form.sq_detail_id}
+                    onChange={(id) => set({ sq_detail_id: id })}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!form.sq_detail_id || isPending}
+                    onClick={() => {
+                      const id = form.sq_detail_id;
+                      if (!id) return;
+                      start(async () => {
+                        const res = await loadSqFabricEstimation(id);
+                        if (!res.ok) {
+                          toastError(res.error);
+                          return;
+                        }
+                        /* THREE OUTCOMES, THREE DIFFERENT SENTENCES. "Nothing
+                           happened" is the answer an operator cannot act on, so
+                           each dead end says WHICH one it is: the quotation
+                           carries no fabric estimate at all, or it does but every
+                           combo already has fabrics and the copy would have had
+                           to overwrite them. */
+                        if (!res.rows.length) {
+                          toastError(
+                            "That quotation has no fabric estimate to copy — its costing sheet declares none.",
+                          );
+                          return;
+                        }
+                        if (!combosOpenToSqCopy.length) {
+                          toastError(
+                            combos.length
+                              ? "Every combo already has fabrics — clear one to copy the estimate into it."
+                              : "Add a combo first, then copy the estimate into it.",
+                          );
+                          return;
+                        }
+                        const n = combosOpenToSqCopy.length;
+                        copyFromSq(res.rows);
+                        success(
+                          `Copied ${res.rows.length} fabric${res.rows.length > 1 ? "s" : ""} into ${n} combo${n > 1 ? "s" : ""}`,
+                        );
+                      });
+                    }}
+                  >
+                    Copy
+                  </Button>
+                </div>
+              </Field>
+            )}
             {/* AUTO-DETERMINED AND OFF THE TAB PATH (client 2026-08-31: "the
                 keyboard tab navigation must completely bypass the Entry Date and
                 Location/Unit fields … automatically determined by the
@@ -17548,10 +17866,40 @@ export function GarmentOrderScreen({
               w="code"
               htmlFor="hd-date"
             >
+              {/*
+                * LOCKED ONCE THE ORDER IS SAVED (client 2026-09-01: "once an
+                * order entry is saved, the user must not be allowed to change or
+                * alter the date").
+                *
+                * ## THIS DOES NOT REVOKE THE 08-29 BACK-DATING RULE ABOVE
+                *
+                * That rule is about ENTRY — "an order booked on paper last week
+                * is typed in today WITH LAST WEEK'S DATE" — and it is why this
+                * field is deliberately not `readOnly`. The new rule is about
+                * AFTER the save. The two do not overlap: `editId` is null for
+                * the whole of the initial entry, so back-dating is untouched,
+                * and the lock arrives only once the date has become a fact about
+                * a document that exists.
+                *
+                * ## `disabled`, NOT `readOnly`, AND ONLY FOR THIS INPUT TYPE
+                *
+                * `readOnly` is this screen's usual lock and brings
+                * `tabIndex={-1}` with it. It is not reliable on
+                * `<input type="date">`: the browser's own calendar popup still
+                * writes through a readonly date field, so the one affordance an
+                * operator is most likely to reach for would be the one that
+                * still edited it. `disabled` closes the popup with the field.
+                *
+                * The record stays saveable: `required: true` and the
+                * no-future-date ceiling both live in `validity` and neither
+                * reads this, so a locked date that is already filled satisfies
+                * them exactly as a typed one does.
+                */}
               <Input
                 id="hd-date"
                 type="date"
                 max={today()}
+                disabled={!!editId}
                 value={form.amend_date}
                 onChange={(e) => set({ amend_date: e.target.value })}
               />

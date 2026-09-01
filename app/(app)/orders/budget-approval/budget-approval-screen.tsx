@@ -19,7 +19,7 @@
  * while the budget is submitted.
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,15 @@ import {
   type OrderBudget,
 } from "@/lib/orders/budget/types";
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
+import { getApprovalPanel } from "@/lib/approvals/actions";
+import { WORKFLOWS } from "@/lib/approvals/workflows";
+import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
+import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
+import type {
+  ApprovalRun,
+  CanActVerdict,
+  TimelineRow,
+} from "@/lib/approvals/types";
 
 export function BudgetApprovalScreen({
   rows,
@@ -68,6 +77,48 @@ export function BudgetApprovalScreen({
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [remark, setRemark] = useState("");
+
+  /**
+   * THE APPROVAL PANEL for whichever budget is open (0500–0505).
+   *
+   * Loaded ON OPEN rather than for every row on the page: the queue can hold
+   * dozens of budgets and exactly one gets read. `null` while it loads and after
+   * a budget with no run — see the fallback note on the Decide block below,
+   * which is what those two states are for.
+   */
+  const [loaded, setLoaded] = useState<{
+    /**
+     * WHICH BUDGET THIS PANEL DESCRIBES — and carrying it is what makes a stale
+     * paint unrepresentable rather than merely guarded against.
+     *
+     * Closing one sheet and opening another before the first request lands would
+     * otherwise put the previous budget's approval trail under the current
+     * budget's figures, and an audit trail attached to the wrong document is
+     * worse than no trail at all. A `live` flag in the effect would also fix
+     * that, but only for the race it was written for; keying the DATA to its
+     * subject means the render simply cannot show a mismatch.
+     *
+     * It also removes the synchronous `setState` the React Compiler rejects
+     * ("avoid calling setState directly within an effect") — clearing on open is
+     * now a render-time comparison rather than a second state write.
+     */
+    forId: string;
+    run: ApprovalRun | null;
+    verdict: CanActVerdict | null;
+    timeline: TimelineRow[];
+    names: Record<string, string>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!openId) return;
+    void getApprovalPanel(WORKFLOWS.order_budget.subjectTable, openId).then((p) =>
+      setLoaded({ forId: openId, ...p }),
+    );
+  }, [openId]);
+
+  /** Null while it loads, and null for a budget with no run — the two states the
+   *  legacy Decide block below is the fallback for. */
+  const panel = loaded && loaded.forId === openId ? loaded : null;
   /** Default: what is waiting. The queue lists everything so an approver can
    *  answer "what did I approve last week?", but the work is what opens. */
   const [filter, setFilter] = useState<BudgetStatus | "all">("submitted");
@@ -356,7 +407,43 @@ export function BudgetApprovalScreen({
               </DetailSection>
             )}
 
-            {canApprove && canTransition(budget.status, "approved") && (
+            {/* THE APPROVAL CHAIN — who has signed, who is signing, who is left.
+                Rendered whenever a run exists, whatever its state: a REJECTED
+                budget's trail is the one the author most needs to read, because
+                it carries the reason. */}
+            {panel?.run && (
+              <DetailSection label="Approval" cols={12}>
+                <ApprovalTimeline
+                  rows={panel.timeline}
+                  resolveUserName={(id) => panel.names[id]}
+                />
+                {panel.verdict && (
+                  <div className="mt-3">
+                    {/* Renders NOTHING unless `approval_can_act` said yes, so
+                        there is no permission check to write here and none to
+                        get wrong. */}
+                    <ApprovalActionBar
+                      run={panel.run}
+                      verdict={panel.verdict}
+                      subjectPath="/orders/budget-approval"
+                    />
+                  </div>
+                )}
+              </DetailSection>
+            )}
+
+            {/* THE LEGACY DECIDE BLOCK, AND WHY IT SURVIVES.
+                It is hidden the moment a run exists — two writers to one
+                `status` column is exactly the divergence 0505's trigger raises
+                to prevent, and offering both would let an approver decide here
+                while the run stays open and in somebody's queue for ever.
+
+                It stays for budgets SUBMITTED BEFORE the engine was installed.
+                Those have no run, will never get one (a run starts at submit),
+                and would otherwise be undecidable — a queue of documents with no
+                button, which is a worse failure than an extra code path. Delete
+                this block once no `submitted` budget predates 0503. */}
+            {!panel?.run && canApprove && canTransition(budget.status, "approved") && (
               <DetailSection label="Decide" cols={12}>
                 <Field label="Remark" size="full" htmlFor="ba-remark">
                   <Textarea

@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
@@ -33,12 +32,13 @@ import {
 } from "@/components/masters/master-full-screen";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { FilterBar } from "@/components/ui/filter-bar";
-import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
-import { StatusPill } from "@/components/ui/status-pill";
+/* THE QUEUE, WHOLE — the filter bar, the counted Status facet, the summary
+   sentence and the six-across cards, shared with Fabric BOM rather than
+   drawn a second time there. See the header comment on that file. */
+import { BomQueue } from "@/components/orders/bom-queue";
+import type { CardStat } from "@/components/masters/mobile-card-list";
 import { useToast } from "@/components/ui/toast";
-import { today as todayAtFactory } from "@/lib/calendar";
-import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -109,14 +109,6 @@ import {
   type MaterialBomAmendment,
   type MbaItemSlice,
 } from "@/lib/orders/material-bom-amendment/types";
-import {
-  BOM_STATUSES,
-  BOM_STATUS_RANK,
-  bomStatusHint,
-  bomStatusText,
-  bomStatusTone,
-  type BomStatus,
-} from "@/lib/orders/bom-status";
 import { cn } from "@/lib/utils";
 import type { BomTaskRow, MbaFormData, UomRow } from "@/lib/orders/material-bom-amendment/service";
 import {
@@ -154,7 +146,6 @@ import {
 } from "@/lib/uom/convert";
 import { resolveLinePack } from "@/lib/orders/material-bom/pack-resolve";
 import { uomPatchForMaterial } from "@/lib/orders/material-bom/uom-prefill";
-import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -639,37 +630,8 @@ function Step({ label, faded = false }: { label: string; faded?: boolean }) {
   );
 }
 
-/**
- * "· 12d" beside a delivery date, and "· 12d late" when it has passed.
- *
- * THE DATE SAYS WHEN AND THE SUFFIX SAYS HOW SOON, which are different
- * questions: a merchandiser scanning a queue is deciding what to plan THIS
- * WEEK, and arithmetic against thirty dates is what they were doing by eye.
- *
- * SILENT BEYOND 60 DAYS. A "· 109d" on an order shipping in December is noise
- * on every card, and noise on every card is what stops the two that say "· 4d"
- * from being seen. Late is never silent and is the only one that takes a
- * colour.
- *
- * NO HYDRATION GUARD IS NEEDED, and that is `todayAtFactory`'s doing rather
- * than luck. It formats in Asia/Kolkata, so the server (UTC) and the operator's
- * browser (IST) agree on what day it is — including during the 5.5 hours every
- * morning when `new Date()` does not. The local `today()` at the top of this
- * file is the UTC one `lib/calendar.ts` warns about; do not reach for it here.
- */
-function DaysOut({ iso }: { iso: string }) {
-  const at = Date.parse(`${iso.slice(0, 10)}T00:00:00`);
-  const now = Date.parse(`${todayAtFactory()}T00:00:00`);
-  if (Number.isNaN(at) || Number.isNaN(now)) return null;
-  const days = Math.round((at - now) / 86_400_000);
-
-  if (days < 0) {
-    return <span className="font-normal text-danger"> · {-days}d late</span>;
-  }
-  if (days === 0) return <span className="font-normal text-danger"> · today</span>;
-  if (days > 60) return null;
-  return <span className="font-normal text-muted-foreground"> · {days}d</span>;
-}
+/* `DaysOut` MOVED to `components/orders/bom-queue.tsx` — it is drawn by the
+   queue card, and the queue card is now shared with Fabric BOM. */
 
 /**
  * THE ELEVEN COLUMN NAMES, DECLARED ONCE.
@@ -1314,10 +1276,9 @@ export function MbaMasterScreen({
   const [procs, setProcs] = useState<ProcRow[]>([]);
   const [dirty, setDirty] = useState(false);
 
-  // The list's own filters. The screen had no Filters panel at all before, so an
-  // operator with 200 orders had only the browser's find.
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | BomStatus>("");
+  /* NO `query` / `statusFilter` HERE ANY MORE — the queue owns both (`BomQueue`).
+     A screen holding a filter's value while the list that reads it lives
+     elsewhere is how the two come to disagree. */
 
 
   /**
@@ -3193,163 +3154,27 @@ export function MbaMasterScreen({
 
   // ---------------- THE DASHBOARD ----------------
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return tasks.filter((t) => {
-      if (statusFilter && t.status !== statusFilter) return false;
-      if (!needle) return true;
-      return [t.sc_no, t.order_code, t.po_no, t.customer_name].some((v) =>
-        (v ?? "").toLowerCase().includes(needle),
-      );
-    });
-  }, [tasks, query, statusFilter]);
-
   /**
-   * HOW MANY ORDERS SIT IN EACH STATE, IN THE ORDER THE WORK SHOULD BE DONE —
-   * not in `BOM_STATUSES` declaration order and never sorted by count.
+   * THE MIDDLE FIGURE ON THIS QUEUE'S CARDS — everything else about the queue is
+   * `BomQueue`'s (`components/orders/bom-queue.tsx`), shared with Fabric BOM.
    *
-   * `BOM_STATUS_RANK` has said "order of work for the dashboard: what needs
-   * doing, first" since the statuses were extracted, and until now nothing on
-   * screen read it: the list was sorted by it invisibly, and the filter offered
-   * the five states in declaration order. Sorting by count would bury
-   * Recalculate — the one state that means a plan is silently wrong — beneath
-   * Updated on any healthy queue.
+   * The search box, the counted Status facet, the summary sentence, the
+   * six-across cards, the delivery countdown and the Created pair were all built
+   * here first, one client instruction at a time (2026-08-17 · 08-19 · 08-21) —
+   * and none of them reached the other BOM queue, which stayed the `DataTable`
+   * both started as until the client asked for the two to match (screenshot
+   * 2590, 2026-09-01). They live in one component now, so the next instruction
+   * about a BOM queue reaches both screens without either being edited.
+   *
+   * STYLES, WHERE FABRIC BOM COUNTS ITS LINES. It is the one figure that is
+   * genuinely about WHICH BOM this is: a material BOM is planned per style, so
+   * the style count is what says how much work the card represents. Both come
+   * off the same `BomTaskRow`, so neither costs a query.
    */
-  const statusCounts = useMemo(
-    () =>
-      [...BOM_STATUSES]
-        .sort((a, b) => BOM_STATUS_RANK[a] - BOM_STATUS_RANK[b])
-        .map((status) => ({
-          status,
-          count: tasks.filter((t) => t.status === status).length,
-        })),
-    [tasks],
-  );
-
-  /**
-   * WHAT THE QUEUE AMOUNTS TO — the one figure a merchandiser wants before
-   * reading any card, and the one the cards cannot show.
-   *
-   * FOUR BRANCHES, BECAUSE THREE OF THEM ARE TRUE AT DIFFERENT TIMES and only
-   * the first is the happy one. An order whose production quantity is refused
-   * (`production_qty` null — no Approval Qty rows) cannot be added to a total,
-   * so it is counted SEPARATELY rather than silently dropped: a sentence that
-   * says "7,150 pieces across 3 orders" while a fourth order sits unplanned and
-   * untotalled is exactly the kind of number that gets believed.
-   */
-  const queueSummary = useMemo(() => {
-    const open = tasks.filter((t) => t.status !== "updated");
-    const totalled = open.filter((t) => t.production_qty != null);
-    const untotalled = open.length - totalled.length;
-    const pieces = totalled.reduce((n, t) => n + (t.production_qty ?? 0), 0);
-
-    if (totalled.length > 0) {
-      return `${fmtNumber(pieces)} pieces across ${totalled.length} order${totalled.length === 1 ? "" : "s"} waiting on a material plan${
-        untotalled > 0 ? ` · ${untotalled} more cannot be totalled yet` : ""
-      }`;
-    }
-    if (untotalled > 0) {
-      return `${untotalled} order${untotalled === 1 ? "" : "s"} waiting on a material plan · none can be totalled yet`;
-    }
-    return tasks.length > 0 ? "Every confirmed order has a current material plan." : null;
-  }, [tasks]);
-
-  /**
-   * ONE CARD PER GARMENT ORDER (operator request, 2026-08-17). This list is a
-   * work QUEUE — "which confirmed orders still need their accessories planned?"
-   * — and it was a `DataTable` of one row per order. The cards carry the same
-   * seven facts and the same click: `openTask` opens that order's Material BOM.
-   *
-   * `MobileCardList` with `columns={3}` rather than a card hand-rolled here. It
-   * already owns the tap-to-edit body, the pill slot and the footer that keeps
-   * delete a SIBLING of the tap target rather than a button inside a button —
-   * and AGENTS.md's repeated lesson is that the fan-out is always on the
-   * hand-rolled half. Its `md:hidden` has always been the caller's, so using it
-   * at every width needed one optional prop and changed no other screen.
-   *
-   * THE SC NO IS NO LONGER A BUTTON. It was one as a table cell, because that is
-   * where the click lived. The card body IS the button, so keeping it would nest
-   * one inside the other — the exact invalid markup that shaped this component.
-   */
-  /** False when the service does not select `created_at` — then the card shows
-   *  no Created line at all, rather than a dangling date. `hasCreatedInfo` is the
-   *  same guard `withCreatedColumns` applies to a table. */
-  const showCreated = hasCreatedInfo(tasks);
-
-  /**
-   * THE CARD'S THREE FIGURES, AS DATA — `MobileCardList` draws the strip.
-   *
-   * It was a hand-rolled `<dl>` of three flex rows here, which is the shape the
-   * layout skill's governing rule exists to stop: a screen composes primitives
-   * and does not draw, and `audit_layout.py --check` enforces exactly that on
-   * this file. Three lines also cost a sixth-width card three lines; the strip
-   * spends two.
-   *
-   * A REFUSAL STILL PRINTS ITS SENTENCE, never a dash and never 0 — "no
-   * production quantity yet" and "nothing entered" look identical as a dash and
-   * only one of them is actionable. `CardStat.value` is a node for this reason;
-   * the strip truncates it and reveals it on hover, so an unanswerable card
-   * cannot set the height of its whole row.
-   */
-  /**
-   * PRODUCTION LEADS, and the order of the three is the point.
-   *
-   * It was Styles · Production · Delivery at one weight, so nothing was
-   * emphasised and nothing was scannable (client 2026-08-21, screenshot 2440).
-   * The BOM multiplies the production quantity — it is the number this document
-   * is FOR — and a merchandiser going down the queue is going down the
-   * quantities. Delivery is the urgency and holds the right edge, where dates
-   * line up down the grid; the style count is the least of the three and no
-   * longer leads.
-   *
-   * A refusal still prints its sentence where the number would go, and a missing
-   * delivery date is still a dash: "the system tried and cannot answer" and
-   * "nobody has entered one" are different facts, and only the first is a
-   * sentence.
-   */
-  const cardStats = (t: BomTaskRow): CardStat[] => [
-    {
-      label: "Production",
-      /* `lead` REMOVED, and this is a shared-tree artefact rather than a design
-         change. The prop belongs to a 230-line in-progress rewrite of
-         `MobileCardList` in the parallel session; `CardStat` at HEAD is still
-         `{ label, value }`. It reached this commit because git stages whole
-         files and that session's edits to THIS file are interleaved with mine.
-         Put it back when their `mobile-card-list.tsx` lands. */
-      value:
-        t.production_qty != null
-          ? fmtNumber(t.production_qty)
-          : (t.production_refusal ?? "—"),
-    },
-    { label: "Styles", value: t.style_count },
-    {
-      label: "Delivery",
-      value: t.delivery_date ? (
-        <>
-          {fmtDate(t.delivery_date)}
-          <DaysOut iso={t.delivery_date} />
-        </>
-      ) : (
-        "—"
-      ),
-    },
-  ];
-
-  /**
-   * THE SENTENCE THAT SAYS WHAT TO DO, on the two states where doing something
-   * is the point.
-   *
-   * `bomStatusHint()` has always answered for all five, and the screen spent it
-   * on a `title=` tooltip — invisible on touch, invisible while scanning. It is
-   * not printed on Pending or Draft because there it only re-words the pill:
-   * three "No material plan yet." lines beside three Pending pills teach the
-   * operator to stop reading the line, and then the one card that says something
-   * else is not read either.
-   */
-  const cardHint = (t: BomTaskRow) =>
-    t.status === "recalculate" || t.status === "unresolved" ? (
-      <span className="text-danger">{bomStatusHint(t.status, t.production_qty)}</span>
-    ) : null;
+  const styleStat = (t: BomTaskRow): CardStat => ({
+    label: "Styles",
+    value: t.style_count,
+  });
 
   // ---------------- THE EDITOR ----------------
 
@@ -6801,135 +6626,19 @@ export function MbaMasterScreen({
           }
         />
 
-        {/* THE STATUS FACET IS THE ONE EVERY OTHER LIST SCREEN HAS — a <Label>
-            and a <Select> in one cell of the Filters panel (`master-list-shell.tsx`
-            is the reference) — WITH THE COUNTS IN ITS OPTIONS.
-
-            Two shapes were tried and both were wrong, and the reason is the same
-            in each: they were new controls rather than the app's control.
-            First a rail of chips in a band above the list, then the same chips
-            in the panel, then a dropdown of my own on the toolbar row. The
-            client's answer was "i meant inside that filter add this ... check
-            the previous filter from our other child" (2026-08-21). The ask was
-            never a new control; it was the COUNTS, in the facet that was already
-            there.
-
-            What the counts buy is the whole point: a state list that says nothing
-            about whether any rows are in it cannot answer "is anything stale?" —
-            the question a work queue exists to answer — except by choosing
-            Recalculate and looking at an empty list.
-
-            A state with no rows is SHOWN AND NOT CHOOSABLE, never hidden: zero
-            Recalculate is information, and a list that drops its empty states
-            reshuffles itself every time work moves, so the option an operator
-            reaches for is never in the same place twice. The one exception is
-            the option currently SELECTED — disabling that would leave the
-            control showing a value it refuses to offer.
-
-            Order is `BOM_STATUS_RANK`, "what needs doing, first" — the same
-            order the list itself is sorted in, and never by count. */}
-        <FilterBar
-          search={query}
-          onSearch={setQuery}
-          searchPlaceholder="Search RE No, PO or customer…"
-          activeCount={statusFilter ? 1 : 0}
-          onReset={statusFilter ? () => setStatusFilter("") : undefined}
-          right={
-            queueSummary ? (
-              <>
-                {queueSummary} · {filtered.length} of {tasks.length}
-              </>
-            ) : (
-              `${filtered.length} of ${tasks.length}`
-            )
-          }
-        >
-          <div>
-            <Label htmlFor="bom-status">Status</Label>
-            <Select
-              id="bom-status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "" | BomStatus)}
-            >
-              <option value="">All ({tasks.length})</option>
-              {statusCounts.map((c) => (
-                <option
-                  key={c.status}
-                  value={c.status}
-                  disabled={c.count === 0 && c.status !== statusFilter}
-                >
-                  {bomStatusText(c.status)} ({c.count})
-                </option>
-              ))}
-            </Select>
-          </div>
-        </FilterBar>
-
-        <MobileCardList<BomTaskRow>
-          /* SIX ACROSS (client 2026-08-19) — now as a card WIDTH rather than a
-             count: `6` means 15rem tracks, and 6 × 15rem + 5 gaps = 1500px still
-             fits the operator's 1560px pane, so a full queue lays out exactly as
-             it did. What changes is a SHORT queue: three confirmed orders used
-             to leave three of six tracks empty, and now take the width instead.
-             The card sizes its own density from there — see `columns`. */
-          columns={6}
-          rows={filtered}
-          getKey={(t) => t.id}
-          /* THE SC NO GETS ITS OWN FULL-WIDTH LINE, which is the point of the
-             dense layout: it is the identity the operator scans by, ~125px of
-             mono, and it used to share a row with a pill that could be 88px of
-             "Recalculate". Plain text, not a button — the card body IS the
-             button, so nesting one inside it is invalid markup. */
-          title={(t) => (
-            <span className="font-mono">{t.sc_no ?? t.order_code ?? "—"}</span>
-          )}
-          /* CUSTOMER AND PO ON ONE SECONDARY LINE, with the status pill to their
-             right (the component places it). Mono on the PO only — a customer
-             name in mono reads as a code. Truncated because this is the line
-             that gives up width to the pill, and a card is not a `DataTable`
-             cell: nothing here scrolls sideways to reveal the rest. */
-          subtitle={(t) => (
-            <Truncated>
-              {t.customer_name ?? "—"}
-              {t.po_no ? <span className="font-mono"> · {t.po_no}</span> : null}
-            </Truncated>
-          )}
-          pill={(t) => (
-            <span title={bomStatusHint(t.status, t.production_qty)}>
-              <StatusPill tone={bomStatusTone(t.status)}>
-                {bomStatusText(t.status)}
-              </StatusPill>
-            </span>
-          )}
-          stats={cardStats}
-          /* THE SAME TONE AS THE PILL, AS A STRIPE DOWN THE CARD'S EDGE. The
-             pill is read one card at a time; the stripe is read down the whole
-             grid at once, and this list is already SORTED by `BOM_STATUS_RANK`
-             — a sort nothing on screen could show. Redundant by design: colour
-             locates the work, the word names it. */
-          /* `tone` AND `hint` REMOVED — shared-tree artefacts, not a design
-             change. Both belong to a 230-line in-progress rewrite of
-             `MobileCardList` in the parallel session; HEAD's component accepts
-             neither, so the deploy build failed type-check on them. They reached
-             this commit because git stages whole files and that session's edits
-             to THIS file are interleaved with mine. Put them back when their
-             `mobile-card-list.tsx` lands. */
-          /* THE CREATED PAIR SHARES THE FOOTER WITH THE ✕ instead of adding a
-             second bordered row — AGENTS.md wants it APPENDED to the screen's
-             own meta, not substituted for it, and the customer and the figures
-             above are that meta, untouched. Still gated on `hasCreatedInfo`, so
-             a service that stops selecting `created_at` shows nothing rather
-             than a dangling date. */
-          footerNote={showCreated ? (t) => createdMeta(t) : undefined}
-          onEdit={openTask}
+        {/* THE QUEUE, WHOLE — see `styleStat` above for why it is a component
+            rather than the ~200 lines of `FilterBar` + `MobileCardList` that
+            stood here, and `components/orders/bom-queue.tsx` for the reasoning
+            behind every part of it. Nothing an operator sees changed in this
+            move; what changed is that Fabric BOM now sees it too. */}
+        <BomQueue
+          tasks={tasks}
+          noun="material"
+          stat={styleStat}
+          onOpen={openTask}
           canDelete={perms.canDelete}
-          // Only an order that HAS a BOM has anything to delete. The table gated
-          // this per row too; without it the button renders on every card and
-          // does nothing when pressed.
-          canDeleteRow={(t) => !!t.bom_id}
           onDelete={del}
           isPending={isPending}
-          empty="No confirmed garment orders yet. A material BOM is planned against an order."
         />
       </div>
 

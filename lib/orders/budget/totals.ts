@@ -107,13 +107,22 @@ export function orderSalesValue(v: {
 /**
  * Where a budget line's figure comes from.
  *
- * `fabric` and `material` are PULLED from the two BOMs; `process`, `cmt`,
+ * `fabric`, `yarn`, `yarn_process` and `material` are PULLED from the BOMs; `process`, `cmt`,
  * `expense` and `income` are typed. The distinction is not cosmetic — a pulled
  * line's quantity is a stored requirement somebody else computed, so re-typing it
  * here would be a second answer to a question already answered.
+ *
+ * `yarn` IS ITS OWN SOURCE AND NOT A KIND OF `material` (0493). It comes from a
+ * third place — the Fabric BOM's Yarn Process tab, not the Material BOM — and
+ * the client asks for it by name as "the Yarn Purchase section of the Budget".
+ * Folding it into `material` would leave the budget unable to say which document
+ * a line came from or which section to show it under, and a re-pull would then
+ * have to guess which existing lines it was replacing.
  */
 export const BUDGET_SOURCES = [
   "fabric",
+  "yarn",
+  "yarn_process",
   "material",
   "process",
   "cmt",
@@ -124,6 +133,17 @@ export type BudgetSource = (typeof BUDGET_SOURCES)[number];
 
 export const BUDGET_SOURCE_LABELS: Record<BudgetSource, string> = {
   fabric: "Fabric",
+  /* "Yarn Purchase", the client's own words for the section, rather than the
+     bare "Yarn" the other labels' pattern would suggest — this line is a
+     PURCHASE of raw material, and a budget reader scanning a column of
+     one-word labels would otherwise read it as a second fabric row. */
+  yarn: "Yarn Purchase",
+  /* "Yarn Processing", the second of the two sections the client names for this
+     tab. A separate source from `process` (which is TYPED, for fabric and
+     garment steps) because this one is PULLED — its quantity is a weight the
+     Fabric BOM computed, and re-typing it would be a second answer to an
+     answered question. */
+  yarn_process: "Yarn Processing",
   material: "Material",
   process: "Processing",
   cmt: "CMT",
@@ -134,6 +154,8 @@ export const BUDGET_SOURCE_LABELS: Record<BudgetSource, string> = {
 /** The sources that are PULLED from a BOM rather than typed. */
 export const PULLED_SOURCES: ReadonlySet<BudgetSource> = new Set<BudgetSource>([
   "fabric",
+  "yarn",
+  "yarn_process",
   "material",
 ]);
 
@@ -248,6 +270,8 @@ export function budgetTotals(
 ): BudgetTotals {
   const costBySource: Record<BudgetSource, number> = {
     fabric: 0,
+    yarn: 0,
+    yarn_process: 0,
     material: 0,
     process: 0,
     cmt: 0,

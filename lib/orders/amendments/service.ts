@@ -861,12 +861,15 @@ export type AmendmentFormData = {
    * Combos ▸ Structure Details (0408 · 0409) — the four lists that overlay picks
    * from, and every one of them is a MASTER rather than a lookup kind.
    *
-   * `categories` carries `fabric_structure_id`, which is not decoration: it is
-   * how the screen derives the knit family from the picked Structure and so how
-   * `structureProblems` decides that GSM is compulsory. Selecting the id and not
-   * the family is what would leave that rule unenforceable — the same "the
-   * column half passing says nothing about whether the value arrived" shape the
-   * `created_by` and cascade-filter sweeps both record.
+   * `categories` carries `fabric_structure_id`. It USED to be load-bearing here
+   * — the screen derived the knit family from the picked Structure and
+   * `structureProblems` made GSM compulsory only for a circular knit — and that
+   * carve-out was withdrawn on 2026-09-01 ("gsm also need required for all
+   * fabric type"). This overlay now derives no family at all, so the column is
+   * carried for the Category and Material masters and `lib/orders/styles/rules.ts`
+   * rather than for anything on this screen. Kept in the select because
+   * `Category` is one shared row type; dropping it here would narrow a type
+   * three other consumers widen again.
    */
   categories: Category[];
   /**

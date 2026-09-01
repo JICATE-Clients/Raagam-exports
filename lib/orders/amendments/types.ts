@@ -1554,6 +1554,10 @@ export interface GarmentOrderAmendment {
   pay_terms_id: string | null;
   /** Which Garment Rejection Rule supplies Approval Qty's Projection (0413). */
   rejection_rule_id: string | null;
+  /** The Style Quotation this order was raised from (0511) — provenance, and
+   *  the handle "Copy From SQ No" reaches the fabric estimation through. NULL
+   *  for an order booked straight off a customer PO, which is the usual case. */
+  sq_detail_id: string | null;
   ex_rate: number;
   avg_rate: number;
   gross_value: number;
@@ -2315,6 +2319,11 @@ export const amendmentInput = z.object({
   /* NULL is a real state, not a missing answer: an order with no rule chosen
      has no Projection, and every row predating 0413 is in exactly that state. */
   rejection_rule_id: uuidN,
+  /* THE QUOTATION THIS ORDER CAME FROM (0511). `uuidN`, so NULL is a real
+     answer rather than a missing one — most orders are booked straight off a
+     customer PO and never had a quotation. `headerOnly` spreads whatever is not
+     a child array, so declaring it here is the whole of the write. */
+  sq_detail_id: uuidN,
   ex_rate: num,
   /* NULLABLE SINCE 0417, and calculated rather than typed. `order-value.ts`
      returns null where a style is priced per colour and the rows carry no
