@@ -74,17 +74,22 @@
 -- numbers is two rows, which is what the grid is for.
 --
 --
--- WHAT THIS DOES NOT DO YET, STATED SO THE COMMENTS ABOVE ARE NOT READ AS A
--- DESCRIPTION OF TODAY
+-- THE LINE'S Dia CELL PICKS FROM THIS LIST -- WIRED 2026-09-01, SAME DAY
 --
--- `order_fabric_bom_lines.dia` is STILL A FREE NUMBER. This table declares the
--- vocabulary; wiring the line's cell to pick from it is a separate change and
--- was not asked for, so the line grid is untouched and an operator can still
--- type a dia no row here mentions. The table comment's "the vocabulary the
--- line-level dia is meant to pick from" states the intent behind the shape --
--- numeric rather than text, a grid rather than a header column -- not a
--- constraint that exists. Nothing enforces agreement between the two, and
--- nothing should until the client asks for the cell to change.
+-- The first cut of this migration left `order_fabric_bom_lines.dia` a free
+-- number and said so here; the client asked for the wiring within the hour
+-- ("yes wire the line dia to pick from that list"). The cell is now a Combobox
+-- over the declared rows, so a typed value is a SEARCH and never a stored one.
+--
+-- STILL NO DATABASE CONSTRAINT, AND DELIBERATELY. Nothing here refuses a line
+-- whose `dia` matches no row of this table, for two reasons. A row is deleted
+-- from this list far more easily than the lines citing it are found, and an FK
+-- would either block that deletion or cascade it into silently blanking those
+-- lines -- the screen keeps a held value visible and tagged "not declared"
+-- instead, which is the "Disabled rows" rule (AGENTS.md) rather than a
+-- referential one. And `dia` is a NUMBER, not this table's identity: two rows
+-- may legitimately declare 60, one Circular and one Woven, so there is no
+-- single row for a line to point at.
 --
 --
 -- NO `location_id`, DELIBERATELY. `order_fabric_boms` carries it and its

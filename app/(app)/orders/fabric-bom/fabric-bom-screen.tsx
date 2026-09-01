@@ -41,6 +41,7 @@ import { Layers, ListChecks, Calculator, Sparkles, Palette } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -522,6 +523,73 @@ export function FabricBomScreen({
   const styleOptions = pickedOrder?.styles ?? [];
   const comboOptions = pickedOrder?.combos ?? [];
 
+  // ---- the line's Dia picks from the declared list (0490) -------------------
+
+  /**
+   * THE DIAS THIS BOM DECLARES, AS OPTIONS FOR A LINE'S Dia CELL.
+   *
+   * This is the relationship 0490 designed the table for and did not wire on the
+   * day (client 2026-09-01: "yes wire the line dia to pick from that list"). It
+   * is the same shape Combos ▸ Structure Details already has for Colour, one
+   * module along: a panel declares the vocabulary and the line grid picks from
+   * what was declared, never from a master and never from free text.
+   *
+   * DEDUPED BY THE NUMBER, NOT BY THE ROW. Circular 60 and Woven 60 are two
+   * legitimate declarations and one dia — the LINE stores a number, so offering
+   * it twice would be two options that write the same value and the operator
+   * would have to guess which. The knit types that declared it become the
+   * sublabel instead, so nothing is lost from the reading.
+   *
+   * NORMALISED THROUGH `numOrNull`, so a declared "60.00" and a declared "60"
+   * are one option rather than two identical-looking rows. It is also what makes
+   * the held-value test below reliable: both sides are compared as the same
+   * string form of the same number.
+   *
+   * A ROW WITH NO NUMBER IS NOT AN OPTION. A declared row is often half-typed —
+   * `normalizeDias` deliberately stores a knit type with no dia — and an option
+   * whose value is "" would be an entry that clears the cell while looking like
+   * a choice.
+   */
+  const declaredDiaOptions = useMemo(() => {
+    const kinds = new Map<string, string[]>();
+    for (const d of dias) {
+      const n = numOrNull(d.dia);
+      if (n == null) continue;
+      const key = String(n);
+      const label = KNIT_TYPE_OPTIONS.find((o) => o.value === d.knit_type)?.label;
+      const seen = kinds.get(key) ?? [];
+      if (label && !seen.includes(label)) seen.push(label);
+      kinds.set(key, seen);
+    }
+    return [...kinds].map(([value, ks]) => ({
+      value,
+      label: value,
+      /* WHICH DECLARATION THIS IS, and it is the only thing distinguishing two
+         dias in a list of bare numbers. Undefined rather than "" when the row
+         named no knit type, so the option renders as one line instead of one
+         line and an empty second. */
+      sublabel: ks.length ? ks.join(" · ") : undefined,
+    }));
+  }, [dias]);
+
+  /**
+   * THE VALUE A LINE ALREADY HOLDS ALWAYS SURVIVES — AGENTS.md, "Disabled rows":
+   * "the one row that survives is the one the record already holds… Dropping it
+   * would show a filled field as empty and blank the FK on the next save."
+   *
+   * IT MATTERS MORE HERE THAN IT DOES FOR A MASTER, because the list is edited
+   * on THIS screen, in a section the operator can open at any moment. Deleting a
+   * declared dia would otherwise silently empty every line that cited it — and
+   * the save writes what the form holds, so the next Save would make the loss
+   * permanent. Tagged rather than silently included, so a value that is no
+   * longer declared reads as the exception it is.
+   */
+  const diaOptionsFor = (held: string) => {
+    const v = held.trim();
+    if (!v || declaredDiaOptions.some((o) => o.value === v)) return declaredDiaOptions;
+    return [...declaredDiaOptions, { value: v, label: v, sublabel: "not declared" }];
+  };
+
   const lineColumns: ChildGridColumn<LineRow>[] = [
     {
       header: "Style",
@@ -715,14 +783,35 @@ export function FabricBomScreen({
     },
     {
       header: "Dia",
-      align: "right",
+      /* NO `align: "right"` ANY MORE. It was a number in a box; it is now a
+         picker, and every other picker in this row (Structure, Component, Unit,
+         Split) is left-aligned. Right-aligning the text would also push it
+         against the chevron in a 5rem cell. */
       width: CELL,
             cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
+        /* A Combobox, so the cell PICKS rather than accepts (client 2026-09-01).
+           Typed text in a Combobox is a search and is never committed — see
+           `commit` in combobox.tsx — which is exactly what "pick from that list"
+           asks for, and it is what makes the declared list mean something.
+
+           THE COST, STATED: a one-off dia can no longer be typed straight into
+           the line. The operator declares it in Color/Print Details first, which
+           is one extra step and the same one Combos ▸ Structure Details has
+           always charged for a Colour. The Fabric Lines section says so when the
+           list is empty, so the step is discoverable rather than a dead cell —
+           without that line this would be the "guard that cannot be satisfied"
+           AGENTS.md names under the nominated-vendor rule.
+
+           `clearable`: Dia is optional here and always has been. A BOM whose
+           fabric has no stated diameter is an ordinary document, so the cell
+           must be emptiable after a pick. */
+        <Combobox
+          compact
+          inputClassName="h-8"
+          options={diaOptionsFor(r.dia)}
           value={r.dia}
-          onChange={(e) => setCell(r.key, { dia: e.target.value })}
+          onChange={(v) => setCell(r.key, { dia: v })}
+          clearable
         />
       ),
     },
@@ -1228,6 +1317,29 @@ export function FabricBomScreen({
       wide: true,
       content: (
         <SectionBody title="Fabric Lines">
+          {/* THE DIA CELL PICKS, SO SOMETHING HAS TO SAY WHERE FROM (client
+              2026-09-01). Wiring Dia to the declared list turned a box that
+              accepted anything into one that accepts only what Color/Print
+              Details names — and with nothing declared that is a cell which
+              opens on an empty list and cannot be filled. A rule that cannot be
+              satisfied "is not stricter, it is broken" (AGENTS.md, nominated
+              vendors), and the fix is never to loosen the rule but to say where
+              the answer lives.
+
+              CONDITIONAL, AND ON TWO THINGS. `SectionBody`'s `hint` prop was
+              removed with all 51 call sites on 2026-08-17 — a heading gets no
+              standing sentence — and the one surviving exception renders only
+              while the state it describes is true. So: only when no dia is
+              declared, AND only once a line names a fabric. Without that second
+              half it would greet every brand-new BOM before the operator had
+              done anything, which is the premature-complaint failure
+              `structTouched` exists to prevent one screen over. */}
+          {!declaredDiaOptions.length && filledLines.length > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              No dia is declared yet — add one under Color/Print Details and the
+              Dia column here will offer it.
+            </p>
+          )}
           <div className="mb-3 flex items-center justify-end">
             <Button
               type="button"
