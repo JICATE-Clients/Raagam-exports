@@ -5,8 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { fabricBomInput, type FabricBomInput } from "./types";
-import { getOrderFabricSeed, getOrderProduction } from "./service";
-import type { OrderFabricSeedRow } from "./types";
+import { getOrderFabricSeed, getOrderPalette, getOrderProduction } from "./service";
+import type { OrderFabricSeedRow, OrderPalette } from "./types";
 import {
   fabricBasisOf,
   fabricRequirementRows,
@@ -82,6 +82,30 @@ function normalizeLines(data: FabricBomInput) {
     }))
     .filter((c) => c.item_id !== null || c.consumption != null)
     .map((c, i) => ({ ...c, sno: i + 1 }));
+}
+
+/**
+ * The Dia / Size / Width rows worth storing, renumbered (0490).
+ *
+ * A ROW SAYS SOMETHING WHEN IT CARRIES EITHER HALF. Not "both": an operator who
+ * has picked Circular and not yet typed the diameter has said something, and a
+ * both-halves test would silently drop the row they were in the middle of —
+ * the same failure `toleranceStated` records for a garbage tolerance ("dropping
+ * it would delete what the operator was in the middle of typing").
+ *
+ * A ZERO DIA IS A VALUE, hence `!= null` rather than a truthiness test. It is
+ * not a sensible diameter, but it is a typed one, and refusing to store it
+ * would make the box appear to accept a figure it then threw away.
+ */
+function normalizeDias(data: FabricBomInput) {
+  return data.dias
+    .map((d) => ({
+      knit_type: d.knit_type ?? null,
+      dia: d.dia ?? null,
+      sno: 0,
+    }))
+    .filter((d) => d.knit_type !== null || d.dia != null)
+    .map((d, i) => ({ ...d, sno: i + 1 }));
 }
 
 // ---------------------------------------------------------------------------
@@ -231,8 +255,27 @@ async function writeLines(
   // Requirements first: they reference the lines, so deleting the other way
   // round leaves the cascade to do it and the order of two deletes becomes a
   // thing to remember rather than a thing to read.
-  for (const t of ["order_fabric_bom_requirements", "order_fabric_bom_lines"]) {
+  //
+  // THE DIAS JOIN THE SAME DELETE-AND-REINSERT (0490). They reference nothing
+  // and nothing references them, so their position in this list is free; they
+  // are in it rather than in a writer of their own because a child the save
+  // path forgets is a child the next save silently erases — the trap the
+  // Garment Order screen records for `prints` and `structures`, whose state and
+  // write were deliberately kept after their grids came off the tab.
+  for (const t of [
+    "order_fabric_bom_requirements",
+    "order_fabric_bom_lines",
+    "order_fabric_bom_dias",
+  ]) {
     const { error } = await s.from(t).delete().eq("bom_id", bomId);
+    if (error) return fail(error.message);
+  }
+
+  const dias = normalizeDias(data);
+  if (dias.length) {
+    const { error } = await s
+      .from("order_fabric_bom_dias")
+      .insert(dias.map((d) => ({ ...d, bom_id: bomId })));
     if (error) return fail(error.message);
   }
 
@@ -359,6 +402,31 @@ export async function loadOrderProduction(
   return order
     ? { ok: true, order }
     : { ok: false, error: "That order could not be read" };
+}
+
+export type OrderPaletteResult =
+  | { ok: true; palette: OrderPalette }
+  | { ok: false; error: string };
+
+/**
+ * The order's yarn dyeing, fabric dyeing and roll form prints (0490).
+ *
+ * A SERVER ACTION PER ORDER, for `loadOrderFabricSeed`'s reason below: the
+ * palette belongs to ONE order and the screen's form data is loaded once for
+ * every confirmed order on the list.
+ *
+ * SEPARATE FROM `loadOrderProduction` even though the screen fires both on the
+ * same id. That one answers "how many garments", which the requirement engine
+ * multiplies on every keystroke; this one answers "which colours", which
+ * nothing computes from. Folding them together would make a palette read a
+ * dependency of the arithmetic and put a failure to read the dyeing rows in the
+ * way of a BOM that does not need them.
+ */
+export async function loadOrderPalette(
+  garmentOrderId: string,
+): Promise<OrderPaletteResult> {
+  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
+  return { ok: true, palette: await getOrderPalette(garmentOrderId) };
 }
 
 export type OrderFabricSeedResult =

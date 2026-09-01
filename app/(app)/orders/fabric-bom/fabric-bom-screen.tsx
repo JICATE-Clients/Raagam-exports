@@ -37,13 +37,14 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Layers, ListChecks, Calculator, Sparkles } from "lucide-react";
+import { Layers, ListChecks, Calculator, Sparkles, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import { SectionGrid } from "@/components/masters/section-grid";
 import {
   MasterFullScreen,
   SectionBody,
@@ -72,7 +73,12 @@ import {
   type FabricBasis,
 } from "@/lib/orders/fabric-bom/requirement";
 import type { OrderProductionInput } from "@/lib/orders/material-bom/requirement";
-import { FABRIC_TYPE_OPTIONS, type FabricBom } from "@/lib/orders/fabric-bom/types";
+import {
+  FABRIC_TYPE_OPTIONS,
+  KNIT_TYPE_OPTIONS,
+  type FabricBom,
+  type OrderPalette,
+} from "@/lib/orders/fabric-bom/types";
 import type {
   BomTaskRow,
   FabricBomFormData,
@@ -81,6 +87,7 @@ import {
   createFabricBom,
   deleteFabricBom,
   loadOrderFabricSeed,
+  loadOrderPalette,
   loadOrderProduction,
   updateFabricBom,
 } from "@/lib/orders/fabric-bom/actions";
@@ -109,10 +116,52 @@ type LineRow = {
   notes: string;
 };
 
+/**
+ * One Color/Print Details ▸ Dia / Size Width Details row (0490).
+ *
+ * `dia` IS A STRING HERE AND A NUMBER IN THE DATABASE, like every numeric cell
+ * on this screen. A controlled `<Input>` cannot hold "1." or "" as a number, so
+ * the form keeps text and `numOrNull` converts once, in `submit` — the same
+ * shape `consumption`, `wastage_pct`, `rate` and the line's own `dia` all use.
+ */
+type DiaRow = {
+  key: string;
+  knit_type: string;
+  dia: string;
+};
+
+/**
+ * One row of a READ-ONLY palette panel (0490) — a dyeing or a print.
+ *
+ * FLATTENED TO `{ type, value }` rather than passing the service's own shape
+ * through, because the three panels differ only in what those two words mean
+ * and a shared row type is what lets them share a column definition. `key` is
+ * derived from `sno`, which the service orders by.
+ */
+type PaletteRow = { key: string; type: string; value: string };
+
+/**
+ * NO ORDER PICKED, OR NONE DECLARED, IS AN EMPTY GRID — never a placeholder row.
+ *
+ * `ChildGrid` draws its own empty state, and a fabricated "—" row would read as
+ * a dyeing the order had entered badly. `undefined` (the order has not answered
+ * yet) and `[]` (it declared none) deliberately render the same: both mean
+ * "nothing to cover", and distinguishing them would need a third state on
+ * screen to say which — for a panel the operator cannot act on either way.
+ */
+const paletteRows = (rows: OrderPalette["yarn"] | undefined): PaletteRow[] =>
+  (rows ?? []).map((r) => ({
+    key: `d${r.sno}`,
+    type: r.dye_type ?? "",
+    value: r.color_name ?? "",
+  }));
+
 type Form = { garment_order_id: string | null; bom_date: string; remark: string };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const BLANK = (): Form => ({ garment_order_id: null, bom_date: today(), remark: "" });
+
+const blankDia = (key: string): DiaRow => ({ key, knit_type: "", dia: "" });
 
 const blankLine = (key: string): LineRow => ({
   key,
@@ -194,6 +243,7 @@ export function FabricBomScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(BLANK);
   const [lines, setLines] = useState<LineRow[]>([]);
+  const [dias, setDias] = useState<DiaRow[]>([]);
   const [dirty, setDirty] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -222,6 +272,16 @@ export function FabricBomScreen({
   };
   const setCell = (key: string, patch: Partial<LineRow>) =>
     mut((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+  /* THE SAME `setDirty` PAIRING AS `mut` ABOVE, and it is not optional: the
+     unsaved guard is keyed on `dirty`, so a mutator that forgets it lets a
+     silent PWA auto-update reload the tab over a half-typed dia (AGENTS.md,
+     "Auto-reload guard"). */
+  const mutDias = (fn: (xs: DiaRow[]) => DiaRow[]) => {
+    setDias(fn);
+    setDirty(true);
+  };
+  const setDiaCell = (key: string, patch: Partial<DiaRow>) =>
+    mutDias((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
   // ---- the picked order ----------------------------------------------------
 
@@ -280,6 +340,44 @@ export function FabricBomScreen({
     };
   }, [form.garment_order_id]);
 
+  /**
+   * THE ORDER'S PALETTE — Color/Print Details' three read-only panels (0490).
+   *
+   * KEYED THE SAME WAY `loaded` IS, and for the same reason: one cell holding
+   * `{ forOrder, palette }` cannot show the previous order's colours while the
+   * new order's reply is in flight. Two cells would spend that gap telling the
+   * operator this BOM must cover a palette belonging to a different order —
+   * worse here than on the production strip, because a colour list carries no
+   * figure to look wrong.
+   *
+   * A SECOND ROUND TRIP, DELIBERATELY. `loadOrderProduction` beside it feeds the
+   * requirement arithmetic; this feeds three lists nothing computes from. Folded
+   * together, a dyeing table that failed to read would block a BOM that never
+   * needed it — see `loadOrderPalette`.
+   */
+  const [paletteState, setPaletteState] = useState<{
+    forOrder: string;
+    palette: OrderPalette;
+  } | null>(null);
+
+  useEffect(() => {
+    const id = form.garment_order_id;
+    if (!id) return;
+    let cancelled = false;
+    loadOrderPalette(id).then((res) => {
+      if (cancelled || !res.ok) return;
+      setPaletteState({ forOrder: id, palette: res.palette });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.garment_order_id]);
+
+  const palette =
+    paletteState && paletteState.forOrder === form.garment_order_id
+      ? paletteState.palette
+      : null;
+
   const pickedOrder = useMemo(
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
     [data.orders, form.garment_order_id],
@@ -294,6 +392,9 @@ export function FabricBomScreen({
     // no click — and an empty grid has no field for Tab to land on, so its only
     // affordance would be a button Tab never visits (AGENTS.md, enterNestedGrid).
     setLines([blankLine(newKey())]);
+    // ONE BLANK DIA ROW, for `blankLine`'s reason exactly — an empty grid has no
+    // field for Tab to land on.
+    setDias([blankDia(newKey())]);
     setDirty(false);
     setMode("edit");
   }
@@ -329,6 +430,16 @@ export function FabricBomScreen({
       })),
     );
     if ((b.lines ?? []).length === 0) setLines([blankLine(newKey())]);
+    const saved = b.dias ?? [];
+    setDias(
+      saved.length
+        ? saved.map((d) => ({
+            key: newKey(),
+            knit_type: d.knit_type ?? "",
+            dia: d.dia == null ? "" : String(d.dia),
+          }))
+        : [blankDia(newKey())],
+    );
     setDirty(false);
     setMode("edit");
   }
@@ -735,7 +846,12 @@ export function FabricBomScreen({
    * holds the cursor there; this is what makes Save explain itself.
    */
   const validity = sectionValidity({
-    sections: [{ key: "bom" }, { key: "lines" }, { key: "qty" }],
+    /* `colors` IS LISTED THOUGH IT DECLARES NO PROBLEMS. The array is the rail's
+       ORDER, which is what `revealFirstProblem` steps through — a section
+       missing from it is a section the reveal cannot land on if it ever grows a
+       rule. Nothing here blocks Save: the palette is the order's and a BOM with
+       no dia stated is an ordinary document. */
+    sections: [{ key: "bom" }, { key: "colors" }, { key: "lines" }, { key: "qty" }],
     values: form,
     fields: [
       {
@@ -811,6 +927,82 @@ export function FabricBomScreen({
     shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
   };
 
+  // ---- Color/Print Details columns (0490) ----------------------------------
+
+  /**
+   * THE THREE READ-ONLY PANELS SHARE ONE ROW SHAPE, so they share one column
+   * pair — the same economy `dyeColumns` makes on the Garment Order tab, where
+   * Yarn Dyeing and Fabric Dyeing are one definition branching on the row.
+   *
+   * PLAIN TEXT, NEVER A DISABLED `<Input>`. A greyed-out box says "you may edit
+   * this once something else is true"; these are not editable here at all, and
+   * a box the operator can click into and not change is the affordance that
+   * makes them try. It also keeps them off the Tab path with no `tabIndex` to
+   * set — a read-only value is not a field (AGENTS.md, "Tab lands on fields").
+   */
+  const paletteColumns: ChildGridColumn<PaletteRow>[] = [
+    {
+      header: "Type",
+      width: "7rem",
+      cell: (r) => <Truncated>{r.type || "—"}</Truncated>,
+    },
+    {
+      header: "Colour",
+      cell: (r) => <Truncated>{r.value || "—"}</Truncated>,
+    },
+  ];
+
+  /* ONE COLUMN, because a print has no type. Reusing `paletteColumns` would
+     print a "Type" header over a column of dashes on every row — a heading that
+     announces a question this panel does not ask. */
+  const printPaletteColumns: ChildGridColumn<PaletteRow>[] = [
+    {
+      header: "Roll form print",
+      cell: (r) => <Truncated>{r.value || "—"}</Truncated>,
+    },
+  ];
+
+  const diaColumns: ChildGridColumn<DiaRow>[] = [
+    {
+      header: "Type",
+      width: "7rem",
+      cell: (r) => (
+        <Select
+          compact
+          className="h-8"
+          aria-label="Knit type"
+          value={r.knit_type}
+          onChange={(e) => setDiaCell(r.key, { knit_type: e.target.value })}
+        >
+          <option value="" />
+          {KNIT_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      /* THE LEGACY HEADER, WORD FOR WORD. One column for three words because it
+         is one answer: a circular knit states a diameter, a flat knit or a woven
+         states a width, and which of the three it is has just been said in the
+         cell to its left. Naming them separately would be three columns, two of
+         them empty on every row. */
+      header: "Dia / Size / Width",
+      align: "right",
+      cell: (r) => (
+        <Input
+          className="h-8 text-right"
+          inputMode="decimal"
+          aria-label="Dia / size / width"
+          value={r.dia}
+          onChange={(e) => setDiaCell(r.key, { dia: e.target.value })}
+        />
+      ),
+    },
+  ];
+
   // ---- sections ------------------------------------------------------------
 
   const sections: FullScreenSection[] = [
@@ -876,6 +1068,153 @@ export function FabricBomScreen({
             error={orderErr}
             order={order}
           />
+        </SectionBody>
+      ),
+    },
+    /**
+     * ---------------- Color / Print Details (0490) ----------------
+     *
+     * THE LEGACY TAB HAS FOUR PANELS AND THIS HAS FOUR PANELS (client
+     * screenshot 2577): Yarn Dyeing, Fabric Dyeing, Roll form prints, Dia /
+     * Size Width Details. What it does NOT have is the legacy Style Detail tree
+     * beside them — the client's own instruction ("in this screen in our
+     * application no need the style details section", screenshot 2578), and the
+     * right call independently: that tree is the ORDER's styles, combos and
+     * size quantities, which this screen already names in its header and
+     * repeats down the Fabric Lines grid's Style Ref No and Combo columns.
+     *
+     * ## THREE ARE READ AND ONE IS TYPED, WHICH IS THE WHOLE DESIGN
+     *
+     * The order already declares its palette on Garment Order ▸ Color/Print
+     * Details, and a fabric BOM names exactly one order. Copying those lists
+     * here would be a second copy free to drift, and would ask the operator to
+     * retype what they have already told the order — see `getOrderPalette` and
+     * 0490's header for the argument in full. Dia is the one panel the order
+     * cannot answer, so it is the one panel with a table behind it.
+     *
+     * SO THE READ-ONLY PANELS ARE NOT THE THING THAT WAS JUST REMOVED. Style
+     * Detail was redundant reference — data this screen shows twice already.
+     * The dyeing type (Y/D, Melange, Dyed) appears NOWHERE else on this screen:
+     * the line grid carries a colour NAME but never how that colour is
+     * achieved, and that is exactly what decides whether step 4 plans a yarn
+     * dyeing or a fabric dyeing.
+     *
+     * ## `done` IS THE DIA, BECAUSE THE DIA IS THE ONLY THING THIS SECTION OWNS
+     *
+     * A quiet dot means "this section has been answered". Lighting it on a
+     * palette read from elsewhere would report the OPERATOR as having done
+     * something the order did.
+     */
+    {
+      key: "colors",
+      label: "Color/Print Details",
+      icon: Palette,
+      done: dias.some((d) => d.knit_type || d.dia.trim()),
+      content: (
+        <SectionBody title="Color/Print Details">
+          {/* CONDITIONAL, WHICH IS THE ONLY SHAPE A LINE UNDER A HEADING MAY
+              TAKE HERE. `SectionBody`'s `hint` prop was REMOVED with all 51 of
+              its call sites on 2026-08-17 ("a heading gets no explanatory
+              sentence"), and the single exception that survived is the one this
+              copies: Style ▸ Components says "Add coordinates first" only WHILE
+              the Coordinate picker has nothing to offer.
+
+              So this appears only when the order has declared no palette at all.
+              With rows on screen the three panels explain themselves — they
+              carry no "+ Add" and no ✕, which is what read-only looks like here
+              — and a standing sentence saying so would restate what the operator
+              can already see, which is the whole of the rule. With NOTHING on
+              screen the same three panels are indistinguishable from a screen
+              that failed to load, and the operator has no way to learn that the
+              place to fix it is another screen: that is the "empty and explain,
+              never a silent fallback" half of the nominated-vendor rule.
+
+              GATED ON THE ORDER BEING READ (`palette !== null`), or it would
+              flash during the round trip and read as an answer. */}
+          {palette &&
+            !palette.yarn.length &&
+            !palette.fabric.length &&
+            !palette.prints.length && (
+              <p className="mb-3 text-xs text-muted-foreground">
+                This order declares no dyeing colours or prints yet — they are
+                entered on Orders ▸ Order Management ▸ Order Entry, under
+                Color/Print Details.
+              </p>
+            )}
+          {/* FOUR PEERS ON ONE LINE, WRAPPING — the same `SectionGrid wrap` plus
+              a per-panel basis the Garment Order's own Color/Print tab uses, and
+              for the reason recorded there: a COLUMN COUNT has to guess a
+              container width to switch at, and both guesses made on that tab
+              were wrong. ~21rem is what one of these panels measures — an index
+              column, a ~7rem type and a ~11rem value. */}
+          <SectionGrid wrap>
+            <div className="min-w-0 flex-[1_1_21rem]">
+              <ChildGrid<PaletteRow>
+                /* grid-caption: exempt -- four grids share this section; without captions
+                   the operator cannot tell which is which. */
+                label="Yarn Dyeing"
+                columns={paletteColumns}
+                rows={paletteRows(palette?.yarn)}
+                inlineCards
+                fill
+                hideAdd
+                lockExisting
+                onAdd={() => false}
+                onRemove={() => {}}
+              />
+            </div>
+            <div className="min-w-0 flex-[1_1_21rem]">
+              <ChildGrid<PaletteRow>
+                /* grid-caption: exempt -- the other half of the dyeing pair. */
+                label="Fabric Dyeing"
+                columns={paletteColumns}
+                rows={paletteRows(palette?.fabric)}
+                inlineCards
+                fill
+                hideAdd
+                lockExisting
+                onAdd={() => false}
+                onRemove={() => {}}
+              />
+            </div>
+            <div className="min-w-0 flex-[1_1_21rem]">
+              <ChildGrid<PaletteRow>
+                /* grid-caption: exempt -- the third of four grids in one section. */
+                label="Roll form prints"
+                columns={printPaletteColumns}
+                rows={(palette?.prints ?? []).map((p) => ({
+                  key: `p${p.sno}`,
+                  type: "",
+                  value: p.print_name ?? "",
+                }))}
+                inlineCards
+                fill
+                hideAdd
+                lockExisting
+                onAdd={() => false}
+                onRemove={() => {}}
+              />
+            </div>
+            {/* THE ONE EDITABLE PANEL — the only one of the four carrying a
+                real `onAdd` / `onRemove` rather than `hideAdd lockExisting` and
+                the no-op pair. That is this screen's own read-only idiom, taken
+                from the Calculated Quantities preview below; `ChildGrid` has no
+                `readOnly` prop, and the two flags together are what remove the
+                "+ Add" button and every row's ✕. */}
+            <div className="min-w-0 flex-[1_1_21rem]">
+              <ChildGrid<DiaRow>
+                /* grid-caption: exempt -- the fourth of four grids in one section. */
+                label="Dia / Size Width Details"
+                columns={diaColumns}
+                rows={dias}
+                inlineCards
+                fill
+                onAdd={() => mutDias((xs) => [...xs, blankDia(newKey())])}
+                onRemove={(r) => mutDias((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add dia"
+              />
+            </div>
+          </SectionGrid>
         </SectionBody>
       ),
     },
@@ -999,6 +1338,16 @@ export function FabricBomScreen({
         required_by: l.required_by || null,
         rate: numOrNull(l.rate),
         notes: l.notes || null,
+      })),
+      /* SENT WHOLE AND FILTERED ON THE SERVER (`normalizeDias`), never trimmed
+         here. Two places deciding what counts as an empty row is how the form
+         and the database come to disagree about how many rows were saved — the
+         division `normalizeLines` already draws, and the reason the blank row a
+         grid opens with is harmless. */
+      dias: dias.map((d, i) => ({
+        sno: i + 1,
+        knit_type: (d.knit_type || null) as "circular" | "flat_knit" | "woven" | null,
+        dia: numOrNull(d.dia),
       })),
     };
     start(async () => {

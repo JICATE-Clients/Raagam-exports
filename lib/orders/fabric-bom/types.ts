@@ -70,6 +70,35 @@ export interface FabricBomLine {
   notes: string | null;
 }
 
+/**
+ * Circular / Flat / Woven — the "Type" beside a Dia / Size / Width (0490).
+ *
+ * THE CODES ARE `config_lookups` kind `fabric_structure`'s OWN, verbatim, so a
+ * value stored here can be handed to `isCircularKnit()` in
+ * `lib/orders/amendments/combo-rules.ts` with no translation step. The LABELS
+ * are what the legacy panel prints (client screenshot 2577).
+ *
+ * NOT A PICKER OVER THAT LOOKUP, and the migration says why: three fixed
+ * answers, and an FK would let a deleted lookup row take a stored dia with it.
+ * Same trade `FABRIC_TYPE_OPTIONS` above already makes.
+ */
+export const KNIT_TYPE_OPTIONS = [
+  { value: "circular", label: "Circular" },
+  { value: "flat_knit", label: "Flat" },
+  { value: "woven", label: "Woven" },
+] as const;
+
+/** One row of Color/Print Details ▸ Dia / Size Width Details (0490). */
+export interface FabricBomDia {
+  id: string;
+  bom_id: string;
+  sno: number;
+  /** 'circular' | 'flat_knit' | 'woven'. */
+  knit_type: string | null;
+  /** Diameter for a circular knit, width for a flat knit or a woven. */
+  dia: number | null;
+}
+
 /** One stored requirement row. Written by the server, never by the form. */
 export interface FabricBomRequirement {
   id: string;
@@ -122,6 +151,7 @@ export interface FabricBom {
   garment_order?: FabricBomOrder | null;
   lines: FabricBomLine[];
   requirements: FabricBomRequirement[];
+  dias: FabricBomDia[];
 }
 
 const nullableText = z.string().optional().nullable();
@@ -193,6 +223,22 @@ export const fabricBomLineInput = z
     }
   });
 
+/**
+ * One Dia / Size / Width row (0490).
+ *
+ * EVERY FIELD OPTIONAL, like every line cell in this module. A grid opens on a
+ * blank row and an operator fills it left to right; refusing a half-filled row
+ * here would block Save on a row nobody has finished. `diaFilled` in actions.ts
+ * is what decides whether a row is worth STORING — the same division of labour
+ * `fabricBomLineInput` above draws between "is this valid" and "does this say
+ * anything".
+ */
+export const fabricBomDiaInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  knit_type: z.enum(["circular", "flat_knit", "woven"]).nullable().default(null),
+  dia: numN,
+});
+
 export const fabricBomInput = z.object({
   /**
    * MANDATORY, and it is the only header field that is.
@@ -207,10 +253,12 @@ export const fabricBomInput = z.object({
   is_draft: z.boolean().default(false),
   remark: nullableText,
   lines: z.array(fabricBomLineInput).default([]),
+  dias: z.array(fabricBomDiaInput).default([]),
 });
 
 export type FabricBomInput = z.infer<typeof fabricBomInput>;
 export type FabricBomLineInput = z.infer<typeof fabricBomLineInput>;
+export type FabricBomDiaInput = z.infer<typeof fabricBomDiaInput>;
 
 /** Draft vs Recorded — the DOCUMENT's own state, distinct from the ORDER-level
  *  question `lib/orders/bom-status.ts` answers ("has this order been planned,
@@ -245,4 +293,28 @@ export type OrderFabricSeedRow = {
    *  because a copy is a second place for them to disagree with the order. */
   item_sub_type: string | null;
   gsm: number | null;
+};
+
+/**
+ * What the ORDER declares that this BOM must cover — the three read-only panels
+ * of Color/Print Details (0490). See `getOrderPalette` for why they are read
+ * rather than stored.
+ *
+ * SHAPED AS THE THREE PANELS, not as one list with a discriminator, because
+ * that is what the screen renders and the split is a fixed three rather than a
+ * facet. `section` on the dyeing rows is kept anyway: it is what the service
+ * split ON, and dropping it from the type would make the two arrays look
+ * interchangeable to a reader who has not seen the query.
+ */
+export type OrderPaletteDye = {
+  sno: number;
+  section: string | null;
+  dye_type: string | null;
+  color_name: string | null;
+};
+
+export type OrderPalette = {
+  yarn: OrderPaletteDye[];
+  fabric: OrderPaletteDye[];
+  prints: { sno: number; print_name: string | null }[];
 };

@@ -11,7 +11,7 @@ import {
   type BomTaskRow,
 } from "@/lib/orders/bom-order-basis";
 import { FABRIC_CLASS_CODE, type FabricOption } from "./fabric-options";
-import type { FabricBom, OrderFabricSeedRow } from "./types";
+import type { FabricBom, OrderFabricSeedRow, OrderPalette } from "./types";
 
 export { getOrderProduction };
 export type { BomTaskRow };
@@ -85,7 +85,8 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
         "excess_pct, rejection_rule_id, customer:customers(id,code,name), " +
         "sales_order:sales_orders(id,order_number)), " +
         "lines:order_fabric_bom_lines(*), " +
-        "requirements:order_fabric_bom_requirements(*)",
+        "requirements:order_fabric_bom_requirements(*), " +
+        "dias:order_fabric_bom_dias(*)",
     )
     .order("created_at", { ascending: false });
 
@@ -94,6 +95,10 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
       ...r,
       lines: [...(r.lines ?? [])].sort((a, b) => a.sno - b.sno),
       requirements: [...(r.requirements ?? [])].sort((a, b) => a.sno - b.sno),
+      /* SORTED HERE, NOT ORDERED IN THE QUERY. PostgREST makes no ordering
+         promise for an embedded child, which is the same trap the combo tree
+         records: a mis-ordered pair puts one fabric's GSM on another's row. */
+      dias: [...(r.dias ?? [])].sort((a, b) => a.sno - b.sno),
     })),
   );
 }
@@ -404,4 +409,76 @@ export async function getFabricBomFormData(): Promise<FabricBomFormData> {
     getUomRows(),
   ]);
   return { orders, fabrics, structures, components, uoms };
+}
+
+// ---------------------------------------------------------------------------
+// Color/Print Details — the three panels the ORDER already declares
+// ---------------------------------------------------------------------------
+
+/**
+ * The garment order's own palette: yarn dyeing, fabric dyeing, roll form prints.
+ *
+ * ## THESE ARE READ, NEVER COPIED, AND THAT IS THE POINT OF 0490
+ *
+ * The legacy Fabric BOM's Color/Print Details tab (client screenshot 2577) has
+ * four panels and lets the operator type all four. Three of them are lists this
+ * order ALREADY holds — `garment_order_amendment_dyeings` (section 'yarn' /
+ * 'fabric') and `_prints`, maintained on Garment Order ▸ Color/Print Details —
+ * and a fabric BOM names exactly one order (`garment_order_id` is NOT NULL and
+ * is the header's only mandatory field), so there is never a question of WHICH
+ * order's palette applies.
+ *
+ * Storing them again would be a second copy free to drift from the first, and
+ * would ask the operator to retype what they have already told the order. The
+ * fourth panel — Dia / Size / Width — is the one the order cannot answer, and
+ * it is the only one 0490 gives a table.
+ *
+ * ## IT RETURNS EMPTY LISTS, NEVER A FALLBACK
+ *
+ * An order that has declared no dyeing rows gets three empty panels and a line
+ * saying where they are maintained. Falling back to the colour master would
+ * make the panel look answered and teach the operator that the order's own tab
+ * need not be filled in — the "empty and explain, never a silent fallback" half
+ * of the nominated-vendor rule (AGENTS.md).
+ */
+export async function getOrderPalette(
+  garmentOrderId: string,
+): Promise<OrderPalette> {
+  const s = await createClient();
+
+  const [dyeRes, printRes] = await Promise.all([
+    s
+      .from("garment_order_amendment_dyeings")
+      .select("sno, section, dye_type, color_name")
+      .eq("amendment_id", garmentOrderId)
+      .order("sno"),
+    s
+      .from("garment_order_amendment_prints")
+      .select("sno, print_name")
+      .eq("amendment_id", garmentOrderId)
+      .order("sno"),
+  ]);
+
+  type DyeRow = {
+    sno: number;
+    section: string | null;
+    dye_type: string | null;
+    color_name: string | null;
+  };
+
+  /* A ROW THAT NAMES NOTHING IS NOT SHOWN. The order's grids open on a blank
+     row like every grid in this app, and `writeChildren` stores whatever the
+     form sent — so a palette panel that rendered them would print empty lines
+     under a heading and read as a list that had been filled in badly. */
+  const said = (r: { dye_type: string | null; color_name: string | null }) =>
+    !!(r.dye_type ?? "").trim() || !!(r.color_name ?? "").trim();
+
+  const dyeings = ((dyeRes.data ?? []) as unknown as DyeRow[]).filter(said);
+
+  return {
+    yarn: dyeings.filter((d) => d.section === "yarn"),
+    fabric: dyeings.filter((d) => d.section === "fabric"),
+    prints: ((printRes.data ?? []) as unknown as { sno: number; print_name: string | null }[])
+      .filter((p) => !!(p.print_name ?? "").trim()),
+  };
 }
