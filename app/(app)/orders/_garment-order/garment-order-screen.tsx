@@ -5217,12 +5217,36 @@ export function GarmentOrderScreen({
     );
 
   /**
-   * THE FIRST FABRIC'S GSM AND TOLERANCE CARRY DOWN TO THE ONES BELOW IT
-   * (client 2026-08-21: "if i fill the tolerance gsm apply for remaining below
-   * structure section").
+   * THE FIRST COMBO'S GSM AND TOLERANCE CARRY ACROSS TO THE SAME FABRIC IN THE
+   * OTHER COMBOS (client 2026-09-01).
    *
-   * A tee is three fabrics and usually one tolerance, so ±5 was being typed
-   * once per card. The first fabric answers and the rest inherit.
+   * ## THIS REVERSED THE AXIS ON 2026-09-01, AND THE OLD ONE WAS WRONG
+   *
+   * It used to copy fabric 1's numbers DOWN the fabrics of one combo (client
+   * 2026-08-21: "if i fill the tolerance gsm apply for remaining below structure
+   * section"). The client reported the result: "when entering the first color,
+   * the system was incorrectly duplicating/repeating the single GSM value across
+   * other fields instead of correctly applying it only to the second combo".
+   *
+   * They are right, and the physics says so. Within ONE combo the fabrics are
+   * DIFFERENT CLOTHS — a Single Jersey body at 200 and a 1×1 rib at 240 — so
+   * that axis is exactly where the values legitimately differ, and copying along
+   * it puts the body's weight on the rib. Across combos it is the SAME CLOTH in
+   * a different colourway, and a colourway does not change a GSM. So the old
+   * rule copied where it must not and the new one copies where it always may.
+   *
+   * The 08-21 ask is not lost so much as re-aimed: an operator still types one
+   * GSM per fabric instead of one per fabric per colourway, which on a 3-fabric
+   * 4-combo order is 3 numbers instead of 12.
+   *
+   * ## MATCHED ON `structure_id`, NOT ON POSITION
+   *
+   * "The same fabric" is the same category, not the third card down. Combos are
+   * seeded from the style and are usually parallel, but a colourway may
+   * legitimately carry an extra fabric or list them in another order — and
+   * index-matching would then put the rib's GSM on a collar. A structure that
+   * names no category matches nothing and is skipped, which is the same
+   * abstention `structureProblems` makes for a row still being filled in.
    *
    * ON BLUR, NOT ON EVERY KEYSTROKE, AND THAT IS THE WHOLE TRAP. Typing `200`
    * fires `onChange` three times — `2`, `20`, `200`. Copying on change would
@@ -5245,14 +5269,23 @@ export function GarmentOrderScreen({
    * the two lines in the body. Read the doc on `toleranceStated`; this is one of
    * the three places that prefill would otherwise have broken in silence.
    *
-   * FROM THE FIRST FABRIC ONLY. Every card would otherwise be a source, and
-   * which one had last been left would decide what the rest held.
+   * FROM THE FIRST COMBO ONLY. Every colourway would otherwise be a source, and
+   * which one had last been left would decide what the rest held. It is the same
+   * anchoring the seed already uses, so the two agree about which combo speaks.
+   *
+   * ANY FABRIC OF IT, NOT ONLY THE FIRST. The old gate existed because every
+   * card in one combo was a candidate source for the cards under it; across
+   * combos each fabric feeds only its own twin, so there is nothing for a second
+   * source to argue with and gating on the first card would just mean the rib's
+   * GSM never travelled.
    */
   const carryDownGsm = (comboKey: string, structKey: string) =>
-    mutStructs(comboKey, (sts) => {
-      const first = sts[0];
-      if (!first || first.key !== structKey) return sts;
-      const gsm = first.gsm.trim();
+    setCombos((xs) => {
+      const anchor = xs[0];
+      if (!anchor || anchor.key !== comboKey) return xs;
+      const src = anchor.structures.find((st) => st.key === structKey);
+      if (!src || !src.structure_id) return xs;
+      const gsm = src.gsm.trim();
       /* "BLANK" FOR A TOLERANCE MEANS `!toleranceStated`, NOT `!trim()`
          (2026-08-31). Every fabric now OPENS on ±5 (`blankStruct`), so an empty
          string is no longer the state this rule was written against: read
@@ -5262,25 +5295,32 @@ export function GarmentOrderScreen({
          The source side moves with it — carrying the prefill down would be
          copying a default onto a default, which is a no-op that reads as the
          feature working. Only a tolerance the operator STATED travels. */
-      const tol = toleranceStated(first.gsm_tolerance)
-        ? first.gsm_tolerance.trim()
+      const tol = toleranceStated(src.gsm_tolerance)
+        ? src.gsm_tolerance.trim()
         : "";
-      if (!gsm && !tol) return sts;
+      if (!gsm && !tol) return xs;
       let changed = false;
-      const next = sts.map((st, i) => {
-        if (i === 0) return st;
-        const patch: Partial<ComboStructRow> = {};
-        if (gsm && !st.gsm.trim()) patch.gsm = gsm;
-        if (tol && !toleranceStated(st.gsm_tolerance)) patch.gsm_tolerance = tol;
-        if (!Object.keys(patch).length) return st;
+      const next = xs.map((combo, ci) => {
+        if (ci === 0) return combo;
+        let rowChanged = false;
+        const structures = combo.structures.map((st) => {
+          if (st.structure_id !== src.structure_id) return st;
+          const patch: Partial<ComboStructRow> = {};
+          if (gsm && !st.gsm.trim()) patch.gsm = gsm;
+          if (tol && !toleranceStated(st.gsm_tolerance)) patch.gsm_tolerance = tol;
+          if (!Object.keys(patch).length) return st;
+          rowChanged = true;
+          return { ...st, ...patch };
+        });
+        if (!rowChanged) return combo;
         changed = true;
-        return { ...st, ...patch };
+        return { ...combo, structures };
       });
       // Same array back when nothing filled in. Blur fires on every departure
-      // from these two boxes, and the common case is that every fabric below is
-      // already answered — so the identity check keeps the ordinary Tab out of
-      // a GSM box from re-creating every structure row beneath it.
-      return changed ? next : sts;
+      // from these two boxes, and the common case is that every twin is already
+      // answered — so the identity check keeps the ordinary Tab out of a GSM box
+      // from re-creating every combo on the tab.
+      return changed ? next : xs;
     });
 
   /**
@@ -5381,7 +5421,7 @@ export function GarmentOrderScreen({
    *     would "say something", and `seedComboFromStyle` stands down the moment
    *     any structure does, so the tree-from-style seed would never run again on
    *     any order. Nothing errors; the overlay just stops filling itself in.
-   *   · `carryDownGsm` above — it copies fabric 1's numbers into BLANKS only,
+   *   · `carryDownGsm` above — it copies the first combo's numbers into BLANKS only,
    *     and with a prefill nothing below is ever blank, so the carry-down the
    *     client asked for on 2026-08-21 would decline every time.
    *   · `structureFilled` in actions.ts, the server twin of the first, which
@@ -13767,9 +13807,11 @@ export function GarmentOrderScreen({
                 * summary uses a few hundred lines down.
                 */}
               {/* `onBlur` ON BOTH BOXES — see `carryDownGsm`. It declines
-                  unless this IS the first fabric, so the handler is harmless
-                  here and the rule stays stated in one place rather than being
-                  half-expressed as a condition on the JSX. */}
+                  unless this is a fabric of the FIRST COMBO, so the handler is
+                  harmless on every other card and the rule stays stated in one
+                  place rather than being half-expressed as a condition on the
+                  JSX. (Until 2026-09-01 the gate was "unless this is the first
+                  FABRIC" — the axis moved, the placement did not.) */}
               {/* GSM IS REQUIRED ON EVERY FABRIC (client 2026-09-01: "gsm also
                   need required for all fabric type").
 
@@ -17636,10 +17678,40 @@ export function GarmentOrderScreen({
               w="code"
               htmlFor="hd-date"
             >
+              {/*
+                * LOCKED ONCE THE ORDER IS SAVED (client 2026-09-01: "once an
+                * order entry is saved, the user must not be allowed to change or
+                * alter the date").
+                *
+                * ## THIS DOES NOT REVOKE THE 08-29 BACK-DATING RULE ABOVE
+                *
+                * That rule is about ENTRY — "an order booked on paper last week
+                * is typed in today WITH LAST WEEK'S DATE" — and it is why this
+                * field is deliberately not `readOnly`. The new rule is about
+                * AFTER the save. The two do not overlap: `editId` is null for
+                * the whole of the initial entry, so back-dating is untouched,
+                * and the lock arrives only once the date has become a fact about
+                * a document that exists.
+                *
+                * ## `disabled`, NOT `readOnly`, AND ONLY FOR THIS INPUT TYPE
+                *
+                * `readOnly` is this screen's usual lock and brings
+                * `tabIndex={-1}` with it. It is not reliable on
+                * `<input type="date">`: the browser's own calendar popup still
+                * writes through a readonly date field, so the one affordance an
+                * operator is most likely to reach for would be the one that
+                * still edited it. `disabled` closes the popup with the field.
+                *
+                * The record stays saveable: `required: true` and the
+                * no-future-date ceiling both live in `validity` and neither
+                * reads this, so a locked date that is already filled satisfies
+                * them exactly as a typed one does.
+                */}
               <Input
                 id="hd-date"
                 type="date"
                 max={today()}
+                disabled={!!editId}
                 value={form.amend_date}
                 onChange={(e) => set({ amend_date: e.target.value })}
               />
