@@ -121,6 +121,67 @@ export type ComboStructureLike = {
   item_sub_type?: string | null;
 };
 
+/** Which cells of a structure row the operator must answer. */
+export type StructureRequiredCells = {
+  structure: boolean;
+  composition: boolean;
+  gsm: boolean;
+  gsm_tolerance: boolean;
+  item_sub_type: boolean;
+};
+
+/**
+ * WHICH CELLS THIS FABRIC MUST STATE — the one declaration, four readers
+ * (client 2026-09-01: "the composition, gsm, Tolerance, Fabric type, color
+ * these field are required field .. why is it not updated").
+ *
+ * ## WHY THIS EXISTS RATHER THAN A `required` PROP PER CELL
+ *
+ * `structureProblems` below already said, in capitals, that Composition,
+ * Tolerance and Fabric Type are unconditionally required — and then declined to
+ * put `required` on the cells, reasoning that four separate declarations of
+ * "what does this structure still need" would be free to disagree. That
+ * reasoning is right and is kept. What it got wrong is the CONCLUSION: it left
+ * the rule as an amber sentence only, so on screen there was no red `*`, no
+ * cursor hold and no blocked Save — every one of the four things this app means
+ * by "required" (AGENTS.md, "Mandatory fields"). The client read the screen and
+ * reported the field as not done, which it was.
+ *
+ * So the rule stays stated once and the cells DERIVE their `required` from it.
+ * A star that appears without this function agreeing is the star/hold
+ * divergence AGENTS.md exists to make impossible.
+ *
+ * ## IT TAKES THE FAMILY CODE, NOT THE ROW
+ *
+ * Requiredness is a property of the COLUMN for a given kind of cloth, never of
+ * how far the operator has got — a `*` that appears once you pick a Structure
+ * and vanishes when you clear it is a label that flickers. The "is this row
+ * merely unfinished" judgement belongs to the caller, and `structureProblems`
+ * below is where it is made.
+ *
+ * ## GSM STAYS THE CASE RULE, AND THAT IS A DELIBERATE READING
+ *
+ * The client's list names GSM alongside the other four. The client also said, on
+ * 2026-08-10, "Circular Knit → GSM compulsory; Woven or Flat Knit → optional",
+ * and that is the narrower, older and more specific statement — so it wins over
+ * a list read off a screenshot of a blank row. In practice it costs nothing on
+ * the orders this complaint came from: a knit garment's structures (Single
+ * Jersey, 1×1 Lycra Rib) all resolve to `circular`, so the star and the hold are
+ * there on every fabric the operator meets. Making GSM unconditional is a
+ * one-line change HERE and needs the client to withdraw the 08-10 rule first.
+ */
+export function structureRequiredCells(
+  familyCode: string | null | undefined,
+): StructureRequiredCells {
+  return {
+    structure: true,
+    composition: true,
+    gsm: isCircularKnit(familyCode),
+    gsm_tolerance: true,
+    item_sub_type: true,
+  };
+}
+
 /**
  * What is wrong with this structure row — empty array means nothing.
  *
@@ -148,7 +209,8 @@ export function structureProblems(
 ): string[] {
   const problems: string[] = [];
   if (!row.structure_id) return problems;
-  if (isCircularKnit(familyCode) && !row.gsm && row.gsm !== 0) {
+  const need = structureRequiredCells(familyCode);
+  if (need.gsm && !row.gsm && row.gsm !== 0) {
     problems.push("GSM is required for a circular-knit structure");
   }
   /*
@@ -181,14 +243,22 @@ export function structureProblems(
   const blank = (v: string | number | null | undefined) =>
     v === null || v === undefined || (typeof v === "string" && !v.trim());
 
-  if (blank(row.composition_id)) problems.push("Composition is required");
+  if (need.composition && blank(row.composition_id)) {
+    problems.push("Composition is required");
+  }
   /* `!== 0` for the same reason GSM carries it: a tolerance of zero is an
      ANSWER — "no tolerance on this cloth" — and `!row.gsm_tolerance` alone
      would report it as unanswered and refuse a figure the operator meant. */
-  if (blank(row.gsm_tolerance) && row.gsm_tolerance !== 0) {
+  if (
+    need.gsm_tolerance &&
+    blank(row.gsm_tolerance) &&
+    row.gsm_tolerance !== 0
+  ) {
     problems.push("Tolerance is required");
   }
-  if (blank(row.item_sub_type)) problems.push("Fabric Type is required");
+  if (need.item_sub_type && blank(row.item_sub_type)) {
+    problems.push("Fabric Type is required");
+  }
   return problems;
 }
 

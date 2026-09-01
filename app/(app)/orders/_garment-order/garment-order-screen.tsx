@@ -169,6 +169,7 @@ import { lookupLabel } from "@/lib/masters/extras-types";
 import {
   gsmRange,
   structureProblems,
+  structureRequiredCells,
   componentProblems,
   // FABRIC_TYPE_OPTIONS is deliberately NOT imported any more — the only control
   // that offered it was the withdrawn "Type" field (see the structure card). The
@@ -6554,14 +6555,19 @@ export function GarmentOrderScreen({
    *
    * The instruction reads "unlike basic fabric properties (Composition, GSM,
    * Tolerance) which are mandatory, the Roll form prints input must remain
-   * strictly optional". **None of those three is mandatory today.** None carries
-   * `required` (Combos ▸ Structure Details), Composition's own note says the
-   * hold "is a client decision nobody has taken", and GSM's "Circular Knit →
-   * compulsory" is an amber advisory that only appears once the row is touched.
-   * So Fabric Print was never the odd one out. Nothing was changed on that
-   * account — the ask was to keep this optional and it is — but if the client
-   * meant the other half too, making those three mandatory is a SEPARATE
-   * decision with its own cursor-hold consequences.
+   * strictly optional". **None of those three was mandatory when that was
+   * written**, so this note recorded that Fabric Print was not in fact the odd
+   * one out, and called making them mandatory a separate decision.
+   *
+   * THE CLIENT TOOK THAT DECISION ON 2026-09-01 ("the composition, gsm,
+   * Tolerance, Fabric type, color these field are required field"), so the
+   * contrast the instruction drew now holds. `structureRequiredCells` in
+   * combo-rules.ts is the declaration; Composition, Tolerance and Fabric Type
+   * carry the star, the hold and a blocked Save, and GSM does on a circular
+   * knit. **Roll form print is unchanged and is now genuinely the exception it
+   * was described as** — which is worth saying plainly, because the paragraph
+   * this replaces argued the opposite and a reader finding it quoted elsewhere
+   * is holding something superseded.
    *
    * NOT TO BE CONFUSED WITH A PLACEMENT PRINT — a chest logo screened onto a
    * panel AFTER cutting is a secondary PROCESS and lives on the style row's
@@ -10061,24 +10067,53 @@ export function GarmentOrderScreen({
          lines, three on the rail badge, and one place to go. The count of PARTS
          is carried in the words instead, and the missing cells are the union
          across them. */
+      /* THE FABRIC'S OWN CELLS, WHICH THIS NEVER USED TO ASK (client
+         2026-09-01). `structureProblems` has stated since 2026-08-31 that
+         Composition, Tolerance and Fabric Type are required, and nothing read
+         it but an amber line inside the overlay — so a fabric missing all three
+         saved silently. It is the same rule the stars and holds are derived
+         from, so the three now agree by construction rather than by review.
+
+         IT IS ONE PROBLEM FOR THE FABRIC AND ONE FOR ITS PARTS, not a merged
+         line: they are missing different KINDS of thing (what the cloth is
+         versus what is cut from it), the reveal lands in the same place either
+         way, and merging them would produce "missing Composition · Colour" —
+         a sentence that reads as one row owing both. */
+      const own = structureProblems(st, familyCodeOf(st.structure_id));
       const bad = st.components
         .map((c) => componentProblems(c, st.item_sub_type))
         .filter((m) => m.length);
-      if (!bad.length) return [];
+      if (!own.length && !bad.length) return [];
       const cells = [...new Set(bad.flat())].map((m) =>
         m.replace(" is required", ""),
       );
       return [
-        {
-          section: "combos",
-          label: "Structure Details",
-          message: `${who} ▸ ${fabric}: ${
-            bad.length === 1 ? "a part is" : `${bad.length} parts are`
-          } missing ${cells.join(" · ")}. Open Details and fill ${
-            bad.length === 1 ? "it" : "them"
-          } in.`,
-          kind: "custom",
-        },
+        ...(own.length
+          ? [
+              {
+                section: "combos" as const,
+                label: "Structure Details",
+                message: `${who} ▸ ${fabric}: ${own.join(" · ")}. Open Details and fill ${
+                  own.length === 1 ? "it" : "them"
+                } in.`,
+                kind: "custom" as const,
+              },
+            ]
+          : []),
+        ...(bad.length
+          ? [
+              {
+                section: "combos" as const,
+                label: "Structure Details",
+                message: `${who} ▸ ${fabric}: ${
+                  bad.length === 1 ? "a part is" : `${bad.length} parts are`
+                } missing ${cells.join(" · ")}. Open Details and fill ${
+                  bad.length === 1 ? "it" : "them"
+                } in.`,
+                kind: "custom" as const,
+              },
+            ]
+          : []),
       ];
     });
   });
@@ -13407,7 +13442,19 @@ export function GarmentOrderScreen({
       /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
       addClassName={STRUCTURE_ADD_W}
       renderMobileRow={(st) => {
-        const problems = structureProblems(st, familyCodeOf(st.structure_id));
+        const familyCode = familyCodeOf(st.structure_id);
+        const problems = structureProblems(st, familyCode);
+        /* THE STARS AND THE HOLDS COME FROM THE RULE, NEVER FROM A LITERAL
+           (client 2026-09-01). `structureRequiredCells` is the same declaration
+           `problems` above is derived from and the same one `comboProblems`
+           gates Save on, so a cell cannot show a `*` the Save button disagrees
+           with — the star/hold divergence AGENTS.md's "one declaration, four
+           enforcers" exists to prevent.
+
+           IT IS READ PER FABRIC, NOT PER SCREEN: GSM's requiredness follows the
+           knit family this row's Structure resolves to, so two fabrics in one
+           combo legitimately answer differently. */
+        const need = structureRequiredCells(familyCode);
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
@@ -13577,14 +13624,25 @@ export function GarmentOrderScreen({
                   Composition truncates sooner as a result, and that is accepted: it
                   is a picker, so it carries the `text-ellipsis` + reveal every picker
                   gets (LAYOUT.md §14) and the whole value stays reachable. */}
-              <Field label="Structure" required w="term" className="w-full">
+              {/* `need.structure` RATHER THAN A BARE `required`, and it reads
+                  `true` unconditionally. This cell was already correct on
+                  2026-09-01 — it is rewired only so that every cell on the card
+                  asks the SAME function what it owes. A hard-coded `required`
+                  sitting beside four derived ones is the literal that survives
+                  the next rule change and quietly disagrees with it. */}
+              <Field
+                label="Structure"
+                required={need.structure}
+                w="term"
+                className="w-full"
+              >
                 {/* A fabric CATEGORY (0409). The knit family beside it is
                     DERIVED from this one answer — never asked again, so the
                     two cannot disagree. */}
                 <RecordPicker
                   label="Structure"
                   compact
-                  required
+                  required={need.structure}
                   items={scopedStructures(r, st.structure_id)}
                   value={st.structure_id}
                   onChange={(id) => pickComboStructure(r.key, st.key, id)}
@@ -13630,14 +13688,28 @@ export function GarmentOrderScreen({
                   Do NOT "settle" this row back to 12. The sums-to-12 rule is
                   about a fractional track; a content-width row has no twelfths
                   to leave over. `lib/ui/sizes.ts` has the vocabulary. */}
-              <Field label="Composition" w="term" className="w-full">
+              <Field
+                label="Composition"
+                required={need.composition}
+                w="term"
+                className="w-full"
+              >
                 {/* THE COMPOSITION MASTER, WHOLE (0434), and fetched on top:
                     picking a Structure whose category holds one fabric
                     pre-selects the composition stating that fabric's blend
                     (`pickComboStructure`), and the list is never narrowed, so
-                    the cell is answerable before a Structure exists. It is not
-                    `required` — that would engage the cursor hold, which is a
-                    client decision nobody has taken.
+                    the cell is answerable before a Structure exists.
+
+                    THE HOLD IS NOW TAKEN (client 2026-09-01) — the decision this
+                    comment used to say "nobody has taken". `required` comes from
+                    `structureRequiredCells`, never from a literal here.
+
+                    IT IS SATISFIABLE FROM A COLD START, which is the test
+                    AGENTS.md sets for any hold: the list is the whole master and
+                    is never narrowed by anything above it, so a held Composition
+                    can always be answered where the operator stands. That is not
+                    true of Colour one column over, which is why that one is
+                    conditional and this one is not.
 
                     `items` is passed straight from the service: the rows carry
                     their own `inactive`, and `DataPicker` hides a switched-off
@@ -13646,6 +13718,7 @@ export function GarmentOrderScreen({
                     <RecordPicker
                       label="Composition"
                       compact
+                      required={need.composition}
                   items={data.compositions}
                   value={st.composition_id}
                   onChange={(id) =>
@@ -13699,7 +13772,19 @@ export function GarmentOrderScreen({
                   unless this IS the first fabric, so the handler is harmless
                   here and the rule stays stated in one place rather than being
                   half-expressed as a condition on the JSX. */}
-              <Field label="GSM" w="num">
+              {/* GSM'S STAR FOLLOWS THE KNIT FAMILY, and it is the one of the
+                  five the client named on 2026-09-01 that did NOT become
+                  unconditional — "Circular Knit → GSM compulsory; Woven or Flat
+                  Knit → optional" (client 2026-08-10) is the narrower and older
+                  statement, so it stands. The reasoning is in
+                  `structureRequiredCells`; do not re-decide it here.
+
+                  SO THIS STAR CAN APPEAR AND DISAPPEAR — picking a woven
+                  Structure takes it off. That is the only flickering star on
+                  this card and it is the honest rendering of a case rule: the
+                  alternative is a permanent star the Save button ignores on two
+                  families out of three. */}
+              <Field label="GSM" required={need.gsm} w="num">
                 <Input
                   type="number"
                   className="text-right"
@@ -13708,7 +13793,13 @@ export function GarmentOrderScreen({
                   onBlur={() => carryDownGsm(r.key, st.key)}
                 />
               </Field>
-              <Field label="Tolerance" w="num">
+              {/* TOLERANCE IS REQUIRED AND ALSO PREFILLED TO 5, which is not a
+                  contradiction: `addStruct` seeds ±5 so the hold is satisfied on
+                  arrival and the operator only meets it if they CLEAR the box.
+                  A field they emptied on purpose is exactly the one worth
+                  refusing to leave blank, and zero still reads as an answer
+                  (`structureProblems`). */}
+              <Field label="Tolerance" required={need.gsm_tolerance} w="num">
                 <Input
                   type="number"
                   className="text-right"
@@ -13754,8 +13845,22 @@ export function GarmentOrderScreen({
                   vocabulary is what made a four-to-three change a one-line change
                   — the cost was entirely in `takesAllOverPrint`, the gate that
                   read the withdrawn value. */}
-              <Field label="Fabric Type" w="term" className="w-full">
+              {/* REQUIRED SINCE 2026-09-01, AND IT IS THE KEYSTONE OF THE FIVE.
+                  Colour one column over is required only once this cell is
+                  answered (`componentColourEntry`), because a blank Fabric Type
+                  leaves Colour with no list to fill from — an unsatisfiable
+                  hold. Holding HERE is what closes that gap: the operator cannot
+                  tab past a blank Fabric Type, so by the time they reach Colour
+                  it always has either a list or the yarn-dyed text box. The two
+                  rules interlock; do not make Colour unconditional instead. */}
+              <Field
+                label="Fabric Type"
+                required={need.item_sub_type}
+                w="term"
+                className="w-full"
+              >
                 <Select
+                  required={need.item_sub_type}
                   value={st.item_sub_type}
                   onChange={(e) => {
                     const next = e.target.value;
