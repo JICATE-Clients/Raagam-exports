@@ -1270,6 +1270,20 @@ def check_created_columns(path: Path, code: str, slug: str):
     panel) became the first match once the table helper left the file. Widening
     the guard keeps the granularity the check already had rather than inventing a
     per-table one it has never claimed.
+
+    IT HAPPENED A SECOND TIME, ONE STEP FURTHER OUT (2026-09-01). Material BOM's
+    queue and Fabric BOM's queue became ONE component -- `BomQueue`
+    (`components/orders/bom-queue.tsx`), which carries the pair with
+    `createdMeta` exactly as the card grid did -- and the moment `createdMeta`
+    left the screen file, the same unrelated Requirement `<DataTable>` became the
+    first match again. So the guard now names the delegating component too.
+
+    THIS LIST IS THE MECHANISM AND IT IS MEANT TO GROW. The check is a file-level
+    heuristic: "somewhere in this file, something renders the pair". A shared
+    LIST component is that something one indirection away, so a new one belongs
+    here in the same commit that writes it. That is a deliberate cost -- the
+    alternative is a silent per-file opt-out, and an opt-out cannot tell a
+    delegated listing (correct) from a forgotten one (the bug this check is for).
     """
     if slug in PRIMITIVES or "created-columns" in slug:
         return
@@ -1282,7 +1296,11 @@ def check_created_columns(path: Path, code: str, slug: str):
             "components/ui/created-columns.tsx -- use withCreatedColumns(columns, rows)",
         )
     if LINE_TABLE_PATH.search(slug) or any(
-        h in code for h in ("withCreatedColumns", "createdMeta", "createdSection")
+        # The three renderings of the pair, plus the shared LIST components that
+        # render one on the screen's behalf -- see the docstring's last paragraph
+        # before adding to this list.
+        h in code
+        for h in ("withCreatedColumns", "createdMeta", "createdSection", "BomQueue")
     ):
         return
     m = re.search(r"<DataTable\b", code)
