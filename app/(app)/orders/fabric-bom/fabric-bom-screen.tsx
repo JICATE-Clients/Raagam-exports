@@ -111,11 +111,26 @@ type LineRow = {
   consumption_uom_id: string | null;
   wastage_pct: string;
   requirement_basis: string;
-  dia: string;
-  required_by: string;
-  rate: string;
   notes: string;
 };
+
+/**
+ * GONE FROM THE LINE, AND THE COLUMNS ARE WHY (client screenshot 2581,
+ * 2026-09-01): legacy's FabricAllocation tab carries no Dia, no required-by date
+ * and no rate, and the instruction was "only from legacy screen field, no more
+ * extra field".
+ *
+ * `dia`, `required_by` and `rate` are STILL COLUMNS ON `order_fabric_bom_lines`.
+ * Dropping them would be destructive for a UI-only change, and 0490 argues for
+ * `dia` at length. They were catalog-verified NULL on every one of the 0 stored
+ * lines before the cells went, which is the convention 0408 / 0430 / 0434 use —
+ * with a stored value they would have had to stay in this type, loaded and
+ * re-sent, or the next Save would blank them.
+ *
+ * REMOVING THE LINE'S Dia REVERSES `579b56c`, from earlier the same day. The
+ * declared list it picked from is NOT removed: Color/Print Details ▸ Dia / Size
+ * Width Details is one of legacy's own four panels (screenshot 2577).
+ */
 
 /**
  * One Color/Print Details ▸ Dia / Size Width Details row (0490).
@@ -206,9 +221,6 @@ const blankLine = (key: string): LineRow => ({
   // it is the only basis that is right for the ordinary case, and the engine
   // still refuses a line that has been cleared back to blank.
   requirement_basis: "colour",
-  dia: "",
-  required_by: "",
-  rate: "",
   notes: "",
 });
 
@@ -403,6 +415,44 @@ export function FabricBomScreen({
       ? paletteState.palette
       : null;
 
+  /**
+   * THE ORDER'S FABRIC TREE, HELD RATHER THAN FETCHED ON A CLICK.
+   *
+   * The Seed button has always read these rows; what is new is that two COLUMNS
+   * read them too — `GSM Range` and `Type`, legacy FabricAllocation's own
+   * (client screenshot 2581, 2026-09-01). A descriptor that only arrived when
+   * the button was pressed would leave both cells blank on every SAVED BOM the
+   * operator merely opens, which is most of them.
+   *
+   * KEYED ON `forOrder` like `loaded` and `paletteState`, for their reason: two
+   * separate cells would spend the in-flight gap printing the PREVIOUS order's
+   * GSM beside this order's fabrics, and a GSM that belongs to another order
+   * reads exactly like one that belongs to this one.
+   *
+   * `seedFromOrder` still fetches for itself and feeds the result back here, so
+   * the button stays as fresh as it was and the columns follow it.
+   */
+  const [seedState, setSeedState] = useState<{
+    forOrder: string;
+    rows: OrderFabricSeedRow[];
+  } | null>(null);
+
+  useEffect(() => {
+    const id = form.garment_order_id;
+    if (!id) return;
+    let cancelled = false;
+    loadOrderFabricSeed(id).then((res) => {
+      if (cancelled || !res.ok) return;
+      setSeedState({ forOrder: id, rows: res.rows });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.garment_order_id]);
+
+  const seedRows =
+    seedState && seedState.forOrder === form.garment_order_id ? seedState.rows : null;
+
   const pickedOrder = useMemo(
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
     [data.orders, form.garment_order_id],
@@ -448,9 +498,6 @@ export function FabricBomScreen({
         consumption_uom_id: l.consumption_uom_id,
         wastage_pct: l.wastage_pct == null ? "" : String(l.wastage_pct),
         requirement_basis: l.requirement_basis ?? "colour",
-        dia: l.dia == null ? "" : String(l.dia),
-        required_by: l.required_by ?? "",
-        rate: l.rate == null ? "" : String(l.rate),
         notes: l.notes ?? "",
       })),
     );
@@ -504,6 +551,10 @@ export function FabricBomScreen({
         toastError(res.error);
         return;
       }
+      // The freshest read of the tree there is — hand it to the descriptor
+      // columns too, so pressing Seed after amending the order updates the GSM
+      // and Type cells of lines that were already on the grid.
+      setSeedState({ forOrder: id, rows: res.rows });
       const addressOf = (l: {
         style_ref_no: string | null;
         combo: string | null;
@@ -547,72 +598,69 @@ export function FabricBomScreen({
   const styleOptions = pickedOrder?.styles ?? [];
   const comboOptions = pickedOrder?.combos ?? [];
 
-  // ---- the line's Dia picks from the declared list (0490) -------------------
+  // ---- the order's own descriptors for a line (client screenshot 2581) ------
 
   /**
-   * THE DIAS THIS BOM DECLARES, AS OPTIONS FOR A LINE'S Dia CELL.
+   * `GSM Range` AND `Type`, READ OFF THE ORDER — legacy FabricAllocation's own
+   * two description columns (client screenshot 2581, 2026-09-01).
    *
-   * This is the relationship 0490 designed the table for and did not wire on the
-   * day (client 2026-09-01: "yes wire the line dia to pick from that list"). It
-   * is the same shape Combos ▸ Structure Details already has for Colour, one
-   * module along: a panel declares the vocabulary and the line grid picks from
-   * what was declared, never from a master and never from free text.
+   * DERIVED, NEVER STORED. `garment_order_amendment_combo_structures` already
+   * holds `gsm`, `gsm_tolerance` and `item_sub_type` per structure, so copying
+   * them onto the BOM line would be a second place for them to disagree with the
+   * order — the argument `getOrderFabricSeed`'s own header makes, and the same
+   * one 0490 makes for not copying the palette.
    *
-   * DEDUPED BY THE NUMBER, NOT BY THE ROW. Circular 60 and Woven 60 are two
-   * legitimate declarations and one dia — the LINE stores a number, so offering
-   * it twice would be two options that write the same value and the operator
-   * would have to guess which. The knit types that declared it become the
-   * sublabel instead, so nothing is lost from the reading.
+   * `Type` HERE IS `item_sub_type`, NOT `fabric_type`, and getting that backwards
+   * is what this change fixes. 0408 puts both words on one table: `fabric_type`
+   * is Main Fabric vs Trims Fabric, `item_sub_type` is Solid / Melange / Yarn
+   * Dyed. Legacy's `Type` cell reads "Solid", so it is the second one — the
+   * screen rendered the first for as long as the column existed.
    *
-   * NORMALISED THROUGH `numOrNull`, so a declared "60.00" and a declared "60"
-   * are one option rather than two identical-looking rows. It is also what makes
-   * the held-value test below reliable: both sides are compared as the same
-   * string form of the same number.
+   * MATCHED ON (style, colourway, structure), because that is the row those
+   * three values live on. The component is deliberately NOT part of the key:
+   * every panel cut from one structure shares its GSM, so keying on it would
+   * make a line with no component answer nothing.
    *
-   * A ROW WITH NO NUMBER IS NOT AN OPTION. A declared row is often half-typed —
-   * `normalizeDias` deliberately stores a knit type with no dia — and an option
-   * whose value is "" would be an entry that clears the cell while looking like
-   * a choice.
+   * IT ABSTAINS RATHER THAN GUESSES, and the catalog says that is not
+   * theoretical. A line naming no colourway matches every colourway that uses
+   * the structure, and on 2026-09-01 FOUR live (style, structure) pairs had
+   * colourways declaring DIFFERENT gsm or sub-type — BOYS T SHIRT and
+   * STL/26-27/0007 among them. Answering with the first match would print one
+   * colourway's GSM against another's fabric, and a guessed GSM reads exactly
+   * like a declared one. So: one distinct answer or a dash.
    */
-  const declaredDiaOptions = useMemo(() => {
-    const kinds = new Map<string, string[]>();
-    for (const d of dias) {
-      const n = numOrNull(d.dia);
-      if (n == null) continue;
-      const key = String(n);
-      const label = KNIT_TYPE_OPTIONS.find((o) => o.value === d.knit_type)?.label;
-      const seen = kinds.get(key) ?? [];
-      if (label && !seen.includes(label)) seen.push(label);
-      kinds.set(key, seen);
+  const descriptorFor = useMemo(() => {
+    const key = (style: string | null, combo: string | null, structure: string | null) =>
+      [style ?? "", combo ?? "", structure ?? ""].map((v) => v.trim().toUpperCase()).join(SEP);
+
+    /* TWO INDEXES OVER ONE LIST. The exact one answers a line that names its
+       colourway; the loose one collects every colourway using the structure, so
+       the blank-combo case can test whether they agree instead of picking one. */
+    const exact = new Map<string, { gsm: string; sub: string }>();
+    const loose = new Map<string, { gsm: Set<string>; sub: Set<string> }>();
+
+    for (const r of seedRows ?? []) {
+      const gsm = gsmRange(r.gsm, r.gsm_tolerance);
+      const sub = ITEM_SUB_TYPE_OPTIONS.find((o) => o.value === r.item_sub_type)?.label ?? "";
+      exact.set(key(r.style_ref_no, r.combo, r.structure_id), { gsm, sub });
+      const lk = key(r.style_ref_no, null, r.structure_id);
+      const seen = loose.get(lk) ?? { gsm: new Set<string>(), sub: new Set<string>() };
+      seen.gsm.add(gsm);
+      seen.sub.add(sub);
+      loose.set(lk, seen);
     }
-    return [...kinds].map(([value, ks]) => ({
-      value,
-      label: value,
-      /* WHICH DECLARATION THIS IS, and it is the only thing distinguishing two
-         dias in a list of bare numbers. Undefined rather than "" when the row
-         named no knit type, so the option renders as one line instead of one
-         line and an empty second. */
-      sublabel: ks.length ? ks.join(" · ") : undefined,
-    }));
-  }, [dias]);
 
-  /**
-   * THE VALUE A LINE ALREADY HOLDS ALWAYS SURVIVES — AGENTS.md, "Disabled rows":
-   * "the one row that survives is the one the record already holds… Dropping it
-   * would show a filled field as empty and blank the FK on the next save."
-   *
-   * IT MATTERS MORE HERE THAN IT DOES FOR A MASTER, because the list is edited
-   * on THIS screen, in a section the operator can open at any moment. Deleting a
-   * declared dia would otherwise silently empty every line that cited it — and
-   * the save writes what the form holds, so the next Save would make the loss
-   * permanent. Tagged rather than silently included, so a value that is no
-   * longer declared reads as the exception it is.
-   */
-  const diaOptionsFor = (held: string) => {
-    const v = held.trim();
-    if (!v || declaredDiaOptions.some((o) => o.value === v)) return declaredDiaOptions;
-    return [...declaredDiaOptions, { value: v, label: v, sublabel: "not declared" }];
-  };
+    const one = (s: Set<string>) => (s.size === 1 ? [...s][0] : "");
+
+    return (l: LineRow): { gsm: string; sub: string } => {
+      if (!l.structure_id) return { gsm: "", sub: "" };
+      if (l.combo.trim()) {
+        return exact.get(key(l.style_ref_no, l.combo, l.structure_id)) ?? { gsm: "", sub: "" };
+      }
+      const seen = loose.get(key(l.style_ref_no, null, l.structure_id));
+      return seen ? { gsm: one(seen.gsm), sub: one(seen.sub) } : { gsm: "", sub: "" };
+    };
+  }, [seedRows]);
 
   const lineColumns: ChildGridColumn<LineRow>[] = [
     {
@@ -677,6 +725,25 @@ export function FabricBomScreen({
       ),
     },
     {
+      /* LEGACY'S OWN COLUMN, BESIDE ITS OWN NEIGHBOUR (screenshot 2581:
+         `Structure | GSM Range | Fabric | Type`). It describes the structure, so
+         it sits against it.
+
+         PLAIN TEXT, NOT A DISABLED `<Input>` — the same choice `paletteColumns`
+         below already makes and for a sharper reason here: text is not focusable
+         at all, so `isFieldLike` never sees it and Tab keeps landing only on
+         cells a value can be typed into (AGENTS.md, "Tab lands on fields"). A
+         readOnly Input would be skipped too (`tabIndex={-1}` since 2026-07-29)
+         but draws a box that says otherwise.
+
+         `<Truncated>` because the cell is 5rem and "175 - 185" is close to it:
+         an ellipsis has to be a promise the rest is reachable. */
+      header: "GSM Range",
+      align: "right",
+      width: CELL,
+      cell: (r) => <Truncated>{descriptorFor(r).gsm || "—"}</Truncated>,
+    },
+    {
       header: "Component",
       width: CELL,
             cell: (r) => (
@@ -707,27 +774,31 @@ export function FabricBomScreen({
       ),
     },
     {
+      /**
+       * LEGACY'S `Type` IS `item_sub_type`, AND THIS CELL USED TO SHOW THE OTHER
+       * ONE (client screenshot 2581, 2026-09-01).
+       *
+       * 0408 puts both words on `garment_order_amendment_combo_structures` and
+       * warns they are different questions: `fabric_type` is Main Fabric vs
+       * Trims Fabric (line 68), `item_sub_type` is Solid / Melange / Yarn Dyed
+       * (line 153). The legacy cell reads "Solid", so it is the second — and the
+       * `raagam-combo-structure-details` note that conflating them "would be the
+       * fourth way that field has been wrong" is what happened here, one screen
+       * along, with a correct-looking header over the wrong value.
+       *
+       * READ-ONLY, because the ORDER answers it. `item_sub_type` is what decides
+       * whether a part's colour comes from a list, is typed, or does not apply
+       * (`componentColourEntry`), so a BOM cell that could contradict the order
+       * would be a second answer to a question the order has already settled.
+       *
+       * `fabric_type` KEEPS ITS COLUMN AND ITS SEEDED VALUE and simply has no
+       * cell — see `seedFromOrder`. Catalog 2026-09-01: 0 of 33 order structures
+       * carry one, so the control this replaces was offering a vocabulary the
+       * order has never once used.
+       */
       header: "Type",
       width: CELL,
-            cell: (r) => (
-        <Select
-          compact
-          className="h-8"
-          value={r.fabric_type}
-          onChange={(e) => setCell(r.key, { fabric_type: e.target.value })}
-        >
-          {/* EMPTY, not "—". Unlike Style above, a blank Type means "not chosen"
-              and nothing else, so there is no fact for a label to carry.
-              (Arrived at independently on master as `<option value=""></option>`
-              — same element, same intent.) */}
-          <option value="" />
-          {FABRIC_TYPE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      ),
+      cell: (r) => <Truncated>{descriptorFor(r).sub || "—"}</Truncated>,
     },
     {
       header: "Colour",
@@ -803,65 +874,6 @@ export function FabricBomScreen({
             </option>
           ))}
         </Select>
-      ),
-    },
-    {
-      header: "Dia",
-      /* NO `align: "right"` ANY MORE. It was a number in a box; it is now a
-         picker, and every other picker in this row (Structure, Component, Unit,
-         Split) is left-aligned. Right-aligning the text would also push it
-         against the chevron in a 5rem cell. */
-      width: CELL,
-            cell: (r) => (
-        /* A Combobox, so the cell PICKS rather than accepts (client 2026-09-01).
-           Typed text in a Combobox is a search and is never committed — see
-           `commit` in combobox.tsx — which is exactly what "pick from that list"
-           asks for, and it is what makes the declared list mean something.
-
-           THE COST, STATED: a one-off dia can no longer be typed straight into
-           the line. The operator declares it in Color/Print Details first, which
-           is one extra step and the same one Combos ▸ Structure Details has
-           always charged for a Colour. The Fabric Lines section says so when the
-           list is empty, so the step is discoverable rather than a dead cell —
-           without that line this would be the "guard that cannot be satisfied"
-           AGENTS.md names under the nominated-vendor rule.
-
-           `clearable`: Dia is optional here and always has been. A BOM whose
-           fabric has no stated diameter is an ordinary document, so the cell
-           must be emptiable after a pick. */
-        <Combobox
-          compact
-          inputClassName="h-8"
-          options={diaOptionsFor(r.dia)}
-          value={r.dia}
-          onChange={(v) => setCell(r.key, { dia: v })}
-          clearable
-        />
-      ),
-    },
-    {
-      header: "Req. by",
-      width: CELL,
-            cell: (r) => (
-        <Input
-          className="h-8"
-          type="date"
-          value={r.required_by}
-          onChange={(e) => setCell(r.key, { required_by: e.target.value })}
-        />
-      ),
-    },
-    {
-      header: "Rate",
-      align: "right",
-      width: CELL,
-            cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          value={r.rate}
-          onChange={(e) => setCell(r.key, { rate: e.target.value })}
-        />
       ),
     },
   ];
@@ -1094,6 +1106,34 @@ export function FabricBomScreen({
       cell: (r) => <Truncated>{r.value || "—"}</Truncated>,
     },
   ];
+
+  /**
+   * THE STACKED FALLBACK NEEDS ITS LABELS, and dropping it as redundant is a
+   * mistake this file records having made once already (see `renderMobileRow` on
+   * the Fabric Lines grid): `ChildGrid`'s default stacked cell is a bare div with
+   * NO VISIBLE LABEL, so below the table breakpoint these panels would degrade to
+   * unlabelled scraps of text — worse here than on a grid of inputs, because a
+   * bare "—" under no heading says nothing at all.
+   *
+   * A FACTORY OVER THE PANEL'S OWN COLUMNS, not one shared renderer. The first
+   * cut passed a single `paletteMobileRow` to all three read-only panels, and it
+   * closed over `paletteColumns` — so the Roll form prints panel, which has ONE
+   * column where the others have two, would have labelled its print name
+   * "Colour" and shown it under a "Type" heading with a dash in it. Both arrays
+   * are `ChildGridColumn<PaletteRow>[]`, so the type checker had nothing to say.
+   * Reading each panel's own `columns` is what makes the stacked labels and the
+   * table headers one declaration per panel rather than one for the set.
+   */
+  const mobileRowFor =
+    (cols: ChildGridColumn<PaletteRow>[]) => (row: PaletteRow) => (
+      <FieldGrid>
+        {cols.map((c, ci) => (
+          <Field key={ci} label={c.header} size="sm">
+            {c.cell(row, ci)}
+          </Field>
+        ))}
+      </FieldGrid>
+    );
 
   const diaColumns: ChildGridColumn<DiaRow>[] = [
     {
@@ -1336,12 +1376,20 @@ export function FabricBomScreen({
                 label="Yarn Dyeing"
                 columns={paletteColumns}
                 rows={paletteRows(palette?.yarn)}
-                inlineCards
                 fill
                 hideAdd
-                lockExisting
+                /* `hideRemove`, NOT `lockExisting` — and its own doc says why.
+                   `lockExisting` withholds the ✕ only from the rows present at
+                   MOUNT, and "a derived grid re-creates its rows on every render,
+                   so that guard would protect the first set and nothing after
+                   it". These rows are re-keyed the moment a different order is
+                   picked, so every one of them would have arrived "new" and worn
+                   a ✕ that calls a no-op. `hideRemove` takes Ctrl+Del with it,
+                   so the keyboard and the mouse agree without a second rule. */
+                hideRemove
                 onAdd={() => false}
                 onRemove={() => {}}
+                renderMobileRow={mobileRowFor(paletteColumns)}
               />
             </div>
             <div className="min-w-0">
@@ -1350,12 +1398,20 @@ export function FabricBomScreen({
                 label="Fabric Dyeing"
                 columns={paletteColumns}
                 rows={paletteRows(palette?.fabric)}
-                inlineCards
                 fill
                 hideAdd
-                lockExisting
+                /* `hideRemove`, NOT `lockExisting` — and its own doc says why.
+                   `lockExisting` withholds the ✕ only from the rows present at
+                   MOUNT, and "a derived grid re-creates its rows on every render,
+                   so that guard would protect the first set and nothing after
+                   it". These rows are re-keyed the moment a different order is
+                   picked, so every one of them would have arrived "new" and worn
+                   a ✕ that calls a no-op. `hideRemove` takes Ctrl+Del with it,
+                   so the keyboard and the mouse agree without a second rule. */
+                hideRemove
                 onAdd={() => false}
                 onRemove={() => {}}
+                renderMobileRow={mobileRowFor(paletteColumns)}
               />
             </div>
             <div className="min-w-0">
@@ -1375,12 +1431,20 @@ export function FabricBomScreen({
                       }))
                     : [DASH_ROW]
                 }
-                inlineCards
                 fill
                 hideAdd
-                lockExisting
+                /* `hideRemove`, NOT `lockExisting` — and its own doc says why.
+                   `lockExisting` withholds the ✕ only from the rows present at
+                   MOUNT, and "a derived grid re-creates its rows on every render,
+                   so that guard would protect the first set and nothing after
+                   it". These rows are re-keyed the moment a different order is
+                   picked, so every one of them would have arrived "new" and worn
+                   a ✕ that calls a no-op. `hideRemove` takes Ctrl+Del with it,
+                   so the keyboard and the mouse agree without a second rule. */
+                hideRemove
                 onAdd={() => false}
                 onRemove={() => {}}
+                renderMobileRow={mobileRowFor(printPaletteColumns)}
               />
             </div>
             {/* THE ONE EDITABLE PANEL — the only one of the four carrying a
@@ -1395,7 +1459,6 @@ export function FabricBomScreen({
                 label="Dia / Size Width Details"
                 columns={diaColumns}
                 rows={dias}
-                inlineCards
                 fill
                 onAdd={() => mutDias((xs) => [...xs, blankDia(newKey())])}
                 onRemove={(r) => mutDias((xs) => xs.filter((x) => x.key !== r.key))}
@@ -1545,9 +1608,6 @@ export function FabricBomScreen({
         consumption_uom_id: l.consumption_uom_id,
         wastage_pct: numOrNull(l.wastage_pct) ?? 0,
         requirement_basis: (l.requirement_basis || null) as FabricBasis | null,
-        dia: numOrNull(l.dia),
-        required_by: l.required_by || null,
-        rate: numOrNull(l.rate),
         notes: l.notes || null,
       })),
       /* SENT WHOLE AND FILTERED ON THE SERVER (`normalizeDias`), never trimmed
