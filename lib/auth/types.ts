@@ -17,6 +17,14 @@ export const MODULES = [
   "finance",
   "integration",
   "reports",
+  /* The approval engine's own module (0500). Its three actions are the app's
+     existing vocabulary rather than three new dotted keys — `edit` builds
+     flows, `approve` acts on a run, `view` sees EVERY run rather than only your
+     own queue. Seeing your own queue needs no permission at all: the queue RPC
+     returns only rows you may act on, so the empty-handed case is an empty list,
+     not a denial. The shim (0500) maps the engine's dotted keys onto this pair
+     with an explicit CASE, so a key it does not know DENIES. */
+  "approvals",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -49,6 +57,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   finance: "Finance",
   integration: "System Integration",
   reports: "Reports & Analytics",
+  approvals: "Approvals",
 };
 
 /** Modules actually shipped in this build pass (drive the nav). */
@@ -68,6 +77,7 @@ export const ACTIVE_MODULES: Module[] = [
   "reports",
   "masters",
   "system_admin",
+  "approvals",
 ];
 
 /**

@@ -11,6 +11,9 @@ import {
   type OrderBudgetInput,
 } from "./types";
 import { pullCostLines, type PulledCostLine } from "./service";
+import { budgetTotals } from "./totals";
+import { startApproval } from "@/lib/approvals/actions";
+import { WORKFLOWS } from "@/lib/approvals/workflows";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -22,6 +25,9 @@ function rev(): void {
   revalidatePath("/orders/budgets");
   revalidatePath("/orders/budget-approval");
   revalidatePath("/orders/setup");
+  /* The decision changes two screens, and the other one is the approver's queue
+     (AGENTS.md has no rule for this; the engine does). */
+  revalidatePath("/approvals");
 }
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
@@ -195,7 +201,14 @@ export async function submitBudget(id: string): Promise<Result> {
 
   // A BUDGET WITH NO LINES IS NOT A BUDGET. Checked here and not only on screen,
   // because "submitted" is what puts it in front of someone else.
-  const { data: lines } = await s.from("order_budget_lines").select("id").eq("budget_id", id);
+  //
+  // `source, qty, rate` rather than `id`, because the same read now feeds the
+  // approval context below — a second query for the same rows would be a second
+  // chance for the two to disagree about what this budget is worth.
+  const { data: lines } = await s
+    .from("order_budget_lines")
+    .select("source, qty, rate")
+    .eq("budget_id", id);
   if ((lines ?? []).length === 0) return fail("Add at least one cost line before submitting");
 
   const { error } = await s
@@ -203,6 +216,66 @@ export async function submitBudget(id: string): Promise<Result> {
     .update({ status: "submitted", submitted_at: new Date().toISOString(), submitted_by: (await getAppUser())?.id ?? null })
     .eq("id", id);
   if (error) return fail(error.message);
+
+  /**
+   * START THE APPROVAL RUN — the first of the engine's two seams (0500–0505).
+   *
+   * ## IN THE SAME ACTION AS THE STATUS WRITE, DELIBERATELY
+   *
+   * "Submitted" MEANS "in front of an approver". A budget that reached
+   * `submitted` with no run is in nobody's queue and nobody is being asked —
+   * the stranded-document failure the whole engine exists to prevent, arriving
+   * through the one door the engine cannot guard.
+   *
+   * ## SO A FAILURE HERE ROLLS THE STATUS BACK
+   *
+   * There is no transaction across two PostgREST calls, so the rollback is
+   * written by hand. Leaving the budget `submitted` after a failed start would
+   * be exactly that stranded document, and it would be invisible: the operator
+   * saw a success toast, the list says submitted, and no queue holds it.
+   * Putting it back to `draft` returns the operator to a state they can act on
+   * — press Submit again — which is the only honest outcome.
+   *
+   * `no_flow` is NOT swallowed. 0503 seeds a catch-all per workflow so it should
+   * be unreachable; if it ever fires, the budget goes back to draft and the
+   * message names the cause rather than the document quietly sitting still.
+   */
+  const totals = budgetTotals(
+    (lines ?? []) as { source: string | null; qty: number | null; rate: number | null }[],
+    [],
+  );
+  const { data: budget } = await s
+    .from("order_budgets")
+    .select("currency_code, location_id")
+    .eq("id", id)
+    .single();
+
+  const started = await startApproval({
+    workflowKey: WORKFLOWS.order_budget.key,
+    subjectTable: WORKFLOWS.order_budget.subjectTable,
+    subjectId: id,
+    /* EVERY KEY A FLOW MIGHT TEST, passed whether or not one tests it today. A
+       MISSING key does not match — it falls through to the catch-all rather than
+       mis-routing — so the cost of sending an unused key is nothing, and the
+       cost of omitting one is a flow that silently never fires. */
+    context: {
+      total_cost: totals.cost,
+      currency_code: budget?.currency_code ?? null,
+      unpriced_lines: totals.unpriced.length,
+    },
+    /* The unit narrows WHO holds the approving role (0500). A budget with no
+       location falls back to every holder of the role, which is right: an
+       unscoped document is not one unit's business. */
+    scope: budget?.location_id ? { location_id: budget.location_id } : {},
+  });
+
+  if (!started.ok) {
+    await s
+      .from("order_budgets")
+      .update({ status: "draft", submitted_at: null, submitted_by: null })
+      .eq("id", id);
+    return fail(`Submitted, but no approval could be started — ${started.error}`);
+  }
 
   await writeAudit({ action: "order_budget.submitted", entityType: "order_budget", entityId: id });
   rev();
