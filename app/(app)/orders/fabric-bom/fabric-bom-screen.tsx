@@ -1056,11 +1056,25 @@ export function FabricBomScreen({
   const paletteColumns: ChildGridColumn<PaletteRow>[] = [
     {
       header: "Type",
+      /* 7rem + 11rem ARE THE ORDER'S OWN NUMBERS, from `dyeColumns` in
+         garment-order-screen.tsx. These panels mirror that grid, so mirroring
+         its widths is what makes the two screens read as one list seen twice —
+         and the values are identical strings ("Melange", "Dyed", "Y/D"), so a
+         width that fits there fits here. */
       width: "7rem",
       cell: (r) => <Truncated>{r.type || "—"}</Truncated>,
     },
     {
       header: "Colour",
+      /* DECLARED, NOT FLEXIBLE, and that is the whole of the alignment fix
+         (client 2026-09-01: "need to align the ui section make it organized").
+         An undeclared column takes every pixel its panel has, so the same
+         two-column grid came out a different shape in each panel and the Dia
+         panel's value box ran ~1400px for a three-digit number. With every
+         column declared, `fill` keeps the widths and lets the slack fall to the
+         RIGHT of them — so all four panels start their columns on the same two
+         edges. */
+      width: "11rem",
       cell: (r) => <Truncated>{r.value || "—"}</Truncated>,
     },
   ];
@@ -1071,6 +1085,12 @@ export function FabricBomScreen({
   const printPaletteColumns: ChildGridColumn<PaletteRow>[] = [
     {
       header: "Roll form print",
+      /* 18rem, NOT the 11rem the Colour column takes. This panel has one column
+         where the others have two, so it has both their widths to spend — and a
+         print name is a long one ("ALL OVER FLORAL AOP"). It still lines up: its
+         single column starts on the same left edge as every other panel's
+         first. */
+      width: "18rem",
       cell: (r) => <Truncated>{r.value || "—"}</Truncated>,
     },
   ];
@@ -1104,6 +1124,11 @@ export function FabricBomScreen({
          them empty on every row. */
       header: "Dia / Size / Width",
       align: "right",
+      /* 11rem, THE SAME AS THE COLOUR COLUMN BESIDE IT — this panel sits under
+         Fabric Dyeing in the 2×2, so a matching width is what puts their two
+         column edges on one line. Undeclared, this cell was the worst offender
+         in screenshot 2582: a number box the width of the whole pane. */
+      width: "11rem",
       cell: (r) => (
         <Input
           className="h-8 text-right"
@@ -1267,14 +1292,44 @@ export function FabricBomScreen({
               </p>
             )
           )}
-          {/* FOUR PEERS ON ONE LINE, WRAPPING — the same `SectionGrid wrap` plus
-              a per-panel basis the Garment Order's own Color/Print tab uses, and
-              for the reason recorded there: a COLUMN COUNT has to guess a
-              container width to switch at, and both guesses made on that tab
-              were wrong. ~21rem is what one of these panels measures — an index
-              column, a ~7rem type and a ~11rem value. */}
-          <SectionGrid wrap>
-            <div className="min-w-0 flex-[1_1_21rem]">
+          {/* A 2×2, WHICH IS `SectionGrid`'S DEFAULT AND NOT ITS `wrap` MODE
+              (client 2026-09-01: "need to align the ui section make it
+              organized").
+
+              ## WHY `wrap` WAS WRONG HERE THOUGH IT IS RIGHT ONE SCREEN OVER
+
+              `wrap` fits as many peers per line as the room allows and lets the
+              rest wrap. The Garment Order's Color/Print tab has THREE panels and
+              that is exactly what it wants. Four is the case it handles badly:
+              at this pane's ~1276px, three 21rem panels fit and the FOURTH
+              wrapped alone onto a line of its own — where `flex-grow: 1` then
+              stretched it edge to edge. That is screenshot 2582: three panels in
+              thirds and Dia / Size Width Details running the full width beneath
+              them, its value box about 1400px wide for a three-digit number.
+
+              The default two-column grid has no such failure: four children
+              auto-place as 2 + 2 with no basis to guess and no line that can end
+              up holding one item. `section-grid.tsx` argues at length against a
+              `cols={n}` prop because a count needs a width to switch at — that
+              argument is about choosing between 2 and 3, and it does not apply
+              to taking the default, which already switches at `@4xl` and falls
+              to a single column below it.
+
+              ## THE ORDER OF THE FOUR IS THE POINT OF THE ARRANGEMENT
+
+              Auto-placement fills left to right, so this reads:
+
+                  Yarn Dyeing      | Fabric Dyeing
+                  Roll form prints | Dia / Size Width Details
+
+              The two dyeing grids are a PAIR — same two columns, same values —
+              and putting them side by side is the arrangement the client chose
+              for this same pair on the order's own tab (2026-08-12, screenshots
+              2269 · 2270). Below them, the last panel the order declares and the
+              one panel this BOM owns. Every column is declared, so panel 2's
+              Type edge and panel 4's Type edge are the same edge. */}
+          <SectionGrid>
+            <div className="min-w-0">
               <ChildGrid<PaletteRow>
                 /* grid-caption: exempt -- four grids share this section; without captions
                    the operator cannot tell which is which. */
@@ -1289,7 +1344,7 @@ export function FabricBomScreen({
                 onRemove={() => {}}
               />
             </div>
-            <div className="min-w-0 flex-[1_1_21rem]">
+            <div className="min-w-0">
               <ChildGrid<PaletteRow>
                 /* grid-caption: exempt -- the other half of the dyeing pair. */
                 label="Fabric Dyeing"
@@ -1303,7 +1358,7 @@ export function FabricBomScreen({
                 onRemove={() => {}}
               />
             </div>
-            <div className="min-w-0 flex-[1_1_21rem]">
+            <div className="min-w-0">
               <ChildGrid<PaletteRow>
                 /* grid-caption: exempt -- the third of four grids in one section. */
                 label="Roll form prints"
@@ -1334,7 +1389,7 @@ export function FabricBomScreen({
                 from the Calculated Quantities preview below; `ChildGrid` has no
                 `readOnly` prop, and the two flags together are what remove the
                 "+ Add" button and every row's ✕. */}
-            <div className="min-w-0 flex-[1_1_21rem]">
+            <div className="min-w-0">
               <ChildGrid<DiaRow>
                 /* grid-caption: exempt -- the fourth of four grids in one section. */
                 label="Dia / Size Width Details"
