@@ -58,9 +58,11 @@
 -- maintains, and an FK would let a deleted lookup row take a stored dia with it.
 --
 -- NULLABLE, LIKE EVERY OTHER CELL IN THIS MODULE. A half-filled grid row is how
--- an operator works; `dias` with nothing in them are dropped before insert
--- (`diaFilled` in actions.ts), which is the same rule `structureFilled` states
--- for the order's combo tree.
+-- an operator works; rows with nothing in them are dropped before insert
+-- (`normalizeDias` in actions.ts, beside `normalizeLines`), which is the same
+-- rule `structureFilled` states for the order's combo tree. A row with EITHER
+-- half is kept: an operator who has picked Circular and not yet typed the
+-- diameter has said something.
 --
 --
 -- `dia` IS numeric(10,2), MATCHING THE TWO PLACES A WIDTH IS ALREADY STORED
