@@ -799,6 +799,22 @@ export type OrderFabricSeedRow = {
   fabric_type: string | null;
   color_name: string | null;
   /**
+   * THE PART'S "ROLL FORM PRINT" AS A NAME (client 2026-09-02, screenshot 2637).
+   *
+   * `garment_order_amendment_combo_components.print_id` — the last cell of the
+   * Structure Details parts grid — resolved here, and it lands on the seeded
+   * line's `required_print`. The client chose that mapping over a column of its
+   * own: Components already has a Required Print cell, and two cells carrying
+   * one fact is how they come to disagree.
+   *
+   * A NAME AND NOT AN ID, because `required_print` is TEXT on the BOM line, fed
+   * by a `<Combobox>` over the order's declared print palette. Resolving it here
+   * is the same call `component_name` and `structure_name` already make, for
+   * their reason: the screen holds the master lists, and a print the order names
+   * that the master has since deactivated would resolve to nothing there.
+   */
+  print_name: string | null;
+  /**
    * SOLID / MELANGE / YARN DYED, and the GSM band — legacy FabricAllocation's
    * own `Type` and `GSM Range` columns (client screenshot 2581, 2026-09-01).
    *
