@@ -110,7 +110,14 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
            stage hangs off a yarn row that exists nowhere else — there is
            nothing to re-associate them by if they are fetched apart from it.
            The same shape a line's Manual sizes take, and for the same reason. */
-        "yarns:order_fabric_bom_yarns(*, stages:order_fabric_bom_yarn_stages(*))",
+        "yarns:order_fabric_bom_yarns(*, stages:order_fabric_bom_yarn_stages(*)), " +
+        /* YARN DYED DETAILS (0512) — the [Detail] overlay's two TYPED panels,
+           flat under the header like `dias` and for the same reason: they are
+           addressed by the fabric GROUP they describe, by value, and reference
+           no line. Mixing Details is absent because it is DERIVED — see
+           `mixingDetailRows` in yarn-dyed.ts. */
+        "ydRepeats:order_fabric_bom_yd_repeats(*), " +
+        "ydCombinations:order_fabric_bom_yd_combinations(*)",
     )
     .order("created_at", { ascending: false });
 
@@ -468,10 +475,38 @@ async function getFabricRows(): Promise<FabricOption[]> {
          plain FK to `config_lookups`, readable by everyone, so PostgREST can
          name it in one round trip — unlike `created_by`, where `profiles_read_own`
          is what forces the `creator_names()` RPC (AGENTS.md, Created Date). */
-      .select("id, code, name, is_active, item_class_id, fabric_type:config_lookups!fabric_type_id(name)")
+      .select(
+        /* `base_uom_id` FEEDS `consumption_uom_id` (0513). The Mixing Uom cell
+           became the client's percent/cm ratio unit, so the unit the
+           consumption figure is in has no cell of its own any more and is
+           auto-filled from the fabric master when a fabric is picked. Safe
+           because it is SET: all 14 live fabrics carry one (2026-09-02). */
+        "id, code, name, is_active, item_class_id, base_uom_id, " +
+          "fabric_type:config_lookups!fabric_type_id(name)",
+      )
       .order("name"),
     itemClassCodes(),
   ]);
+
+  /**
+   * THE EMBED COMES BACK AS AN OBJECT OR AN ARRAY, AND THIS MUST SURVIVE BOTH.
+   *
+   * PostgREST returns a many-to-one embed as an object, but the generated types
+   * describe it as an array and a `.single()`-less select can hand back either
+   * depending on how the relationship is resolved. This code previously CAST the
+   * object shape (`as unknown as { fabric_type: { name } | null }`) and read
+   * `r.fabric_type?.name`, which on the array shape is `undefined` for every row.
+   *
+   * THAT IS NOT A COSMETIC RISK. `fabric_type` decides whether a line is yarn
+   * dyed, and since 0513 that decides whether Mixing Uom and No Of Colors exist
+   * at all and whether [Detail] opens. A silent null here does not show a wrong
+   * value — it disables a whole feature and leaves the `Type` column reading
+   * "—" on every row, which is indistinguishable from "the master has no type".
+   * A cast that lies costs nothing until the shape it asserts is wrong.
+   */
+  const embeddedName = (
+    v: { name: string | null } | { name: string | null }[] | null | undefined,
+  ): string | null => (Array.isArray(v) ? (v[0]?.name ?? null) : (v?.name ?? null));
 
   return ((itemsRes.data ?? []) as unknown as {
     id: string;
@@ -479,7 +514,8 @@ async function getFabricRows(): Promise<FabricOption[]> {
     name: string;
     is_active: boolean;
     item_class_id: string | null;
-    fabric_type: { name: string | null } | null;
+    base_uom_id: string | null;
+    fabric_type: { name: string | null } | { name: string | null }[] | null;
   }[])
     .filter((r) => isFabricClassId(classes, r.item_class_id))
     .map((r) => ({
@@ -487,7 +523,8 @@ async function getFabricRows(): Promise<FabricOption[]> {
       code: r.code,
       name: r.name,
       class_code: FABRIC_CLASS_CODE,
-      fabric_type: r.fabric_type?.name ?? null,
+      base_uom_id: r.base_uom_id,
+      fabric_type: embeddedName(r.fabric_type),
       inactive: isInactive(r),
     }));
 }

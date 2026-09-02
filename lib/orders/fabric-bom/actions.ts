@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { missingFabricLineFields } from "./fabric-line-rules";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
 import {
   getBomYarnComposition,
@@ -26,6 +27,16 @@ import {
   type Refusal,
 } from "./requirement";
 import { consumptionMap } from "./manual";
+/* Color/Print Details' three panels write the ORDER's palette (client
+   2026-09-02). The diff and the citation guard are pure and shared with the
+   screen, so the warning an operator sees while typing and the refusal the
+   server returns come from one function — see ./palette.ts. */
+import {
+  citationProblem,
+  normPaletteName,
+  paletteDiff,
+  type PaletteCitation,
+} from "./palette";
 /* `isRefusal` is NOT re-imported here — `./requirement`'s is already in scope
    above and `yarn-process.ts` re-exports that very function, so a second alias
    would be two names for one predicate. */
@@ -99,6 +110,12 @@ function normalizeLines(data: FabricBomInput) {
       fabric_form: c.fabric_form ?? null,
       required_print: clean(c.required_print),
       specification: clean(c.specification),
+      /* THE TWO YARN-DYED CELLS (0513). THIS MAP IS FIELD BY FIELD, so a column
+         missing from it is dropped on every save with nothing to say so — the
+         same silence the sales registers hit when they rebuilt a row and lost
+         `created_by` (AGENTS.md). Add here as well as to the schema. */
+      mixing_uom_id: c.mixing_uom_id ?? null,
+      no_of_colors: c.no_of_colors ?? null,
       consumption: c.consumption ?? null,
       consumption_uom_id: c.consumption_uom_id ?? null,
       wastage_pct: c.wastage_pct ?? 0,
@@ -741,6 +758,21 @@ async function writeYarns(
   return { ok: true };
 }
 
+/**
+ * IS THIS REPEAT WORTH STORING? (0512)
+ *
+ * A row the grid opened and nobody filled says nothing, and storing it would put
+ * an empty line in every future reader of the panel. The ADDRESS alone does not
+ * count as content — every blank row carries one, because the grid stamps the
+ * fabric group onto a row the moment it is created.
+ */
+const ydRepeatFilled = (r: FabricBomInput["yd_repeats"][number]) =>
+  !!(r.yarn_item_id || (r.color_name ?? "").trim() || r.value != null || (r.twisted_yarn ?? "").trim());
+
+/** As `ydRepeatFilled`, for a Combinations row. */
+const ydCombinationFilled = (r: FabricBomInput["yd_combinations"][number]) =>
+  !!((r.combo ?? "").trim() || (r.yd_combo_name ?? "").trim());
+
 async function writeLines(
   s: Awaited<ReturnType<typeof createClient>>,
   bomId: string,
@@ -782,6 +814,18 @@ async function writeLines(
        `bom_id` and both are keyed on `entry_id`. They are GRANDCHILDREN — the
        same shape and the same note the yarn routes carry just above. */
     "order_fabric_bom_manual_entries",
+    /* THE YARN DYED DETAILS PANELS (0512). In the loop because they carry
+       `bom_id`; their position in it is free, like the dias and the routes,
+       because they reference no line and no line references them.
+
+       THAT INDEPENDENCE IS THE POINT OF THE TABLES' KEYING, not a happy
+       accident. They hold the fabric group's address BY VALUE, so this
+       delete-and-reinsert — which destroys and rebuilds every LINE — leaves them
+       addressable by the same three values afterwards. Keyed on `line_id` they
+       would be cascaded away by an ordinary Save from the Fabric Lines grid,
+       which is the Material Attribute orphan bug exactly. */
+    "order_fabric_bom_yd_repeats",
+    "order_fabric_bom_yd_combinations",
   ]) {
     const { error } = await s.from(t).delete().eq("bom_id", bomId);
     if (error) return fail(error.message);
@@ -792,6 +836,29 @@ async function writeLines(
     const { error } = await s
       .from("order_fabric_bom_dias")
       .insert(dias.map((d) => ({ ...d, bom_id: bomId })));
+    if (error) return fail(error.message);
+  }
+
+  /* THE YARN DYED PANELS (0512), written before the lines because nothing here
+     needs a line id — the same gain 0492's routes get from keying on `item_id`.
+
+     `ydRepeatFilled` / `ydCombinationFilled` are what decide whether a row is
+     worth STORING, the division of labour `normalizeDias` already draws: the
+     Zod schema asks "is this valid" and answers yes for a blank row the grid
+     opened, and this asks "does this say anything". */
+  const ydRepeats = (data.yd_repeats ?? []).filter(ydRepeatFilled);
+  if (ydRepeats.length) {
+    const { error } = await s
+      .from("order_fabric_bom_yd_repeats")
+      .insert(ydRepeats.map((r) => ({ ...r, bom_id: bomId })));
+    if (error) return fail(error.message);
+  }
+
+  const ydCombinations = (data.yd_combinations ?? []).filter(ydCombinationFilled);
+  if (ydCombinations.length) {
+    const { error } = await s
+      .from("order_fabric_bom_yd_combinations")
+      .insert(ydCombinations.map((r) => ({ ...r, bom_id: bomId })));
     if (error) return fail(error.message);
   }
 
@@ -1015,12 +1082,282 @@ async function compositionMapFor(
   return new Map(compositions.map((c) => [c.fabric_id, c]));
 }
 
+/**
+ * THE FOURTH ENFORCER of the yarn-dyed rule (0513).
+ *
+ * `missingFabricLineFields` already draws the star, holds the cursor and gates
+ * the Save button; AGENTS.md's "one declaration, four enforcers" says the server
+ * action is the fourth, and it is the only one a stale client or a future import
+ * path cannot walk past.
+ *
+ * IT RESOLVES THE FABRIC TYPE HERE RATHER THAN TRUSTING THE PAYLOAD. The type
+ * lives on `items.fabric_type_id`; a line carries only `item_id`. Reading it from
+ * the client would let a caller declare a yarn-dyed cloth to be solid and skip the
+ * rule, which is the whole reason the check exists on this side too.
+ *
+ * ONE QUERY FOR THE WHOLE DOCUMENT, not one per line.
+ */
+async function yarnDyedProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<string | null> {
+  const ids = [...new Set(data.lines.map((l) => l.item_id).filter(Boolean))] as string[];
+  if (ids.length === 0) return null;
+
+  const { data: rows } = await s
+    .from("items")
+    .select("id, fabric_type:config_lookups!fabric_type_id(name)")
+    .in("id", ids);
+
+  /* THE EMBED COMES BACK AS AN ARRAY OR AN OBJECT depending on how PostgREST
+     reads the relationship, and the generated types say array. Normalised here
+     rather than cast away — a cast that lies is how a null slips through as a
+     name and a yarn-dyed fabric reads as untyped. */
+  const nameOf = (v: { name: string | null } | { name: string | null }[] | null) =>
+    (Array.isArray(v) ? (v[0]?.name ?? null) : (v?.name ?? null));
+
+  const typeById = new Map(
+    ((rows ?? []) as unknown as {
+      id: string;
+      fabric_type: { name: string | null } | { name: string | null }[] | null;
+    }[]).map((r) => [r.id, nameOf(r.fabric_type)]),
+  );
+
+  for (const l of data.lines) {
+    const problems = missingFabricLineFields(
+      {
+        item_id: l.item_id ?? null,
+        mixing_uom_id: l.mixing_uom_id ?? null,
+        no_of_colors: l.no_of_colors ?? null,
+      },
+      typeById.get(l.item_id ?? "") ?? null,
+    );
+    if (problems.length) return problems[0].message;
+  }
+  return null;
+}
+
+/**
+ * THE ORDER'S PALETTE, WRITTEN FROM THIS SCREEN (client 2026-09-02).
+ *
+ * Color/Print Details' three colour/print panels are the ORDER's lists, and this
+ * is the only place outside the Garment Order screen that writes them. The
+ * design, the reason a rename is a delete-plus-add, and the reason the payload
+ * carries NAMES rather than rows are all in `./palette.ts` — read that first.
+ *
+ * ## IT RUNS BEFORE THE BOM IS TOUCHED, IN BOTH ACTIONS
+ *
+ * A refused palette must leave nothing behind. In `createFabricBom` the header
+ * insert is what mints the document, so a guard that ran after it would refuse
+ * the save having already created a BOM the operator was never told about — and
+ * `uq_order_fabric_bom_order` would then reject their second attempt with "this
+ * order already has a fabric BOM". Running first makes the refusal free.
+ *
+ * ## `orders:edit`, NOT THE ACTION'S OWN PERMISSION
+ *
+ * `createFabricBom` checks `orders:create`, and creating a BOM is not licence to
+ * rewrite the order it names. Someone who may raise a BOM but not amend an order
+ * gets the BOM and a refusal on the palette, which is the correct pair.
+ */
+async function writePalette(
+  s: Awaited<ReturnType<typeof createClient>>,
+  garmentOrderId: string,
+  palette: FabricBomInput["palette"],
+): Promise<Result> {
+  // UNDEFINED IS "NOT MY BUSINESS", and it is the common case: every save from a
+  // screen that never opened this tab lands here. An empty ARRAY is the operator
+  // emptying a panel and is a real instruction — see the schema's own note.
+  if (!palette) return { ok: true };
+
+  if (!(await can("orders", "edit"))) {
+    return fail("You cannot change this order's colours — ask for orders:edit");
+  }
+
+  const [dyeRes, printRes] = await Promise.all([
+    s
+      .from("garment_order_amendment_dyeings")
+      .select("id, sno, section, color_name")
+      .eq("amendment_id", garmentOrderId),
+    s
+      .from("garment_order_amendment_prints")
+      .select("id, sno, print_name")
+      .eq("amendment_id", garmentOrderId),
+  ]);
+  if (dyeRes.error) return fail(`Could not read the order's colours: ${dyeRes.error.message}`);
+  if (printRes.error) return fail(`Could not read the order's prints: ${printRes.error.message}`);
+
+  type DyeRow = { id: string; sno: number; section: string | null; color_name: string | null };
+  type PrintRow = { id: string; sno: number; print_name: string | null };
+  const dyeings = (dyeRes.data ?? []) as unknown as DyeRow[];
+  const prints = (printRes.data ?? []) as unknown as PrintRow[];
+
+  const asStored = (rows: { sno: number; name: string | null }[]) => rows;
+  const stored = {
+    fabric: asStored(
+      dyeings.filter((d) => d.section === "fabric").map((d) => ({ sno: d.sno, name: d.color_name })),
+    ),
+    yarn: asStored(
+      dyeings.filter((d) => d.section === "yarn").map((d) => ({ sno: d.sno, name: d.color_name })),
+    ),
+    print: asStored(prints.map((r) => ({ sno: r.sno, name: r.print_name }))),
+  };
+
+  const diffs = {
+    fabric: paletteDiff(stored.fabric, palette.fabric),
+    yarn: paletteDiff(stored.yarn, palette.yarn),
+    print: paletteDiff(stored.print, palette.prints),
+  };
+
+  const removedColours = new Set([...diffs.fabric.removed, ...diffs.yarn.removed]);
+  const removedPrints = new Set(diffs.print.removed);
+
+  /* THE GUARD, AND IT IS THE ONLY ONE THERE IS. Every column below holds the
+     name as TEXT with no foreign key behind it, so a delete would succeed and
+     leave the citing row naming a colour the order no longer declares — see
+     `PaletteCitation` in ./palette.ts for why each is stored that way. */
+  if (removedColours.size || removedPrints.size) {
+    const [comboRes, bomRes] = await Promise.all([
+      s
+        .from("garment_order_amendment_combos")
+        .select(
+          "combo, structures:garment_order_amendment_combo_structures(yarn_colors, " +
+            "components:garment_order_amendment_combo_components(color_name))",
+        )
+        .eq("amendment_id", garmentOrderId),
+      s
+        .from("order_fabric_boms")
+        .select("id, lines:order_fabric_bom_lines(color_name, required_print)")
+        .eq("garment_order_id", garmentOrderId),
+    ]);
+    if (comboRes.error) return fail(`Could not check the order's combos: ${comboRes.error.message}`);
+    if (bomRes.error) return fail(`Could not check the fabric lines: ${bomRes.error.message}`);
+
+    const cites: PaletteCitation[] = [];
+
+    for (const c of (comboRes.data ?? []) as unknown as {
+      combo: string | null;
+      structures:
+        | {
+            yarn_colors: string[] | null;
+            components: { color_name: string | null }[] | null;
+          }[]
+        | null;
+    }[]) {
+      const where = `combo ${normPaletteName(c.combo) || "(unnamed)"}`;
+      for (const st of c.structures ?? []) {
+        for (const y of st.yarn_colors ?? []) {
+          const n = normPaletteName(y);
+          if (removedColours.has(n)) cites.push({ name: n, where: `${where}'s yarn colours` });
+        }
+        for (const comp of st.components ?? []) {
+          const n = normPaletteName(comp.color_name);
+          if (removedColours.has(n)) cites.push({ name: n, where: `${where}'s structure details` });
+        }
+      }
+    }
+
+    for (const b of (bomRes.data ?? []) as unknown as {
+      lines: { color_name: string | null; required_print: string | null }[] | null;
+    }[]) {
+      for (const l of b.lines ?? []) {
+        const c = normPaletteName(l.color_name);
+        if (removedColours.has(c)) cites.push({ name: c, where: "a fabric line on this BOM" });
+        const pr = normPaletteName(l.required_print);
+        if (removedPrints.has(pr)) cites.push({ name: pr, where: "a fabric line on this BOM" });
+      }
+    }
+
+    const problem = citationProblem(cites);
+    if (problem) return fail(problem);
+  }
+
+  /* DELETE BY ID, NOT BY NAME. A `.eq("color_name", n)` would be one round trip
+     per name AND would re-derive the match with different rules from the ones
+     `paletteDiff` just used — `normPaletteName` upper-cases, and the column may
+     hold anything. The ids are already in hand and cannot disagree. */
+  const dyeIdsToGo = dyeings
+    .filter(
+      (d) =>
+        (d.section === "fabric" && diffs.fabric.removed.includes(normPaletteName(d.color_name))) ||
+        (d.section === "yarn" && diffs.yarn.removed.includes(normPaletteName(d.color_name))),
+    )
+    .map((d) => d.id);
+  if (dyeIdsToGo.length) {
+    const { error } = await s.from("garment_order_amendment_dyeings").delete().in("id", dyeIdsToGo);
+    if (error) return fail(error.message);
+  }
+
+  const printIdsToGo = prints
+    .filter((r) => diffs.print.removed.includes(normPaletteName(r.print_name)))
+    .map((r) => r.id);
+  if (printIdsToGo.length) {
+    const { error } = await s.from("garment_order_amendment_prints").delete().in("id", printIdsToGo);
+    if (error) return fail(error.message);
+  }
+
+  /* `sno` CONTINUES FROM THE HIGHEST STORED, per section — it is NOT NULL and
+     the order's own tab sorts on it. Counting the surviving rows instead would
+     re-use a number the moment anything had ever been deleted, and two rows
+     sharing an `sno` sort arbitrarily. */
+  const maxDye = (section: string) =>
+    Math.max(0, ...dyeings.filter((d) => d.section === section).map((d) => d.sno));
+  const maxPrint = Math.max(0, ...prints.map((r) => r.sno));
+
+  const newDyeings = [
+    ...diffs.fabric.added.map((name, i) => ({
+      amendment_id: garmentOrderId,
+      sno: maxDye("fabric") + 1 + i,
+      section: "fabric",
+      /* `dye_type` NULL, DELIBERATELY. This tab does not show the type (0490
+         dropped the column) and a value invented here would be a claim about how
+         the colour is achieved that nobody made — which is exactly what
+         `combo-rules.ts` reads to decide between a yarn dyeing and a fabric
+         dyeing. The order's own tab is where it gets answered. */
+      dye_type: null,
+      color_name: name,
+    })),
+    ...diffs.yarn.added.map((name, i) => ({
+      amendment_id: garmentOrderId,
+      sno: maxDye("yarn") + 1 + i,
+      section: "yarn",
+      dye_type: null,
+      color_name: name,
+    })),
+  ];
+  if (newDyeings.length) {
+    const { error } = await s.from("garment_order_amendment_dyeings").insert(newDyeings);
+    if (error) return fail(error.message);
+  }
+
+  if (diffs.print.added.length) {
+    const { error } = await s.from("garment_order_amendment_prints").insert(
+      diffs.print.added.map((name, i) => ({
+        amendment_id: garmentOrderId,
+        sno: maxPrint + 1 + i,
+        print_name: name,
+      })),
+    );
+    if (error) return fail(error.message);
+  }
+
+  return { ok: true };
+}
+
 export async function createFabricBom(data: FabricBomFormInput): Promise<Result> {
   if (!(await can("orders", "create"))) return fail("Forbidden");
   const p = fabricBomInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
   const s = await createClient();
+
+  const ydProblem = await yarnDyedProblem(s, p.data);
+  if (ydProblem) return fail(ydProblem);
+
+  // BEFORE THE HEADER INSERT — see `writePalette`. A refused palette must not
+  // leave a BOM behind that the operator was never told about.
+  const paletteRes = await writePalette(s, p.data.garment_order_id, p.data.palette);
+  if (!paletteRes.ok) return paletteRes;
+
   const order = await getOrderProduction(p.data.garment_order_id);
 
   const { data: created, error } = await s
@@ -1058,6 +1395,19 @@ export async function updateFabricBom(id: string, data: FabricBomFormInput): Pro
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
   const s = await createClient();
+
+  /* THE UPDATE CHECKS IT TOO. A rule enforced only on create is enforced once
+     per document and never again — every save after the first walks past it,
+     which is exactly why `checkDuplicateName` is required in both actions
+     (AGENTS.md, Duplicates). */
+  const ydProblem = await yarnDyedProblem(s, p.data);
+  if (ydProblem) return fail(ydProblem);
+
+  // Before the update, for the same reason as create: a refusal leaves the
+  // document exactly as it was rather than half-written.
+  const paletteRes = await writePalette(s, p.data.garment_order_id, p.data.palette);
+  if (!paletteRes.ok) return paletteRes;
+
   const order = await getOrderProduction(p.data.garment_order_id);
 
   const { error } = await s.from("order_fabric_boms").update(headerOnly(p.data, order)).eq("id", id);
