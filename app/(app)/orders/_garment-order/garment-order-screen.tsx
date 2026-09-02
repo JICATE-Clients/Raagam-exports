@@ -4303,42 +4303,6 @@ export function GarmentOrderScreen({
     [taLadder],
   );
 
-  /* MOVED ABOVE THE LIST-MODE EARLY RETURN (2026-09-02). It arrived below it
-     with 0511 and broke the Rules of Hooks the moment the screen was opened:
-     `if (mode === "list")` a few lines down is an early return, so these two
-     ran on the editor render and were SKIPPED on the list one — React counts
-     hooks by position, saw 68 then 69, and said so. The note on the T&A block
-     above states this rule and ends "Every other memo on this screen sits above
-     that line for the same reason"; these two were the exception it was warning
-     about.
-     The picker they feed renders in the editor only, so nothing about WHERE the
-     list is used changes — only where it is declared. */
-  /**
-   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
-   *
-   * Client 2026-09-01: "copying from the SQ No should instantly pull the
-   * structure, estimated compositions, and initial parameters into the Confirmed
-   * Order (RE) layout to eliminate repetitive manual data entry", against the
-   * client's own template proposal: "copy the SQ's generic structure rows and
-   * associate them by default with all active combos on the RE … keep these
-   * fields fully editable".
-   *
-   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
-   * screen states four times over. The LIST is a picker's options and may arrive
-   * whenever; the COPY writes into combos, and an effect that wrote would refill
-   * a structure the operator had deliberately cleared, and would fire again the
-   * moment a SAVED order re-opened.
-   */
-  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    loadSqOptions().then((res) => {
-      if (!cancelled && res.ok) setSqOptions(res.rows);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
