@@ -16,7 +16,16 @@ const eslintConfig = defineConfig([
        then tries to lint. It does not merely lint it slowly: the run DIES on
        the first file Next has since cleaned up, with an ENOENT naming a
        `.js` under `.next-build/server/app`, so `npm run lint` is unusable for
-       as long as the directory exists. */
+       as long as the directory exists.
+
+       `.next-verify` WAS THE ONE MISSING, and it is the one that mattered: it
+       is the dist dir `npm run build:check` writes, i.e. the directory the
+       repo's OWN documented verification step leaves behind every time it
+       runs. So the check that catches a hook below an early return was
+       unusable in precisely the state a developer is in right after building —
+       which is how two of those hooks reached production on 2026-09-02 and
+       took `/orders/garment-orders` down (see `check:hooks`). */
+    ".next-verify/**",
     ".next-build/**",
     ".next-shot/**",
     ".next-fold/**",

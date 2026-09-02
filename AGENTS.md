@@ -6,6 +6,45 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Project conventions
 
+## Hooks above every early return (STANDING)
+
+**A screen that returns early declares EVERY hook above that line.** React counts
+hooks by position, so a hook below a branch runs on one render and is skipped on
+the next: the component throws "Rendered more hooks than during the previous
+render", `app/(app)/error.tsx` swallows the route, and the operator gets "This
+screen couldn't load" with no digest and nothing to search for.
+
+`garment-order-screen.tsx` is where this lives — it returns at
+`if (mode === "list")` and renders the 19,000-line editor beneath — and it has
+now recorded the rule **five times in its own comments, once per occurrence**.
+The fifth (2026-09-02) put two `sqOptions` hooks 1,300 lines under the branch and
+took `/orders/garment-orders` down in production. A comment written by the last
+person to be bitten is not a guard; it is a note the next person reads afterwards.
+
+**ESLint named it correctly every single time** — `react-hooks/rules-of-hooks`,
+"React Hook "useState" is called conditionally". Detection was never what was
+missing. Three things kept the answer off the screen, and all three are now shut:
+
+- **`next build` does not lint** (Next 16 dropped it) and `npm run build:check`
+  is this repo's gate, so the gate and the check had nothing to do with each
+  other. `build:check` now runs `check:hooks` first.
+- **`npm run lint` was unusable in exactly the state that follows a build.**
+  `.next-verify` — the dist dir `build:check` itself writes — was the one
+  alternate dist dir missing from `eslint.config.mjs`'s ignores, so a full lint
+  died with ENOENT on Next's own cleaned-up output. Two halves of one bug.
+- **A full lint is minutes long**, most of it type-aware rules, which is long
+  enough to get skipped. `check:hooks` runs that ONE rule with no type
+  information, over ~1,280 files, in about 20 seconds.
+
+`npm run check:hooks`, verified by being made to FAIL first against the deployed
+2026-09-02 build before being trusted. It is deliberately narrow and is not a
+replacement for `npm run lint` — it is the part of it that must never be skipped.
+
+**The fix is always to MOVE the hook up, never to silence the rule.** Where the
+hook only memoised a cheap pass over the order's own rows, drop the memo and make
+it a plain `const` — `orderStructureIds`, `declaredComboOptions` and `orderVal` in
+that file are each a `useMemo` deleted for this reason, and each says so.
+
 ## Auto-reload guard (STANDING)
 
 A new deploy reloads the user's tab **automatically and silently** — no banner, no
