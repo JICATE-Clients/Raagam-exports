@@ -71,6 +71,22 @@ export type FabricOption = {
    * fabrics do. Catalog 2026-09-01: every fabric item carries one.
    */
   fabric_type: string | null;
+  /**
+   * The fabric's own base unit — KGS or MTR (`items.base_uom_id`).
+   *
+   * IT FEEDS `consumption_uom_id` ON THE LINE (0513). That cell went when the
+   * client defined `Mixing Uom` as a percent/cm RATIO unit rather than a UOM
+   * reference, so the unit the consumption figure is in is now taken from the
+   * cloth itself when a fabric is picked.
+   *
+   * THE DERIVATION IS SAFE HERE FOR A MEASURED REASON, and the contrast is the
+   * point: all 14 live fabrics carry a `base_uom_id` (2026-09-02), where
+   * `material_mixings.uom_id` — the other candidate the same afternoon — is NULL
+   * on all 18 of its rows. Null is still possible for a master row created
+   * without one, and the Save gate refuses that line by name rather than
+   * guessing a unit.
+   */
+  base_uom_id: string | null;
 } & Deactivatable;
 
 /** The item class a Fabric BOM plans. One string, one place — `itemClassForm`
