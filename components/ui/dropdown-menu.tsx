@@ -11,6 +11,23 @@ export interface DropdownItem {
   onClick: () => void;
   danger?: boolean;
   disabled?: boolean;
+  /**
+   * A heading printed above this item, when it differs from the item before it.
+   *
+   * ## IT IS A PROPERTY OF THE ITEM, NOT A SEPARATE `divider` ENTRY
+   *
+   * The obvious alternative — letting `items` hold `{ kind: "heading" }` rows —
+   * breaks the keyboard, and breaks it silently. `onMenuKeyDown` walks `items`
+   * by INDEX and `activate` reads `items[active]`, so a non-actionable entry in
+   * that array becomes a stop ↑/↓ can land on and Enter does nothing from. This
+   * spelling cannot produce that state: every element of `items` is still an
+   * action, headings are drawn beside them, and the index arithmetic is
+   * untouched.
+   *
+   * Purely decorative — `aria-hidden`, no role. A screen reader gets the item's
+   * own label, which is why a section must never carry meaning the label omits.
+   */
+  section?: string;
 }
 
 /**
@@ -125,9 +142,30 @@ export function DropdownMenu({
           >
             {items.map((item, i) => {
               const Icon = item.icon;
+              /* A heading is drawn when the section CHANGES, so consecutive
+                 items of one group print it once — and an `items` array that
+                 declares no section anywhere renders exactly as it always did.
+                 That is what lets this land in the primitive without touching
+                 the ~40 menus already using it. */
+              const heading =
+                item.section && item.section !== items[i - 1]?.section ? item.section : null;
               return (
+                <div key={item.label}>
+                  {heading && (
+                    <div
+                      aria-hidden
+                      className={cn(
+                        "px-3 pb-1 text-[10.5px] font-semibold uppercase tracking-[.09em] text-muted-foreground",
+                        // A rule above every group but the first: it separates,
+                        // where on the first it would just underline the menu's
+                        // own top border.
+                        i === 0 ? "pt-1" : "mt-1 border-t border-border pt-2",
+                      )}
+                    >
+                      {heading}
+                    </div>
+                  )}
                 <button
-                  key={item.label}
                   type="button"
                   role="menuitem"
                   disabled={item.disabled}
@@ -142,6 +180,7 @@ export function DropdownMenu({
                   {Icon && <Icon className="h-4 w-4 shrink-0" />}
                   {item.label}
                 </button>
+                </div>
               );
             })}
           </div>,

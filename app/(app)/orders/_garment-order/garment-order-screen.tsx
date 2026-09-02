@@ -1550,6 +1550,43 @@ export function GarmentOrderScreen({
    */
   const [showPriceQty, setShowPriceQty] = useState(false);
   /**
+   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
+   *
+   * Client 2026-09-01: "copying from the SQ No should instantly pull the
+   * structure, estimated compositions, and initial parameters into the Confirmed
+   * Order (RE) layout to eliminate repetitive manual data entry", against the
+   * client's own template proposal: "copy the SQ's generic structure rows and
+   * associate them by default with all active combos on the RE … keep these
+   * fields fully editable".
+   *
+   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
+   * screen states four times over. The LIST is a picker's options and may arrive
+   * whenever; the COPY writes into combos, and an effect that wrote would refill
+   * a structure the operator had deliberately cleared, and would fire again the
+   * moment a SAVED order re-opened.
+   *
+   * UP HERE WITH THE OTHER STATE, ABOVE THE `if (mode === "list")` RETURN,
+   * for the same hard reason `openStyleKey` is — a hook declared below that
+   * line runs in edit mode and not in list mode, and this screen crosses the
+   * boundary on EVERY load. Declared beside `copyFromSq` where it read better,
+   * these two were React's 69th hook in one render and its 68th-and-nothing in
+   * the next: "Rendered more hooks than during the previous render", a blank
+   * /orders/garment-orders rather than a subtle bug. That is the FOURTH time
+   * this file has recorded the rule, and the first three all say the same
+   * thing — the branch is what makes position load-bearing, so a hook goes up
+   * here even when its only reader is 4,000 lines below.
+   */
+  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadSqOptions().then((res) => {
+      if (!cancelled && res.ok) setSqOptions(res.rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  /**
    * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the
    * `structureProblems` advisory (client 2026-08-18: "remove this message; if
    * they moved on without filling it then show at that time only, no need to
@@ -4341,50 +4378,82 @@ export function GarmentOrderScreen({
              no longer see asks them to confirm against nothing. */
           label={r.sales_order?.order_number ?? r.code}
           /*
-           * THE REQUIREMENT SHEET, REACHED FROM THE ROW THAT ALREADY ANSWERS
-           * WHETHER IT EXISTS (2026-08-25).
+           * THE ORDER'S THREE DOCUMENTS, REACHED FROM THE ROW (2026-08-25,
+           * reworked 2026-09-02).
            *
-           * The Material BOM column beside it says `Pending` / `Recorded`, and
+           * The Material BOM column beside it says `Pending` / `Updated`, and
            * whoever reads that is exactly the person who then wants the sheet.
            * Without this they leave for Orders ▸ All Orders and re-find the same
            * order there, because THIS list does not link to `/orders/<id>` at all
            * — its eye is `RowActions`' record-view overlay, not navigation.
            *
-           * ## A DISABLED ITEM SAYS WHY IN ITS OWN LABEL
+           * ## THE BOM GATE WAS REMOVED, AND THAT REVERSES WHAT STOOD HERE
            *
-           * `DropdownItem` has no `title` and no hint slot, so a greyed row
-           * reading “Requirement sheet” teaches nothing — the operator clicks,
-           * nothing happens, and the feature reads as broken. The label carries
-           * the reason instead. Opening it anyway would land on a sheet that
-           * correctly refuses, which is a wasted trip the row can prevent.
+           * Until 2026-09-02 the requirement item DISABLED itself while the
+           * order's Material BOM read `Pending`, and folded the reason into its
+           * own label — `DropdownItem` has no `title` and no hint slot, so a
+           * greyed row saying only “Requirement sheet” teaches nothing. That
+           * reasoning was sound and the client overrode it anyway: “if we click
+           * it, it will open the material bom report here … don't need to go
+           * there”. A report the operator can always open beats one that
+           * silently refuses to be opened, even when the refusal is correct.
            *
-           * The route keys on the SALES ORDER, like `/gos` beside it: the floor
-           * asks for “the sheet for HO/RE/26-27/0009”, and the document resolves
-           * the current BOM itself.
+           * SO THE EXPLANATION MOVED, IT WAS NOT DELETED. Both sheet pages
+           * already answer a missing BOM with a named refusal, and each now
+           * carries a link on to the screen that would create one. Removing the
+           * gate WITHOUT that would have been the trade the old comment warns
+           * about — a click that lands somewhere blank.
+           *
+           * The `!soId` gate STAYS, and is a different kind of thing: there is
+           * no route to push without an order id, so that item is not refusing,
+           * it has nowhere to go. It keeps its self-explaining label.
+           *
+           * The routes key on the SALES ORDER, like `/gos` beside them: the floor
+           * asks for “the sheet for HO/RE/26-27/0009”, and each document resolves
+           * its own current BOM.
            */
           menu={(() => {
-            const pending = (bomStatus[r.id]?.status ?? "pending") === "pending";
             const soId = r.sales_order_id;
             return [
               /* THE ORDER SHEET NEEDS NO GATE HERE. It prints an entered garment
-                 order, and every row on this list IS one — so unlike the
-                 requirement beneath it there is no state in which opening this
-                 lands on a refusal. */
+                 order, and every row on this list IS one — so unlike the two
+                 beneath it there is no state in which opening this lands on a
+                 refusal. */
+              /* ONE `section` ON EACH, so the menu prints a DOCUMENTS heading
+                 above the group (client 2026-09-02: the three read as a bare
+                 list). The ⋮ trigger carries no label of its own — Edit and
+                 Delete are icon buttons beside it, not entries in here — so the
+                 heading is the only thing that says what this menu is FOR.
+                 THE LABELS LOSE THE WORD "report" TO THE HEADING. The menu is
+                 176px wide and "Material BOM report" wraps to two lines in it;
+                 the heading supplies the noun once instead of every row paying
+                 for it. */
               {
+                section: "Documents",
                 label: soId ? "Order sheet" : "Order sheet — no order number yet",
                 icon: FileText,
                 disabled: !soId,
                 onClick: () => router.push(`/orders/${soId}/gos`),
               },
               {
-                label: !soId
-                  ? "Requirement sheet — no order number yet"
-                  : pending
-                    ? "Requirement sheet — no Material BOM yet"
-                    : "Requirement sheet",
+                section: "Documents",
+                label: soId ? "Material BOM" : "Material BOM — no order number yet",
                 icon: ClipboardList,
-                disabled: !soId || pending,
+                disabled: !soId,
                 onClick: () => router.push(`/orders/${soId}/requirement`),
+              },
+              /* THE FABRIC BOM REPORT (client 2026-09-02), step 3's document
+                 beside step 2's. It is NOT gated on the Material BOM pill next
+                 to it and must never be: the two BOMs are separate documents on
+                 separate cycles, and an order can have its cloth planned before
+                 its trims. Reading one status for both is how a screen starts
+                 hiding a document that exists. */
+              {
+                section: "Documents",
+                label: soId ? "Fabric BOM" : "Fabric BOM — no order number yet",
+                icon: Layers,
+                disabled: !soId,
+                onClick: () => router.push(`/orders/${soId}/fabric-requirement`),
               },
             ];
           })()}
@@ -5578,32 +5647,6 @@ export function GarmentOrderScreen({
    * rather than a preference: `garment_style_components` has no such columns.
    * They stay the operator's (client 2026-08-17, same message).
    */
-  /**
-   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
-   *
-   * Client 2026-09-01: "copying from the SQ No should instantly pull the
-   * structure, estimated compositions, and initial parameters into the Confirmed
-   * Order (RE) layout to eliminate repetitive manual data entry", against the
-   * client's own template proposal: "copy the SQ's generic structure rows and
-   * associate them by default with all active combos on the RE … keep these
-   * fields fully editable".
-   *
-   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
-   * screen states four times over. The LIST is a picker's options and may arrive
-   * whenever; the COPY writes into combos, and an effect that wrote would refill
-   * a structure the operator had deliberately cleared, and would fire again the
-   * moment a SAVED order re-opened.
-   */
-  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    loadSqOptions().then((res) => {
-      if (!cancelled && res.ok) setSqOptions(res.rows);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   /**
    * WHICH COMBOS A COPY WOULD REACH — computed from state, never counted inside
