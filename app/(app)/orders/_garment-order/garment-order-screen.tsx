@@ -4266,6 +4266,43 @@ export function GarmentOrderScreen({
     [taLadder],
   );
 
+  /* MOVED ABOVE THE LIST-MODE EARLY RETURN (2026-09-02). It arrived below it
+     with 0511 and broke the Rules of Hooks the moment the screen was opened:
+     `if (mode === "list")` a few lines down is an early return, so these two
+     ran on the editor render and were SKIPPED on the list one — React counts
+     hooks by position, saw 68 then 69, and said so. The note on the T&A block
+     above states this rule and ends "Every other memo on this screen sits above
+     that line for the same reason"; these two were the exception it was warning
+     about.
+     The picker they feed renders in the editor only, so nothing about WHERE the
+     list is used changes — only where it is declared. */
+  /**
+   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
+   *
+   * Client 2026-09-01: "copying from the SQ No should instantly pull the
+   * structure, estimated compositions, and initial parameters into the Confirmed
+   * Order (RE) layout to eliminate repetitive manual data entry", against the
+   * client's own template proposal: "copy the SQ's generic structure rows and
+   * associate them by default with all active combos on the RE … keep these
+   * fields fully editable".
+   *
+   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
+   * screen states four times over. The LIST is a picker's options and may arrive
+   * whenever; the COPY writes into combos, and an effect that wrote would refill
+   * a structure the operator had deliberately cleared, and would fire again the
+   * moment a SAVED order re-opened.
+   */
+  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadSqOptions().then((res) => {
+      if (!cancelled && res.ok) setSqOptions(res.rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
     const columns: Column<GarmentOrderAmendment>[] = [
@@ -5578,32 +5615,6 @@ export function GarmentOrderScreen({
    * rather than a preference: `garment_style_components` has no such columns.
    * They stay the operator's (client 2026-08-17, same message).
    */
-  /**
-   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
-   *
-   * Client 2026-09-01: "copying from the SQ No should instantly pull the
-   * structure, estimated compositions, and initial parameters into the Confirmed
-   * Order (RE) layout to eliminate repetitive manual data entry", against the
-   * client's own template proposal: "copy the SQ's generic structure rows and
-   * associate them by default with all active combos on the RE … keep these
-   * fields fully editable".
-   *
-   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
-   * screen states four times over. The LIST is a picker's options and may arrive
-   * whenever; the COPY writes into combos, and an effect that wrote would refill
-   * a structure the operator had deliberately cleared, and would fire again the
-   * moment a SAVED order re-opened.
-   */
-  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    loadSqOptions().then((res) => {
-      if (!cancelled && res.ok) setSqOptions(res.rows);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   /**
    * WHICH COMBOS A COPY WOULD REACH — computed from state, never counted inside
@@ -17639,7 +17650,7 @@ export function GarmentOrderScreen({
             a column. */}
         <div className="flex items-start gap-x-3">
         <div className="min-w-0 flex-1 space-y-2 @2xl/editor:space-y-1.5">
-          <FieldRow>
+          <FieldGrid>
             {/* AUTO, NOT PICKED (client 2026-08-11).
                 This was a dropdown of orders that already existed — amendment
                 behaviour on the screen an order is ENTERED on. The SC No is now
@@ -17662,7 +17673,7 @@ export function GarmentOrderScreen({
                 in `validity` (see the note on the Unit entry there), which is
                 where the record — rather than any box — is judged. The chain is
                 the same shape it always was, one link longer. */}
-            <Field label="RE No" w="code" htmlFor="hd-scno">
+            <Field label="RE No" size="xs" htmlFor="hd-scno">
               <Input
                 id="hd-scno"
                 readOnly
@@ -17688,7 +17699,7 @@ export function GarmentOrderScreen({
                 has been told off for once already. It appears the day the first
                 SQ exists. */}
             {sqOptions.length > 0 && (
-              <Field label="Copy from SQ No" w="name" htmlFor="hd-sqno">
+              <Field label="Copy from SQ No" size="xs" htmlFor="hd-sqno">
                 <div className="flex items-center gap-2">
                   <RecordPicker
                     id="hd-sqno"
@@ -17784,7 +17795,7 @@ export function GarmentOrderScreen({
               label="Unit"
               required={unitAuto.required && !editId}
               offTabPath={unitAuto.offTabPath}
-              w="num"
+              size="xs"
             >
               <RecordPicker
                 label="Unit"
@@ -17863,7 +17874,7 @@ export function GarmentOrderScreen({
               label="Date"
               required={dateAuto.required}
               offTabPath={dateAuto.offTabPath}
-              w="code"
+              size="xs"
               htmlFor="hd-date"
             >
               {/*
@@ -17925,7 +17936,7 @@ export function GarmentOrderScreen({
                 into one entry (client 2026-08-31) and the row this order already
                 holds always survives the fold. The whole argument, and why the
                 fold cannot live in the service, is on `customerFold` above. */}
-            <Field label="Customer" required w="name">
+            <Field label="Customer" required size="xs">
               <RecordPicker
                 label="Customer"
                 compact
@@ -17998,7 +18009,7 @@ export function GarmentOrderScreen({
               * and the hold — two statements of one fact, and the second one
               * appears only after a blur. `<Field required>` is the declaration.
               */}
-            <Field label="PO No" required w="code" htmlFor="hd-pono">
+            <Field label="PO No" required size="xs" htmlFor="hd-pono">
               <ValidatedInput
                 id="hd-pono"
                 format="doc_ref"
@@ -18052,7 +18063,7 @@ export function GarmentOrderScreen({
               * only option is the held row — so it can never overwrite the
               * ordinary empty box on a working field.
               */}
-            <Field label="Merchand." required w="term">
+            <Field label="Merchand." required size="xs">
               <RecordPicker
                 label="Merchand."
                 compact
@@ -18079,7 +18090,7 @@ export function GarmentOrderScreen({
                 onChange={(id) => set({ merchandiser_id: id })}
               />
             </Field>
-          </FieldRow>
+          </FieldGrid>
 
           {/* LINE 2 — THE ORDER'S TERMS. The break is where it has always been:
               line 1 is who the order is and who it is for, line 2 is what it is
@@ -18113,7 +18124,7 @@ export function GarmentOrderScreen({
               and `container-type: inline-size` applies SIZE CONTAINMENT, so a
               shrink-to-fit flex item wrapping it measures 0 and collapses. A
               field in the row needs none of that. */}
-          <FieldRow>
+          <FieldGrid>
             {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
                 entry run is SCNo → Date → Customer → PO No → Merchandiser →
                 Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
@@ -18130,10 +18141,10 @@ export function GarmentOrderScreen({
                 entry blocks Save; the Zod rule guards the writer. One
                 declaration is not enough on a header field — all three, or the
                 star is decoration. */}
-            <Field label="Deli.Dt" w="code" htmlFor="hd-deli" required>
+            <Field label="Deli.Dt" size="xs" htmlFor="hd-deli" required>
               <Input id="hd-deli" type="date" required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
             </Field>
-            <Field label="Season" w="range" htmlFor="hd-season" required>
+            <Field label="Season" size="xs" htmlFor="hd-season" required>
               <Select id="hd-season" required value={form.season} onChange={(e) => set({ season: e.target.value })}>
                 <option value=""></option>
                 {SEASON_OPTIONS.map((o) => (
@@ -18188,7 +18199,7 @@ export function GarmentOrderScreen({
               * is a live FACET, the second one narrowing the Style picker
               * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
               */}
-            <Field label="Excess %" w="num" htmlFor="hd-excess">
+            <Field label="Excess %" size="xs" htmlFor="hd-excess">
               <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
             </Field>
             {/**
@@ -18249,7 +18260,7 @@ export function GarmentOrderScreen({
 
                 Keys are untouched — it is the same real `<input type="checkbox">`
                 underneath, so Tab, Enter and Space behave as they did. */}
-            <Toggle
+            <Toggle className={FIELD_SPAN.xs}
               id="hd-pack"
               label="Pack"
               checked={form.pack}
@@ -18312,7 +18323,7 @@ export function GarmentOrderScreen({
               * meaning — see the note on the Quantities tab, which is where it
               * lives and what it opens.
               */}
-            <Toggle
+            <Toggle className={FIELD_SPAN.xs}
               id="hd-multord"
               label="Multi Style"
               checked={form.mult_ord}
@@ -18351,7 +18362,7 @@ export function GarmentOrderScreen({
                 placeholder is left as-is deliberately: changing it to something
                 like "Select a rule" would quietly erase the evidence that blank
                 used to mean something. */}
-            <Field label="Rejection Rule" w="name" required>
+            <Field label="Rejection Rule" size="xs" required>
               <RecordPicker
                 label="Rejection Rule"
                 /* `compact` — WITHOUT IT THE LABEL RENDERS TWICE (client 2026-08-12,
@@ -18396,7 +18407,7 @@ export function GarmentOrderScreen({
                 de-clutter rules. That reasoning did not die with the cell: it is
                 what the per-style Files cell is built as, so it lives on the
                 `variant="cell"` control in `file-attachments.tsx`. */}
-          </FieldRow>
+          </FieldGrid>
           {/**
             * THE FOLD SAYS WHAT IT HID (client 2026-08-31, the other half of the
             * Customer dedup ask).

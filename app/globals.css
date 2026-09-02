@@ -1095,9 +1095,31 @@ body {
 
 /* "below the new material one line is there right remove that one" — the rule
    between grid rows. `flushRows` draws it so records stay separable without a
-   card each; with the field boxes now bold it is redundant. */
-[data-skin="raagam"] [data-grid-row] {
-  border-bottom-color: transparent;
+   card each; with the field boxes now bold it is redundant.
+   WIDENED TO THE WHOLE BOX, AND TO `data-row-box` WITH IT (client 2026-09-02:
+   "there is extra overlap boxes everywhere ... just remove the overlay boxes").
+   A `ChildGrid` row that is NOT `flushRows` / `flatRows` draws a frame per
+   record — `rounded-md border p-1.5` on `[data-grid-row]`, `rounded-lg border
+   p-2.5` on `[data-row-box]` — so a field already wearing its own green edge sat
+   inside a second grey one. That is the double frame in the screenshot, and it is
+   the same thing the operator's own rule in AGENTS.md asks for: "ONE frame rather
+   than a box per row, which is why `flatRows` exists".
+   THE INLINE PADDING GOES WITH THE BORDER, for the reason the grid card above
+   records: clearing the border alone leaves every field indented against a line
+   that is no longer drawn. Vertical padding stays — it is the gap BETWEEN
+   records, which is what separates them once the frame is gone. */
+[data-skin="raagam"] [data-grid-row],
+[data-skin="raagam"] [data-row-box],
+/* `MultiSelect framed` draws the SAME `GRID_FRAME`, so it is the same frame and
+   goes the same way (client 2026-09-02: "u removed extra box for co ordinates but
+   why not for sizes"). Its own note says it is framed "to match the Components
+   table across the row" — and that table is unframed now, so keeping this one
+   would make Sizes the odd control out, which is the inverse of what the prop was
+   for. Reached through `data-framed` because the frame sits on the control's own
+   root, which carries none of the grid hooks above. */
+[data-skin="raagam"] [data-framed] {
+  border-color: transparent;
+  padding-inline: 0;
 }
 
 /* A LABEL NEEDS AIR ABOVE ITS BOX (client 2026-08-28: "the heading of the schema
