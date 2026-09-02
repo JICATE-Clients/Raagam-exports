@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { SkinProvider } from "@/components/ui/skin";
+
 /**
  * THE ORDERS MODULE WEARS THE RAAGAM SKIN.
  *
@@ -15,6 +17,16 @@ import type { ReactNode } from "react";
  * chnaged all other things"). That wrapper is now GONE from
  * `mba-master-screen.tsx` — this layout covers it, and two sources for one
  * decision is how they drift.
+ *
+ * ## IT IS A PROVIDER, NOT JUST A WRAPPER
+ *
+ * `SkinProvider` renders the `data-skin` div AND puts the same name on React
+ * context. The attribute is what the descendant rules in globals.css match; the
+ * context is what reaches a `Sheet`, which `createPortal`s to `document.body` and
+ * is therefore OUTSIDE this wrapper in the DOM however deep inside it the sheet
+ * sits in the render tree. Combos ▸ Detail opened exactly that way and came up
+ * unskinned (client 2026-09-02). A portal keeps context, so the sheet re-stamps
+ * the attribute on its own root and lands back inside its screen's skin.
  *
  * ## `display: contents` IS LOAD-BEARING, NOT A TIDINESS
  *
@@ -46,9 +58,5 @@ import type { ReactNode } from "react";
  * one step, because nothing under `app/(app)/orders` refers to the skin by name.
  */
 export default function OrdersSkinLayout({ children }: { children: ReactNode }) {
-  return (
-    <div data-skin="raagam" style={{ display: "contents" }}>
-      {children}
-    </div>
-  );
+  return <SkinProvider skin="raagam">{children}</SkinProvider>;
 }

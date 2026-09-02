@@ -585,7 +585,30 @@ export function MultiSelect({
       : emptyLabel;
 
   return (
-    <div ref={rootRef} className={cn("relative", framed && GRID_FRAME, className)}>
+    <div
+      ref={rootRef}
+      /* A styling hook, same family as `data-field-affordance` below — no
+         behaviour, nothing reads it but a stylesheet. `framed` draws the very
+         same `GRID_FRAME` a `ChildGrid` draws, so a skin that stands those frames
+         down has to be able to reach this one too; without a marker it is the one
+         frame left standing and the control looks doubled. */
+      data-framed={framed ? "" : undefined}
+      className={cn("relative", framed && GRID_FRAME, className)}
+    >
+      {/* `compact` DROPS THE LABEL — AND THE STAR WITH IT, which is a trap worth
+          naming because `required` keeps working in every other respect.
+          `useRequiredHold` above is unconditional, so a compact + required
+          MultiSelect still holds the cursor and still blocks Save; only the `*`
+          disappears, leaving a field that refuses to be left and says nowhere
+          why. Order Entry ▸ Styles ▸ Sizes shipped in exactly that state
+          (client 2026-08-31: "there is no star").
+          IT CANNOT BE FIXED HERE. `compact` MEANS "the caller draws the label",
+          so there is no label of this control's to hang a star on — the same
+          shape as `ChildGrid`'s stacked-cards rule in AGENTS.md, where a
+          per-column `required` cannot reach a row the screen renders itself.
+          SO A COMPACT CALL SITE THAT PASSES `required` MUST ALSO DECLARE IT ON
+          THE `<Field>` DRAWING ITS LABEL. Doubling is safe: the hook ORs the two
+          and the hold does not fire twice. */}
       {!compact && (
         <Label htmlFor={id}>
           {/* required-star: exempt -- this control renders its OWN label, so it

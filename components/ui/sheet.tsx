@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefO
  */
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import { createPortal } from "react-dom";
+import { useSkin } from "@/components/ui/skin";
 import { X } from "lucide-react";
 import { RequiredScope } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
@@ -402,6 +403,11 @@ export function Sheet({
    * halves share a fill and the ground differs.
    */
 }) {
+  /* Read here, at the top with the other hooks, and used on the portal root far
+     below — a portal keeps React context, so this is the skin of the screen that
+     OPENED the sheet, not of `document.body` where it lands. */
+  const skin = useSkin();
+
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
   const [mounted, setMounted] = useState(false);
@@ -647,7 +653,14 @@ export function Sheet({
           check does NOT exclude an opacity-0 element — so every field of every
           closed Sheet stayed in the page's tab order. Tabbing off the last
           control of a page walked into an invisible form. */}
-      <div aria-hidden={!open} inert={!open}>
+      {/* `data-skin` FOLLOWS THE RENDER TREE THROUGH THE PORTAL. This subtree is
+          a child of `document.body`, so the skin's descendant rules — which key
+          off a wrapper far up the page — cannot reach it however deep inside a
+          skinned screen the sheet was opened. `useSkin()` is context, and a
+          portal keeps context, so re-stamping the attribute here puts the
+          dialog back inside its own screen's skin. Undefined when there is no
+          skin, so nothing changes for a screen that wears none. */}
+      <div aria-hidden={!open} inert={!open} data-skin={skin ?? undefined}>
       {/* scrim */}
       <div
         onClick={onClose}
