@@ -585,7 +585,16 @@ export function MultiSelect({
       : emptyLabel;
 
   return (
-    <div ref={rootRef} className={cn("relative", framed && GRID_FRAME, className)}>
+    <div
+      ref={rootRef}
+      /* A styling hook, same family as `data-field-affordance` below — no
+         behaviour, nothing reads it but a stylesheet. `framed` draws the very
+         same `GRID_FRAME` a `ChildGrid` draws, so a skin that stands those frames
+         down has to be able to reach this one too; without a marker it is the one
+         frame left standing and the control looks doubled. */
+      data-framed={framed ? "" : undefined}
+      className={cn("relative", framed && GRID_FRAME, className)}
+    >
       {/* `compact` DROPS THE LABEL — AND THE STAR WITH IT, which is a trap worth
           naming because `required` keeps working in every other respect.
           `useRequiredHold` above is unconditional, so a compact + required
