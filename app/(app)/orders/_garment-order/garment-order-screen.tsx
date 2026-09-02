@@ -124,6 +124,17 @@ import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
 import { capsName } from "@/lib/validation/formats";
 import { Truncated } from "@/components/ui/truncated";
 import { PriceMatrix } from "@/components/orders/price-matrix";
+/* THE SIZE-ACROSS GRIDS SHARE ONE LOOK, DECLARED ONCE. Assort (below) and
+   the Prices rate matrix draw the same frame since 2026-09-02, so the bands
+   and the column rule live in `matrix-grid.ts` rather than being written out
+   twice — two hand-written looks agree on the day they are written. */
+import {
+  MATRIX_FOOT,
+  MATRIX_HEAD,
+  MATRIX_SIZE_TOKEN,
+  matrixCell,
+  sizeColPx,
+} from "@/components/orders/matrix-grid";
 import { adoptedPrice, reshapeRates } from "@/lib/orders/amendments/price-modes";
 import { ApprovalQtyLines } from "@/components/orders/approval-qty-lines";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -255,20 +266,23 @@ import {
   type PackComponentRow,
 } from "@/lib/orders/amendments/pack-composition";
 import {
-  /* `PRICE_TYPE_OPTIONS` WENT THE SAME WAY ON 2026-08-29, and for a reason
-     worth keeping: it was the `else` of `priceModeOptions` — "no pack type, so
-     offer everything" — and the client has replaced that with Style-wise alone
-     (`NO_PACK_PRICE_MODES`). Both branches are now narrow, so the full tuple is
-     no longer a MENU anywhere; it is the vocabulary `price_type` may hold. A
-     file importing it again is a file about to re-open a list the client closed. */
+  /* `PRICE_TYPE_OPTIONS` IS STILL NOT IMPORTED HERE, and the reason survived
+     2026-09-02's widening. The `else` of `priceModeOptions` is `NO_PACK_PRICE_MODES`
+     again — the four per-garment modes, not Style-wise alone — but it is still not
+     the full tuple: the two PACK modes stay off a non-pack order, because a rate
+     per BOX with no declared method has nothing to multiply. So the tuple remains
+     the vocabulary `price_type` may hold rather than a menu, and a file reaching
+     for it here is a file about to offer a box rate on an order with no box. */
   /* `PACK_WISE_PRICE` WENT WITH THE MODE-NAME TESTS (2026-08-28). The grid's
      shape is `priceAxes(mode).size` and its unit is `isPackWise(mode)`, so the
      one literal this file compared against has no reader left — which is the
      point: a third mode arriving needed no edit at either site. */
   PACK_WISE_SIZE_PRICE,
   PACK_BRANCH_PRICE_MODES,
-  /* What the Prices tab offers with NO pack type — Style-wise alone since
-     2026-08-29. The pack branch above is unchanged. */
+  /* What the Prices tab offers with NO pack type — the four per-garment modes
+     (Style-wise, Color-wise, Size-wise, Color-wise Size-wise) since 2026-09-02,
+     when the client reversed 08-29's "Style Price only". The pack branch above
+     is unchanged, and the two pack modes are still excluded here. */
   NO_PACK_PRICE_MODES,
   isPackBranchMode,
   SEASON_OPTIONS,
@@ -7476,15 +7490,22 @@ export function GarmentOrderScreen({
      * 0467 set pack still narrows if that switch is ever flipped back on.
      */
     /**
-     * AND THE OTHER SIDE IS NARROW TOO, SINCE 2026-08-29 (client: "when Pack
-     * Type is No the system completely disables the Pack Wise and Pack Size
-     * grids and locks the grid to standard Style Price only").
+     * AND THE OTHER SIDE OFFERS THE FOUR PER-GARMENT MODES AGAIN (client
+     * 2026-09-02, reversing the second half of 08-29).
      *
-     * This fell through to the whole six-mode tuple, so an order with no pack
-     * type could be priced Color-wise or Size-wise. It now offers Style-wise
-     * alone. THE PACK BRANCH IS UNCHANGED â€” 08-28's three modes stand exactly as
-     * they were; this is the `else`, and confusing the two would make Pack-wise
-     * pricing unreachable on the only orders it exists for.
+     * 08-29 read "when Pack Type is No the system completely disables the Pack
+     * Wise and Pack Size grids and locks the grid to standard Style Price only",
+     * and both halves were built. The client has kept the first and dropped the
+     * second: the pack grids stay unreachable without a pack type, and
+     * Color-wise / Size-wise / Color-wise Size-wise come back beside Style-wise.
+     * It was reported as the dropdown having lost its other entries, which is
+     * what a one-item `<Select>` is from the operator's side.
+     *
+     * THE PACK BRANCH IS UNCHANGED - 08-28's three modes stand exactly as they
+     * were; this is the `else`, and confusing the two would make Pack-wise
+     * pricing unreachable on the only orders it exists for. What both branches
+     * still agree on is that the two PACK modes need a declared method. That is
+     * the GATE, and 09-02 widened the narrowing, not the gate.
      */
     const live: readonly string[] = packPricingActive
       ? PACK_BRANCH_PRICE_MODES
@@ -12214,13 +12235,10 @@ export function GarmentOrderScreen({
    * 26px of chrome, not 18.4: that figure was calibrated when the cell was a
    * bare figure. An `<Input>` is a different container and needs its own.
    */
-  const sizeColPx = (label: string, digits: number) =>
-    Math.round(
-      Math.max(
-        Math.min(6, Math.max(2, label.length)),
-        Math.min(7, Math.max(2, digits)),
-      ) * 7.8 + 26,
-    );
+  /* `sizeColPx` MOVED TO `components/orders/matrix-grid.ts` on 2026-09-02, so
+     the Prices matrix sizes its columns by the same rule this one does. The
+     reasoning above is that module's now; it is repeated there rather than
+     summarised, because the rule is the comment. */
 
   /** Identity (ref + combo, with the style name under them) and the row total. */
   const ASSORT_ID_W = 340;
@@ -12335,16 +12353,14 @@ export function GarmentOrderScreen({
     ].join(" ");
 
     /* One shared class per band, so a cell added to the header and forgotten in
-       the body cannot drift: both read the same string. */
-    const HEAD =
-      "sticky top-0 z-20 flex min-h-8 items-center justify-center border-b " +
-      "border-border-strong bg-surface-muted px-1 text-[10.5px] font-semibold " +
-      "uppercase tracking-wide text-muted-foreground";
-    const CELL =
-      "flex min-h-9 items-center justify-center border-b border-border px-0.5";
-    const FOOT =
-      "sticky bottom-0 z-20 flex min-h-9 items-center justify-center border-t " +
-      "border-border-strong bg-surface-muted px-1 text-xs font-bold tabular-nums";
+       the body cannot drift: both read the same string. SHARED WITH THE PRICES
+       MATRIX since 2026-09-02 (`components/orders/matrix-grid.ts`) — the two
+       tabs draw one frame, and a second copy of these strings is how they would
+       stop. `min-h-9` is passed rather than baked in because the rate grid runs
+       at 26px, a compaction the client bought separately. */
+    const HEAD = MATRIX_HEAD;
+    const CELL = matrixCell("min-h-9");
+    const FOOT = MATRIX_FOOT;
 
     /* PIECES ONLY (0473) — the boxes row shares this column and its figure is
        a different unit. Summed in, a size ordering 100 boxes of a 4-piece pack
@@ -12376,7 +12392,7 @@ export function GarmentOrderScreen({
                  The size the operator ticked over there is visibly the size they
                  are filling in here. */
               <div key={z.size_id} className={HEAD}>
-                <span className="rounded border border-border bg-surface px-1.5 py-px font-mono text-[13px] font-medium normal-case tracking-normal tabular-nums text-foreground">
+                <span className={MATRIX_SIZE_TOKEN}>
                   {sizeLabel(z.size_id) || "-"}
                 </span>
               </div>
@@ -15929,6 +15945,9 @@ export function GarmentOrderScreen({
    * reason the prop's own note gives — the flag has to sit on the same object as
    * the fieldless content, or the two eventually disagree.
    */
+  /* `disabled` is `TabItem`'s own and is NOT restated here — it type-checked
+     all along, which is exactly why the rail never receiving it was invisible.
+     See the spread in `sections` below. */
   type OrderTab = TabItem & { skipTab?: boolean; wide?: boolean };
   const tabs: OrderTab[] = [
     /**
@@ -16886,7 +16905,15 @@ export function GarmentOrderScreen({
                   <span className="text-sm font-medium text-foreground">
                     {st.style_ref_no}
                   </span>
-                  {st.style && (
+                  {/* ONLY WHEN IT SAYS SOMETHING THE REF DOES NOT. "THE REF IS
+                      THE NAME NOW" (2026-08-25) — `pickStyle` writes the ref
+                      into `style` — so on every order entered since, this
+                      printed the same string twice: "MENS T SHIRT/0034 MENS T
+                      SHIRT/0034" (client 2026-09-02, screenshot 2642). Kept
+                      rather than deleted because a document SAVED before that
+                      date can still carry a real, different style name, and
+                      dropping the span would hide it. */}
+                  {st.style && st.style.trim() !== st.style_ref_no.trim() && (
                     <span className="text-sm text-muted-foreground">{st.style}</span>
                   )}
                   {st.article_no && (
@@ -18571,23 +18598,38 @@ export function GarmentOrderScreen({
      */
     ...tabs
       .filter((t) => t.key !== "reason" || amending)
+      /**
+       * SPREAD, NEVER A WHITELIST — THIS MAP SILENTLY ATE `disabled` FOR TWO
+       * DAYS (client 2026-09-02: "i told you know if the pack type is no
+       * disable the tab do it").
+       *
+       * It listed the seven keys it forwarded, so a flag a tab declared and
+       * this line did not name was DROPPED ON THE WAY TO THE RAIL. Pack type(s)
+       * has set `disabled: true` in its Pack-off branch since 2026-08-31 and
+       * the section stayed fully clickable, because only `skipTab` was on the
+       * list — half of one ruling arriving and half not.
+       *
+       * NOTHING COULD CATCH IT. `disabled` is a real optional field of
+       * `TabItem`, so the declaration type-checks; the map's result is a
+       * different object, so the omission type-checks too; and the two halves
+       * disagree only at RUNTIME, on an order with Pack switched off. This is
+       * the shape [[raagam-stated-vs-enforced]] names — a rule written down in
+       * one place with nothing carrying it to the place that enforces it — and
+       * the whitelist is what made it possible.
+       *
+       * So the spread is the fix rather than an eighth line: the NEXT flag a
+       * section declares arrives without anyone remembering this map exists.
+       * The three keys below are overrides and must stay after it — they are
+       * derived per key and outrank whatever a tab happens to carry.
+       */
       .map((t) => ({
-        key: t.key,
-        label: t.label,
+        ...t,
         icon: SECTION_ICONS[t.key] ?? FileText,
         done: sectionDone[t.key],
         // Only `logistic` can carry one today; the lookup is keyed rather than
         // hard-coded so a field declared against another tab tomorrow shows up
         // on the rail without this line being remembered.
         problems: validity.bySection[t.key],
-        // Forwarded, never re-derived — see `OrderTab`.
-        skipTab: t.skipTab,
-        /* Style(s) is the only section that sets it today. Forwarded by key
-           rather than hard-coded here for the reason `problems` above is: a
-           second section that needs the wider pane declares it on itself and
-           appears correctly without this line being remembered. */
-        wide: t.wide,
-        content: t.content,
       })),
   ];
 

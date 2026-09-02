@@ -868,6 +868,20 @@ body {
   background: #ffffff;
   color: #075985;
 }
+/* A SWITCHED-OFF SECTION MUST NOT LIGHT UP UNDER THE POINTER. `MasterFullScreen`
+   already writes `opacity-45 hover:bg-transparent hover:text-muted-foreground`
+   on a disabled rail row, and the rule directly above OUT-SPECIFIES the two
+   hover utilities — `[data-skin][role="tab"]:hover` is (0,3,0) against
+   Tailwind's (0,2,0) — so a row that cannot be clicked still turned white with
+   blue text under the cursor, which is the one thing a disabled control must
+   never do. It went unnoticed while the flag was not reaching the rail at all
+   (see the `sections` spread in garment-order-screen.tsx); Pack type(s) with
+   Pack off is the first row in the app to actually be disabled. */
+[data-skin="raagam"] [role="tab"]:disabled,
+[data-skin="raagam"] [role="tab"]:disabled:hover {
+  background: transparent;
+  color: var(--muted-foreground);
+}
 /* PRE-MIXED LITERALS, NOT color-mix(), and this is the second time this file
    has had to say so — see `--cell-active` in the light block above. Lightning
    CSS cannot fold a mix whose argument is itself a `var()`, so it emits the
