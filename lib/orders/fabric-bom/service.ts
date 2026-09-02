@@ -200,7 +200,7 @@ export async function getOrderFabricSeed(
       "style_ref_no, style, article_no, combo, " +
         "structures:garment_order_amendment_combo_structures(" +
         "structure_id, fabric_type, item_sub_type, gsm, gsm_tolerance, " +
-        "components:garment_order_amendment_combo_components(coordinate_id, component_id, color_name))",
+        "components:garment_order_amendment_combo_components(coordinate_id, component_id, color_name, print_id))",
     )
     .eq("amendment_id", garmentOrderId)
     .order("sno");
@@ -222,6 +222,7 @@ export async function getOrderFabricSeed(
                 coordinate_id: string | null;
                 component_id: string | null;
                 color_name: string | null;
+                print_id: string | null;
               }[]
             | null;
         }[]
@@ -232,18 +233,24 @@ export async function getOrderFabricSeed(
 
   const structureIds = new Set<string>();
   const componentIds = new Set<string>();
+  const printIds = new Set<string>();
   for (const c of rows) {
     for (const st of c.structures ?? []) {
       if (st.structure_id) structureIds.add(st.structure_id);
       for (const cp of st.components ?? []) {
         if (cp.component_id) componentIds.add(cp.component_id);
+        if (cp.print_id) printIds.add(cp.print_id);
       }
     }
   }
 
-  const [structureNames, componentNames] = await Promise.all([
+  const [structureNames, componentNames, printNames] = await Promise.all([
     nameMap("categories", [...structureIds]),
     nameMap("components", [...componentIds], "short_name"),
+    /* THE ROLL FORM PRINT, resolved beside the other two (client 2026-09-02).
+       Only the ids that actually appear, never the whole lookup table — the same
+       call `getStructureRows` makes for the knit family. */
+    nameMap("config_lookups", [...printIds]),
   ]);
 
   const out: OrderFabricSeedRow[] = [];
@@ -257,7 +264,7 @@ export async function getOrderFabricSeed(
       const leaves =
         parts.length > 0
           ? parts
-          : [{ coordinate_id: null, component_id: null, color_name: null }];
+          : [{ coordinate_id: null, component_id: null, color_name: null, print_id: null }];
       for (const cp of leaves) {
         out.push({
           style_ref_no: c.style_ref_no,
@@ -290,6 +297,7 @@ export async function getOrderFabricSeed(
           coordinate_id: cp.coordinate_id,
           component_id: cp.component_id,
           component_name: cp.component_id ? (componentNames.get(cp.component_id) ?? null) : null,
+          print_name: cp.print_id ? (printNames.get(cp.print_id) ?? null) : null,
           fabric_type: st.fabric_type,
           // The COMPONENT's fabric colour where it has one, falling back to the
           // colourway's own name. A component colour is a contrast panel; with
@@ -340,7 +348,22 @@ async function nameMap(
 // Option lists
 // ---------------------------------------------------------------------------
 
-export type PickerRow = { id: string; code: string | null; name: string; inactive: boolean };
+export type PickerRow = {
+  id: string;
+  code: string | null;
+  name: string;
+  inactive: boolean;
+  /**
+   * A STRUCTURE'S KNIT FAMILY — "Circular Knit" — and null on every other kind of
+   * picker row (2026-09-02).
+   *
+   * OPTIONAL RATHER THAN A SECOND ROW TYPE, because `PickerRow` is what four
+   * lists on this screen already are and splitting it would mean a cast at every
+   * call site that does not care. Only `getStructureRows` sets it; Components
+   * prints it as legacy's `Structure Type`.
+   */
+  knit?: string | null;
+};
 export type UomRow = PickerRow & { decimal_places_allowed: number | null };
 
 /** The garment orders a BOM may be raised against — the same confirmed set the
@@ -481,7 +504,9 @@ async function getFabricRows(): Promise<FabricOption[]> {
            consumption figure is in has no cell of its own any more and is
            auto-filled from the fabric master when a fabric is picked. Safe
            because it is SET: all 14 live fabrics carry one (2026-09-02). */
-        "id, code, name, is_active, item_class_id, base_uom_id, " +
+        /* `category_id` IS THE STRUCTURE, and it is what scopes the Fabric cell
+           to the row's Structure (client 2026-09-02). See `FabricOption`. */
+        "id, code, name, is_active, item_class_id, category_id, base_uom_id, " +
           "fabric_type:config_lookups!fabric_type_id(name)",
       )
       .order("name"),
@@ -514,6 +539,7 @@ async function getFabricRows(): Promise<FabricOption[]> {
     name: string;
     is_active: boolean;
     item_class_id: string | null;
+    category_id: string | null;
     base_uom_id: string | null;
     fabric_type: { name: string | null } | { name: string | null }[] | null;
   }[])
@@ -523,6 +549,7 @@ async function getFabricRows(): Promise<FabricOption[]> {
       code: r.code,
       name: r.name,
       class_code: FABRIC_CLASS_CODE,
+      category_id: r.category_id,
       base_uom_id: r.base_uom_id,
       fabric_type: embeddedName(r.fabric_type),
       inactive: isInactive(r),
@@ -530,22 +557,62 @@ async function getFabricRows(): Promise<FabricOption[]> {
 }
 
 /** Fabric structures — `categories` of the FABRIC item class, which is where
- *  0409 moved the ORDER's own structure column, so the two lists agree. */
+ *  0409 moved the ORDER's own structure column, so the two lists agree.
+ *
+ *  ## IT NOW CARRIES THE KNIT FAMILY TOO (client 2026-09-02)
+ *
+ *  Components prints legacy's `Structure Type` — "Circular" — beside the
+ *  structure, and `categories.fabric_structure_id` is where that lives: a
+ *  `config_lookups` row whose codes are `circular` / `flat_knit` / `woven`, the
+ *  same vocabulary `isCircularKnit` reads and the same one Combos ▸ [Detail]
+ *  derives its family chip from. All three structures in use resolve to Circular
+ *  Knit, which is exactly what the legacy screen prints.
+ *
+ *  IT IS A PROPERTY OF THE STRUCTURE, NOT OF THE ORDER, and that is why it rides
+ *  here rather than on the seed. This column was reported ABSENT once — the
+ *  search stopped at `order_fabric_bom_dias.knit_type` (a property of a DIA) and
+ *  at `combo_structures.fabric_type`, which is NULL on all 33 live rows. Neither
+ *  is it. Look on the master before concluding a value has no source. */
 async function getStructureRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const [catRes, classes] = await Promise.all([
-    // `short_name`, not `code` — `categories` carries short_name + name (0228).
-    s.from("categories").select("id, short_name, name, inactive, item_class_id").order("name"),
+    /* NO EMBED FOR THE KNIT FAMILY, and both attempts are worth recording so
+       the next reader does not repeat them. `config_lookups!fabric_structure_id(name)`
+       and the constraint-named form BOTH typed as `GenericStringError[]` —
+       Supabase's way of saying the select string did not parse against the
+       generated types, which is a runtime failure and not merely a typing one.
+       The cast then reports it three lines down as a mismatch on `catRes.data`,
+       which reads like a cast problem and is not.
+
+       So the lookup is a second query, joined here — the same shape
+       `getRequirementSheet` uses for its name maps, on a list fetched once per
+       screen. */
+    s
+      .from("categories")
+      .select("id, short_name, name, inactive, item_class_id, fabric_structure_id")
+      .order("name"),
     itemClassCodes(),
   ]);
 
-  return ((catRes.data ?? []) as {
+  const cats = (catRes.data ?? []) as {
     id: string;
     short_name: string | null;
     name: string | null;
     inactive: boolean;
     item_class_id: string | null;
-  }[])
+    fabric_structure_id: string | null;
+  }[];
+
+  /* ONLY THE IDS THAT ACTUALLY APPEAR, never the whole lookup table. */
+  const knitIds = [...new Set(cats.map((r) => r.fabric_structure_id).filter(Boolean))] as string[];
+  const knitRes = knitIds.length
+    ? await s.from("config_lookups").select("id, name").in("id", knitIds)
+    : { data: [] as { id: string; name: string | null }[] };
+  const knitById = new Map(
+    ((knitRes.data ?? []) as { id: string; name: string | null }[]).map((r) => [r.id, r.name]),
+  );
+
+  return cats
     .filter((r) => isFabricClassId(classes, r.item_class_id))
     // `name` is NULLABLE on this table, so a category saved with only a short
     // name would otherwise render as a blank option the operator cannot tell
@@ -555,6 +622,10 @@ async function getStructureRows(): Promise<PickerRow[]> {
       code: r.short_name,
       name: r.name ?? r.short_name ?? "(unnamed)",
       inactive: isInactive(r),
+      /* THE KNIT FAMILY, on the picker row rather than in a second map. It rides
+         with the structure everywhere the structure goes, so a screen that has
+         the row already has the answer — see `PickerRow.knit`. */
+      knit: r.fabric_structure_id ? (knitById.get(r.fabric_structure_id) ?? null) : null,
     }));
 }
 
@@ -733,6 +804,71 @@ async function getCoordinateRows(): Promise<PickerRow[]> {
  * COLOURWAY and divides the weight rather than describing how a loss is
  * measured. A list nothing renders is a list that rots, so it is not fetched.
  */
+/**
+ * WHAT "+ Add" ON THE FABRIC CELL NEEDS (client 2026-09-02, "with the crud
+ * action") — the three lists `FabricQuickCreateSheet` cannot compose a savable
+ * fabric without.
+ *
+ * ONE FUNCTION, ONE ROUND OF QUERIES, because all three are the same feature and
+ * a partial answer is a sheet that opens and cannot save. `createMaterial`
+ * demands `item_class_id` + `fabric_type_id` + `category_id` + `base_uom_id`
+ * and then a yarn composition on top, so a missing class id or an empty yarn
+ * list is not a degraded Add — it is an Add that can only ever produce an error.
+ * The uoms it also needs are already on `FabricBomFormData`.
+ *
+ * `fabricClassId` IS NULL-ABLE ON PURPOSE. It is a `config_lookups` row and this
+ * function does not create it; the screen hides the Add affordance rather than
+ * offering one whose Save the server will refuse for a field the sheet cannot
+ * show.
+ */
+export type FabricCreateFeed = {
+  /** config_lookups id of item class FABRIC. Null if the class row is missing. */
+  fabricClassId: string | null;
+  /** config_lookups kind `fabric_type` — Solid · Melange · Yarn Dyed. */
+  fabricTypes: ConfigLookup[];
+  /** The YARN master, whole, for the composition grid. `inactive` carried and
+   *  never filtered — the picker greys a disabled yarn rather than hiding a row
+   *  an existing composition may already name (AGENTS.md, Disabled rows). */
+  yarns: PickerRow[];
+};
+
+async function getFabricCreateFeed(): Promise<FabricCreateFeed> {
+  const s = await createClient();
+  const [classRes, typeRes, yarnRes] = await Promise.all([
+    s.from("config_lookups").select("id, code").eq("kind", "item_class"),
+    s
+      .from("config_lookups")
+      .select("id, kind, code, name, notes, is_active")
+      .eq("kind", "fabric_type")
+      .order("name"),
+    s.from("items").select("id, code, name, is_active, item_class_id").order("name"),
+  ]);
+
+  const classes = new Map(
+    ((classRes.data ?? []) as { id: string; code: string | null }[]).map((c) => [c.id, c.code]),
+  );
+  const yarnClassId =
+    [...classes.entries()].find(([, code]) => (code ?? "").toUpperCase() === "YARN")?.[0] ?? null;
+  const fabricClassId =
+    [...classes.entries()].find(
+      ([, code]) => (code ?? "").toUpperCase() === FABRIC_CLASS_CODE,
+    )?.[0] ?? null;
+
+  return {
+    fabricClassId,
+    fabricTypes: (typeRes.data ?? []) as unknown as ConfigLookup[],
+    yarns: ((yarnRes.data ?? []) as {
+      id: string;
+      code: string | null;
+      name: string;
+      is_active: boolean;
+      item_class_id: string | null;
+    }[])
+      .filter((r) => !!yarnClassId && r.item_class_id === yarnClassId)
+      .map((r) => ({ id: r.id, code: r.code, name: r.name, inactive: isInactive(r) })),
+  };
+}
+
 async function getYarnStageRows(): Promise<ConfigLookup[]> {
   const s = await createClient();
   const { data } = await s
@@ -762,6 +898,8 @@ export type FabricBomFormData = {
   /** The Stage ▾ — GREY / DYED (0504). Its own kind, not 0492's `fabric_stage`;
    *  see that migration on why one shared list would offer WASH on a yarn. */
   yarnStages: ConfigLookup[];
+  /** What the Fabric cell's "+ Add" needs — see `FabricCreateFeed`. */
+  fabricCreate: FabricCreateFeed;
 };
 
 export async function getFabricBomFormData(): Promise<FabricBomFormData> {
@@ -776,6 +914,7 @@ export async function getFabricBomFormData(): Promise<FabricBomFormData> {
     processLookups,
     yarnProcesses,
     yarnStages,
+    fabricCreate,
   ] = await Promise.all([
     getOrderOptions(),
     getFabricRows(),
@@ -787,6 +926,7 @@ export async function getFabricBomFormData(): Promise<FabricBomFormData> {
     getFabricProcessLookupRows(),
     getYarnProcessRows(),
     getYarnStageRows(),
+    getFabricCreateFeed(),
   ]);
   return {
     orders,
@@ -799,6 +939,7 @@ export async function getFabricBomFormData(): Promise<FabricBomFormData> {
     processLookups,
     yarnProcesses,
     yarnStages,
+    fabricCreate,
   };
 }
 

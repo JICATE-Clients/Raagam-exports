@@ -504,7 +504,12 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
     if (!dupCode.ok) return fail(dupCode.error);
   }
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
-    return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
+    /* THE MESSAGE NO LONGER LISTS THE VALUES, deliberately. It read "(Solid,
+       Yarn-dyed or Melange)" and 0515 added Printed on the client's word — an
+       error naming three of four options is the prose-versus-registry drift
+       AGENTS.md records for menu paths, arriving in a refusal the operator is
+       meant to act on. The picker beside the field is the list. */
+    return fail("Fabric Type is required — it determines the dyeing PO type.");
   }
   // Mixing composition — Fabric's rule and Yarn's, from one function so they
   // cannot drift. The yarn-type name is only looked up for a Yarn; `made` came
@@ -610,7 +615,12 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
     if (!dupCode.ok) return fail(dupCode.error);
   }
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
-    return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
+    /* THE MESSAGE NO LONGER LISTS THE VALUES, deliberately. It read "(Solid,
+       Yarn-dyed or Melange)" and 0515 added Printed on the client's word — an
+       error naming three of four options is the prose-versus-registry drift
+       AGENTS.md records for menu paths, arriving in a refusal the operator is
+       meant to act on. The picker beside the field is the list. */
+    return fail("Fabric Type is required — it determines the dyeing PO type.");
   }
   // Mixing composition — Fabric's rule and Yarn's, from one function so they
   // cannot drift. The yarn-type name is only looked up for a Yarn; `made` came

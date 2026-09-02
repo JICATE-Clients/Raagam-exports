@@ -58,6 +58,23 @@ export type FabricOption = {
   /** The item CLASS code — `FABRIC`. Null when the item declares none. */
   class_code: string | null;
   /**
+   * THE STRUCTURE THIS CLOTH IS, as `items.category_id` (client 2026-09-02: "the
+   * first structure field based fabric only need to list in that fabric field").
+   *
+   * A fabric BOM line names a Structure and then a Fabric, and the two are the
+   * same fact at two grains: a Structure on this screen IS a fabric CATEGORY
+   * (0405 · 0415), and every one of the 14 live fabrics carries the category its
+   * name is built from — `SOLID 1X1 LYCRA RIB (…)` is filed under `1X1 LYCRA
+   * RIB`. So the Fabric list narrows to `category_id === line.structure_id`.
+   *
+   * CARRIED, NOT FILTERED IN SQL — the same call the `inactive` flag above
+   * makes, and the same reason. The narrowing is per ROW (a BOM has one line per
+   * structure), so it cannot be a query; and a fabric whose category is later
+   * changed must still resolve on the line already holding it, or a filled cell
+   * renders empty and the next save writes that emptiness over a real FK.
+   */
+  category_id: string | null;
+  /**
    * Solid / Melange — `items.fabric_type_id` resolved to its label (0279's
    * `config_lookups` kind `fabric_type`).
    *

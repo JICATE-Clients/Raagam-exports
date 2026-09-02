@@ -65,6 +65,7 @@ import {
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Uom } from "@/lib/masters/types";
 import { mixingParens } from "@/lib/masters/mixing-name";
+import { composeFabricName, isYarnDyedFabricType } from "@/lib/masters/fabric-name";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type MixRow = {
@@ -794,9 +795,12 @@ export function MaterialMasterScreen({
   const mixPctSum = mixings.reduce((sum, m) => sum + (numOrNull(m.blend_pct) ?? 0), 0);
   // Yarn-dyed fabric: the yarns are already dyed before knitting/weaving, so the
   // Attributes grid only lists WHICH yarns go in — a Mixing % doesn't apply.
-  // Matched by label so "Yarn Dyed" / "Yarn-dyed" lookup spellings all work.
-  const fabricTypeName = (fabricTypeLabel.get(form.fabric_type_id) ?? "").toLowerCase();
-  const isYarnDyedFabric = formKey === "FABRIC" && fabricTypeName.includes("yarn") && fabricTypeName.includes("dyed");
+  // Matched by label so "Yarn Dyed" / "Yarn-dyed" lookup spellings all work —
+  // now through `isYarnDyedFabricType`, shared with the Fabric BOM's Save gate
+  // and quick-create sheet, so one cloth cannot be yarn dyed on one surface and
+  // not on the other.
+  const isYarnDyedFabric =
+    formKey === "FABRIC" && isYarnDyedFabricType(fabricTypeLabel.get(form.fabric_type_id));
   // Single Yarn fabric (client 2026-07-23 #9): exactly one component, implicitly
   // 100% — no Mixing % column and no second row. If the user flips Using to
   // Single Yarn while multiple filled rows exist, the rows are kept (no silent
@@ -1377,10 +1381,12 @@ export function MaterialMasterScreen({
         // trailed, " / " instead of ", ", and the raw input string reached the
         // name so a typed "050" showed as "050%".
         //
-        // `mixingParens` is shared with the Fabric branch below, which had the
-        // legacy shape from the start (2026-07-23) — the two were composing the
-        // same idea two different ways in one file, which is how this drifted
-        // unnoticed. One helper, so they cannot disagree again.
+        // `mixingParens` is shared with the Fabric branch below — which is now
+        // `composeFabricName`, and reaches the same helper through it. That
+        // branch had the legacy shape from the start (2026-07-23) while this one
+        // did not: the two were composing the same idea two different ways in
+        // one file, which is how it drifted unnoticed. One helper, so they
+        // cannot disagree again.
         //
         // Deliberately NOT copied from legacy: the component keeps its FULL
         // name. Legacy prints the short fibre ("COTTON") and can, because its
@@ -1393,37 +1399,22 @@ export function MaterialMasterScreen({
       return parts.join(" ").toUpperCase() || null;
     }
     if (formKey === "FABRIC") {
-      // Client format (2026-07-23 #10/#12): FABRICTYPE STRUCTURE (COMPONENTS) 100%
-      // e.g. "SOLID SINGLE JERSEY (24'S COMBED COTTON 95%, 20'S ELASTANE 5%) 100%".
-      // FABRICTYPE = Solid/Yarn Dyed/Melange; STRUCTURE = the picked Structure
-      // (category) NAME — not the Circular/Flat/Woven lookup. Only completed
-      // mixing rows join the parens (no "?" placeholders): Single Yarn shows
-      // one label with no %, Yarn Dyed lists labels only, otherwise each
-      // component carries its %. No components yet → just "FABRICTYPE STRUCTURE"
-      // (no empty parens, no dangling 100%).
-      const head = [
-        form.fabric_type_id ? fabricTypeLabel.get(form.fabric_type_id) : null,
-        selectedCategory?.name ?? null,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      const filled = mixings
-        .map((m) => ({
+      // THE RULE ITSELF NOW LIVES IN `lib/masters/fabric-name.ts`, because this
+      // screen is no longer the only place a fabric is created — the Fabric
+      // BOM's Fabric picker creates one too, and a cloth born there has to be
+      // named by this exact rule or the two surfaces file it under two names.
+      // What stays here is only the RESOLUTION of the parts (a lookup id to its
+      // label, a component id to its yarn name), which is this screen's own.
+      return composeFabricName({
+        fabricType: form.fabric_type_id ? fabricTypeLabel.get(form.fabric_type_id) ?? null : null,
+        structure: selectedCategory?.name ?? null,
+        parts: mixings.map((m) => ({
           pct: m.blend_pct,
           label: m.component_item_id ? yarnItemName.get(m.component_item_id) ?? "" : m.description.trim(),
-        }))
-        .filter((m) => m.label && (isYarnDyedFabric || isSingleYarnFabric || m.pct));
-      if (filled.length) {
-        // Single Yarn is one label and no share; Yarn Dyed lists labels only.
-        // Everything else is the same parenthetical the Yarn branch builds.
-        const comps = isSingleYarnFabric
-          ? `(${filled[0].label})`
-          : isYarnDyedFabric
-            ? `(${filled.map((m) => m.label).join(", ")})`
-            : mixingParens(filled);
-        return `${head}${head ? " " : ""}${comps} 100%`.toUpperCase();
-      }
-      return head.toUpperCase() || null;
+        })),
+        yarnDyed: isYarnDyedFabric,
+        singleYarn: isSingleYarnFabric,
+      });
     }
     // General (client 2026-07-28): CATEGORY / SUB CATEGORY / ITEM TYPE / ITEM
     // NAME — e.g. "ELECTRICAL / LIGHTS / BULB / 9W LED". Same shape as the

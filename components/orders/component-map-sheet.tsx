@@ -152,7 +152,19 @@ export type MapLine = {
   specification: string;
 };
 
-export type PickerRow = { id: string; code: string | null; name: string; inactive?: boolean };
+export type PickerRow = {
+  id: string;
+  code: string | null;
+  name: string;
+  /**
+   * NULLABLE, because the masters are. `FabricOption.inactive` is
+   * `boolean | null | undefined` — a `boolean` here forced a coercion at the call
+   * site, and coercing a flag is how a row's real state stops being the one the
+   * picker reads. `RecordPicker` takes `Deactivatable`, which already understands
+   * all three spellings the schema uses (AGENTS.md, "Disabled rows").
+   */
+  inactive?: boolean | null;
+};
 
 /**
  * What a line's cloth is CALLED — resolved by the screen, never here.
@@ -166,6 +178,10 @@ export type PickerRow = { id: string; code: string | null; name: string; inactiv
  */
 export type LineFacts = {
   structure: string;
+  /** Legacy's `Structure Type` — "Circular Knit". A property of the STRUCTURE
+   *  master (`categories.fabric_structure_id`), which is also where Order Entry
+   *  ▸ Combos ▸ [Detail] derives its knit family from, so the two agree. */
+  structureType: string;
   /** Solid · Melange · Yarn Dyed — the ORDER's `item_sub_type`, not the fabric
    *  master's `fabric_type`. Those are two columns and one of them was printed
    *  under the other's header once already (screenshot 2581). */
@@ -262,6 +278,14 @@ export function ComponentMapBody({
   styleIdentity,
   /** What a line's cloth is called. Resolved by the screen — see `LineFacts`. */
   factsFor,
+  /** The cloths this BOM plans — see the prop's type for why it is not the
+   *  master. */
+  fabricOptions,
+  /** One fabric's Solid / Melange / Yarn Dyed, from the MASTER. See the type. */
+  fabricTypeOfId,
+  fabricStructureOfId,
+  fabricTypeOptions,
+  onAddFabric,
   /** Every line of the BOM, so rule 3 can see panels taken on OTHER fabrics. */
   allLines,
   onPatchPanel,
@@ -280,6 +304,93 @@ export function ComponentMapBody({
   styleRefNo: string;
   styleIdentity: { ref: string; style: string; article: string } | null;
   factsFor: (line: MapLine) => LineFacts;
+  /**
+   * THE FABRIC PICKER'S OPTIONS — THE FABRIC MASTER, narrowed per row by
+   * `fabricStructureOfId` below (client 2026-09-02, said three times, last as
+   * "Structure — that structure based on fabrics will list fabric field").
+   *
+   * ## IT WAS THIS BOM'S OWN FABRIC LINES, AND THAT IS REVERSED
+   *
+   * The earlier instruction was "Fabric from previous tab fabric line", and the
+   * reasoning held while Components mapped panels onto lines a planner had
+   * already created on Fabric Lines: a panel naming cloth with no fabric line
+   * behind it would carry no consumption, no route and no requirement.
+   *
+   * Since the order SEEDS the lines, Components rows ARE fabric lines. There is
+   * no earlier tab that has named a cloth first, so the derived list was empty on
+   * every seeded BOM and this picker offered nothing (screenshot 2643) — and it
+   * was self-referential besides: the only way a cloth entered that list was
+   * being picked, and the only control that picked it was fed by that list.
+   *
+   * The old rule is not lost, it is satisfied differently. Picking here IS
+   * naming the cloth on this line, and the line is a fabric line — so a panel
+   * still cannot point at cloth the BOM does not plan.
+   *
+   * A HELD FABRIC THE MASTER NO LONGER LISTS IS STILL OFFERED, tagged inactive:
+   * the same "Disabled rows" rule the Component picker beside it follows, or a
+   * fabric deleted from the master would render a filled cell empty and blank
+   * the FK on the next save.
+   */
+  fabricOptions: readonly PickerRow[];
+  /**
+   * "+ Add" on a Fabric cell, handed the row's STRUCTURE and the picker's own
+   * `commit`. Optional: with no permission to create, or no FABRIC item class to
+   * create under, there is no Add affordance at all rather than one whose Save
+   * the server will refuse.
+   *
+   * The screen owns the sheet, not this file — it is mounted at the editor root
+   * so `ChildGrid`'s `RequiredScope` cannot leak "required" into every optional
+   * field inside it (the New Yarn / Purity defect, 2026-08-06).
+   */
+  onAddFabric?: (structureId: string, commit: (id: string) => void) => void;
+  /**
+   * A FABRIC'S STRUCTURE — `items.category_id`, which is what a Structure IS on
+   * this screen (0405 · 0415) — so a panel offers only cloth of its own
+   * structure (client 2026-09-02, "the first structure field based fabric only
+   * need to list in that fabric field").
+   *
+   * NARROWS `fabricOptions`, NEVER REPLACES IT. The list is still this BOM's own
+   * fabric lines, which is the client's own earlier instruction ("Fabric from
+   * previous tab fabric line") and is unchanged — this only removes the rows
+   * that could never be right, the same narrowing `fabricItemsFor` applies on
+   * the Fabric Lines grid one tab over.
+   *
+   * A FUNCTION AND NOT A COLUMN ON THE ROW, exactly like `fabricTypeOfId` beside
+   * it: the answer lives on the fabric MASTER, and a copy carried on the option
+   * row would be a second place for it to disagree with `items`.
+   */
+  fabricStructureOfId: (itemId: string | null) => string | null;
+  /**
+   * THE FABRIC TYPE VOCABULARY — `config_lookups` kind `fabric_type`, as NAMES.
+   *
+   * Names and not ids, because that is what `fabricTypeOfId` returns and what
+   * the cell compares against: an id here would need a second resolution on
+   * every row to answer "is this the type the operator narrowed to". The screen
+   * already loads this list for the Fabric picker's own quick-create sheet, so
+   * it costs no query.
+   */
+  fabricTypeOptions: readonly string[];
+  /**
+   * A FABRIC'S TYPE — Solid | Melange | Yarn Dyed — READ FROM THE MASTER, never
+   * stored per line (client 2026-09-02, asked before wiring).
+   *
+   * ## THE DROPDOWN FILTERS; IT DOES NOT WRITE
+   *
+   * Since 0513 this word is not a label. It decides whether Mixing UOM and No Of
+   * Colors are mandatory on a line, and whether [Detail] opens Yarn Dyed Details
+   * — and `missingFabricLineFields` and BOTH server actions resolve it from
+   * `items` themselves. A cell that stored its own answer would give a Save gate
+   * two sources: a line claiming Solid over a YARN DYED cloth would drop the
+   * mandatory rule with nothing on screen to say why, and the screen and the
+   * action would disagree about whether the document can be saved. That failure
+   * is silent, which is what rules it out.
+   *
+   * So the cell narrows the Fabric picker beside it and the fabric still decides
+   * the type — picking a cloth IS how the type changes. `fabricTypeOf` on the
+   * screen is the one derivation, shared with `factsFor` and with the Fabric
+   * Lines grid, so all three cannot disagree.
+   */
+  fabricTypeOfId: (itemId: string | null) => string;
   allLines: readonly MapLine[];
   /** Patch every line of one panel — Component / Coordinate / Open-Tubular. */
   onPatchPanel: (panelKey: string, patch: Partial<MapLine>) => void;
@@ -408,6 +519,121 @@ export function ComponentMapBody({
      `YarnDyedSheet` in yarn-dyed-panels.tsx. Before putting a feature in a shared
      body, count its mounts. */
   /**
+   * THE FABRIC PICKER'S ROWS, with the held value guaranteed to survive.
+   *
+   * `fabricOptions` is this BOM's own fabric lines, so a cloth removed from
+   * Fabric Lines leaves the list while a Components panel may still hold it.
+   * Dropping it would render a filled cell empty and blank the FK on the next
+   * save — the data loss AGENTS.md's "Disabled rows" rule exists to prevent,
+   * arriving through a missing row rather than a switched-off one. So a held id
+   * the list no longer carries is appended, tagged, and cannot be re-picked.
+   */
+  /**
+   * WHICH FABRIC TYPE EACH ROW'S PICKER IS NARROWED TO — a view, not a value.
+   *
+   * Keyed by panel key or line key, and deliberately NOT stored: nothing here
+   * reaches the payload. An empty entry means "no narrowing", which is also what
+   * a row starts at.
+   */
+  const [typeFilter, setTypeFilter] = useState<Record<string, string>>({});
+
+  /**
+   * THE FABRIC TYPE MASTER, NOT THE TYPES ALREADY ON THIS BOM (client
+   * 2026-09-02, screenshot 2643: "Fabric Type — solid, yarn dyed, printed,
+   * melange", pointing at a dropdown that read **"No matches."**).
+   *
+   * It was `new Set(fabricOptions.map(fabricTypeOfId))` — the types the cloths on
+   * this BOM come in — reasoned as "never the whole vocabulary, so the list
+   * cannot offer a narrowing that matches nothing". The reasoning is sound about
+   * a filter and wrong about this screen, because `fabricOptions` is this BOM's
+   * own fabric LINES: on a BOM where no line names a cloth yet, which is every
+   * BOM the moment it is seeded from the order, the set is EMPTY and the cell
+   * offers nothing at all.
+   *
+   * So it traded a narrowing that returns nothing — visible, and undone by
+   * clearing the cell — for a control that is dead on arrival. The client read
+   * the dead one as the list being wrong, which is exactly what it looks like.
+   *
+   * `fabricTypeOptions` comes from `config_lookups` kind `fabric_type` and so
+   * follows the master: 0515's `Printed` appeared here without this file
+   * changing, and a fifth value will too.
+   */
+  const fabricTypes = fabricTypeOptions;
+
+  /** The Fabric Type cell: shows the CLOTH's type until the operator narrows. */
+  const typeCell = (key: string, heldItemId: string | null) => (
+    <Select
+      compact
+      className="h-8"
+      value={typeFilter[key] ?? fabricTypeOfId(heldItemId)}
+      onChange={(e) => setTypeFilter((f) => ({ ...f, [key]: e.target.value }))}
+    >
+      <option value="" />
+      {fabricTypes.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /** Clearing the narrowing when a fabric is chosen is what keeps the cell
+   *  TRUTHFUL: the type shown then falls back to the cloth's own. */
+  const clearFilter = (key: string) =>
+    setTypeFilter((f) => {
+      if (!(key in f)) return f;
+      const next = { ...f };
+      delete next[key];
+      return next;
+    });
+
+  const fabricItems = (held: string | null): PickerRow[] => {
+    const rows = [...fabricOptions];
+    if (held && !rows.some((r) => r.id === held)) {
+      /* THE TAG NAMES THE NEW SOURCE. It read "(no longer a fabric line on this
+         BOM)" while the options were the BOM's own lines; against the master,
+         an id the list does not carry is a fabric that has been deleted, and a
+         label describing the old source would send the operator to look for it
+         on the wrong screen. */
+      rows.push({
+        id: held,
+        code: null,
+        name: "(fabric no longer in the master)",
+        inactive: true,
+      });
+    }
+    return rows;
+  };
+
+  /**
+   * The picker's rows, narrowed TWICE — by the panel's own structure, and then
+   * by the row's Fabric Type cell.
+   *
+   * THE STRUCTURE NARROWING IS THE ROW'S OWN AND IS NOT A FILTER THE OPERATOR
+   * SET (client 2026-09-02). A panel of 1X1 LYCRA RIB cannot be cut from a
+   * single jersey, so offering one is offering a mapping that can never be
+   * right — the same narrowing the Fabric Lines grid applies one tab over.
+   * Skipped where the row names no structure, because there is then nothing to
+   * scope BY and a mandatory cell narrowed to nothing has no way out.
+   *
+   * A HELD VALUE ALWAYS SURVIVES BOTH — same rule as the inactive tag above and
+   * for the same reason: a filter must never blank a cell that is already
+   * filled, or the next save writes that emptiness over a real FK.
+   */
+  const fabricItemsFor = (
+    key: string,
+    held: string | null,
+    structureId: string | null,
+  ): PickerRow[] => {
+    const want = typeFilter[key];
+    let rows = fabricItems(held);
+    if (structureId) {
+      rows = rows.filter((r) => r.id === held || fabricStructureOfId(r.id) === structureId);
+    }
+    return want ? rows.filter((r) => r.id === held || fabricTypeOfId(r.id) === want) : rows;
+  };
+
+  /**
    * LEVEL 2's COLUMNS — legacy's order exactly (client 2026-09-02, screenshot
    * 2613), minus the two the client answered "leave it out" for.
    *
@@ -506,14 +732,77 @@ export function ComponentMapBody({
       cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).structure))} />,
     },
     {
-      header: "Fabric Type",
-      width: "6rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).fabricType))} />,
+      /* LEGACY'S `Structure Type` — "Circular" — restored 2026-09-02 after being
+         left out for want of a source. It has one: `categories.fabric_structure_id`,
+         the structure master's own knit family, which is also what Order Entry ▸
+         Combos ▸ [Detail] derives its family chip from. The earlier search
+         stopped at `order_fabric_bom_dias.knit_type` (a property of a DIA) and at
+         `combo_structures.fabric_type` (NULL on all 33 live rows) and concluded
+         wrongly. */
+      header: "Structure Type",
+      width: "7rem",
+      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).structureType))} />,
     },
     {
+      /* A DROPDOWN THAT NARROWS THE FABRIC CELL BESIDE IT (client 2026-09-02),
+         not a stored value — see `fabricTypeOfId` for why storing it would give a
+         Save gate two answers. */
+      header: "Fabric Type",
+      width: "7rem",
+      cell: (p) => typeCell(p.key, rollUp(p.lines.map((l) => l.item_id ?? "")) || null),
+    },
+    {
+      /* USER ENTRY, WIRED TO THE CLOTH THIS BOM PLANS (client 2026-09-02:
+         "Fabric field is user entry, connect the fabric master data with that
+         field" / "Fabric from previous tab fabric line"). It was read-only text
+         rolled up from the colourways.
+
+         PICKING HERE WRITES EVERY COLOURWAY OF THE PANEL, which is what
+         `onPatchPanel` does and what the client chose over the alternatives: a
+         panel is one part of one garment, so its cloth is normally one cloth, and
+         the colour row below can still override a single colourway where a white
+         body and a navy body genuinely differ. Same write-through Open/Tubular
+         had on this row before it moved down.
+
+         THE ROLL-UP SURVIVES AS THE VALUE. `rollUp` returns the single distinct
+         item id or nothing, so a panel whose colourways name two cloths shows the
+         picker EMPTY rather than picking one of them to display — an abstain, not
+         a guess, and typing into it then sets both. */
       header: "Fabric",
       width: "16rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).fabric))} />,
+      cell: (p) => (
+        <RecordPicker
+          label="Fabric"
+          compact
+          items={fabricItemsFor(
+            p.key,
+            rollUp(p.lines.map((l) => l.item_id ?? "")) || null,
+            p.structure_id,
+          )}
+          /* WHERE THE STRUCTURE HAS NO CLOTH YET, SAY SO. A narrowed-to-empty
+             list is otherwise indistinguishable from a broken dropdown — the
+             failure this picker shipped with (screenshot 2643). */
+          emptyHint={
+            p.structure_id
+              ? "No fabric is filed under this structure yet — use + Add to create one."
+              : null
+          }
+          /* "+ Add" UNDER THIS PANEL'S STRUCTURE — the same sheet the Fabric
+             Lines cell opens, so the field behaves identically on both tabs.
+             Offered only where the row names a structure to file the cloth
+             under; the screen decides the permission half. */
+          onAddOverride={
+            onAddFabric && p.structure_id
+              ? (commit) => onAddFabric(p.structure_id as string, commit)
+              : undefined
+          }
+          value={rollUp(p.lines.map((l) => l.item_id ?? "")) || null}
+          onChange={(id) => {
+            onPatchPanel(p.key, { item_id: id });
+            clearFilter(p.key);
+          }}
+        />
+      ),
     },
     {
       header: "Gsm",
@@ -521,38 +810,17 @@ export function ComponentMapBody({
       width: "5rem",
       cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).gsm))} />,
     },
-    {
-      /* OPEN/TUBULAR STAYS ON THE PANEL ROW, and legacy draws it on the colour
-         row. Confirmed with the client on 2026-09-02 while matching everything
-         else to legacy: it is mandatory, and a cell repeated identically down
-         four colourways invites three of them to be left blank while it holds the
-         cursor — four holds for one answer that cannot differ by colour. The
-         colour row ECHOES it read-only, so the layout still reads like legacy's.
+    /* NO `Open / Tubular` HERE ANY MORE (client 2026-09-02: "no more
+       Open / Tubular tab — to colourways panel"). It has moved to the colour
+       row's `Type`, which is where legacy draws it and which the colour row was
+       already echoing read-only.
 
-         MANDATORY, AND THE STAR COMES FROM THE SAME DECLARATION THE SAVE GATE
-         DOES — `fabricBomLineInput` refuses a line with a fabric and no form,
-         `required` draws the `*` and stamps `data-required-empty`, and the cursor
-         holds. One declaration, four enforcers (AGENTS.md). */
-      header: "Open / Tubular",
-      required: true,
-      width: "7rem",
-      cell: (p) => (
-        <Select
-          compact
-          className="h-8"
-          required
-          value={p.fabric_form}
-          onChange={(e) => onPatchPanel(p.key, { fabric_form: e.target.value })}
-        >
-          <option value="" />
-          {FABRIC_FORM_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
+       THIS REVERSES 2026-09-02's OWN EARLIER ANSWER, deliberately. When the field
+       order was matched to legacy the client was asked about this exact cell and
+       chose to keep it here, on the argument that a mandatory cell repeated down
+       four colourways is four holds for one answer. They have now seen it and
+       decided the other way; the later instruction wins. What that argument
+       predicted is real and is the thing to watch — see the `Type` column. */
   ];
 
   /**
@@ -598,10 +866,38 @@ export function ComponentMapBody({
     },
     {
       header: "Fabric Type",
-      width: "6rem",
-      cell: (l) => <ClothText value={factsFor(l).fabricType} />,
+      width: "7rem",
+      cell: (l) => typeCell(l.key, l.item_id),
     },
-    { header: "Fabric", width: "12rem", cell: (l) => <ClothText value={factsFor(l).fabric} /> },
+    {
+      /* THE PER-COLOURWAY OVERRIDE. `item_id` is a column of the LINE, so a white
+         body and a navy body may legitimately name two cloths; the panel row
+         above writes every colourway at once and this changes one. */
+      header: "Fabric",
+      width: "12rem",
+      cell: (l) => (
+        <RecordPicker
+          label="Fabric"
+          compact
+          items={fabricItemsFor(l.key, l.item_id, l.structure_id)}
+          emptyHint={
+            l.structure_id
+              ? "No fabric is filed under this structure yet — use + Add to create one."
+              : null
+          }
+          onAddOverride={
+            onAddFabric && l.structure_id
+              ? (commit) => onAddFabric(l.structure_id as string, commit)
+              : undefined
+          }
+          value={l.item_id}
+          onChange={(id) => {
+            onPatchLine(l.key, { item_id: id });
+            clearFilter(l.key);
+          }}
+        />
+      ),
+    },
     {
       header: "Gsm",
       align: "right",
@@ -609,16 +905,38 @@ export function ComponentMapBody({
       cell: (l) => <ClothText value={factsFor(l).gsm} />,
     },
     {
-      /* `Type` IS THE PANEL'S Open/Tubular, ECHOED. Legacy draws it on this row;
-         it is answered once above and shown here so the row still reads like
-         legacy's. Read from the LINE rather than from the open panel, so it stays
-         right regardless of which panel is expanded. */
+      /* `Type` IS OPEN/TUBULAR, AND IT IS ANSWERED HERE NOW (client 2026-09-02).
+         It was an editable cell on the panel row and a read-only echo here;
+         legacy draws it on this row and the client asked for legacy's placement.
+
+         MANDATORY, AND THE STAR COMES FROM THE SAME DECLARATION THE SAVE GATE
+         DOES — `fabricBomLineInput` refuses a line that names a fabric with no
+         form, `required` draws the `*` and stamps `data-required-empty`, and the
+         cursor holds. One declaration, four enforcers (AGENTS.md).
+
+         IT IS NOW ASKED ONCE PER COLOURWAY, which is the cost the earlier
+         placement avoided: four colourways of one panel are four mandatory cells
+         holding for one answer that cannot differ by colour. The panel row's
+         Fabric picker writes through to every colourway, so if this becomes the
+         complaint, the same write-through is the fix — not moving the cell back. */
       header: "Type",
+      required: true,
       width: "6rem",
       cell: (l) => (
-        <ClothText
-          value={FABRIC_FORM_OPTIONS.find((o) => o.value === l.fabric_form)?.label ?? ""}
-        />
+        <Select
+          compact
+          className="h-8"
+          required
+          value={l.fabric_form}
+          onChange={(e) => onPatchLine(l.key, { fabric_form: e.target.value })}
+        >
+          <option value="" />
+          {FABRIC_FORM_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
       ),
     },
     {
@@ -888,7 +1206,22 @@ export function ComponentMapBody({
                             renderMobileRow={(row, ri) => (
                               <FieldGrid>
                                 {colourColumns.map((c, ci) => (
-                                  <Field key={ci} label={c.header} size="sm">
+                                  /* `required={c.required}` IS NOT OPTIONAL HERE.
+                                     A grid that renders its own row calls this
+                                     INSTEAD of the `columns.map()` that wraps
+                                     each cell in `RequiredScope`, so
+                                     `ChildGridColumn.required` never reaches the
+                                     control — and the trap is that it still does
+                                     HALF its job: the header `*` draws, and
+                                     nothing holds. A star with nothing behind it
+                                     is the exact divergence the one-declaration
+                                     rule exists to make impossible, arriving
+                                     through the prop that is meant to guarantee
+                                     it (AGENTS.md, "Mandatory fields"). Four
+                                     screens rediscovered this independently;
+                                     `--check grid-required-mobile` is why this
+                                     one did not have to. */
+                                  <Field key={ci} label={c.header} required={c.required} size="sm">
                                     {c.cell(row, ri)}
                                   </Field>
                                 ))}

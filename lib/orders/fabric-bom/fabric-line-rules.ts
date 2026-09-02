@@ -22,16 +22,23 @@
  * server actions. Four enforcers, one declaration. Adding a second rule beside it
  * is how a star and a hold come to disagree.
  *
- * ## THE VOCABULARY IS THE CATALOG'S, AND IT IS CLOSED
+ * ## THE VOCABULARY IS THE CATALOG'S, AND IT IS NOT CLOSED
  *
- * Counted 2026-09-02: `config_lookups` where `kind = 'fabric_type'` holds exactly
- * three values — Solid (11 fabrics), Yarn Dyed (2), Melange (1). Nothing had to
- * be seeded and there is no fourth value, so `isYarnDyed` is a test for one name
- * rather than a list of the other two: a type this function has never heard of
- * reads as NOT yarn dyed, which hides the mixing cells rather than demanding
- * them. That is the safe direction — the alternative makes a new master row
- * block Save on a screen with nothing to say why.
+ * This paragraph said "closed" for a day. Counted on the morning of 2026-09-02,
+ * `config_lookups` where `kind = 'fabric_type'` held exactly three values — Solid
+ * (11 fabrics), Yarn Dyed (2), Melange (1) — and a FOURTH arrived the same
+ * evening: 0515 seeds `Printed` on the client's own list, "solid, yarn dyed,
+ * printed, melange".
+ *
+ * IT COST THIS FILE NOTHING, which is the point worth keeping. `isYarnDyed` is a
+ * test for ONE name rather than a list of the other two, so a type it has never
+ * heard of reads as NOT yarn dyed: the mixing cells hide rather than becoming
+ * mandatory. That is the safe direction — the alternative makes a new master row
+ * block Save on a screen with nothing to say why. Written the other way round,
+ * the client's four-word sentence would have been a bug report instead.
  */
+
+import { isYarnDyedFabricType } from "@/lib/masters/fabric-name";
 
 /** One fabric line, as much of it as these rules read. */
 export type FabricLineFacts = {
@@ -62,15 +69,25 @@ export const MIXING_UOM_CODES = ["%", "CM"] as const;
 /**
  * IS THIS CLOTH KNIT FROM PRE-DYED YARN?
  *
- * COMPARED CASE-FOLDED AND TRIMMED, never `===`. The value arrives as a
- * `config_lookups` NAME typed by whoever created the master row, and AGENTS.md
- * records the cost of an exact compare on a human-entered enum under "Nominated
- * vendors": the filter "compiles, runs, and quietly matches nothing". A silent
- * miss here hides two mandatory fields rather than showing them, which is the
- * failure that ships.
+ * ONE TEST, SHARED WITH THE MATERIALS MASTER — `isYarnDyedFabricType` in
+ * `lib/masters/fabric-name.ts`, which is the same question asked where the value
+ * is CREATED rather than where it is read. Two spellings of one test is how the
+ * master hides the Mixing % column for a cloth the BOM then treats as ordinary.
+ *
+ * IT WAS `=== "yarn dyed"` AND THAT WAS ONE RENAME FROM SILENT. The value is a
+ * `config_lookups` NAME, editable in place from any `LookupDialogPicker`, and
+ * 0279 SEEDED IT AS "Yarn-dyed" — a hyphen that the exact compare answers `false`
+ * to. Something renamed it to "Yarn Dyed" before this rule was written, so the
+ * gate has only ever been correct by luck. The shared test matches the two words
+ * in any spacing or case, which is AGENTS.md's rule for a human-entered enum
+ * under *Nominated vendors*: an exact compare "compiles, runs, and quietly
+ * matches nothing".
+ *
+ * A silent miss here hides two mandatory fields rather than showing them, and
+ * closes [Detail] on the one kind of cloth it exists for.
  */
 export const isYarnDyed = (fabricType: string | null | undefined): boolean =>
-  (fabricType ?? "").trim().toLowerCase() === "yarn dyed";
+  isYarnDyedFabricType(fabricType);
 
 /**
  * Does this line still owe an answer, given the type of the fabric it names?
