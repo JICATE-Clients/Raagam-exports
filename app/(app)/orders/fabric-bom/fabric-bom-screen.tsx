@@ -52,7 +52,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 /* The Components cell is a SET, which is the one thing that makes a Manual
    entry not a fabric line — see 0494. */
-import { MultiSelect } from "@/components/ui/multi-select";
+import { MultiSelect, MultiSelectChips } from "@/components/ui/multi-select";
 /* A Combobox, so the Manual sheet's Table width cell PICKS rather than accepts:
    typed text in one is a SEARCH and is never committed (`commit` in
    combobox.tsx). That is what makes the declared dia list mean something. */
@@ -2661,13 +2661,40 @@ export function FabricBomScreen({
    * unit kind, and 0426's rule holds: a copy on the BOM is a second place to
    * disagree with the order, and the order is the one that is right.
    *
-   * ONE EXTRA ROW FOR "EVERY STYLE", and only when something needs it. An entry
-   * whose `style_ref_no` is blank applies to every style — the reading 0426 gave
-   * the column and the state every entry stored before 0495 is in. Without this
-   * row those entries would be reachable from no style at all: invisible, still
-   * planning, and destroyed by the next Save. It is the "a held value always
-   * survives" rule, applied to a whole level.
+   * ONE EXTRA ROW FOR "EVERY STYLE", and only when there is NOWHERE ELSE TO PUT
+   * THE ENTRY. An entry whose `style_ref_no` is blank applies to every style —
+   * the reading 0426 gave the column, the state every entry stored before 0495
+   * is in, and the state the seeded blank entry starts in, because `startNew`
+   * mints it before an order has been picked. Without a home those entries would
+   * be reachable from no style at all: invisible, still planning, and destroyed
+   * by the next Save. It is the "a held value always survives" rule, applied to
+   * a whole level.
+   *
+   * ON A SINGLE-STYLE ORDER THE HOME IS THAT STYLE, AND THE EXTRA ROW IS A LIE
+   * (client 2026-09-03, screenshots 2657-2659: "what is every style, remove
+   * this, need to show that order style only"). "Every style" and "the only
+   * style" are the same set, so the row offered the planner a choice between two
+   * names for one thing — and it was there on EVERY new BOM, because the seeded
+   * blank entry is unscoped by construction. `soleStyleRef` is what makes the
+   * blank entry resolve to the declared style instead of growing a row beside
+   * it; `entriesForStyle` reads the same value, so the row and its contents
+   * cannot disagree about where an entry lives.
+   *
+   * IT IS DERIVED, NOT STAMPED. Re-pointing the entry's `style_ref_no` in an
+   * effect would be `react-hooks/set-state-in-effect` (the rule that made the
+   * size rows derived in the first place), and it would write a scope onto a
+   * row the planner never scoped. Nothing about what is SAVED changes: a blank
+   * ref still stores NULL, which on a one-style order means that style.
+   *
+   * WITH TWO OR MORE STYLES THE ROW STAYS, unchanged. There the choice is real —
+   * an unscoped entry belongs to all of them and to none of them in particular —
+   * and dropping it would orphan exactly the legacy rows it was written for.
    */
+  const soleStyleRef =
+    (pickedOrder?.styleRows ?? []).length === 1
+      ? ((pickedOrder?.styleRows?.[0]?.style_ref_no ?? "").trim().toUpperCase() || null)
+      : null;
+
   const manualStyleRows = useMemo(() => {
     const declared = (pickedOrder?.styleRows ?? []).map((r) => ({
       key: r.style_ref_no,
@@ -2677,7 +2704,11 @@ export function FabricBomScreen({
       unit_kind: r.unit_kind,
       unscoped: false,
     }));
-    const hasUnscoped = entries.some((e) => !e.style_ref_no.trim());
+    /* `soleStyleRef` ADOPTS THEM, so there is nothing left to strand — see the
+       note above. `declared.length === 1` rather than the derived constant only
+       because this hook must not close over a value computed outside it. */
+    const adopts = declared.length === 1 && !!declared[0].style_ref_no.trim();
+    const hasUnscoped = !adopts && entries.some((e) => !e.style_ref_no.trim());
     return hasUnscoped
       ? [
           ...declared,
@@ -2695,9 +2726,22 @@ export function FabricBomScreen({
 
   type ManualStyleRow = (typeof manualStyleRows)[number];
 
-  /** The entries one style row owns. Blank ref = the "every style" row. */
-  const entriesForStyle = (ref: string) =>
-    entries.filter((e) => e.style_ref_no.trim().toUpperCase() === ref.trim().toUpperCase());
+  /**
+   * The entries one style row owns.
+   *
+   * Blank ref = the "every style" row — EXCEPT on a single-style order, where
+   * the declared style adopts the unscoped entries and no such row is drawn.
+   * See `soleStyleRef`: this is the reading half of that one decision, and it
+   * has to be here rather than at the call sites because `manualStylePane`,
+   * `styleRefusal` and the rail's dot all ask this same question.
+   */
+  const entriesForStyle = (ref: string) => {
+    const k = ref.trim().toUpperCase();
+    return entries.filter((e) => {
+      const own = e.style_ref_no.trim().toUpperCase();
+      return own === k || (!own && k !== "" && k === soleStyleRef);
+    });
+  };
 
   /**
    * THE ORDER'S COLOURWAYS FOR ONE STYLE — the spec's "Assort-wise Color:
@@ -2909,6 +2953,30 @@ export function FabricBomScreen({
          screen passes the boolean through rather than re-deriving it — the
          "read it through one function" half of the Disabled rows rule. */
       .map((c) => ({ id: c.id, label: c.name, inactive: c.inactive }));
+  };
+
+  /**
+   * THIS ENTRY'S CHOSEN COMPONENTS, RESOLVED — what `<MultiSelectChips>` draws
+   * now that the chip line has moved out of the 155px Components cell.
+   *
+   * READ FROM `data.components`, NOT FROM `componentOptionsFor(e)`. The two
+   * differ by exactly the "no duplicate component" narrowing, and that narrowing
+   * is the one thing this list must NOT apply: it excludes what OTHER entries
+   * hold, so an id that ends up in two entries — a saved BOM edited on another
+   * tab, a component re-pointed — would resolve to nothing and its chip would
+   * vanish while the id stayed in `component_ids`. A value that is stored must
+   * be visible and removable, which is the same "a held value always survives"
+   * rule the picker lists follow (AGENTS.md, Disabled rows).
+   *
+   * IN THE CALLER'S STORED ORDER, so a chip does not move when the master is
+   * re-sorted — the order `MultiSelect.picked` uses, for the same reason.
+   */
+  const pickedComponents = (e: ManualEntryRow) => {
+    const byId = new Map(data.components.map((c) => [c.id, c]));
+    return e.component_ids
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+      .map((c) => ({ id: c!.id, label: c!.name }));
   };
 
   /**
@@ -3265,8 +3333,31 @@ export function FabricBomScreen({
           }}
           renderMobileRow={(e) => (
             <div className="space-y-3">
-              <FieldGrid>
-                <Field label="Fabric structure" required size="sm">
+              {/* SEVEN FIELDS ON ONE ROW (client 2026-09-03, screenshot of this
+                  panel: "make this two [rows of] fields as single row").
+                  `cols={14}` rather than 12 because the smallest span is `xs`
+                  (2) and 7 x 2 = 14 — the fields keep a size that already
+                  exists and the TRACK is what widened. Twelve tops out at six,
+                  which is exactly why this was two rows of 3 and 4.
+
+                  IT IS THE SAME CALL Orders ▸ Style ▸ Style Details ALREADY
+                  MADE (client 2026-08-17) and `FIELD_TRACK_14` exists for. A
+                  field here is ~155px against LAYOUT.md §3's ~280px, so this
+                  section is narrower than anywhere else in the app; that is the
+                  trade a single row costs and it is stated rather than hidden.
+
+                  NOT `cols={32}`, even though it offers three widths and would
+                  let Components stay wide. That track carries `items-end`,
+                  which bottom-aligns every cell — and Components is the one
+                  cell here that is much taller than the rest, because its chip
+                  line lives INSIDE it. Bottom-aligning against a chip band
+                  would drop all six other controls to the level of the chips.
+                  `items-end` is for cells that differ by a wrapped LABEL, not
+                  by a whole band; on this row the 14-track's default alignment
+                  is what keeps the controls in a line, with the chips hanging
+                  under Components where they cost nothing. */}
+              <FieldGrid cols={14}>
+                <Field label="Fabric structure" required size="xs">
                   <RecordPicker
                     label="Fabric structure"
                     compact
@@ -3276,7 +3367,7 @@ export function FabricBomScreen({
                     onChange={(id) => setEntryCell(e.key, { structure_id: id })}
                   />
                 </Field>
-                <Field label="Components" required size="lg">
+                <Field label="Components" required size="xs">
                   <MultiSelect
                     label="Components"
                     compact
@@ -3284,6 +3375,27 @@ export function FabricBomScreen({
                     options={componentOptionsFor(e)}
                     values={e.component_ids}
                     onChange={(next) => setEntryCell(e.key, { component_ids: next })}
+                    /* THE CHIPS BELONG TO THE ROW, NOT TO THIS CELL (client
+                       2026-09-03, screenshot 2662: "if i choose components its
+                       listing like this… its ui mistake, fix better
+                       alignment"). They are `flex-wrap` inside the control, and
+                       the control is now a ~155px cell — so eight components
+                       stacked EIGHT lines deep and pushed the size grid off the
+                       screen. They are drawn below instead, across the whole
+                       row, where the same eight fit on one line. */
+                    hideChips
+                    /* THE LIST IS NOT THE TRIGGER — the same split Style ▸
+                       Sizes already makes, arriving here through the single
+                       row above. The trigger says "3 selected" and is happy at
+                       ~155px; the panel lists FRONT BODY / BOTTOM RIB / NECK
+                       TAPE, which at 155px would clip every option it exists to
+                       show. The panel is `w-full` of the trigger's wrapper
+                       unless told otherwise, so without this ONE number would
+                       be answering two questions and the narrowing would take
+                       the list down with the box. Capped against the viewport
+                       by the primitive, so it overlays rather than widening the
+                       row under it. */
+                    panelClassName="w-[20rem]"
                     /* A STATE OF THE RECORD, which is the one thing a
                        placeholder may still say. With every panel taken by
                        another entry ON THIS STYLE there is genuinely nothing
@@ -3292,12 +3404,12 @@ export function FabricBomScreen({
                     emptyLabel="Every component is already used on this style"
                   />
                 </Field>
-                <Field label="Dia type" size="sm">
+                <Field label="Dia type" size="xs">
                   {/* READ-ONLY, from the dias the sizes pick. Plain text: a
                       derived value was not typed, so it is not a field. */}
                   <Input readOnly value={diaTypeOf(e)} />
                 </Field>
-                <Field label="Assort widths" size="sm">
+                <Field label="Assort widths" size="xs">
                   <Select
                     compact
                     aria-label="Assort widths"
@@ -3315,7 +3427,7 @@ export function FabricBomScreen({
                     ))}
                   </Select>
                 </Field>
-                <Field label="Weight from" size="sm">
+                <Field label="Weight from" size="xs">
                   <Select
                     compact
                     aria-label="Weight mode"
@@ -3333,7 +3445,7 @@ export function FabricBomScreen({
                     ))}
                   </Select>
                 </Field>
-                <Field label="Loss %" size="sm">
+                <Field label="Loss %" size="xs">
                   <Input
                     className="text-right"
                     inputMode="decimal"
@@ -3341,7 +3453,7 @@ export function FabricBomScreen({
                     onChange={(ev) => setEntryCell(e.key, { wastage_pct: ev.target.value })}
                   />
                 </Field>
-                <Field label="GSM" size="sm">
+                <Field label="GSM" size="xs">
                   {/* THE ORDER'S, abstaining where its colourways disagree —
                       see `gsmForStructure`. It is what the calculated mode
                       multiplies, so it is shown where that choice is made. */}
@@ -3354,6 +3466,37 @@ export function FabricBomScreen({
                     }
                   />
                 </Field>
+                {/* THE COMPONENTS THIS ENTRY COVERS, ACROSS THE WHOLE ROW —
+                    `MultiSelect`'s own chip line, moved out of its 155px cell
+                    (see `hideChips` above).
+
+                    INSIDE THE `FieldGrid`, NOT BESIDE IT. As a sibling it would
+                    sit 12px below the row and 12px above the size grid, equally
+                    attached to both; as a full-span cell it takes the track's
+                    own 8px `gap-y`, so it reads as the second line of the row it
+                    belongs to. `size="full"` is `1 / -1` since 2026-09-03 and so
+                    spans all fourteen — it used to be `col-span-12`, which would
+                    have left a notch here.
+
+                    NO LABEL. "Components" is already the label of the field two
+                    cells along, and a second one would read as a second field
+                    rather than as that field's value. */}
+                {/* GATED ON THERE BEING ONE, not left to render nothing: an
+                    empty full-span cell is still a grid row, and the track's
+                    `gap-y-2` would draw 8px of dead band under an entry that has
+                    chosen no component yet. */}
+                {e.component_ids.length > 0 && (
+                  <Field size="full">
+                    <MultiSelectChips
+                      picked={pickedComponents(e)}
+                      onRemove={(id) =>
+                        setEntryCell(e.key, {
+                          component_ids: e.component_ids.filter((x) => x !== id),
+                        })
+                      }
+                    />
+                  </Field>
+                )}
               </FieldGrid>
 
               {/* THE SIZE GRID, NESTED INSIDE THE FABRIC IT BELONGS TO —
