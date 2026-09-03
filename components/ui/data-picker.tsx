@@ -33,6 +33,7 @@ import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { cn } from "@/lib/utils";
+import { matchesSearch, searchTokens } from "@/lib/ui/search-match";
 import {
   AFFORDANCE_PAD,
   AFFORDANCE_PAD_COMPACT,
@@ -476,14 +477,16 @@ export function DataPicker({
   // WILL be: `filtered` is still the previous render's when the keystroke fires.
   const matching = useCallback(
     (q: string) => {
-      const needle = q.trim().toLowerCase();
-      if (!needle) return selectable;
+      // EVERY WORD TYPED, IN ANY ORDER — `lib/ui/search-match.ts` owns the rule
+      // and states why (client 2026-09-03, the Fabric field: a composed name
+      // like `SOLID 1X1 LYCRA RIB (30'S COTTON …)` was findable by `lycra rib`
+      // and not by `rib lycra`). Tokenised ONCE per keystroke, not once per row.
+      const tokens = searchTokens(q);
+      if (tokens.length === 0) return selectable;
       return selectable.filter((r) =>
         // `search` is the hidden half — a name-led row's code lives here rather
         // than in `sublabel`, so it stays findable without being displayed.
-        `${r.label} ${r.sublabel ?? ""} ${r.search ?? ""}`
-          .toLowerCase()
-          .includes(needle),
+        matchesSearch(`${r.label} ${r.sublabel ?? ""} ${r.search ?? ""}`, tokens),
       );
     },
     [selectable],
