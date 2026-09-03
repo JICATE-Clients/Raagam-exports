@@ -57,7 +57,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
    combobox.tsx). That is what makes the declared dia list mean something. */
 import { Combobox } from "@/components/ui/combobox";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGrid, FieldRow } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { SectionGrid } from "@/components/masters/section-grid";
 import {
@@ -122,13 +122,11 @@ import {
   takenComponentIds,
   type ManualSizeInput,
 } from "@/lib/orders/fabric-bom/manual";
-import { Sheet } from "@/components/ui/sheet";
 /* The footer for an overlay with NO SAVE OF ITS OWN — the same one Combos ▸
    Structure Details and Quantities ▸ Assortments use, and for the same reason:
    the rows it edits are written by THIS screen's Save. It exists because three
    overlays that correctly had no footer were all reported as "missing save
    button" (client 2026-08-14). */
-import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 /* Fabric Process (0492). The grid decides COLUMNS and nothing about where it
    sits — this screen supplies the box, one card per fabric. See its header for
    why that shape rather than the Style ▸ Process [Click] button. */
@@ -142,6 +140,14 @@ import {
    flattened to four columns on the client's spec, so its cells live here with
    the dia and palette columns rather than in a file of their own. */
 import { YarnProcessGrid } from "@/components/orders/yarn-process-grid";
+/* LEGACY'S `[+]` ROW, for BOTH route tabs (client 2026-09-03, screenshots 2652 +
+   2653). One component rather than two accordions, and it is not a `ChildGrid`
+   for a structural reason its own header states: a `<tr>` cannot carry a panel
+   beneath its cells, and a panel outside `data-grid-row` is invisible to Tab. */
+import {
+  ProcessFoldList,
+  type FoldListColumn,
+} from "@/components/orders/process-fold-list";
 import {
   comboKey,
   deriveYarnRows,
@@ -167,14 +173,22 @@ import {
   loadOrderStyleComponents,
   updateFabricBom,
 } from "@/lib/orders/fabric-bom/actions";
-import { ComponentMapBody } from "@/components/orders/component-map-sheet";
+/* `ClothText` — the read-only cell the Components tree already draws, borrowed
+   for the Fabric Process row rather than redefined (2026-09-03). */
+import { ClothText, ComponentMapBody } from "@/components/orders/component-map-sheet";
 import { YarnDyedSheet, type YdCombinationRow } from "@/components/orders/yarn-dyed-panels";
 import type { YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
-import { isYarnDyed, missingFabricLineFields } from "@/lib/orders/fabric-bom/fabric-line-rules";
+import {
+  isYarnDyed,
+  missingFabricLineFields,
+  sameFabricType,
+} from "@/lib/orders/fabric-bom/fabric-line-rules";
 import type { FabricOption } from "@/lib/orders/fabric-bom/fabric-options";
 import { FabricQuickCreateSheet } from "@/components/masters/fabric-quick-create-sheet";
 import {
+  fabricFormLabel,
   fabricGroupKey,
+  rollUp,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
 
@@ -768,6 +782,35 @@ export function FabricBomScreen({
    * the picker would come to disagree about whether a cloth exists.
    */
   const [newFabrics, setNewFabrics] = useState<FabricOption[]>([]);
+  /**
+   * THE `Type` A PLANNER STATES BEFORE THEY PICK A CLOTH (client 2026-09-03,
+   * "the type and uom and no of color field allow manual entry too").
+   *
+   * NOT STORED, AND THAT IS THE WHOLE DESIGN. `Type` is a property of the CLOTH
+   * — `items.fabric_type_id`, set on all 14 — so a column here would let the
+   * line and the master disagree about one fact with nothing to arbitrate, and
+   * [Detail], the mandatory Mixing Uom, the Components tree and the Yarn
+   * Process rows all read that fact. What the operator actually needs is the
+   * cell to accept entry, and the useful thing for it to DO is NARROW the row's
+   * Fabric picker; the instant a fabric is named the cloth answers and this is
+   * ignored. So the cell is editable exactly while there is nothing to derive
+   * from. It is the ONE conditional control left on this row — the two mixing
+   * cells and [Detail] were all unconditioned on 2026-09-03 — and it survives
+   * because it withdraws into an ANSWER rather than into a blank: the operator
+   * loses the dropdown and gains the word the cloth put there.
+   *
+   * KEYED BY `allocationKeyOf`, like `setAlloc`, never by index: adding a line
+   * re-derives `allocationRows` in a different order and a positional key would
+   * move one row's narrowing onto another. The key contains `item_id`, so
+   * naming a fabric orphans the entry by construction — which is correct, since
+   * that is exactly when the cell stops reading it.
+   *
+   * NOTHING DOWNSTREAM MAY READ IT except the picker's scope and the two mixing
+   * cells' visibility. The Save gate, both server actions, `factsForLine` and
+   * the requirement engine go on reading the FABRIC, so an unsaved narrowing
+   * can never reach a stored row or a computed quantity.
+   */
+  const [typeFilter, setTypeFilter] = useState<Record<string, string>>({});
   /** Which STRUCTURE the open "New Fabric" sheet is creating under — the id
    *  doubles as "the sheet is open", because a sheet with no structure has
    *  nothing to file the cloth under and is never opened. */
@@ -876,13 +919,34 @@ export function FabricBomScreen({
   };
   const setEntryCell = (key: string, patch: Partial<ManualEntryRow>) =>
     mutEntries((xs) => xs.map((e) => (e.key === key ? { ...e, ...patch } : e)));
-  const setSizeCell = (entryKey: string, sizeKey: string, patch: Partial<ManualSizeRow>) =>
+  /**
+   * Write one cell of one size row — AND CREATE THAT ROW IF IT IS NOT THERE YET.
+   *
+   * The grid's rows are DERIVED (`manualSizeRows`): a size the order declares
+   * and the entry has never been given a value for is drawn as a row that does
+   * not exist in `entries`. So the first keystroke in it is what brings it into
+   * being, carrying the key it was drawn with — see the note there for why the
+   * key must not be re-minted here.
+   *
+   * IT TAKES THE ROW, NOT THE KEY, because creating one needs the `size_id` and
+   * the `dia` the derived row was standing there showing, and only the row
+   * carries them.
+   */
+  const setSizeCell = (
+    entryKey: string,
+    row: ManualDisplayRow,
+    patch: Partial<ManualSizeRow>,
+  ) =>
     mutEntries((xs) =>
-      xs.map((e) =>
-        e.key === entryKey
-          ? { ...e, sizes: e.sizes.map((z) => (z.key === sizeKey ? { ...z, ...patch } : z)) }
-          : e,
-      ),
+      xs.map((e) => {
+        if (e.key !== entryKey) return e;
+        if (e.sizes.some((z) => z.key === row.key))
+          return { ...e, sizes: e.sizes.map((z) => (z.key === row.key ? { ...z, ...patch } : z)) };
+        return {
+          ...e,
+          sizes: [...e.sizes, { ...blankManualSize(row.key, row.size_id, row.dia), ...patch }],
+        };
+      }),
     );
   /* THE SAME `setDirty` PAIRING AGAIN, and it is not optional here either — a
      mutator that forgets it lets a silent PWA auto-update reload the tab over a
@@ -1107,6 +1171,32 @@ export function FabricBomScreen({
    *  Components rail section now, and this popup is legacy's own [Detail]. */
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const detailLine = lines.find((l) => l.key === detailKey) ?? null;
+
+  /**
+   * WHICH YARN, AND WHICH FABRIC, HAS ITS ROUTE UNFOLDED — legacy's `[+]`
+   * (client 2026-09-03, screenshots 2652 + 2653: "list the yarn — if the yarn is
+   * clicked show the S No / Stage / Process / For / Descriptions / Loss %", and
+   * the same for the fabric).
+   *
+   * BOTH TABS USED TO DRAW EVERY PANEL AT ONCE, which is what the request is
+   * about: eight yarns and six fabrics each carrying a five- or seven-column
+   * grid is a wall the operator scrolls to find the one line they came for, and
+   * legacy has never drawn it that way.
+   *
+   * TWO STATES, NOT ONE. The tabs are two sections of one rail and an operator
+   * moves between them; a shared key would shut the yarn they were working on
+   * because they glanced at a fabric.
+   *
+   * `null` IS EVERYTHING SHUT, and that is the mount state — the client's
+   * standing rule from Combos ▸ Structure Details (2026-08-19): "instead of open
+   * one section the sections should be in closed state, because it's making
+   * confusion for the user". Keyed on the SUBJECT's id (`item_id`), which is
+   * stable across every edit these screens allow — an accordion keyed on
+   * something that mutates when a cell is filled is orphaned by an ordinary
+   * edit, which is how the Colourways accordion lost its split on 2026-09-03.
+   */
+  const [openYarnId, setOpenYarnId] = useState<string | null>(null);
+  const [openFabricId, setOpenFabricId] = useState<string | null>(null);
 
 
   /**
@@ -1567,9 +1657,10 @@ export function FabricBomScreen({
        and blanking it on reopen would silently un-answer a cell.
 
        THE SIZES ARE NOT RE-DERIVED HERE. What the database holds is what the
-       planner entered; `openManual` adds a row for any size the order has GAINED
-       since, and `manualSizeRows` keeps one the order has since dropped, tagged.
-       Re-deriving on load would do both silently and lose the second. */
+       planner entered; the seeding effect below adds a row for any size the
+       order has GAINED since, and `manualSizeRows` keeps one the order has since
+       dropped, tagged. Re-deriving on load would do both silently and lose the
+       second. */
     setEntries(
       (b.manualEntries ?? []).map((e) => ({
         key: newKey(),
@@ -2387,10 +2478,36 @@ export function FabricBomScreen({
   const fabricStructureOf = (itemId: string | null) =>
     itemId ? (fabrics.find((f) => f.id === itemId)?.category_id ?? null) : null;
 
+  /**
+   * WHAT THIS ROW SAYS ITS CLOTH IS — the fabric's own type, else the one the
+   * planner stated in the `Type` cell while no fabric is named.
+   *
+   * THE ORDER IS NOT NEGOTIABLE. The cloth wins whenever there is a cloth: a
+   * stated type is a question ("show me yarn-dyed jerseys"), a fabric's type is
+   * an answer, and letting the question outrank the answer is the two-sources
+   * problem `typeFilter`'s own note refuses to create.
+   *
+   * READ BY THE PICKER'S SCOPE AND BY THE MIXING CELLS' VISIBILITY, and by
+   * nothing else — see `typeFilter`. In particular NOT by `mandatory` on Mixing
+   * Uom, which stays keyed on the fabric: a planner who has said "Yarn Dyed" and
+   * not yet chosen the cloth must not be held on a field whose premise nothing
+   * has established (`missingFabricLineFields` refuses to make that demand too).
+   */
+  const rowType = (line: LineRow): string =>
+    line.item_id ? fabricTypeOf(line.item_id) : (typeFilter[allocationKeyOf(line)] ?? "");
+
   const fabricItemsFor = (line: LineRow) => {
     const held = line.item_id;
-    if (!line.structure_id) return fabrics;
-    const scoped = fabrics.filter((f) => f.category_id === line.structure_id);
+    /* NARROWED BY THE STATED TYPE ONLY WHILE NOTHING IS HELD — `rowType` returns
+       the FABRIC's type once one is picked, and a filter equal to the held row's
+       own type cannot exclude it. So the held-value survival below needs no
+       second exemption: this filter is structurally incapable of hiding a value
+       the line already carries (AGENTS.md, Disabled rows / Cascading filters). */
+    const want = held ? "" : rowType(line);
+    const byType = (xs: FabricOption[]) =>
+      want ? xs.filter((f) => sameFabricType(f.fabric_type, want)) : xs;
+    if (!line.structure_id) return byType(fabrics);
+    const scoped = byType(fabrics.filter((f) => f.category_id === line.structure_id));
     if (!held || scoped.some((f) => f.id === held)) return scoped;
     const row = fabrics.find((f) => f.id === held);
     return row ? [...scoped, { ...row, name: `${row.name} (other structure)` }] : scoped;
@@ -2402,7 +2519,7 @@ export function FabricBomScreen({
    * THE SIZES THE ORDER STATES, taken from the ORDER and never typed.
    *
    * `fabricSlices('colour_size', …)` is the same explosion the requirement runs,
-   * so the sheet asks for a weight on exactly the rows the requirement will
+   * so the grid asks for a weight on exactly the rows the requirement will
    * demand one for — and the two cannot drift, because there is one function. A
    * list built from the sizes MASTER instead would offer sizes this order does
    * not sell and stay silent about one it does.
@@ -2420,7 +2537,7 @@ export function FabricBomScreen({
    *
    * A REFUSAL BECOMES AN EMPTY LIST, deliberately, and it is not swallowed: the
    * same refusal is already printed against every entry in Calculated
-   * Quantities, and the sheet says "this order states no sizes" in its own words.
+   * Quantities, and the pane says "this style states no sizes" in its own words.
    */
   const orderSizesByStyle = useMemo(() => {
     const out = new Map<string, { size_id: string; label: string; qty: number }[]>();
@@ -2637,58 +2754,7 @@ export function FabricBomScreen({
   ];
 
   /**
-   * The entry whose size sheet is open, by React key. NULL = closed.
-   *
-   * BY KEY AND NOT BY ROW. Holding the row itself would freeze a copy taken at
-   * open time, and every keystroke inside the sheet writes to `entries` — so the
-   * overlay would render the values as they were when it opened.
-   */
-  const [manualStyleKey, setManualStyle] = useState<string | null>(null);
-  const manualStyle =
-    manualStyleKey === null
-      ? null
-      : (manualStyleRows.find((r) => r.key === manualStyleKey) ?? null);
-
-  /**
-   * Open the sheet, having first given it a row per size.
-   *
-   * SEEDED BEFORE OPENING, which is the shape Combos ▸ Detail records: opening
-   * first would render the empty state for a frame and then swap it, "which
-   * reads as a glitch rather than as a form that arrived filled in".
-   *
-   * IT DOES NOT SET `dirty`, deliberately rather than by oversight of the `mut`
-   * pairing every other mutator here carries. These rows are blank scaffolding —
-   * `normalizeManualSizes` drops every one of them on save, so nothing about the
-   * document has changed. Lighting "● Unsaved" for the act of OPENING a sheet
-   * teaches the planner that the badge means nothing, which costs more than it
-   * buys on a screen whose auto-reload guard is keyed to it.
-   *
-   * ADDITIVE, NEVER A REPLACEMENT. A size already carrying measurements keeps
-   * them; only the missing ones are added, and a stored size the order no longer
-   * states is kept too — see `manualSizeRows`.
-   */
-  function openManual(styleRef: string) {
-    setEntries((xs) =>
-      xs.map((e) => {
-        if (e.style_ref_no.trim().toUpperCase() !== styleRef.trim().toUpperCase()) return e;
-        const held = new Set(e.sizes.map((z) => z.size_id));
-        const missing = orderSizesFor(e.style_ref_no).filter((z) => !held.has(z.size_id));
-        return missing.length
-          ? {
-              ...e,
-              sizes: [
-                ...e.sizes,
-                ...missing.map((z) => blankManualSize(newKey(), z.size_id, defaultDia)),
-              ],
-            }
-          : e;
-      }),
-    );
-    setManualStyle(styleRef);
-  }
-
-  /**
-   * The rows the sheet shows, in the ORDER's size order.
+   * The rows one entry's size grid shows, in the ORDER's size order.
    *
    * A STORED SIZE THE ORDER NO LONGER STATES IS KEPT, tagged. Same rule as "the
    * one row that survives is the one the record already holds" (AGENTS.md,
@@ -2703,7 +2769,31 @@ export function FabricBomScreen({
     const used = new Set<string>();
     for (const z of orderSizesFor(e.style_ref_no)) {
       const row = bySizeId.get(z.size_id);
-      if (!row) continue;
+      /* A DECLARED SIZE WITH NOTHING STORED IS SHOWN ANYWAY, as a row that does
+         not exist yet — `setSizeCell` materialises it on the first keystroke.
+
+         THIS USED TO BE WRITTEN INTO STATE. `openManual` appended a blank
+         `ManualSizeRow` per missing size on the way into the sheet, and when the
+         sheet went (client 2026-09-03, the split) that hook went with it — there
+         is no "opening" left to hang it on, and the effect that replaced it is
+         banned outright: `react-hooks/set-state-in-effect` (React Compiler)
+         refuses a `setState` in an effect body, and it is right to. The rows
+         were never data. `normalizeManualSizes` deleted every one of them again
+         on save, which is what a rendering concern living in state looks like.
+
+         THE KEY IS DERIVED FROM THE SIZE, not minted. `newKey()` would hand the
+         grid a different key on every render and re-mount the row under the
+         cursor; it is also the key the materialised row KEEPS, so the first
+         keystroke does not swap one identity for another and take the focus
+         with it. */
+      if (!row) {
+        out.push({
+          ...blankManualSize(`size:${z.size_id}`, z.size_id, defaultDia),
+          label: z.label,
+          declared: true,
+        });
+        continue;
+      }
       used.add(row.key);
       out.push({ ...row, label: z.label, declared: true });
     }
@@ -2719,7 +2809,7 @@ export function FabricBomScreen({
   };
 
   /** How many of the order's sizes this entry has a weight for — what the
-   *  [Sizes] button counts and what lights the section's quiet dot. */
+   *  style list's n/m counts and what lights the section's quiet dot. */
   const manualAnswered = (e: ManualEntryRow) =>
     Object.keys(consumptionMap(e.calc_mode, sizeInputsOf(e), gsmForStructure(e.structure_id)))
       .length;
@@ -2804,77 +2894,7 @@ export function FabricBomScreen({
   };
 
   /**
-   * The Manual section's grid — ONE ROW PER ENTRY (0494).
-   *
-   * SEVEN CELLS, and only four of them typable: structure, panels, mode,
-   * wastage. Net and Gross are derived, and [Sizes] is a door. Everything a
-   * FABRIC is — its item, its colour, its GSM — was answered on Fabric Lines and
-   * is not re-offered here, which is the same rule 0494 applies to the whole
-   * tab: the entry says how much cloth, the line says which cloth.
-   */
-  /**
-   * The Manual section's grid — ONE ROW PER STYLE (0495), legacy's first level
-   * and the client's "Header Section (Style Details)".
-   *
-   * EVERY CELL IS READ-ONLY AND PLAIN TEXT. The order answers all four, and a
-   * greyed `<Input>` would say "you may edit this once something else is true"
-   * when the answer is "never, here". Plain text also keeps them off the Tab
-   * path with no `tabIndex` to set — a read-only value is not a field
-   * (AGENTS.md) — which leaves exactly one stop per row: the [Fabrics] button.
-   *
-   * `S No` IS `ChildGrid`'s OWN INDEX COLUMN and is not declared here.
-   */
-  const manualColumns: ChildGridColumn<ManualStyleRow>[] = [
-    {
-      header: "Style Ref No",
-      width: "12rem",
-      cell: (r) => (
-        <Truncated>
-          {/* THE UNSCOPED ROW SAYS SO IN WORDS. A blank cell would read as a
-              style whose ref failed to load; "Every style" is what NULL has
-              meant on this column since 0426, said out loud. */}
-          {r.unscoped ? "Every style" : r.style_ref_no || "—"}
-        </Truncated>
-      ),
-    },
-    { header: "Style No", width: "10rem", cell: (r) => <Truncated>{r.style_no || "—"}</Truncated> },
-    { header: "Article No", width: "10rem", cell: (r) => <Truncated>{r.article_no || "—"}</Truncated> },
-    {
-      /* "Component Unit: defaults to Pcs or Sets based on the order setup" —
-         `unit_kind` (0471), read through the style row. */
-      header: "Unit",
-      width: "6rem",
-      cell: (r) => <Truncated>{unitKindLabel(r.unit_kind) || "—"}</Truncated>,
-    },
-    {
-      header: "Fabrics",
-      width: "9rem",
-      cell: (r) => {
-        const mine = entriesForStyle(r.style_ref_no);
-        const answered = mine.filter((e) => manualAnswered(e) > 0).length;
-        return (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            /* A CELL OF THE ROW, so Tab, Enter and the arrows all reach it. It
-               is the only door to this style's weights, and Combos ▸ Detail was
-               mouse-only for exactly as long as it lacked this marker. */
-            data-row-open
-            onClick={() => openManual(r.style_ref_no)}
-          >
-            {/* HOW MANY OF THIS STYLE'S FABRICS ARE ANSWERED, which is the one
-                fact the section cannot otherwise show — every style looks
-                identical from out here. */}
-            Fabrics {mine.length ? `${answered}/${mine.length}` : "0"}
-          </Button>
-        );
-      },
-    },
-  ];
-
-  /**
-   * The sheet's own grid — one row per size, and THE COLUMNS DEPEND ON THE MODE.
+   * The entry's own grid — one row per size, and THE COLUMNS DEPEND ON THE MODE.
    *
    * Direct asks for the weight; calculated asks for the measurements and shows
    * the weight it derives. Building two lists rather than disabling half of one
@@ -2884,7 +2904,7 @@ export function FabricBomScreen({
    *
    * `entryKey` IS CLOSED OVER RATHER THAN READ OFF THE ROW, because a
    * `ManualSizeRow` does not know which entry it belongs to. The columns are
-   * therefore built per open sheet; that is cheap (one entry's sizes) and it is
+   * therefore built per entry; that is cheap (one entry's sizes) and it is
    * what keeps `ManualSizeRow` a pure measurement record instead of carrying a
    * parent pointer the state already expresses.
    */
@@ -2893,7 +2913,7 @@ export function FabricBomScreen({
     const gsm = gsmForStructure(e.structure_id);
     const wastage = numOrNull(e.wastage_pct);
     const set = (r: ManualDisplayRow, patch: Partial<ManualSizeRow>) =>
-      setSizeCell(e.key, r.key, patch);
+      setSizeCell(e.key, r, patch);
     const qtyOf = (r: ManualDisplayRow) =>
       orderSizesFor(e.style_ref_no).find((z) => z.size_id === r.size_id)?.qty ?? null;
 
@@ -3113,6 +3133,266 @@ export function FabricBomScreen({
     ];
   };
 
+  /**
+   * The first thing one style's entries cannot answer, in the words the rail's
+   * dot and the dead Save already use.
+   *
+   * IT REPLACES THE SHEET'S `SubSheetFooter`, which refused Done while any of
+   * this style's entries was unanswered and said why. Losing the overlay must
+   * not lose the PROXIMITY that footer bought — "the objection belongs beside
+   * the thing being objected to, not two tabs away at Save". It is advisory
+   * here rather than a refusal, because there is no longer a door to hold shut:
+   * Save is still the gate, through `manualBlockers`, which calls this same
+   * `manualProblem`.
+   */
+  const styleRefusal = (ref: string): string | null =>
+    entriesForStyle(ref)
+      .map((e) =>
+        manualProblem(
+          entryLike(e),
+          orderSizesFor(e.style_ref_no),
+          gsmForStructure(e.structure_id),
+        ),
+      )
+      .find((x) => x !== null)?.refused ?? null;
+
+  /**
+   * ONE STYLE'S DETAIL PANE — legacy's second and third levels (screenshot
+   * 2650), and what used to be a Sheet.
+   *
+   * THE REQUIRED SCOPE IS THE ONE THING THIS MOVE HAD TO GET RIGHT. `ChildGrid`
+   * wraps every CELL in a `RequiredScope`, and that scope follows the RENDER
+   * tree — which is exactly why this content used to live behind a `Sheet`,
+   * whose portal resets it (the New Yarn / Purity defect, 2026-08-06). Two
+   * independent things make it safe here: `renderMobileRow` is called INSTEAD
+   * of the `columns.map()` that wraps cells, so no cell scope stands above it
+   * at all; and the style grid declares `columns={[]}`, so there is no
+   * `required` column one could have carried.
+   */
+  const manualStylePane = (styleRow: ManualStyleRow) => {
+    const refusal = styleRefusal(styleRow.style_ref_no);
+    return (
+      <div className="space-y-4">
+        {/* WHAT THE ORDER SAYS ABOUT THIS STYLE, and nothing the planner can
+            change here. Style No, Article No and Unit are the spec's header
+            fields; the colourways are its "Assort-wise Color". A sentence
+            rather than a band of read-only boxes: a box invites a click that
+            does nothing. */}
+        <p className="text-xs text-muted-foreground">
+          {[
+            styleRow.style_no ? `Style No ${styleRow.style_no}` : null,
+            styleRow.article_no ? `Article ${styleRow.article_no}` : null,
+            unitKindLabel(styleRow.unit_kind) || null,
+            combosForStyle(styleRow.style_ref_no).length
+              ? `Colours: ${combosForStyle(styleRow.style_ref_no).join(", ")}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join("  ·  ") || "This style declares no colourways on the order yet."}
+        </p>
+
+        <ChildGrid<ManualEntryRow>
+          /* grid-caption: exempt -- the overlay names no grid; this caption
+             is the only thing that says what the cards are. */
+          label="Fabric weights"
+          /* AN EMPTY `columns` ARRAY, DELIBERATELY — the shape Combos ▸
+             Structure Details takes and for its stated reason: this grid
+             renders its own row, so `ChildGridColumn.required` would never
+             reach a cell and every star would be drawn with nothing behind
+             it (AGENTS.md, "a star with nothing behind it"). Each field
+             declares `required` itself, on the control, below. */
+          columns={[]}
+          rows={entriesForStyle(styleRow.style_ref_no)}
+          forceCards
+          /* ONE FRAME, not a card inside a card — the client's own call on
+             the sibling overlay ("remove that structure details frame also,
+             one frame is enough"). */
+          flatRows
+          /* ONE FABRIC OPEN AT A TIME. Eight fields plus a size grid is most
+             of the viewport, and a style with three fabrics would push
+             "+ Add fabric" out of sight. */
+          foldRows
+          canFold={(e) => !!e.structure_id}
+          renderFoldedRow={(e) => {
+            const totals = entryTotals(e);
+            const parts = e.component_ids
+              .map((id) => data.components.find((c) => c.id === id)?.name)
+              .filter(Boolean)
+              .join(" + ");
+            /* THE WHOLE OF A CLOSED FABRIC, because that is a fold's job.
+               The Gross is here and not only inside: it is the figure that
+               leaves this tab, and a closed row that hid it would make the
+               planner open every card to compare them. */
+            return (
+              <div className="cursor-pointer space-y-1 border-l-2 border-transparent pl-4">
+                <div className="text-sm font-medium">
+                  {data.structures.find((x) => x.id === e.structure_id)?.name ??
+                    "(no structure)"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {[
+                    parts || null,
+                    diaTypeOf(e) || null,
+                    WIDTH_FORM_OPTIONS.find((o) => o.value === e.width_form)?.label ?? null,
+                    calcModeOf(e.calc_mode) === "calculated" ? "Calculated" : null,
+                    totals.gross == null
+                      ? null
+                      : `Cons Wt ${fmtNumber(totals.gross)} kg`,
+                  ]
+                    .filter(Boolean)
+                    .join("  ·  ") || "Not answered yet"}
+                </div>
+              </div>
+            );
+          }}
+          renderMobileRow={(e) => (
+            <div className="space-y-3">
+              <FieldGrid>
+                <Field label="Fabric structure" required size="sm">
+                  <RecordPicker
+                    label="Fabric structure"
+                    compact
+                    required
+                    items={structureItemsFor(e.structure_id)}
+                    value={e.structure_id}
+                    onChange={(id) => setEntryCell(e.key, { structure_id: id })}
+                  />
+                </Field>
+                <Field label="Components" required size="lg">
+                  <MultiSelect
+                    label="Components"
+                    compact
+                    required
+                    options={componentOptionsFor(e)}
+                    values={e.component_ids}
+                    onChange={(next) => setEntryCell(e.key, { component_ids: next })}
+                    /* A STATE OF THE RECORD, which is the one thing a
+                       placeholder may still say. With every panel taken by
+                       another entry ON THIS STYLE there is genuinely nothing
+                       to choose, and an empty popup with no words reads as
+                       broken rather than as the rule working. */
+                    emptyLabel="Every component is already used on this style"
+                  />
+                </Field>
+                <Field label="Dia type" size="sm">
+                  {/* READ-ONLY, from the dias the sizes pick. Plain text: a
+                      derived value was not typed, so it is not a field. */}
+                  <Input readOnly value={diaTypeOf(e)} />
+                </Field>
+                <Field label="Assort widths" size="sm">
+                  <Select
+                    compact
+                    aria-label="Assort widths"
+                    value={e.width_form}
+                    onChange={(ev) => setEntryCell(e.key, { width_form: ev.target.value })}
+                  >
+                    {/* BLANK IS A REAL STATE here, unlike the mode beside
+                        it: the column is nullable because an entry may not
+                        have been told yet whether the cloth is slit. */}
+                    <option value="" />
+                    {WIDTH_FORM_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Weight from" size="sm">
+                  <Select
+                    compact
+                    aria-label="Weight mode"
+                    value={calcModeOf(e.calc_mode)}
+                    onChange={(ev) => setEntryCell(e.key, { calc_mode: ev.target.value })}
+                  >
+                    {/* NO BLANK. The column is NOT NULL with a default and
+                        the planner is always doing one or the other; an
+                        empty entry would offer a state the database cannot
+                        hold. */}
+                    {CALC_MODE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Loss %" size="sm">
+                  <Input
+                    className="text-right"
+                    inputMode="decimal"
+                    value={e.wastage_pct}
+                    onChange={(ev) => setEntryCell(e.key, { wastage_pct: ev.target.value })}
+                  />
+                </Field>
+                <Field label="GSM" size="sm">
+                  {/* THE ORDER'S, abstaining where its colourways disagree —
+                      see `gsmForStructure`. It is what the calculated mode
+                      multiplies, so it is shown where that choice is made. */}
+                  <Input
+                    readOnly
+                    value={
+                      gsmForStructure(e.structure_id) == null
+                        ? ""
+                        : String(gsmForStructure(e.structure_id))
+                    }
+                  />
+                </Field>
+              </FieldGrid>
+
+              {/* THE SIZE GRID, NESTED INSIDE THE FABRIC IT BELONGS TO —
+                  legacy's third level, and what puts Cons Wt beside the
+                  Loss % that produced it. AGENTS.md: "A ROW'S NESTED GRID IS
+                  PART OF THE ROW", so Tab walks the card's fields and then
+                  the panel beneath. */}
+              <ChildGrid<ManualDisplayRow>
+                /* grid-caption: exempt -- the card is the caption; a second
+                   heading inside it would name the same thing twice. */
+                columns={sizeColumns(e)}
+                rows={manualSizeRows(e)}
+                /* The rows are the ORDER's sizes — no "+ Add", no ✕, and
+                   `hideRemove` rather than `lockExisting` because they are
+                   re-derived on every render. */
+                hideAdd
+                hideRemove
+                onAdd={() => false}
+                onRemove={() => {}}
+                tableFrom="6xl"
+                centerHeaders
+                renderMobileRow={(row) => (
+                  <FieldGrid>
+                    {sizeColumns(e).map((c, ci) => (
+                      <Field key={ci} label={c.header} required={c.required} size="sm">
+                        {c.cell(row, ci)}
+                      </Field>
+                    ))}
+                  </FieldGrid>
+                )}
+              />
+              {manualSizeRows(e).length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  This style states no sizes yet — size quantities are entered
+                  on Orders ▸ Order Management ▸ Order Entry, under Approval
+                  Qty.
+                </p>
+              )}
+            </div>
+          )}
+          onAdd={() =>
+            mutEntries((xs) => [
+              ...xs,
+              blankManualEntry(newKey(), styleRow.style_ref_no),
+            ])
+          }
+          onRemove={(r) => mutEntries((xs) => xs.filter((x) => x.key !== r.key))}
+          addLabel="+ Add fabric"
+        />
+        {/* SAID WHERE IT CAN BE ACTED ON — see `styleRefusal`. Amber, not red:
+            the BOM is still saveable as a draft, and the sentence is a
+            direction rather than a rejection. */}
+        {refusal && <p className="text-xs text-warning">{refusal}</p>}
+      </div>
+    );
+  };
+
 
   const lineColumns: ChildGridColumn<LineRow>[] = [
 
@@ -3290,10 +3570,19 @@ export function FabricBomScreen({
              mandatory field narrowed to an empty list is otherwise a dead end
              that reads as a broken dropdown; the sentence names both the cause
              and the way out, which is the "+ Add" directly beneath it. */
+          /* AND THE HINT MUST NAME EVERY NARROWING THAT EMPTIED THE LIST. With
+             a Type stated, "no fabric under this structure" is a false
+             explanation — there may be nine, none of them yarn dyed — and a
+             wrong reason for an empty list is worse than none: it sends the
+             operator to create a cloth that already exists. Same failure as the
+             mis-scoped report AGENTS.md describes under Cascading filters,
+             where an empty result reads as a real answer. */
           emptyHint={
-            r.structure_id
-              ? "No fabric is filed under this structure yet — use + Add to create one."
-              : null
+            !r.structure_id
+              ? null
+              : rowType(r)
+                ? `No ${rowType(r)} fabric is filed under this structure yet — clear the Type, or use + Add to create one.`
+                : "No fabric is filed under this structure yet — use + Add to create one."
           }
           /* "+ Add" — THE CRUD HALF OF THE SAME INSTRUCTION. It opens the real
              mini-form (`FabricQuickCreateSheet`), never a name box: an `items`
@@ -3325,12 +3614,14 @@ export function FabricBomScreen({
              guessed. Only filled when EMPTY: a unit the planner has already
              corrected by hand is not overwritten by changing the cloth.
 
-             AND THE YARN CELLS ARE CLEARED when the new cloth is not yarn dyed.
-             Without this, switching MELANGE SINGLE JERSEY onto a row that had
-             been YARN DYED leaves a stored mixing ratio and colour count on a
-             fabric that has no repeat — invisible, because both cells render a
-             dash for a non-yarn-dyed row. Data the screen cannot show is data
-             nobody can correct.
+             AND THE YARN CELLS ARE NO LONGER CLEARED — the whole reason to
+             clear them is gone. That rule existed because the two cells used to
+             WITHDRAW for a non-yarn-dyed cloth, which stranded a typed value
+             where nobody could see or correct it. They are always live now
+             (client 2026-09-03), so a mixing ratio that survives a change of
+             cloth is on screen, next to the new fabric, and wrong in a way the
+             planner can act on. Deleting a value the operator typed, in a cell
+             they can still see, is the worse of the two.
 
              WRITTEN ON THE CHANGE, NEVER IN AN EFFECT — an effect also fires when
              a saved BOM is opened and would rewrite stored lines on load, which
@@ -3365,19 +3656,68 @@ export function FabricBomScreen({
        * column stops distinguishing the thing it exists to distinguish. Keyed on
        * the fabric, the two lines differ because their fabrics do.
        *
-       * STILL READ-ONLY, and now for a stronger reason than before: the fabric
-       * NAME already says it (`MELANGE SINGLE JERSEY`), so an editable cell
-       * could contradict the row's own Fabric cell with nothing to arbitrate.
-       * Plain text, not a disabled input — see the `GSM Range` cell above.
+       * READ-ONLY WHILE A FABRIC IS NAMED, AND A FILTER BEFORE THAT (client
+       * 2026-09-03, "the type and uom and no of color field allow manual entry
+       * too … why is only in read only mode").
+       *
+       * The read-only half is unchanged and keeps its reason: the fabric NAME
+       * already says it (`MELANGE SINGLE JERSEY`), so an editable cell over a
+       * named cloth could contradict the row's own Fabric cell with nothing to
+       * arbitrate — and four other things read this word. Plain text, not a
+       * disabled input, exactly as `GSM Range` above.
+       *
+       * WHAT WAS ACTUALLY WRONG IS THAT IT WAS DEAD WITH NOTHING TO DERIVE FROM.
+       * A line starts with no fabric, so the first thing an operator meets is a
+       * dash they cannot type into — the same "unknown drawn as a refusal" the
+       * two mixing cells were reported for on the same screenshot. With no cloth
+       * named there is no answer to contradict, so the cell takes the planner's
+       * word and spends it on the one thing it can honestly do: NARROWING the
+       * row's Fabric picker (`fabricItemsFor`). Naming a fabric ends the
+       * question and the cloth answers.
+       *
+       * IT STORES NOTHING — see `typeFilter`. A per-line override column was the
+       * alternative and was declined: it would let the line and the master
+       * disagree, and the Yarn Dyed Details panels and the Yarn Process rows are
+       * both built from the FABRIC's own `material_mixings`, so a typed word
+       * over a melange cloth plans a repeat that does not exist.
        */
       header: "Type",
-      width: "4.5rem",
+      /* 6rem, NOT THE 4.5 A READ-ONLY WORD NEEDED. "Yarn Dyed" plus a chevron
+         does not fit 72px. The row is now 66.5rem = 1064 + 72px chrome = 1136,
+         still under `tableFrom`'s 1152 — the same margin the 11-column layout
+         was signed off at. Keep that inequality true when resizing anything on
+         this row; past it the table silently becomes stacked cards. */
+      width: "6rem",
       /* THROUGH `fabricTypeOf`, NOT A SECOND LOOKUP. It was an inline `find` here
          while the Components tree read the ORDER's `item_sub_type` — one word,
          two surfaces, two sources. It also now GATES the two cells after it
          (0513), so a second derivation would be a second answer to "does this row
          owe a mixing ratio". */
-      cell: (r) => <Truncated>{fabricTypeOf(r.item_id) || "—"}</Truncated>,
+      cell: (r) =>
+        r.item_id ? (
+          <Truncated>{fabricTypeOf(r.item_id) || "—"}</Truncated>
+        ) : (
+          <Select
+            compact
+            className="h-8"
+            aria-label="Type"
+            value={typeFilter[allocationKeyOf(r)] ?? ""}
+            /* IT NARROWS AND DOES NOTHING ELSE. It used to clear the two mixing
+               cells when a whole-roll type was stated, because stating one used
+               to hide them; they no longer hide, so clearing would now delete a
+               typed answer out of a cell the operator is still looking at. */
+            onChange={(e) =>
+              setTypeFilter((prev) => ({ ...prev, [allocationKeyOf(r)]: e.target.value }))
+            }
+          >
+            <option value="" />
+            {fabricTypeNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        ),
     },
     {
       /**
@@ -3425,18 +3765,47 @@ export function FabricBomScreen({
       /* 4.5rem — 72px. A UOM code is "KG", "MTR", "PCS". */
       width: "4.5rem",
       required: lines.some((l) => l.item_id && isYarnDyed(fabricTypeOf(l.item_id))),
-      cell: (r) =>
-        (
+      /* ALWAYS LIVE (client 2026-09-03, screenshot 2651). The cell shipped
+         unconditional, was gated on `isYarnDyed` for an hour — which killed it on
+         the blank row the grid opens with — then made three-state, which killed
+         it the instant a Solid or Melange cloth was named. Three reports in one
+         day, and the third is the one that settles it: the operator picked a
+         fabric and watched the row go dead. **The type decides MANDATORY and
+         nothing else now**; see `fabric-line-rules.ts`' header for the withdrawal
+         and why an empty optional cell is the honest way to say "meaningless
+         here".
 
-          <RecordPicker
-            label="Mixing Uom"
-            compact
-            required
-            items={data.uoms}
-            value={r.mixing_uom_id}
-            onChange={(id) => setAlloc(r, { mixing_uom_id: id })}
-          />
-        ),
+         AND THE HOLD IS PER ROW WHILE THE STAR IS PER COLUMN. `required` above
+         is `ChildGridColumn.required` — one flag for the whole column, true iff
+         SOME line is yarn dyed — and `ChildGrid` wraps every cell of the column
+         in that scope. `useRequiredHold` ORs the scope with the control's own
+         flag, so a column-level `true` can only ever ADD: on a BOM whose first
+         line is yarn dyed, the SECOND line's empty Mixing Uom would be held
+         before its fabric is even chosen. Re-declaring the scope inside the cell
+         replaces it for this row (`RequiredScope` provides, it does not merge),
+         which is what lets the header star and the per-row hold disagree in the
+         one direction they must. */
+      cell: (r) => {
+        /* THE FABRIC'S OWN TYPE, NOT `rowType` — a stated Type is a question
+           ("show me yarn-dyed jerseys"), and a question must never make a field
+           mandatory: the operator would be held on a cell whose premise nothing
+           has established. `missingFabricLineFields` refuses to make that demand
+           for the same reason, and these two must agree or the hold and the Save
+           gate part company. */
+        const mandatory = isYarnDyed(fabricTypeOf(r.item_id));
+        return (
+          <RequiredScope required={mandatory} label="Mixing Uom">
+            <RecordPicker
+              label="Mixing Uom"
+              compact
+              required={mandatory}
+              items={data.uoms}
+              value={r.mixing_uom_id}
+              onChange={(id) => setAlloc(r, { mixing_uom_id: id })}
+            />
+          </RequiredScope>
+        );
+      },
     },
     {
       /**
@@ -3468,10 +3837,14 @@ export function FabricBomScreen({
          1040px + 72px of chrome = 1112, still under `tableFrom`'s 1152 — keep
          that inequality true when resizing anything here. */
       width: "4.5rem",
-      cell: (r) =>
-        (
-
-          <Input
+      /* ALWAYS LIVE, for Mixing Uom's reason above and on the same instruction.
+         Nothing to reconcile with a hold here — this one is offered and never
+         demanded, on any type of cloth, so it carries no `RequiredScope` of its
+         own. A colour count typed against a Solid is unused by the requirement
+         engine and visible enough to correct; a cell that vanishes as the fabric
+         lands is not. */
+      cell: (r) => (
+        <Input
             className="h-8 text-right"
             type="number"
             min={1}
@@ -3482,8 +3855,8 @@ export function FabricBomScreen({
                 no_of_colors: e.target.value === "" ? null : Number(e.target.value),
               })
             }
-          />
-        ),
+        />
+      ),
     },
     {
       /**
@@ -3605,20 +3978,26 @@ export function FabricBomScreen({
       width: "4.5rem",
       cell: (r) => {
         /* YARN-DYED ONLY (client field spec, 2026-09-02). The popup behind this
-           is Yarn Dyed Details — repeats, their mixing and their combinations —
-           and the spec hides "the Style split details grids" for Solid and
-           Melange, which are dyed as a whole roll and have no repeat to split.
+           is Yarn Dyed Details — repeats, their mixing and their combinations.
+           The 09-02 spec hid it for Solid and Melange, dyed as a whole roll and
+           with no repeat to split; that half is withdrawn (see below).
 
            DISABLED AND EXPLAINED, NOT HIDDEN. A control that vanishes teaches
-           the operator nothing about why; the reason names the two states apart
-           so "pick a fabric" and "this cloth is not yarn dyed" are not one
-           silent dead button. Same call `Tabs`' `disabled` makes ("the tab is
-           still SHOWN"). */
-        const reason = !r.item_id
-          ? "Choose the fabric first"
-          : isYarnDyed(fabricTypeOf(r.item_id))
-            ? null
-            : "Yarn Dyed fabrics only — this cloth is dyed as a whole roll";
+           the operator nothing about why, so the one refusal that remains says
+           what it wants. Same call `Tabs`' `disabled` makes ("the tab is still
+           SHOWN").
+
+           ONE CONDITION LEFT, AND IT IS THE ONE THE BUTTON ALREADY NAMED. The
+           yarn-dyed arm is gone (client 2026-09-03, screenshot 2651): the button
+           said *"Choose the fabric first"*, the operator chose one, and it
+           stayed grey — a refusal that contradicts its own instruction, which is
+           indistinguishable from a broken control. A fabric is all it ever
+           genuinely needed; the overlay's content is read off that cloth
+           (`mixingDetailRows` reads its composition), which is why THIS gate
+           survives where the two cells' did not. On a whole-roll cloth the
+           panels are simply empty, and an empty panel the operator opened is an
+           answer — a grey button is not. */
+        const reason = r.item_id ? null : "Choose the fabric first";
         return (
           /**
            * THE REASON HANGS ON THE WRAPPER, NOT ON THE BUTTON — and that is the
@@ -4562,24 +4941,32 @@ export function FabricBomScreen({
   // ---- the Yarn Process grid (0493) ----------------------------------------
 
   /**
-   * THREE COLUMNS, AND THE THIRD IS A GRID.
+   * TWO COLUMNS AND A FOLD — legacy's "Yarn Detail" grid (screenshot 2652).
    *
-   * The yarn, the figure it produces, and the treatments that produce it —
-   * legacy's `[+]` unfolded in place, which is the call 0472 already made for
-   * Order Entry ▸ Pack type(s). `ChildGrid` is what makes the nesting free: the
-   * keyboard contract covers it by name ("A ROW'S NESTED GRID IS PART OF THE
-   * ROW"), so Tab walks the yarn's cells and then its treatments, and Ctrl+Del
-   * reaches the inner ✕.
+   * ## THE TREATMENTS MOVED OUT OF THE ROW AND UNDER IT (client 2026-09-03)
    *
-   * THE WEIGHT SITS BEFORE THE GRID, not after it, which is the one layout
-   * choice here worth defending. It is the ANSWER, and the planner types the
-   * stages to move it — putting it below would mean typing a loss and looking
-   * past a block of rows to see what it did.
+   * "List the yarn — if the yarn is clicked show the S No / Stage / Process /
+   * For / Descriptions / Loss %". This was three `ChildGrid` columns whose third
+   * held the nested grid, so EVERY yarn drew its five-column route at once:
+   * eight yarns is eight grids stacked, and the tab opened on a wall rather than
+   * on the list of yarns legacy shows. `ProcessFoldList` draws the list and
+   * unfolds one route at a time; see its header for why the panel could not be a
+   * `ChildGrid` prop.
+   *
+   * THE WEIGHT STAYS, AND IT STAYS IN FRONT OF THE FOLD. Legacy has no such
+   * column, but the client's 09-01 spec asks for it by name ("the final adjusted
+   * purchase weights must automatically transfer … to the Budget"), and it is
+   * the ANSWER the stages exist to move — a planner types a loss to watch this
+   * figure change, so it has to be readable while the panel beneath is open.
+   *
+   * SEEDING IS NOW PAID FOR ON OPEN, which is a second gain rather than a side
+   * effect. `YarnProcessGrid` passes `seedRow`, so with every panel mounted the
+   * screen wrote a blank treatment into all eight yarns the moment the tab was
+   * reached — marking a freshly-opened BOM unsaved before anything was typed.
    */
-  const yarnColumns: ChildGridColumn<YarnRow>[] = [
+  const yarnColumns: FoldListColumn<YarnRow>[] = [
     {
       header: "Yarn",
-      width: "16rem",
       /* PLAIN TEXT, NEVER A DISABLED PICKER — the palette panels' rule, stated
          there: "a greyed-out box says you may edit this once something else is
          true"; this is not editable at all, and a box the planner can click into
@@ -4624,7 +5011,7 @@ export function FabricBomScreen({
        */
       header: "Yarn Purchase Wt",
       align: "right",
-      width: "13rem",
+      width: "11rem",
       cell: (r) => {
         const w = weightFor(r);
         if (isRefusal(w)) return <span className="text-xs text-danger">{w.refused}</span>;
@@ -4649,37 +5036,175 @@ export function FabricBomScreen({
         );
       },
     },
+  ];
+
+  /** What the shut fold says about a yarn — the count legacy's `[+]` leaves the
+   *  operator to find out by clicking. "No treatment" is a complete and common
+   *  answer (a solid order dyes no yarn), so it is worded rather than blanked. */
+  const yarnFoldSummary = (r: YarnRow) => {
+    const n = r.stages.filter((s) => s.stage_id || s.process_id).length;
+    return n ? `${n} treatment${n === 1 ? "" : "s"}` : "No treatment";
+  };
+
+  const yarnPanel = (r: YarnRow) => {
+    const w = weightFor(r);
+    return (
+      <YarnProcessGrid
+        rows={r.stages}
+        onChange={(next) => setYarnStages(r.item_id, next)}
+        processes={data.yarnProcesses}
+        stages={data.yarnStages}
+        /* THE COLOURWAYS THIS YARN IS ACTUALLY IN, off the same breakdown
+           the weight came out of — not the order's whole combo list. A For
+           naming a colourway this yarn does not appear in treats nothing,
+           and offering it would be a facet whose answers cannot be right
+           (AGENTS.md, Cascading filters). */
+        combos={isRefusal(w) ? [] : w.byCombo.map((c) => c.combo).filter(Boolean)}
+        /* THE SCREEN'S OWN GENERATOR, so a treatment added to a reopened BOM
+           cannot collide with the keys `openExisting` has already issued. */
+        newKey={newKey}
+        /* The HOST screen's permissions standing in for "may I maintain this
+           shared code list" — the model every `LookupDialogPicker` call site
+           in this app uses. */
+        canCreate={perms.canCreate}
+        canEdit={perms.canEdit}
+        readOnly={!perms.canEdit && !perms.canCreate}
+      />
+    );
+  };
+
+  // ---- the Fabric Process list (0492) --------------------------------------
+
+  /**
+   * LEGACY'S "Fabric Detail" ROW, COLUMN FOR COLUMN (client 2026-09-03,
+   * screenshot 2653): `S No · Fabric Description · Type · Type · Assort Color ·
+   * Components`, each fabric unfolding onto its own route.
+   *
+   * ## IT WAS A SENTENCE AND IS NOW A ROW, WHICH IS THE WHOLE REQUEST
+   *
+   * The same four facts were already on screen — as a muted subtitle reading
+   * "SINGLE JERSEY · YELLOW, WHITE · FRONT BODY, SLEEVE" under the fabric's
+   * name. Everything was there and nothing lined up: the operator could not read
+   * DOWN a column to compare two fabrics' forms, because there was no column.
+   * That is the difference between "the field is shown" and "the field is
+   * mapped", and it is the second time this module has been told so.
+   *
+   * ## THE TWO COLUMNS BOTH HEADED "Type" ARE TWO DIFFERENT FACTS
+   *
+   * Legacy prints "Circular" then "Tubular" and heads both "Type", and they are
+   * not variants of one answer:
+   *
+   *  - the first is the STRUCTURE's knit family (`categories.fabric_structure_id`
+   *    → a `config_lookups` name, carried on the picker row as `knit`). It says
+   *    how the cloth is MADE.
+   *  - the second is the LINE's `fabric_form` (0495, open | tubular). It says how
+   *    the roll reaches cutting. `component-map.ts` already records why both
+   *    exist: "a circular knit is the one that can be either, which is exactly
+   *    why both columns exist."
+   *
+   * The headers stay legacy's own words — the same call `Dia / Size / Width`
+   * makes one section up — and `cardLabel` is what tells them apart in the
+   * stacked layout, where two cells labelled "Type" would be a coin toss.
+   *
+   * ## ASSORT COLOR AND COMPONENTS ARE LISTED, NOT `[Click]`ed
+   *
+   * Legacy draws both as a button into a sub-list. Ours are DERIVED from the
+   * fabric's own lines and are short — a fabric serves three colourways and two
+   * panels — so the values themselves fit in the cell, and a click that reveals
+   * text the cell could already have shown is a worse answer than showing it.
+   * `Truncated` is what makes that safe on the fabric that serves eight: the
+   * ellipsis is a promise the rest is reachable (AGENTS.md), and hovering keeps
+   * it.
+   *
+   * ## EVERY CELL IS READ, AND THE ROUTE UNDERNEATH IS NOT
+   *
+   * Nothing here is typed: the description, both types, the colourways and the
+   * panels are all stated on Fabric Lines or on the order, and a second editable
+   * copy is the argument 0490 made for the palette panels and 0491 for the
+   * Manual tab's first two levels. What the operator answers is the route in the
+   * panel below.
+   *
+   * ## THE WIDTHS ARE A BUDGET, AND FABRIC DESCRIPTION IS WHAT THEY BUY
+   *
+   * Client 2026-09-03: "check the field size — I need compacted size and [the]
+   * right mapping." Five fixed tracks summing to 29.5rem plus the S No and fold
+   * tracks is ~672px of chrome, and everything left over goes to the ONE
+   * flexible column — the fabric name, which carries its whole composition
+   * bracket and is the only cell here that can genuinely run long. Widening any
+   * of the five takes it out of that name, which is where the ellipsis appears.
+   * The four short ones were cut on this pass (8/7/11/11 → 6/5.5/9/9): a knit
+   * family is "Circular Knit" and a roll form is "Open" or "Tubular", so the
+   * declared widths were sized for text that does not exist.
+   */
+  const fabricRouteRows = fabricGroups.map((g) => ({
+    key: g.item_id,
+    item_id: g.item_id,
+    name: g.name,
+    lines: g.lines,
+    /* PLAIN `map` + `rollUp`, NOT `useMemo` — a pass over one order's own lines,
+       which AGENTS.md names as the shape a memo should be dropped from. */
+    structureType: rollUp(
+      g.lines.map((l) =>
+        l.structure_id
+          ? (data.structures.find((x) => x.id === l.structure_id)?.knit ?? "")
+          : "",
+      ),
+    ),
+    form: rollUp(g.lines.map((l) => fabricFormLabel(l.fabric_form))),
+    /* WHAT THIS FABRIC IS USED FOR, gathered from its lines rather than named
+       again. A fabric on several lines is several colourways and several panels
+       — which is exactly the fact that makes ONE route right for all of them, so
+       the row says so instead of leaving the operator to wonder whether the
+       route they are typing covers the collar as well as the body. */
+    combos: [...new Set(g.lines.map((l) => l.combo.trim()).filter(Boolean))],
+    panels: [...new Set(g.lines.map((l) => componentName(l)).filter(Boolean))],
+  }));
+
+  type FabricRouteRow = (typeof fabricRouteRows)[number];
+
+  const fabricRouteColumns: FoldListColumn<FabricRouteRow>[] = [
     {
-      /* NO `width` — the treatments take the rest of the line. `hugsContent` is
-         `columns.every(c => c.width)`, so this one column's omission is what
-         lets the nested grid fill the row rather than hug a narrow track. */
-      header: "Treatments",
-      cell: (r) => {
-        const w = weightFor(r);
-        return (
-          <YarnProcessGrid
-            rows={r.stages}
-            onChange={(next) => setYarnStages(r.item_id, next)}
-            processes={data.yarnProcesses}
-            stages={data.yarnStages}
-            /* THE COLOURWAYS THIS YARN IS ACTUALLY IN, off the same breakdown
-               the weight came out of — not the order's whole combo list. A For
-               naming a colourway this yarn does not appear in treats nothing,
-               and offering it would be a facet whose answers cannot be right
-               (AGENTS.md, Cascading filters). */
-            combos={isRefusal(w) ? [] : w.byCombo.map((c) => c.combo).filter(Boolean)}
-            /* THE SCREEN'S OWN GENERATOR, so a treatment added to a reopened BOM
-               cannot collide with the keys `openExisting` has already issued. */
-            newKey={newKey}
-            /* The HOST screen's permissions standing in for "may I maintain this
-               shared code list" — the model every `LookupDialogPicker` call site
-               in this app uses. */
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            readOnly={!perms.canEdit && !perms.canCreate}
-          />
-        );
-      },
+      /* `Truncated` because a fabric name carries its whole composition bracket
+         and an ellipsis with nothing behind it is a dead end (AGENTS.md). */
+      header: "Fabric Description",
+      cell: (r) => (
+        <div className="min-w-0">
+          <div className="text-sm text-foreground">
+            <Truncated>{r.name || "(fabric not in the master)"}</Truncated>
+          </div>
+          {/* NO LINE NAMES IT ANY MORE — see `fabricGroups`. Said in words,
+              because a row that has simply lost its colourways looks like a row
+              whose lines said nothing. The next save drops these route rows, and
+              this is the operator's chance to see that coming. */}
+          {r.lines.length === 0 && (
+            <div className="text-xs text-warning">
+              no fabric line uses this any more — this route will be dropped on Save
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      header: "Type",
+      cardLabel: "Knit type",
+      width: "6rem",
+      cell: (r) => <ClothText value={r.structureType} />,
+    },
+    {
+      header: "Type",
+      cardLabel: "Roll form",
+      width: "5.5rem",
+      cell: (r) => <ClothText value={r.form} />,
+    },
+    {
+      header: "Assort Color",
+      width: "9rem",
+      cell: (r) => <ClothText value={r.combos.join(", ")} />,
+    },
+    {
+      header: "Components",
+      width: "9rem",
+      cell: (r) => <ClothText value={r.panels.join(", ")} />,
     },
   ];
 
@@ -5408,22 +5933,30 @@ export function FabricBomScreen({
      * rule (`componentOptionsFor`), which makes the entries partition the
      * garment.
      *
-     * ## THE SPLIT IS THE ORDER-ENTRY ONE
+     * ## THE SPLIT IS THE ORDER-ENTRY ONE, AND IT IS NOW A SPLIT
      *
-     * A row per entry, and a `[Sizes]` button opening a Sheet — the same shape
+     * Legacy's three levels are three levels here too (screenshot 2650): a
+     * STYLE owns fabric ENTRIES, and an entry owns SIZE rows. What changed on
+     * 2026-09-03 is how the first level opens.
+     *
+     * IT WAS A `[Fabrics 0/2]` BUTTON opening a full-bleed Sheet — the shape
      * Combos ▸ [Detail] and Quantities ▸ [Assort] take, down to `zIndexBase`,
-     * `fullBleed` and `SubSheetFooter`. Three reasons it is right here rather
-     * than merely familiar:
+     * `fullBleed` and `SubSheetFooter`. The client asked for the split instead
+     * ("design it like the split I did in order entry, instead that fabric
+     * button"), and the button's own case had quietly expired: it existed to
+     * keep three entries × six sizes off one scrollable section, which is
+     * exactly what `masterDetail` does — one style open, the rest standing in a
+     * 268px list beside it — without putting a door in front of the only thing
+     * the tab is for.
      *
-     *  - **The size table is nine columns wide in calculated mode** and is read
-     *    one entry at a time; three entries × six sizes inline is eighteen rows
-     *    of eight cells on a section nobody can scan.
-     *  - **The entry row is where the grouping decision is made** — structure,
-     *    panels, mode, wastage — and it wants to be readable as a list, which is
-     *    how the planner checks the partition covers every panel once.
-     *  - **It is already on the keyboard.** `data-row-open` puts the button in
-     *    `ROW_FIELDS`, so Tab, Enter and the arrows all reach it — the marker
-     *    exists because Combos ▸ Detail was mouse-only until 2026-08-19.
+     * Two of the button's three reasons survive the move and are now the SECOND
+     * level's, where the fold still lives: the size table is nine columns wide
+     * in calculated mode and is read one entry at a time, and the entry row is
+     * where the grouping decision is made, so it wants to read as a list. The
+     * third — "it is already on the keyboard", `data-row-open` putting the
+     * button in `ROW_FIELDS` — went with the button; the split needs no marker,
+     * because `ChildGrid` owns the panes and the open row keeps every key it
+     * had.
      *
      * ## `done` IS AN ANSWERED SIZE, NEVER A MODE
      *
@@ -5588,7 +6121,15 @@ export function FabricBomScreen({
                 </p>
               ) : (
                 <ChildGrid<ManualStyleRow>
-                  columns={manualColumns}
+                  /* AN EMPTY `columns` ARRAY, DELIBERATELY — the shape Combos ▸
+                     Structure Details and the fabric-weights grid below both
+                     take, for the stated reason: this grid renders its own row
+                     (`renderMobileRow`), so a declared `ChildGridColumn` could
+                     never reach a cell and any `required` on one would draw a
+                     star with nothing behind it (AGENTS.md). The four facts a
+                     style states are read-only and are said in the pane's own
+                     sentence. */
+                  columns={[]}
                   rows={manualStyleRows}
                   /* READ-ONLY AS TO ROWS: a style exists because the ORDER names
                      it. `hideRemove` rather than `lockExisting`, because these
@@ -5599,17 +6140,101 @@ export function FabricBomScreen({
                   hideRemove
                   onAdd={() => false}
                   onRemove={() => {}}
-                  tableFrom="6xl"
-                  centerHeaders
-                  renderMobileRow={(row) => (
-                    <FieldGrid>
-                      {manualColumns.map((c, ci) => (
-                        <Field key={ci} label={c.header} size="sm">
-                          {c.cell(row, ci)}
-                        </Field>
-                      ))}
-                    </FieldGrid>
+                  /* CARDS AT EVERY WIDTH. A style owns a grid of fabrics, each
+                     owning a grid of sizes; there is no table row that could
+                     collapse into. */
+                  forceCards
+                  /* ONE FRAME. The section already draws a card and the pane
+                     draws its own grids — a third border per style would be the
+                     client's own complaint on the sibling overlay, "one frame is
+                     enough". */
+                  flatRows
+                  /**
+                   * THE SPLIT (client 2026-09-03, screenshot 2650 — legacy's
+                   * three nested levels): "design it like the split I did in
+                   * order entry, instead of that fabric button".
+                   *
+                   * WHAT WENT: a `[Fabrics 0/2]` cell that opened a full-bleed
+                   * Sheet over the whole editor. It was one door too many — the
+                   * planner is already inside the Manual tab, and what was
+                   * behind the door is the only thing this tab is for.
+                   *
+                   * `foldRows` decides that ONE style is open at a time;
+                   * `masterDetail` decides where the others go — a 268px list
+                   * beside the open one rather than stacked above and below it.
+                   * That is the same pair, in the same order, that the client
+                   * chose for Material BOM's lines on 2026-08-20.
+                   *
+                   * BOTH ARE `ChildGrid`'s, and that is the whole reason this is
+                   * two props rather than a hand-rolled two-pane div: the open
+                   * row keeps its `data-grid-row` inside the same
+                   * `data-grid-body`, so `gridKeyNav`, `tabAlongRow`, the
+                   * required-holds and Ctrl+Del all still find it. A screen that
+                   * built its own split would lose every one of those — the
+                   * exact failure AGENTS.md records for the ~22 hand-rolled
+                   * grids.
+                   *
+                   * A SINGLE-STYLE ORDER SEES NO LIST AND NO FOLD. `mdActive`
+                   * carries `rows.length > 1` and so does `folded`, so the
+                   * ordinary order — one style, the Order Info default — opens
+                   * straight into its fabrics with nothing to click first.
+                   */
+                  foldRows
+                  masterDetail
+                  renderListItem={(row) => {
+                    /* INERT BY CONTRACT — see `renderListItem` on the grid.
+                       Text, a dot and a count; nothing focusable, because the
+                       fields live in the pane next door. */
+                    const mine = entriesForStyle(row.style_ref_no);
+                    const answered = mine.filter((e) => manualAnswered(e) > 0).length;
+                    /* THREE STATES AND THE DOT SAYS WHICH. Amber is the one
+                       that matters: this style has fabrics and not all of them
+                       carry a weight yet — which is invisible from out here,
+                       because every style looks identical. */
+                    const state =
+                      mine.length === 0 ? "idle" : answered === mine.length ? "ok" : "warn";
+                    return (
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 shrink-0 rounded-full",
+                            state === "ok" && "bg-success",
+                            state === "warn" && "bg-warning",
+                            state === "idle" && "bg-border-strong opacity-50",
+                          )}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                            {row.unscoped ? "Every style" : row.style_ref_no || "—"}
+                          </Truncated>
+                          <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                            {[row.style_no, row.article_no].filter(Boolean).join(" · ") || "—"}
+                          </Truncated>
+                        </span>
+                        {/* HOW MANY OF THIS STYLE'S FABRICS ARE ANSWERED — the
+                            one fact the old [Fabrics 2/3] button carried, kept
+                            where it still earns its place. */}
+                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                          {mine.length ? `${answered}/${mine.length}` : "0"}
+                        </span>
+                      </div>
+                    );
+                  }}
+                  /* REQUIRED BY `foldRows` AND NEVER RENDERED WHILE THE SPLIT IS
+                     ON. `child-grid.tsx` computes `folded` from this prop being
+                     present and then returns null for a folded row, because the
+                     list pane above IS the folded rows. It is written honestly
+                     rather than as `() => null`: turn `masterDetail` off and
+                     this is what a closed style has to say. A style row carries
+                     no field of its own to keep here — every one of its four
+                     facts is the order's — which is a second reason the split
+                     is the right treatment for this level and stacking is not. */
+                  renderFoldedRow={(row) => (
+                    <div className="cursor-pointer text-sm font-medium">
+                      {row.unscoped ? "Every style" : row.style_ref_no || "—"}
+                    </div>
                   )}
+                  renderMobileRow={manualStylePane}
                 />
               )}
             </>
@@ -5634,15 +6259,16 @@ export function FabricBomScreen({
      *
      * ## THE ROWS ARE NOT EDITABLE AS A LIST, AND THAT IS THE POINT
      *
-     * `hideAdd` + `lockExisting` — this screen's own read-only idiom, from the
-     * palette panels above (`ChildGrid` has no `readOnly` prop, and those two
-     * flags together remove the "+ Add" button and every row's ✕). Here it
-     * enforces a client rule rather than a display choice: "the developer must
-     * ensure the planner cannot manually add new yarns here; the rows are
-     * strictly populated based on the mapped technical fabrics."
+     * `ProcessFoldList` offers no "+ Add" and no row ✕ at all — it is a list of
+     * SUBJECTS, and every one of them is derived. That enforces a client rule
+     * rather than a display choice: "the developer must ensure the planner
+     * cannot manually add new yarns here; the rows are strictly populated based
+     * on the mapped technical fabrics." It replaced `ChildGrid`'s `hideAdd` +
+     * `lockExisting` pair, which said the same thing by withholding two
+     * affordances the list never had a reason to grow.
      *
-     * The CELLS inside are still live — a process and a loss per row. What is
-     * locked is the membership of the list.
+     * What is live is what is INSIDE a yarn — its treatments, one open at a
+     * time. What is locked is the membership of the list.
      *
      * ## `done` IS "SOMETHING HAS BEEN ANSWERED", NOT "EVERY ROW IS FILLED"
      *
@@ -5675,39 +6301,16 @@ export function FabricBomScreen({
               to plan. Add the Mixing rows on Master Data ▸ Materials.
             </p>
           ) : (
-            <ChildGrid<YarnRow>
+            <ProcessFoldList<YarnRow>
               columns={yarnColumns}
               rows={yarnRows}
-              /* `6xl`, THE ONE THRESHOLD EVERY GRID ON THIS SCREEN TAKES —
-                 Fabric Lines, Manual and both route grids. Its declared widths
-                 sum to ~832px plus ~80 of `#`/remove chrome, so it would fit from 1024 (@5xl), and it USED to say so
-                 while claiming in the same breath to match "the two route
-                 grids" — which are 6xl. The claim was the intent and the number
-                 was the drift: between 1024 and 1152px of pane this tab alone
-                 drew a table while every other tab stacked into cards, so the
-                 content changed shape as the operator moved along the rail.
-                 Fitting sooner is not worth being the only tab that does.
-                 Below it the grid stacks; it never scrolls sideways (rule 4). */
-              tableFrom="6xl"
-              centerHeaders
-              /* `renderMobileRow` STAYS. The DEFAULT stacked cell is a bare
-                 <div> around a RequiredScope with NO VISIBLE LABEL, so dropping
-                 this as redundant turns the sub-@6xl fallback into four
-                 unlabelled boxes — the mistake this screen records having made
-                 once already. */
-              renderMobileRow={(row, i) => (
-                <FieldGrid>
-                  {yarnColumns.map((c, ci) => (
-                    <Field key={ci} label={c.header} size="sm">
-                      {c.cell(row, i)}
-                    </Field>
-                  ))}
-                </FieldGrid>
-              )}
-              hideAdd
-              lockExisting
-              onAdd={() => false}
-              onRemove={() => {}}
+              openKey={openYarnId}
+              onToggle={setOpenYarnId}
+              /* LEGACY'S OWN WORD for what the `[+]` opens onto. The summary
+                 beside it is what a shut fold has instead of the grid. */
+              foldHeader="Treatments"
+              foldSummary={yarnFoldSummary}
+              renderPanel={yarnPanel}
             />
           )}
 
@@ -5740,27 +6343,30 @@ export function FabricBomScreen({
      * ## THE FABRIC ROWS ARE READ, WHICH IS THE SAME CALL 0490 ALREADY MADE
      *
      * Legacy's outer "Fabric Detail" grid re-states the fabric's description,
-     * its knit type and its width — every one of which is already on the Fabric
-     * Lines section above, and two of which (the description, the dia) the
-     * ORDER owns and this screen only mirrors. A second editable copy would be
-     * a second place for one BOM to disagree with itself, which is the argument
-     * `getOrderPalette` makes for the three read-only palette panels and 0491
-     * repeats for the Manual tab's first two levels. So a fabric is a HEADING
-     * here, never a row of inputs.
+     * both its types, its colourways and its panels — every one of which is
+     * already on the Fabric Lines section above or on the order, and this screen
+     * only mirrors. A second EDITABLE copy would be a second place for one BOM
+     * to disagree with itself, which is the argument `getOrderPalette` makes for
+     * the three read-only palette panels and 0491 repeats for the Manual tab's
+     * first two levels. So a fabric is a row of VALUES here, never of inputs.
      *
-     * ## WHY A CARD PER FABRIC AND NOT A [Click] BUTTON
+     * ## IT IS NOW LEGACY'S ROW RATHER THAN A CARD (client 2026-09-03)
      *
-     * The Garment Order's Style ▸ Process is a button opening a sheet, and it
-     * was the wrong model for a structural reason rather than a taste: THERE
-     * the outer row is editable, so the button is one cell among fields. Here
-     * the outer row is read, which also rules out `ChildGrid`'s `foldRows` —
-     * that prop's own note requires a folded row to keep at least one real
-     * field, or Tab cannot reach it and the row is mouse-only.
+     * This tab drew a per-fabric card — a bold name, a muted subtitle listing
+     * the same four facts, and the route grid always open beneath it. Both
+     * halves were reported: the facts were not COLUMNS, so two fabrics could not
+     * be read against each other, and six routes drawn at once is a wall rather
+     * than a list. `ProcessFoldList` is the answer to both, and it is one
+     * component with the Yarn Process tab rather than two accordions — see
+     * `fabricRouteColumns` for the field mapping and the component's own header
+     * for why the panel could not be a `ChildGrid` prop.
      *
-     * What is left is exactly the shape Fabric Plan ▸ Routes uses one step
-     * later on these same fabrics, and that is the strongest argument of the
-     * three: the two screens ask the same question and should not look like
-     * different features.
+     * The earlier note here reasoned that a read-only outer row ruled out both
+     * `[Click]`→Sheet and `ChildGrid`'s `foldRows`. That reasoning still holds
+     * and is what the new component works around rather than waives: the fold
+     * lives on a `data-row-open` chevron, which IS a field by `ROW_FIELDS`, so
+     * the row has exactly the one Tab stop `foldRows` demanded and could not get
+     * from a row of plain text.
      *
      * ## `done` IS "A ROUTE EXISTS", NOT "EVERY FABRIC HAS ONE"
      *
@@ -5784,112 +6390,48 @@ export function FabricBomScreen({
               with, and an empty pane would read as unbuilt (the failure
               screenshot 2580 recorded for the palette panels). The door is
               named rather than the emptiness described. */}
-          {fabricGroups.length === 0 ? (
+          {fabricRouteRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Name a fabric on Fabric Lines first — each one gets its own route
               here.
             </p>
           ) : (
-            /* NO WRAPPER SPACING — each group carries its own `py-3`, so the
-               rule between two of them sits in the middle of 24px rather than
-               against one of their edges. */
-            <div>
-              {fabricGroups.map((g, gi) => {
-                const rows = procs.filter((p) => p.item_id === g.item_id);
-                const steps = routeStepCount(rows);
-                /* WHAT THIS FABRIC IS USED FOR, gathered from its lines rather
-                   than named again. A fabric on several lines is several
-                   colourways and several panels — which is exactly the fact that
-                   makes ONE route right for all of them, so the card says so
-                   instead of leaving the operator to wonder whether the route
-                   they are typing covers the collar as well as the body. */
-                const combos = [
-                  ...new Set(g.lines.map((l) => l.combo.trim()).filter(Boolean)),
-                ];
-                const panels = [
-                  ...new Set(g.lines.map((l) => componentName(l)).filter(Boolean)),
-                ];
-                const structures = [
-                  ...new Set(g.lines.map((l) => structureName(l)).filter(Boolean)),
-                ];
-                return (
-                  /* NO BOX PER FABRIC (operator rule 4, client 2026-08-19:
-                     "all the lines look same kind, so can't tell the next
-                     section" and, before it, the report that a section of six
-                     lines read as a stack of boxes rather than a table).
-
-                     THIS TAB WAS THE ONE SURVIVOR OF THAT RULE. Every other
-                     section here hands `SectionBody` a `ChildGrid` — one frame,
-                     flush to the section's edge — and this one wrapped each
-                     fabric in `rounded-md border p-3`, so its grids started 13px
-                     further in than every other tab's AND drew a frame inside a
-                     frame. Switching tabs moved the whole content column, which
-                     is what "the tab area is unaligned" looks like from the
-                     outside.
-
-                     `ChildGrid` owns this idiom for `flatRows` / `listRows` and
-                     no screen sets it — but the grouping here is the SCREEN's
-                     (one card per fabric, `fabricGroups`), so this is the one
-                     place that has to draw the same boundary itself. Same two
-                     halves, for the same reasons `child-grid.tsx` records:
-                     `border-t-2` because a 1px line reads as chrome next to
-                     field edges that are also 1px, and `py-3` because proximity
-                     groups more reliably than ink — 24px between fabrics against
-                     8px inside one. */
-                  <div
-                    key={g.item_id}
-                    className={cn("py-3", gi > 0 && "border-t-2 border-border-strong")}
-                  >
-                    {/* THE LEGACY "Fabric Detail" ROW, AS A HEADING — its two
-                        outer rows are fabric descriptions, and this is one of
-                        them. `Truncated` because a fabric name carries its whole
-                        composition bracket and an ellipsis with nothing behind
-                        it is a dead end (AGENTS.md, Truncated values). */}
-                    <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <span className="text-sm font-semibold text-foreground">
-                        <Truncated>{g.name || "(fabric not in the master)"}</Truncated>
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {[structures.join(", "), combos.join(", "), panels.join(", ")]
-                          .filter(Boolean)
-                          .join(" · ") ||
-                          /* NO LINE NAMES IT ANY MORE — see `fabricGroups`. Said
-                             in words, because a card that has simply lost its
-                             subtitle looks like a card whose lines said nothing.
-                             The next save drops these rows, and this is the
-                             operator's chance to see that coming. */
-                          (g.lines.length === 0
-                            ? "no fabric line uses this any more — this route will be dropped on Save"
-                            : "whole order")}
-                      </span>
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {steps
-                          ? `${steps} step${steps === 1 ? "" : "s"}`
-                          : "no route yet"}
-                      </span>
-                    </div>
-
-                    <FabricProcessGrid
-                      itemId={g.item_id}
-                      rows={rows}
-                      onChange={(next) => setFabricProcs(g.item_id, next)}
-                      processes={data.processes}
-                      lookups={data.processLookups}
-                      /* THE SCREEN'S OWN GENERATOR, so a route added to a
-                         reopened BOM cannot collide with the keys `openExisting`
-                         has already issued. */
-                      newKey={newKey}
-                      /* The HOST screen's permissions standing in for "may I
-                         maintain this shared code list" — the model every
-                         `LookupDialogPicker` call site in this app uses. */
-                      canCreate={perms.canCreate}
-                      canEdit={perms.canEdit}
-                      readOnly={!perms.canEdit && !perms.canCreate}
-                    />
-                  </div>
+            <ProcessFoldList<FabricRouteRow>
+              columns={fabricRouteColumns}
+              rows={fabricRouteRows}
+              openKey={openFabricId}
+              onToggle={setOpenFabricId}
+              foldHeader="Process"
+              /* WHAT A SHUT FOLD SAYS — `routeStepCount` rather than the row
+                 count, because a half-typed step is not a step. "No route yet"
+                 is a complete answer: a fabric bought finished and cut runs
+                 none, which is why nothing here blocks Save. */
+              foldSummary={(r) => {
+                const steps = routeStepCount(
+                  procs.filter((p) => p.item_id === r.item_id),
                 );
-              })}
-            </div>
+                return steps ? `${steps} step${steps === 1 ? "" : "s"}` : "No route yet";
+              }}
+              renderPanel={(r) => (
+                <FabricProcessGrid
+                  itemId={r.item_id}
+                  rows={procs.filter((p) => p.item_id === r.item_id)}
+                  onChange={(next) => setFabricProcs(r.item_id, next)}
+                  processes={data.processes}
+                  lookups={data.processLookups}
+                  /* THE SCREEN'S OWN GENERATOR, so a route added to a
+                     reopened BOM cannot collide with the keys `openExisting`
+                     has already issued. */
+                  newKey={newKey}
+                  /* The HOST screen's permissions standing in for "may I
+                     maintain this shared code list" — the model every
+                     `LookupDialogPicker` call site in this app uses. */
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  readOnly={!perms.canEdit && !perms.canCreate}
+                />
+              )}
+            />
           )}
 
           {/* WHERE THE LOSS GOES, said once and only while a route exists.
@@ -6253,292 +6795,6 @@ export function FabricBomScreen({
         }}
       />
 
-      {/*
-       * THE MANUAL SIZE SHEET (0494) — legacy's third level.
-       *
-       * MOUNTED OUTSIDE `MasterFullScreen`, at the editor root, and NOT inside
-       * the grid cell that opens it. Two separate reasons, both load-bearing:
-       *
-       *  - It layers above the whole editor the way legacy's does, and
-       *    `zIndexBase` clears the full-screen surface beneath it. Same mount
-       *    Combos ▸ Structure Details and Quantities ▸ Assortments take.
-       *  - `ChildGrid` wraps every cell in a `RequiredScope`, and that scope
-       *    follows the RENDER tree — so a Sheet rendered from inside a cell of a
-       *    grid with mandatory columns would have every optional field within it
-       *    inherit "required", stamp `data-required-empty` and hold the cursor.
-       *    That is the New Yarn / Purity defect (2026-08-06); `Sheet` resets the
-       *    scope at its portal boundary, which only helps if the Sheet is what
-       *    is being portaled.
-       *
-       * NO SAVE OF ITS OWN. The size rows live in `entries` and are written by
-       * this screen's Save — a second Save here would imply they commit on their
-       * own, and on a NEW BOM there is no id for them to commit against. Closing
-       * is Escape or ✕, one layer at a time, per the keyboard contract.
-       */}
-      <Sheet
-        open={!!manualStyle}
-        onClose={() => setManualStyle(null)}
-        title={
-          manualStyle
-            ? `Manual Consumption — ${
-                manualStyle.unscoped ? "Every style" : manualStyle.style_ref_no
-              }${manualStyle.article_no ? ` · ${manualStyle.article_no}` : ""}`
-            : "Manual Consumption"
-        }
-        zIndexBase={120}
-        /* THE WHOLE PANE. An entry card carries eight fields and a size grid of
-           up to ten columns; the 1180px reading width wraps the last cells away
-           from the ones they belong to and leaves ~220px of white down each
-           side. Same exception Combos ▸ Structure Details and the assortment
-           matrix both earned. */
-        fullBleed
-        footer={
-          <SubSheetFooter
-            parent="fabric BOM"
-            onDone={() => setManualStyle(null)}
-            /* DONE REFUSES WHILE ANY OF THIS STYLE'S ENTRIES IS UNANSWERED, in
-               the SAME sentence the rail and the dead Save use — `manualBlockers`
-               calls the same `manualProblem`. Proximity: the objection belongs
-               beside the thing being objected to, not two tabs away at Save.
-
-               ESCAPE AND ✕ STAY LIVE. They run through `onClose`, which this
-               does not touch. A style whose order states no sizes has no cells
-               to type into, so a rule enforced on every exit would be
-               unsatisfiable and would seal the planner in. */
-            blockedReason={
-              manualStyle
-                ? (entriesForStyle(manualStyle.style_ref_no)
-                    .map((e) =>
-                      manualProblem(
-                        entryLike(e),
-                        orderSizesFor(e.style_ref_no),
-                        gsmForStructure(e.structure_id),
-                      ),
-                    )
-                    .find((x) => x !== null)?.refused ?? null)
-                : null
-            }
-            onBlocked={(why) => toastError(why)}
-          />
-        }
-      >
-        {manualStyle && (
-          <div className="space-y-4">
-            {/* WHAT THE ORDER SAYS ABOUT THIS STYLE, and nothing the planner can
-                change here. Style No, Article No and Unit are the spec's header
-                fields; the colourways are its "Assort-wise Color". A sentence
-                rather than a band of read-only boxes: a box invites a click that
-                does nothing. */}
-            <p className="text-xs text-muted-foreground">
-              {[
-                manualStyle.style_no ? `Style No ${manualStyle.style_no}` : null,
-                manualStyle.article_no ? `Article ${manualStyle.article_no}` : null,
-                unitKindLabel(manualStyle.unit_kind) || null,
-                combosForStyle(manualStyle.style_ref_no).length
-                  ? `Colours: ${combosForStyle(manualStyle.style_ref_no).join(", ")}`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join("  ·  ") || "This style declares no colourways on the order yet."}
-            </p>
-
-            <ChildGrid<ManualEntryRow>
-              /* grid-caption: exempt -- the overlay names no grid; this caption
-                 is the only thing that says what the cards are. */
-              label="Fabric weights"
-              /* AN EMPTY `columns` ARRAY, DELIBERATELY — the shape Combos ▸
-                 Structure Details takes and for its stated reason: this grid
-                 renders its own row, so `ChildGridColumn.required` would never
-                 reach a cell and every star would be drawn with nothing behind
-                 it (AGENTS.md, "a star with nothing behind it"). Each field
-                 declares `required` itself, on the control, below. */
-              columns={[]}
-              rows={entriesForStyle(manualStyle.style_ref_no)}
-              forceCards
-              /* ONE FRAME, not a card inside a card — the client's own call on
-                 the sibling overlay ("remove that structure details frame also,
-                 one frame is enough"). */
-              flatRows
-              /* ONE FABRIC OPEN AT A TIME. Eight fields plus a size grid is most
-                 of the viewport, and a style with three fabrics would push
-                 "+ Add fabric" out of sight. */
-              foldRows
-              canFold={(e) => !!e.structure_id}
-              renderFoldedRow={(e) => {
-                const totals = entryTotals(e);
-                const parts = e.component_ids
-                  .map((id) => data.components.find((c) => c.id === id)?.name)
-                  .filter(Boolean)
-                  .join(" + ");
-                /* THE WHOLE OF A CLOSED FABRIC, because that is a fold's job.
-                   The Gross is here and not only inside: it is the figure that
-                   leaves this tab, and a closed row that hid it would make the
-                   planner open every card to compare them. */
-                return (
-                  <div className="cursor-pointer space-y-1 border-l-2 border-transparent pl-4">
-                    <div className="text-sm font-medium">
-                      {data.structures.find((x) => x.id === e.structure_id)?.name ??
-                        "(no structure)"}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {[
-                        parts || null,
-                        diaTypeOf(e) || null,
-                        WIDTH_FORM_OPTIONS.find((o) => o.value === e.width_form)?.label ?? null,
-                        calcModeOf(e.calc_mode) === "calculated" ? "Calculated" : null,
-                        totals.gross == null
-                          ? null
-                          : `Cons Wt ${fmtNumber(totals.gross)} kg`,
-                      ]
-                        .filter(Boolean)
-                        .join("  ·  ") || "Not answered yet"}
-                    </div>
-                  </div>
-                );
-              }}
-              renderMobileRow={(e) => (
-                <div className="space-y-3">
-                  <FieldGrid>
-                    <Field label="Fabric structure" required size="sm">
-                      <RecordPicker
-                        label="Fabric structure"
-                        compact
-                        required
-                        items={structureItemsFor(e.structure_id)}
-                        value={e.structure_id}
-                        onChange={(id) => setEntryCell(e.key, { structure_id: id })}
-                      />
-                    </Field>
-                    <Field label="Components" required size="lg">
-                      <MultiSelect
-                        label="Components"
-                        compact
-                        required
-                        options={componentOptionsFor(e)}
-                        values={e.component_ids}
-                        onChange={(next) => setEntryCell(e.key, { component_ids: next })}
-                        /* A STATE OF THE RECORD, which is the one thing a
-                           placeholder may still say. With every panel taken by
-                           another entry ON THIS STYLE there is genuinely nothing
-                           to choose, and an empty popup with no words reads as
-                           broken rather than as the rule working. */
-                        emptyLabel="Every component is already used on this style"
-                      />
-                    </Field>
-                    <Field label="Dia type" size="sm">
-                      {/* READ-ONLY, from the dias the sizes pick. Plain text: a
-                          derived value was not typed, so it is not a field. */}
-                      <Input readOnly value={diaTypeOf(e)} />
-                    </Field>
-                    <Field label="Assort widths" size="sm">
-                      <Select
-                        compact
-                        aria-label="Assort widths"
-                        value={e.width_form}
-                        onChange={(ev) => setEntryCell(e.key, { width_form: ev.target.value })}
-                      >
-                        {/* BLANK IS A REAL STATE here, unlike the mode beside
-                            it: the column is nullable because an entry may not
-                            have been told yet whether the cloth is slit. */}
-                        <option value="" />
-                        {WIDTH_FORM_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Weight from" size="sm">
-                      <Select
-                        compact
-                        aria-label="Weight mode"
-                        value={calcModeOf(e.calc_mode)}
-                        onChange={(ev) => setEntryCell(e.key, { calc_mode: ev.target.value })}
-                      >
-                        {/* NO BLANK. The column is NOT NULL with a default and
-                            the planner is always doing one or the other; an
-                            empty entry would offer a state the database cannot
-                            hold. */}
-                        {CALC_MODE_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Loss %" size="sm">
-                      <Input
-                        className="text-right"
-                        inputMode="decimal"
-                        value={e.wastage_pct}
-                        onChange={(ev) => setEntryCell(e.key, { wastage_pct: ev.target.value })}
-                      />
-                    </Field>
-                    <Field label="GSM" size="sm">
-                      {/* THE ORDER'S, abstaining where its colourways disagree —
-                          see `gsmForStructure`. It is what the calculated mode
-                          multiplies, so it is shown where that choice is made. */}
-                      <Input
-                        readOnly
-                        value={
-                          gsmForStructure(e.structure_id) == null
-                            ? ""
-                            : String(gsmForStructure(e.structure_id))
-                        }
-                      />
-                    </Field>
-                  </FieldGrid>
-
-                  {/* THE SIZE GRID, NESTED INSIDE THE FABRIC IT BELONGS TO —
-                      legacy's third level, and what puts Cons Wt beside the
-                      Loss % that produced it. AGENTS.md: "A ROW'S NESTED GRID IS
-                      PART OF THE ROW", so Tab walks the card's fields and then
-                      the panel beneath. */}
-                  <ChildGrid<ManualDisplayRow>
-                    /* grid-caption: exempt -- the card is the caption; a second
-                       heading inside it would name the same thing twice. */
-                    columns={sizeColumns(e)}
-                    rows={manualSizeRows(e)}
-                    /* The rows are the ORDER's sizes — no "+ Add", no ✕, and
-                       `hideRemove` rather than `lockExisting` because they are
-                       re-derived on every render. */
-                    hideAdd
-                    hideRemove
-                    onAdd={() => false}
-                    onRemove={() => {}}
-                    tableFrom="6xl"
-                    centerHeaders
-                    renderMobileRow={(row) => (
-                      <FieldGrid>
-                        {sizeColumns(e).map((c, ci) => (
-                          <Field key={ci} label={c.header} required={c.required} size="sm">
-                            {c.cell(row, ci)}
-                          </Field>
-                        ))}
-                      </FieldGrid>
-                    )}
-                  />
-                  {manualSizeRows(e).length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      This style states no sizes yet — size quantities are entered
-                      on Orders ▸ Order Management ▸ Order Entry, under Approval
-                      Qty.
-                    </p>
-                  )}
-                </div>
-              )}
-              onAdd={() =>
-                mutEntries((xs) => [
-                  ...xs,
-                  blankManualEntry(newKey(), manualStyle.style_ref_no),
-                ])
-              }
-              onRemove={(r) => mutEntries((xs) => xs.filter((x) => x.key !== r.key))}
-              addLabel="+ Add fabric"
-            />
-          </div>
-        )}
-      </Sheet>
 
       {/**
        * THE COMPONENTS [Detail] SHEET (0495) — legacy's third tab, minus the two
@@ -6693,7 +6949,10 @@ function ProductionStrip({
   }
 
   return (
-    <div className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs">
+    /* NO FILL — the client's 2026-09-03 "just same white color", the same rule
+       `component-map-sheet.tsx`'s header row states in full. The border already
+       makes this read as a note rather than as body text. */
+    <div className="mt-3 rounded-md border border-border px-3 py-2 text-xs">
       <span className="mr-2 font-medium text-foreground">Planning against:</span>
       {body}
     </div>

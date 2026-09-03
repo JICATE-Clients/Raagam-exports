@@ -15,24 +15,26 @@
  * twice: it was a 430-line `Sheet` until the grid was lifted out of it, and
  * lifting it out is what made "put the button back" cost ~120 lines instead of
  * 430. The caller supplies the box. Today's caller is the Fabric Process
- * section of `fabric-bom-screen.tsx`, which draws one bordered card per fabric.
+ * section of `fabric-bom-screen.tsx`, which unfolds one of these under the
+ * fabric row that was clicked (`ProcessFoldList`).
  *
- * ## WHY A CARD PER FABRIC AND NOT A [Click] → SHEET
+ * ## IT WAS A CARD PER FABRIC UNTIL 2026-09-03
  *
- * The obvious model was the Garment Order's Style ▸ Process, which IS a button
- * opening a sheet, and it was the wrong one here for a structural reason rather
- * than a taste: there the outer row is EDITABLE, so the button is one cell of a
- * row full of fields. Here the outer row is the BOM's own fabric line, READ —
- * the description, the type and the colour are all already stated on the Fabric
- * Lines section and re-typing them would be the second copy 0490 refused for
- * the palette panels. A read-only outer row also rules out `ChildGrid`'s
- * `foldRows`, whose own note requires a folded row to keep at least one real
- * field or Tab cannot reach it.
+ * Every fabric drew its own heading and its own always-open route, which is six
+ * grids stacked on an ordinary BOM. Legacy lists the fabrics and unfolds ONE
+ * (client screenshot 2653), and the client asked for that.
  *
- * What is left is exactly the shape Fabric Plan ▸ Routes already uses one step
- * later on the identical data (a heading naming the fabric, a route grid under
- * it), which is the strongest argument of all: the two screens ask the same
- * question about the same fabrics and should not look like different features.
+ * The reasoning the card rested on is unchanged and is what the fold works
+ * around rather than waives. The obvious model was the Garment Order's Style ▸
+ * Process, which IS a button opening a sheet, and it was wrong here for a
+ * structural reason rather than a taste: there the outer row is EDITABLE, so the
+ * button is one cell of a row full of fields. Here the outer row is the BOM's
+ * own fabric, READ — description, both types, colourways and panels are all
+ * already stated on Fabric Lines, and re-typing them would be the second copy
+ * 0490 refused for the palette panels. `ChildGrid`'s `foldRows` needs a folded
+ * row to keep at least one real field or Tab cannot reach it, and a row of plain
+ * text has none. What `ProcessFoldList` adds is exactly that one field: a
+ * `data-row-open` chevron, which `ROW_FIELDS` counts.
  *
  * ## Edits apply live; there is no Apply button
  *
@@ -120,7 +122,7 @@ export function FabricProcessGrid({
        * the defaulted-vocabulary mistake AGENTS.md records under "Near misses".
        */
       header: "Stage",
-      width: "8rem",
+      width: "7rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
         <LookupDialogPicker
@@ -172,7 +174,7 @@ export function FabricProcessGrid({
        *  measured. The rest of the vocabulary is unknown, so it is a lookup the
        *  operator extends rather than a guess (0492). */
       header: "Loss for",
-      width: "9rem",
+      width: "7.5rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="process_loss_for"
@@ -190,8 +192,13 @@ export function FabricProcessGrid({
       /* Legacy's [Click]-into-a-sub-list, as free text — the same call the
          Garment Order's Style ▸ Process grid made on the same evidence. Not
          `required`: a step with no note is a complete answer. */
-      header: "Description",
-      width: "12rem",
+      /* LEGACY'S OWN WORD, PLURAL (client 2026-09-03, who enumerated this
+         tab's columns and wrote "Descriptions"). Same call `Dia / Size / Width`
+         makes on the Fabric BOM section — a legacy header is copied, not
+         improved, so an operator reading the two screens side by side is
+         matching columns rather than translating them. */
+      header: "Descriptions",
+      width: "10rem",
       cell: (r) => (
         <Input
           value={r.description}
@@ -221,7 +228,7 @@ export function FabricProcessGrid({
        */
       header: "Loss %",
       align: "right",
-      width: "5rem",
+      width: "4.5rem",
       cell: (r) => (
         <Input
           className="h-8 text-right"
@@ -255,7 +262,7 @@ export function FabricProcessGrid({
        */
       header: "Rate",
       align: "right",
-      width: "6rem",
+      width: "5rem",
       cell: (r) => (
         <Input
           className="h-8 text-right"
@@ -278,7 +285,7 @@ export function FabricProcessGrid({
        * invented to fill a column.
        */
       header: "Type",
-      width: "8rem",
+      width: "7rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="fabric_process_type"
@@ -311,14 +318,23 @@ export function FabricProcessGrid({
          leave a blank step standing on every such fabric with no way to clear
          it — and nothing on this screen requires a route. */
       keepOne={false}
-      /* THE WIDTHS SUM TO ~848px INCLUDING THE `#`/remove chrome, so the table
-         needs ~1050 before the flexible Process column is readable — hence @6xl
-         (1152) and not the @5xl this took before the Rate column was added.
-         A threshold is a function of the DECLARED widths; it moves when they do,
-         and the symptom of forgetting is not an error but a table that overflows
-         its card. `@lg` is 512px of CONTAINER, not 1024 — see `tableFrom`.
-         Below the threshold the grid stacks; it never scrolls sideways. */
-      tableFrom="6xl"
+      /* @5xl (1024), AND THE WIDTHS WERE CUT TO EARN IT (client 2026-09-03:
+         "check the field size — I need compacted size and [the] right mapping").
+         Stage 8→7, Loss for 9→7.5, Descriptions 12→10, Loss % 5→4.5, Rate 6→5,
+         Type 8→7: ~656px declared plus ~170 of `#`/remove/cell chrome, so the
+         flexible Process column still has ~200px at 1024.
+
+         THE THRESHOLD IS NOT COSMETIC HERE — IT DECIDES WHETHER THIS IS A TABLE.
+         Below it `ChildGrid` stacks into one labelled field per column, which on
+         a seven-column route is seven full-width boxes per step: the "field
+         size" complaint exactly. And this grid now renders inside a fold PANEL
+         (`ProcessFoldList`), which costs ~80px of container against the section
+         it used to fill — on a 1536px screen with the rail that left ~1216
+         against a @6xl threshold of 1152, i.e. 64px of margin before a route
+         turned into a wall of boxes. A threshold is a function of the DECLARED
+         widths AND of the box the grid sits in; it moves when either does.
+         `@lg` is 512px of CONTAINER, not 1024 — see `tableFrom`. */
+      tableFrom="5xl"
       centerHeaders
       /* `renderMobileRow` STAYS. The DEFAULT stacked cell is a bare <div> around
          a RequiredScope with NO VISIBLE LABEL, so dropping this as redundant

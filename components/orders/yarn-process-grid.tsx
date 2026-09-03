@@ -25,11 +25,15 @@
  *
  * ## THE OUTER ROW IS DERIVED, WHICH IS THE OTHER REAL DIFFERENCE
  *
- * `FabricProcessGrid`'s caller draws a read-only heading per fabric because the
- * fabric is already stated on Fabric Lines. Here the outer row is a YARN the
- * planner cannot add or edit at all — so the whole thing is a `ChildGrid` inside
- * a `ChildGrid` cell, the shape Order Entry ▸ Pack type(s) uses and the one the
- * keyboard contract covers by name ("A ROW'S NESTED GRID IS PART OF THE ROW").
+ * `FabricProcessGrid`'s caller lists fabrics; this one lists YARNS, which the
+ * planner cannot add or edit at all. Both are now `ProcessFoldList` rows, and
+ * this grid is the panel one of them unfolds onto — legacy's `[+]`, and the tab
+ * no longer draws eight routes at once (client 2026-09-03, screenshot 2652).
+ *
+ * IT USED TO SIT IN A `ChildGrid` CELL. That worked and the keyboard contract
+ * covered it by name ("A ROW'S NESTED GRID IS PART OF THE ROW") — what it could
+ * not do is fold, because a `<tr>` cannot carry a panel beneath its cells. The
+ * panel is still inside `data-grid-row`, so the same sentence still applies.
  *
  * ## Edits apply live; there is no Apply button
  *
@@ -120,7 +124,7 @@ export function YarnProcessGrid({
        * the defaulted-vocabulary mistake AGENTS.md records under "Near misses".
        */
       header: "Stage",
-      width: "8rem",
+      width: "7rem",
       required: rows.some(yarnStageStarted),
       cell: (r) => (
         <LookupDialogPicker
@@ -182,7 +186,7 @@ export function YarnProcessGrid({
        * the order's whole list: see the `combos` prop.
        */
       header: "For",
-      width: "10rem",
+      width: "8rem",
       cell: (r) => (
         <Select
           compact
@@ -212,8 +216,13 @@ export function YarnProcessGrid({
          the same evidence: the Process cell beside it carries the ⓘ glyph every
          master-backed field in this app carries, and this one carries none. Not
          `required`: a step with no note is a complete answer. */
-      header: "Description",
-      width: "11rem",
+      /* LEGACY'S OWN WORD, PLURAL (client 2026-09-03, who enumerated this
+         tab's columns and wrote "Descriptions"). Same call `Dia / Size / Width`
+         makes on the Fabric BOM section — a legacy header is copied, not
+         improved, so an operator reading the two screens side by side is
+         matching columns rather than translating them. */
+      header: "Descriptions",
+      width: "10rem",
       cell: (r) => (
         <Input
           value={r.description}
@@ -240,7 +249,7 @@ export function YarnProcessGrid({
        */
       header: "Loss %",
       align: "right",
-      width: "5rem",
+      width: "4.5rem",
       cell: (r) => (
         <Input
           className="h-8 text-right"
@@ -270,9 +279,17 @@ export function YarnProcessGrid({
          yarn-stage dyeing" (client). The default would leave a blank step
          standing on every solid order's yarn with no way to clear it. */
       keepOne={false}
-      /* The declared widths sum to ~544px plus ~80 of `#`/remove chrome, leaving
-         the flexible Process column room at 1024 — so the table may appear from
-         @5xl. Below it the grid stacks; it never scrolls sideways (rule 4). */
+      /* @5xl (1024) and now with room to spare — the widths were cut with the
+         fabric route's on 2026-09-03 (Stage 8→7, For 10→8, Descriptions 11→10,
+         Loss % 5→4.5). ~472px declared plus ~150 of `#`/remove/cell chrome
+         leaves the flexible Process column ~380px at 1024.
+
+         IT MATTERS MORE SINCE THIS GRID MOVED INTO A FOLD PANEL: the panel costs
+         ~80px of container against the section it used to sit in, and below the
+         threshold `ChildGrid` stacks into one labelled full-width box per column
+         — five of them per treatment, which is the "field size" complaint rather
+         than a graceful fallback. Below it the grid stacks; it never scrolls
+         sideways (rule 4). */
       tableFrom="5xl"
       centerHeaders
       /* `renderMobileRow` STAYS. The DEFAULT stacked cell is a bare <div> around
