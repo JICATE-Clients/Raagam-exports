@@ -200,7 +200,8 @@ export type LineFacts = {
 
 
 /**
- * A READ-ONLY CELL OF THE CLOTH — Structure, Fabric Type, Fabric, Gsm, Type.
+ * A READ-ONLY CELL OF THE CLOTH — Structure, Fabric Type, Fabric, Gsm, Type,
+ * Coordinate.
  *
  * NO `<Field>` WRAPPER SINCE BOTH LEVELS BECAME TABLES (client 2026-09-02). It
  * was `ClothCell`, which drew its own `Field` label — right inside a `FieldGrid`,
@@ -208,16 +209,30 @@ export type LineFacts = {
  * column header is the heading and a second one inside the cell would print the
  * name twice per row.
  *
- * PLAIN TEXT, NEVER A DISABLED `<Input>`. A greyed box says "you may edit this
- * once something else is true"; these are edited on Fabric Lines and never here,
- * and a box the operator can click into and not change is the affordance that
- * makes them try. It also keeps them off the Tab path with no `tabIndex` to set
- * — a read-only value is not a field (AGENTS.md, "Tab lands on fields").
+ * A MUTED BOX, NOT A DISABLED `<Input>` — REVISED 2026-09-03 (client, on the
+ * open-panel row specifically: "Coordinate, Structure, Structure Type, Gsm ...
+ * looking orphaned, no layout, table border for this").
+ *
+ * THIS WAS BARE TEXT UNTIL THAT REPORT, ON A REAL ARGUMENT THAT STILL HOLDS
+ * HALF OF ITSELF: "a greyed box says you may edit this once something else is
+ * true ... a box the operator can click into and not change is the affordance
+ * that makes them try." That is an argument against looking EDITABLE — it was
+ * never an argument against having no border at all, and bare text in a row
+ * otherwise full of bordered pickers is what read as "orphaned": four cells
+ * with no visual weight, sitting beside three that have plenty.
+ *
+ * SO THE BOX IS BACK, TINTED RATHER THAN WHITE. `bg-surface-muted` is what
+ * every EDITABLE control in this app is NOT — `Input`, `Select` and
+ * `RecordPicker` all paint `bg-surface`, so a muted fill reads as "this one is
+ * different" rather than as one more white box inviting a click. The original
+ * worry is answered by the colour, not by the absence of a border.
  *
  * `<Truncated>` because a fabric name is legacy's longest cell by far
  * (`SOLID 1X1 LYCRA RIB (30'S COTTON COMBED 95%, 20'S ELASTANE 5%) 100%`), and
  * an ellipsis with no way to read the rest is a dead end (AGENTS.md,
- * "Truncated values").
+ * "Truncated values"). NO `tabIndex` — a read-only value is still not a field
+ * (AGENTS.md, "Tab lands on fields"); the box says "this is a value", not
+ * "this is a stop on the way through the row".
  */
 /* EXPORTED FOR THE FABRIC PROCESS TAB (2026-09-03). Its fabric row is five
    read-only cells of exactly this shape — one control's height, muted, an em
@@ -226,7 +241,7 @@ export type LineFacts = {
    screen come to render the same absence two different ways. */
 export function ClothText({ value }: { value: string }) {
   return (
-    <div className="flex min-h-8 items-center">
+    <div className="flex h-9 min-h-8 w-full items-center rounded-md border border-border bg-surface-muted px-3 @2xl/editor:h-8">
       <Truncated className="text-sm text-muted-foreground">{value || "—"}</Truncated>
     </div>
   );
@@ -746,19 +761,71 @@ export function ComponentMapBody({
    * than one order-sensitive place, so an index would drift the day a column
    * moved.
    */
+  /**
+   * BY VALUE, NOT BY HABIT (client 2026-09-03: "first and second row
+   * alignment some field looks squeezed and some field have much gap ...
+   * hided so make it both row as even sized field with better context ...
+   * gsm have only 3 digit number so can maintain the current space ... like
+   * based on values can allocate space").
+   *
+   * EACH SPAN IS SIZED TO WHAT THE FIELD ACTUALLY HOLDS, catalog-checked
+   * rather than guessed:
+   *
+   *   Coordinate      "PIECES" / "TOP"           — 3-6 chars
+   *   Component       "SIDE PANELS", "NECK TAPE" — 8-11 chars, plus a picker
+   *   Structure       "THREE-THREAD FLEECE"       — the longest of the short
+   *                   fields, 15-20 chars across the live structures
+   *   Structure Type  "Circular Knit"             — 13 chars, fixed vocabulary
+   *   Fabric Type     "Yarn Dyed"                 — 5-9 chars, a short select
+   *   Fabric          composed master names        — 40-80+ chars; no span
+   *                   shows one in full, so this gets the most room going
+   *                   and `Truncated` carries the rest, same as everywhere
+   *                   else a composed name is read (AGENTS.md, "Truncated
+   *                   values")
+   *   Gsm             "275 - 285"                 — 9 chars, a fixed range;
+   *                   THE CLIENT'S OWN EXAMPLE of a field that must NOT grow
+   *                   past what it holds
+   *
+   * 2+4+8+4+3+8+2 = 31 of 32 — full width the way Material BOM's own row
+   * reads, one column of slack rather than a remainder fighting for space.
+   */
   const FIELD_SIZES: Record<string, FieldSize> = {
-    /* `sm`, not `xs` — at `xs` (2/32, ~78px) "Coordinate"'s own label nearly
-       fills its cell, leaving the 8px track gap as the only space before
-       "Component" starts, which read as one run-on label (client screenshot
-       2679: "Coordinate Component*" with no visible gap between them). */
     Coordinate: "sm",
-    Component: "lg",
-    Structure: "lg",
+    Component: "sm",
+    Structure: "xl",
     "Structure Type": "sm",
     "Fabric Type": "sm",
     Fabric: "xl",
     Gsm: "xs",
   };
+
+  /**
+   * A LITTLE MORE ROOM THAN `xl` GIVES, FOR THE TWO FIELDS THAT NEED IT MOST
+   * (client 2026-09-03: "add extra little length to that coordinate and
+   * structure, fabric field").
+   *
+   * `xl` (8/32) IS THE NAMED CEILING — `FIELD_SPAN`'s own note calls it "NOT a
+   * field width" in the ordinary sense, the category reserved for a control
+   * sharing its row with something wide rather than for the widest ordinary
+   * field. Structure and Fabric are exactly that: the two longest values in
+   * the row (structure names run 15-20 characters, composed fabric names run
+   * 40-80+), so this is the one row in the file where going past the ceiling
+   * is the honest answer rather than a habit.
+   *
+   * `className` OVER `size`, RESOLVED BY `twMerge` (`cn` in lib/utils.ts) —
+   * `Field` appends the caller's `className` after `SPAN[size]`, and `twMerge`
+   * keeps the LAST conflicting utility, so this literal wins over `xl`'s
+   * `col-span-8` without touching the enum every other field still reads.
+   *
+   * A LITERAL STRING, NEVER BUILT FROM A NUMBER — Tailwind v4 scans source
+   * TEXT for class names, so `` `@lg/section:col-span-${n}` `` would compile to
+   * no CSS at all (the same warning `FIELD_TRACK_32` itself carries).
+   *
+   * Coordinate and the other four stay on `FIELD_SIZES` alone; freeing one
+   * column each from Component and Structure Type (`md` -> `sm`) is what pays
+   * for this without pushing the row past 32: 3+3+9+3+3+9+2 = 32 exactly.
+   */
+  const WIDE_FIELD_CLASSNAME = "@lg/section:col-span-9";
 
   const panelColumns: ChildGridColumn<PanelRow>[] = [
     {
@@ -1328,70 +1395,40 @@ export function ComponentMapBody({
            prevent, and what `--check grid-required-mobile` looks for. */
         renderMobileRow={(p) => (
           <div className="space-y-3">
-            {/* THE PANEL'S OWN NAME, BOLD, ABOVE THE FIELDS (client 2026-09-03,
-               screenshots 2676-2677, pointing at Material BOM's open-item
-               heading as the reference: "I need this kind of same UI … looks
-               unfinished"). The pane opened straight into the Coordinate/
-               Component field row with nothing above it naming what was open —
-               the ✕ floated alone at the top corner of a card with no title to
-               belong to, which is what read as a stub rather than a finished
-               screen.
+            {/* NO NAME HERE ANY MORE (client 2026-09-03: "the first tile of
+                the section front body already the side rail showing so no
+                need show again in that page screen ... remove it").
 
-               SAME THREE VALUES AS `SectionBody`'s `<h2>` — `text-[15px]
-               font-bold tracking-tight` — the same match Material BOM's own
-               open-line heading makes to itself ("make the new material
-               heading bolder and bigger like material bom", 2026-08-28), so a
-               reader comparing the two screens is comparing one typographic
-               decision, not two.
+                THIS UNDOES THE HEADING ADDED EARLIER THE SAME DAY, and the
+                reason is not a change of mind about whether the open panel
+                needs naming — it is that a SECOND fix made the first one
+                redundant. The heading was built when the rail said only a
+                bare part name; once the rail became Material BOM's own shape
+                (a dot, the name, the structure, the colourway count), the
+                name and the count were both being said twice, one column
+                apart, and the client is right that the second saying earns
+                nothing the first did not.
 
-               `pr-9` CLEARS THE ✕. `cornerRemove` in `child-grid.tsx` floats it
-               `absolute right-1 top-1` over this exact row — the same
-               mechanism Material BOM's heading already accounts for with its
-               own `pr-9` — so the two cannot collide without either changing.
-
-               NO MIRRORED FIGURE. Material BOM's heading carries the line's
-               own Final Quantity on the right because that number exists and
-               nothing else on screen shows it first. A panel has no equivalent
-               single total — its colourways carry separate figures each — so
-               inventing one here would be exactly the "screenshot cannot show
-               a grain" mistake this module's own history warns against. The
-               colourway COUNT is real and was on the rail until the client had
-               it removed for being a second line per entry there ("this text
-               only … remove pieces and 1 colourway") — that objection was
-               about the RAIL, which stays text-only; it says nothing against
-               naming the count once, here, where it costs no second line and
-               gives the ✕ a reason to sit where it does. */}
-            <div className="mb-1 flex items-baseline gap-3 pr-9">
-              <Truncated className="min-w-0 text-[15px] font-bold tracking-tight text-foreground">
-                {componentName(p.component_id) || "New part"}
-              </Truncated>
-              {p.lines.length > 0 && (
-                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                  {p.lines.length} {p.lines.length === 1 ? "colourway" : "colourways"}
-                </span>
-              )}
-            </div>
+                THE ✕ STILL NEEDS THE `pr-9` ROOM `cornerRemove` FLOATS INTO
+                — that half of the old heading's job stays, on a bare spacer
+                rather than on text that repeats the rail. Dropping the whole
+                block would bring back the ORIGINAL defect this heading was
+                built to fix: an ✕ with nothing above it to belong to. */}
+            <div className="h-1 pr-9" />
             {/* SIZED LIKE MATERIAL BOM'S OWN FIELDS, NOT A UNIFORM `xs` ROW
-                (client 2026-09-03, screenshots 2676-2678, repeated: "same ...
-                size ... everything"). `cols={14}` at a flat `xs` was the
-                previous answer to "all seven on one row" — 155px per field,
-                against Material BOM's own ~157-315px — and it is what made
-                the row read as cramped next to the reference it was being
-                compared to. THIS REVERSES THAT WIDTH, not the one-row layout:
-                seven fields still fit one line, they simply stop being equal.
+                (client 2026-09-03, screenshots 2676-2678: "same ... size ...
+                everything"; refined the same day against the RESULT — "some
+                field looks squeezed and some field have much gap ... based
+                on values can allocate space"). `cols={14}` at a flat `xs` was
+                the original answer to "all seven on one row" — 155px for
+                every field regardless of what it held, which squeezed
+                Structure's 20-character names exactly as much as Gsm's
+                9-character range.
 
                 `cols={32}`, the SAME track the colourways row below already
-                uses, so this file has one wide track rather than two. Spans
-                are PER FIELD, by weight rather than by habit: Component and
-                Fabric are pickers over names the operator reads and reads
-                again — Fabric doubly so, since the master composes long
-                strings there ("SOLID 1X1 LYCRA RIB (30'S COTTON …)") — so they
-                take `lg` and `xl`; Structure gets `lg` for the same reason one
-                step down; Coordinate, Structure Type, Fabric Type and Gsm are
-                short, read or picked in one glance, and stay at `xs`/`sm`.
-                3+6+6+3+3+8+2 = 31 of 32, so the row still reads as full the
-                way Material BOM's own does, with 1 column of slack rather
-                than a remainder fighting for space. */}
+                uses. Spans are now BY VALUE (`FIELD_SIZES`, above) rather than
+                by a flat guess — see that constant for the per-field
+                reasoning and the catalog figures behind each one. */}
             <FieldGrid cols={32}>
               {panelColumns.map((c, ci) => (
                 <Field
@@ -1399,6 +1436,11 @@ export function ComponentMapBody({
                   label={c.header}
                   required={c.required}
                   size={FIELD_SIZES[c.header] ?? "xs"}
+                  className={
+                    c.header === "Structure" || c.header === "Fabric"
+                      ? WIDE_FIELD_CLASSNAME
+                      : undefined
+                  }
                 >
                   {c.cell(p, ci)}
                 </Field>

@@ -58,9 +58,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-/* The Components cell is a SET, which is the one thing that makes a Manual
-   entry not a fabric line — see 0494. */
-import { MultiSelect } from "@/components/ui/multi-select";
 /* A Combobox, so the Manual sheet's Table width cell PICKS rather than accepts:
    typed text in one is a SEARCH and is never committed (`commit` in
    combobox.tsx). That is what makes the declared dia list mean something. */
@@ -83,6 +80,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Sheet } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -338,6 +336,16 @@ type ManualSizeRow = {
   length_tolerance: string;
   /** "Cons Qty" — units of cloth per garment. BLANK MEANS 1 (`consQtyOf`). */
   cons_qty: string;
+  /**
+   * THE "Widths" [Click] POPUP'S OWN FIELD (0526) — legacy's "Width Details"
+   * sub-form shows eight columns (screenshot 2681: Width | Width Tolerance |
+   * Width | Calculated Width | Final Width | Width For Calc | Finished Width
+   * | Purchase Width), but the operator's own correction is that only TWO are
+   * real: this and `purchase_width` above. 0525 shipped `roll_width` /
+   * `roll_width_tolerance` for the first pair instead — wrong, reverted the
+   * same day. The other six columns are not stored anywhere.
+   */
+  finished_width: string;
 };
 
 /**
@@ -759,6 +767,7 @@ const blankManualSize = (key: string, size_id: string | null, dia = ""): ManualS
   length: "",
   length_tolerance: "",
   cons_qty: "",
+  finished_width: "",
 });
 
 const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
@@ -1034,6 +1043,19 @@ export function FabricBomScreen({
    * removed. The same reason every other write on this tab addresses by key.
    */
   const [componentsFor, setComponentsFor] = useState<string | null>(null);
+  /** THE COMPONENTS BUTTON'S OWN RECT, so its sheet grows out of THAT button
+   *  rather than the middle of the screen — the same mechanism
+   *  `garment-order-screen.tsx`'s Style ▸ Process sheet uses (`processOrigin`),
+   *  applied here for the same reason: "a surface's size is a function of
+   *  what is ON it, not of how it is opened" (operator instruction,
+   *  2026-09-03: apply this to every [Click]-opened sheet on this tab). */
+  const [componentsOrigin, setComponentsOrigin] = useState<DOMRect | null>(null);
+  /** WHICH MANUAL ENTRY'S "Widths" POPUP IS OPEN — legacy's [Click] on the
+   *  Widths cell (screenshot 2681, "Width Details"). By entry key, same
+   *  reason as `componentsFor` above. */
+  const [widthsFor, setWidthsFor] = useState<string | null>(null);
+  /** The Widths button's own rect — same mechanism as `componentsOrigin`. */
+  const [widthsOrigin, setWidthsOrigin] = useState<DOMRect | null>(null);
   /** The picker hands us its `commit` so a save selects the new fabric and
    *  closes the list in one step. A ref because the sheet outlives the callback
    *  (the same shape `bank-picker.tsx` uses). */
@@ -1952,6 +1974,7 @@ export function FabricBomScreen({
           length: z.length == null ? "" : String(z.length),
           length_tolerance: z.length_tolerance == null ? "" : String(z.length_tolerance),
           cons_qty: z.cons_qty == null ? "" : String(z.cons_qty),
+          finished_width: z.finished_width == null ? "" : String(z.finished_width),
         })),
       })),
     );
@@ -3169,6 +3192,30 @@ export function FabricBomScreen({
   };
 
   /**
+   * LEGACY'S "Coordinate" COLUMN (client 2026-09-03, screenshot 2680: the
+   * [Click] ▸ Components popup, `PIECES | FRONT BODY1 | ✓`) — READ-ONLY, the
+   * same call the Components TAB's own `coordinateName` already makes for the
+   * identical cell: a component's coordinate is a property of the STYLE's
+   * declared pairing (`garment_order_amendment_style_components`), not of the
+   * component in isolation, so an editable box here would be a second place
+   * for it to disagree with the order.
+   *
+   * REUSES DATA THIS SCREEN ALREADY HOLDS — `styleDecls` and `data.coordinates`
+   * are fetched once for the whole order and already passed to the Components
+   * tab as `decls=` / `coordinates=` (below); this is the same lookup, not a
+   * second fetch. `null` style_ref_no in a declaration means "every style", so
+   * it matches after a style-scoped row fails to.
+   */
+  const coordinateForComponent = (componentId: string, styleRefNo: string): string | null => {
+    const ref = styleRefNo.trim() || null;
+    const decl =
+      styleDecls.find((d) => d.component_id === componentId && d.style_ref_no === ref) ??
+      styleDecls.find((d) => d.component_id === componentId && d.style_ref_no === null);
+    if (!decl?.coordinate_id) return null;
+    return data.coordinates?.find((c) => c.id === decl.coordinate_id)?.name ?? null;
+  };
+
+  /**
    * The entry's own grid — one row per size, and THE COLUMNS DEPEND ON THE MODE.
    *
    * Direct asks for the weight; calculated asks for the measurements and shows
@@ -3738,7 +3785,7 @@ export function FabricBomScreen({
       /* DERIVED AND READ-ONLY. Plain text rather than a `readOnly` box: a
          derived value was not typed, so it is not a field — the same call the
          Eff. len and Cons Wt cells make one level down. */
-      cell: (e) => <Truncated>{entryKnitType(e) || "—"}</Truncated>,
+      cell: (e) => <ClothText value={entryKnitType(e)} />,
     },
     {
       header: "Gsm",
@@ -3749,7 +3796,7 @@ export function FabricBomScreen({
          it answers for the structure this row's CLOTH belongs to. */
       cell: (e) => {
         const g = gsmForStructure(e.structure_id);
-        return <span className="tabular-nums">{g == null ? "—" : g}</span>;
+        return <ClothText value={g == null ? "" : String(g)} />;
       },
     },
     {
@@ -3802,7 +3849,7 @@ export function FabricBomScreen({
       /* THE CLOTH'S OWN BASE UNIT, which is the unit the requirement is stored
          in — `entryFabric` on the server reads the same column. Blank until a
          fabric is named, which is what legacy's own screenshot shows. */
-      cell: (e) => <Truncated>{entryUnitName(e) || "—"}</Truncated>,
+      cell: (e) => <ClothText value={entryUnitName(e)} />,
     },
     {
       header: "Assort Color wise",
@@ -3898,7 +3945,14 @@ export function FabricBomScreen({
           variant="outline"
           size="sm"
           className="h-8 w-full"
-          onClick={() => setComponentsFor(e.key)}
+          /* Captures the button's own rect so the sheet scales out of THIS
+             button — `currentTarget`, not `target`: the click can land on the
+             text node inside it. Same call `garment-order-screen.tsx` makes
+             for Style ▸ Process. */
+          onClick={(ev) => {
+            setComponentsOrigin(ev.currentTarget.getBoundingClientRect());
+            setComponentsFor(e.key);
+          }}
         >
           {e.component_ids.length ? String(e.component_ids.length) : "Click"}
         </Button>
@@ -3937,26 +3991,25 @@ export function FabricBomScreen({
       ),
     },
     {
+      /* LEGACY'S [Click] ▸ "Width Details" (screenshot 2681) — LIVE now
+         (0525), the same shape Components' button already has: a Sheet with
+         its own per-size grid, opened by entry key. */
       header: "Widths",
       width: "4.5rem",
       align: "center",
-      /* Same as Assort Color above, and for the same reason. */
-      cell: () => (
-        <span
-          className="block"
-          title="Legacy opens a sub-detail here. It is not built yet — send that screen and it will be."
+      cell: (e) => (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 w-full"
+          onClick={(ev) => {
+            setWidthsOrigin(ev.currentTarget.getBoundingClientRect());
+            setWidthsFor(e.key);
+          }}
         >
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 w-full"
-            disabled
-            aria-label="Widths — not built yet"
-          >
-            Click
-          </Button>
-        </span>
+          Click
+        </Button>
       ),
     },
     {
@@ -3984,7 +4037,7 @@ export function FabricBomScreen({
          ellipsis with the full word on hover/hold — the reveal is the point of
          that primitive, not a workaround. */
       width: "2rem",
-      cell: (e) => <Truncated>{fabricTypeOf(e.item_id) || "—"}</Truncated>,
+      cell: (e) => <ClothText value={fabricTypeOf(e.item_id)} />,
     },
   ];
 
@@ -3994,6 +4047,10 @@ export function FabricBomScreen({
   const componentsForEntry = componentsFor
     ? (entries.find((e) => e.key === componentsFor) ?? null)
     : null;
+
+  /** The entry whose Widths sheet is open — same resolution as
+   *  `componentsForEntry` above, same reason. */
+  const widthsForEntry = widthsFor ? (entries.find((e) => e.key === widthsFor) ?? null) : null;
 
   const manualStylePane = (styleRow: ManualStyleRow) => {
     const refusal = styleRefusal(styleRow.style_ref_no);
@@ -4382,7 +4439,7 @@ export function FabricBomScreen({
       header: "GSM Range",
       align: "right",
       width: "4.5rem",
-      cell: (r) => <Truncated>{descriptorFor(r).gsm || "—"}</Truncated>,
+      cell: (r) => <ClothText value={descriptorFor(r).gsm} />,
     },
     {
       header: "Fabric",
@@ -4576,7 +4633,7 @@ export function FabricBomScreen({
          owe a mixing ratio". */
       cell: (r) =>
         r.item_id ? (
-          <Truncated>{fabricTypeOf(r.item_id) || "—"}</Truncated>
+          <ClothText value={fabricTypeOf(r.item_id)} />
         ) : (
           <Select
             compact
@@ -4759,7 +4816,7 @@ export function FabricBomScreen({
       header: "Style Ref No",
       /* 5.5rem — 88px. "16-27/0010" is ten characters. */
       width: "5.5rem",
-      cell: (r) => <Truncated>{styleRefFor(r) || "—"}</Truncated>,
+      cell: (r) => <ClothText value={styleRefFor(r)} />,
     },
     {
       /**
@@ -4777,7 +4834,7 @@ export function FabricBomScreen({
       header: "Style No",
       /* 4rem — 64px. A style number is six digits. */
       width: "4rem",
-      cell: (r) => <Truncated>{styleIdentityFor(styleRefFor(r))?.style || "—"}</Truncated>,
+      cell: (r) => <ClothText value={styleIdentityFor(styleRefFor(r))?.style ?? ""} />,
     },
     {
       /**
@@ -4830,7 +4887,7 @@ export function FabricBomScreen({
       header: "Article No",
       /* 4rem — 64px. "AR-4471". */
       width: "4rem",
-      cell: (r) => <Truncated>{styleIdentityFor(styleRefFor(r))?.article || "—"}</Truncated>,
+      cell: (r) => <ClothText value={styleIdentityFor(styleRefFor(r))?.article ?? ""} />,
     },
     {
       /**
@@ -7452,6 +7509,7 @@ export function FabricBomScreen({
           length: numOrNull(z.length),
           length_tolerance: numOrNull(z.length_tolerance),
       cons_qty: numOrNull(z.cons_qty),
+          finished_width: numOrNull(z.finished_width),
         })),
       })),
       /* THE ROUTES (0492), a plain sibling of `dias` — they name their fabric by
@@ -7743,41 +7801,261 @@ export function FabricBomScreen({
           control is rendered from inside a mandatory cell; `Sheet` resets the
           scope at its portal boundary, which is the fix AGENTS.md records for
           the New Yarn / Purity defect (2026-08-06). */}
-      {componentsForEntry && (
-        <Sheet
-          open
-          onClose={() => setComponentsFor(null)}
-          title={`Components — ${
+      {componentsForEntry &&
+        (() => {
+          const fabricName =
             fabrics.find((f) => f.id === componentsForEntry.item_id)?.name ??
-            "(no fabric named)"
-          }`}
-        >
-          <div className="space-y-3">
-            <MultiSelect
-              label="Components"
-              required
-              options={componentOptionsFor(componentsForEntry)}
-              values={componentsForEntry.component_ids}
-              onChange={(next) =>
-                setEntryCell(componentsForEntry.key, { component_ids: next })
-              }
-              /* A STATE OF THE RECORD, which is the one thing a placeholder may
-                 still say. With every panel taken by another entry ON THIS STYLE
-                 there is genuinely nothing to choose, and an empty popup with no
-                 words reads as broken rather than as the rule working. */
-              emptyLabel="Every component is already used on this style"
-            />
-            {/* WHY A PANEL CAN ONLY BE HERE ONCE, said where the list refuses.
-                It is arithmetic and not tidiness: entries are the counting unit,
-                so the garment's fabric weight is their sum, and that sum is only
-                right while the entries partition the panels. */}
-            <p className="text-xs text-muted-foreground">
-              A component belongs to one fabric entry per style — the weights are
-              summed, so a panel counted twice is its cloth bought twice.
-            </p>
-          </div>
-        </Sheet>
-      )}
+            "(no fabric named)";
+          /* SAME LOOKUP THE TOP-OF-SCREEN BAND USES for the identical three
+             fields (`styleIdentityFor`) — Style Ref No / Style No / Article No,
+             read-only, legacy's own header above the "Colors Details" grid
+             (screenshot 2680). */
+          const identity = styleIdentityFor(componentsForEntry.style_ref_no);
+          const options = componentOptionsFor(componentsForEntry);
+          const selected = new Set(componentsForEntry.component_ids);
+          const toggle = (id: string) =>
+            setEntryCell(componentsForEntry.key, {
+              component_ids: selected.has(id)
+                ? componentsForEntry.component_ids.filter((x) => x !== id)
+                : [...componentsForEntry.component_ids, id],
+            });
+          return (
+            <Sheet
+              open
+              onClose={() => setComponentsFor(null)}
+              title={`Components — ${fabricName}`}
+              /* CONTAINED, NOT FULL-SCREEN — a grid-bearing picker, the same
+                 shape Sheet's own "md" is for, not a full entity editor. Left
+                 at the default `size="lg"` this stretched a 3-column grid
+                 across the whole viewport (operator screenshot 2684, same
+                 fault on the Widths sheet below: "why this much huge
+                 fields"). */
+              size="md"
+              /* CENTRED OVER THE CONTENT PANE, NOT THE VIEWPORT, and GROWS OUT
+                 OF THE BUTTON THAT OPENED IT — the same two props Style ▸
+                 Process sets for the same reason (its own comments record
+                 both client asks in full); applied here on the operator's
+                 instruction to use "that mechanism for all this kind of
+                 inside button screen". */
+              alignToPane
+              origin={componentsOrigin}
+              /* NO SAVE OF ITS OWN — `component_ids` is written straight onto
+                 `entries` and the whole BOM saves together, the same shape
+                 Style ▸ Process is in. A sheet with fields and no footer at
+                 all is the exact thing the client already reported once as
+                 "missing save button" (`SubSheetFooter`'s own history); this
+                 says what actually happens instead of leaving it to be
+                 guessed. */
+              footer={<SubSheetFooter onDone={() => setComponentsFor(null)} parent="fabric BOM" />}
+            >
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Style Ref No</div>
+                    <div>{identity?.ref || componentsForEntry.style_ref_no || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Style No</div>
+                    <div>{identity?.style || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Article No</div>
+                    <div>{identity?.article || "—"}</div>
+                  </div>
+                </div>
+                {/* LEGACY'S "Colors Details" GRID — Coordinate | Component | a
+                    checkbox, one row per component the style still has to give
+                    (screenshot 2680: PIECES | FRONT BODY1 | ✓). A fixed list
+                    with a check per row, not `ChildGrid`: nothing here is added
+                    or removed as a ROW — the row set is `componentOptionsFor`,
+                    and a click only flips membership in `component_ids`. */}
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full table-fixed border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                        <th className="w-28 px-3 py-2 font-medium">Coordinate</th>
+                        <th className="px-3 py-2 font-medium">Component</th>
+                        <th className="w-12 px-3 py-2 text-center font-medium">✓</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {options.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="px-3 py-4 text-center text-muted-foreground">
+                            {/* A STATE OF THE RECORD, which is the one thing a
+                                placeholder may still say. With every panel
+                                taken by another entry ON THIS STYLE there is
+                                genuinely nothing to choose, and an empty grid
+                                with no words reads as broken rather than as
+                                the rule working. */}
+                            Every component is already used on this style
+                          </td>
+                        </tr>
+                      ) : (
+                        options.map((o) => (
+                          <tr key={o.id} className="border-b last:border-b-0">
+                            <td className="px-3 py-2 text-muted-foreground">
+                              <Truncated>
+                                {coordinateForComponent(o.id, componentsForEntry.style_ref_no) ||
+                                  "—"}
+                              </Truncated>
+                            </td>
+                            <td className={cn("px-3 py-2", o.inactive && "text-muted-foreground")}>
+                              <Truncated>
+                                {o.label}
+                                {o.inactive ? " (inactive)" : ""}
+                              </Truncated>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-primary"
+                                aria-label={o.label}
+                                checked={selected.has(o.id)}
+                                onChange={() => toggle(o.id)}
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {/* WHY A PANEL CAN ONLY BE HERE ONCE, said where the grid
+                    refuses. It is arithmetic and not tidiness: entries are the
+                    counting unit, so the garment's fabric weight is their sum,
+                    and that sum is only right while the entries partition the
+                    panels. */}
+                <p className="text-xs text-muted-foreground">
+                  A component belongs to one fabric entry per style — the weights are
+                  summed, so a panel counted twice is its cloth bought twice.
+                </p>
+              </div>
+            </Sheet>
+          );
+        })()}
+
+      {/* LEGACY'S [Click] ▸ "Width Details" (screenshot 2681) — Style No /
+          Article No / Fabric, then a size-wise "Consumption Size Details"
+          grid. Legacy prints all eight columns, but the operator's own
+          correction (2026-09-03, minutes after 0525 shipped the first two as
+          the real pair) is that only TWO are real: Finished Width and
+          Purchase Width. 0525's `roll_width` / `roll_width_tolerance` were
+          the wrong reading and were reverted the same day (0526) — dropped
+          from the database, not left unused. The other five legacy columns
+          (Width, Width Tolerance, the second Width, Calculated Width, Width
+          For Calc) are not drawn at all: every value in the reference
+          screenshot is 0.00, with no worked example, and this tab does not
+          invent a formula from a screenshot of zeros ("a screenshot cannot
+          show a grain", manual.ts's own header). */}
+      {widthsForEntry &&
+        (() => {
+          const fabricName =
+            fabrics.find((f) => f.id === widthsForEntry.item_id)?.name ?? "(no fabric named)";
+          const identity = styleIdentityFor(widthsForEntry.style_ref_no);
+          const rows = manualSizeRows(widthsForEntry);
+          const set = (r: ManualDisplayRow, patch: Partial<ManualSizeRow>) => {
+            if (widthsForEntry.size_wise) return setSizeCell(widthsForEntry.key, r, patch);
+            for (const row of manualSizeRows(widthsForEntry)) setSizeCell(widthsForEntry.key, row, patch);
+          };
+          return (
+            <Sheet
+              open
+              onClose={() => setWidthsFor(null)}
+              title={`Widths — ${fabricName}`}
+              /* CONTAINED, NOT FULL-SCREEN — see the note on the Components
+                 sheet above; same fault, same fix (operator screenshot 2684:
+                 "why this much huge fields"). */
+              size="md"
+              /* SAME TWO PROPS AS THE COMPONENTS SHEET ABOVE, same reason. */
+              alignToPane
+              origin={widthsOrigin}
+              /* NO SAVE OF ITS OWN — same shape as Components above. */
+              footer={<SubSheetFooter onDone={() => setWidthsFor(null)} parent="fabric BOM" />}
+            >
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Style Ref No</div>
+                    <div>{identity?.ref || widthsForEntry.style_ref_no || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Style No</div>
+                    <div>{identity?.style || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Article No</div>
+                    <div>{identity?.article || "—"}</div>
+                  </div>
+                </div>
+                {/* NOT `w-full`, AND `w-fit` ON THE WRAPPER TOO. Dropping
+                    `w-full` off the `<table>` alone left the huge-fields
+                    complaint half-fixed: a bare `<div>` is block-level and
+                    fills its parent's width regardless of how wide the table
+                    inside it actually renders, so the bordered box still
+                    stretched across the sheet with the compact table sitting
+                    in its left edge and a dead blank field to the right
+                    (operator screenshot 2685). `w-fit` makes the BORDER hug
+                    the table the same way `table-fixed` already sizes the
+                    table to its columns. */}
+                <div className="w-fit overflow-x-auto rounded-md border">
+                  <table className="table-fixed border-collapse text-sm">
+                    <thead>
+                      {/* THE HEADER WAS THE OTHER HALF OF THE "HUGE" COMPLAINT
+                          (operator, having found it: "that header style is the
+                          reason"). `w-24` (6rem) is narrower than "Finished
+                          Width" / "Purchase Width" at `text-xs`, so each header
+                          wrapped to two lines — and a two-line head row is
+                          nearly DOUBLE the height a one-line row needs, which
+                          reads as bulky on a table with only two data columns.
+                          Widened to `w-28` and pinned to one line with
+                          `whitespace-nowrap`; `py-1.5` trims the row's own
+                          padding to match. */}
+                      <tr className="border-b bg-muted/40 text-right text-xs text-muted-foreground">
+                        <th className="w-16 whitespace-nowrap px-2 py-1.5 text-left font-medium">
+                          Size
+                        </th>
+                        <th className="w-28 whitespace-nowrap px-2 py-1.5 font-medium">
+                          Finished Width
+                        </th>
+                        <th className="w-28 whitespace-nowrap px-2 py-1.5 font-medium">
+                          Purchase Width
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r) => (
+                        <tr key={r.key} className="border-b last:border-b-0">
+                          <td className="px-2 py-1 text-left">
+                            <Truncated>{r.label}</Truncated>
+                          </td>
+                          <td className="px-2 py-1">
+                            <Input
+                              className="h-8 text-right"
+                              inputMode="decimal"
+                              aria-label="Finished Width"
+                              value={r.finished_width}
+                              onChange={(ev) => set(r, { finished_width: ev.target.value })}
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <Input
+                              className="h-8 text-right"
+                              inputMode="decimal"
+                              aria-label="Purchase Width"
+                              value={r.purchase_width}
+                              onChange={(ev) => set(r, { purchase_width: ev.target.value })}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Sheet>
+          );
+        })()}
 
       {fabricAddFor && data.fabricCreate.fabricClassId && (
         <FabricQuickCreateSheet

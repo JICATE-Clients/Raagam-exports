@@ -189,6 +189,17 @@ export interface FabricBomManualSize {
   /** "Cons Qty" — units of cloth per garment (0523). NULL means 1; read it
    *  through `consQtyOf`, never with `?? 0`. */
   cons_qty: number | null;
+  /**
+   * THE "Widths" [Click] POPUP'S OWN FIELD (0526) — legacy's "Width Details"
+   * sub-form shows eight columns (S No | Width | Width Tolerance | Width |
+   * Calculated Width | Final Width | Width For Calc | Finished Width |
+   * Purchase Width), but the operator's own correction is that only TWO of
+   * them are real: this and `purchase_width` above. 0525 first read the
+   * first pair (Width / Width Tolerance) as the real fields and shipped
+   * `roll_width` / `roll_width_tolerance` for it — wrong, reverted the same
+   * day. The other six columns are not stored anywhere.
+   */
+  finished_width: number | null;
 }
 
 /**
@@ -455,6 +466,10 @@ export const fabricBomManualSizeInput = z.object({
      column default would make an untouched row indistinguishable from a
      deliberate 1. `consQtyOf` is the one place that reading lives. */
   cons_qty: numN,
+  /* THE "Widths" POPUP'S ONE OTHER REAL FIELD (0526, replacing 0525's
+     roll_width/roll_width_tolerance — see `FabricBomManualSize.finished_width`
+     above). `purchase_width` above is the popup's second field. */
+  finished_width: numN,
 });
 
 /**
