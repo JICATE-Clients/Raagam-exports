@@ -53,7 +53,6 @@ import {
   Waypoints,
   Ruler,
   Spool,
-  Sparkles,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,7 +66,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
    combobox.tsx). That is what makes the declared dia list mean something. */
 import { Combobox } from "@/components/ui/combobox";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGrid, RequiredScope } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
 import {
   ChildGrid,
   GRID_HEADER_TEXT,
@@ -75,7 +74,6 @@ import {
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
-import { SectionGrid } from "@/components/masters/section-grid";
 import {
   MasterFullScreen,
   SectionBody,
@@ -501,6 +499,22 @@ const editableRows = (rows: OrderPalette["yarn"] | undefined): PaletteRow[] => {
   return out.length ? out : [{ key: "p0", value: "" }];
 };
 
+/**
+ * ONE EMPTY ROW, WHICH IS WHAT A COLOUR PANEL LOOKS LIKE BEFORE ANYONE TYPES
+ * (client 2026-09-03: the three tables must start with a row, not with none).
+ *
+ * `editableRows` below already ends `out.length ? out : [{ key: "p0", ... }]`,
+ * so a panel seeded FROM AN ORDER has always had its blank row. The gap was
+ * earlier than that: `paletteDraft` is null until an order is picked and
+ * `loadOrderPalette` answers, so on a fresh BOM the three tables rendered
+ * `paletteEdit?.fabric ?? []` ' + EM + ' zero rows, a header and a button.
+ *
+ * A FUNCTION, NOT A SHARED CONSTANT. Each panel needs its own array and its own
+ * row object; one frozen literal handed to all three would give them one
+ * identity, and the first edit would appear to change all three at once.
+ */
+const blankPalette = (): PaletteRow[] => [{ key: "p0", value: "" }];
+
 /** The prints panel's half of `editableRows` — a print names itself. */
 const editablePrintRows = (rows: OrderPalette["prints"] | undefined): PaletteRow[] => {
   const seen = new Set<string>();
@@ -554,6 +568,155 @@ const today = () => calendarToday();
 const BLANK = (): Form => ({ garment_order_id: null, bom_date: today() });
 
 const blankDia = (key: string): DiaRow => ({ key, knit_type: "", dia: "" });
+
+/**
+ * ONE COLOUR/PRINT PANEL, AS A HAND-ROLLED TABLE (client 2026-09-03, asked
+ * three times: the four panels side by side in a single row).
+ *
+ * ## WHY THIS IS NOT A `ChildGrid`, WHICH IS THE FIRST THING TO CHECK
+ *
+ * `ChildGrid` draws a TABLE only above a container-query threshold and stacked
+ * CARDS below it: `@lg` (512px) by default, `@md` (448px) with `narrow`, then
+ * 1024 / 1152 / 1280 through `tableFrom`. There is nothing lower, and no
+ * force-table escape hatch.
+ *
+ * Four panels across an ~1180px pane give each one ~286px, and at the widths
+ * this brief asks for (210 / 210 / 210 / 280) they are narrower still. Every
+ * grid falls under 448, so all four render as cards: no frame, no header, no
+ * ordinal or remove column, and the Dia panel's two columns stacked instead of
+ * side by side. That is not a hypothesis — it shipped on 2026-09-03 and was
+ * reported back the same day. Four real `ChildGrid` tables would need
+ * 4 × 448 + gaps = 1828px, past even the `wide` cap of 1720.
+ *
+ * So the layout and the primitive genuinely cannot both be had, and the layout
+ * is what was asked for three times.
+ *
+ * ## WHAT IT COSTS, STATED PLAINLY
+ *
+ * This is a 23rd hand-rolled grid in a codebase whose AGENTS.md names the other
+ * ~22 as the reason a keyboard fix had to be made twice. That cost is paid down
+ * rather than ignored: the contract is MARKER-driven, not component-driven, so
+ * every marker is emitted here and the keyboard behaves as it does in any
+ * `ChildGrid`:
+ *
+ *   `data-grid-body` + `gridKeyNav`  —  arrows, Enter, the "+ Add" hand-off
+ *   `data-grid-row`                  —  the row axis those keys walk
+ *   `data-row-remove` + aria-label   —  Ctrl+Del drives this by `.click()`
+ *   `data-row-add`                   —  what Enter off the last field lands on
+ *
+ * What is genuinely lost is `ChildGrid`'s stacked-card fallback below the
+ * breakpoint. These panels hold ONE input each, so a 210px column is legible on
+ * a phone where a fourteen-column grid would not be — which is the reason the
+ * fallback exists at all.
+ *
+ * ## THE CELLS ARE STILL THE COLUMNS'
+ *
+ * `columns[].cell` is untouched and rendered as-is, so the pickers, the Input
+ * wiring and the per-row filters keep ONE definition shared with every other
+ * reader of those column arrays. Only the chrome is written here.
+ */
+function PaletteTable<T extends { key: string }>({
+  label,
+  columns,
+  rows,
+  onAdd,
+  onRemove,
+  addLabel,
+  width,
+}: {
+  label: string;
+  columns: ChildGridColumn<T>[];
+  rows: readonly T[];
+  onAdd: () => void;
+  onRemove: (row: T) => void;
+  addLabel: string;
+  /** The panel's cap — a STATIC literal per call site, never interpolated:
+   *  Tailwind scans source text, so a computed class compiles to no CSS. */
+  width: string;
+}) {
+  return (
+    <div className={cn("min-w-0 flex-1", width)}>
+      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            {/* 36px, as asked. The data columns share what is left EQUALLY
+                rather than taking their declared `width`: those were sized for
+                a half-pane cell and total more than a 210px panel holds, so
+                honouring them here would overflow the frame. */}
+            <col className="w-9" />
+            {columns.map((c) => (
+              <col key={c.header} />
+            ))}
+            <col className="w-8" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-border">
+              <th className="px-1.5 py-1.5 text-center text-[12.5px] font-semibold text-foreground">
+                #
+              </th>
+              {columns.map((c) => (
+                <th
+                  key={c.header}
+                  className="truncate border-l border-border px-1.5 py-1.5 text-left text-[12.5px] font-semibold text-foreground"
+                >
+                  {c.header}
+                </th>
+              ))}
+              <th className="border-l border-border" />
+            </tr>
+          </thead>
+          {/* THE TWO MARKERS THAT MAKE THIS A GRID TO THE KEYBOARD. `gridKeyNav`
+              reads `data-grid-body` for the row axis and drives a row's own
+              `data-row-remove` on Ctrl+Del; without them this would be a table
+              the arrows walk as plain fields. */}
+          <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
+            {rows.map((row, i) => (
+              <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
+                <td className="px-1.5 py-1 text-center text-xs tabular-nums text-muted-foreground">
+                  {i + 1}
+                </td>
+                {columns.map((c, ci) => (
+                  <td key={c.header} className="border-l border-border/50 px-1.5 py-1">
+                    {c.cell(row, ci)}
+                  </td>
+                ))}
+                <td className="border-l border-border/50 px-0.5 py-1 text-center">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-row-remove
+                    aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
+                    className="px-1 text-danger hover:text-danger"
+                    onClick={() => onRemove(row)}
+                  >
+                    {"✕"}
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* `data-row-add` IS WHAT ENTER STEERS BY (AGENTS.md, "Add a grid row"):
+          Enter or Tab off the last field lands here and a second Enter adds. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        data-row-add
+        className="mt-2"
+        onClick={onAdd}
+      >
+        {addLabel}
+      </Button>
+    </div>
+  );
+}
+
 
 /**
  * What the ORDER says about a line's cloth — legacy FabricAllocation's two
@@ -1118,7 +1281,9 @@ export function FabricBomScreen({
    * clobbers an edit in progress.
    */
   const [paletteDraft, setPaletteDraft] = useState<{
-    forOrder: string;
+    /** `string | null`, the same as `Form.garment_order_id` — see
+     *  `mutPalette`, which starts a draft before an order is named. */
+    forOrder: string | null;
     fabric: PaletteRow[];
     yarn: PaletteRow[];
     prints: PaletteRow[];
@@ -1134,7 +1299,36 @@ export function FabricBomScreen({
     panel: "fabric" | "yarn" | "prints",
     fn: (xs: PaletteRow[]) => PaletteRow[],
   ) => {
-    setPaletteDraft((d) => (d ? { ...d, [panel]: fn(d[panel]) } : d));
+    /**
+     * IT CREATES THE DRAFT WHEN THERE IS NONE, and that is the other half of
+     * the default row (2026-09-03).
+     *
+     * This used to read `d ? {...} : d` — a no-op while `paletteDraft` was
+     * null. So even once the three tables drew their blank row, typing in it
+     * went nowhere: the row was there, the keystrokes were not kept, and the
+     * field cleared itself on the next render. A row the operator cannot type
+     * into is worse than no row, because it looks like the feature works.
+     *
+     * `forOrder` IS ALLOWED TO BE NULL, matching `Form.garment_order_id`. The
+     * guard on `paletteEdit` below is an identity test, not a truthiness one,
+     * so a draft started with no order (null) is read back only while no order
+     * is picked — and the loader replaces it wholesale the moment one is,
+     * which is the existing rule and is right: the order's palette is the
+     * source, and anything typed before an order was named was typed against
+     * no order at all.
+     */
+    setPaletteDraft((d) => {
+      const base =
+        d && d.forOrder === form.garment_order_id
+          ? d
+          : {
+              forOrder: form.garment_order_id,
+              fabric: blankPalette(),
+              yarn: blankPalette(),
+              prints: blankPalette(),
+            };
+      return { ...base, [panel]: fn(base[panel]) };
+    });
     setDirty(true);
   };
   const setPaletteCell = (panel: "fabric" | "yarn" | "prints", key: string, value: string) =>
@@ -1856,82 +2050,50 @@ export function FabricBomScreen({
   // ---- seeding from the order's own combo tree -----------------------------
 
   /**
-   * THE ORDER'S STRUCTURE DETAILS BECOME THE BOM'S LINES (client 2026-09-02,
-   * screenshots 2636 · 2637: "this section from order entry combo details — see
-   * this field details, will we fetch, will map here").
+   * `seedFromOrder` IS GONE (client 2026-09-03) — the button that called it
+   * was removed from Fabric Lines, and a fetch-and-toast wrapper with no
+   * caller is dead code that still reads as a feature.
    *
-   * ## THIS IS A REVERSAL, AND IT IS THE CLIENT'S OWN
+   * WHAT IT WAS: `loadOrderFabricSeed(orderId)`, then `setSeedState` with the
+   * fresh rows (so the derived GSM Range and Type cells followed an amended
+   * order), then `applySeed`, then a toast naming the count — or
+   * "Every panel on this order is already on the BOM" when it added nothing,
+   * because an action that does nothing and says nothing reads as broken.
+   * Every one of those four calls survives here for other callers, so
+   * restoring it is re-assembling them, not rebuilding anything.
    *
-   * `seedFromOrder` existed and was taken off the UI on 2026-09-01 at the
-   * client's instruction, leaving `getOrderFabricSeed` read for the GSM Range
-   * and Type cells alone. The Components tab therefore opened EMPTY, with
-   * Coordinate reading "—" and Component blank, while the order next door had
-   * already declared PIECES · FRONT BODY · WHITE against SINGLE JERSEY. A reader
-   * who finds the 09-01 note quoted elsewhere is holding something this
-   * supersedes.
+   * THE AUTOMATIC FIRST FILL IS UNTOUCHED. `applySeed` below still runs from
+   * the `seededFor` effect, so a new BOM opened against an order arrives
+   * with that order's panels; only the manual re-run has gone.
+   */
+
+  /**
+   * The seeding itself, WITHOUT the fetch or the toasts.
+   *
+   * IT HAD TWO CALLERS AND NOW HAS ONE: the automatic first fill (the
+   * `seededFor` effect). The split is kept anyway — it is what let the
+   * removed button and the automatic path share ONE definition of what a
+   * seeded line is, and it is why putting the button back is a wrapper
+   * rather than a second copy of these rules. The returned count is what a
+   * caller needs to say how many lines it added; the automatic path ignores
+   * it and stays silent.
    *
    * ## ADDITIVE. IT NEVER REMOVES OR OVERWRITES A LINE
    *
-   * The first cut of this replaced the grid wholesale behind a `window.confirm`,
-   * and both halves of that were wrong. Wholesale replacement throws away typed
-   * work to re-add rows the operator had already accepted — and the action is
-   * most useful on a HALF-DONE BOM, where an amended order has grown a
-   * colourway. `window.confirm` is a browser modal: not the app's two-step
-   * confirm (LAYOUT.md 6a), not stylable, not dismissable with Escape. Making
-   * the action additive removes the need for a guard rather than dressing one up.
-   *
    * "Already have" is the four keys that ADDRESS a fabric — style, colourway,
-   * structure, panel — the same tuple `order_fabric_bom_lines` uses to point at
-   * the order's tree (0426). Two lines differing only in fabric are two
+   * structure, panel — the same tuple `order_fabric_bom_lines` uses to point
+   * at the order's tree (0426). Two lines differing only in fabric are two
    * deliberate lines and both stay.
-   *
-   * ## ONE LINE PER PANEL, AND FABRIC LINES SHOWS THEM ALL
-   *
-   * A three-panel Single Jersey body plus a ribbed neck is FOUR lines per
-   * colourway, and Fabric Lines renders one row each — asked and answered
-   * (client 2026-09-02). Grouping them there was the alternative and was
-   * declined, so nothing on that tab changes: the Structure and Fabric cells
-   * simply repeat down the column, which is what legacy's FabricAllocation does.
    *
    * ## WHAT IT DELIBERATELY DOES NOT SEED
    *
    * The FABRIC. The order names a structure and never a cloth, and the client
-   * chose to keep that cell typed rather than have it guess from a sibling line
-   * (2026-09-02) — so a seeded row arrives with its panel, its colourway and its
-   * print, and the planner names the cloth. `Fabric Type` is not seeded either,
-   * for the reason it is not a stored cell at all: it reads off the fabric that
-   * is picked, so seeding it from the order would be the second source that
+   * chose to keep that cell typed rather than have it guess from a sibling
+   * line (2026-09-02) — so a seeded row arrives with its panel, its colourway
+   * and its print, and the planner names the cloth. `Fabric Type` is not
+   * seeded either, for the reason it is not a stored cell at all: it reads off
+   * the fabric that is picked, so seeding it would be the second source that
    * `fabricTypeOf` exists to prevent.
-   */
-  function seedFromOrder() {
-    const id = form.garment_order_id;
-    if (!id) return;
-    start(async () => {
-      const res = await loadOrderFabricSeed(id);
-      if (!res.ok) {
-        toastError(res.error);
-        return;
-      }
-      // The freshest read of the tree there is — hand it to the descriptor
-      // columns too, so seeding after amending the order updates the GSM and
-      // Type cells of lines that were already on the grid.
-      setSeedState({ forOrder: id, rows: res.rows });
-      const added = applySeed(res.rows);
-      if (added === 0) {
-        // EMPTY-AND-EXPLAIN. An action that does nothing and says nothing reads
-        // as broken; "already here" is the answer, and it is a good one.
-        success("Every panel on this order is already on the BOM");
-        return;
-      }
-      success(`${added} fabric line${added === 1 ? "" : "s"} added from the order`);
-    });
-  }
-
-  /**
-   * The seeding itself, WITHOUT the fetch or the toasts — so the button and the
-   * automatic first fill share one definition of what a seeded line is. Returns
-   * how many lines it added, which is what lets the button say so while the
-   * automatic path stays silent.
    *
    * NOT A HOOK OF ANY KIND. It is called from an effect below and from the
    * button, and this component returns early further down; AGENTS.md's standing
@@ -2035,6 +2197,21 @@ export function FabricBomScreen({
       !lines[0].style_ref_no.trim();
     if (!untouched) return;
     seededFor.current = id;
+    /**
+     * THIS DISABLE APPEARED WITH NO CODE CHANGE, and that is worth a sentence.
+     * `applySeed` sets state, and until 2026-09-03 it had a second caller — the
+     * "Seed from order" button — so the rule could not prove the setState was
+     * effect-only. With the button gone this call is the only one, and the rule
+     * now fires on an effect that has not moved.
+     *
+     * IT IS THE NARROW CASE THE RULE ALLOWS FOR, not a shrug at it. The cascade
+     * the rule guards against is an effect that re-runs and re-sets; this one is
+     * fenced three ways — `seededFor` makes it once per order id, `editId`
+     * excludes a saved BOM, and `untouched` excludes a grid anyone has typed in.
+     * It is a one-shot fill of a new document from data that arrives
+     * asynchronously, which cannot be done during render.
+     */
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     applySeed(seedRows);
     // `applySeed` is re-created every render and reads `lines`, so depending on
     // it would re-run this on every keystroke. The three guards above are what
@@ -3900,7 +4077,12 @@ export function FabricBomScreen({
 
     {
       header: "Structure",
-      width: "6.5rem",
+      /* 10rem — 160px (client 2026-09-03), up from 6.5rem/104px.
+         "SINGLE JERSEY" is thirteen characters and did not fit 104px, so
+         the cell the brief calls expanding was in fact the one clipping
+         its own value. The 56px is paid for below — see THE WIDTH
+         BUDGET on `tableFrom`. */
+      width: "10rem",
             cell: (r) => (
         <RecordPicker
           label="Structure"
@@ -3982,7 +4164,13 @@ export function FabricBomScreen({
          `KGS`) rather than to a uniform figure — the 2026-08-18 equal-width
          instruction was written for a row where nothing fitted, and every cell
          being equally unreadable was never the point of it. */
-      width: "13rem",
+      /* 11rem — 176px, down from 13rem/208px, and it is STILL the widest
+         column in the row (Structure is now 160). That is what keeps the
+         09-01 instruction above true in substance: this cell already
+         truncates and already reveals on hover (`<Truncated>`), so 32px
+         costs a few characters before the ellipsis rather than a value
+         nobody can read. See THE WIDTH BUDGET on `tableFrom`. */
+      width: "11rem",
       cell: (r) => (
         <RecordPicker
           label="Fabric"
@@ -4188,7 +4376,8 @@ export function FabricBomScreen({
        * star stay in agreement.
        */
       header: "Mixing Uom",
-      width: "5.5rem",
+      /* 4.5rem — 72px. A UOM code is "KG", "MTR", "PCS". */
+      width: "4.5rem",
       required: lines.some((l) => l.item_id && isYarnDyed(fabricTypeOf(l.item_id))),
       /* ALWAYS LIVE (client 2026-09-03, screenshot 2651). The cell shipped
          unconditional, was gated on `isYarnDyed` for an hour — which killed it on
@@ -4301,7 +4490,8 @@ export function FabricBomScreen({
        * before 0426 is in.
        */
       header: "Style Ref No",
-      width: "6.5rem",
+      /* 5.5rem — 88px. "16-27/0010" is ten characters. */
+      width: "5.5rem",
       cell: (r) => <Truncated>{styleRefFor(r) || "—"}</Truncated>,
     },
     {
@@ -4318,7 +4508,8 @@ export function FabricBomScreen({
        * there is nothing to guess.
        */
       header: "Style No",
-      width: "5rem",
+      /* 4rem — 64px. A style number is six digits. */
+      width: "4rem",
       cell: (r) => <Truncated>{styleIdentityFor(styleRefFor(r))?.style || "—"}</Truncated>,
     },
     {
@@ -4351,7 +4542,10 @@ export function FabricBomScreen({
        * Colour/Print Details tab is where that is fixed.
        */
       header: "Style Color",
-      width: "5.5rem",
+      /* 9.375rem — 150px (client 2026-09-03), up from 5.5rem/88px. It
+         holds a colourway name ("MELANGE GREY", "OPTICAL WHITE"), which
+         88px cut to two syllables. See THE WIDTH BUDGET on `tableFrom`. */
+      width: "9.375rem",
       cell: (r) => (
         <Combobox
           compact
@@ -4367,7 +4561,8 @@ export function FabricBomScreen({
       /** LEGACY'S `Article No` — derived with `Style No` above and from the same
        *  call, so the two can never name different styles. */
       header: "Article No",
-      width: "5rem",
+      /* 4rem — 64px. "AR-4471". */
+      width: "4rem",
       cell: (r) => <Truncated>{styleIdentityFor(styleRefFor(r))?.article || "—"}</Truncated>,
     },
     {
@@ -5272,9 +5467,17 @@ export function FabricBomScreen({
   ): ChildGridColumn<PaletteRow>[] => [
     {
       header,
-      width: "18rem",
+      /* 15rem — 240px. All three colour panels share it, and the Dia
+         panel's two columns total the same (130 + 110), so the four cards hug
+         to one width: 32px of ordinal + 240 + 32px of ✕ = 304px.
+         CHANGE ONE OF THE THREE AND CHANGE ALL THREE. */
+      width: "15rem",
       cell: (r) => (
         <Input
+          /* 200px in a 240px cell, left-aligned. A `<td>` is left-aligned by
+             default and this column declares no `align`, so the box needs
+             nothing else to sit where it should. */
+          className="max-w-[200px]"
           value={r.value}
           onChange={(e) => setPaletteCell(panel, r.key, e.target.value)}
           aria-label={header}
@@ -5284,48 +5487,31 @@ export function FabricBomScreen({
   ];
 
   /**
-   * THE STACKED FALLBACK NEEDS ITS LABELS, and dropping it as redundant is a
-   * mistake this file records having made once already (see `renderMobileRow` on
-   * the Fabric Lines grid): `ChildGrid`'s default stacked cell is a bare div with
-   * NO VISIBLE LABEL, so below the table breakpoint these panels would degrade to
-   * unlabelled scraps of text — worse here than on a grid of inputs, because a
-   * bare "—" under no heading says nothing at all.
+   * `mobileRowFor` IS GONE WITH THE GRIDS THAT USED IT (2026-09-03).
    *
-   * A FACTORY OVER THE PANEL'S OWN COLUMNS, not one shared renderer. The first
-   * cut passed a single `paletteMobileRow` to all three read-only panels, and it
-   * closed over `paletteColumns` — so the Roll form prints panel, which has ONE
-   * column where the others have two, would have labelled its print name
-   * "Colour" and shown it under a "Type" heading with a dash in it. Both arrays
-   * are `ChildGridColumn<PaletteRow>[]`, so the type checker had nothing to say.
-   * Reading each panel's own `columns` is what makes the stacked labels and the
-   * table headers one declaration per panel rather than one for the set.
+   * It supplied `renderMobileRow` to the four Colour/Print panels — the
+   * labelled stacked fallback `ChildGrid` renders below its table threshold,
+   * whose own default is a bare div with no visible label. Those panels are
+   * `PaletteTable`s now (see the note there for why they had to leave
+   * `ChildGrid` at this width), and a hand-rolled table has no card mode to
+   * fall back to, so there was nothing left for it to feed.
+   *
+   * THE LESSON IT CARRIED IS STILL TRUE, and belongs to whoever adds the next
+   * `ChildGrid` here: dropping `renderMobileRow` as redundant is a mistake this
+   * file has made once already — see the note on the Fabric Lines grid, which
+   * still passes one.
    */
-  /* NAMED, because an anonymous component definition trips `react/display-name`
-     — the one lint ERROR in this file, pre-existing at HEAD and owned by nobody.
-     Naming the inner function is the whole fix; nothing about the behaviour or
-     the reasoning above changes. */
-  const mobileRowFor =
-    (cols: ChildGridColumn<PaletteRow>[]) =>
-    function PaletteMobileRow(row: PaletteRow) {
-      return (
-      <FieldGrid>
-        {cols.map((c, ci) => (
-          <Field key={ci} label={c.header} size="sm">
-            {c.cell(row, ci)}
-          </Field>
-        ))}
-      </FieldGrid>
-      );
-    };
 
   const diaColumns: ChildGridColumn<DiaRow>[] = [
     {
       header: "Type",
-      width: "7rem",
+      /* 8.125rem — 130px, enough for "Circular Knit", the longest option,
+         which the original 7rem/112px clipped. 130 + 110 = 240, matching the
+         single colour column beside it. */
+      width: "8.125rem",
       cell: (r) => (
         <Select
           compact
-          className="h-8"
           aria-label="Knit type"
           value={r.knit_type}
           onChange={(e) => setDiaCell(r.key, { knit_type: e.target.value })}
@@ -5346,15 +5532,23 @@ export function FabricBomScreen({
          cell to its left. Naming them separately would be three columns, two of
          them empty on every row. */
       header: "Dia / Size / Width",
-      align: "right",
+      /* NO `align: "right"` ANY MORE (client 2026-09-03: "align inputs to the
+         left within their table cells"). It was what pushed the box to the far
+         side of the cell, which only became visible once the box stopped
+         filling the cell — while it was 100% wide, left and right looked the
+         same. The DIGITS stay right-aligned inside the box (`text-right` on
+         the control): that is the numeric convention and it is about the value,
+         not about where the control sits. */
       /* 11rem, THE SAME AS THE COLOUR COLUMN BESIDE IT — this panel sits under
          Fabric Dyeing in the 2×2, so a matching width is what puts their two
          column edges on one line. Undeclared, this cell was the worst offender
          in screenshot 2582: a number box the width of the whole pane. */
-      width: "11rem",
+      /* 6.875rem — 110px. A diameter or a width is a two- or three-digit
+         number; the long part is the header above it, and a `<th>` may wrap. */
+      width: "6.875rem",
       cell: (r) => (
         <Input
-          className="h-8 text-right"
+          className="text-right"
           inputMode="decimal"
           aria-label="Dia / size / width"
           value={r.dia}
@@ -5637,18 +5831,80 @@ export function FabricBomScreen({
       done: !!form.garment_order_id,
       content: (
         <SectionBody title="Fabric BOM">
-          <FieldGrid>
-            {/* THE SPANS SUM TO 12 — 4 + 2 + 4 + 2 (client 2026-09-01: "adjust
-                the screen field size compact it"). All four were `sm` (3 each),
-                which gave a ten-character date the same width as an RE number
-                that had to be truncated to fit: screenshot 2591 shows the order
-                reading "!6-27/0010 · 121212 · AARSAN AMERICAS LLC" with its own
-                start scrolled off. So the two dates go to `xs` and the two long
-                values take the width they release — compacting the row and
-                un-truncating it in the same change. `w` cannot do this: inside a
-                FieldGrid the CELL still takes its column, so a narrower control
-                would leave a hole beside it (see `Field.w`). */}
-            <Field label="Garment order" required size="md" htmlFor="fb-order">
+          {/**
+           * WIDTHS, NOT TWELFTHS (client 2026-09-03: Customer and Delivery
+           * "stretched excessively wide compared to their text content").
+           *
+           * THE PREVIOUS ANSWER WAS THE RIGHT MOVE INSIDE THE WRONG TRACK, and
+           * its own comment said so. 2026-09-01 compacted this row by
+           * re-dividing the twelfths — 4 + 2 + 4 + 2 in place of four `sm` —
+           * because a ten-character date had been given the same width as an RE
+           * number truncated to fit (screenshot 2591: "!6-27/0010 · 121212 ·
+           * AARSAN AMERICAS LLC" with its own start scrolled off). That
+           * un-truncated the order and it could not stop the stretching, because
+           * a span is a SHARE of the section rather than a width: `xs` is still
+           * ~195px for a ten-character date in an 1180px sheet and `md` ~390px
+           * for a customer name, and it grows again in a 1440px pane. The old
+           * comment named the reason it could go no further — "`w` cannot do
+           * this: inside a FieldGrid the CELL still takes its column" — which is
+           * exactly why the row now leaves the fractional track rather than
+           * trying `w` inside it.
+           *
+           * So this is `FieldRow`, the primitive written for this case: each
+           * field takes the width its data needs and the row ends where its
+           * content ends. Its own rule applies here — "the sums-to-12 rule does
+           * not apply and is not being broken", because a content-width row has
+           * no twelfths to leave over.
+           *
+           * BOTH DATES TAKE THE SAME WIDTH, and that is a deliberate departure
+           * from the brief, which asked for ~180px and ~160px. They hold the
+           * same DD/MM/YYYY value; 20px between two boxes showing one kind of
+           * value reads as a mistake rather than as proportion, and requirement
+           * 2 of that same brief is that the row be consistent. `term` (176px)
+           * is the vocabulary's width for it and is what the brief asked for on
+           * the Date box exactly.
+           *
+           * THE FOUR WIDTHS ARE THE CLIENT'S OWN NUMBERS (2026-09-03: 340 · 145
+           * · 150 · 130), AND THEY ARE NOT FROM `FieldWidth`.
+           *
+           * SAY SO RATHER THAN HIDE IT. `lib/ui/sizes.ts` holds FIVE widths for
+           * the whole application and its stated failure mode is "a screen
+           * measured against its own longest value" — which is exactly what
+           * four hand-typed pixel values are. This row was asked for twice: once
+           * as "proportional" (09-03, answered with `name`/`term` from the
+           * vocabulary) and then again with the measurements written out, after
+           * seeing that answer. The later instruction wins.
+           *
+           * WHAT THAT COSTS, so the next reader can weigh it: these four no
+           * longer move when the sizes are re-tuned, and a fifth screen copying
+           * them starts a sixth constant. If a third request lands here, the fix
+           * is a NEW NAMED WIDTH in `lib/ui/sizes.ts` used by all of them — not
+           * a fifth set of literals.
+           *
+           * `max-w` ON THE FIRST, `w` ON THE OTHER THREE, which is what was
+           * asked and is also the right shape: the Garment order value is the RE
+           * number, the style and the customer joined, so it takes what it can
+           * up to 340px and the three fixed boxes never stretch.
+           */}
+          {/* UNIFORM 36px, AND IT HAS TO BE STATED HERE.
+              `Input` is `h-9 @2xl/editor:h-8` — 36px, dropping to 32px inside an
+              editor pane, which is the app's density rule (doc/ui/LAYOUT.md) and
+              is what this row would otherwise take. The client asked for 36.
+              `[&_input]:h-9` is a DESCENDANT selector, so it out-specifies the
+              control's own class without `!important` and reaches the picker's
+              trigger too — `RecordPicker` takes no `className`, and editing it
+              would change every picker in the app.
+              NOTE THE INCONSISTENCY THIS BUYS: every other control in this
+              editor — the Markers grid, Panel Weights, the Components tree —
+              stays 32px, so this row now stands 4px proud of them. That is the
+              trade the measurements ask for; it is not an oversight. */}
+          <FieldRow className="[&_input]:h-9">
+            <Field
+              label="Garment order"
+              required
+              className="w-full max-w-[340px]"
+              htmlFor="fb-order"
+            >
               <RecordPicker
                 id="fb-order"
                 label="Garment order"
@@ -5681,7 +5937,7 @@ export function FabricBomScreen({
                 onChange={(id) => set({ garment_order_id: id })}
               />
             </Field>
-            <Field label="Date" required size="xs" htmlFor="fb-date">
+            <Field label="Date" required className="w-[145px]" htmlFor="fb-date">
               {/* ORDER ENTRY'S DATE RULE, APPLIED HERE (client 2026-09-01: "use
                   our order entry order info tab date field logic here also").
                   Two halves, and it needs both:
@@ -5708,20 +5964,20 @@ export function FabricBomScreen({
                 onChange={(e) => set({ bom_date: e.target.value })}
               />
             </Field>
-            <Field label="Customer" size="md" htmlFor="fb-cust">
+            <Field label="Customer" className="w-[150px]" htmlFor="fb-cust">
               {/* READ-ONLY, from the order. A readOnly field never holds the
                   cursor (AGENTS.md, Mandatory fields), which is right: its
                   source is the order picker above. */}
               <Input id="fb-cust" readOnly value={pickedOrder?.customer_name ?? ""} />
             </Field>
-            <Field label="Delivery" size="xs" htmlFor="fb-del">
+            <Field label="Delivery" className="w-[130px]" htmlFor="fb-del">
               <Input
                 id="fb-del"
                 readOnly
                 value={pickedOrder?.delivery_date ? fmtDate(pickedOrder.delivery_date) : ""}
               />
             </Field>
-          </FieldGrid>
+          </FieldRow>
 
           <ProductionStrip
             picked={!!form.garment_order_id}
@@ -5815,18 +6071,46 @@ export function FabricBomScreen({
               (client 2026-09-03). It was already on its second wording — it used
               to send the operator to Order Entry, and was reworded when these
               panels became editable on 2026-09-02 — and both versions sat above
-              three grids the operator can type into, each with its own "+ Add"
-              button. An empty grid with an Add button is not a state that needs
+              grids the operator can type into, each with its own "+ Add" button.
+              An empty grid with an Add button is not a state that needs
               explaining.
 
               THE SENTENCE ABOVE IT STAYS, and the difference is the whole rule:
               with no ORDER picked there is nothing to add TO, so that one stands
-              in place of content and points at the section that fixes it. */}
-          {/* A 2×2, WHICH IS `SectionGrid`'S DEFAULT AND NOT ITS `wrap` MODE
-              (client 2026-09-01: "need to align the ui section make it
-              organized").
+              in place of content and points at the section that fixes it.
 
-              ## WHY `wrap` WAS WRONG HERE THOUGH IT IS RIGHT ONE SCREEN OVER
+              KEPT ACROSS THE MERGE WITH `origin/master` (2026-09-03), which
+              still carried the reworded sentence. Two branches touched this
+              block the same day: that one rewrote the words, this one was told
+              to delete them. A deletion and a rewording are not two opinions
+              about the wording — the later instruction removes the thing the
+              earlier one was improving, so the removal wins and the rewrite has
+              nothing left to apply to. */}
+          {/* A 2×2 (client 2026-09-01: "need to align the ui section make it
+              organized"), AND FOUR ACROSS IS NOT AVAILABLE — see below.
+
+              ## WHY NOT ONE ROW OF FOUR (tried and reverted, 2026-09-03)
+
+              A `ChildGrid` in `responsive` mode renders its TABLE only above a
+              container-query threshold and its stacked CARDS below it: `@lg`
+              (512px) by default, `@md` (448px) with `narrow`, and 1024 / 1152 /
+              1280 through `tableFrom`. There is nothing lower. The query
+              resolves against the grid's own `@container` root, which is sized
+              by whatever slot the screen puts it in.
+
+              So four panels across a ~1180px pane give each one ~286px, every
+              grid falls under 448 and all four render as CARDS: no table frame,
+              no `#` / header / ✕ columns, and the Dia panel's two columns
+              stacked vertically instead of side by side. That was the reported
+              breakage, and it is arithmetic rather than a bug to fix here —
+              four tables need 4 × 448 + gaps = 1828px, which is past even the
+              `wide` cap of 1720.
+
+              A 2×2 gives each panel half the pane, ~585px, comfortably over
+              the 512px default. THAT is why this section is two by two.
+
+              ## `wrap` WAS ALSO REJECTED, AND ITS FAILURE IS THE ONE A READER
+              ## WOULD REPEAT:
 
               `wrap` fits as many peers per line as the room allows and lets the
               rest wrap. The Garment Order's Color/Print tab has THREE panels and
@@ -5839,31 +6123,68 @@ export function FabricBomScreen({
 
               The default two-column grid has no such failure: four children
               auto-place as 2 + 2 with no basis to guess and no line that can end
-              up holding one item. `section-grid.tsx` argues at length against a
-              `cols={n}` prop because a count needs a width to switch at — that
-              argument is about choosing between 2 and 3, and it does not apply
-              to taking the default, which already switches at `@4xl` and falls
-              to a single column below it.
+              up holding one item.
 
               ## THE ORDER OF THE FOUR IS THE POINT OF THE ARRANGEMENT
 
               Auto-placement fills left to right, so this reads:
 
-                  Yarn Dyeing      | Fabric Dyeing
+                  Colour           | Yarn Colour
                   Roll form prints | Dia / Size Width Details
 
               Colour and Yarn Colour are a PAIR — one column each, same kind of
               value, split only by which section of the order declared them —
               and putting them side by side is the arrangement the client chose
               for this same pair on the order's own tab (2026-08-12, screenshots
-              2269 · 2270). Below them, the last panel the order declares and the
-              one panel this BOM owns.
+              2269 · 2270). After them, the last panel the order declares and
+              the one panel this BOM owns.
 
               THE ORDER OF THE FOUR IS THE CLIENT'S OWN LIST, in their words:
               "all the color, yarn color, and roll-form print details … must
               automatically auto-fill", then the Size Details section to add. So
-              Colour · Yarn Colour · Roll form prints · Dia. Every panel declares
-              18rem of columns, so all four boxes still line up. */}
+              Colour · Yarn Colour · Roll form prints · Dia.
+
+              ## ONE ROW OF FOUR (client 2026-09-03)
+
+              ## THE ROW BUDGET — 896px
+
+              A card is 32px of ordinal + its columns + 32px of ✕, and the four
+              slots are `flex-1` with `gap-3` (12px):
+
+                  COLOUR             32 + 136 + 32 = 200
+                  YARN COLOUR        32 + 136 + 32 = 200
+                  ROLL FORM PRINTS   32 + 136 + 32 = 200
+                  DIA / SIZE WIDTH   32 + (120 + 76) + 32 = 260
+                                                    + 3 gaps = 896px
+
+              896 clears the editor pane with room over, so nothing scrolls
+              sideways at any width this editor is used at.
+
+              ## `fill` STAYS OFF, AND THAT IS NOT OPTIONAL HERE
+
+              `fill` suppresses `ChildGrid`'s hug so a panel takes the width its
+              container gives it, which is the obvious pairing with `flex-1` —
+              and it would break this row outright. A grid that does not hug
+              renders `w-full min-w-[420px]` (child-grid.tsx), so four of them
+              would demand 1680px + gaps and put the whole section into the
+              sideways scroll the operator's rule 4 bans. Hugged tables inside
+              `flex-1` slots is the combination that fits.
+
+              WHAT `fill` WAS ORIGINALLY FOR, so nobody restores it by reflex:
+              without it the 2×2 came out with four different right edges —
+              "Yarn Dyeing at ~520px above Roll Form Prints at ~350px" (client
+              2026-08-12, screenshot 2273). That complaint is about two ROWS
+              failing to line up. There is one row now, so it cannot recur; the
+              slots are equal because `flex-1` makes them equal.
+
+              ## `flex-nowrap`, AND WHAT IT COSTS
+
+              The four are asked to hold one line, so they do. The trade is that
+              below ~900px of pane they overflow rather than stacking — the
+              `min-w-[200px]` floors stop them shrinking further. That is inside
+              this editor's normal width and outside a phone's; the mobile
+              fallback is `ChildGrid`'s own stacked cards, which each panel keeps
+              through `renderMobileRow`. */}
           {/* COPY FROM ANOTHER BOM (client 2026-09-01, point 4). It sits on THIS
               tab because that is where the client put it — "a Copy option must
               be integrated into this screen" — and because Size Details is the
@@ -5907,81 +6228,123 @@ export function FabricBomScreen({
               </Select>
             </div>
           )}
-          <SectionGrid>
-            <div className="min-w-0">
-              <ChildGrid<PaletteRow>
-                /* grid-caption: exempt -- four grids share this section; without captions
-                   the operator cannot tell which is which. */
-                label="Colour"
-                columns={editableColourColumns("Colour", "fabric")}
-                rows={paletteEdit?.fabric ?? []}
-                fill
-                /* EDITABLE SINCE 2026-09-02, and what that replaced was
-                   `hideAdd hideRemove` with a no-op `onAdd`/`onRemove` pair —
-                   `ChildGrid` has no `readOnly` prop, so those four together
-                   were the read-only idiom. The rows are no longer derived, so
-                   the `lockExisting` trap the old comment warned about cannot
-                   arise: these keys are minted once and never re-derived. */
-                onAdd={() =>
-                  mutPalette("fabric", (xs) => [...xs, { key: newKey(), value: "" }])
-                }
-                onRemove={(r) => mutPalette("fabric", (xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add colour"
-                renderMobileRow={mobileRowFor(editableColourColumns("Colour", "fabric"))}
-              />
-            </div>
-            <div className="min-w-0">
-              <ChildGrid<PaletteRow>
-                /* grid-caption: exempt -- the other half of the colour pair. */
-                label="Yarn Colour"
-                columns={editableColourColumns("Yarn colour", "yarn")}
-                rows={paletteEdit?.yarn ?? []}
-                fill
-                onAdd={() => mutPalette("yarn", (xs) => [...xs, { key: newKey(), value: "" }])}
-                onRemove={(r) => mutPalette("yarn", (xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add yarn colour"
-                renderMobileRow={mobileRowFor(editableColourColumns("Yarn colour", "yarn"))}
-              />
-            </div>
-            <div className="min-w-0">
-              <ChildGrid<PaletteRow>
-                /* grid-caption: exempt -- the third of four grids in one section. */
-                label="Roll form prints"
-                columns={editableColourColumns("Roll form print", "prints")}
-                /* `editablePrintRows` seeded these, not `editableRows`: a
-                   print names ITSELF (`print_name`) where a dyeing carries a
-                   `color_name`, so the two builders differ by the field they
-                   read and by nothing else. */
-                rows={paletteEdit?.prints ?? []}
-                fill
-                onAdd={() => mutPalette("prints", (xs) => [...xs, { key: newKey(), value: "" }])}
-                onRemove={(r) => mutPalette("prints", (xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add print"
-                renderMobileRow={mobileRowFor(editableColourColumns("Roll form print", "prints"))}
-              />
-            </div>
-            {/* THE ONE EDITABLE PANEL — the only one of the four carrying a
-                real `onAdd` / `onRemove` rather than `hideAdd hideRemove` and the
-                no-op pair. `ChildGrid` has no `readOnly` prop, so those two flags
-                together are what remove the "+ Add" button and every row's ✕.
+          {/* DENSE CELLS, AND NO HEIGHT OVERRIDE AT ALL (client 2026-09-03:
+              "uniform compact height 32px (h-8)", "py-1.5 px-2").
 
-                IT IS ALSO THE ONLY PANEL THE ORDER CANNOT ANSWER, which is why
-                the tab reads three-read-one-typed: the order declares its
-                colours and prints, and the knitting diameter or woven width is
-                a BOM-time fact about how the cloth is MADE. */}
-            <div className="min-w-0">
-              <ChildGrid<DiaRow>
-                /* grid-caption: exempt -- the fourth of four grids in one section. */
-                label="Dia / Size Width Details"
-                columns={diaColumns}
-                rows={dias}
-                fill
-                onAdd={() => mutDias((xs) => [...xs, blankDia(newKey())])}
-                onRemove={(r) => mutDias((xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add dia"
-              />
-            </div>
-          </SectionGrid>
+              THE HEIGHT OVERRIDE CAME OFF, AND THAT IS THE FIX RATHER THAN A
+              RETREAT. `Input` and `Select` are `h-9 @2xl/editor:h-8` — 32px
+              inside an editor pane — so 32px is what the app already gives
+              here, and the `[&_input]:h-9` that stood on this line was forcing
+              36 to answer an earlier brief. Letting the primitive speak puts
+              these four panels back in step with every other grid in this
+              editor, which is what "uniform" has to mean.
+
+              `py-1.5 px-2` ON THE DATA CELLS. `ChildGrid` renders those at
+              `px-1.5 py-1` while its own ordinal and ✕ cells are already
+              `py-1.5`, so one row carried two vertical paddings. A descendant
+              selector out-specifies the cell's own class without `!important`
+              and settles the row at one figure. It is the only way to reach a
+              primitive's `<td>` from a call site; if a third screen needs it,
+              it belongs in `ChildGrid` instead of being copied. */}
+          {/* THE COMPACT PASS, as three descendant rules — each reaches
+              something a call site cannot otherwise touch:
+
+                text-xs on every control — `Input`/`Select` are `text-sm`
+                py-1 px-1.5 on every cell — ChildGrid's data cells already
+                  are; this settles its ordinal and ✕ cells at the same figure
+                w-8 on the first column — the ordinal `<th>` is `w-10`
+
+              The ✕ column is already `w-8` in the primitive, so it needs
+              nothing. If a third screen needs this set, it belongs in
+              `ChildGrid` rather than being copied a third time. */}
+          {/* ONE ROW OF FOUR (client 2026-09-03). `SectionGrid` is gone with
+              the grids it laid out — see `PaletteTable` for why these four
+              cannot be `ChildGrid`s at this width, and what that costs.
+
+              A FLEX ROW, NOT `grid-cols-4`, so the screen still declares no
+              `grid-cols-*` or `col-span-*` of its own (AGENTS.md). The two
+              descendant rules are the compact pass: `text-xs` on every control
+              (`Input`/`Select` are `text-sm`), and nothing else — the cells
+              carry their own `px-1.5 py-1` and the controls their own 32px
+              from the app's editor density.
+
+              `flex-nowrap` HOLDS THE LINE, and the trade is that below ~900px
+              of pane the four overflow rather than stacking. 210 + 210 + 210 +
+              280 + 3 gaps = 946px, so that is outside this editor's normal
+              width. */}
+          <div className="flex w-full flex-row flex-nowrap items-start gap-3 [&_input]:text-xs [&_select]:text-xs">
+            <PaletteTable<PaletteRow>
+              label="Colour"
+              columns={editableColourColumns("Colour", "fabric")}
+              rows={paletteEdit?.fabric ?? blankPalette()}
+              width="max-w-[210px]"
+              onAdd={() => mutPalette("fabric", (xs) => [...xs, { key: newKey(), value: "" }])}
+              /* THE LAST ROW COMES BACK BLANK, which is what `ChildGrid`'s
+                 `seedRow` did for these panels before. A panel with no row at
+                 all is a header and a button, and the client asked for one
+                 default row (2026-09-02). */
+              onRemove={(r) =>
+                mutPalette("fabric", (xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [{ key: newKey(), value: "" }];
+                })
+              }
+              addLabel="+ Add colour"
+            />
+            <PaletteTable<PaletteRow>
+              label="Yarn Colour"
+              columns={editableColourColumns("Yarn colour", "yarn")}
+              rows={paletteEdit?.yarn ?? blankPalette()}
+              width="max-w-[210px]"
+              onAdd={() => mutPalette("yarn", (xs) => [...xs, { key: newKey(), value: "" }])}
+              onRemove={(r) =>
+                mutPalette("yarn", (xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [{ key: newKey(), value: "" }];
+                })
+              }
+              addLabel="+ Add yarn colour"
+            />
+            <PaletteTable<PaletteRow>
+              label="Roll form prints"
+              /* `editablePrintRows` seeded these, not `editableRows`: a print
+                 names ITSELF (`print_name`) where a dyeing carries a
+                 `color_name`, so the two builders differ by the field they read
+                 and by nothing else. */
+              columns={editableColourColumns("Roll form print", "prints")}
+              rows={paletteEdit?.prints ?? blankPalette()}
+              width="max-w-[210px]"
+              onAdd={() => mutPalette("prints", (xs) => [...xs, { key: newKey(), value: "" }])}
+              onRemove={(r) =>
+                mutPalette("prints", (xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [{ key: newKey(), value: "" }];
+                })
+              }
+              addLabel="+ Add print"
+            />
+            {/* THE ONE PANEL THE ORDER CANNOT ANSWER, which is why this tab
+                reads three-read-one-typed: the order declares its colours and
+                prints, and the knitting diameter or woven width is a BOM-time
+                fact about how the cloth is MADE.
+
+                TWO COLUMNS IN ONE ROW — Type beside Dia / Size / Width, which
+                is what the extra 70px of width is for. */}
+            <PaletteTable<DiaRow>
+              label="Dia / Size Width Details"
+              columns={diaColumns}
+              rows={dias}
+              width="max-w-[280px]"
+              onAdd={() => mutDias((xs) => [...xs, blankDia(newKey())])}
+              onRemove={(r) =>
+                mutDias((xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [blankDia(newKey())];
+                })
+              }
+              addLabel="+ Add dia"
+            />
+          </div>
         </SectionBody>
       ),
     },
@@ -5990,49 +6353,63 @@ export function FabricBomScreen({
       label: "Fabric Lines",
       icon: ListChecks,
       done: filledLines.length > 0,
-      // THE ONE WIDE SECTION. The row is 1128px and the ordinary editor cap is
-      // 1180px, so this is no longer a large margin — but the grid is still the
-      // only thing in the section, and narrowing it would put the row back into
-      // the sideways scroll the width budget exists to avoid. Was 14 columns
-      // when this was written; it is 8 — see `FullScreenSection.wide`.
-      wide: true,
+      /**
+       * NO LONGER `wide` (client 2026-09-03: "ensure the table starts
+       * directly aligned with the rest of the form").
+       *
+       * THAT MISALIGNMENT WAS `wide` AND NOTHING ELSE — not a margin, not a
+       * padding, which is why the fix is a removed prop rather than a `pl-*`.
+       * `MasterFullScreen` caps a wide section's pane at `max-w-[1720px]`
+       * and every other section at `max-w-[1440px]`, both `mx-auto`
+       * (master-full-screen.tsx). So on any screen past 1720 this one pane
+       * started 140px outside the Fabric BOM form above it, and the table
+       * inside it began at that outdented edge. Adding left padding here
+       * would have pushed the table back towards the form while leaving the
+       * PANE outdented — the frame and its contents disagreeing, which is
+       * worse than either.
+       *
+       * IT FITS THE ORDINARY CAP NOW, which is the half that makes this
+       * safe. `wide` was here because the row was 14 columns; it is 11, and
+       * the declared widths total ~1150px against a 1440px pane. The table
+       * still appears at the same breakpoint (see `tableFrom` below), so no
+       * screen that showed a table before now falls back to cards.
+       */
       content: (
         <SectionBody title="Fabric Lines">
-          {/* "SEED FROM ORDER" IS BACK (client 2026-09-02, screenshots 2636 ·
-              2637). It was removed on 2026-09-01 at the client's instruction,
-              and with it the `mb-3` band it sat in — 48px of emptiness between
-              the title and the grid, the larger half of the "excess padding"
-              reported in screenshot 2595. Both halves return together, because
-              the band's only occupant is what justified it.
+          {/* NO "SEED FROM ORDER" BUTTON, AND THE BAND GOES WITH IT
+              (client 2026-09-03).
 
-              THE BAND STAYS EMPTY WHEN THE BUTTON CANNOT ACT. With no order
-              there is nothing to seed from, so the wrapper renders at all only
-              once an order is named — a row reserving 48px for a control that
-              can only be disabled is the padding complaint with extra steps.
+              THE CLIENT HAS NOW MOVED THIS TWICE, so the history matters more
+              than the deletion: the button was taken off on 2026-09-01, put
+              back on 2026-09-02 (screenshots 2636 — 2637) because the
+              Components tab was opening empty against an order that had
+              already declared its panels, and is off again now. The `mb-3`
+              wrapper leaves with it both times — it held nothing else, and
+              an empty band was the larger half of the excess padding reported
+              in screenshot 2595.
 
-              A NEW BOM FILLS ITSELF (see the effect on `seededFor`), so this is
-              for the three cases that one deliberately declines: a half-typed
-              BOM, a saved one, and an order amended after the BOM was started.
-              It is additive and never overwrites — see `seedFromOrder`. */}
-          {form.garment_order_id && (
-            <div className="mb-3 flex items-center justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                /* `sm`, not the header row's `md` — this is a section toolbar
-                   inside an editor, not the band above a list, which is the
-                   distinction AGENTS.md's header-row rule turns on.
-                   toolbar-size: exempt -- section toolbar inside the rail
-                   editor, sized with the grid's own "+ Add fabric". */
-                size="sm"
-                onClick={seedFromOrder}
-                disabled={isPending}
-              >
-                <Sparkles className="h-4 w-4" aria-hidden />
-                Seed from order
-              </Button>
-            </div>
-          )}
+              SEEDING ITSELF IS NOT GONE, which is the part to check before
+              reading this as a regression. A NEW BOM STILL FILLS ITSELF from
+              the order's tree — see the `seededFor` effect, which calls
+              `applySeed` once per order id while the grid is still untouched.
+              What has gone is the MANUAL re-run, and with it the only way to
+              seed a half-typed or saved BOM after the order is amended.
+              That is the cost of this change, stated so the next report of
+              "the amended order did not reach the BOM" is not a mystery.
+
+              PUTTING IT BACK IS SMALL: this comment, a `<Button>` in a
+              `mb-3` band, and the fetch-and-toast wrapper around `applySeed`
+              that used to be `seedFromOrder` (removed with it rather than
+              left dead — see the note above `applySeed`). */}
+          {/* `py-1.5 px-2` ON THE DATA CELLS (client 2026-09-03).
+              `ChildGrid` renders them at `px-1.5 py-1` while its own ordinal
+              and remove cells are already `py-1.5`, so one row carried two
+              vertical paddings. A descendant selector out-specifies the
+              cell's own class without `!important`; it is the only way to
+              reach a primitive's `<td>` from a call site. The same pair is
+              on the Colour/Print section — if a third screen needs it, it
+              belongs in `ChildGrid` rather than being copied again. */}
+          <div className="[&_td]:px-2 [&_td]:py-1.5">
           <ChildGrid<LineRow>
             columns={lineColumns}
             /* ONE ROW PER ALLOCATION, not per panel — see `allocationRows`.
@@ -6040,12 +6417,29 @@ export function FabricBomScreen({
                tab asks a different question of the same array. */
             rows={allocationRows}
             seedRow
-            /* The declared widths sum to 1128px including the row chrome, so
-               the table may appear from 1152 (@6xl) — see `tableFrom`. Keep
-               that inequality true when a column is added or resized: over
-               1152 the table renders and immediately scrolls sideways. Without
-               it the switch is @lg, which is 512px in a container query, and a
+            /* ## THE WIDTH BUDGET — 1150px AGAINST A 1152px BREAKPOINT
+
+               The declared widths sum to ~1150px including the row chrome,
+               and the table may appear from 1152 (@6xl). Keep that
+               inequality true when a column is added or resized: over 1152
+               the table renders and immediately scrolls sideways. Without it
+               the switch is @lg, which is 512px in a container query, and a
                laptop would get a table it has to scroll.
+
+               THERE IS 2px OF HEADROOM LEFT, AND THAT IS A WARNING RATHER
+               THAN A MEASUREMENT TO TRUST. 2026-09-03 widened Structure to
+               160 and Style Color to 150 (+118px) because both were clipping
+               their values, and paid for it by trimming five columns whose
+               contents have a known short maximum — Fabric 208—176, Mixing
+               Uom 88—72, Style Ref No 104—88, Style No 80—64, Article No
+               80—64 — for 96px back. THE NEXT WIDENING CANNOT BE PAID FOR
+               THE SAME WAY: what is left is Type, GSM Range and No Of
+               Colors, and all three are already at the width their value
+               needs (No Of Colors carries its own note saying it was put
+               BACK up to 4.5rem). Move `tableFrom` to `7xl` and a 1536-CSS-px
+               monitor drops to cards — the bug recorded two paragraphs
+               below. So the next column that needs room needs a column
+               REMOVED, not borrowed from.
 
                THESE ARE CSS PIXELS, NOT THE ONES IN A SCREENSHOT. This was first
                written for @7xl (1280) against a pane measured off an image, and
@@ -6099,6 +6493,7 @@ export function FabricBomScreen({
             onRemove={removeAlloc}
             addLabel="+ Add fabric"
           />
+          </div>
         </SectionBody>
       ),
     },

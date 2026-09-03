@@ -70,6 +70,7 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { RowActions } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { atCaretEdge, focusField } from "@/lib/focus";
 import { sectionValidity } from "@/lib/screens/validity";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { CadMarkerFile, type MarkerFile } from "@/components/orders/cad-marker-file";
@@ -190,6 +191,93 @@ const panelLabel = (
 const layoutLabel = (l: LayoutRow, i: number) =>
   [l.style_ref_no, l.dia ? `${l.dia}"` : ""].filter(Boolean).join(" ") || `Marker ${i + 1}`;
 
+/**
+ * THE CAD SHEET'S FIELD ORDER, DECLARED ONCE (client 2026-09-02).
+ *
+ * Garment order → Date → Remark → the footer. Customer and Delivery are IN this
+ * list and drop out of it at runtime: they are `readOnly` today, and rule 4 is
+ * "skip them IF they are read-only", not "jump from Date to Remark". Written as
+ * a filter, the day one of them becomes editable it rejoins the flow with no
+ * edit here — written as a hard-coded jump, it would be silently skipped
+ * forever. `tabIndex !== -1` is the same test `FOCUSABLE_SELECTOR` uses, so a
+ * field `Input` has already taken off the path (`readOnly` sets it) cannot come
+ * back through this door either.
+ */
+const CAD_FLOW = ["cad-order", "cad-date", "cad-cust", "cad-del", "cad-remark"];
+
+function cadFlowFields(): HTMLElement[] {
+  return CAD_FLOW.map((id) => document.getElementById(id))
+    .filter((el): el is HTMLElement => el instanceof HTMLElement)
+    .filter((el) => {
+      if (el.tabIndex === -1) return false;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        return !el.readOnly && !el.disabled;
+      }
+      return !el.hasAttribute("disabled");
+    });
+}
+
+/**
+ * The footer's live buttons, in the order they are drawn: Cancel, Save as Draft,
+ * Submit marker sheet.
+ *
+ * READ OFF THE REGION MARKER, not off a list of labels — `MasterFullScreen`
+ * decides which buttons exist (Save as Draft only with `onSaveDraft`, and it
+ * DISABLES itself while `canSave` is false), so a hard-coded three would land
+ * the cursor on a dead control on a sheet that cannot be saved yet.
+ * `:not([disabled])` is what keeps rule 6 honest about which of the three are
+ * actually there.
+ *
+ * Scoped to the surface the field is in, so a second overlay could never be
+ * reached from this one.
+ */
+/**
+ * ON SCREEN, not merely in the document.
+ *
+ * `ChildGrid` in `responsive`/`tableFrom` mode renders BOTH layouts — the table
+ * and the stacked cards — and hides one with a container query, so every cell of
+ * the Markers grid exists TWICE in the DOM. "The last Notes box" picked without
+ * this test is a coin toss between the two layouts, and half the time it is the
+ * one nobody can see. Same test `ownAddControl` uses for the same reason.
+ */
+function cadVisible(els: NodeListOf<HTMLElement> | HTMLElement[]): HTMLElement[] {
+  return Array.from(els).filter((el) => el.offsetParent !== null);
+}
+
+/**
+ * `isFieldLike` (lib/focus.ts) written as a selector, the same way `ROW_FIELDS`
+ * states it in child-grid.tsx — so "the last input of the table" means here
+ * exactly what it means to every other key in the app.
+ */
+const CAD_GRID_FIELDS =
+  'input:not([type="button"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),' +
+  " select, textarea, [data-field-trigger]";
+
+/**
+ * The grid's own fields, in DOM order, minus the ones no key may land on.
+ *
+ * `tabIndex !== -1` and the readOnly / disabled test are the same exclusions
+ * `FOCUSABLE_SELECTOR` and `cadFlowFields` apply. On Panel Weights that is not
+ * theoretical: KG / gmt is a COMPUTED column, so without this the grid's "last
+ * input" could resolve to a box the cursor is not allowed to sit in and ↓ would
+ * appear to do nothing.
+ */
+function cadGridFields(wrap: HTMLElement): HTMLElement[] {
+  return cadVisible(wrap.querySelectorAll<HTMLElement>(CAD_GRID_FIELDS)).filter((el) => {
+    if (el.tabIndex === -1) return false;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      return !el.readOnly && !el.disabled;
+    }
+    return !el.hasAttribute("disabled");
+  });
+}
+
+function cadFooterButtons(from: HTMLElement): HTMLElement[] {
+  const surface = from.closest<HTMLElement>('[role="dialog"]') ?? document.body;
+  const bar = surface.querySelector<HTMLElement>('[data-focus-region="footer"]');
+  return bar ? Array.from(bar.querySelectorAll<HTMLElement>("button:not([disabled])")) : [];
+}
+
 export function CadScreen({
   tasks,
   markers,
@@ -231,6 +319,238 @@ export function CadScreen({
   useUnsavedGuard(dirty || isPending);
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
+
+  /**
+   * Set when Enter is pressed with the Garment order list OPEN, and read by that
+   * picker's `onChange` — the two halves of rule 3, "Enter selects the option and
+   * immediately moves focus to Date".
+   *
+   * IT CANNOT BE DONE IN THE KEYDOWN, which is why this ref exists rather than a
+   * jump beside the other two. `DataPicker` owns Enter while its list is open and
+   * calls `preventDefault` + `stopPropagation`, so a bubble handler never sees the
+   * key and a capture handler sees it BEFORE anyone knows whether it committed
+   * anything — Enter on a blocked row, or on an empty list, picks nothing, and a
+   * jump fired there would leave the field blank and the cursor gone. So the key
+   * only ARMS the move and the commit is what performs it: no value, no jump.
+   *
+   * Disarmed on the next tick so an Enter that picked nothing cannot be redeemed
+   * later by a mouse click on a row.
+   */
+  const advanceAfterPick = useRef(false);
+
+  /**
+   * THE THREE PLACES THE CAD SHEET DIVERGES FROM THE APP-WIDE CONTRACT
+   * (client 2026-09-02, an explicit per-field flow for this screen).
+   *
+   * READ THIS BEFORE ADDING A FOURTH. `lib/focus.ts` already delivers rules 1, 2,
+   * 4 and 6 here — Enter advances, ↑↓←→ move spatially, a `readOnly` field is
+   * skipped because `Input` gives it `tabIndex={-1}`, and ←→ walk the footer
+   * because those buttons share a `data-focus-region`. None of that is re-stated
+   * below, deliberately: the provider stands down on `defaultPrevented`, so a
+   * local handler does not ADD to the contract, it REPLACES it on this surface
+   * and goes on replacing it through every future change to it.
+   *
+   * What is left is the three controls that own these keys natively, which no
+   * central rule can override without changing them everywhere:
+   *
+   *   • Date  — `<input type="date">` is in `ownsArrowKeys`, so ↑↓ step the
+   *     focused segment's value. The flow asks for movement instead, and the
+   *     cost is real and bounded: the keyboard can no longer INCREMENT the date
+   *     in place. It can still be typed, and ←→ still walk day / month / year,
+   *     which is deliberately left to the browser — see the branch that says so.
+   *   • Remark — a `<textarea>` owns ↑↓ (caret lines) and Enter (a newline).
+   *     Shift+Enter is kept as the newline, so a two-row box is still a two-row
+   *     box; without that, rule 5 would silently remove the only way to type one.
+   *   • Garment order — handled by `advanceAfterPick` above, not here.
+   *
+   * CAPTURE, not bubble: both controls above consume these keys themselves, and
+   * the provider's own listener is a BUBBLE listener on `document`
+   * (keyboard-nav-provider.tsx), so preventing here stands every layer down in
+   * one move.
+   */
+  function onCadFlowKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (!(t instanceof HTMLElement)) return;
+
+    // The picker keeps every one of its keys — ↓ opens the list and walks the
+    // options, Enter picks (rule 3). All this does is note that a pick is coming.
+    if (t.id === "cad-order") {
+      if (e.key === "Enter" && t.getAttribute("aria-expanded") === "true") {
+        advanceAfterPick.current = true;
+        window.setTimeout(() => {
+          advanceAfterPick.current = false;
+        }, 0);
+      }
+      return;
+    }
+
+    if (t.id !== "cad-date" && t.id !== "cad-remark") return;
+    // Shift+Enter is the Remark box's newline; see the note above.
+    if (e.key === "Enter" && e.shiftKey) return;
+
+    /**
+     * ← AND → BELONG TO THE DATE BOX'S SEGMENTS (client 2026-09-02).
+     *
+     * A `<input type="date">` is three fields in one — day, month, year — and
+     * ←→ are how the operator walks between them. Taking those keys made the
+     * middle two reachable only with the mouse.
+     *
+     * THE CARET GATE BELOW CANNOT CATCH THIS, which is why it needs its own line
+     * rather than a tweak there. `atCaretEdge` asks the element where its caret
+     * is; a date input has no addressable caret, so `selectionStart` THROWS and
+     * the function returns true for safety (lib/focus.ts: "number/email — caret
+     * not addressable, so treat as the edge"). That is the right default for a
+     * box with no internal structure and exactly wrong for one with three parts:
+     * every → reported "already at the edge" and left the field on the first
+     * press.
+     *
+     * So forward off Date is Enter and ↓ only, which is what the operator has to
+     * press deliberately. ↑ still goes back to Garment order — a date input uses
+     * ↑↓ to increment the focused segment, and that increment is the one thing
+     * this screen's flow does take from it (see the note above the handler).
+     */
+    if (t.id === "cad-date" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
+
+    const forward = e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowRight";
+    const back = e.key === "ArrowUp" || e.key === "ArrowLeft";
+    if (!forward && !back) return;
+    // ←→ still move the CARET while there is text to cross, which is the same
+    // gate `arrowNavigate` applies to every other field in the app. Without it,
+    // → in a half-typed Remark would leave the field mid-word.
+    if (
+      (e.key === "ArrowRight" || e.key === "ArrowLeft") &&
+      !atCaretEdge(t, e.key === "ArrowRight" ? "next" : "prev")
+    ) {
+      return;
+    }
+
+    const fields = cadFlowFields();
+    const i = fields.indexOf(t);
+    if (i === -1) return;
+    // Off the last field, forward means the footer (rule 5). Off the first,
+    // BACK means nothing — declined rather than swallowed, so the key still
+    // reaches the provider and the section rail behind it.
+    const target = back ? fields[i - 1] : (fields[i + 1] ?? cadFooterButtons(t)[0]);
+    if (!target) return;
+    e.preventDefault();
+    e.stopPropagation();
+    focusField(target);
+  }
+
+  /**
+   * ↑ OFF A FOOTER BUTTON GOES BACK TO THE LAST FIELD (client 2026-09-02) — the
+   * return leg of rule 5, so the jump the Remark box makes into the footer is not
+   * a one-way door.
+   *
+   * A DOCUMENT LISTENER, AND THAT IS FORCED. The three buttons are
+   * `MasterFullScreen`'s — this screen passes `footer={{…}}` and never renders
+   * them — so there is no JSX here to hang an `onKeyDown` on, and the shell is
+   * not this file's to edit. Registered only while the sheet is OPEN and torn
+   * down with it, so it cannot fire on the queue list behind it, on another
+   * screen, or after this one closes.
+   *
+   * CAPTURE, for the same reason `onCadFlowKeyDown` captures: the provider's nav
+   * listener is a BUBBLE listener on `document` (keyboard-nav-provider.tsx), so
+   * preventing here stands it down in one move.
+   *
+   * THE SECTION GUARD COMES FREE, and it is the reason this reads the flow rather
+   * than reaching for `getElementById("cad-remark")`. `MasterFullScreen` mounts
+   * ONE section at a time, so while Markers is on screen the CAD Sheet's fields
+   * are not in the document at all: `cadFlowFields()` returns nothing, the key is
+   * declined rather than swallowed, and ↑ from the footer of a different section
+   * cannot drag the operator into a pane they were not looking at.
+   *
+   * The LAST field of the flow, not Remark by name — same filter as rule 4, so if
+   * Remark ever became read-only this would land on the field above it instead of
+   * on a box the cursor cannot sit in.
+   */
+  const markersRef = useRef<HTMLDivElement>(null);
+
+  const weightsRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * A GRID'S BOTTOM EDGE: last field → its "+ Add" button → the footer, and back
+   * up again (client 2026-09-02, asked for on Markers and then on Panel Weights).
+   *
+   * ONE HANDLER, BOTH GRIDS, and the second request is why it is parameterised
+   * rather than copied. The two tables want the identical three moves; two copies
+   * of them in one file is how the copies drift, and this file has now been told
+   * twice running that the bottom edge of a grid is a place the keyboard has to
+   * work. A third grid needs a ref and a wrapper, not another forty lines.
+   *
+   * THREE MOVES, AND ONLY THREE — the rest of the grid is `gridKeyNav`'s and is
+   * deliberately not restated here:
+   *
+   *   • ENTER ON THE LAST FIELD ALREADY LANDS ON "+ Add". `gridKeyNav` has done
+   *     that since 2026-08-19 (`ownAddControl`), on both grids alike, so there is
+   *     no Enter branch below. Writing one would not add the behaviour, it would
+   *     REPLACE a working one and inherit the job of keeping it in step forever.
+   *   • ↓ ON THE LAST FIELD IS THE GAP. `gridKeyNav` moves down a ROW and, on
+   *     the last row, handles only Enter — ↓ falls through, and `arrowNavigate`
+   *     then declines it too because a cell inside `[data-grid-row]` is in
+   *     `ownsArrowKeys`. So it is a dead key today, and only on the last row:
+   *     from any row above ↓ must still step to the next row, which is why this
+   *     declines unless the target really is the grid's last field.
+   *   • OFF THE BUTTON, BOTH WAYS. ↓ crosses into the footer, which
+   *     `arrowNavigate` will not do by design (movement is confined to a
+   *     `data-focus-region`), and ↑ goes back to THE LAST FIELD — spatially the
+   *     button sits under the grid's left edge, so the contract's geometry would
+   *     land on the first column, several fields from where the operator came.
+   *
+   * SCOPED TO ONE WRAPPER, which is what tells the two grids apart. Both carry a
+   * Notes column and an "+ Add" of their own, so any query written over the
+   * SECTION — or over the surface — would answer for whichever grid comes first
+   * in the document rather than for the one the operator is standing in.
+   */
+  function cadGridEdgeKeyDown(
+    wrap: HTMLDivElement | null,
+    e: React.KeyboardEvent<HTMLElement>,
+  ) {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const t = e.target;
+    if (!(t instanceof HTMLElement) || !wrap) return;
+
+    const addBtn = cadVisible(wrap.querySelectorAll<HTMLElement>("[data-row-add]"))[0];
+    const fields = cadGridFields(wrap);
+    const last = fields[fields.length - 1];
+
+    if (addBtn && t === addBtn) {
+      const target = e.key === "ArrowUp" ? last : cadFooterButtons(t)[0];
+      if (!target) return;
+      e.preventDefault();
+      e.stopPropagation();
+      focusField(target);
+      return;
+    }
+
+    // Only the grid's LAST field, and only downward — see the note above.
+    if (e.key === "ArrowDown" && t === last && addBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      focusField(addBtn);
+    }
+  }
+
+  useEffect(() => {
+    if (mode !== "edit") return;
+    function onFooterArrowUp(e: KeyboardEvent) {
+      if (e.key !== "ArrowUp" || e.defaultPrevented) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const active = document.activeElement;
+      if (!(active instanceof HTMLButtonElement)) return;
+      if (!active.closest('[data-focus-region="footer"]')) return;
+      const fields = cadFlowFields();
+      const back = fields[fields.length - 1];
+      if (!back) return;
+      e.preventDefault();
+      e.stopPropagation();
+      focusField(back);
+    }
+    document.addEventListener("keydown", onFooterArrowUp, true);
+    return () => document.removeEventListener("keydown", onFooterArrowUp, true);
+  }, [mode]);
 
   const set = (patch: Partial<Form>) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -864,6 +1184,11 @@ export function CadScreen({
       done: !!form.garment_order_id,
       content: (
         <SectionBody title="CAD Sheet">
+          {/* `display: contents`, so this wrapper carries the listener and NO
+              layout — `FieldGrid` stays the direct grid child of `SectionBody`
+              and the spacing above the panels error is unchanged. Events still
+              travel through it: the event tree does not care about `display`. */}
+          <div className="contents" onKeyDownCapture={onCadFlowKeyDown}>
           <FieldGrid>
             <Field label="Garment order" required size="sm" htmlFor="cad-order">
               <RecordPicker
@@ -877,7 +1202,25 @@ export function CadScreen({
                 // order; re-pointing it would leave weights describing a garment
                 // the sheet no longer names, with nothing on screen saying so.
                 disabled={!!editId}
-                onChange={(id) => set({ garment_order_id: id })}
+                onChange={(id) => {
+                  set({ garment_order_id: id });
+                  /* RULE 3's SECOND HALF. Armed by Enter on the open list
+                     (`advanceAfterPick`), performed here, so a pick that never
+                     happened cannot move the cursor. A MOUSE pick leaves the
+                     flag false and the cursor where the operator put it.
+
+                     Deferred because `DataPicker` closes its list and hands
+                     focus back to this trigger as it commits; moving in the same
+                     tick would be undone by that hand-off. 30ms is the delay the
+                     app already uses for a post-re-render focus move (see
+                     `enterNestedGrid` in child-grid.tsx). */
+                  if (!advanceAfterPick.current) return;
+                  advanceAfterPick.current = false;
+                  window.setTimeout(() => {
+                    const date = document.getElementById("cad-date");
+                    if (date) focusField(date);
+                  }, 30);
+                }}
               />
             </Field>
             <Field label="Date" required size="sm" htmlFor="cad-date">
@@ -909,6 +1252,7 @@ export function CadScreen({
               />
             </Field>
           </FieldGrid>
+          </div>
 
           {panelsErr && (
             <div className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-danger">
@@ -926,6 +1270,14 @@ export function CadScreen({
       wide: true,
       content: (
         <SectionBody title="Markers">
+          {/* `display: contents` — the wrapper carries the listener and the ref
+              and contributes no layout, so the grid still sits directly in the
+              section body. */}
+          <div
+            className="contents"
+            ref={markersRef}
+            onKeyDownCapture={(e) => cadGridEdgeKeyDown(markersRef.current, e)}
+          >
           <ChildGrid<LayoutRow>
             columns={layoutColumns}
             rows={layouts}
@@ -954,6 +1306,7 @@ export function CadScreen({
             }}
             addLabel="+ Add marker"
           />
+          </div>
         </SectionBody>
       ),
     },
@@ -977,6 +1330,12 @@ export function CadScreen({
               Seed panels from order
             </Button>
           </div>
+          {/* Same wrapper, same handler, its own ref — see `cadGridEdgeKeyDown`. */}
+          <div
+            className="contents"
+            ref={weightsRef}
+            onKeyDownCapture={(e) => cadGridEdgeKeyDown(weightsRef.current, e)}
+          >
           <ChildGrid<WeightRow>
             columns={weightColumns}
             rows={weights}
@@ -998,6 +1357,7 @@ export function CadScreen({
             onRemove={(r) => mutWeights((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add panel"
           />
+          </div>
         </SectionBody>
       ),
     },
