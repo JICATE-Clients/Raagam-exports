@@ -119,14 +119,31 @@ export interface FabricBomManualEntry {
   /** 'open_width' | 'tubular' — the physical state of the cloth. A property of
    *  the entry, not of a size. */
   width_form: string | null;
+  /**
+   * THE CLOTH THIS WEIGHT IS FOR — `items.id`, and the entry's key since 0522.
+   *
+   * Legacy's Manual row leads with a Fabric column and carries no Structure
+   * column (client 2026-09-03, screenshots 2666 · 2667). Everything the row
+   * shows beside it — the knit type, the GSM, the measurement unit — is read
+   * off this cloth rather than typed.
+   */
+  item_id: string | null;
   /** A `categories` row — the same vocabulary `order_fabric_bom_lines.structure_id`
-   *  and the order's own combo structures use. */
+   *  and the order's own combo structures use. DERIVED SINCE 0522: the save
+   *  writes it as `item_id`'s `items.category_id`, because the requirement
+   *  engine keys the order's GSM by a structure. Never offered as a field. */
   structure_id: string | null;
   /** 'direct' | 'calculated'. See `calcModeOf` in ./manual.ts. */
   calc_mode: string;
-  /** The planned loss allowance. Net x (1 + this/100) = Gross. NOT the knitting
-   *  or dyeing losses, which are step 4's (0427). */
+  /** The planned loss allowance — legacy's "Component Proc. Loss %".
+   *  Net x (1 + this/100) = Gross. NOT the knitting or dyeing losses, which are
+   *  step 4's (0427). */
   wastage_pct: number | null;
+  /** Legacy's "EndBit Loss %" on the same row (0522) — a second allowance,
+   *  beside `wastage_pct` rather than replacing it. */
+  endbit_loss_pct: number | null;
+  /** Legacy's "Assort Color wise" checkbox on the same row (0522). */
+  assort_color_wise: boolean;
   components: FabricBomManualComponent[];
   sizes: FabricBomManualSize[];
 }
@@ -222,21 +239,21 @@ export interface FabricBomYarn {
    *  case. Most often a fabric whose several yarns declare no blend
    *  percentages, where any split would be invented. */
   refusal_reason: string | null;
-  /** The treatments, in order. Embedded by `listFabricBoms`; absent on a query
+  /** The processes, in order. Embedded by `listFabricBoms`; absent on a query
    *  that does not ask for them, exactly like `FabricBomLine.sizes`. */
   stages?: FabricBomYarnStage[];
 }
 
 /**
- * One treatment one yarn runs — the child grid (0504).
+ * One process one yarn runs — the child grid (0504 · 0520).
  *
  * NO `bom_id`: a grandchild, reached only through its yarn, which is 0491's
  * shape for a line's sizes and for its reason.
  *
- * `process_qty` IS WHAT THIS STEP HANDLES, not what the yarn costs in total —
- * the purchase weight of the colourways it treats. The Budget pulls it as a Yarn
- * Process line, and a step naming no process produces neither a figure nor a
- * line.
+ * `process_qty` IS WHAT THIS STEP HANDLES — the yarn's whole purchase weight
+ * since 0520. It was the weight of the colourways the step treated, until the
+ * `For` column stopped naming one. The Budget pulls it as a Yarn Process line,
+ * and a step naming no process produces neither a figure nor a line.
  */
 export interface FabricBomYarnStage {
   id: string;
@@ -247,9 +264,10 @@ export interface FabricBomYarnStage {
   stage_id: string | null;
   /** A `processes` master row (0227), narrowed by `for_yarn` on the client. */
   process_id: string | null;
-  /** The `For` column. NULL means EVERY colourway, which is the ordinary case —
-   *  never "no colourway". By VALUE, matching the requirement rows' own combo. */
-  combo: string | null;
+  /** The `For` column — `config_lookups` kind `process_loss_for`, PROCESS WISE
+   *  or COLOR WISE, the same list the fabric route's `Loss for` reads. It named
+   *  a COLOURWAY and divided the weight until 2026-09-03; see 0520. */
+  loss_for_id: string | null;
   description: string | null;
   loss_pct: number | null;
   process_qty: number | null;
@@ -386,9 +404,11 @@ export interface FabricBomProcess {
   loss_for_id: string | null;
   description: string | null;
   loss_pct: number | null;
-  /** The fabric-wise processing rate for this stage. Colour-wise rates are a
-   *  (stage x colour) grain and are deliberately not in 0492. */
-  rate: number | null;
+  /* NO `rate`. It held the fabric-wise processing rate and the client removed
+     the column on 2026-09-03 (0521). The route is a quantity document; a price
+     is entered once, on the Budget. Do not confuse this with
+     `FabricBomLine.rate` above, which is a different figure on a different row
+     and is untouched. */
   /** `config_lookups` kind 'fabric_process_type' — deliberately unseeded. */
   type_id: string | null;
 }
@@ -444,9 +464,26 @@ export const fabricBomManualEntryInput = z.object({
      order and is what every entry stored before 0495 already means. */
   style_ref_no: nullableText,
   width_form: z.enum(["open_width", "tubular"]).nullable().default(null),
+  /* THE CLOTH, NAMED DIRECTLY (0522) — legacy's Manual row leads with a Fabric
+     column and carries no Structure column at all (client 2026-09-03,
+     screenshots 2666 · 2667). Optional here and demanded by `manualProblem`:
+     a draft entry that has not chosen yet is a real state, and refusing it in
+     the schema would make a half-filled row unsaveable as a DRAFT. */
+  item_id: uuidN,
+  /* DERIVED FROM `item_id` AND STILL WRITTEN — the action sets it to the
+     fabric's `items.category_id` (0405 · 0415 · 0426: a Structure on this screen
+     IS a fabric category), because the requirement engine keys its GSM lookup on
+     a structure. Accepted here so an import can round-trip a stored row; it is
+     overwritten from the fabric whenever one is named, so a disagreeing value
+     cannot survive a save. */
   structure_id: uuidN,
   calc_mode: z.enum(["direct", "calculated"]).default("direct"),
   wastage_pct: z.coerce.number().min(0).max(100).nullable().default(0),
+  /* Legacy's "EndBit Loss %", beside the process loss above rather than
+     replacing it: the fabric row carries BOTH allowances (0522). */
+  endbit_loss_pct: z.coerce.number().min(0).max(100).nullable().default(0),
+  /* Legacy's "Assort Color wise" checkbox on the same row (0522). */
+  assort_color_wise: z.coerce.boolean().default(false),
   component_ids: z.array(z.string().uuid()).default([]),
   sizes: z.array(fabricBomManualSizeInput).default([]),
 });

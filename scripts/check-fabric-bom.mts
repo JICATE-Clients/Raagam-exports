@@ -160,6 +160,10 @@ const sizeRow = (size_id: string, grams: number | null): ManualSizeInput => ({
 /** One entry, as `manualProblem` wants it. */
 const entry = (over: Partial<Parameters<typeof manualProblem>[0]> = {}) => ({
   style_ref_no: S1,
+  /* THE CLOTH, which is what an entry names since 0522 — legacy's Manual row has
+     a Fabric column and no Structure column. `structure_id` rides along because
+     the GSM lookup keys by it, and the server re-derives it from this cloth. */
+  item_id: "i-1",
   structure_id: "s-1",
   calc_mode: "direct",
   component_ids: ["c-front"],
@@ -841,9 +845,17 @@ const NEEDED = [
 ];
 
 check(
-  "an entry with no structure is refused first",
-  manualProblem(entry({ structure_id: null }), NEEDED, null)?.refused,
-  "Choose the fabric structure this weight is for",
+  "an entry with no FABRIC is refused first (0522)",
+  manualProblem(entry({ item_id: null }), NEEDED, null)?.refused,
+  "Choose the fabric this weight is for",
+);
+/* AND A STRUCTURE ON ITS OWN IS NOT AN ANSWER. Before 0522 this entry passed the
+   first gate; the structure is derived now, so a row carrying one and no cloth
+   is a row the planner never started. */
+check(
+  "…and a structure without a fabric does not satisfy it",
+  manualProblem(entry({ item_id: null, structure_id: "s-1" }), NEEDED, null)?.refused,
+  "Choose the fabric this weight is for",
 );
 check(
   "…then one with no components",
@@ -853,7 +865,7 @@ check(
 check(
   "an order stating no sizes is its own refusal, not a pass",
   manualProblem(entry(), [], null)?.refused,
-  "This order states no sizes for this structure",
+  "This order states no sizes for this fabric",
 );
 check(
   "it names the sizes still blank",
@@ -872,7 +884,7 @@ check(
 check(
   "calculated mode with no GSM says so, and says where to fix it",
   manualProblem(entry({ calc_mode: "calculated" }), NEEDED, null)?.refused,
-  "This structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
+  "This fabric's structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
 );
 refute(
   "…rather than reporting every size as blank",

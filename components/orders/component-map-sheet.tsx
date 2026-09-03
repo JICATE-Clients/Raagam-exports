@@ -59,9 +59,10 @@
  * there patches every line of the panel, which is the honest shape: a body knit
  * tubular is knit tubular in white and in black.
  *
- * A COLOUR ROW owns what genuinely varies — Required Colour, Required Print,
- * Specification. Those are per colourway by construction; the order declares a
- * different colour per combo and that is the whole point of a combo.
+ * A COLOUR ROW owns what genuinely varies — Required Colour and Required Print.
+ * Those are per colourway by construction; the order declares a different colour
+ * per combo and that is the whole point of a combo. (Specification was the third
+ * of them until 2026-09-03; see the header for what took its cell.)
  *
  * Open/Tubular could have gone on the colour row and legacy draws it there. It
  * is here because the client called it a property of "the fabric for the
@@ -90,9 +91,9 @@
  *   2. PANEL     — Coordinate · Component · Structure · Fabric Type · Fabric ·
  *                  GSM · Open/Tubular. Folds.
  *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric · GSM · Type ·
- *                  Required Colour · Required Print · Specification.
+ *                  Required Colour · Required Print · Conv. Item.
  *
- * ## TWO OF LEGACY'S COLUMNS ARE DELIBERATELY ABSENT
+ * ## ONE OF LEGACY'S COLUMNS IS DELIBERATELY ABSENT
  *
  * **Structure Type** (legacy prints "Circular" on every row) has no per-structure
  * source here. A structure is a `categories` row; the knit family is stored on
@@ -103,9 +104,34 @@
  * dashes in every row of every BOM. Say where it should come from and it is one
  * cell to add.
  *
- * **Conv. Item** stays the stub 0495 agreed with the client — a [Click] into a
- * screen no transcript describes. A button that opens nothing is a dead
- * affordance on the Tab path, so it is not drawn at all.
+ * ## `Conv. Item` REPLACED `Specification`, AND ITS SCREEN IS STILL THE CLIENT'S
+ *
+ * Client 2026-09-03, screenshot 2656: "Specification — instead of this field add
+ * the convert item button", followed by "just as button, then I will [give] this
+ * logic". So the swap is one instruction, not two: Specification's cell is gone
+ * and legacy's [Click] stands in its place.
+ *
+ * **This reverses 0495's stub**, which read "a button that opens nothing is a
+ * dead affordance on the Tab path, so it is not drawn at all" — written when the
+ * client had confirmed (2026-09-01) that no transcript describes the screen
+ * behind it. It is the same reversal `fabric-bom-screen`'s Fabric Allocation
+ * columns went through on 2026-09-02, and for the same stated reason: the row is
+ * legacy's column for column, and an exclusion list is the client's to reverse.
+ *
+ * **The button is live and says what it does not know yet** (`ConvItemSheet`
+ * below). The two alternatives were both worse and both have a defect on file:
+ * a click that does nothing is the dead affordance 0495 refused to draw, and a
+ * DISABLED button explaining "not defined yet" is a refusal the operator can
+ * never satisfy — which is the [Detail] complaint of 2026-09-03 (screenshot
+ * 2651), where a grey button contradicting its own instruction was
+ * "indistinguishable from a broken control".
+ *
+ * **`Specification` KEEPS ITS COLUMN AND ITS ROUND TRIP.** Nothing derives from
+ * it, so removing the cell removes nothing else — but a value an operator typed
+ * before today is still on the row, and a screen that stops carrying it would
+ * blank it on the next save. Same call Purchase Pack got when the client had
+ * that cell removed (2026-08-21) and Calculated Quantities got on 2026-09-01:
+ * the CONTROL goes, the stored fact stays. See `MapLine.specification`.
  *
  * ## LEVEL 3 REPEATS FABRIC AND GSM, AND THAT IS NOT REDUNDANCY HERE
  *
@@ -119,13 +145,14 @@
  */
 
 import { Fragment, useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Truncated } from "@/components/ui/truncated";
 import { Button } from "@/components/ui/button";
+import { StyleIdentityBand } from "@/components/orders/style-identity-band";
+import { Sheet } from "@/components/ui/sheet";
 import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   FABRIC_FORM_OPTIONS,
@@ -154,6 +181,14 @@ export type MapLine = {
   color_name: string;
   fabric_form: string;
   required_print: string;
+  /**
+   * NO CELL SINCE 2026-09-03 — `Conv. Item` took its place (see the file
+   * header). CARRIED ANYWAY, and that is the point: the screen loads it, holds
+   * it and saves it, so a specification typed before today survives every
+   * subsequent save of the line. Dropping it from this type would make the
+   * screen's `LineRow` stop feeding it here, which changes nothing on screen and
+   * silently blanks the column on the next Save of an existing BOM.
+   */
   specification: string;
 };
 
@@ -411,7 +446,9 @@ export function ComponentMapBody({
   allLines: readonly MapLine[];
   /** Patch every line of one panel — Component / Coordinate / Open-Tubular. */
   onPatchPanel: (panelKey: string, patch: Partial<MapLine>) => void;
-  /** Patch one colourway's line — Required Colour / Print / Specification. */
+  /** Patch one colourway's line — Assort Colour / Fabric / Type / Required
+   *  Colour / Required Print. (Specification lost its cell on 2026-09-03; the
+   *  field is still carried and saved — see `MapLine.specification`.) */
   onPatchLine: (lineKey: string, patch: Partial<MapLine>) => void;
   /** Adds one panel. The sheet passes the auto-default where there is one —
    *  see the `solePanel` call at the button. */
@@ -599,6 +636,22 @@ export function ComponentMapBody({
    * a row starts at.
    */
   const [typeFilter, setTypeFilter] = useState<Record<string, string>>({});
+
+  /**
+   * WHICH COLOUR ROW HAS `Conv. Item` OPEN — a LINE KEY, never the line itself.
+   *
+   * `MapLine` objects are rebuilt by the screen on every keystroke, so holding
+   * one here would pin a stale copy: the sheet would keep naming the fabric the
+   * row had when it was opened while the row beneath it moved on. A key is an
+   * address the current array can always be re-read through — the same
+   * distinction `PanelGroup.panel_uid` records one level up, where an accordion
+   * keyed on a MUTATING address lost its panel on an ordinary edit.
+   *
+   * `key` is safe as that address where `PanelGroup.key` was not: a line's key is
+   * minted once and never recomputed from its contents.
+   */
+  const [convKey, setConvKey] = useState<string | null>(null);
+  const convLine = lines.find((l) => l.key === convKey) ?? null;
 
   /**
    * THE FABRIC TYPE MASTER, NOT THE TYPES ALREADY ON THIS BOM (client
@@ -887,18 +940,21 @@ export function ComponentMapBody({
   ];
 
   /**
-   * LEVEL 3's COLUMNS — legacy's order (screenshot 2613), minus `Conv. Item`.
+   * LEVEL 3's COLUMNS — legacy's order (screenshots 2613 · 2656), minus
+   * `Specification`.
    *
    *   S No · Assort Color · Fabric Type · Fabric · Gsm · Type ·
-   *   Required Color · Required Print · Specification
+   *   Required Color · Required Print · Conv. Item
    *
    * FABRIC TYPE / FABRIC / GSM ARE REPEATED FROM THE PANEL ROW AND ARE NOT
    * REDUNDANT. `item_id` is a column of the LINE, and a line is per colourway, so
    * a white body and a navy body may name two different fabric items — the panel
    * row rolls them up and says "(mixed)", and these are where the values are.
    *
-   * Widths: 8 + 6 + 12 + 5 + 6 + 9 + 9 + 10 = 65rem ≈ 1040px, inside the wide
-   * section's row even after the 1rem indent.
+   * Widths: 8 + 7 + 12 + 5 + 6 + 9 + 9 + 6 = 62rem ≈ 992px, inside the wide
+   * section's row even after the 1rem indent — and 4rem narrower than the row
+   * was before, because `Conv. Item`'s button needs less than the 10rem
+   * `Specification`'s free-text box was given.
    */
   const colourColumns: ChildGridColumn<MapLine>[] = [
     {
@@ -1036,14 +1092,48 @@ export function ComponentMapBody({
       ),
     },
     {
-      header: "Specification",
-      width: "10rem",
+      /**
+       * LEGACY'S `Conv. Item` — the colour row's LAST cell, and the whole of
+       * this change (client 2026-09-03, screenshot 2656).
+       *
+       * IT IS A REPLACEMENT, NOT AN ADDITION. `Specification` stood here and the
+       * instruction was "instead of this field", so the row keeps its eight
+       * columns rather than growing a ninth. Why the stored column survives the
+       * cell is on `MapLine.specification`.
+       *
+       * THE LABEL IS LEGACY'S OWN WORD. The screenshot's cell reads `Click`, and
+       * this is a column-for-column parity ask — the same "only legacy screen
+       * field" rule the Fabric Allocation row was rebuilt under on 2026-09-02.
+       * `aria-label` carries the meaning, because "Click" announced on its own
+       * tells a screen-reader user nothing about which of eight cells it is.
+       *
+       * `data-row-open`, SO IT IS ON THE KEYBOARD. Tab visits fields and a
+       * `<Button>` is not one, so without the marker this surface is mouse-only
+       * — which is the Combos ▸ Structure Details defect (client 2026-08-19,
+       * screenshot 2358) and the Material Attributes one (2026-08-05) rebuilt a
+       * third time. The marker's own rule in `child-grid.tsx` is "mark a button
+       * only when it OPENS something the keyboard cannot otherwise reach", and
+       * a sheet is exactly that. Marking it now also means the screen behind it
+       * lands with no keyboard change at all.
+       *
+       * NOT GATED ON A FABRIC, unlike the [Detail] button one tab over. That one
+       * reads the cloth's composition and genuinely has nothing to show without
+       * it; this one does not yet read anything, so a gate here would be a
+       * refusal invented ahead of the rule that justifies it.
+       */
+      header: "Conv. Item",
+      width: "6rem",
       cell: (l) => (
-        <Input
-          className="h-8"
-          value={l.specification}
-          onChange={(e) => onPatchLine(l.key, { specification: e.target.value })}
-        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-row-open
+          aria-label="Conv. Item"
+          onClick={() => setConvKey(l.key)}
+        >
+          Click
+        </Button>
       ),
     },
   ];
@@ -1065,25 +1155,11 @@ export function ComponentMapBody({
               carries `style_ref_no` by value, so the ref is always known; Style
               No and Article No come from the order's combo tree and dash when it
               has nothing to say. */}
-          {/* WHITE, NOT FILLED — see the note on the header row below, which is
-              the same rule and the same client instruction. The border already
-              says this is a band. */}
-          <dl className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-1 rounded-md border border-border px-3 py-2">
-            {[
-              { label: "Style Ref No", value: styleIdentity?.ref || styleRefNo },
-              { label: "Style No", value: styleIdentity?.style ?? "" },
-              { label: "Article No", value: styleIdentity?.article ?? "" },
-            ].map((f) => (
-              <div key={f.label}>
-                <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-                  {f.label}
-                </dt>
-                <dd className="m-0 text-sm font-medium">
-                  <Truncated>{f.value || "—"}</Truncated>
-                </dd>
-              </div>
-            ))}
-          </dl>
+          {/* ONE COMPONENT, TWO TABS (2026-09-03). The Manual tab was told to
+              draw this same band, so it moved to `StyleIdentityBand` rather than
+              being copied — everything this markup used to say is now in that
+              file's own note. */}
+          <StyleIdentityBand styleRefNo={styleRefNo} identity={styleIdentity} />
 
           {/* LEVEL 2 + LEVEL 3 — THE PANELS, EACH WITH ITS OWN SPLIT DIRECTLY
               BENEATH IT (client 2026-09-02, artifact approved: "need to split it
@@ -1412,6 +1488,65 @@ export function ComponentMapBody({
           >
             + Add part
           </Button>
+
+          {/**
+           * `Conv. Item` — WHAT LEGACY'S [Click] OPENS, AS FAR AS WE KNOW IT
+           * (client 2026-09-03: "just as button, then I will [give] this logic").
+           *
+           * IT SAYS WHAT IT DOES NOT KNOW, AND NAMES THE LINE ANYWAY. Every
+           * reading of this cell that has ever been proposed — an alternative-UOM
+           * conversion (`bom-slice-grid.tsx`, `0491`), the greige a fabric is
+           * converted from, a GSM-to-weight helper — is about ONE colour row of
+           * ONE panel, so the five facts that identify that row are what any of
+           * them would open with. They cost nothing to be wrong about.
+           *
+           * NO FOOTER AND NO SAVE. There is nothing to commit, and a Cancel /
+           * Save pair over a read-only box would promise a write that does not
+           * happen. Escape or ✕ closes it, one layer per press.
+           *
+           * `size="sm"` — a centred `max-w-md` dialog on the scrim, not a
+           * full-screen page. It holds five labelled values and a sentence; the
+           * grid-width argument that earns `md` (see `sheet.tsx`) does not apply.
+           *
+           * `Sheet` REGISTERS WITH `lib/reload-guard.ts` ITSELF (`useModalGuard`,
+           * sheet.tsx), so an auto-deploy cannot reload the tab out from under an
+           * open overlay. That is the primitive's job and not this file's — a
+           * hand-rolled `fixed inset-0` here would have to declare it by hand.
+           */}
+          <Sheet
+            open={!!convLine}
+            onClose={() => setConvKey(null)}
+            size="sm"
+            title="Conv. Item"
+          >
+            {convLine ? (
+              <div className="space-y-4">
+                <dl className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-3">
+                  {[
+                    { label: "Style Ref No", value: styleIdentity?.ref || styleRefNo },
+                    { label: "Assort Colour", value: convLine.combo },
+                    { label: "Component", value: componentName(convLine.component_id) ?? "" },
+                    { label: "Fabric", value: factsFor(convLine).fabric },
+                    { label: "Gsm", value: factsFor(convLine).gsm },
+                  ].map((f) => (
+                    <div key={f.label}>
+                      <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+                        {f.label}
+                      </dt>
+                      <dd className="m-0 text-sm font-medium">
+                        <Truncated>{f.value || "—"}</Truncated>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="text-sm text-muted-foreground">
+                  The conversion screen behind this button has not been specified
+                  yet, so there is nothing to fill in here. Opening it changes
+                  nothing on the line.
+                </p>
+              </div>
+            ) : null}
+          </Sheet>
         </div>
   );
 }

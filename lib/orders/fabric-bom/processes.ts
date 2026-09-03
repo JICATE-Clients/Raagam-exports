@@ -107,8 +107,16 @@ export type FabricProcessRow = {
   description: string;
   /** Text for the same reason: bound to an `<Input>`, converted once, at save. */
   loss_pct: string;
-  /** The fabric-wise rate this stage costs. Text, for `loss_pct`'s reason. */
-  rate: string;
+  /* `rate` WAS HERE AND THE CLIENT REMOVED IT (2026-09-03, screenshot 2663).
+     It held the fabric-wise processing rate this step costs, asked for in the
+     spec of 2026-09-01 and never filled in — `order_fabric_bom_processes` held
+     0 rows when the column was dropped (0521), so nothing was lost.
+
+     THE ROUTE IS A QUANTITY DOCUMENT AGAIN, which is what it already claimed to
+     be everywhere else: the Budget's own note says "the Yarn Process tab stores
+     no rate — it is a quantity document, not a priced one — so the planner types
+     it here". The fabric route was the one place that disagreed with that
+     sentence, and now it does not. A price belongs on the Budget. */
   type_id: string | null;
 };
 
@@ -120,7 +128,6 @@ export const blankFabricProcess = (key: string, itemId: string): FabricProcessRo
   loss_for_id: null,
   description: "",
   loss_pct: "",
-  rate: "",
   type_id: null,
 });
 
@@ -166,7 +173,6 @@ export function fabricProcessRowStarted(
     | "loss_for_id"
     | "description"
     | "loss_pct"
-    | "rate"
     | "type_id"
   >,
 ): boolean {
@@ -176,8 +182,7 @@ export function fabricProcessRowStarted(
     !!r.loss_for_id ||
     !!r.type_id ||
     !!r.description.trim() ||
-    !!r.loss_pct.trim() ||
-    !!r.rate.trim()
+    !!r.loss_pct.trim()
   );
 }
 
@@ -252,10 +257,11 @@ export const fabricBomProcessInput = z.object({
      must be refused where it is WRITTEN, or the BOM saves a route that cannot
      be planned and nothing says why. */
   loss_pct: z.coerce.number().min(0).lt(100).nullable().default(null),
-  /* THE FABRIC-WISE PROCESSING RATE (client spec 2026-09-01). Non-negative for
-     `order_budget_lines.rate`'s reason (0428): zero is a real line, negative
-     would subtract from the cost total a purchase ceiling is checked against. */
-  rate: z.coerce.number().min(0).nullable().default(null),
+  /* NO `rate`. It was here from the spec of 2026-09-01 and the client removed
+     the column on 2026-09-03 — see `FabricProcessRow`. It is gone from the
+     SCHEMA and not merely from the screen, deliberately: `lib/data-io` parses
+     imports with these same schemas, so a field left standing here would be a
+     door the grid has closed and an import can still walk through. */
   type_id: z.string().uuid().nullable().default(null),
 });
 

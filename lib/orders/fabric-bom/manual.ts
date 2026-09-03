@@ -289,6 +289,18 @@ export function consumptionMap(
 export type ManualEntryLike = {
   /** NULL = every style on the order (0495). */
   style_ref_no: string | null;
+  /**
+   * THE CLOTH THIS WEIGHT IS FOR — `items.id`, named directly since 0522.
+   *
+   * It replaced `structure_id` as the thing the planner chooses: legacy's Manual
+   * row has a Fabric column and no Structure column (client 2026-09-03,
+   * screenshots 2666 · 2667). The structure is still derived from it on save,
+   * because the requirement engine keys its GSM lookup on one — but it is no
+   * longer typed, so it is not something these rules may ask for.
+   */
+  item_id: string | null;
+  /** DERIVED from `item_id` (the fabric's `items.category_id`), never typed.
+   *  Kept on the shape because `consumptionMap`'s callers still key GSM by it. */
   structure_id: string | null;
   calc_mode: string | null;
   component_ids: readonly string[];
@@ -370,8 +382,8 @@ function styleKeyOf(v: string | null | undefined): string | null {
  * states for the duplicate check: "two spellings of one refusal is how an
  * operator comes to believe there are two different problems."
  *
- * ORDERED BY WHAT THE PLANNER FILLS FIRST — structure, then panels, then
- * weights. A message naming the last blank on a row where the first is also
+ * ORDERED BY WHAT THE PLANNER FILLS FIRST — the fabric, then panels, then
+ * weights (the fabric replaced the structure in 0522). A message naming the last blank on a row where the first is also
  * blank sends them to the wrong cell.
  *
  * `needed` is the set of sizes the ORDER states, which the caller derives from
@@ -384,14 +396,18 @@ export function manualProblem(
   needed: readonly { size_id: string | null; label: string }[],
   gsm: number | null | undefined,
 ): Refusal | null {
-  if (!entry.structure_id) {
-    return { refused: "Choose the fabric structure this weight is for" };
+  /* THE FABRIC IS THE FIRST THING ASKED FOR SINCE 0522, because it is the first
+     cell of legacy's row and because everything to its right — the knit type,
+     the GSM, the measurement unit — is read off it. This used to ask for the
+     STRUCTURE, which the planner no longer types. */
+  if (!entry.item_id) {
+    return { refused: "Choose the fabric this weight is for" };
   }
   if (entry.component_ids.length === 0) {
     return { refused: "Choose which components this weight covers" };
   }
   if (needed.length === 0) {
-    return { refused: "This order states no sizes for this structure" };
+    return { refused: "This order states no sizes for this fabric" };
   }
   /* THE CALCULATED MODE'S OWN PRECONDITION, and it is named separately because
      the fix is on a different screen. Without a GSM the formula cannot produce a
@@ -400,7 +416,7 @@ export function manualProblem(
   if (calcModeOf(entry.calc_mode) === "calculated" && num(gsm) == null) {
     return {
       refused:
-        "This structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
+        "This fabric's structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
     };
   }
 

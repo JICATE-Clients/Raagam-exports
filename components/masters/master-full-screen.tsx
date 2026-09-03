@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -1326,7 +1328,13 @@ export function MasterFullScreen({
                 Sections
               </button>
             )}
-            {active?.content}
+            {/* THE RAIL NAMES THE SECTION, SO THE SECTION DOES NOT NAME
+                ITSELF — see `SectionNamedByRail`. It is false exactly when the
+                rail has folded away, which is the one state where the heading
+                is the only thing left saying where the operator is. */}
+            <SectionNamedByRail.Provider value={!railCollapsed}>
+              {active?.content}
+            </SectionNamedByRail.Provider>
           </div>
         </div>
       </div>
@@ -1524,6 +1532,26 @@ export function MasterFullScreen({
 }
 
 /**
+ * IS THE ACTIVE SECTION ALREADY NAMED BY THE NAVIGATION?
+ *
+ * True inside a `MasterFullScreen` whose rail is up — which is every screen but
+ * one — and it is what lets `SectionBody` stop drawing a heading the operator
+ * can already read two inches to the left.
+ *
+ * FALSE IS THE DEFAULT, so a `SectionBody` rendered anywhere else keeps its
+ * visible title. Nothing does that today (all 64 call sites across 17 files are
+ * rail editors), and the default is still this way round deliberately: a
+ * heading that fails to appear is a section with no name at all, and the safe
+ * direction for a context nobody provided is the one that shows it.
+ *
+ * REACT CONTEXT, SO IT FOLLOWS THE RENDER TREE — the same mechanism, and the
+ * same caveat, as `RequiredScope`. `active.content` is BUILT by the screen but
+ * RENDERED by this component, inside the provider, which is why a value set
+ * here reaches a `SectionBody` the screen wrote.
+ */
+const SectionNamedByRail = createContext(false);
+
+/**
  * A titled content block inside the editor's content pane.
  *
  * THERE IS NO `hint` (client 2026-08-17). Every section carried a sentence
@@ -1551,6 +1579,35 @@ export function MasterFullScreen({
  * one edit instead of fifteen, and it is exactly the "dead config that reads as
  * live" this repo warns about elsewhere: 51 strings that look maintained, that
  * a future reader would keep writing, and that render nothing.
+ *
+ * ## AND ON 2026-09-03 THE TITLE FOLLOWED THE HINT — VISUALLY
+ *
+ * Client, on the Fabric BOM: "I can see each tab inside the page title like
+ * that tab name — no need, it's showing the tab same look duplicated, so remove
+ * it from page."
+ *
+ * THE 08-17 NOTE ABOVE HAD ALREADY CONCEDED THE POINT. It records the title as
+ * "the most redundant thing on screen — the rail already names the active
+ * section two inches to the left", and says it survived only because dropping
+ * it would have taken `hint` with it, "the only place a section explains
+ * itself". `hint` went; nothing was left holding the title up but that spent
+ * argument.
+ *
+ * IT IS `sr-only`, NOT DELETED, and the difference is not a hedge:
+ *
+ *  - **A screen reader still gets the heading.** The content pane would
+ *    otherwise have none at all, and "the rail says which one is current" is an
+ *    answer about a `<nav>`, not about the region it controls.
+ *  - **It comes BACK, VISIBLY, when the rail folds away.** `railCollapsed`
+ *    (Material BOM, and only Material BOM) removes the desktop rail column, so
+ *    on that screen there is nothing left naming the section but a "Sections"
+ *    back-button. `md:not-sr-only` is scoped to desktop for the matching
+ *    reason: the mobile chip strip is untouched by the fold, so below `md` the
+ *    section IS still named and the heading would duplicate again.
+ *
+ * So `title` is a live prop with a narrow trigger, not dead config: every call
+ * site keeps passing it, one screen keeps showing it, and every screen keeps
+ * announcing it.
  */
 export function SectionBody({
   title,
@@ -1559,9 +1616,22 @@ export function SectionBody({
   title: string;
   children: ReactNode;
 }) {
+  const namedByRail = useContext(SectionNamedByRail);
   return (
     <div>
-      <h2 className="mb-4 text-[15px] font-bold tracking-tight text-foreground @2xl/editor:mb-3">
+      <h2
+        className={cn(
+          "text-[15px] font-bold tracking-tight text-foreground",
+          namedByRail
+            ? "sr-only"
+            /* `md:mb-4` ALONE, not the old `@2xl/editor:mb-3` density tweak
+               stacked under a media variant. A container query and a media
+               query on one utility is a class this repo has been bitten by
+               before — `bg-muted` and friends compiled to nothing here — and a
+               1px margin is not worth a rule that fails silently. */
+            : "sr-only md:not-sr-only md:mb-4",
+        )}
+      >
         {title}
       </h2>
       {/* Space the section's cards apart. A section often holds more than one

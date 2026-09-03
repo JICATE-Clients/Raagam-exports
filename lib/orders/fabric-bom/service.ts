@@ -797,12 +797,16 @@ async function getCoordinateRows(): Promise<PickerRow[]> {
 }
 
 /**
- * The Stage ▾ behind a yarn's treatment (0504).
+ * The Stage ▾ behind a yarn's process (0504).
  *
- * ONE KIND, where the fabric route fetches three. 0493's flat tab also read
- * `process_loss_for`; 0504's does not, because its `For` column names a
- * COLOURWAY and divides the weight rather than describing how a loss is
- * measured. A list nothing renders is a list that rots, so it is not fetched.
+ * STILL ONE KIND, AND FOR A DIFFERENT REASON SINCE 0520. It read "0493's flat
+ * tab also fetched `process_loss_for`; 0504's does not, because its `For` column
+ * names a COLOURWAY" — and on 2026-09-03 that column became the
+ * `process_loss_for` lookup after all. It is not fetched HERE because the fabric
+ * route already loads it (`processLookups.lossFor`) and the Yarn Process grid is
+ * handed that same list: one query, one list, both `For` columns. Fetching it
+ * twice would be two arrays of the same rows, and the second one is what goes
+ * stale after a "+ Add" on the other tab.
  */
 /**
  * WHAT "+ Add" ON THE FABRIC CELL NEEDS (client 2026-09-02, "with the crud
