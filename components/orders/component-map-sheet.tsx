@@ -130,6 +130,11 @@ import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/master
 import {
   FABRIC_FORM_OPTIONS,
   availablePanels,
+  /* MOVED OUT OF THIS FILE (2026-09-03), unchanged. The Fabric Process tab's
+     fabric row summarises N lines the same way — one structure type, one roll
+     form, or "(mixed)" — and a second copy of a rule about abstaining is how two
+     surfaces come to abstain differently. */
+  rollUp,
   solePanel,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
@@ -191,20 +196,6 @@ export type LineFacts = {
   gsm: string;
 };
 
-/**
- * The single distinct value among a panel's colourways, or "(mixed)".
- *
- * ABSTAINS RATHER THAN PICKING THE FIRST. A panel row is a summary of N lines,
- * and showing one colourway's fabric as though it were the panel's would be a
- * confident lie on exactly the panels where the operator needs to look. Blank
- * values are ignored, so a half-filled panel reads as its filled half rather
- * than as "(mixed)" against nothing.
- */
-function rollUp(values: readonly string[]): string {
-  const seen = [...new Set(values.map((v) => v.trim()).filter(Boolean))];
-  if (seen.length === 0) return "";
-  return seen.length === 1 ? seen[0] : "(mixed)";
-}
 
 /**
  * A READ-ONLY CELL OF THE CLOTH — Structure, Fabric Type, Fabric, Gsm, Type.
@@ -226,7 +217,12 @@ function rollUp(values: readonly string[]): string {
  * an ellipsis with no way to read the rest is a dead end (AGENTS.md,
  * "Truncated values").
  */
-function ClothText({ value }: { value: string }) {
+/* EXPORTED FOR THE FABRIC PROCESS TAB (2026-09-03). Its fabric row is five
+   read-only cells of exactly this shape — one control's height, muted, an em
+   dash where there is no value, `Truncated` so a clipped composition bracket is
+   still reachable. A second definition of "a read cell" is how two tabs of one
+   screen come to render the same absence two different ways. */
+export function ClothText({ value }: { value: string }) {
   return (
     <div className="flex min-h-8 items-center">
       <Truncated className="text-sm text-muted-foreground">{value || "—"}</Truncated>
@@ -238,6 +234,27 @@ function ClothText({ value }: { value: string }) {
 type PanelGroup = {
   /** The panel's own key — its component id, or a placeholder for an unmapped row. */
   key: string;
+  /**
+   * THE PANEL'S IDENTITY FOR ANYTHING THAT OUTLIVES AN EDIT — which is the
+   * accordion, and nothing else so far.
+   *
+   * `key` above is `component_id ?? panel_uid`, so it MUTATES the moment the row's
+   * Component picker is filled in: the group's key jumps from the uid to the new
+   * component id, and any state still holding the old one is pointing at a panel
+   * that no longer answers to it. The split simply vanished, with nothing on
+   * screen to say why.
+   *
+   * `panel_uid` cannot do that. It is minted once per panel and shared by every
+   * colourway of it, in all three paths that create a line — the loader
+   * (`component_id ?? p<id>`), `applySeed` (one uid per style/structure/panel) and
+   * `addPanel` (one `newKey()` taken before the fan-out). Nothing patches it.
+   *
+   * `key` stays exactly as it was, because it is an ADDRESS rather than an
+   * identity: `patchPanel` and `removePanel` resolve it through `inScope`
+   * (fabric-bom-screen.tsx), which recomputes `component_id ?? panel_uid` per line.
+   * The two are different jobs and must not be folded.
+   */
+  panel_uid: string;
   component_id: string | null;
   coordinate_id: string | null;
   fabric_form: string;
@@ -425,12 +442,31 @@ export function ComponentMapBody({
    * Open/Tubular select are ordinary Tab stops, and arriving at either opens the
    * split beneath before the operator reaches it.
    *
-   * ## `null` IS "EVERYTHING SHUT", AND THAT IS THE MOUNT STATE
+   * ## `null` IS "EVERYTHING SHUT" — AND IT IS NOT WHAT THE OPERATOR SEES
    *
-   * The client's module-wide rule from 2026-08-19: "instead of open one section
-   * the sections should be in closed state, because it's making confusion for the
-   * user". A four-panel style opening with one expanded cannot say whether that
-   * is a selection, a default, or the only one there is.
+   * This block used to claim the mount state was everything shut, citing the
+   * client's module-wide rule from 2026-08-19 ("instead of open one section the
+   * sections should be in closed state, because it's making confusion for the
+   * user"). The initial value really is `null`; the SCREEN never shows it.
+   *
+   * `MasterFullScreen` lands the cursor on the section's first field ~60ms after
+   * the section opens (`land()` / the effect beside it in
+   * components/masters/master-full-screen.tsx). That first field is row 1's
+   * Component picker, the focus bubbles to its `<tr>`, and row 1 unfolds before
+   * the operator has done anything. Every panel row is a field, so there is no
+   * arrangement of this tree in which the landing lands on nothing.
+   *
+   * ACCEPTED RATHER THAN SUPPRESSED (2026-09-03). It is consistent with the rule
+   * directly above — the open row is the row the cursor is in — and the landing
+   * is app-wide behaviour that is correct for every other section, so bending it
+   * here would mean teaching one screen to tell the section landing's focus apart
+   * from an operator's. What is written down is the behaviour, because a comment
+   * asserting the opposite of what the screen does is the kind of claim a reader
+   * falsifies in a minute and then stops trusting the rest of the file.
+   *
+   * The 08-19 rule is not thereby waived: what it forbids is a fold whose open
+   * row was CHOSEN for the operator while the cursor sits somewhere else. Revisit
+   * if the client reports the auto-open itself.
    *
    * ## ANY ROW CLAIMS IT, NOT JUST A SHUT ONE
    *
@@ -444,6 +480,12 @@ export function ComponentMapBody({
    * The functional update is what keeps it free: re-focusing inside the row
    * already open returns the same key, so React bails out instead of re-rendering
    * on every Tab within a row.
+   *
+   * ## IT HOLDS A `panel_uid`, NOT A `PanelGroup.key`
+   *
+   * See the note on `PanelGroup.panel_uid`. `key` changes when the row's Component
+   * is picked, and state keyed on a value the row itself edits is state that can
+   * be orphaned by an ordinary edit.
    */
   const [openPanel, setOpenPanel] = useState<string | null>(null);
 
@@ -459,6 +501,10 @@ export function ComponentMapBody({
       if (!g) {
         g = {
           key,
+          /* THE FIRST LINE'S UID IS THE PANEL'S — every colourway of one panel
+             carries the same one by construction, so there is nothing to roll up
+             here for the same reason `structure_id` below has nothing to roll up. */
+          panel_uid: l.panel_uid,
           component_id: l.component_id,
           coordinate_id: l.coordinate_id,
           fabric_form: l.fabric_form,
@@ -475,6 +521,23 @@ export function ComponentMapBody({
     }
     return out;
   }, [lines]);
+
+  /**
+   * THE OPEN PANEL, RECONCILED AGAINST THE PANELS THAT EXIST.
+   *
+   * A key naming no panel is indistinguishable on screen from "everything is
+   * shut" — every row is closed, and each click looks like it did nothing. That
+   * is a state the operator cannot get out of by trying harder, and it is exactly
+   * what the report reads like, so the comparison is made against a value that
+   * cannot go stale rather than against the raw one.
+   *
+   * DERIVED, NOT AN EFFECT THAT CLEARS THE STATE. A panel can leave the array for
+   * a render and come back — a patch in flight, a style re-grouped — and an effect
+   * that reset `openPanel` on the way through would shut a split the operator is
+   * typing in. Reading past a key that is momentarily unresolvable costs nothing;
+   * writing over it loses their place.
+   */
+  const openKey = panels.some((p) => p.panel_uid === openPanel) ? openPanel : null;
 
   /* NO `declaredCount` ANY MORE (client 2026-09-02: "remove it also no need
      this sentence"). It counted `declaredPanelsFor` for one reader — the warning
@@ -1002,7 +1065,10 @@ export function ComponentMapBody({
               carries `style_ref_no` by value, so the ref is always known; Style
               No and Article No come from the order's combo tree and dash when it
               has nothing to say. */}
-          <dl className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-1 rounded-md border border-border bg-surface-muted px-3 py-2">
+          {/* WHITE, NOT FILLED — see the note on the header row below, which is
+              the same rule and the same client instruction. The border already
+              says this is a band. */}
+          <dl className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-1 rounded-md border border-border px-3 py-2">
             {[
               { label: "Style Ref No", value: styleIdentity?.ref || styleRefNo },
               { label: "Style No", value: styleIdentity?.style ?? "" },
@@ -1076,14 +1142,38 @@ export function ComponentMapBody({
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
-                  <th className="w-9 whitespace-nowrap border-b border-border bg-surface-muted px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[.07em] text-muted-foreground">
+                  {/* NO FILL ON THE HEADER, AND THIS IS `ChildGrid`'S RULE RATHER
+                      THAN A CHOICE MADE HERE (client 2026-08-27, "that inside
+                      cell for some sections is grey — make it white too";
+                      restated 2026-09-03 against this screen, "that grey bg too
+                      ... just same white color").
+
+                      `child-grid.tsx` states it in full where it draws its own
+                      `<thead>`: the fill was "a third signal saying what those
+                      two already said" — the two being `border-b` and a heading
+                      that is darker than the cells beneath it. Both are kept
+                      here, which is why removing the fill costs nothing: the
+                      bottom rule still closes the band, and the label moves from
+                      `text-muted-foreground` to `text-foreground` so it does not
+                      go faint the moment the ground behind it turns white.
+
+                      THIS IS THE DRIFT THIS FILE ALREADY PREDICTED. The note on
+                      the table below says the header band "came free from
+                      `ChildGrid` and is now written here. That is the one place
+                      this can drift from the Fabric Lines grid beside it" — and
+                      it did: the 08-27 rule reached the primitive and never
+                      reached this copy, so the outer table wore a slab while the
+                      colourway grid three rows down was already white. A
+                      hand-rolled grid owes the primitive its RULES, not just its
+                      columns. */}
+                  <th className="w-9 whitespace-nowrap border-b border-border px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[.07em] text-foreground">
                     #
                   </th>
                   {panelColumns.map((c) => (
                     <th
                       key={c.header}
                       style={c.width ? { width: c.width } : undefined}
-                      className={`whitespace-nowrap border-b border-border bg-surface-muted px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[.07em] text-muted-foreground ${
+                      className={`whitespace-nowrap border-b border-border px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[.07em] text-foreground ${
                         c.align === "right" ? "text-right" : "text-left"
                       }`}
                     >
@@ -1106,7 +1196,7 @@ export function ComponentMapBody({
                       {c.required && <span className="text-danger">*</span> /* required-star: exempt -- derived from `ChildGridColumn.required`, and the cell's control carries `required` too, so the cursor genuinely holds. Full reasoning directly above; the marker sits on THIS line because a JSX comment block closes with a brace that `exempt_above` reads as code, so its walk upward stops before reaching it. */}
                     </th>
                   ))}
-                  <th className="w-9 border-b border-border bg-surface-muted" />
+                  <th className="w-9 border-b border-border" />
                 </tr>
               </thead>
               <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
@@ -1119,17 +1209,52 @@ export function ComponentMapBody({
                          makes that row the open one, so moving to the next panel
                          shuts the previous. `onFocus` bubbles, so this catches
                          the mouse and the keyboard alike. */
-                      onFocus={() => setOpenPanel((k) => (k === p.key ? k : p.key))}
-                      /* AND A CLICK ANYWHERE, MINUS BUTTONS. The row's ✕ is
-                         inside this handler's reach, and unfolding a panel on the
-                         way to deleting it is a flicker with no purpose. */
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest("button")) return;
-                        setOpenPanel(p.key);
-                      }}
-                      className={
-                        openPanel === p.key ? "bg-surface-muted/60" : "cursor-pointer"
+                      onFocus={() =>
+                        setOpenPanel((k) => (k === p.panel_uid ? k : p.panel_uid))
                       }
+                      /* AND A CLICK ANYWHERE, MINUS THE ROW'S ✕. Unfolding a panel
+                         on the way to deleting it is a flicker with no purpose.
+
+                         `[data-row-remove]` AND NOT `button`, WHICH IS WHAT THIS
+                         USED TO SAY. The row's ✕ is not the only button in the row:
+                         `FieldAffordance` draws a filled picker's CLEAR ✕ as a real
+                         `<button tabIndex={-1}>` (field-affordance.tsx), and every
+                         panel row carries three pickers. A click landing on one of
+                         those slots hit this bail-out AND, being `tabIndex={-1}`,
+                         moved no focus — so neither of the two ways into the split
+                         fired, on a row whose cells are almost entirely pickers.
+                         The marker is the one Ctrl+Del already drives, so this
+                         names the control rather than a tag that several unrelated
+                         controls happen to share. */
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest("[data-row-remove]")) return;
+                        setOpenPanel(p.panel_uid);
+                      }}
+                      /* THE OPEN ROW CARRIES NO FILL AT ALL, and that reverses
+                         what was here hours earlier today — deliberately.
+
+                         It was `bg-surface-muted/60`, which was too faint to be a
+                         state change; that was raised to full strength this
+                         morning, and the client then asked for the fill to go
+                         entirely ("that grey bg too ... just same white color").
+                         The later instruction wins.
+
+                         NOTHING IS LOST, WHICH IS WHY THIS IS SAFE RATHER THAN A
+                         CONCESSION. The split renders directly beneath this row
+                         and only for this row: a panel indented past the ordinal,
+                         with a `border-primary` left rail and a caption that names
+                         the panel by component ("Colourways of NECK"). A row tint
+                         was the third signal saying what those two already said —
+                         the same arithmetic `child-grid.tsx` did on 2026-08-27
+                         when it dropped its own header fill.
+
+                         So the shut rows keep `cursor-pointer` — which is now the
+                         only thing this expression is for — and the open row is
+                         identified by what opened underneath it. If a marker is
+                         ever wanted back, it must not be a grey ground: an accent
+                         on the ordinal cell matching the split's own rail is the
+                         shape that stays inside the client's rule. */
+                      className={openKey === p.panel_uid ? undefined : "cursor-pointer"}
                     >
                       <td className="border-b border-border/50 px-2 py-1.5 text-xs tabular-nums text-muted-foreground">
                         {i + 1}
@@ -1174,9 +1299,15 @@ export function ComponentMapBody({
                         to find what APPEARED, and fields that were always there
                         are not new. Unmounting is what makes the open land
                         somewhere. */}
-                    {openPanel === p.key && (
+                    {openKey === p.panel_uid && (
                     <tr>
-                      <td colSpan={panelColumns.length + 2} className="bg-surface-muted p-0 pl-9">
+                      {/* THE GUTTER IS WHITE TOO. This `<td>`'s fill was only ever
+                          visible in the `pl-9` indent — the inner panel below
+                          paints its own `bg-surface` over the rest — so it read as
+                          a grey strip running down the left of the split. The
+                          indent plus the panel's `border-primary` rail are what
+                          say "subordinate"; the strip was the third signal again. */}
+                      <td colSpan={panelColumns.length + 2} className="p-0 pl-9">
                         <div className="border-l-[3px] border-primary bg-surface px-3 pb-3 pt-2.5">
                           <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[.09em] text-primary">
                             Colourways{" "}

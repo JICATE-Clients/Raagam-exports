@@ -749,25 +749,47 @@ body {
      and header was the closest to the reference and still not wanted. The thing
      the client said yes to every time was the COLOUR ON THE CONTROLS, so that is
      all that is left: white surfaces, brand on the pills and the buttons.
-     `--surface-muted` is white too — the ITEMS panel and every section body take
-     it, and a grey panel on a white page is the tint coming back by another
-     name. */
+     THE CANVAS ONLY. This used to add "`--surface-muted` is white too", and that
+     was made false on 2026-08-31 and is now false a second way — see the note on
+     that token below, which is where its two failed values are recorded. The
+     rule that survives here is about the CANVAS: it is #ffffff and the tint does
+     not come back on it. */
   --background: #ffffff;
-  /* NOT WHITE, AND THIS WAS A REGRESSION FOR TWO DAYS (found 2026-08-31).
-     `--surface-muted` went white on 2026-08-28 so panels would layer on top of a
-     FLOODED GREEN canvas. The canvas is white again, so the white bought nothing
-     — while still being drawn by 75 components. Three affordances were dead
-     across all 46 Orders routes, and none of them exist on Material BOM, which
-     is why the screen it was tuned on never showed it:
-       - `data-table.tsx:62`  a table's HEADER row (`bg-surface-muted`) — white on
-         white, so headers stopped reading as headers;
-       - `data-table.tsx:106` / `child-grid.tsx:1875` row hover
-         (`hover:bg-surface-muted/60` and `/40`) — hovering a row did nothing;
-       - `sheet.tsx` x3, icon-button hover.
-     #f0f8e5 is 12% of the logo green on white: 1.090:1 against the surface,
-     against the app default #f1f3f5's 1.112:1 — so it bands as visibly as the
-     grey it replaces, and holds dark text at 16.4:1. */
-  --surface-muted: #f0f8e5;
+  /* `--surface-muted` IS NOT OVERRIDDEN HERE ANY MORE. The skin inherits the
+     app default (#f1f3f5, `:root` at the top of this file) — a NEUTRAL grey, and
+     the same muted surface every screen outside Orders already draws.
+
+     IT IS DECLARED AS AN ABSENCE BECAUSE THE TWO OBVIOUS VALUES ARE BOTH WRONG,
+     and each was tried and reported:
+
+       - NOT GREEN (client 2026-09-03, screenshot 2654: "remove that green kind
+         of bg color from the ui screen"). It was #f0f8e5, 12% of the logo green
+         on white, and it is what tinted the style band, every table header, an
+         open accordion row and the panel behind a nested grid. That is the
+         canvas tint arriving by another name — the exact thing the `--background`
+         note above says four times over — and this is the same client saying so
+         about the same colour, one surface along. Brand on the CONTROLS is what
+         they keep saying yes to; brand on the SURFACES has now been refused five
+         times. Do not reach for a paler green: 12% was already the pale one.
+
+       - NOT WHITE, and that one was a REGRESSION FOR TWO DAYS (found
+         2026-08-31). It went white on 08-28 so panels could layer on a FLOODED
+         GREEN canvas; the canvas is white again, so the white bought nothing
+         while still being drawn by 75 components. Three affordances were dead
+         across all 46 Orders routes, and none exists on Material BOM, which is
+         why the screen it was tuned on never showed it:
+           - `data-table.tsx:62`  a table's HEADER row (`bg-surface-muted`) —
+             white on white, so headers stopped reading as headers;
+           - `data-table.tsx:106` / `child-grid.tsx:1875` row hover
+             (`hover:bg-surface-muted/60` and `/40`) — hovering a row did nothing;
+           - `sheet.tsx` x3, icon-button hover.
+
+     The default satisfies both: #f1f3f5 is 1.112:1 against the surface, so it
+     bands slightly MORE than the green it replaces — the arithmetic is the
+     08-31 note's own, which already benchmarked the green against this exact
+     value — and it carries no hue to be refused. Inheriting rather than
+     restating it is what keeps the skin from silently diverging from the app if
+     the default is ever retuned. */
   /* BOLD ON THE FIELDS, QUIET ON THE PARTITIONS (client 2026-08-28: "no u made
      all the lines bold ... i will tell which lines to remove").
      Making `--border` itself bold was the wrong lever, because ONE token draws
@@ -970,7 +992,13 @@ body {
    warns about, one token along. */
 .dark [data-skin="raagam"] {
   --background: #0c100b;
-  --surface-muted: #171d15;
+  /* AND `--surface-muted` IS NOT RESTATED HERE EITHER — it was #171d15, the
+     green-tinted dark twin of the light value, so it carried the refused hue
+     into the dark theme. Dropping only the light one would have left the same
+     complaint alive on half the app, findable only by whoever switches theme:
+     two halves of one token, and fixing one is how a colour comes back. The
+     dark default (#1b1f27) is neutral and is what every screen outside Orders
+     already draws. */
   --border: #252d20;
   --border-strong: #5d7049;
   --elev: 0 1px 2px rgb(0 0 0 / 0.45);
@@ -1066,8 +1094,13 @@ body {
    integrated with screen look". The later instruction wins, and this undoes it
    for THIS SKIN ONLY, so the ~160 pickers on every other screen keep the
    segment. Restoring it here is deleting this rule.
-   The fill is already white under this skin (`--surface-muted`), so the border
-   is the only thing that still drew a box. */
+   BOTH HALVES ARE CLEARED BELOW, and the rule has to do it itself. This used to
+   say the fill was "already white under this skin (`--surface-muted`)" and so
+   only the border still drew a box — true for the three days that token was
+   white, and false ever since (green from 2026-08-31, neutral grey from
+   09-03). The slot's fill is `bg-surface-muted`, so a claim about that token is
+   a claim about this box; `background: transparent` is what actually removes
+   it, and is not decoration beside the border-colour line. */
 [data-skin="raagam"] [data-field-affordance] {
   border-left-color: transparent;
   background: transparent;
