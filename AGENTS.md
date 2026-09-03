@@ -1051,3 +1051,58 @@ its stated goal. `scripts/check-anon-grants.sql`; both checks must return zero r
 its CHECK 2 exists because CHECK 1 cannot catch a broken default on its own — the functions
 it inspects were fixed by hand, so it passes while the *next* one is still born open. That
 is precisely how 0386 asserted its own success and shipped a no-op.
+
+## A sub-detail Sheet's size (STANDING)
+
+**A `[Click]`-opened sub-detail — a small picker or grid opened from inside an ALREADY-OPEN
+editor, with no Save of its own — is `size="sm"`.** `Sheet`'s own default is `"lg"`
+(full-screen), which is right for a top-level entity editor and wrong for everything
+smaller, and nothing forces a call site to override it.
+
+**THIS WAS ALREADY THE APP'S OWN CONVENTION FOR ONE CATEGORY, AND TWO NEW SCREENS MISSED
+IT** (2026-09-03). Every masters quick-create sheet (`fabric-quick-create-sheet.tsx`,
+`yarn-quick-create-sheet.tsx`, `category-quick-create-sheet.tsx`, `size-group-quick-create-
+sheet.tsx`, `garment-quick-create-sheet.tsx`, …) already opens at `size="sm"`. Fabric BOM ▸
+Manual's two new `[Click]` popups — Components and Widths — did not, and defaulted to
+`"lg"`, then were moved to `"md"` in an earlier pass of the same day. Both were still
+wrong: `md` is `max-w-6xl` (1152px), and a table three columns wide sitting inside it left
+a blank pane large enough that the operator asked twice, independently, why the fields were
+"this much huge" and why there was still blank space. `sm` (`max-w-md`, 448px) was the fix
+both times, and it is the size this app had already chosen for the same shape of screen
+everywhere else.
+
+**`md` is still correct for a sub-detail that carries a `ChildGrid`.** Style ▸ Process
+(`components/orders/style-process-sheet.tsx`) is deliberately `md`, and its own comment
+records why at length: `ChildGrid`'s responsive table only switches in from a ~512px
+container, so `sm`'s ~408px of content dropped it to stacked cards with no column headers
+(client 2026-08-12, screenshot 2266) — a real defect, not a preference. **That reasoning
+does not transfer to a hand-rolled `<table>`.** A plain table has no such breakpoint; it
+renders identically at 300px or 1100px, so nothing is bought by giving it `md`'s width, and
+the blank space above is the cost of doing so anyway. Ask which kind of grid is inside the
+sheet before picking the size — never copy `md` from a neighbouring sub-detail on the
+assumption that "it's the same kind of screen".
+
+**Three more props go with `size="sm"` on the same kind of sheet, all three already
+established by Style ▸ Process and applied to Components/Widths the same day:**
+
+- **`alignToPane`** — centred over the content pane (the sidebar rail's width is not the
+  operator's content), not the full viewport.
+- **`origin={rect}`** — the triggering `[Click]` button captures its own
+  `getBoundingClientRect()` on click (`currentTarget`, never `target` — the click can land
+  on a text node inside the button) and hands it to the sheet, which grows out of that
+  button rather than fading in at the screen's centre.
+- **`footer={<SubSheetFooter onDone={onClose} parent="…" />}`** whenever the sheet has
+  nothing of its own to save — its rows live in the parent document's own state and are
+  written by the parent's own Save. A sub-detail with fields, a grid and nothing after them
+  but an ✕ already read as broken once (client 2026-08-14, "missing save button", on Style
+  ▸ Process) — `SubSheetFooter`'s own file carries that history. The same shape recurs
+  anywhere a `[Click]` opens a sheet inside a screen that has not saved yet: the popup must
+  not imply it saves on its own.
+
+**NOT YET ENFORCED BY A SCRIPT.** This section was written the same day the pattern was
+named, from two screens — it has not been swept across the ~81 files in this app that render
+a `Sheet`. Most of those are full masters editors, correctly `lg` by not specifying it; the
+real candidate list is the smaller set of nested `[Click]` sub-details scattered through
+`components/orders/*-sheet.tsx` and similar, each of which needs to be looked at rather than
+mechanically re-flagged. Until an audit script exists, a new sub-detail sheet gets this right
+by reading this section, not by a check catching it after the fact.

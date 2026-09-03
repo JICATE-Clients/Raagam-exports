@@ -762,11 +762,11 @@ export function ComponentMapBody({
    * moved.
    */
   /**
-   * BY VALUE, NOT BY HABIT (client 2026-09-03: "first and second row
-   * alignment some field looks squeezed and some field have much gap ...
-   * hided so make it both row as even sized field with better context ...
-   * gsm have only 3 digit number so can maintain the current space ... like
-   * based on values can allocate space").
+   * BY VALUE, NOT BY HABIT — three rounds on one row (client 2026-09-03):
+   * "some field looks squeezed and some field have much gap ... based on
+   * values can allocate space"; then "add extra little length to coordinate
+   * and structure, fabric"; then, once Gsm's own border made its clip
+   * visible, "gsm field ui will fix".
    *
    * EACH SPAN IS SIZED TO WHAT THE FIELD ACTUALLY HOLDS, catalog-checked
    * rather than guessed:
@@ -774,29 +774,44 @@ export function ComponentMapBody({
    *   Coordinate      "PIECES" / "TOP"           — 3-6 chars
    *   Component       "SIDE PANELS", "NECK TAPE" — 8-11 chars, plus a picker
    *   Structure       "THREE-THREAD FLEECE"       — the longest of the short
-   *                   fields, 15-20 chars across the live structures
+   *                   fields, 15-20 chars — widened past `xl` below
    *   Structure Type  "Circular Knit"             — 13 chars, fixed vocabulary
-   *   Fabric Type     "Yarn Dyed"                 — 5-9 chars, a short select
+   *   Fabric Type     "Solid" / "Yarn Dyed"       — 5-9 chars, the shortest
+   *                   of the six, so it is what pays for Gsm's own bump
    *   Fabric          composed master names        — 40-80+ chars; no span
    *                   shows one in full, so this gets the most room going
    *                   and `Truncated` carries the rest, same as everywhere
    *                   else a composed name is read (AGENTS.md, "Truncated
-   *                   values")
-   *   Gsm             "275 - 285"                 — 9 chars, a fixed range;
-   *                   THE CLIENT'S OWN EXAMPLE of a field that must NOT grow
-   *                   past what it holds
+   *                   values") — widened past `xl` below, alongside Structure
+   *   Gsm             "275 - 285"                 — 9 chars, a fixed range.
+   *                   THE CLIENT'S OWN EXAMPLE of a field that must not grow
+   *                   past what it needs — `xs` was that, right up until the
+   *                   border in the fix below gave it visible padding to clip
+   *                   against, and "275 - 285" started reading "27…"
    *
-   * 2+4+8+4+3+8+2 = 31 of 32 — full width the way Material BOM's own row
-   * reads, one column of slack rather than a remainder fighting for space.
+   * 3+3+9+3+2+9+3 = 32 exactly — full width with nothing spare, Structure
+   * and Fabric each carrying the +1 the `className` override below adds.
    */
   const FIELD_SIZES: Record<string, FieldSize> = {
     Coordinate: "sm",
     Component: "sm",
     Structure: "xl",
     "Structure Type": "sm",
-    "Fabric Type": "sm",
+    /* `xs`, freeing the column Gsm needed (client, on the boxed Gsm cell
+       clipping to "27…": "gsm field ui will fix"). A Select's own value is
+       the shortest of the six — "Solid" / "Melange" / "Yarn Dyed" against
+       Gsm's "275 - 285" — and it keeps the app's usual clip-and-reveal
+       fallback if "Yarn Dyed" ever brushes the edge. */
+    "Fabric Type": "xs",
     Fabric: "xl",
-    Gsm: "xs",
+    /* `sm`, not `xs` — "275 - 285" is 9 characters and was clipping to "27…"
+       inside its own border the moment the cell gained one (client
+       screenshot 2686). `xs` (2/32) was sized for bare text with no box
+       around it; the border's own padding is what pushed a genuinely tight
+       field over the edge. Still the smallest field on the row bar Fabric
+       Type — "maintain the current space" stands as "don't let it grow past
+       what it needs", not "never fix a clip". */
+    Gsm: "sm",
   };
 
   /**
@@ -821,9 +836,11 @@ export function ComponentMapBody({
    * TEXT for class names, so `` `@lg/section:col-span-${n}` `` would compile to
    * no CSS at all (the same warning `FIELD_TRACK_32` itself carries).
    *
-   * Coordinate and the other four stay on `FIELD_SIZES` alone; freeing one
-   * column each from Component and Structure Type (`md` -> `sm`) is what pays
-   * for this without pushing the row past 32: 3+3+9+3+3+9+2 = 32 exactly.
+   * Coordinate and the other four stay on `FIELD_SIZES` alone; the row's own
+   * comment above carries the current breakdown, since Gsm's later fix moved
+   * a column from Fabric Type to Gsm without changing this override at all —
+   * a span this wide only ever depends on the ROW summing to 32, not on which
+   * neighbour gave up the column.
    */
   const WIDE_FIELD_CLASSNAME = "@lg/section:col-span-9";
 
@@ -1255,14 +1272,21 @@ export function ComponentMapBody({
            box per panel, which is the operator's standing rule. */
         forceCards
         flatRows
-        /* `railCompact` IS GONE (client 2026-09-03, on being shown Material
-           BOM's own rail as the reference and asked to match it: "same ...
-           size ... everything"). It bought a 160px rail sized to eight short
-           part names; the trade was a rail with no room for the subtitle and
-           figure `renderListItem` now carries, which is exactly Material
-           BOM's own shape. Dropping the prop is what returns the rail to its
-           268px default — the same width, the same padding, as Material BOM's
-           own list. */
+        /* 220px — NEITHER OF THE PRIMITIVE'S TWO NAMED WIDTHS (client
+           2026-09-03, the third number on this one rail in one day). 160
+           ("the rail is sized to its text") was too tight for the subtitle
+           and figure this rail grew once "same as Material BOM" arrived;
+           268 (Material BOM's own width, and this rail's setting for a few
+           commits) read as wider than the client's own reference screenshot
+           once the two sat side by side. `railWidthPx` exists on the
+           primitive because of this exact call site — see its own note on
+           `child-grid.tsx` — so this is a number, not a second boolean. */
+        railWidthPx={220}
+        /* TIGHTER PADDING TOO (client, same afternoon: "use compact that
+           rail menu"). Independent of the width now — see `railCompact`'s
+           own note on `child-grid.tsx` for why the two stopped being one
+           flag. */
+        railCompact
         /**
          * `fill` IS LOAD-BEARING HERE, AND ITS ABSENCE IS WHAT BROKE THE PANE
          * (reported 2026-09-03 with a screenshot: every field stacked in a
@@ -1312,28 +1336,26 @@ export function ComponentMapBody({
            `ChildGrid`'s own (`px-3 py-2`); dropping the meta row is what takes
            each card from two lines to one, so nothing here sets a height. */
         /**
-         * MATERIAL BOM'S OWN SHAPE, FIELD FOR FIELD (client 2026-09-03,
-         * screenshots 2676-2678, on being shown a bare-name rail beside
-         * Material BOM's: "same ... size, color everything ... just
-         * customizing for this screen").
+         * MATERIAL BOM'S SHAPE, MINUS THE FIGURE (client 2026-09-03, three
+         * rounds on this one row: "same ... size, color everything" brought
+         * the dot, name and subtitle back after "this text only" had cut them;
+         * "remove that colourway1 wording, use compact" now drops the fourth
+         * piece — the count Material BOM prints on its own rail.
          *
-         * THIS REVERSES 2026-09-03's OWN EARLIER ANSWER, deliberately — the
-         * one that cut the rail to a single line and removed a coordinate chip
-         * and a colourway count ("this text only ... remove pieces and 1
-         * colourway"). That instruction was about a SECOND LINE OF PROSE
-         * repeated down twenty entries; this one is a direct, repeated
-         * instruction to match a named reference screen, given after seeing
-         * the reduced version and finding it unfinished. The later, more
-         * specific instruction is the one this file now follows — a reader
-         * who finds the older comment quoted elsewhere is holding something
-         * this supersedes.
+         * A material's rail figure is the one number Material BOM has nowhere
+         * else to put — it is the LINE's own total, read nowhere else on that
+         * screen. A panel's colourway count is not that: it is printed once
+         * already, in the caption over the Colourways grid the moment the
+         * panel is open, so on THIS rail the count was the one part of
+         * Material BOM's shape that was saying something twice rather than
+         * once. Dropping it is what "customized for this screen" turns out to
+         * mean here — three of Material BOM's four things, not a fourth
+         * invented to fill the slot.
          *
-         * A DOT, A NAME, A SUBTITLE, A FIGURE — Material BOM's own four, and
-         * "customized for this screen" is exactly the substitution below:
-         * this screen has no material consumption to put in the figure slot,
-         * so the colourway count takes it, the same number the pane's own
-         * heading already carries (see `renderMobileRow`) — one fact, printed
-         * in the two places Material BOM prints its own.
+         * SHORTER FOR FREE, ALSO THE COMPACTNESS ASKED FOR: the row was two
+         * lines fighting a right-aligned column for the same width; without
+         * the count the subtitle line runs the full row and the entry reads
+         * lighter without a padding number to tune.
          */
         renderListItem={(p) => {
           const name = componentName(p.component_id);
@@ -1365,14 +1387,7 @@ export function ComponentMapBody({
                   </Truncated>
                 )}
               </span>
-              {n > 0 && (
-                <span className="shrink-0 text-right leading-tight">
-                  <span className="text-sm font-semibold tabular-nums text-accent">{n}</span>{" "}
-                  <span className="block text-[10px] tracking-wide text-muted-foreground">
-                    {n === 1 ? "colourway" : "colourways"}
-                  </span>
-                </span>
-              )}
+
             </div>
           );
         }}

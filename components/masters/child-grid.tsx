@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FIELD_SPAN, FIELD_TRACK, RequiredScope } from "@/components/ui/field";
@@ -1168,6 +1168,7 @@ export function ChildGrid<T extends { key: string }>({
   rowSummary,
   foldRows = false,
   masterDetail = false,
+  railWidthPx,
   railCompact = false,
   renderListItem,
   onOpenRow,
@@ -1699,22 +1700,40 @@ export function ChildGrid<T extends { key: string }>({
    */
   masterDetail?: boolean;
   /**
-   * A NARROWER, TIGHTER RAIL — 160px instead of 268, and entries at
-   * `px-2.5 py-1` instead of `px-3 py-2` (client 2026-09-03, on Fabric BOM ▸
-   * Components).
+   * THE RAIL'S OWN WIDTH, IN PX — 268 (Material BOM's own figure, settled
+   * 2026-08-20/08-28) UNLESS A CALLER NAMES ANOTHER ONE.
    *
-   * OPT-IN, BECAUSE THE TWO RAILS ARE NOT THE SAME LIST. Material BOM's holds
-   * twenty near-identical "Material N" lines, where the width carries a grain, a
-   * ratio and a state dot, and the padding is what keeps them apart; its 268px
-   * and `py-2` are the client's, settled over 2026-08-20 and 08-28. Components'
-   * rail holds eight short part NAMES — FRONT BODY, NECK TAPE — and nothing
-   * else, so 268px is mostly empty and the height costs a scrollbar the list does
-   * not need.
+   * A LITERAL PX VALUE, NEVER A CLASS BUILT FROM THIS NUMBER: the column is
+   * inline-styled (`gridTemplateColumns`), not a Tailwind utility, for exactly
+   * the reason every other numeric track in this file is a static class —
+   * Tailwind v4 scans source TEXT, and an interpolated
+   * `` `md:grid-cols-[${n}px_...]` `` compiles to no CSS at all. Inline style
+   * has no such scanning step, so it is the one place in this component a
+   * genuinely per-caller number is safe to accept.
    *
-   * IT SIZES THE RAIL AND NOTHING INSIDE IT. What an entry SAYS is
-   * `renderListItem`'s, so a caller taking this also sets its own type size. This
-   * prop deliberately does not reach into the caller's markup to do that — the
-   * same separation that made `renderListItem` its own renderer.
+   * FABRIC BOM ▸ COMPONENTS HAS NOW ASKED FOR THREE DIFFERENT NUMBERS ON THIS
+   * ONE RAIL (2026-09-03): 160 ("the rail is sized to its text"), then 268
+   * ("same as Material BOM"), then 220 (shown Material BOM's own width next
+   * to the client's own reference screenshot and asked to sit between the
+   * two). A boolean could express the first two; it cannot express a third
+   * — which is the whole reason this became a number instead of staying
+   * `railCompact`.
+   */
+  railWidthPx?: number;
+  /**
+   * TIGHTER ENTRY PADDING — `px-2.5 py-1` instead of `px-3 py-2` — SEPARATE
+   * FROM WIDTH NOW (client 2026-09-03, on Fabric BOM ▸ Components).
+   *
+   * IT USED TO SET BOTH AT ONCE, under one boolean, back when this rail only
+   * ever needed the one narrower number (160). Once a caller needed 220
+   * instead, bundling padding into the same flag would have forced 220px to
+   * carry either 268's roomy padding or 160's tightest — neither of them
+   * actually asked for. The two are independent measurements of the same rail
+   * and are now two independent props.
+   *
+   * IT SIZES NOTHING INSIDE THE RAIL. What an entry SAYS is
+   * `renderListItem`'s, so a caller taking this also sets its own type size —
+   * the same separation that made `renderListItem` its own renderer.
    */
   railCompact?: boolean;
   /**
@@ -2663,11 +2682,17 @@ export function ChildGrid<T extends { key: string }>({
                Tailwind v4 scans source TEXT, so an interpolated track compiles to
                no CSS at all and the rail would silently stack instead of sitting
                beside the pane. The same warning `FIELD_TRACK` carries. */
-            mdActive &&
-              (railCompact
-                ? "md:grid-cols-[160px_minmax(0,1fr)]"
-                : "md:grid-cols-[268px_minmax(0,1fr)]"),
+            /* A CSS VARIABLE, NOT AN INTERPOLATED CLASS. `railWidthPx` is a
+               runtime number a caller supplies, and Tailwind v4 scans SOURCE
+               TEXT — a template literal built from a prop compiles to no CSS
+               at all, the same trap this file already names for `${w}px`
+               above. `md:grid-cols-[var(--rail-w)_minmax(0,1fr)]` is the
+               fixed literal Tailwind sees; only the VALUE the variable holds
+               changes, set below as an inline style, which has no scanning
+               step to defeat. */
+            mdActive && "md:grid-cols-[var(--rail-w)_minmax(0,1fr)]",
           )}
+          style={mdActive ? ({ "--rail-w": `${railWidthPx ?? 268}px` } as CSSProperties) : undefined}
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
         >
           {mdActive && renderListItem && (

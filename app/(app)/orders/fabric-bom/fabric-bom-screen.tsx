@@ -7824,13 +7824,16 @@ export function FabricBomScreen({
               open
               onClose={() => setComponentsFor(null)}
               title={`Components — ${fabricName}`}
-              /* CONTAINED, NOT FULL-SCREEN — a grid-bearing picker, the same
-                 shape Sheet's own "md" is for, not a full entity editor. Left
-                 at the default `size="lg"` this stretched a 3-column grid
-                 across the whole viewport (operator screenshot 2684, same
-                 fault on the Widths sheet below: "why this much huge
-                 fields"). */
-              size="md"
+              /* `sm`, NOT `md` — same correction as the Widths sheet below,
+                 same reason (operator, screenshot 2690: "no need this much
+                 field size"). `md`'s `max-w-6xl` left the unbounded
+                 `Component` column free to stretch across ~700px of blank
+                 row for text no longer than "BOTTOM RIB". This is a
+                 hand-rolled `<table>`, not a `ChildGrid`, so it carries none
+                 of the responsive-breakpoint risk that keeps Style ▸ Process
+                 on `md` — see the note on the Widths sheet's `size` for the
+                 full reasoning. */
+              size="sm"
               /* CENTRED OVER THE CONTENT PANE, NOT THE VIEWPORT, and GROWS OUT
                  OF THE BUTTON THAT OPENED IT — the same two props Style ▸
                  Process sets for the same reason (its own comments record
@@ -7873,9 +7876,14 @@ export function FabricBomScreen({
                   <table className="w-full table-fixed border-collapse text-sm">
                     <thead>
                       <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-                        <th className="w-28 px-3 py-2 font-medium">Coordinate</th>
+                        {/* `w-20`, TRIMMED FROM `w-28` — now that the sheet
+                            itself is `sm` (448px, not `md`'s 1152px), every
+                            pixel Coordinate keeps is a pixel Component does
+                            not get, and Coordinate holds nothing longer than
+                            a short code ("PIECES") where a style has one. */}
+                        <th className="w-20 px-3 py-2 font-medium">Coordinate</th>
                         <th className="px-3 py-2 font-medium">Component</th>
-                        <th className="w-12 px-3 py-2 text-center font-medium">✓</th>
+                        <th className="w-10 px-3 py-2 text-center font-medium">✓</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -7952,7 +7960,6 @@ export function FabricBomScreen({
         (() => {
           const fabricName =
             fabrics.find((f) => f.id === widthsForEntry.item_id)?.name ?? "(no fabric named)";
-          const identity = styleIdentityFor(widthsForEntry.style_ref_no);
           const rows = manualSizeRows(widthsForEntry);
           const set = (r: ManualDisplayRow, patch: Partial<ManualSizeRow>) => {
             if (widthsForEntry.size_wise) return setSizeCell(widthsForEntry.key, r, patch);
@@ -7963,43 +7970,46 @@ export function FabricBomScreen({
               open
               onClose={() => setWidthsFor(null)}
               title={`Widths — ${fabricName}`}
-              /* CONTAINED, NOT FULL-SCREEN — see the note on the Components
-                 sheet above; same fault, same fix (operator screenshot 2684:
-                 "why this much huge fields"). */
-              size="md"
+              /* `sm`, NOT `md` — the operator's own "just field fit screen"
+                 (2026-09-03, screenshot 2687: `md`'s `max-w-6xl` still left a
+                 huge blank pane beside a ~370px table). Style ▸ Process next
+                 door stays on `md` for a REASON THAT DOES NOT APPLY HERE:
+                 its grid is a `ChildGrid`, whose responsive table only
+                 switches in from a ~512px container, so `sm`'s `max-w-md`
+                 (448px, ~408px of content) dropped it to stacked cards with
+                 no column headers (client 2026-08-12, screenshot 2266) — the
+                 exact fault that note warns not to re-introduce. This table
+                 is a plain hand-rolled `<table>` with no such breakpoint: it
+                 renders identically at any container width, so `sm` costs
+                 nothing here that `md` was buying. */
+              size="sm"
               /* SAME TWO PROPS AS THE COMPONENTS SHEET ABOVE, same reason. */
               alignToPane
               origin={widthsOrigin}
               /* NO SAVE OF ITS OWN — same shape as Components above. */
               footer={<SubSheetFooter onDone={() => setWidthsFor(null)} parent="fabric BOM" />}
             >
+              {/* NO Style Ref No / Style No / Article No BAND HERE (operator
+                  instruction, 2026-09-03: remove all three from this sheet).
+                  The Sheet's own `title` above already names the fabric; the
+                  Components sheet keeps its band — this removal is scoped to
+                  Widths only. */}
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Style Ref No</div>
-                    <div>{identity?.ref || widthsForEntry.style_ref_no || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Style No</div>
-                    <div>{identity?.style || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Article No</div>
-                    <div>{identity?.article || "—"}</div>
-                  </div>
-                </div>
-                {/* NOT `w-full`, AND `w-fit` ON THE WRAPPER TOO. Dropping
-                    `w-full` off the `<table>` alone left the huge-fields
-                    complaint half-fixed: a bare `<div>` is block-level and
-                    fills its parent's width regardless of how wide the table
-                    inside it actually renders, so the bordered box still
-                    stretched across the sheet with the compact table sitting
-                    in its left edge and a dead blank field to the right
-                    (operator screenshot 2685). `w-fit` makes the BORDER hug
-                    the table the same way `table-fixed` already sizes the
-                    table to its columns. */}
-                <div className="w-fit overflow-x-auto rounded-md border">
-                  <table className="table-fixed border-collapse text-sm">
+                {/* BACK TO `w-full`, NOW THAT THE SHEET ITSELF IS `sm`
+                    (448px) rather than `md` (1152px). `w-fit` was the right
+                    fix for a 370px table sitting inside an oversized 1152px
+                    box; inside a 448px box the same `w-fit` table left a
+                    smaller but still visible gap on the trailing side
+                    (operator screenshot 2688: "still needs some area fit").
+                    A `sm` dialog is sized FOR content this size, so the two
+                    data columns filling it — Finished Width and Purchase
+                    Width each getting a normal ~9rem input rather than
+                    huddling at `w-28` — is the fit, not a regression back to
+                    the original "huge fields" complaint (that one was a
+                    ~570px input inside a 1152px sheet; this is a ~9rem input
+                    inside a 448px one). */}
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full table-fixed border-collapse text-sm">
                     <thead>
                       {/* THE HEADER WAS THE OTHER HALF OF THE "HUGE" COMPLAINT
                           (operator, having found it: "that header style is the

@@ -33,7 +33,7 @@
  */
 
 import { useMemo } from "react";
-import { Sheet } from "@/components/ui/sheet";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -62,6 +62,7 @@ export function PackCompositionSheet({
   packsOrdered,
   newKey,
   readOnly = false,
+  origin,
 }: {
   open: boolean;
   onClose: () => void;
@@ -99,6 +100,9 @@ export function PackCompositionSheet({
    */
   newKey: () => string;
   readOnly?: boolean;
+  /** The rect of the cell's button, so the box grows out of it — the same
+   *  prop `StyleProcessSheet` takes, for the same reason. */
+  origin?: SheetOrigin | null;
 }) {
   const patch = (key: string, next: Partial<PackComponentRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
