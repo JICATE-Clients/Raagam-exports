@@ -896,6 +896,124 @@ function ownAddControl(body: HTMLElement): HTMLElement | null {
 }
 
 /**
+ * THE MASTER-DETAIL LIST PANE OWNS ↑ ↓ AND ENTER (client 2026-09-02, reported on
+ * Material BOM ▸ Materials: the left list was reachable only with the mouse).
+ *
+ * OWNED HERE, AND THAT IS THE NARROW EXCEPTION RATHER THAN A NEW HABIT. The
+ * contract says keys come from `lib/focus.ts` and are never bound per surface —
+ * but a control owns a key when the key means something INSIDE it, which is why
+ * `gridKeyNav` and `tabAlongRow` already live in this file. A rail is that shape:
+ * it is a LIST, ↑↓ walk its entries and Enter chooses one. `arrowNavigate` cannot
+ * express "the next entry" — it asks geometry, and this pane SCROLLS
+ * (`overflow-y-auto`, `md:max-h-[560px]`), so the same keystroke would answer
+ * differently depending on where the operator had scrolled to.
+ *
+ * BOUND ON THE ENTRY, NOT ON THE PANE, so a key it declines bubbles to
+ * `gridKeyNav` on the body and then to the provider — the same decline-and-bubble
+ * hand-off the rest of this file relies on. ↑ off the FIRST entry declines on
+ * purpose: there is nothing above the list, and swallowing the key would strand
+ * the operator in a pane they can enter and not leave.
+ */
+function mdListKeyNav(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.defaultPrevented) return;
+  const el = e.currentTarget;
+
+  /**
+   * ENTER OPENS THE MATERIAL AND PUTS THE CURSOR IN ITS FORM.
+   *
+   * `.click()` rather than a second copy of the open action, so the keyboard and
+   * the mouse cannot drift — the same reason Ctrl+Del drives the row's own ✕.
+   * A `<button>` fires that click natively anyway (`enterAdvances` stands down on
+   * anything that is not an input / select / trigger), so what this branch is
+   * really for is the FOCUS half: choosing a material is choosing to work in it,
+   * and leaving the cursor out on the rail would make the operator reach for the
+   * mouse to start typing — which is the complaint, one step along.
+   */
+  if (e.key === "Enter") {
+    e.preventDefault();
+    e.stopPropagation();
+    const body = el.closest<HTMLElement>("[data-grid-body]");
+    el.click();
+    // The form does not exist until React has re-rendered — the same 30ms
+    // hand-off `enterNestedGrid` and the Ctrl+Del path already use.
+    window.setTimeout(() => {
+      if (!body) return;
+      // In `masterDetail` the folded rows ARE the list pane and render nowhere
+      // else (`if (mdActive && folded) return null`), so the body holds exactly
+      // one `data-grid-row`: the one just opened.
+      const row = ownDescendants(body, "[data-grid-row]", "[data-grid-body]")[0];
+      const first = row ? ownDescendants(row, ROW_FIELDS, "[data-grid-row]")[0] : null;
+      if (first) focusField(first);
+    }, 30);
+    return;
+  }
+
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const pane = el.closest<HTMLElement>("[data-md-list]");
+  if (!pane) return;
+  const items = Array.from(pane.querySelectorAll<HTMLElement>("[data-md-list-item]"));
+  const idx = items.indexOf(el);
+  if (idx === -1) return;
+
+  const next = e.key === "ArrowDown" ? items[idx + 1] : items[idx - 1];
+  if (next) {
+    e.preventDefault();
+    e.stopPropagation();
+    // A plain `.focus()`, NOT `focusField`: that one drops a caret at the end of
+    // a value, and an entry is a button with no value to put one in. Focus is
+    // also what scrolls the entry into view inside the pane, which is the half a
+    // geometry-based move would have had to do for itself.
+    next.focus();
+    /**
+     * THE SELECTION TRAVELS WITH THE ARROWS (client 2026-09-02: "only the single
+     * item navigated to with Arrow Up / Down must have this blue highlight").
+     *
+     * THIS REVERSES 2026-09-02's OWN FIRST ANSWER, deliberately. That one kept
+     * focus and selection apart and gave focus a dashed outline of its own,
+     * reasoning that browsing should not re-open twenty forms. The client saw it
+     * and chose the other trade: one mark, always on the entry the arrows are
+     * standing on. So there is now no such thing as a focused-but-unselected
+     * entry, which is what makes "exactly one blue" a property of the STATE
+     * rather than a styling rule that has to keep two cues apart.
+     *
+     * `.click()` rather than a second copy of the open action — same reason the
+     * Enter branch above uses it, and the same reason Ctrl+Del drives the row's
+     * own ✕: the keyboard and the mouse must not be able to drift.
+     *
+     * CHEAP ENOUGH TO RUN PER KEYSTROKE, and that was checked rather than
+     * assumed: the click sets `openRowKey`, which is this component's own state,
+     * and `onOpenRow` is optional — the one screen using `masterDetail` today
+     * (Material BOM) passes none. A caller that later passes an expensive one is
+     * the thing to re-weigh here, not the re-render.
+     *
+     * ENTER STILL HAS A JOB. It no longer needs to switch the material — the
+     * arrows did that — but it is what moves the cursor OFF the rail and into
+     * the form, which is the difference between browsing and working.
+     */
+    next.click();
+    return;
+  }
+
+  /**
+   * OFF THE LAST ENTRY, ↓ LANDS ON "+ Add" — the same last stop Tab and Enter
+   * already have at the end of a grid (AGENTS.md, "Add a grid row"), and found
+   * through `ownAddControl` so the rail cannot disagree with them about which
+   * button belongs to this grid. Enter on it adds; that is the button's own
+   * doing and needs nothing here.
+   *
+   * NO BUTTON, NO CLAIM — a grid with `hideAdd` has nothing to move to, so the
+   * key is declined rather than swallowed, exactly as `gridKeyNav` declines it.
+   */
+  if (e.key === "ArrowUp") return;
+  const body = el.closest<HTMLElement>("[data-grid-body]");
+  const add = body ? ownAddControl(body) : null;
+  if (!add || (add instanceof HTMLButtonElement && add.disabled)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  add.focus();
+}
+
+/**
  * What a column contributes to the grid's totals band.
  *
  * `sum` and `count` cover the two cases every line-item document has; `derived`
@@ -2494,6 +2612,25 @@ export function ChildGrid<T extends { key: string }>({
                  ran on down an empty white column (client 2026-08-20, screenshot
                  2406, "that separate item and table look not good"). Tinting the
                  list is what turns that emptiness into the bottom of a pane. */
+              /* THE SCOPE `mdListKeyNav` WALKS. Its entries are found within this
+                 element rather than off `el.parentElement`, so wrapping the pane
+                 in another div later cannot quietly break ↑↓. */
+              data-md-list
+              /**
+               * OFF THE TYPING PATH, ON THE ARROW PATH — ONE DECLARATION FOR THE
+               * WHOLE PANE (`isOffTabPath` reads `closest`, so every entry
+               * inherits it).
+               *
+               * This is the marker `lib/focus.ts` documents for exactly this
+               * case, and its note names the mistake this pane was making:
+               * "NOT `tabindex="-1"`, which is the obvious reach and the wrong
+               * one — `FOCUSABLE_SELECTOR` excludes it … so the control would go
+               * mouse-only. These operators are keyboard-only." Twenty entries on
+               * the Tab path would put nineteen stops between one field and the
+               * next, which is why the old comment here reached for `-1`; the
+               * marker gets that same result without the mouse-only half.
+               */
+              data-focus-optional
               className="flex flex-col overflow-y-auto bg-surface-muted/60 border-border md:max-h-[560px] md:border-r">
               {view.map((row, localI) => {
                 const i = offset + localI;
@@ -2503,15 +2640,35 @@ export function ChildGrid<T extends { key: string }>({
                   <button
                     key={row.key}
                     type="button"
-                    /* NOT a Tab stop. Tab moves between FIELDS (AGENTS.md), and
-                       twenty list entries on the typing path would put nineteen
-                       stops between one field and the next. The mouse, the arrow
-                       keys and a screen reader all still reach it. */
-                    tabIndex={-1}
-                    /* A styling hook, same family as `data-skin` — no behaviour,
-                       nothing reads it but a stylesheet. `aria-current` marks only
-                       the OPEN row, so a skin that wants to draw every entry in
-                       this list has nothing to select on without it. */
+                    /**
+                     * ROVING TABINDEX — THE OPEN ENTRY IS THE PANE'S ONE STOP.
+                     *
+                     * Still not a Tab stop: Tab moves between FIELDS (AGENTS.md),
+                     * and `data-focus-optional` on the pane is what holds that
+                     * line. This is about the ARROW path, which reads
+                     * `FOCUSABLE_SELECTOR` — a list where every entry is
+                     * `tabindex="-1"` is invisible to it, and that is why the rail
+                     * was mouse-only (client 2026-09-02). The comment that stood
+                     * here claimed "the arrow keys and a screen reader all still
+                     * reach it"; nothing did.
+                     *
+                     * ONE STOP, NOT TWENTY, and the arithmetic is the point — the
+                     * objection that put `-1` on every entry was nineteen stops
+                     * between one field and the next. Roving leaves a single
+                     * entry, the one the operator is already working in, so even
+                     * on a surface where the contract does NOT claim Tab the pane
+                     * costs one stop rather than a screenful. ↑↓ still reach the
+                     * other entries: `mdListKeyNav` focuses them directly, and
+                     * `.focus()` does not care about `tabindex="-1"`.
+                     */
+                    tabIndex={isOpen ? 0 : -1}
+                    onKeyDown={mdListKeyNav}
+                    /* A styling hook, same family as `data-skin` — and, since
+                       2026-09-02, the axis `mdListKeyNav` walks with ↑↓, so it is
+                       no longer inert and must stay on every entry.
+                       `aria-current` marks only the OPEN row, so a skin that wants
+                       to draw every entry in this list has nothing to select on
+                       without it. */
                     data-md-list-item=""
                     aria-current={isOpen ? "true" : undefined}
                     onClick={() => {
@@ -2520,6 +2677,52 @@ export function ChildGrid<T extends { key: string }>({
                     }}
                     className={cn(
                       "w-full border-b border-l-[3px] border-b-border px-3 py-2 text-left transition-colors last:border-b-0",
+                      /**
+                       * ONE MARK, ON THE ENTRY THE ARROWS ARE STANDING ON
+                       * (client 2026-09-02, in three steps — and the middle one
+                       * is written down here because it was tried and rejected,
+                       * not because it was wrong on paper).
+                       *
+                       * FIRST the rail showed TWO blue entries at once. The two
+                       * cues were the same colour by coincidence, not by design,
+                       * and nothing in this file drew the second: the open entry
+                       * paints `--primary` (`border-l-primary`, plus the skin's
+                       * `[aria-current="true"]` inset ring), while the focused
+                       * entry got `outline: 2px solid var(--ring)` from the
+                       * `@layer base` focus floor in `app/globals.css` — and
+                       * `--ring` is defined as the same hex, commented "matches
+                       * --primary". Once ↑↓ could move focus off the open entry,
+                       * the list showed two identical marks and no way to tell
+                       * which one Enter would act on.
+                       *
+                       * THEN focus was given a dashed foreground outline to tell
+                       * the two apart. It worked and the client rejected it: a
+                       * black dashed box is a second visual language in a list
+                       * that already says everything in blue, and it still left
+                       * two entries marked.
+                       *
+                       * SO THE SELECTION NOW FOLLOWS THE ARROWS (see
+                       * `mdListKeyNav`), and the styling below is the whole of
+                       * the answer: `isOpen` is true for exactly one entry, so
+                       * exactly one entry is blue, and no entry can be marked
+                       * without being the one on screen.
+                       *
+                       * `outline-none` IS SAFE HERE AND NOWHERE NEAR A DEFAULT.
+                       * `app/globals.css` treats suppressing focus without
+                       * replacing it as a bug — it names the three files that did
+                       * and says they were fixed at source. This replaces it: an
+                       * entry cannot hold focus without also being the open one,
+                       * so the blue left border, the surface fill and the skin's
+                       * ring ARE the focus indicator. Restore the outline the
+                       * moment focus and selection can come apart again.
+                       *
+                       * A UTILITY BEATS THE FLOOR WITHOUT `!important` — the
+                       * floor sits in `@layer base` precisely so a control that
+                       * expresses its own focus style wins (see its comment), and
+                       * Tailwind's utilities layer is declared after base, so this
+                       * needs no specificity trick to hold.
+                       */
+                      "focus-visible:outline-none",
                       isOpen
                         ? "border-l-primary bg-surface"
                         : "border-l-transparent hover:bg-surface-muted",

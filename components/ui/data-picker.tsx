@@ -212,10 +212,13 @@ const ROW_ICON =
  *
  * ## Keyboard (.claude/skills/raagam-keyboard-contract)
  *
- *   ↓        open; then move the highlight (clamped, never wraps)
- *   ↑        move up when open; when CLOSED it bubbles, so the provider moves to
- *            the field above — ↑ must never be a second way to open a list
- *   Enter    pick the highlight, close, and STAY on the field; when closed it
+ *   ↓        open; then move the highlight (clamped, never wraps), and off the
+ *            LAST ROW onto the "+ Add" button, which is the last stop
+ *   ↑        move up when open, and off the "+ Add" button back into the list;
+ *            when CLOSED it bubbles, so the provider moves to the field above —
+ *            ↑ must never be a second way to open a list
+ *   Enter    on the "+ Add" button, add — exactly what clicking it does; otherwise
+ *            pick the highlight, close, and STAY on the field; when closed it
  *            bubbles, so the NEXT Enter moves to the next field. Staying put is
  *            deliberate — picking a value and moving on are two decisions, and
  *            one keypress doing both means a mis-pick is already three fields
@@ -224,9 +227,10 @@ const ROW_ICON =
  *            preventDefault in list mode, or focus would stick
  *   Esc      close the list only; preventDefault or the page-level Escape
  *            navigates away from the screen entirely
- *   F2       modify the highlighted row
- *   Insert   add
- *   Ctrl+Del delete the highlighted row
+ *   F2       modify the highlighted row (declines while "+ Add" holds the
+ *            highlight — no row is selected to act on)
+ *   Insert   add, from anywhere in the list
+ *   Ctrl+Del delete the highlighted row (declines for the same reason as F2)
  *
  * The last three are how a keyboard-only operator reaches the row icons without
  * Tab entering a non-modal panel. They are legacy-RP muscle memory. `Ctrl+Delete`
@@ -341,6 +345,33 @@ export function DataPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState<string | null>(null);
+  /**
+   * THE "+ ADD" ROW IS THE LAST STOP ON THE LIST (client 2026-09-02, reported on
+   * Material BOM ▸ Item Color).
+   *
+   * ↓ past the last row lands on it and Enter then adds — the same two-key shape
+   * a child grid's "+ Add" already has (AGENTS.md, "Tab lands on fields"), and the
+   * same reason: the button was mouse-only. `Ins` reaches it from anywhere in the
+   * list and stays the shortcut, but it is a key an operator has to be told about,
+   * and the panel prints that hint only at `@lg` — a `compact` picker in a grid
+   * cell is narrower than that, so on the screen this was reported from the hint
+   * was not on screen either.
+   *
+   * HELD APART FROM `highlight` rather than folded into it as a sentinel id. That
+   * string is also `startEdit`'s target, `startDelete`'s target, the duplicate
+   * check's `excludeId` and `deleteTarget`; a fake id would have to be filtered
+   * out of all five and would sit one missed branch away from "Modify" opening a
+   * form over a row that does not exist.
+   *
+   * The two are mutually exclusive ON SCREEN, which is not a styling choice: the
+   * highlight is a promise about what Enter will commit, so exactly one thing in
+   * the panel may ever wear it.
+   */
+  const [addFocus, setAddFocus] = useState(false);
+  /** The three ways in: the footer button, `Ins`, and ↓ off the last row. */
+  const canAdd = !!(manage?.canCreate || onAddOverride);
+  /** Names the button for `aria-activedescendant` — focus never leaves the trigger. */
+  const addOptionId = `${listId}-add`;
   const [mode, setMode] = useState<"list" | "add" | "edit" | "delete">("list");
   const [draftCode, setDraftCode] = useState("");
   const [draftName, setDraftName] = useState("");
@@ -548,6 +579,7 @@ export function DataPicker({
     // Seed from the CURRENT value so editing a record shows the operator where
     // they are before they change it (keyboard contract, "adding a new field").
     setHighlight(value);
+    setAddFocus(false);
     setMode("list");
     setOpen(true);
   }
@@ -555,6 +587,7 @@ export function DataPicker({
     setOpen(false);
     setMode("list");
     setQuery("");
+    setAddFocus(false);
   }
   function commit(idOrNull: string | null) {
     onChange(idOrNull);
@@ -704,10 +737,38 @@ export function DataPicker({
       // walk onto a dead key. Rare while the only blocked row was the stored
       // inactive value; routine now that "(already added)" rows stay in the list.
       const walkable = filtered.filter((r) => !blockedReason(r));
-      if (!walkable.length) return;
+
+      // ON THE "+ ADD" BUTTON, ↓ IS THE CLAMP — it is the last stop, and there is
+      // nothing below it to wrap to. ↑ goes back into the list.
+      if (addFocus) {
+        if (e.key === "ArrowDown") return;
+        setAddFocus(false);
+        // Land on the LAST row rather than on nothing: the operator may have
+        // reached the button off an empty list, or off a highlight the query has
+        // since filtered away, and either way ↑ that highlights nothing reads as
+        // a dead key.
+        const back =
+          walkable.find((r) => r.id === highlight) ?? walkable[walkable.length - 1];
+        if (back) setHighlight(back.id);
+        return;
+      }
+
+      // AN EMPTY LIST STILL HAS A WAY DOWN, and this is the case that made the
+      // button unreachable: a search matching nothing is exactly when the
+      // operator means to add what they typed (`startAdd` seeds the name with it).
+      if (!walkable.length) {
+        if (e.key === "ArrowDown" && canAdd) setAddFocus(true);
+        return;
+      }
       const idx = walkable.findIndex((r) => r.id === highlight);
       // Clamped, not wrapping: holding ↓ should stop at the end of the list
-      // rather than silently cycle back to the top.
+      // rather than silently cycle back to the top. The end is now the "+ Add"
+      // button where there is one, so the clamp moved down by one stop — it did
+      // not become a wrap.
+      if (e.key === "ArrowDown" && canAdd && idx === walkable.length - 1) {
+        setAddFocus(true);
+        return;
+      }
       const next =
         e.key === "ArrowDown"
           ? walkable[Math.min(idx + 1, walkable.length - 1)]
@@ -722,6 +783,10 @@ export function DataPicker({
       if (!open) return;
       e.preventDefault();
       e.stopPropagation();
+      // ENTER ON THE BUTTON DOES WHAT THE MOUSE DOES — one call, so the seeded
+      // draft name, the `onAddOverride` hand-off and the panel-closes-first rule
+      // all come with it rather than being re-derived for the keyboard.
+      if (addFocus) return startAdd();
       // The mouse refuses a blocked row; so must Enter. And it must refuse it
       // by doing NOTHING — falling through to the first pickable row would
       // commit something other than what the operator can see highlighted, which
@@ -764,15 +829,19 @@ export function DataPicker({
     // screen whose whole contract is that it does not need one.
     if (!open || !(manage || onAddOverride)) return;
 
-    if (e.key === "F2" && manage?.canEdit) {
+    // `!addFocus` on both row keys: while the button wears the highlight no ROW
+    // does, and F2 / Ctrl+Del acting on the id still held in `highlight` would
+    // open a Modify — or a Delete — over a row the operator can see is not
+    // selected. Declining is the only honest answer; ↑ puts them back on a row.
+    if (e.key === "F2" && manage?.canEdit && !addFocus) {
       e.preventDefault();
       e.stopPropagation();
       startEdit();
-    } else if (e.key === "Insert" && (manage?.canCreate || onAddOverride)) {
+    } else if (e.key === "Insert" && canAdd) {
       e.preventDefault();
       e.stopPropagation();
       startAdd();
-    } else if (e.key === "Delete" && e.ctrlKey && manage?.canDelete) {
+    } else if (e.key === "Delete" && e.ctrlKey && manage?.canDelete && !addFocus) {
       e.preventDefault();
       e.stopPropagation();
       startDelete();
@@ -795,6 +864,14 @@ export function DataPicker({
 
   const deleteTarget = rows.find((r) => r.id === highlight) ?? null;
 
+  /**
+   * WHAT THE ROWS DRAW. `highlight` is REMEMBERED while the "+ Add" button wears
+   * the highlight — that is what lets ↑ put the operator back where they were —
+   * but two lit rows would be two promises about one Enter, so only one of the
+   * pair is ever rendered.
+   */
+  const rowHighlight = addFocus ? null : highlight;
+
   const list = (
     <>
       {!fine && (
@@ -806,7 +883,12 @@ export function DataPicker({
             uppercase={false}
             autoFocus
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              // Same rule as the fine-pointer trigger below: typing re-aims the
+              // highlight at the list.
+              setAddFocus(false);
+            }}
             placeholder={`Search ${noun.toLowerCase()}…`}
           />
         </div>
@@ -850,7 +932,7 @@ export function DataPicker({
             aria-selected={r.id === value}
             // Says out loud what the greying means, for anyone who cannot see it.
             aria-disabled={blocked ? true : undefined}
-            ref={r.id === highlight ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+            ref={r.id === rowHighlight ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
             // Focus stays in the trigger, so mousedown beats the blur.
             onMouseDown={(e) => {
               e.preventDefault();
@@ -861,7 +943,9 @@ export function DataPicker({
             // picked, for the same reason ↓ skips it: the highlight is a promise
             // about what Enter will commit, and parking it on a refused row
             // turns Enter into a dead key by mouse instead of by arrow.
-            onMouseEnter={() => { if (!blocked) setHighlight(r.id); }}
+            // Taking the highlight back off the "+ Add" button, for the same
+            // reason the arrows do: the mouse is moving the same one promise.
+            onMouseEnter={() => { if (!blocked) { setHighlight(r.id); setAddFocus(false); } }}
             className={cn(
               /* THE PANEL FOLLOWS THE FIELD'S DENSITY (client 2026-08-28,
                  screenshot 2533: "inside of the field the font size is good but
@@ -882,7 +966,7 @@ export function DataPicker({
               "group flex cursor-pointer items-center gap-2 px-3 text-sm",
               compact ? "py-1.5" : "py-2",
               blocked && "cursor-not-allowed opacity-40",
-              r.id === highlight ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-muted",
+              r.id === rowHighlight ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-muted",
             )}
           >
             {/* On touch the list is a Sheet, which has the vertical room to
@@ -960,16 +1044,27 @@ export function DataPicker({
           richer flow reachable only by declaring the poorer one first. Every
           existing call site is unchanged: `manage?.canCreate` still opens the
           inline form, and a picker with neither shows no Add at all. */}
-      {(manage?.canCreate || onAddOverride) && (
+      {canAdd && (
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
           <button
             type="button"
+            id={addOptionId}
+            /* `tabIndex={-1}` STAYS. Tab through an open list closes it without
+               committing and moves to the next FIELD (AGENTS.md, "Tab lands on
+               fields"); making this button a tab stop would trap the cursor in a
+               dropdown that is deliberately not modal. ↓ is how it is reached. */
             tabIndex={-1}
             onMouseDown={(e) => {
               e.preventDefault();
               startAdd();
             }}
-            className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary hover:bg-surface-muted"
+            className={cn(
+              "flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary",
+              // The SAME wash a highlighted row wears — the operator is walking
+              // one list, so the last stop on it must not announce itself with a
+              // different mark.
+              addFocus ? "bg-primary/10" : "hover:bg-surface-muted",
+            )}
           >
             <Plus className="h-4 w-4 shrink-0" />
             {/* NAMES WHAT IT WILL CREATE. With a search typed, this row is the
@@ -1157,6 +1252,14 @@ export function DataPicker({
           role="combobox"
           aria-expanded={open}
           aria-controls={listId}
+          /* Focus stays on this input while ↓ walks the panel, so the highlight
+             is only spoken if it is pointed at. Set for the "+ Add" button
+             because that stop is new and is a CONTROL rather than a value — a
+             screen-reader operator reaching the end of the list otherwise hears
+             nothing at all and concludes ↓ has stopped working. The rows carry no
+             ids and so are still unannounced; that gap predates this and wants
+             fixing on its own, not silently here. */
+          aria-activedescendant={open && addFocus ? addOptionId : undefined}
           aria-invalid={invalid || undefined}
           // Mandatory and blank holds the cursor (client 2026-08-04). Declared
           // by this component's own `required` — the same prop that draws the
@@ -1242,6 +1345,9 @@ export function DataPicker({
             // decline, which reads as a dead keystroke. Typing "cotton" when
             // COTTON TAPE is already added highlights the next real match.
             setHighlight(matching(q).find((r) => !blockedReason(r))?.id ?? null);
+            // A new query is a new list: the highlight goes back to its top
+            // match, so it cannot stay parked on the button underneath.
+            setAddFocus(false);
             if (!open) setOpen(true);
           }}
           onKeyDown={onTriggerKeyDown}
