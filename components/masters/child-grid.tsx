@@ -1168,6 +1168,7 @@ export function ChildGrid<T extends { key: string }>({
   rowSummary,
   foldRows = false,
   masterDetail = false,
+  railCompact = false,
   renderListItem,
   onOpenRow,
   canFold,
@@ -1697,6 +1698,25 @@ export function ChildGrid<T extends { key: string }>({
    * AGENTS.md records for the ~22 hand-rolled grids.
    */
   masterDetail?: boolean;
+  /**
+   * A NARROWER, TIGHTER RAIL — 160px instead of 268, and entries at
+   * `px-2.5 py-1` instead of `px-3 py-2` (client 2026-09-03, on Fabric BOM ▸
+   * Components).
+   *
+   * OPT-IN, BECAUSE THE TWO RAILS ARE NOT THE SAME LIST. Material BOM's holds
+   * twenty near-identical "Material N" lines, where the width carries a grain, a
+   * ratio and a state dot, and the padding is what keeps them apart; its 268px
+   * and `py-2` are the client's, settled over 2026-08-20 and 08-28. Components'
+   * rail holds eight short part NAMES — FRONT BODY, NECK TAPE — and nothing
+   * else, so 268px is mostly empty and the height costs a scrollbar the list does
+   * not need.
+   *
+   * IT SIZES THE RAIL AND NOTHING INSIDE IT. What an entry SAYS is
+   * `renderListItem`'s, so a caller taking this also sets its own type size. This
+   * prop deliberately does not reach into the caller's markup to do that — the
+   * same separation that made `renderListItem` its own renderer.
+   */
+  railCompact?: boolean;
   /**
    * What one line looks like in the master-detail list. Required by
    * `masterDetail`; ignored without it.
@@ -2638,7 +2658,15 @@ export function ChildGrid<T extends { key: string }>({
                surface rather than as a space between two (client 2026-08-20,
                "add gap between that separation left and right split screen").
                20px after the border is what lets each pane have an edge. */
-            mdActive && "md:grid md:grid-cols-[268px_minmax(0,1fr)] md:gap-x-5 md:gap-y-0 md:space-y-0",
+            mdActive && "md:grid md:gap-x-5 md:gap-y-0 md:space-y-0",
+            /* STATIC LITERALS, both of them, never `md:grid-cols-[${w}px_...]`:
+               Tailwind v4 scans source TEXT, so an interpolated track compiles to
+               no CSS at all and the rail would silently stack instead of sitting
+               beside the pane. The same warning `FIELD_TRACK` carries. */
+            mdActive &&
+              (railCompact
+                ? "md:grid-cols-[160px_minmax(0,1fr)]"
+                : "md:grid-cols-[268px_minmax(0,1fr)]"),
           )}
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
         >
@@ -2718,7 +2746,11 @@ export function ChildGrid<T extends { key: string }>({
                       onOpenRow?.(row, i);
                     }}
                     className={cn(
-                      "w-full border-b border-l-[3px] border-b-border px-3 py-2 text-left transition-colors last:border-b-0",
+                      "w-full border-b border-l-[3px] border-b-border text-left transition-colors last:border-b-0",
+                      /* The rail's own density — see `railCompact`. The 3px left
+                         border and the bottom rule are the SELECTION and the
+                         separator, so neither varies with it. */
+                      railCompact ? "px-2.5 py-1" : "px-3 py-2",
                       /**
                        * ONE MARK, ON THE ENTRY THE ARROWS ARE STANDING ON
                        * (client 2026-09-02, in three steps — and the middle one

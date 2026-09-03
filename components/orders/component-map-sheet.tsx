@@ -1147,6 +1147,15 @@ export function ComponentMapBody({
           `mdActive` is `masterDetail && rows.length > 1`, so a style with a
           single panel renders as one plain card with no rail. A list of one is
           not a list, and Material BOM behaves the same way. */}
+      {/* `data-md-plain` TURNS OFF THE RAIL'S BLUE RING (client 2026-09-03).
+          The skin draws `box-shadow: inset 0 0 0 2px #037bb8` on whatever
+          carries `aria-current="true"`, which on this rail read as a blue box
+          around the open part. The rule that answers this marker is in
+          `app/globals.css`, immediately under the one it undoes, and it has to
+          be there: that rule is UNLAYERED, so no Tailwind class here could beat
+          it. The entry still says which one it is — white against the rail's
+          muted fill, a 3px left border and bold text. */}
+      <div data-md-plain>
       <ChildGrid<PanelRow>
         /* grid-caption: exempt -- the style band above names this grid, and it
            is the only grid at this level. */
@@ -1157,6 +1166,37 @@ export function ComponentMapBody({
            box per panel, which is the operator's standing rule. */
         forceCards
         flatRows
+        /* THE RAIL IS SIZED TO ITS TEXT (client 2026-09-03): 160px, and each
+           entry at `px-2.5 py-1`. See `railCompact` on the grid for why it is
+           opt-in rather than the default. The type size is the other half and
+           lives below, because `renderListItem` is the caller's. */
+        railCompact
+        /**
+         * `fill` IS LOAD-BEARING HERE, AND ITS ABSENCE IS WHAT BROKE THE PANE
+         * (reported 2026-09-03 with a screenshot: every field stacked in a
+         * ~185px column, the row's ✕ sitting beside "Coordinate").
+         *
+         * `hugsContent` is `!fill && columns.every((c) => c.width)`. All seven
+         * `panelColumns` declare a width — they were written for a table — so
+         * the hug switched itself on and the grid card took `w-fit`. Inside a
+         * shrink-wrapped parent the master-detail track
+         * (`md:grid-cols-[268px_minmax(0,1fr)]`) resolves its `1fr` against
+         * min-content, so the detail pane collapsed to about the width of one
+         * field. Everything else followed from that: under `@lg/section`
+         * (512px) `FIELD_TRACK` declares no `grid-cols` at all, so every
+         * `Field` stacked one per row, and the card's `absolute right-1 top-1`
+         * remove button landed next to the first label.
+         *
+         * MATERIAL BOM NEVER HIT THIS, which is why copying its prop set was
+         * not enough: its eleven columns declare NO widths, so `hugsContent` is
+         * false there by accident of the data rather than by decision.
+         *
+         * THE COUPLING IS THE THING TO REMEMBER: a column `width` is a TABLE
+         * concern, and declaring one silently changes how the CARD lays out.
+         * `fill` suppresses only the hug — the columns keep their widths, and
+         * the slack falls to the right of them.
+         */
+        fill
         /* ONE PANEL OPEN AT A TIME, the row itself being the affordance —
            focus or click opens it, exactly as the table did and as Order
            Entry's Structure Details does. There is no toggle control. */
@@ -1166,27 +1206,27 @@ export function ComponentMapBody({
            The fields live in the pane next door, and anything tabbable here
            would be a second Tab stop per panel on a surface whose whole point
            is that it has one. */
-        renderListItem={(p) => {
-          const name = componentName(p.component_id);
-          const coord = coordinateName(p.coordinate_id);
-          return (
-            <>
-              <span className="block truncate text-sm font-semibold">
-                {name || "New part"}
-              </span>
-              <span className="mt-1 flex flex-wrap items-center gap-1">
-                {coord && (
-                  <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                    {coord}
-                  </span>
-                )}
-                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-                  {p.lines.length} {p.lines.length === 1 ? "colourway" : "colourways"}
-                </span>
-              </span>
-            </>
-          );
-        }}
+        /* THE NAME AND NOTHING ELSE (client 2026-09-03, screenshot 154846:
+           "this text only and remove pieces and 1 colourway").
+
+           IT CARRIED A COORDINATE CHIP AND A COLOURWAY COUNT, and both were
+           saying something the pane already says: Coordinate is the first field
+           on the right, and the count is the caption over the Colourways grid
+           under it. In a rail the operator reads to FIND a part, a second line
+           per entry doubles the height and halves how many parts are on screen
+           — eight of them is a scroll where it need not be one.
+
+           ONE LINE IS ALSO WHAT MAKES THE ENTRY COMPACT. The padding is
+           `ChildGrid`'s own (`px-3 py-2`); dropping the meta row is what takes
+           each card from two lines to one, so nothing here sets a height. */
+        renderListItem={(p) => (
+          /* `text-xs font-semibold` — a part name is a short label the operator
+             scans, not prose, so 12px is legible at a glance and is what makes a
+             `py-1` entry read as deliberate rather than cramped. */
+          <span className="block truncate text-xs font-semibold">
+            {componentName(p.component_id) || "New part"}
+          </span>
+        )}
         /* REQUIRED BY `foldRows`, AND ALL BUT UNUSED WITH THE RAIL UP: there
            the folded rows ARE the rail and render nowhere else. It still has to
            exist — the grid gates its open-on-focus handler on
@@ -1208,27 +1248,53 @@ export function ComponentMapBody({
            prevent, and what `--check grid-required-mobile` looks for. */
         renderMobileRow={(p) => (
           <div className="space-y-3">
-            <FieldGrid>
+            {/* ALL SEVEN ON ONE ROW (client 2026-09-03): Coordinate, Component,
+                Structure, Structure Type, Fabric Type, Fabric, Gsm.
+
+                `cols={14}` IS THE TRACK THAT EXISTS FOR THIS, and the number is
+                not a preference. The smallest span is `xs` (2), so the house
+                12-column track tops out at SIX fields — seven simply do not fit
+                it, whatever sizes are chosen. 7 × 2 = 14 exactly, which is why
+                `FIELD_TRACK_14` is 14 and not 13 or 16: the fields keep the
+                span they already have instead of needing a new size. Orders ▸
+                Style ▸ Style Details asked for the same thing in 2026-08-17 and
+                is the other caller.
+
+                WHAT IT COSTS, since the track's own note asks for this to be a
+                decision rather than a default: a field here is ~155px against
+                LAYOUT.md §3's ~280px. Coordinate, Structure Type and Gsm are
+                read-only short values and Fabric Type is a Select, so those four
+                are comfortable. Component and Fabric are the pressured pair —
+                both are pickers over long names, and at 155px they will clip.
+                Neither loses its value: the picker trigger carries
+                `text-ellipsis` and `<Truncated>` reveals the rest on hover, which
+                is the app's standing answer for a clipped value. */}
+            <FieldGrid cols={14}>
               {panelColumns.map((c, ci) => (
-                <Field key={c.header} label={c.header} required={c.required} size="sm">
+                <Field key={c.header} label={c.header} required={c.required} size="xs">
                   {c.cell(p, ci)}
                 </Field>
               ))}
             </FieldGrid>
             <div>
-              {/* THE CAPTION NAMES ITS PANEL, which is not decoration: the
-                  failure of the stacked version was two splits that could not
-                  say whose they were. */}
-              <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[.09em] text-primary">
-                Colourways{" "}
-                <span className="font-normal tracking-[.04em] text-muted-foreground">
-                  of {componentName(p.component_id) || "this panel"}
-                </span>
-              </div>
+              {/* NO "COLOURWAYS OF <PANEL>" CAPTION (client 2026-09-03).
+
+                  IT EARNED ITS PLACE UNDER THE OLD LAYOUT AND DOES NOT UNDER
+                  THIS ONE, which is the whole reason it can go. The stacked
+                  table drew every panel's split one under another, so a caption
+                  was the only thing saying WHOSE colourways these were — drop it
+                  there and two splits become indistinguishable. A master-detail
+                  pane shows exactly ONE panel at a time and names it twice
+                  before this line is reached: the selected entry in the rail,
+                  and the Component field at the top of the pane. A third naming
+                  is what the client is looking at when they call it noise. */}
             <ChildGrid<MapLine>
-              /* grid-caption: exempt -- the line above names this
-                 grid AND the panel it belongs to, which a caption
-                 cannot say. */
+              /* grid-caption: exempt -- the pane holds ONE panel at a
+                 time and names it twice before this grid is reached
+                 (the selected rail entry, and the Component field
+                 above), so a caption would be a third naming. This
+                 reason REPLACES "the line above names it": that line
+                 was removed on 2026-09-03 -- see the note there. */
               columns={colourColumns}
               rows={p.lines}
               tableFrom="6xl"
@@ -1245,7 +1311,34 @@ export function ComponentMapBody({
               onAdd={() => false}
               onRemove={() => {}}
               renderMobileRow={(row, ri) => (
-                <FieldGrid>
+                /* ALL EIGHT ON ONE ROW (client 2026-09-03): Assort Color,
+                   Fabric Type, Fabric, Gsm, Type, Required Color, Required
+                   Print, Specification.
+
+                   `cols={32}` BECAUSE EIGHT DOES NOT FIT ANY NARROWER TRACK.
+                   The smallest span is `xs` (2), so 12 columns hold six fields
+                   and 14 hold seven — this row needs eight. 32 is the widest
+                   declared track and 8 × `md` (4) is 32 exactly, so the row
+                   fills it with no remainder and every field keeps a span that
+                   already exists.
+
+                   THIS IS THE CARD PATH, NOT THE TABLE, and that is why the
+                   fix belongs here. The grid still declares `tableFrom="6xl"`,
+                   and its own column widths total ~1128px including the ordinal
+                   — more than this detail pane gets — so the table would only
+                   appear by scrolling sideways, which the operator's rule 4
+                   bans. Below that breakpoint `renderMobileRow` IS the row, and
+                   this is it.
+
+                   THE PRESSURE IS ON SPECIFICATION AND FABRIC. At 4/32 a field
+                   is ~137px, which is comfortable for the three Selects, the
+                   derived Gsm and the colour names, and tight for free text.
+                   Nothing is lost — the controls clip with an ellipsis and
+                   `<Truncated>` reveals the rest — but if it reads badly the
+                   answer is a span PER COLUMN summing to 32 (Gsm `xs`, the
+                   Selects `sm`, Fabric and Specification `lg`), not a wider
+                   track: there is no track above 32. */
+                <FieldGrid cols={32}>
                   {colourColumns.map((c, ci) => (
                     /* `required={c.required}` IS NOT OPTIONAL HERE.
                        A grid that renders its own row calls this
@@ -1262,7 +1355,7 @@ export function ComponentMapBody({
                        screens rediscovered this independently;
                        `--check grid-required-mobile` is why this
                        one did not have to. */
-                    <Field key={ci} label={c.header} required={c.required} size="sm">
+                    <Field key={ci} label={c.header} required={c.required} size="md">
                       {c.cell(row, ri)}
                     </Field>
                   ))}
@@ -1304,8 +1397,14 @@ export function ComponentMapBody({
         /* THE ADDRESS, NOT THE GRID'S KEY — `removePanel` resolves
            `component_id ?? panel_uid` through `inScope`. See `gridPanels`. */
         onRemove={(p) => onRemovePanel(p.addr)}
+        /* THE BUTTON MATCHES THE PILLS. `ChildGrid`'s add is
+           `variant="outline" size="sm"`, already `text-xs`; this trims its `px-3`
+           to the entries' `px-2.5` so the rail keeps one left edge from the first
+           part down to the button. */
+        addClassName="px-2.5"
         addLabel="+ Add part"
       />
+      </div>
     </div>
   );
 }
