@@ -577,6 +577,22 @@ on the trigger, exactly as `Combobox` does:
 
 - ↓ opens; ↓/↑ then move the highlight, clamped. ↑ on a CLOSED picker bubbles, so
   the provider moves to the field above — ↑ must never be a second way in.
+- **↓ off the last row lands on the "+ Add" button, and Enter there adds**
+  (client 2026-09-02, Material BOM ▸ Item Color). Same two-key shape as a child
+  grid's "+ Add", and the same reason: `Ins` did reach it, but it is a key an
+  operator must be told about and the panel prints that hint only at `@lg` — which
+  a `compact` picker in a grid cell never is. **An EMPTY list has the move too**,
+  and that is the case that mattered most: a search matching nothing is precisely
+  when the operator means to add what they typed, which `startAdd` has seeded the
+  name with since 2026-08-24.
+  Three things it must not break, each of which it would have if written loosely:
+  the button stays `tabIndex={-1}` (Tab through an open list closes it and moves to
+  the next FIELD — a tab stop here makes a non-modal dropdown a dialog); **at most
+  one thing wears the highlight**, so no row is lit while the button is, and F2 /
+  Ctrl+Del decline rather than act on the id `highlight` still remembers for ↑; and
+  it is `addFocus`, a state of its own, never a sentinel id in `highlight` — that
+  string is also the Modify target, the Delete target, `deleteTarget` and the
+  duplicate check's `excludeId`.
 - Enter picks the highlight, closes, and leaves focus on the field. Closed, it
   bubbles, so the *next* Enter moves to the next field. Staying put is deliberate:
   picking a value and moving on are two decisions, and one keypress doing both
@@ -585,9 +601,9 @@ on the trigger, exactly as `Combobox` does:
   would make a dropdown a dialog in disguise.
 - Escape closes the list only, and MUST `preventDefault` — the page-level Escape is
   the next layer, so a list that closes quietly navigates off the screen too.
-- **Ins** adds, **F2** modifies the highlight, **Ctrl+Del** deletes it. These exist
-  because Tab cannot reach the row icons in a non-modal panel, and they are legacy-RP
-  muscle memory. `Ctrl+Del` and not plain `Delete`: the trigger is a text box the
+- **Ins** adds from anywhere in the list, **F2** modifies the highlight, **Ctrl+Del**
+  deletes it. These exist because Tab cannot reach the row icons in a non-modal panel,
+  and they are legacy-RP muscle memory. `Ctrl+Del` and not plain `Delete`: the trigger is a text box the
   operator is typing a filter into.
 
 **Form mode (Add / Modify / Delete) IS modal** — scrim, `role="dialog"`,
