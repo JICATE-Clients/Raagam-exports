@@ -3297,7 +3297,7 @@ export function FabricBomScreen({
            multiplies. Text rather than a readOnly box: a derived value was not
            typed, so it is not a field. */
         header: "Calc. width",
-        width: "5rem",
+        width: "4.5rem",
         align: "right",
         cell: (r) => {
           const w = calculatedWidth(numOrNull(r.table_width), numOrNull(r.width_tolerance));
@@ -3310,7 +3310,7 @@ export function FabricBomScreen({
            example is 52 cm reading 20.4". Derived from the cm cell beside it, so
            the two can never disagree. */
         header: "Calc. width (in)",
-        width: "5rem",
+        width: "4.5rem",
         align: "right",
         cell: (r) => {
           const i = toInches(
@@ -3341,7 +3341,7 @@ export function FabricBomScreen({
            duplication to tidy away, because the two mean different things: this
            is what the formula says, and that is what the document uses. */
         header: "Calculated Wt",
-        width: "5.5rem",
+        width: "5rem",
         align: "right",
         cell: (r) => {
           const g = calculatedGrams(inputOf(r), gsm);
@@ -3386,7 +3386,7 @@ export function FabricBomScreen({
            editable". A Combobox, so typed text is a SEARCH and never a stored
            value; `diaOptionsFor` keeps a held value visible and tagged. */
         header: "Dia",
-        width: "6.5rem",
+        width: "5.5rem",
         cell: (r) => (
           <Combobox
             compact
@@ -3404,7 +3404,7 @@ export function FabricBomScreen({
            against. Free text rather than a pick — it is a commercial figure the
            supplier quotes, not one this BOM declares anywhere. */
         header: "Purch. width",
-        width: "5.5rem",
+        width: "4.5rem",
         align: "right",
         cell: (r) => (
           <Input
@@ -3471,7 +3471,7 @@ export function FabricBomScreen({
          * holds, "which is why a composed name requires its SOURCES instead").
          */
         header: "Cons Wt",
-        width: "5.5rem",
+        width: "5rem",
         align: "right",
         required: mode === "direct",
         cell: (r) =>
@@ -3739,7 +3739,7 @@ export function FabricBomScreen({
   const manualEntryColumns: ManualEntryColumn[] = [
     {
       header: "Fabric",
-      width: "11rem",
+      width: "10rem",
       cell: (e) => (
         <RecordPicker
           label="Fabric"
@@ -3828,7 +3828,7 @@ export function FabricBomScreen({
     },
     {
       header: "MeasurementUnit",
-      width: "5rem",
+      width: "4rem",
       /* THE CLOTH'S OWN BASE UNIT, which is the unit the requirement is stored
          in — `entryFabric` on the server reads the same column. Blank until a
          fabric is named, which is what legacy's own screenshot shows. */
@@ -3898,7 +3898,7 @@ export function FabricBomScreen({
     },
     {
       header: "Component Proc. Loss %",
-      width: "5.5rem",
+      width: "4.5rem",
       align: "right",
       /* `wastage_pct` UNDER LEGACY'S NAME. 0494 called it "Wastage / Damage %"
          from the client's written spec; legacy's own header for the same cell —
@@ -4219,7 +4219,7 @@ export function FabricBomScreen({
                             hideRemove
                             onAdd={() => false}
                             onRemove={() => {}}
-                            tableFrom="6xl"
+                            tableFrom="5xl"
                             centerHeaders
                             renderMobileRow={(row) => (
                               <FieldGrid>
@@ -4815,7 +4815,7 @@ export function FabricBomScreen({
       /* 9.375rem — 150px (client 2026-09-03), up from 5.5rem/88px. It
          holds a colourway name ("MELANGE GREY", "OPTICAL WHITE"), which
          88px cut to two syllables. See THE WIDTH BUDGET on `tableFrom`. */
-      width: "9.375rem",
+      width: "7.5rem",
       cell: (r) => (
         <Combobox
           compact
@@ -6718,7 +6718,7 @@ export function FabricBomScreen({
                was ~1260 and the threshold missed by 20. The CSS rule was
                present and correct throughout — the only symptom was cards.
                Measure the CONTAINER, never the picture of it. */
-            tableFrom="6xl"
+            tableFrom="5xl"
             centerHeaders
             /* NO `forceCards`. Responsive mode: ONE TABLE ROW PER FABRIC at the
                widths declared above, falling back to stacked cards below the
