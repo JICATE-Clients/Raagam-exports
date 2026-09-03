@@ -1245,6 +1245,49 @@ export function ComponentMapBody({
            prevent, and what `--check grid-required-mobile` looks for. */
         renderMobileRow={(p) => (
           <div className="space-y-3">
+            {/* THE PANEL'S OWN NAME, BOLD, ABOVE THE FIELDS (client 2026-09-03,
+               screenshots 2676-2677, pointing at Material BOM's open-item
+               heading as the reference: "I need this kind of same UI … looks
+               unfinished"). The pane opened straight into the Coordinate/
+               Component field row with nothing above it naming what was open —
+               the ✕ floated alone at the top corner of a card with no title to
+               belong to, which is what read as a stub rather than a finished
+               screen.
+
+               SAME THREE VALUES AS `SectionBody`'s `<h2>` — `text-[15px]
+               font-bold tracking-tight` — the same match Material BOM's own
+               open-line heading makes to itself ("make the new material
+               heading bolder and bigger like material bom", 2026-08-28), so a
+               reader comparing the two screens is comparing one typographic
+               decision, not two.
+
+               `pr-9` CLEARS THE ✕. `cornerRemove` in `child-grid.tsx` floats it
+               `absolute right-1 top-1` over this exact row — the same
+               mechanism Material BOM's heading already accounts for with its
+               own `pr-9` — so the two cannot collide without either changing.
+
+               NO MIRRORED FIGURE. Material BOM's heading carries the line's
+               own Final Quantity on the right because that number exists and
+               nothing else on screen shows it first. A panel has no equivalent
+               single total — its colourways carry separate figures each — so
+               inventing one here would be exactly the "screenshot cannot show
+               a grain" mistake this module's own history warns against. The
+               colourway COUNT is real and was on the rail until the client had
+               it removed for being a second line per entry there ("this text
+               only … remove pieces and 1 colourway") — that objection was
+               about the RAIL, which stays text-only; it says nothing against
+               naming the count once, here, where it costs no second line and
+               gives the ✕ a reason to sit where it does. */}
+            <div className="mb-1 flex items-baseline gap-3 pr-9">
+              <Truncated className="min-w-0 text-[15px] font-bold tracking-tight text-foreground">
+                {componentName(p.component_id) || "New part"}
+              </Truncated>
+              {p.lines.length > 0 && (
+                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                  {p.lines.length} {p.lines.length === 1 ? "colourway" : "colourways"}
+                </span>
+              )}
+            </div>
             {/* ALL SEVEN ON ONE ROW (client 2026-09-03): Coordinate, Component,
                 Structure, Structure Type, Fabric Type, Fabric, Gsm.
 

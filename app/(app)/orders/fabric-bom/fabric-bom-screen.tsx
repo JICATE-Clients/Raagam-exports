@@ -3680,10 +3680,17 @@ export function FabricBomScreen({
    * disambiguates them in the stacked layout, where two identical labels would
    * be meaningless.
    *
+   * A THIRD "Type" TRAILS AFTER `Widths`, outside this verified band — Solid /
+   * Melange / Yarn Dyed, added 2026-09-03 on operator instruction. It is not
+   * legacy's own (the screenshots above name only the two), so it is kept out
+   * of the sequence those screenshots verified rather than inserted between
+   * them; see the comment on that column for the full reasoning.
+   *
    * THE WIDTH BUDGET IS WHY THE TABLE RENDERS AT ALL: 65.5rem of columns plus
    * ~72px of chrome is about 1120px, under the 1152 this grid switches at. A
    * single-style order's pane is ~1293 CSS px — and that is every live order,
-   * all seven of which declare one style.
+   * all seven of which declare one style. The trailing Type column adds to
+   * that budget; `check:grid-budget` is what proves it still fits.
    */
   /** Legacy's row needs a CENTRED column (the checkbox and the three [Click]
    *  cells) and `FoldListColumn` offers only left/right — that list's cells are
@@ -3702,7 +3709,7 @@ export function FabricBomScreen({
   const manualEntryColumns: ManualEntryColumn[] = [
     {
       header: "Fabric",
-      width: "10rem",
+      width: "9rem",
       cell: (e) => (
         <RecordPicker
           label="Fabric"
@@ -3951,6 +3958,33 @@ export function FabricBomScreen({
           </Button>
         </span>
       ),
+    },
+    {
+      /* A THIRD "Type" — SOLID · MELANGE · YARN DYED, off the fabric itself
+         (`fabricTypeOf`, the ONE derivation this file already reads five other
+         places: the Fabric Lines grid, the Save gate, `problems`, the yarn-dyed
+         mandatory check). NOT legacy's own row (screenshots 2666 · 2667 name
+         only the two "Type" columns above — knit family and roll form), so it
+         TRAILS after Widths rather than sitting between them, the same
+         treatment the trailing Purch. width / Order qty / Net Wt / Req. Wt
+         columns got on the size grid below: this screen's own addition, added
+         2026-09-03 on operator instruction, kept out of legacy's verified
+         sequence.
+
+         `cardLabel` DISAMBIGUATES IT FROM THE OTHER TWO in the stacked mobile
+         layout, the same way "Knit type" and "Roll form" already do — three
+         columns headed bare "Type" would be three identical labels stacked on
+         top of each other there. */
+      header: "Type",
+      cardLabel: "Fabric type",
+      /* NARROWER THAN THE OTHER TWO "Type" COLUMNS ON PURPOSE — this trails
+         outside legacy's verified band and the width budget has no slack left
+         for a fourth full-width column (`check:grid-budget`). `Truncated`
+         handles it: "Solid"/"Melange" fit as typed, "Yarn Dyed" clips to an
+         ellipsis with the full word on hover/hold — the reveal is the point of
+         that primitive, not a workaround. */
+      width: "2rem",
+      cell: (e) => <Truncated>{fabricTypeOf(e.item_id) || "—"}</Truncated>,
     },
   ];
 
