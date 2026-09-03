@@ -1041,10 +1041,10 @@ export type ChildGridTotal<T> =
  */
 export type TableFrom = "5xl" | "6xl" | "7xl";
 
-const TABLE_FROM: Record<TableFrom, { px: number; show: string; hide: string }> = {
-  "5xl": { px: 1024, show: "@5xl:block", hide: "@5xl:hidden" },
-  "6xl": { px: 1152, show: "@6xl:block", hide: "@6xl:hidden" },
-  "7xl": { px: 1280, show: "@7xl:block", hide: "@7xl:hidden" },
+const TABLE_FROM: Record<TableFrom, { px: number; show: string; hide: string; hug: string }> = {
+  "5xl": { px: 1024, show: "@5xl:block", hide: "@5xl:hidden", hug: "@5xl:w-fit" },
+  "6xl": { px: 1152, show: "@6xl:block", hide: "@6xl:hidden", hug: "@6xl:w-fit" },
+  "7xl": { px: 1280, show: "@7xl:block", hide: "@7xl:hidden", hug: "@7xl:w-fit" },
 };
 
 export interface ChildGridColumn<T> {
@@ -1958,6 +1958,46 @@ export function ChildGrid<T extends { key: string }>({
   const hugsContent = !fill && columns.length > 0 && columns.every((c) => c.width);
 
   /**
+   * THE CARD HUGS ONLY AT THE WIDTH WHERE THE TABLE IS ACTUALLY SHOWN.
+   *
+   * `hugsContent` is a statement about the TABLE — every column declares a
+   * width, so the box around it should stop at the last column instead of
+   * trailing grey. A `responsive` grid does not always render that table: below
+   * `tableFrom` it renders the stacked cards instead, and `w-fit` around those
+   * is not merely unnecessary, it COLLAPSES THEM.
+   *
+   * That is the same cycle this file already records one paragraph up, arriving
+   * from the other side. A card's `width: fit-content` is computed from the
+   * max-content of its children — and `renderMobileRow` usually returns a
+   * `FieldGrid`, whose root is `@container/section` and therefore
+   * `contain: inline-size`, so it contributes ZERO. The card shrinks past every
+   * field in it and settles on the widest thing that is not itself contained:
+   * a bare `<Input>`, about 38px. Fabric BOM ▸ Manual showed it exactly so
+   * (client 2026-09-03, screenshots 2657-2659) — "Purch. width" wrapping onto
+   * two lines above a 38px box, one field per line, in a pane 996px wide.
+   *
+   * IT NEEDED A 125%-SCALED SCREEN TO APPEAR, which is why it survived review
+   * on the machine it was written on: the detail pane is ~1245 device pixels
+   * and 996 CSS pixels, so `@6xl` (1152) matches on one desk and not the next.
+   * A layout that depends on the reader's display scaling is not a layout.
+   *
+   * The scroll wrapper below keeps the unconditional `w-fit`: it is `hidden`
+   * under the same breakpoint, so it can only hug when it is on screen.
+   *
+   * `cards`, `inline` and `across` are unchanged — none of them renders a table
+   * at any width, so `hugsContent` there is the caller saying "these columns are
+   * short" about a layout that has no columns, and it has always meant `w-fit`.
+   */
+  const cardHug =
+    mode === "responsive"
+      ? tableFrom
+        ? TABLE_FROM[tableFrom].hug
+        : narrow
+          ? "@md:w-fit"
+          : "@lg:w-fit"
+      : "w-fit";
+
+  /**
    * The row keys this grid was handed on its FIRST render — the stored rows.
    *
    * A LAZY `useState` INITIALISER, not a ref. Both run once per mount, but a ref
@@ -2016,7 +2056,9 @@ export function ChildGrid<T extends { key: string }>({
           // dead space between the last column and the border. `max-w-full`
           // keeps a table wider than the cap inside the section; the scroll
           // wrapper's own `overflow-x-auto` takes it from there.
-          hugsContent && "w-fit max-w-full",
+          // `cardHug`, not a bare `w-fit` — see its note: below `tableFrom` this
+          // card holds stacked cards, and hugging those collapses them.
+          hugsContent && cn(cardHug, "max-w-full"),
         )}
       >
         {/* No caption row when there is nothing to put in it. A grid nested inside

@@ -31,6 +31,7 @@
     "check:rejection-ladder": "node --experimental-strip-types scripts/check-rejection-ladder.mts",
     "check:po-no": "node --experimental-strip-types scripts/check-po-no.mts",
     "check:embeds": "node scripts/check-embeds.mjs",
+    "check:search": "node --experimental-strip-types scripts/check-search-match.mts",
     "check:hooks": "node scripts/check-hooks.mjs",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "check:nav-paths": "npx --yes tsx scripts/check-nav-paths.mts",

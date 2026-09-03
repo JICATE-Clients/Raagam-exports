@@ -268,7 +268,23 @@ export const FIELD_SPAN: Record<FieldSize, string> = {
    * table is not a field.
    */
   xl: "@lg/section:col-span-8",
-  full: "@lg/section:col-span-12", // stands alone on its row — grids, textareas
+  /**
+   * STANDS ALONE ON ITS ROW — grids, textareas, a chip line under a dense row.
+   *
+   * `col-span-full` (`grid-column: 1 / -1`), NOT `col-span-12`, since 2026-09-03.
+   * Twelve was the same thing while twelve was the only track; on `cols={14}` it
+   * spans 12 of 14 and leaves a two-column notch at the right, and on `cols={32}`
+   * it is barely a third of the row — so the one span whose whole meaning is
+   * "the entire row" was the one span that stopped meaning it as soon as the
+   * wider tracks arrived. `1 / -1` is track-count-agnostic and says what the
+   * name says.
+   *
+   * SAFE TO CHANGE RATHER THAN ADD BESIDE: on the 12-track the two are
+   * identical, and `size="full"` had no caller inside a 14- or 32-column track
+   * (checked across every `cols={14}` / `cols={32}` block in app/ and
+   * components/ before the edit), so nothing that renders today moves.
+   */
+  full: "@lg/section:col-span-full",
 };
 
 /**
