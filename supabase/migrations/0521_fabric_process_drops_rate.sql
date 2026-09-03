@@ -1,0 +1,46 @@
+-- ===========================================================================
+-- 0521 — Fabric BOM ▸ Fabric Process: the `Rate` column goes.
+--
+-- Client, 2026-09-03, screenshot 2663: "remove the rate field from fabric
+-- process, that second row".
+--
+-- ## IT CAME FROM THE SPEC AND WAS NEVER USED
+--
+-- 0492 built it from the spec of 2026-09-01 — "users must be able to input
+-- rates based on the fabric structure, e.g. Knitting Rib = Rs 10, Single
+-- Jersey = Rs 9" — and deliberately did NOT build the colour-wise half of the
+-- same paragraph ("dark colours might require a higher dyeing rate like Rs 40"),
+-- because that is a (stage x colour) grain with its own child table and 0492
+-- would have had to guess at it. Both halves are now out. The route carries no
+-- price at all.
+--
+-- ## WHICH MAKES IT AGREE WITH THE REST OF THE MODULE
+--
+-- `lib/orders/budget/service.ts` already says, of the yarn route: "the Yarn
+-- Process tab stores no rate — it is a quantity document, not a priced one — so
+-- the planner types it here". This column was the one place that contradicted
+-- that sentence. A price is entered once, on the document that gets approved
+-- (0428), and two places to type one rate is two rates the moment they differ.
+--
+-- ## NOTHING IS LOST, AND THAT IS CHECKED RATHER THAN ASSUMED
+--
+-- `select count(*), count(rate) from order_fabric_bom_processes` returned 0, 0
+-- on 2026-09-03, before this ran. No planner has recorded a route, let alone a
+-- rate. Had it held rows the honest migration would have kept the column and
+-- stopped writing it, rather than destroying an operator's answer to make a
+-- table tidy — the call 0520 records for its own drop.
+--
+-- ## THE COLUMN GOES WITH THE FIELD, NOT AFTER IT
+--
+-- The grid column, the client row type, the Zod input schema and this column
+-- are removed in one change. Leaving the schema field standing would be the
+-- "stated vs enforced" split in reverse: `lib/data-io` parses imports with
+-- these same schemas, so a field the grid has closed would stay a door an
+-- import could still write through, filling a column nothing renders.
+--
+-- `FabricBomLine.rate` IS A DIFFERENT FIGURE AND IS UNTOUCHED. It sits on
+-- `order_fabric_bom_lines`, not here.
+-- ===========================================================================
+
+alter table public.order_fabric_bom_processes
+  drop column if exists rate;

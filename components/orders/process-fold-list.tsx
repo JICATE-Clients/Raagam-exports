@@ -92,13 +92,58 @@ export function ProcessFoldList<T extends { key: string }>({
   openKey: string | null;
   /** Fires with the row's key, or `null` when the open row is clicked again. */
   onToggle: (key: string | null) => void;
-  /** The last column's header — "Treatments", "Process". */
-  foldHeader: string;
-  /** One line naming what is inside: "2 steps", "no route yet". */
-  foldSummary: (row: T) => string;
+  /**
+   * The last column's header — "Process".
+   *
+   * OMIT IT, WITH `foldSummary`, FOR A LIST THAT IS JUST A LIST (client
+   * 2026-09-03: "no more need this, the field just list by click, no need icon
+   * for listing, so remove it"). The whole line then opens the panel and there
+   * is no chevron, no count and no column for either.
+   *
+   * THE ROW STAYS KEYBOARD-OPENABLE, and that is not optional — see the note on
+   * `openable` below. A fold reachable only by mouse is the defect AGENTS.md
+   * records for Material Attributes, where a row's values were mouse-only.
+   */
+  foldHeader?: string;
+  /** One line naming what is inside: "2 steps", "no route yet". Omit with
+   *  `foldHeader` — the two are one feature and half of it is a header over
+   *  nothing, or a count with no column to sit in. */
+  foldSummary?: (row: T) => string;
   renderPanel: (row: T, index: number) => ReactNode;
   startIndex?: number;
 }) {
+  /**
+   * EVERY COLUMN DECLARES A WIDTH, SO THE ROW STOPS AT THE LAST ONE.
+   *
+   * Client 2026-09-03, screenshot 142030: "why its look so lefted and righted".
+   * With one unsized column the flex `flex-1` handed it every spare pixel, so a
+   * two-column list drew the yarn's name hard against the left edge and its
+   * purchase weight hard against the right with ~1,100px of nothing between
+   * them — two facts about ONE row, as far apart as the screen allows, and the
+   * eye has to travel the whole band to pair them.
+   *
+   * IT IS `ChildGrid`'s `hugsContent`, AND DELIBERATELY THE SAME SHAPE: the same
+   * all-or-nothing test (`columns.every(c => c.width)`), for the same stated
+   * reason — "with one column sized and one open, the sized one shrink-wraps and
+   * the other fights for the remainder, a layout that depends on content length,
+   * which is the thing a fixed width is chosen to avoid". A caller opts out by
+   * leaving one column unsized, exactly as it does there.
+   *
+   * THE SLACK FALLS AFTER THE FOLD BUTTON, never between two columns. That is
+   * the half that makes the row read as a row: `S No · subject · figure ·
+   * Treatments` packed left, then empty space — and it lands the outer row at
+   * roughly the width of the grid that unfolds beneath it, so the two read as
+   * one block instead of a full-width band over a narrow table.
+   *
+   * ONLY THE ALIGNED LAYOUT. Below `@4xl` each value carries its own label in a
+   * stack, where there is no column to hug and the pairs must keep the width.
+   */
+  const hugsColumns = columns.length > 0 && columns.every((c) => c.width);
+
+  /* BOTH OR NEITHER — see `foldHeader`. Read once so the header band, the row
+     and the panel cannot each decide for themselves. */
+  const showsFold = !!foldHeader && !!foldSummary;
+
   return (
     /* `@container` FOR THE SAME REASON `ChildGrid` PUTS ONE AT ITS ROOT: the
        aligned-vs-stacked choice must be measured against the space this list
@@ -131,7 +176,7 @@ export function ProcessFoldList<T extends { key: string }>({
               {c.header}
             </span>
           ))}
-          <span className="w-28 shrink-0 text-left">{foldHeader}</span>
+          {showsFold && <span className="w-28 shrink-0 text-left">{foldHeader}</span>}
         </div>
 
         {/* `data-grid-body` + `data-grid-row` ARE THE WHOLE KEYBOARD — see the
@@ -147,8 +192,33 @@ export function ProcessFoldList<T extends { key: string }>({
                 className="border-b border-border last:border-b-0"
               >
                 <div
+                  /**
+                   * THE LINE IS THE FOLD CONTROL when there is no chevron, and
+                   * these four attributes are what keep that off the mouse.
+                   *
+                   * `data-row-open` puts it on the Tab path — `ROW_FIELDS`
+                   * (child-grid.tsx) counts the marker, which is why a `<div>`
+                   * serves as well as the `<button>` did — and `enterShutFold`
+                   * steers by exactly `[data-row-open][aria-expanded="false"]`
+                   * and opens it with `.click()`, which this element's own
+                   * `onClick` answers. `tabIndex` is what makes it focusable at
+                   * all; `role` is what a screen reader is told it is.
+                   *
+                   * NONE OF IT IS SET WHILE THE CHEVRON EXISTS. Two nested
+                   * `data-row-open` nodes in one row would be two Tab stops onto
+                   * one action, and `ROW_FIELDS` would count both.
+                   */
+                  {...(showsFold
+                    ? {}
+                    : {
+                        "data-row-open": true,
+                        "aria-expanded": open,
+                        role: "button",
+                        tabIndex: 0,
+                      })}
                   className={cn(
                     "flex items-start gap-2 px-2 py-1",
+                    !showsFold && "cursor-pointer outline-none focus-visible:bg-surface-muted",
                     /* FULL STRENGTH, NEVER `/60`. `--surface-muted` is
                        `#f0f8e5`; 60% of it over white is not a state change, and
                        `globals.css` already records the same trap for row
@@ -176,7 +246,12 @@ export function ProcessFoldList<T extends { key: string }>({
 
                   {/* ALIGNED — the columns line up across every subject, which is
                       the half of the request that says "alignment". */}
-                  <div className="hidden min-w-0 flex-1 items-start gap-2 @4xl:flex">
+                  <div
+                    className={cn(
+                      "hidden min-w-0 items-start gap-2 @4xl:flex",
+                      hugsColumns ? "shrink-0" : "flex-1",
+                    )}
+                  >
                     {columns.map((c, ci) => (
                       <div
                         key={ci}
@@ -216,6 +291,7 @@ export function ProcessFoldList<T extends { key: string }>({
                       first field ~60ms in. Opening is a deliberate act here —
                       a click, or Enter on the button, which needs no code
                       (`enterAdvances` stands down on a button). */}
+                  {showsFold && (
                   <button
                     type="button"
                     data-row-open
@@ -236,8 +312,9 @@ export function ProcessFoldList<T extends { key: string }>({
                         vocabulary ("2 steps", "No route yet"), not a stored
                         value. It cannot be long enough to clip at the declared
                         width, and a hover bubble repeating chrome is noise. */}
-                    <span className="min-w-0 truncate">{foldSummary(row)}</span>
+                    <span className="min-w-0 truncate">{foldSummary?.(row)}</span>
                   </button>
+                  )}
                 </div>
 
                 {/* INSIDE THE ROW — see the header. Indented past the S No track

@@ -101,6 +101,27 @@ export type FabricGross = {
    *  has no weight rather than silently reading zero. */
   gross: number | null;
   uom_id: string | null;
+  /**
+   * WHY `gross` IS NULL, in the requirement engine's own words.
+   *
+   * The type comment above has promised since 0493 that this row "can say WHY",
+   * and until 2026-09-03 nothing carried the sentence: `yarnNetByCombo` printed
+   * one generic line and ended it "see Calculated Quantities" — a SECTION THIS
+   * SCREEN REMOVED ON 2026-09-01. So the tab named a fix the operator could not
+   * find, went looking, failed, and read the screen as broken rather than the
+   * sentence (client screenshot 2660; AGENTS.md says this of menu paths and
+   * `fabric-bom-screen.tsx` had already fixed the one OTHER sentence naming that
+   * section, at the foot of Fabric Process — this was the remainder).
+   *
+   * BOTH SIDES ALREADY HELD IT. `PreviewRow.refusal` on the screen and
+   * `order_fabric_bom_requirements.refusal_reason` on the server are the same
+   * sentence — "Enter the consumption for WHITE · S" — and each was being thrown
+   * away one line before it reached here.
+   *
+   * OPTIONAL, so a caller that has no reason is still well-formed: the fallback
+   * in `yarnNetByCombo` is what a null means, not an empty string.
+   */
+  refusal?: string | null;
 };
 
 /** The bucket key for a colourway. One function so the screen, the engine and
@@ -109,17 +130,29 @@ export const comboKey = (combo: string | null | undefined): string =>
   (combo ?? "").trim().toUpperCase();
 
 /**
- * One treatment a yarn runs, in client state — the child grid's row.
+ * One process a yarn runs, in client state — the child grid's row.
  *
- * `combo` IS `""` FOR "EVERY COLOURWAY", which is the ordinary case and what a
- * blank box means. Stored as NULL; the empty string lives here because the cell
- * is a `<select>` whose empty value is `""`.
+ * `loss_for_id` IS THE `For` COLUMN, AND IT REPLACED A COLOURWAY (0520).
+ *
+ * Until 2026-09-03 this was `combo: string` — which colour lot the step treated
+ * — and it divided the weight: a step marked PURPLE grossed up the purple share
+ * alone (client, 2026-09-01). The client then specified the column's values as
+ * "Process Wise, Color Wise" and, shown that those two words cannot name PURPLE
+ * and that choosing them removes the split, confirmed it. So the cell is now a
+ * `config_lookups` id of kind `process_loss_for` — the SAME list the fabric
+ * route's `Loss for` reads — and it DESCRIBES how the Loss % beside it is
+ * measured rather than scoping it.
+ *
+ * WHAT THAT MEANS ARITHMETICALLY, said once here because it is the thing a
+ * reader will assume wrongly: every step now treats every colourway. Nothing
+ * else moved — `Loss %` still grosses up by `x (1 + loss/100)` and steps still
+ * compound sequentially.
  */
 export type YarnStageRow = {
   key: string;
   stage_id: string | null;
   process_id: string | null;
-  combo: string;
+  loss_for_id: string | null;
   description: string;
   /** Text, like every numeric cell on this screen: a controlled `<Input>` cannot
    *  hold "1." or "" as a number, so the form keeps text and the boundary
@@ -156,7 +189,7 @@ export const blankYarnStage = (key: string): YarnStageRow => ({
   key,
   stage_id: null,
   process_id: null,
-  combo: "",
+  loss_for_id: null,
   description: "",
   loss_pct: "",
 });
@@ -296,10 +329,17 @@ export function yarnNetByCombo(
     if (share === 0) continue;
 
     if (f.gross == null) {
+      const fabric = comp.fabric_name || "One fabric";
+      /* THE ENGINE'S OWN SENTENCE WINS. It names the size, the colourway or the
+         master to go and fix; the generic line below names none of them and is
+         only reachable when a caller carried no reason at all. Prefixed with the
+         fabric because this row is a YARN — several cloths feed it, and a bare
+         "Enter the consumption for WHITE · S" would not say which. */
       return {
-        refused:
-          `${comp.fabric_name || "One fabric"} has no calculated requirement yet, ` +
-          "so its yarn cannot be worked out — see Calculated Quantities",
+        refused: f.refusal
+          ? `${fabric}: ${f.refusal}`
+          : `${fabric} has no calculated requirement yet, so its yarn cannot be ` +
+            "worked out — answer its weight on Manual",
       };
     }
 
@@ -321,20 +361,18 @@ export function yarnNetByCombo(
   return { net, uom_id: uomId };
 }
 
-/**
- * Does this stage treat this colourway?
- *
- * A BLANK `combo` MEANS EVERY COLOURWAY — the ordinary case, and the only thing
- * a blank box can mean here. Reading it as "no colourway" would make a stage the
- * planner filled in apply to nothing, and the arithmetic would silently ignore a
- * loss they deliberately entered.
+/*
+ * `stageCoversCombo` WAS HERE AND IS GONE (0520). It answered "does this step
+ * treat this colourway?", which was a real question while `For` named a lot.
+ * The client replaced those values with PROCESS WISE / COLOR WISE on
+ * 2026-09-03, so no step can name a colourway any more and the honest answer is
+ * "every step treats every one" — a predicate that can only return true is a
+ * guard a reader trusts and that enforces nothing, so it is deleted rather than
+ * left standing. Restoring the split means restoring the colourway with it.
  */
-export const stageCoversCombo = (stageCombo: string | null, combo: string): boolean =>
-  comboKey(stageCombo) === "" || comboKey(stageCombo) === combo;
 
 /**
- * One colourway's gross-up factor: the SEQUENTIAL product of the stages treating
- * it.
+ * The yarn's gross-up factor: the SEQUENTIAL product of EVERY step's loss.
  *
  * `x 1.03 x 1.02`, NOT `x 1.05`. Each stage's loss applies to what came out of
  * the one before it, which is the client's confirmed reading (2026-09-01) and
@@ -347,12 +385,10 @@ export const stageCoversCombo = (stageCombo: string | null, combo: string): bool
  * `sno` orders what the planner READS, not what the arithmetic does.
  */
 export function comboUplift(
-  stages: readonly { combo: string | null; loss_pct: number | null }[],
-  combo: string,
+  stages: readonly { loss_pct: number | null }[],
 ): number | Refusal {
   let factor = 1;
   for (const s of stages) {
-    if (!stageCoversCombo(s.combo, combo)) continue;
     const loss = s.loss_pct ?? 0;
     if (loss < 0 || loss >= 100) {
       return { refused: "Process loss must be 0 or more and below 100" };
@@ -381,7 +417,7 @@ export function yarnPurchase(
   yarnId: string,
   fabrics: readonly FabricGross[],
   compositions: ReadonlyMap<string, FabricComposition>,
-  stages: readonly { combo: string | null; loss_pct: number | null }[],
+  stages: readonly { loss_pct: number | null }[],
   decimals: number | null,
 ): { qty: number; uom_id: string | null; byCombo: YarnComboWeight[] } | Refusal {
   const base = yarnNetByCombo(yarnId, fabrics, compositions);
@@ -391,9 +427,16 @@ export function yarnPurchase(
   const byCombo: YarnComboWeight[] = [];
   let qty = 0;
 
+  /* ONE UPLIFT FOR EVERY COLOURWAY SINCE 0520, so it is computed once rather
+     than inside the loop. THE PER-COLOURWAY LOOP STAYS, and that is not an
+     oversight: the NET still differs by colourway — it comes off the fabric's
+     own requirement, which is planned per colour — and each lot is still ROUNDED
+     UP separately, because a purchase per colour is a real lot and rounding a
+     total down buys less yarn than the order needs. */
+  const uplift = comboUplift(stages);
+  if (isRefusal(uplift)) return uplift;
+
   for (const [combo, net] of [...base.net].sort((a, b) => a[0].localeCompare(b[0]))) {
-    const uplift = comboUplift(stages, combo);
-    if (isRefusal(uplift)) return uplift;
     const gross = ceilToPrecision(net * uplift, dp);
     byCombo.push({ combo, net, gross });
     qty += gross;
@@ -403,48 +446,39 @@ export function yarnPurchase(
 }
 
 /**
- * What ONE stage handles — the purchase weight of the colourways it treats.
+ * What ONE step handles — the yarn's whole purchase weight.
  *
- * The Budget's Yarn Process line, and the reason it is not simply the yarn's
- * total: a stage marked For = PURPLE is quoted on the purple lot alone. A stage
- * naming no combo covers all of them, so it does get the total.
+ * The Budget's Yarn Process line. It WAS the weight of the colourways the step
+ * treated; 0520 took the colourway out of the `For` column, so there is nothing
+ * left to narrow by and every step handles every lot.
  *
- * TWO STAGES ON ONE COLOURWAY EACH GET ITS FULL WEIGHT, which looks like a
- * double count and is not: the dyer and the winder each handle that lot and each
- * invoice for it. Two budget lines with two rates is the correct shape.
+ * TWO STEPS ON ONE YARN EACH GET ITS FULL WEIGHT, which looks like a double
+ * count and is not: the dyer and the winder each handle that yarn and each
+ * invoice for it. Two budget lines with two rates is the correct shape. That was
+ * already true per colourway before 0520 and is now true of the whole yarn.
+ *
+ * IT STILL TAKES `byCombo` RATHER THAN THE TOTAL, so the Budget line and the
+ * purchase weight are summed from the same rounded-up lots. Reading `qty` back
+ * off `yarnPurchase` would be a second route to one figure, and the two would
+ * part company in the last decimal the moment a colourway's lot rounded up.
  */
-export function stageProcessQty(
-  stageCombo: string | null,
-  byCombo: readonly YarnComboWeight[],
-): number {
-  return byCombo
-    .filter((c) => stageCoversCombo(stageCombo, c.combo))
-    .reduce((sum, c) => sum + c.gross, 0);
+export function stageProcessQty(byCombo: readonly YarnComboWeight[]): number {
+  return byCombo.reduce((sum, c) => sum + c.gross, 0);
 }
 
-/**
- * Why this stage handles nothing, or null if it is fine.
+/*
+ * `stageProblem` WAS HERE AND IS GONE (0520), with `stageCoversCombo`. It said
+ * "this BOM needs no SCARLET of this yarn" — a step naming a colourway the
+ * requirement does not have, which mattered because its `process_qty` came out 0
+ * and a zero on a cost line reads as "this dyeing is free" rather than as "this
+ * row matches nothing".
  *
- * THE CASE THIS EXISTS FOR is a stage naming a colourway the requirement does
- * not have — a combo removed from the order after the treatment was recorded, or
- * one whose spelling has since changed. Its `process_qty` would be 0, and a zero
- * on a cost line reads as "this dyeing is free" rather than as "this row matches
- * nothing", which is the one reading nobody questions.
- *
- * A stage naming no PROCESS is not a problem and gets no reason: it is a row the
- * planner has started and not finished, and it simply produces no budget line.
+ * A step can no longer name a colourway, so that state is now UNREPRESENTABLE
+ * rather than merely unlikely, and the guard could only ever return null. A
+ * check that cannot fire is worse than none — it reads as protection while
+ * enforcing nothing. `normalizeYarns` reads the yarn's own refusal instead,
+ * which is the one reason a step can still carry no figure.
  */
-export function stageProblem(
-  stageCombo: string | null,
-  byCombo: readonly YarnComboWeight[],
-): string | null {
-  if (byCombo.length === 0) return null;
-  if (comboKey(stageCombo) === "") return null;
-  const covered = byCombo.some((c) => stageCoversCombo(stageCombo, c.combo));
-  return covered
-    ? null
-    : `This BOM needs no ${stageCombo} of this yarn — check the For column against the order's colourways`;
-}
 
 /** Has the planner recorded anything under this yarn? Read by the `done` dot,
  *  which asks whether the tab has been LOOKED at rather than whether every yarn
@@ -454,7 +488,7 @@ export function yarnRowAnswered(r: YarnRow): boolean {
     (s) =>
       !!s.stage_id ||
       !!s.process_id ||
-      !!s.combo.trim() ||
+      !!s.loss_for_id ||
       !!s.description.trim() ||
       !!s.loss_pct.trim(),
   );
@@ -469,12 +503,12 @@ export function yarnRowAnswered(r: YarnRow): boolean {
  * caged on a row about to be discarded, or a half-filled row vanishing on save.
  */
 export function yarnStageStarted(
-  s: Pick<YarnStageRow, "stage_id" | "process_id" | "combo" | "description" | "loss_pct">,
+  s: Pick<YarnStageRow, "stage_id" | "process_id" | "loss_for_id" | "description" | "loss_pct">,
 ): boolean {
   return (
     !!s.stage_id ||
     !!s.process_id ||
-    !!s.combo.trim() ||
+    !!s.loss_for_id ||
     !!s.description.trim() ||
     !!s.loss_pct.trim()
   );
@@ -516,20 +550,19 @@ export const fabricBomYarnStageInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   stage_id: z.string().uuid().nullable().default(null),
   process_id: z.string().uuid().nullable().default(null),
+  /* THE `For` COLUMN, AN ID SINCE 0520 — `config_lookups` kind
+     `process_loss_for`, the same list the fabric route's `Loss for` posts.
+
+     IT WAS CAPSED FREE TEXT, and the caps were load-bearing then rather than
+     cosmetic: the value was MATCHED against the requirement rows' own combo,
+     capsed by the same rule. Nothing matches on it now, and an id is the
+     stricter shape — a value the operator renames on the lookup master cannot
+     orphan the rows that chose it. */
+  loss_for_id: z.string().uuid().nullable().default(null),
   /* CAPSED IN THE SCHEMA, like every other free-text column in this module.
      AGENTS.md's CAPITALS section puts the transform here rather than in the
      action — `lib/data-io` parses imports with these same schemas — and withdrew
-     the free-text exemption on 2026-08-18. For `combo` it is load-bearing rather
-     than cosmetic: the value is MATCHED against the requirement rows' own combo,
-     which is capsed by the same rule, so capsing here is what keeps the match
-     working. */
-  combo: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .nullable()
-    .default(null)
-    .transform((v) => (v ? v : null)),
+     the free-text exemption on 2026-08-18. */
   description: z
     .string()
     .trim()

@@ -52,7 +52,6 @@ import {
   comboUplift,
   deriveYarnRows,
   isRefusal,
-  stageProblem,
   stageProcessQty,
   yarnNetByCombo,
   yarnPurchase,
@@ -141,9 +140,16 @@ const gross = (
   g: number | null,
   combo: string | null = null,
   uom_id: string | null = KG,
-): FabricGross => ({ fabric_id, combo, gross: g, uom_id });
+  refusal: string | null = null,
+): FabricGross => ({ fabric_id, combo, gross: g, uom_id, refusal });
 
-const stage = (combo: string | null, loss_pct: number | null) => ({ combo, loss_pct });
+/* A STEP IS NOW ONLY ITS LOSS. It carried a `combo` until 0520 — the `For`
+   column named a colourway and scoped the arithmetic to it. The client replaced
+   those values with PROCESS WISE / COLOR WISE on 2026-09-03 knowing that removes
+   the scoping, so a step no longer has anything to be matched on. `loss_for_id`
+   is deliberately NOT here: nothing in this engine reads it, and a fixture field
+   no assertion can move is a fixture field that lies about what matters. */
+const stage = (loss_pct: number | null) => ({ loss_pct });
 
 // ---------------------------------------------------------------------------
 // 1. The rows are derived, de-duplicated and stable
@@ -267,18 +273,18 @@ refute(
 
 check(
   "10% loss on 100 kg buys 110 — the client's own example, confirmed 2026-09-01",
-  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(null, 10)], 2)),
+  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(10)], 2)),
   110,
 );
 refute(
   "…and NOT 111.12, which is 0427's `output / (1 - L)`. The divergence was put " +
     "to the client and they chose this side; do not reconcile it in code",
-  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(null, 10)], 2)),
+  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(10)], 2)),
   111.12,
 );
 check(
   "the two forms agree at 0%, which is why the wrong one survives review",
-  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(null, 0)], 2)),
+  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(0)], 2)),
   100,
 );
 check(
@@ -288,22 +294,22 @@ check(
 );
 check(
   "the loss applies AFTER the blend share, not before",
-  qtyOf(yarnPurchase(COTTON, [gross("rib", 1000)], map(RIB), [stage(null, 10)], 2)),
+  qtyOf(yarnPurchase(COTTON, [gross("rib", 1000)], map(RIB), [stage(10)], 2)),
   1045,
 );
 check(
   "rounded UP to the unit's precision — rounding down under-buys",
-  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(null, 2.345)], 2)),
+  qtyOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(2.345)], 2)),
   102.35,
 );
 check(
   "a 100% loss refuses",
-  refusalOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(null, 100)], 2)),
+  refusalOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(100)], 2)),
   "Process loss must be 0 or more and below 100",
 );
 check(
   "a negative loss refuses",
-  refusalOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(null, -1)], 2)),
+  refusalOf(yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), [stage(-1)], 2)),
   "Process loss must be 0 or more and below 100",
 );
 
@@ -311,7 +317,7 @@ check(
 // 5. TWO STAGES COMPOUND — x 1.03 x 1.02, never x 1.05
 // ---------------------------------------------------------------------------
 
-const TWO_STAGE = [stage(null, 3), stage(null, 2)];
+const TWO_STAGE = [stage(3), stage(2)];
 
 check(
   "3% then 2% on 1000 kg buys 1050.60 — sequential, confirmed with the client",
@@ -324,20 +330,32 @@ refute(
   qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), TWO_STAGE, 2)),
   1050,
 );
-check("the uplift factor itself is 1.0506", comboUplift(TWO_STAGE, ""), 1.0506);
+check("the uplift factor itself is 1.0506", comboUplift(TWO_STAGE), 1.0506);
 check(
   "stage ORDER does not change the product — sno orders what is read, not the maths",
-  qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), [stage(null, 2), stage(null, 3)], 2)),
+  qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), [stage(2), stage(3)], 2)),
   qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), TWO_STAGE, 2)),
 );
 check(
   "three stages keep compounding",
-  comboUplift([stage(null, 10), stage(null, 10), stage(null, 10)], ""),
+  comboUplift([stage(10), stage(10), stage(10)]),
   1.3310000000000004,
 );
 
 // ---------------------------------------------------------------------------
-// 6. `For` DIVIDES THE WEIGHT — the client's own worked example
+// 6. THE NET STILL SPLITS BY COLOURWAY — the LOSS no longer does (0520)
+//
+// `For` named a colourway until 2026-09-03 and divided the weight with it: a
+// step marked PURPLE grossed up the purple share alone, 618 + 300 = 918, and
+// these vectors asserted that against the client's own worked example. The
+// client then specified the column as "Process Wise, Color Wise" and confirmed
+// it knowing two fixed words cannot name PURPLE. So the split is gone and 927 —
+// which these vectors used to REFUTE by name — is now the right answer.
+//
+// THE HALF THAT SURVIVES IS ASSERTED HARDER FOR IT. The NET is still weighed per
+// colourway, because that comes off the fabric's requirement and never off this
+// column, and each lot is still rounded up on its own. Losing the loss scoping
+// is not licence to sum the colourways first.
 // ---------------------------------------------------------------------------
 
 const TWO_COMBOS = [gross("pique", 600, "PURPLE"), gross("pique", 300, "GREEN")];
@@ -354,61 +372,47 @@ check(
   ],
 );
 check(
-  "a PURPLE-only 3% stage grosses purple and leaves green alone: 618 + 300 = 918",
-  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage("PURPLE", 3)], 2)),
+  "a 3% step now treats every colourway: 618 + 309 = 927",
+  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
+  927,
+);
+refute(
+  "…never 918, which is the pre-0520 answer that grossed purple alone",
+  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
   918,
 );
 check(
-  "…and the breakdown says which is which",
-  combosOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage("PURPLE", 3)], 2)),
+  "…and the breakdown still names each lot separately",
+  combosOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
   [
-    ["GREEN", 300],
+    ["GREEN", 309],
     ["PURPLE", 618],
   ],
 );
 refute(
-  "…never 927, which is what charging every colourway would give",
-  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage("PURPLE", 3)], 2)),
-  927,
+  "…so the colourways are never summed into one lot before the uplift",
+  combosOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
+  [["", 927]],
 );
 check(
-  "a BLANK For treats every colourway — the ordinary case",
-  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(null, 3)], 2)),
-  927,
-);
-refute(
-  "…so a blank For is never read as 'no colourway', which would ignore the loss",
-  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(null, 3)], 2)),
+  "no step at all leaves every colourway at its net",
+  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [], 2)),
   900,
 );
-check(
-  "For is matched case- and space-insensitively, like every combo join here",
-  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(" purple ", 3)], 2)),
-  918,
-);
 
 // ---------------------------------------------------------------------------
-// 7. What each stage HANDLES — the Budget's Yarn Process line
+// 7. What each step HANDLES — the Budget's Yarn Process line
 // ---------------------------------------------------------------------------
 
-const SPLIT = yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage("PURPLE", 3)], 2);
+const SPLIT = yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2);
 const BY_COMBO = isRefusal(SPLIT) ? [] : SPLIT.byCombo;
 
-check("a PURPLE stage handles the purple lot alone", stageProcessQty("PURPLE", BY_COMBO), 618);
-refute("…not the yarn's whole purchase", stageProcessQty("PURPLE", BY_COMBO), 918);
-check("a blank-For stage handles everything", stageProcessQty(null, BY_COMBO), 918);
-check(
-  "a stage naming a colourway this BOM does not need says so",
-  stageProblem("SCARLET", BY_COMBO),
-  "This BOM needs no SCARLET of this yarn — check the For column against the order's colourways",
-);
+check("a step handles the yarn's whole purchase", stageProcessQty(BY_COMBO), 927);
 refute(
-  "…rather than quietly handling 0, which on a cost line reads as 'free'",
-  stageProcessQty("SCARLET", BY_COMBO),
-  918,
+  "…and is summed from the rounded-up lots, not re-derived from the total",
+  stageProcessQty(BY_COMBO),
+  BY_COMBO.reduce((a, c) => a + c.net, 0),
 );
-check("a stage on a real colourway has no problem", stageProblem("GREEN", BY_COMBO), null);
-check("nor does a blank one", stageProblem(null, BY_COMBO), null);
 
 // ---------------------------------------------------------------------------
 // 8. Nothing to compute against
@@ -418,7 +422,33 @@ check(
   "a fabric whose requirement was refused says so, and does not read as zero",
   refusalOf(yarnPurchase(COTTON, [gross("pique", null)], map(PIQUE), [], 2)),
   "SOLID PIQUE has no calculated requirement yet, so its yarn cannot be worked " +
-    "out — see Calculated Quantities",
+    "out — answer its weight on Manual",
+);
+/* THE ENGINE'S OWN WORDS WHEN THERE ARE ANY (2026-09-03). The generic sentence
+   above is the fallback; a refused slice already carries the sentence that names
+   the fix, and reprinting it here is what turns "something is missing" into
+   "fill in this size". The old wording ended "see Calculated Quantities" — a
+   section removed from this screen on 2026-09-01, so it sent the operator to a
+   rail row that is not there. */
+check(
+  "…and prefers the requirement engine's own sentence to the generic one",
+  refusalOf(
+    yarnPurchase(
+      COTTON,
+      [gross("pique", null, null, KG, "Enter the consumption for WHITE · S")],
+      map(PIQUE),
+      [],
+      2,
+    ),
+  ),
+  "SOLID PIQUE: Enter the consumption for WHITE · S",
+);
+refute(
+  "…and never sends the operator to Calculated Quantities, removed 2026-09-01",
+  refusalOf(yarnPurchase(COTTON, [gross("pique", null)], map(PIQUE), [], 2))?.includes(
+    "Calculated Quantities",
+  ),
+  true,
 );
 refute(
   "…and never answers 0, which on a purchase line reads as 'buy nothing'",

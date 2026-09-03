@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Fabric BOM ▸ Yarn Process — ONE YARN'S TREATMENTS.
+ * Fabric BOM ▸ Yarn Process — ONE YARN'S PROCESSES.
  *
  * Client screenshot 2587 and the spec of 2026-09-01: a yarn and, beneath it, the
  * steps it runs before knitting — GREY ▸ YARN DYEING ▸ For PURPLE ▸ 3%. The
@@ -15,13 +15,18 @@
  * not restate it. What differs is three things, and each is why a shared
  * component with a `variant` prop would have been the worse trade:
  *
- *  1. **`For` is a COLOURWAY here, and it does arithmetic.** On the fabric route
- *     the same-named column is `process_loss_for` — how a loss is measured. Here
- *     it names the combo the treatment applies to, and a stage marked PURPLE
- *     grosses up the purple share alone. Two columns, one label, no relation.
- *  2. **A different Stage list** — `yarn_stage`, not `fabric_stage`: the fabric
+ *  1. **A different Stage list** — `yarn_stage`, not `fabric_stage`: the fabric
  *     vocabulary also holds WASH and PRINT, which no yarn can be in (0504).
- *  3. **A different applicability flag** — `for_yarn`, not `for_fabric`.
+ *  2. **A different applicability flag** — `for_yarn`, not `for_fabric`.
+ *  3. **A derived, un-addable outer row** — see below.
+ *
+ * `For` USED TO BE THE THIRD AND IS NOT ANY MORE (0520). It named a COLOURWAY
+ * here and did arithmetic — a step marked PURPLE grossed up the purple share
+ * alone — against the fabric route's `process_loss_for`, which describes how a
+ * loss is measured. The client specified this column's values as "Process Wise,
+ * Color Wise" on 2026-09-03 and confirmed it knowing that removes the split, so
+ * the two columns are now ONE list read twice. They are still not worth merging
+ * the components for: what is shared is a lookup kind, not a layout.
  *
  * ## THE OUTER ROW IS DERIVED, WHICH IS THE OTHER REAL DIFFERENCE
  *
@@ -43,7 +48,6 @@
  */
 
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -62,7 +66,7 @@ export function YarnProcessGrid({
   onChange,
   processes,
   stages,
-  combos,
+  lossFor,
   newKey,
   canCreate = false,
   canEdit = false,
@@ -79,16 +83,15 @@ export function YarnProcessGrid({
   /** `config_lookups` kind `yarn_stage` — GREY, DYED. */
   stages: ConfigLookup[];
   /**
-   * The colourways THIS YARN is actually needed in.
+   * `config_lookups` kind `process_loss_for` — PROCESS WISE, COLOR WISE.
    *
-   * NOT the order's whole combo list, which is the cascading-filter rule
-   * (AGENTS.md) applied to a facet that would otherwise offer answers that
-   * cannot be right: a stage marked For = a colourway this yarn does not appear
-   * in treats nothing, and `stageProblem` would then have to explain a choice
-   * the box should never have offered. The caller derives it from the same
-   * `byCombo` breakdown the weight came out of.
+   * THE FABRIC ROUTE'S OWN LIST, passed from the same `processLookups.lossFor`
+   * that feeds `FabricProcessGrid`'s `Loss for`. One list behind both `For`
+   * columns, so a value the operator adds through "+ Add" on either tab is on
+   * both — the alternative was a second lookup kind that would drift the first
+   * time someone extended one of them.
    */
-  combos: string[];
+  lossFor: ConfigLookup[];
   /**
    * The SCREEN's key generator, passed in rather than grown here — the argument
    * `FabricProcessGrid` and `StyleProcessGrid` both record: these rows are
@@ -142,14 +145,31 @@ export function YarnProcessGrid({
     },
     {
       /**
-       * THE ONE FLEXIBLE COLUMN, so the slack lands on the longest value rather
-       * than on a percentage box. `hugsContent` is `columns.every(c => c.width)`,
-       * so leaving this one unsized is what flips the grid from hugging its
-       * declarations to filling the cell it sits in — and this one sits inside
-       * another grid's row, where hugging would leave the outer row's slack
-       * empty to the right of a cramped picker.
+       * SIZED, LIKE EVERY OTHER COLUMN — and that is what makes the grid hug.
+       *
+       * IT WAS THE ONE FLEXIBLE COLUMN, deliberately, and the reasoning expired
+       * under it. The argument was that this grid "sits inside another grid's
+       * row, where hugging would leave the outer row's slack empty to the right
+       * of a cramped picker" — true while it was a `ChildGrid` CELL. It is now
+       * the panel a `ProcessFoldList` row unfolds onto (2026-09-03), which
+       * spans the whole section: the slack stopped being a cell's and became a
+       * page's, and `hugsContent` being off meant all ~880px of it landed on one
+       * picker. A Process box eight times the width of the Loss % beside it is
+       * the "field size" complaint (client screenshot 2660), and it is a layout
+       * fault rather than a preference — `child-grid.tsx` records the same
+       * failure for a Size grid that rendered "S" in a 490px control.
+       *
+       * `width` HERE IS WHAT FLIPS THE WHOLE GRID: `hugsContent` is
+       * `columns.every(c => c.width)`, all-or-nothing on purpose (see it), so
+       * this declaration is not a local cap — it is the switch that makes the
+       * card stop at the last column instead of trailing grey.
+       *
+       * 12rem HOLDS A PROCESS NAME (YARN DYEING, SOFT WINDING, MERCERISING) and
+       * the picker truncates-and-reveals past that, which is the contract for
+       * every stored value in this app.
        */
       header: "Process",
+      width: "12rem",
       required: rows.some(yarnStageStarted),
       cell: (r) => (
         <RecordPicker
@@ -170,44 +190,41 @@ export function YarnProcessGrid({
     },
     {
       /**
-       * WHICH COLOURWAY THIS TREATMENT IS FOR — and it divides the weight.
+       * HOW THE LOSS % BESIDE IT IS MEASURED — PROCESS WISE or COLOR WISE.
        *
-       * "It only applies the dyeing process to the exact weight percentage of
-       * yarn destined for that specific colour combo" (client, confirmed as
-       * arithmetic rather than a label, 2026-09-01). So a stage marked PURPLE
-       * grosses up the purple share alone and leaves green at its net weight.
+       * "for field is dropdown field values are Process Wise, Color Wise"
+       * (client 2026-09-03). It is the fabric route's `Loss for` column, one
+       * label along, reading the same `process_loss_for` lookup.
        *
-       * BLANK MEANS EVERY COLOURWAY, which is the ordinary case — a yarn dyed
-       * for the whole order names no combo. The option is labelled rather than
-       * left as a bare empty row, because "" and "all" look identical in a
-       * `<select>` and only one of them is what this means.
+       * ## IT NAMED A COLOURWAY UNTIL 2026-09-03, AND THAT WAS ARITHMETIC
        *
-       * A `<Select>` over the yarn's OWN colourways, not a free text box and not
-       * the order's whole list: see the `combos` prop.
+       * The cell was a `<Select>` over this yarn's own combos, and a step marked
+       * PURPLE grossed up the purple share alone ("it only applies the dyeing
+       * process to the exact weight percentage of yarn destined for that
+       * specific colour combo" — client, 2026-09-01). Two fixed words cannot
+       * name PURPLE, so choosing them removes that split; the client was shown
+       * exactly that and chose them. The later instruction wins, and this is a
+       * decision to re-open with them rather than a bug to quietly correct —
+       * 0520's header carries the full account.
+       *
+       * A `LookupDialogPicker` AND NOT A `<Select>`, matching the fabric route:
+       * the vocabulary is the operator's to extend, and "+ Add" is how they do
+       * it. That is also what makes the two tabs share one list rather than one
+       * shape.
        */
       header: "For",
       width: "8rem",
       cell: (r) => (
-        <Select
+        <LookupDialogPicker
+          kind="process_loss_for"
+          label="For"
           compact
-          className="h-8"
-          aria-label="For colourway"
-          value={r.combo}
-          disabled={readOnly}
-          onChange={(e) => patch(r.key, { combo: e.target.value })}
-        >
-          <option value="">All colourways</option>
-          {/* THE HELD VALUE SURVIVES A LIST THAT NO LONGER OFFERS IT — the
-              "Disabled rows" rule. A combo removed from the order after the
-              treatment was recorded would otherwise render as blank, which reads
-              as "applies to everything" and silently widens the loss to every
-              colourway. `stageProblem` is what says so out loud. */}
-          {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
+          options={lossFor}
+          value={r.loss_for_id}
+          onChange={(id) => patch(r.key, { loss_for_id: id || null })}
+          canCreate={canCreate && !readOnly}
+          canEdit={canEdit && !readOnly}
+        />
       ),
     },
     {
@@ -272,24 +289,27 @@ export function YarnProcessGrid({
          (AGENTS.md, `enterNestedGrid`). It matters more here than on the fabric
          route: this grid is NESTED inside a yarn row, and Tab walks the row's own
          cells and then this panel — an empty panel is a yarn the planner tabs
-         straight past without seeing that it could be treated. */
+         straight past without seeing that it could be processed. */
       seedRow
-      /* `keepOne={false}` — ZERO TREATMENTS IS AN ANSWER, and the commonest one:
+      /* `keepOne={false}` — ZERO PROCESSES IS AN ANSWER, and the commonest one:
          "if the garment uses solid fabric, the raw yarn does not undergo
          yarn-stage dyeing" (client). The default would leave a blank step
          standing on every solid order's yarn with no way to clear it. */
       keepOne={false}
-      /* @5xl (1024) and now with room to spare — the widths were cut with the
-         fabric route's on 2026-09-03 (Stage 8→7, For 10→8, Descriptions 11→10,
-         Loss % 5→4.5). ~472px declared plus ~150 of `#`/remove/cell chrome
-         leaves the flexible Process column ~380px at 1024.
+      /* @5xl (1024), AND THE GRID NOW FITS INSIDE IT WHOLE. Every column
+         declares a width since 2026-09-03 — 7 + 12 + 8 + 10 + 4.5 = 41.5rem =
+         664px — and `ChildGrid`'s own chrome is 88px exactly (`#` is `w-10` plus
+         `px-2`, the remove column `w-8`), so the table measures ~752px against a
+         1024px threshold. That margin is the point: the widths can be tuned
+         without anyone having to re-derive whether the grid still renders as a
+         table.
 
-         IT MATTERS MORE SINCE THIS GRID MOVED INTO A FOLD PANEL: the panel costs
-         ~80px of container against the section it used to sit in, and below the
-         threshold `ChildGrid` stacks into one labelled full-width box per column
-         — five of them per treatment, which is the "field size" complaint rather
-         than a graceful fallback. Below it the grid stacks; it never scrolls
-         sideways (rule 4). */
+         THE THRESHOLD MATTERS MORE SINCE THIS GRID MOVED INTO A FOLD PANEL: the
+         panel costs ~80px of container against the section it used to sit in,
+         and below the threshold `ChildGrid` stacks into one labelled full-width
+         box per column — five of them per process, which is the "field size"
+         complaint rather than a graceful fallback. Below it the grid stacks; it
+         never scrolls sideways (rule 4). */
       tableFrom="5xl"
       centerHeaders
       /* `renderMobileRow` STAYS. The DEFAULT stacked cell is a bare <div> around
@@ -308,7 +328,13 @@ export function YarnProcessGrid({
       hideAdd={readOnly}
       onAdd={() => onChange([...rows, blankYarnStage(newKey())])}
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
-      addLabel="+ Add treatment"
+      /* "+ Add process", NOT "+ Add treatment" (client 2026-09-03: "rename the
+         label for both fabric and yarn process as add process"). The fabric
+         route already said it, so this tab was the outlier — and a tab whose
+         button, column header and fold summary each used a different word for
+         one thing is the drift AGENTS.md keeps recording. The whole vocabulary
+         moved with the button, not just the button. */
+      addLabel="+ Add process"
     />
   );
 }

@@ -150,7 +150,25 @@ export function FabricProcessGrid({
        * see the long note on `style-process-grid.tsx`'s Details column, which
        * records the round trip.
        */
+      /**
+       * SIZED SINCE 2026-09-03, and it is what makes this grid hug.
+       *
+       * Same change, same reasoning as `yarn-process-grid.tsx`: `hugsContent` is
+       * `columns.every(c => c.width)`, so one unsized column handed this picker
+       * every spare pixel of a fold panel that spans the whole section — a
+       * Process box many times the width of the Loss % beside it (client
+       * screenshot 2660, on the sibling tab; this one had the identical defect
+       * from the identical commit).
+       *
+       * IT ONLY FITS BECAUSE `Rate` WENT. The declared widths now total
+       * 7 + 12 + 7.5 + 10 + 4.5 + 7 = 48rem = 768px, plus `ChildGrid`'s 88px of
+       * `#` and remove-column chrome, so the table measures ~856px against
+       * `tableFrom`'s 1024px threshold. With Rate's 5rem still in it that was
+       * ~936px — inside the threshold but with little room to tune. Add a
+       * column here and check that sum again.
+       */
       header: "Process",
+      width: "12rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
         <RecordPicker
@@ -239,40 +257,27 @@ export function FabricProcessGrid({
         />
       ),
     },
-    {
-      /**
-       * THE FABRIC-WISE PROCESSING RATE (client spec 2026-09-01: "users must be
-       * able to input rates based on the fabric structure — e.g. Knitting Rib =
-       * ₹10, Single Jersey = ₹9").
-       *
-       * IT NEEDS NO SECOND KEY, because the route is already keyed to one
-       * fabric (0492). "Fabric-wise" is what this cell IS, not a mode it has to
-       * be put into — which is the whole payoff of grouping by `item_id`
-       * rather than by BOM line.
-       *
-       * NOT `required`, like Loss % beside it: a route being planned before its
-       * rates are negotiated is the ordinary case, and this document is not the
-       * one that gets approved (the Budget is, 0428).
-       *
-       * COLOUR-WISE RATES ARE NOT HERE. The spec also asks for a rate that
-       * differs by colour combo on finishing stages ("dark colours might
-       * require a higher dyeing rate like ₹40"). That is a (stage x colour)
-       * grain with its own child table, deliberately left out of 0492 rather
-       * than guessed at — see that migration's header.
-       */
-      header: "Rate",
-      align: "right",
-      width: "5rem",
-      cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          value={r.rate}
-          disabled={readOnly}
-          onChange={(e) => patch(r.key, { rate: e.target.value })}
-        />
-      ),
-    },
+    /*
+     * `Rate` WAS HERE AND THE CLIENT REMOVED IT (2026-09-03, screenshot 2663:
+     * "remove the rate field from fabric process, that second row").
+     *
+     * It came from the spec of 2026-09-01 — "users must be able to input rates
+     * based on the fabric structure, e.g. Knitting Rib = ₹10, Single Jersey =
+     * ₹9" — and the COLOUR-WISE half of that spec was already deliberately not
+     * built (a stage x colour grain with its own child table, left out of 0492
+     * rather than guessed at). Both halves are now out, so the route carries no
+     * price at all.
+     *
+     * THAT MAKES IT AGREE WITH WHAT THE REST OF THE MODULE ALREADY SAID. The
+     * Budget's own note reads "the Yarn Process tab stores no rate — it is a
+     * quantity document, not a priced one — so the planner types it here"; this
+     * column was the single place that contradicted it. A price is entered
+     * once, on the document that gets approved (0428).
+     *
+     * Column, row field, payload schema and DB column all went together (0521).
+     * Leaving any one of them would be the "stated vs enforced" split — a field
+     * the screen has closed that an import can still write.
+     */
     {
       /**
        * The legacy tab's trailing ▾, BLANK on both rows of the screenshot with
