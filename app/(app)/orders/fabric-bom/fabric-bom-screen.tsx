@@ -1889,6 +1889,97 @@ export function FabricBomScreen({
 
   // ---- the line grid -------------------------------------------------------
 
+  /**
+   * FABRIC LINES DRAWS ONE ROW PER **ALLOCATION**, NOT PER PANEL (client
+   * 2026-09-02, screenshot 2645: "why this much fabric lines adding
+   * automatically — fix the error").
+   *
+   * ## WHAT THE OPERATOR SAW, AND WHY IT WAS NOT A SEEDING BUG
+   *
+   * The order declares 13 panels — 3 colourways × (3 jersey panels + 1 rib) plus
+   * one contrast back body — and the seed created exactly 13 lines. Verified
+   * against the catalog: 13 panels, **6 allocations**. Nothing duplicated.
+   *
+   * What was wrong is that this tab drew all 13. It has no Component column —
+   * legacy's FabricAllocation row has none either — so rows 1, 2 and 3 were
+   * identical in every visible cell: same Structure, same GSM Range, same Style
+   * Ref, same Style No, same Style Color. Three rows the screen gave the
+   * operator no way to tell apart, each demanding its own Fabric. That reads as
+   * a bug because on this tab it *is* one.
+   *
+   * ## THE GRAIN IS LEGACY'S OWN, AND IT IS THE CLIENT'S "STRUCTURE STAYS,
+   * ## FABRIC CHANGES" RULE READ FORWARDS
+   *
+   * An allocation is (style, colourway, structure, **fabric**). A structure gets
+   * a SECOND row exactly when its panels are cut from a second cloth — which is
+   * that rule, and the only thing that legitimately splits a structure in two.
+   * So a freshly seeded BOM shows 6 rows, because every panel starts with no
+   * fabric and they collapse; mapping the sleeve to a melange on Components
+   * splits that structure into two rows here, visibly, with the fabric being the
+   * thing that differs. The panel-level detail stays where it belongs.
+   *
+   * This REVERSES the "show every panel row" answer of an hour earlier, and does
+   * so on the client seeing it: that answer was given against a 4-row preview.
+   *
+   * ## NOTHING BELOW THIS TAB CHANGES
+   *
+   * `lines` is still one row per panel and is what Save writes, what the
+   * Components tree reads, and what the requirement explodes. This is a VIEW —
+   * the same call `PanelGroup` already makes one tab over, where N colourway
+   * lines draw as one panel row. Two groupings of one array, each for the
+   * question its own tab asks.
+   */
+  const allocationKeyOf = (l: LineRow) =>
+    [l.style_ref_no, l.combo, l.structure_id ?? "", l.item_id ?? ""]
+      .map((v) => v.trim().toUpperCase())
+      .join(SEP);
+
+  /**
+   * One representative line per allocation, in first-seen order.
+   *
+   * THE REPRESENTATIVE IS A REAL MEMBER, not a synthesised row: every cell on
+   * this grid reads a field that is group-wide by construction (structure,
+   * fabric, style, colourway, the mixing cells), so the first member's value IS
+   * the group's. The per-PANEL fields that genuinely vary — component,
+   * coordinate, required print, specification, open/tubular — have no column
+   * here, which is what makes one representative honest rather than a rollUp
+   * that would have to say "(mixed)".
+   */
+  const allocationRows = useMemo(() => {
+    const seen = new Set<string>();
+    const out: LineRow[] = [];
+    for (const l of lines) {
+      const k = allocationKeyOf(l);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(l);
+    }
+    return out;
+  }, [lines]);
+
+  /**
+   * Write a cell to EVERY panel of the allocation, never to the one row drawn.
+   *
+   * This is what makes the grouping safe rather than merely tidier. Patching the
+   * representative alone would set the fabric on one of three panels and leave
+   * the other two blank — invisible on this tab, and the Save gate would then
+   * refuse the document naming a line the operator cannot see. Every cell here
+   * goes through it; `setCell` stays for the Components tree, which edits ONE
+   * colourway's line on purpose.
+   */
+  const setAlloc = (row: LineRow, patch: Partial<LineRow>) => {
+    const k = allocationKeyOf(row);
+    mut((xs) => xs.map((x) => (allocationKeyOf(x) === k ? { ...x, ...patch } : x)));
+  };
+
+  /** Remove an allocation — and every panel under it, for `setAlloc`'s reason.
+   *  A row the operator deletes must not leave lines behind that only the
+   *  Components tab can see. */
+  const removeAlloc = (row: LineRow) => {
+    const k = allocationKeyOf(row);
+    mut((xs) => xs.filter((x) => allocationKeyOf(x) !== k));
+  };
+
   const comboOptions = pickedOrder?.combos ?? [];
 
   // ---- the order's own descriptors for a line (client screenshot 2581) ------
@@ -3122,7 +3213,7 @@ export function FabricBomScreen({
              the failure the nominated-vendor rule records. */
           items={structureItemsFor(r.structure_id)}
           value={r.structure_id}
-          onChange={(id) => setCell(r.key, { structure_id: id })}
+          onChange={(id) => setAlloc(r, { structure_id: id })}
         />
       ),
     },
@@ -3253,7 +3344,7 @@ export function FabricBomScreen({
              is the rule `styleForCombo` and `pickStyle` both state. */
           onChange={(id) => {
             const f = id ? fabrics.find((x) => x.id === id) : null;
-            setCell(r.key, {
+            setAlloc(r, {
               item_id: id,
               ...(r.consumption_uom_id || !f?.base_uom_id
                 ? {}
@@ -3349,7 +3440,7 @@ export function FabricBomScreen({
             required
             items={data.uoms}
             value={r.mixing_uom_id}
-            onChange={(id) => setCell(r.key, { mixing_uom_id: id })}
+            onChange={(id) => setAlloc(r, { mixing_uom_id: id })}
           />
         ),
     },
@@ -3393,7 +3484,7 @@ export function FabricBomScreen({
             max={99}
             value={r.no_of_colors ?? ""}
             onChange={(e) =>
-              setCell(r.key, {
+              setAlloc(r, {
                 no_of_colors: e.target.value === "" ? null : Number(e.target.value),
               })
             }
@@ -3476,7 +3567,7 @@ export function FabricBomScreen({
           clearable
           options={declaredColours.map((c) => ({ value: c, label: c }))}
           value={r.color_name}
-          onChange={(v) => setCell(r.key, { color_name: v ?? "" })}
+          onChange={(v) => setAlloc(r, { color_name: v ?? "" })}
         />
       ),
     },
@@ -3964,6 +4055,8 @@ export function FabricBomScreen({
   // ---- validity ------------------------------------------------------------
 
   const filledLines = lines.filter((l) => l.item_id);
+  /** The same fact at the grain the Fabric Lines tab draws — see the header. */
+  const filledAllocations = allocationRows.filter((l) => l.item_id).length;
 
   /**
    * `canSave` is DERIVED. The hand-assembled form is a list a screen can forget
@@ -4988,7 +5081,10 @@ export function FabricBomScreen({
           )}
           <ChildGrid<LineRow>
             columns={lineColumns}
-            rows={lines}
+            /* ONE ROW PER ALLOCATION, not per panel — see `allocationRows`.
+               `lines` is still what Save writes and what Components reads; this
+               tab asks a different question of the same array. */
+            rows={allocationRows}
             seedRow
             /* The declared widths sum to 1128px including the row chrome, so
                the table may appear from 1152 (@6xl) — see `tableFrom`. Keep
@@ -5043,7 +5139,10 @@ export function FabricBomScreen({
                 { ...blankLine(newKey()), style_ref_no: orderIdentity?.ref ?? "" },
               ])
             }
-            onRemove={(r) => mut((xs) => xs.filter((x) => x.key !== r.key))}
+            /* REMOVES THE WHOLE ALLOCATION. Deleting the drawn row alone would
+               leave its sibling panels behind — invisible here, and enough to
+               keep refusing a Save the operator believes they have cleared. */
+            onRemove={removeAlloc}
             addLabel="+ Add fabric"
           />
         </SectionBody>
@@ -5894,7 +5993,16 @@ export function FabricBomScreen({
                 <span>· {pickedOrder.unit_kind === "sets" ? "Sets" : "Pcs"}</span>
               )}
               {form.bom_date && <span>· {fmtDate(form.bom_date)}</span>}
-              <span>· {filledLines.length} fabric {filledLines.length === 1 ? "line" : "lines"}</span>
+              {/* COUNTS WHAT THE TAB DRAWS — allocations, not panels.
+                  `filledLines` counts PANELS carrying a fabric and stays the
+                  right input to the Save gate, which cares about every line it
+                  writes. Printing it here made the header say "7 fabric lines"
+                  above a grid showing 6 rows: one fact counted two ways, and the
+                  one on the chrome is the one the operator checks their work
+                  against. */}
+              <span>
+                · {filledAllocations} fabric {filledAllocations === 1 ? "line" : "lines"}
+              </span>
             </>
           ),
         }}
