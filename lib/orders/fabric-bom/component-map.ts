@@ -102,6 +102,28 @@ export const fabricFormLabel = (v: string | null | undefined): string =>
   FABRIC_FORM_OPTIONS.find((o) => o.value === v)?.label ?? "";
 
 /**
+ * The single distinct value among a group of lines, or "(mixed)".
+ *
+ * ABSTAINS RATHER THAN PICKING THE FIRST. A summary row stands for N lines, and
+ * showing one line's fabric as though it were the group's would be a confident
+ * lie on exactly the rows where the operator needs to look. Blank values are
+ * ignored, so a half-filled group reads as its filled half rather than as
+ * "(mixed)" against nothing.
+ *
+ * IT LIVES HERE BECAUSE IT HAS TWO READERS (2026-09-03). It was written for the
+ * Components tab's panel row, which rolls up its colourways; the Fabric Process
+ * tab's fabric row rolls up its lines' structure type and roll form the same
+ * way. Two copies of a rule about abstaining is how two surfaces come to abstain
+ * differently — and the difference would only ever show on the rows that
+ * disagree, which are the rows the rule exists for.
+ */
+export function rollUp(values: readonly string[]): string {
+  const seen = [...new Set(values.map((v) => v.trim()).filter(Boolean))];
+  if (seen.length === 0) return "";
+  return seen.length === 1 ? seen[0] : "(mixed)";
+}
+
+/**
  * One row of the order's own panel-to-fabric declaration
  * (`garment_order_amendment_style_components`, 0457).
  *

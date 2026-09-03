@@ -291,9 +291,23 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       //          fields, its components child and its coordinates onto the order
       //          line, and sizes had been there since 0407. A step that is now
       //          the first section of step 1 is not a step of its own.
+      //   09-03  FABRIC PLAN comes out of the MENU, and CAD MARKERS with it
+      //          ("hide the fabric plan and cad markers from Order Management").
+      //          Both are children of `retired` — off the menu, still on the
+      //          URL, still in the palette. This is the 08-25 shape, not the
+      //          08-17b one: Garment Process Plan LEFT the flow and kept a row
+      //          under Order Execution, whereas these two keep no row at all.
       //
-      // SO IT IS SIX STEPS: Order Entry · Material BOM · Fabric BOM · Fabric
-      // Plan · Budgeting · Approval.
+      // SO IT IS FIVE STEPS: Order Entry · Material BOM · Fabric BOM ·
+      // Budgeting · Approval.
+      //
+      // AND THE `description` HAS TO MOVE WITH THE COUNT. It is rendered — the
+      // sidebar row's tooltip and the hub's own subtitle both print it — so
+      // "the six steps a bulk order passes through" over five cards is the
+      // stated-vs-shown failure this repo keeps paying for, in the one sentence
+      // an operator reads before choosing where to click. The count is never
+      // the claim (see below); the sequence is. When the sequence changes,
+      // change the number to match the sequence — never the reverse.
       //
       // THE SCREEN IS NOT GONE, and this is the same distinction the 08-14
       // menu change already drew: it is a child of `retired` at the bottom of
@@ -365,7 +379,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "setup",
         label: "Order Management",
         description:
-          "Order entry to approved budget — the six steps a bulk order passes through",
+          "Order entry to approved budget — the five steps a bulk order passes through",
         // Colour Cards was the other half of this group and was removed with its
         // routes and service (client, 2026-08-11): the screen had no rows, its
         // only consumer was the Garment Order colour picker, and that picker is
@@ -494,33 +508,16 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // holds `status: "todo"` and a missing route as the SAME fact and
           // fails either way round — a `todo` whose page.tsx exists is an error,
           // which is what stops the label outliving the work.
-          // CAD MARKERS — a DEPARTMENT'S WORK QUEUE, which is why it earns a row
-          // rather than a button on one order (0460, doc/file.md §2).
-          //
-          // The two other screens built alongside it — the Order Sheet and the
-          // RE-Community stream — are PageHeader actions on the order, because
-          // each is a view OF one order and has no list to land on. This is the
-          // opposite shape: a CAD technician opens it in the morning to see which
-          // orders across the whole book are Pending / Draft / Panels unweighed /
-          // Submitted. Reaching that through an order picker would mean choosing
-          // an order before you can see which orders need you.
-          //
-          // Placed immediately BEFORE Fabric BOM because it feeds it: the gram
-          // weights this screen captures are what step 3's consumption is seeded
-          // from. `page.tsx` renders a PageHeader + DataTable and imports no
-          // HubCard, so assertion 8 of check-module-groups.mts is satisfied.
-          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
+          // CAD MARKERS AND FABRIC PLAN CAME OFF THIS LIST ON 2026-09-03
+          // (client: "hide the fabric plan and cad markers from Order
+          // Management"). Both are children of `retired` now — off the menu,
+          // still on the URL, still in the command palette — and the note there
+          // carries what each of them was doing here. Nothing was deleted, and
+          // the reasoning for their PLACEMENT (CAD before the Fabric BOM it
+          // feeds; Fabric Plan as step 4) is kept there too, because a
+          // restoration needs it and a `git log` is a worse place to keep it.
           { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
-          // 4 · FABRIC PLAN — the sourcing and processing path for what step 3
-          // requires: yarn purchase, knitting, dyeing, stentering, compacting,
-          // and which of those are in-house against out-processed.
-          // BUILT 2026-08-17 (`0427`). The description is narrower than the
-          // `todo` placeholder's was, and deliberately: the client's answer to
-          // what this step covers is the PROCESS ROUTE, not sourcing in general.
-          // Fabric BOM is finished fabric; this walks backwards from it to the
-          // yarn, applying each stage's loss.
-          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
-          // 5 · BUDGETING — and 6 · APPROVAL — are two STEPS over ONE document.
+          // 4 · BUDGETING — and 5 · APPROVAL — are two STEPS over ONE document.
           //
           // Approval is a transition on the budget's own `status`, never a
           // second record: two records would let the approved figures drift from
@@ -722,7 +719,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens are off the Orders menu — the first three because Order Management replaces them, and All Orders and Style by request. They all still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, and All Orders, Style, Fabric Plan and CAD Markers by request. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
@@ -755,6 +752,51 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // for that: the map is keyed by href, and `GroupHub` reads it for a
           // child exactly as `ModuleHub` did for the standalone row.
           { href: "/orders/all", label: "All Orders", description: "Every order raised, with its RE No, buyer, value and status" },
+          // FABRIC PLAN AND CAD MARKERS JOINED ON 2026-09-03 (client: "hide the
+          // fabric plan and cad markers from Order Management"). They are the
+          // FOURTH kind of screen in this group and the newest: not a superseded
+          // menu, not a live register taken off by request, not a master folded
+          // into the screen below it — two BUILT steps of the order flow, hidden
+          // while the flow settles.
+          //
+          // WHY HERE AND NOT `REDIRECTED`. The standing rule is "a screen that
+          // loses its sidebar row keeps its URL", and a `redirect()` is only for
+          // a DISSOLVED hub — it would mean deleting two working screens over
+          // live tables (`order_fabric_plan_stages` 0427, `order_cad_markers`
+          // 0460) and guessing at a successor for each. `hidden` removes exactly
+          // what was asked to go: the two cards on /orders/setup. Nothing else
+          // about either screen changes.
+          //
+          // WHAT EACH WAS DOING IN ORDER MANAGEMENT, kept because a restoration
+          // needs it and `git log` is a worse place for it:
+          //
+          // · FABRIC PLAN was step 4 — the sourcing and processing path for what
+          //   step 3 requires: yarn purchase, knitting, dyeing, stentering,
+          //   compacting, and which of those are in-house against
+          //   out-processed. Built 2026-08-17 (0427). Fabric BOM is finished
+          //   fabric; this walks backwards from it to the yarn, applying each
+          //   stage's loss. It is still the ONLY consumer of the Loss % the
+          //   Fabric BOM's Fabric Process tab declares (0426: "declare here,
+          //   plan there"), so hiding the row does not make that column dead —
+          //   it makes its reader reachable by search alone.
+          //
+          // · CAD MARKERS was never a step. It is a DEPARTMENT'S WORK QUEUE
+          //   (0460, doc/file.md §2), which is why it earned a card rather than
+          //   a button on one order: a CAD technician opens it in the morning to
+          //   see which orders across the whole book are Pending / Draft /
+          //   Panels unweighed / Submitted, and reaching that through an order
+          //   picker would mean choosing an order before you can see which
+          //   orders need you. It sat immediately BEFORE Fabric BOM because it
+          //   FEEDS it — the gram weights it captures are what step 3's
+          //   consumption is seeded from. That dependency is unchanged and is
+          //   the one visible cost of hiding it: the screen that supplies the
+          //   seed now has no menu route, so the seeding still works and the
+          //   capturing is search-only.
+          //
+          // Both `page.tsx` files render a PageHeader + DataTable and import no
+          // HubCard, so assertion 8 is satisfied here exactly as it was there.
+          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
+          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
         ],
       },
     ],

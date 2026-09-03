@@ -120,14 +120,60 @@
 -- this insert names its locations explicitly rather than carrying spares.
 -- ---------------------------------------------------------------------------
 
-insert into public.sales_order_no_counters (location_id, fy, last_no)
-select l.id, v.fy, v.last_no
+-- ---------------------------------------------------------------------------
+-- IT IS `floor_no` THAT DOES THIS JOB NOW (0518), NOT `last_no`.
+--
+-- 0516 made the serial FOLLOW THE ROWS so that clearing test orders restarts at
+-- 0001 (client 2026-09-03). A cutover seed is a counter deliberately ahead of
+-- the rows, which is exactly the state that rule pulls back — so this file
+-- setting `last_no = 2100` became a NO-OP: it would run, report success, and
+-- the next U2 order would still be 2087, back inside the band the gap exists to
+-- clear. That is the failure this file's own header warns about, arriving
+-- through the file itself.
+--
+-- `floor_no` is "no serial at or below this is ever issued here again". It is
+-- read by `next_sales_order_serial()` over the top of the follow-the-rows
+-- answer, it is written by nothing but a human decision, and it SURVIVES THE
+-- ORDERS BEING DELETED — which `last_no` does not, and which is the difference
+-- that matters: the floor states what RP Software issued, not what we hold.
+--
+-- A RATCHET. `greatest()` in the DO UPDATE, so re-running this can raise a
+-- floor and never lower one. `last_no` is left alone entirely — the assigner
+-- owns it, and this file overwriting it is how Head Office's live counter came
+-- within one run of being reset to 0.
+-- ---------------------------------------------------------------------------
+
+insert into public.sales_order_no_counters (location_id, fy, last_no, floor_no)
+select l.id, v.fy, 0, v.floor_no
   from (values
-         ('U2', '2627', 2100),  -- legacy high-water 2086, READ from the data + headroom
-         ('HO', '2627', 1000)   -- no legacy figure exists; a deliberate ceiling
-       ) as v(code, fy, last_no)
+         ('U2', '2627', 2100)  -- legacy high-water 2086, READ from the data + headroom
+         -- ('HO', '2627', 1000)  -- SEE BELOW. Deliberately not applied.
+       ) as v(code, fy, floor_no)
   join public.locations l on l.code = v.code
-    on conflict (location_id, fy) do update set last_no = excluded.last_no;
+    on conflict (location_id, fy) do update
+       set floor_no = greatest(public.sales_order_no_counters.floor_no,
+                               excluded.floor_no);
+
+-- ---------------------------------------------------------------------------
+-- HEAD OFFICE IS COMMENTED OUT, AND THAT IS A DECISION RATHER THAN AN OMISSION.
+--
+-- It carried `('HO','2627', 1000)` — "no legacy figure exists; a deliberate
+-- ceiling". As a `last_no` that line had never been run and was harmless. As a
+-- `floor_no` it is not: it would strand Head Office at 1001 permanently, and
+-- the operator is currently clearing HO test orders precisely so they restart
+-- at 0001 (client 2026-09-03).
+--
+-- The exposure it was reaching for is real and still open: the client's legacy
+-- screenshots show HO/RE//2627/0001, so RP Software issued Head Office numbers
+-- too, and no HO legacy rows were ever imported — there is no high-water mark
+-- in this database to read. A ceiling picked out of the air either strands
+-- today's testing or under-guesses and mints a duplicate.
+--
+-- So it needs a FIGURE FROM RP SOFTWARE: the highest HO SC No issued this
+-- financial year, counting cancelled orders, which consumed their numbers too.
+-- With that, uncomment the line with the real number. Until then HO's floor is
+-- 0 and the numbering there is honest about knowing nothing.
+-- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
 -- After running, check what the next number will be at each location. This
