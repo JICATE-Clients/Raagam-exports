@@ -1420,7 +1420,7 @@ export function ComponentMapBody({
                                cannot say. */
                             columns={colourColumns}
                             rows={p.lines}
-                            tableFrom="6xl"
+                            tableFrom="5xl"
                             /* NO "+ Add" AND NO ✕. A panel is N lines, one per
                                colourway, and `onAddPanel` writes all N — an Add
                                here would invent a colourway the order does not

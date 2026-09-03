@@ -267,7 +267,7 @@ export function RepeatsPanel({
         /* 46.5rem + 72px of chrome = 816px, under `tableFrom`'s 1152, so this
            renders as a table and falls back to stacked cards below the
            breakpoint rather than growing a sideways scrollbar. */
-        tableFrom="6xl"
+        tableFrom="5xl"
         centerHeaders
         renderMobileRow={(row) => (
           <FieldGrid>
@@ -380,7 +380,7 @@ export function MixingDetailsPanel({
            cell holding a bordered control. On a read-only panel that comes out
            as floating words; the client reported exactly that on the Color/Print
            tab of this same module ("the table borders is missing"). */
-        tableFrom="6xl"
+        tableFrom="5xl"
         centerHeaders
         hideAdd
         hideRemove
@@ -466,7 +466,7 @@ export function CombinationsPanel({
       columns={columns}
       rows={rows as YdCombinationRow[]}
       seedRow
-      tableFrom="6xl"
+      tableFrom="5xl"
       centerHeaders
       renderMobileRow={(row) => (
         <FieldGrid>
