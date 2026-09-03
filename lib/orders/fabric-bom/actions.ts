@@ -202,7 +202,7 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
       grams: r.grams ?? null,
       table_width: r.table_width ?? null,
       length: r.length ?? null,
-      width_tolerance: r.width_tolerance ?? null,
+      length_tolerance: r.length_tolerance ?? null,
       cons_qty: r.cons_qty ?? null,
       sno: 0,
     }))
@@ -214,7 +214,7 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
           r.grams != null ||
           r.table_width != null ||
           r.length != null ||
-          r.width_tolerance != null ||
+          r.length_tolerance != null ||
           /* `cons_qty` COUNTS AS SAYING SOMETHING (0523). It is the spec's own
              multiplier and a row carrying only it is a row the planner typed
              into — dropping it here would silently discard the figure the CAD

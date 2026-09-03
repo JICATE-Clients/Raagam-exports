@@ -129,13 +129,10 @@ import {
   calcModeOf,
   calculatedGrams,
   consumptionMap,
-  calculatedWidth,
-  toInches,
+  effectiveLength,
   consQtyOf,
   gramsFor,
-  requiredKg,
   manualProblem,
-  netKg,
   takenComponentIds,
   type ManualSizeInput,
 } from "@/lib/orders/fabric-bom/manual";
@@ -336,9 +333,9 @@ type ManualSizeRow = {
    */
   table_width: string;
   length: string;
-  /** The cutting allowance ADDED TO THE WIDTH (0523) — `calculatedWidth`
-   *  records why this was `length_tolerance` until 2026-09-03. */
-  width_tolerance: string;
+  /** The cutting allowance ADDED TO THE LENGTH (0524) — `effectiveLength`
+   *  records the same-day 0523→0524 reversal on this field. */
+  length_tolerance: string;
   /** "Cons Qty" — units of cloth per garment. BLANK MEANS 1 (`consQtyOf`). */
   cons_qty: string;
 };
@@ -760,7 +757,7 @@ const blankManualSize = (key: string, size_id: string | null, dia = ""): ManualS
   grams: "",
   table_width: "",
   length: "",
-  width_tolerance: "",
+  length_tolerance: "",
   cons_qty: "",
 });
 
@@ -1953,7 +1950,7 @@ export function FabricBomScreen({
           grams: z.grams == null ? "" : String(z.grams),
           table_width: z.table_width == null ? "" : String(z.table_width),
           length: z.length == null ? "" : String(z.length),
-          width_tolerance: z.width_tolerance == null ? "" : String(z.width_tolerance),
+          length_tolerance: z.length_tolerance == null ? "" : String(z.length_tolerance),
           cons_qty: z.cons_qty == null ? "" : String(z.cons_qty),
         })),
       })),
@@ -2907,7 +2904,7 @@ export function FabricBomScreen({
       grams: numOrNull(z.grams),
       table_width: numOrNull(z.table_width),
       length: numOrNull(z.length),
-      width_tolerance: numOrNull(z.width_tolerance),
+      length_tolerance: numOrNull(z.length_tolerance),
       cons_qty: numOrNull(z.cons_qty),
     }));
 
@@ -3189,10 +3186,6 @@ export function FabricBomScreen({
   const sizeColumns = (e: ManualEntryRow): ChildGridColumn<ManualDisplayRow>[] => {
     const mode = calcModeOf(e.calc_mode);
     const gsm = gsmForStructure(e.structure_id);
-    const wastage = numOrNull(e.wastage_pct);
-    /* THE SECOND ALLOWANCE (0523). Legacy's row carries both and the spec
-       compounds them — see `requiredKg`. */
-    const endbit = numOrNull(e.endbit_loss_pct);
     /**
      * A KEYSTROKE, WRITTEN TO ONE SIZE OR TO ALL OF THEM (0523).
      *
@@ -3211,28 +3204,6 @@ export function FabricBomScreen({
       if (e.size_wise) return setSizeCell(e.key, r, patch);
       for (const row of manualSizeRows(e)) setSizeCell(e.key, row, patch);
     };
-    /**
-     * THE ORDER QUANTITY THIS ROW SPEAKS FOR.
-     *
-     * With "Size Wise" on that is the row's own size. With it OFF the single
-     * visible row answers for the WHOLE run, so this is the sum of every size —
-     * and that is not cosmetic: `Net Wt` and `Req. Wt` multiply it, and showing
-     * one size's 500 pieces under a figure that covers 2,370 would understate
-     * the purchase by a factor of five on the cell the yarn module reads.
-     *
-     * IT IS ALSO ARITHMETICALLY THE SAME ANSWER. Cons Qty and Cons Wt are
-     * identical across sizes while the toggle is off, so
-     * `Σ(qtyᵢ) x cons x wt` is `Σ(qtyᵢ x cons x wt)` — the total is exact rather
-     * than an approximation of the per-size sum.
-     */
-    const qtyOf = (r: ManualDisplayRow) => {
-      const sizes = orderSizesFor(e.style_ref_no);
-      if (!e.size_wise) {
-        const total = sizes.reduce((n, z) => n + (z.qty ?? 0), 0);
-        return sizes.length ? total : null;
-      }
-      return sizes.find((z) => z.size_id === r.size_id)?.qty ?? null;
-    };
 
     /** This row as the arithmetic wants it, built once per cell rather than
      *  four times. */
@@ -3243,17 +3214,34 @@ export function FabricBomScreen({
       grams: numOrNull(r.grams),
       table_width: numOrNull(r.table_width),
       length: numOrNull(r.length),
-      width_tolerance: numOrNull(r.width_tolerance),
+      length_tolerance: numOrNull(r.length_tolerance),
       cons_qty: numOrNull(r.cons_qty),
     });
 
     /**
-     * THE CALCULATED MODE'S INPUTS, and only in that mode (client 2026-09-03:
-     * "when the user toggles the system to Calculated mode, the Piece Weight
-     * field is locked to read-only, and the following input fields are
-     * revealed"). Direct is the mode used 99.9% of the time, and in it these are
-     * not fields that are temporarily unavailable — they are not part of the
-     * question being asked.
+     * ALWAYS VISIBLE, IN BOTH MODES — reversed 2026-09-03 (0524), on the
+     * operator's explicit instruction after being shown the running Direct-mode
+     * screen and confirming they want legacy's full 11-column band on screen
+     * regardless of mode. This overrides the client's own written words quoted
+     * here until now: *"when the user toggles the system to Calculated mode,
+     * the Piece Weight field is locked to read-only, and the following input
+     * fields are revealed"* — Direct was gating these five columns out
+     * entirely, not merely leaving them unlocked, on that quote's authority.
+     * `mode` still decides whether Cons Wt is a typed field or a computed span
+     * (below) — only these columns' VISIBILITY stopped depending on it.
+     *
+     * ORDER, LABELS AND THE TOLERANCE'S TARGET ALL REVERTED 2026-09-03 (0524),
+     * hours after 0523 moved the allowance to the width. `effectiveLength` in
+     * ./manual.ts carries the arithmetic's history; this array's SEQUENCE AND
+     * WORDING are legacy's own `Width | Length | Length Tolerance | Length |
+     * Calculated Wt` band, field for field and label for label (operator
+     * instruction, 2026-09-03 19:58 screenshot: same labels, same order,
+     * verbatim) — "Length Tolerance" sits beside Length here, not beside
+     * Width, because that is what it now modifies, and the derived cell after
+     * it is headed "Length" again rather than "Calc. length", matching
+     * legacy's own repeat. `Calc. width (in)` is dropped: it existed only
+     * because 0523 needed an inches reading on the WIDTH, and legacy's band
+     * has no inches column at all.
      */
     const measured: ChildGridColumn<ManualDisplayRow>[] = [
       {
@@ -3261,7 +3249,8 @@ export function FabricBomScreen({
            pattern block", stored as `table_width`. Distinct from the `Dia`
            column, which is the ROLL's diameter and a constraint: the panels must
            fit across it. One word for both is how a reader multiplies by 60
-           where 55 was meant. */
+           where 55 was meant. PLAIN, with no tolerance and no derived cell of
+           its own — the allowance is on the length now, not here. */
         header: "Width",
         width: "4.5rem",
         align: "right",
@@ -3274,50 +3263,6 @@ export function FabricBomScreen({
             onChange={(ev) => set(r, { table_width: ev.target.value })}
           />
         ),
-      },
-      {
-        /* THE ALLOWANCE, ON THE WIDTH (0523). It was applied to the LENGTH until
-           2026-09-03 — see `calculatedWidth` for why both readings looked right
-           and only one was. */
-        header: "Tol.",
-        width: "4rem",
-        align: "right",
-        cell: (r) => (
-          <Input
-            className="h-8 text-right"
-            inputMode="decimal"
-            aria-label="Width tolerance (cm)"
-            value={r.width_tolerance}
-            onChange={(ev) => set(r, { width_tolerance: ev.target.value })}
-          />
-        ),
-      },
-      {
-        /* Width + Tolerance, derived — the figure the weight actually
-           multiplies. Text rather than a readOnly box: a derived value was not
-           typed, so it is not a field. */
-        header: "Calc. width",
-        width: "4.5rem",
-        align: "right",
-        cell: (r) => {
-          const w = calculatedWidth(numOrNull(r.table_width), numOrNull(r.width_tolerance));
-          return <span className="tabular-nums text-sm">{w == null ? "—" : fmtNumber(w)}</span>;
-        },
-      },
-      {
-        /* THE SAME WIDTH IN INCHES, because the knitting machine is set in
-           inches while the pattern is drawn in centimetres — the client's own
-           example is 52 cm reading 20.4". Derived from the cm cell beside it, so
-           the two can never disagree. */
-        header: "Calc. width (in)",
-        width: "4.5rem",
-        align: "right",
-        cell: (r) => {
-          const i = toInches(
-            calculatedWidth(numOrNull(r.table_width), numOrNull(r.width_tolerance)),
-          );
-          return <span className="tabular-nums text-sm">{i == null ? "—" : fmtNumber(i)}</span>;
-        },
       },
       {
         /* The pattern length, in centimetres. */
@@ -3333,6 +3278,41 @@ export function FabricBomScreen({
             onChange={(ev) => set(r, { length: ev.target.value })}
           />
         ),
+      },
+      {
+        /* THE ALLOWANCE, ON THE LENGTH (0524, reverting 0523's few hours on the
+           width) — see `effectiveLength` for the full history. LABEL IS
+           LEGACY'S OWN "Length Tolerance", verbatim (operator instruction,
+           2026-09-03) — it was abbreviated to "Tol." before; the field is
+           unchanged, only the printed word. */
+        header: "Length Tolerance",
+        width: "5rem",
+        align: "right",
+        cell: (r) => (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            aria-label="Length tolerance (cm)"
+            value={r.length_tolerance}
+            onChange={(ev) => set(r, { length_tolerance: ev.target.value })}
+          />
+        ),
+      },
+      {
+        /* Length + Tolerance, derived — the figure the weight actually
+           multiplies. Text rather than a readOnly box: a derived value was not
+           typed, so it is not a field. LEGACY REPEATS "Length" FOR THIS SAME
+           CELL, and the header below is now that same literal word (operator
+           instruction, 2026-09-03) — this was "Calc. length" before, renamed
+           distinctly so the two headers would not match; the operator's
+           instruction is to keep them matching, as legacy does. */
+        header: "Length",
+        width: "4.5rem",
+        align: "right",
+        cell: (r) => {
+          const l = effectiveLength(numOrNull(r.length), numOrNull(r.length_tolerance));
+          return <span className="tabular-nums text-sm">{l == null ? "—" : fmtNumber(l)}</span>;
+        },
       },
       {
         /* THE FORMULA'S OUTPUT, shown beside the inputs that produced it —
@@ -3384,8 +3364,11 @@ export function FabricBomScreen({
            them where exactly one is declared — the client's own instruction,
            "they should automatically prepopulate the Dia field here but remain
            editable". A Combobox, so typed text is a SEARCH and never a stored
-           value; `diaOptionsFor` keeps a held value visible and tagged. */
-        header: "Dia",
+           value; `diaOptionsFor` keeps a held value visible and tagged.
+           HEADER TEXT IS LEGACY'S OWN "TableWidth" (2026-09-03 19:58 screenshot,
+           operator instruction: same label, same position, verbatim) — the
+           field is still `dia`, unrenamed; only the printed word changed. */
+        header: "TableWidth",
         width: "5.5rem",
         cell: (r) => (
           <Combobox
@@ -3398,24 +3381,7 @@ export function FabricBomScreen({
           />
         ),
       },
-      {
-        /* A SECOND WIDTH AND NOT A RESTATEMENT OF THE DIA: cloth is knitted at
-           one and invoiced at another, and purchasing needs the one it buys
-           against. Free text rather than a pick — it is a commercial figure the
-           supplier quotes, not one this BOM declares anywhere. */
-        header: "Purch. width",
-        width: "4.5rem",
-        align: "right",
-        cell: (r) => (
-          <Input
-            className="h-8 text-right"
-            inputMode="decimal"
-            value={r.purchase_width}
-            onChange={(ev) => set(r, { purchase_width: ev.target.value })}
-          />
-        ),
-      },
-      ...(mode === "calculated" ? measured : []),
+      ...measured,
       {
         /**
          * "Cons Qty" — UNITS OF CLOTH PER GARMENT, AND A FIELD SINCE 0523.
@@ -3494,58 +3460,55 @@ export function FabricBomScreen({
           ),
       },
       {
-        /* THE ORDER QUANTITY FOR THIS SIZE, summed across colourways — the first
-           factor of the spec's Step 1, shown because a Net kg with no visible
-           quantity behind it is a number the planner has to take on trust. */
-        header: "Order qty",
-        width: "5rem",
-        align: "right",
-        cell: (r) => {
-          const q = qtyOf(r);
-          return (
-            <span className="tabular-nums text-sm text-muted-foreground">
-              {q == null ? "—" : fmtNumber(q)}
-            </span>
-          );
-        },
-      },
-      {
-        /* STEP 1 — Net Weight (Kg) = Order Qty x Cons Qty x Cons Wt / 1000.
-           The client's worked example: 500 x 1 x 120 g = 60 kg. */
-        header: "Net Wt",
-        width: "5rem",
-        align: "right",
-        cell: (r) => {
-          const row = inputOf(r);
-          const n = netKg(qtyOf(r), consQtyOf(row), gramsFor(e.calc_mode, row, gsm));
-          return <span className="tabular-nums text-sm">{n == null ? "—" : fmtNumber(n)}</span>;
-        },
-      },
-      {
-        /* STEP 2 — Required Weight = Net x (1 + EndBit Loss) x (1 + Component
-           Proc. Loss). COMPOUNDED, not summed: 1% then 5% is x1.0605.
+        /* LEGACY'S [Click] AT THE END OF THIS SAME ROW (2026-09-03 19:58
+           screenshot), and the same unanswered destination the Components tab's
+           own "Conv. Item" already carries — "a [Click] into a screen no
+           transcript describes" (0495). SAME TREATMENT AS "Assort Color" /
+           "Widths" three columns up on the fabric row above: disabled, with the
+           reason on a wrapping span rather than the button, because a disabled
+           control eats pointer events and a `title` on it directly is
+           unreachable. Never invent the sheet behind it — that is the failure
+           this tab already recorded once ("a screenshot cannot show a grain",
+           0491).
 
-           EMPHASISED, because it is the figure that leaves this tab — "the
-           actual value dispatched to the yarn purchase module". The two
-           percentages are the fabric row's own; the Fabric Process route's steps
-           compound onto this same figure further downstream, which is why this
-           column stops at the row's allowances rather than trying to show a
-           final purchase weight it cannot see. */
-        header: "Req. Wt",
-        width: "5rem",
-        align: "right",
-        cell: (r) => {
-          const row = inputOf(r);
-          const n = netKg(qtyOf(r), consQtyOf(row), gramsFor(e.calc_mode, row, gsm));
-          const req = requiredKg(n, [endbit, wastage]);
-          return (
-            <span className="tabular-nums text-sm font-medium">
-              {req == null ? "—" : fmtNumber(req)}
-            </span>
-          );
-        },
+           THIS IS THE LAST COLUMN OF THE GRID, and legacy's own (operator
+           instruction, 2026-09-03: same 11 columns, same order, same labels,
+           verbatim, nothing else on screen). `Purch. width` / `Order qty` /
+           `Net Wt` / `Req. Wt` briefly trailed after it as this screen's own
+           additions and were removed the same day, on the same instruction —
+           see the comment below this array for where their figures still
+           live. */
+        header: "Conv. Item",
+        width: "4.5rem",
+        align: "center",
+        cell: () => (
+          <span
+            className="block"
+            title="Legacy opens a sub-detail here. It is not built yet — send that screen and it will be."
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-full"
+              disabled
+              aria-label="Conv. Item — not built yet"
+            >
+              Click
+            </Button>
+          </span>
+        ),
       },
     ];
+    /* PURCH. WIDTH / ORDER QTY / NET WT / REQ. WT WERE HERE, TRAILING AFTER
+       Conv. Item — this screen's own additions beyond legacy's 11-column band.
+       Removed from the grid 2026-09-03 on the operator's explicit instruction.
+       The underlying figures are not lost: `purchase_width` is still stored
+       (still a field on `ManualSizeInput`/`FabricBomManualSize`, just not
+       shown here), and Net/Required weight are computed independently for the
+       actual purchase requirement by `fabricRequirementRows` in
+       `requirement.ts`, which this screen never fed — see this file's own
+       header comment, "THIS MODULE DOES NOT MULTIPLY THE ORDER". */
   };
 
   /**
@@ -7446,14 +7409,14 @@ export function FabricBomScreen({
               grams: numOrNull(z.grams),
               table_width: numOrNull(z.table_width),
               length: numOrNull(z.length),
-              width_tolerance: numOrNull(z.width_tolerance),
+              length_tolerance: numOrNull(z.length_tolerance),
       cons_qty: numOrNull(z.cons_qty),
             },
             gsmForStructure(e.structure_id),
           ),
           table_width: numOrNull(z.table_width),
           length: numOrNull(z.length),
-          width_tolerance: numOrNull(z.width_tolerance),
+          length_tolerance: numOrNull(z.length_tolerance),
       cons_qty: numOrNull(z.cons_qty),
         })),
       })),

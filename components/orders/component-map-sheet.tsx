@@ -745,11 +745,16 @@ export function ComponentMapBody({
          stop. */
       header: "Coordinate",
       width: "7rem",
-      cell: (p) => (
-        <Truncated className="text-sm text-muted-foreground">
-          {coordinateName(p.coordinate_id) ?? "—"}
-        </Truncated>
-      ),
+      /* `ClothText`, NOT A BARE `<Truncated>` (client 2026-09-03, screenshots
+         2673-2674, "took reference ui from material bom" — comparing against
+         Material BOM's own field band). Structure, Structure Type and Gsm
+         beside it all go through `ClothText`, whose `min-h-8 items-center`
+         wrapper centres the text against an h-8 control's height; this cell
+         did not, so its line sat at its own natural baseline instead of level
+         with the pickers and Selects either side of it — the one field in the
+         row that read as sunk. Same value, same muted style; only the box it
+         sits in changed. */
+      cell: (p) => <ClothText value={coordinateName(p.coordinate_id) ?? ""} />,
     },
     {
       header: "Component",

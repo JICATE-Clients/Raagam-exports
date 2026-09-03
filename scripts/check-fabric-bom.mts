@@ -54,8 +54,7 @@ import {
   calcModeOf,
   calculatedGrams,
   consumptionMap,
-  calculatedWidth,
-  toInches,
+  effectiveLength,
   gramsFor,
   requiredKg,
   manualProblem,
@@ -155,7 +154,7 @@ const sizeRow = (size_id: string, grams: number | null): ManualSizeInput => ({
   grams,
   table_width: null,
   length: null,
-  width_tolerance: null,
+  length_tolerance: null,
   cons_qty: null,
 });
 
@@ -756,49 +755,51 @@ check(
 
 // -- the calculated mode -----------------------------------------------------
 
-/* THE TOLERANCE IS ON THE WIDTH, AND IT WAS ON THE LENGTH UNTIL 2026-09-03.
-   0491 read legacy's `Length | Length Tolerance | Length` band and added the
-   allowance to the length; the client's written spec says "extra safety margin
-   added to the width" and "Calculated Width (cm) = Width + Tolerance". Both
-   readings produce a plausible weight, which is why it survived — so the vector
-   asserts the WIDTH by name. */
-check("the calculated width adds the tolerance", calculatedWidth(52, 2), 54);
-check("…and a missing tolerance is 0, not a missing width", calculatedWidth(52, null), 52);
-check("a tolerance with no width is not a width", calculatedWidth(null, 2), null);
+/* THE TOLERANCE IS ON THE LENGTH — REVERSED BACK 2026-09-03 (0524), HOURS
+   AFTER 0523 MOVED IT TO THE WIDTH ON THE AUTHORITY OF A WRITTEN SPEC
+   ("extra safety margin added to the width", "Calculated Width (cm) = Width +
+   Tolerance"). 0524 puts it back on the operator's explicit instruction after
+   being shown that spec beside a fresh legacy screenshot of the
+   `Length | Length Tolerance | Length` band this reverts to. Both readings
+   produce a plausible weight, which is why this can flip without either number
+   looking wrong on screen — so the vector asserts the LENGTH by name. */
+check("effective length adds the tolerance", effectiveLength(70, 2), 72);
+check("…and a missing tolerance is 0, not a missing length", effectiveLength(70, null), 70);
+check("a tolerance with no length is not a length", effectiveLength(null, 2), null);
 
 /* ADDED, NOT SCALED. Reading the tolerance as a percentage compiles and is wrong
-   by a factor of the width: 52 + 2 = 54, where the percentage reading gives
-   53.04 — close enough to look right on screen and wrong on every panel. */
-refute("…and is not a percentage of the width", calculatedWidth(52, 2), 52 * 1.02);
+   by a factor of the length: 70 + 2 = 72, where the percentage reading gives
+   71.4 — close enough to look right on screen and wrong on every panel. */
+refute("…and is not a percentage of the length", effectiveLength(70, 2), 70 * 1.02);
 
-/* THE CLIENT'S OWN INCHES EXAMPLE: "52 cm -> 20.4 Inches". The machine is set in
-   inches while the pattern is drawn in centimetres. */
-check("52 cm reads 20.47 inches", Math.round((toInches(52) ?? 0) * 100) / 100, 20.47);
-check("a missing width has no inch reading either", toInches(null), null);
-
-/* 54cm x 70cm x 180 g/m² / 1e4 = 68.04 g. cm² to m², x gsm, and the result is
+/* 52cm x 72cm x 180 g/m² / 1e4 = 67.392 g. cm² to m², x gsm, and the result is
    GRAMS — the unit the whole tab works in.
 
    NO x2, AND THIS IS THE VECTOR THAT SAYS SO. The first cut doubled it for
    "front and back panel"; the client's spec states the formula without it. The
    doubling was also wrong on its own terms for a neck rib, which is ONE panel —
    so it is refuted by name here rather than merely absent. */
-const measured = { table_width: 52, length: 70, width_tolerance: 2 };
-check("the panel weight is calc.width x length x gsm / 1e4, in grams", calculatedGrams(measured, 180), 68.04);
-refute("…never doubled for a front-and-back that nobody asked for", calculatedGrams(measured, 180), 136.08);
-refute("…and not 0.06804, which would be kilograms leaking in", calculatedGrams(measured, 180), 0.06804);
+const measured = { table_width: 52, length: 70, length_tolerance: 2 };
+check(
+  "the panel weight is width x calc.length x gsm / 1e4, in grams",
+  calculatedGrams(measured, 180),
+  67.392,
+);
+refute("…never doubled for a front-and-back that nobody asked for", calculatedGrams(measured, 180), 134.784);
+refute("…and not 0.067392, which would be kilograms leaking in", calculatedGrams(measured, 180), 0.067392);
 
-/* THE TOLERANCE REACHES THE WEIGHT, which is the half a `calculatedWidth` vector
-   alone cannot prove: the formula could still be multiplying the raw width. */
+/* THE TOLERANCE REACHES THE WEIGHT, which is the half an `effectiveLength`
+   vector alone cannot prove: the formula could still be multiplying the raw
+   length. */
 refute(
-  "the weight uses the CALCULATED width, not the raw one",
+  "the weight uses the CALCULATED length, not the raw one",
   calculatedGrams(measured, 180),
   (52 * 70 * 180) / GRAMS_CONVERSION,
 );
 refute(
-  "…and it is not the old length+tolerance reading either",
+  "…and it is not the 0523 width+tolerance reading either",
   calculatedGrams(measured, 180),
-  (52 * 72 * 180) / GRAMS_CONVERSION,
+  (54 * 70 * 180) / GRAMS_CONVERSION,
 );
 
 /* THE CONSTANT IS NAMED, and the client confirmed 10,000 on 2026-09-03.
@@ -807,7 +808,7 @@ refute(
 check(
   "the divisor is GRAMS_CONVERSION, not a literal buried in the expression",
   calculatedGrams(measured, 180),
-  (54 * 70 * 180) / GRAMS_CONVERSION,
+  (52 * 72 * 180) / GRAMS_CONVERSION,
 );
 
 /* IT MULTIPLIES `table_width`, NEVER `dia`. They were one word until 0495 and
@@ -815,7 +816,7 @@ check(
    table_width is the panel on the cutting table. A reader that grabbed the wrong
    one gets a plausible number — 60 dia against a 52cm panel is only 15% out,
    which is the size of error that survives review. */
-check("a dia on the row changes nothing", calculatedGrams({ ...measured, dia: 60 } as never, 180), 68.04);
+check("a dia on the row changes nothing", calculatedGrams({ ...measured, dia: 60 } as never, 180), 67.392);
 check("no table width is not a weight", calculatedGrams({ ...measured, table_width: null }, 180), null);
 check("no length is not a weight", calculatedGrams({ ...measured, length: null }, 180), null);
 check("no GSM is not a weight", calculatedGrams(measured, null), null);
@@ -831,11 +832,11 @@ const bothRow: ManualSizeInput = {
   grams: 999,
   table_width: 52,
   length: 70,
-  width_tolerance: 2,
+  length_tolerance: 2,
   cons_qty: null,
 };
 check("direct mode reads the typed grams", gramsFor("direct", bothRow, 180), 999);
-check("calculated mode reads the measurements", gramsFor("calculated", bothRow, 180), 68.04);
+check("calculated mode reads the measurements", gramsFor("calculated", bothRow, 180), 67.392);
 check("an unreadable mode falls back to direct, never to a computed figure", gramsFor("nonsense", bothRow, 180), 999);
 check("calcModeOf normalises case", calcModeOf("CALCULATED"), "calculated");
 
@@ -844,7 +845,7 @@ check("calcModeOf normalises case", calcModeOf("CALCULATED"), "calculated");
 check(
   "consumptionMap is mode-aware",
   consumptionMap("calculated", [bothRow], 180),
-  { [SZ_S]: 0.06804 },
+  { [SZ_S]: 0.067392 },
 );
 
 // -- the "no duplicate component allocation" rule ---------------------------
