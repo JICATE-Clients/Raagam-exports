@@ -129,9 +129,11 @@ import {
   calcModeOf,
   calculatedGrams,
   consumptionMap,
-  effectiveLength,
+  calculatedWidth,
+  toInches,
+  consQtyOf,
   gramsFor,
-  grossKg,
+  requiredKg,
   manualProblem,
   netKg,
   takenComponentIds,
@@ -334,7 +336,11 @@ type ManualSizeRow = {
    */
   table_width: string;
   length: string;
-  length_tolerance: string;
+  /** The cutting allowance ADDED TO THE WIDTH (0523) — `calculatedWidth`
+   *  records why this was `length_tolerance` until 2026-09-03. */
+  width_tolerance: string;
+  /** "Cons Qty" — units of cloth per garment. BLANK MEANS 1 (`consQtyOf`). */
+  cons_qty: string;
 };
 
 /**
@@ -375,6 +381,9 @@ type ManualEntryRow = {
   endbit_loss_pct: string;
   /** Legacy's "Assort Color wise" checkbox (0522). */
   assort_color_wise: boolean;
+  /** Legacy's "Size Wise" toggle (0523). TRUE — the default — gives every size
+   *  its own row; FALSE asks once and writes the answer to every size. */
+  size_wise: boolean;
   component_ids: string[];
   sizes: ManualSizeRow[];
 };
@@ -751,7 +760,8 @@ const blankManualSize = (key: string, size_id: string | null, dia = ""): ManualS
   grams: "",
   table_width: "",
   length: "",
-  length_tolerance: "",
+  width_tolerance: "",
+  cons_qty: "",
 });
 
 const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
@@ -776,6 +786,10 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
   wastage_pct: "",
   endbit_loss_pct: "",
   assort_color_wise: false,
+  /* TRUE, which is what the tab has always done. Off is the convenience, never
+     the default: a planner who has per-size figures from CAD must not have to
+     switch something on to enter them. */
+  size_wise: true,
   component_ids: [],
   sizes: [],
 });
@@ -1929,6 +1943,7 @@ export function FabricBomScreen({
         wastage_pct: e.wastage_pct == null ? "" : String(e.wastage_pct),
         endbit_loss_pct: e.endbit_loss_pct == null ? "" : String(e.endbit_loss_pct),
         assort_color_wise: e.assort_color_wise ?? false,
+        size_wise: e.size_wise ?? true,
         component_ids: (e.components ?? []).map((c) => c.component_id),
         sizes: (e.sizes ?? []).map((z) => ({
           key: newKey(),
@@ -1938,7 +1953,8 @@ export function FabricBomScreen({
           grams: z.grams == null ? "" : String(z.grams),
           table_width: z.table_width == null ? "" : String(z.table_width),
           length: z.length == null ? "" : String(z.length),
-          length_tolerance: z.length_tolerance == null ? "" : String(z.length_tolerance),
+          width_tolerance: z.width_tolerance == null ? "" : String(z.width_tolerance),
+          cons_qty: z.cons_qty == null ? "" : String(z.cons_qty),
         })),
       })),
     );
@@ -2891,7 +2907,8 @@ export function FabricBomScreen({
       grams: numOrNull(z.grams),
       table_width: numOrNull(z.table_width),
       length: numOrNull(z.length),
-      length_tolerance: numOrNull(z.length_tolerance),
+      width_tolerance: numOrNull(z.width_tolerance),
+      cons_qty: numOrNull(z.cons_qty),
     }));
 
   /**
@@ -3173,66 +3190,166 @@ export function FabricBomScreen({
     const mode = calcModeOf(e.calc_mode);
     const gsm = gsmForStructure(e.structure_id);
     const wastage = numOrNull(e.wastage_pct);
-    const set = (r: ManualDisplayRow, patch: Partial<ManualSizeRow>) =>
-      setSizeCell(e.key, r, patch);
-    const qtyOf = (r: ManualDisplayRow) =>
-      orderSizesFor(e.style_ref_no).find((z) => z.size_id === r.size_id)?.qty ?? null;
+    /* THE SECOND ALLOWANCE (0523). Legacy's row carries both and the spec
+       compounds them — see `requiredKg`. */
+    const endbit = numOrNull(e.endbit_loss_pct);
+    /**
+     * A KEYSTROKE, WRITTEN TO ONE SIZE OR TO ALL OF THEM (0523).
+     *
+     * With "Size Wise" off the grid shows a single row and the planner is
+     * answering for the whole size run, so the figure is written to EVERY size —
+     * which is what keeps the toggle a property of the QUESTION and not of the
+     * stored data. Every size still ends up with its own row carrying its own
+     * figure, identical to what five keystrokes would have produced, so nothing
+     * downstream has to know the toggle exists.
+     *
+     * `setSizeCell` IS FUNCTIONAL, so the fan-out composes: each call maps over
+     * the entries and materialises the row it addresses, and React applies them
+     * in order. Writing one merged patch instead would need this to know how
+     * `setSizeCell` materialises a row that has never been typed into. */
+    const set = (r: ManualDisplayRow, patch: Partial<ManualSizeRow>) => {
+      if (e.size_wise) return setSizeCell(e.key, r, patch);
+      for (const row of manualSizeRows(e)) setSizeCell(e.key, row, patch);
+    };
+    /**
+     * THE ORDER QUANTITY THIS ROW SPEAKS FOR.
+     *
+     * With "Size Wise" on that is the row's own size. With it OFF the single
+     * visible row answers for the WHOLE run, so this is the sum of every size —
+     * and that is not cosmetic: `Net Wt` and `Req. Wt` multiply it, and showing
+     * one size's 500 pieces under a figure that covers 2,370 would understate
+     * the purchase by a factor of five on the cell the yarn module reads.
+     *
+     * IT IS ALSO ARITHMETICALLY THE SAME ANSWER. Cons Qty and Cons Wt are
+     * identical across sizes while the toggle is off, so
+     * `Σ(qtyᵢ) x cons x wt` is `Σ(qtyᵢ x cons x wt)` — the total is exact rather
+     * than an approximation of the per-size sum.
+     */
+    const qtyOf = (r: ManualDisplayRow) => {
+      const sizes = orderSizesFor(e.style_ref_no);
+      if (!e.size_wise) {
+        const total = sizes.reduce((n, z) => n + (z.qty ?? 0), 0);
+        return sizes.length ? total : null;
+      }
+      return sizes.find((z) => z.size_id === r.size_id)?.qty ?? null;
+    };
 
+    /** This row as the arithmetic wants it, built once per cell rather than
+     *  four times. */
+    const inputOf = (r: ManualDisplayRow): ManualSizeInput => ({
+      size_id: r.size_id,
+      dia: numOrNull(r.dia),
+      purchase_width: numOrNull(r.purchase_width),
+      grams: numOrNull(r.grams),
+      table_width: numOrNull(r.table_width),
+      length: numOrNull(r.length),
+      width_tolerance: numOrNull(r.width_tolerance),
+      cons_qty: numOrNull(r.cons_qty),
+    });
+
+    /**
+     * THE CALCULATED MODE'S INPUTS, and only in that mode (client 2026-09-03:
+     * "when the user toggles the system to Calculated mode, the Piece Weight
+     * field is locked to read-only, and the following input fields are
+     * revealed"). Direct is the mode used 99.9% of the time, and in it these are
+     * not fields that are temporarily unavailable — they are not part of the
+     * question being asked.
+     */
     const measured: ChildGridColumn<ManualDisplayRow>[] = [
       {
-        /* THE PANEL WIDTH ON THE CUTTING TABLE — the client's `TableWidth`, and
-           the figure the weight multiplies. Distinct from the `Dia` column
-           above it, which is the ROLL's diameter and a constraint: the panels
-           must fit across it. One word for both is how a reader multiplies by
-           60 where 55 was meant. */
-        header: "Table width",
-        width: "7rem",
+        /* THE PANEL WIDTH — the spec's "Width (cm): the physical width of the
+           pattern block", stored as `table_width`. Distinct from the `Dia`
+           column, which is the ROLL's diameter and a constraint: the panels must
+           fit across it. One word for both is how a reader multiplies by 60
+           where 55 was meant. */
+        header: "Width",
+        width: "4.5rem",
         align: "right",
         cell: (r) => (
           <Input
             className="h-8 text-right"
             inputMode="decimal"
+            aria-label="Width (cm)"
             value={r.table_width}
             onChange={(ev) => set(r, { table_width: ev.target.value })}
           />
         ),
       },
       {
-        header: "Length",
-        width: "6rem",
+        /* THE ALLOWANCE, ON THE WIDTH (0523). It was applied to the LENGTH until
+           2026-09-03 — see `calculatedWidth` for why both readings looked right
+           and only one was. */
+        header: "Tol.",
+        width: "4rem",
         align: "right",
         cell: (r) => (
           <Input
             className="h-8 text-right"
             inputMode="decimal"
+            aria-label="Width tolerance (cm)"
+            value={r.width_tolerance}
+            onChange={(ev) => set(r, { width_tolerance: ev.target.value })}
+          />
+        ),
+      },
+      {
+        /* Width + Tolerance, derived — the figure the weight actually
+           multiplies. Text rather than a readOnly box: a derived value was not
+           typed, so it is not a field. */
+        header: "Calc. width",
+        width: "5rem",
+        align: "right",
+        cell: (r) => {
+          const w = calculatedWidth(numOrNull(r.table_width), numOrNull(r.width_tolerance));
+          return <span className="tabular-nums text-sm">{w == null ? "—" : fmtNumber(w)}</span>;
+        },
+      },
+      {
+        /* THE SAME WIDTH IN INCHES, because the knitting machine is set in
+           inches while the pattern is drawn in centimetres — the client's own
+           example is 52 cm reading 20.4". Derived from the cm cell beside it, so
+           the two can never disagree. */
+        header: "Calc. width (in)",
+        width: "5rem",
+        align: "right",
+        cell: (r) => {
+          const i = toInches(
+            calculatedWidth(numOrNull(r.table_width), numOrNull(r.width_tolerance)),
+          );
+          return <span className="tabular-nums text-sm">{i == null ? "—" : fmtNumber(i)}</span>;
+        },
+      },
+      {
+        /* The pattern length, in centimetres. */
+        header: "Length",
+        width: "4.5rem",
+        align: "right",
+        cell: (r) => (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            aria-label="Length (cm)"
             value={r.length}
             onChange={(ev) => set(r, { length: ev.target.value })}
           />
         ),
       },
       {
-        header: "Tol.",
-        width: "5rem",
-        align: "right",
-        cell: (r) => (
-          <Input
-            className="h-8 text-right"
-            inputMode="decimal"
-            value={r.length_tolerance}
-            onChange={(ev) => set(r, { length_tolerance: ev.target.value })}
-          />
-        ),
-      },
-      {
-        /* Legacy prints Length twice — the typed one and the one after the
-           tolerance. This is the second, derived, and therefore text rather than
-           a readOnly box. */
-        header: "Eff. len",
-        width: "6rem",
+        /* THE FORMULA'S OUTPUT, shown beside the inputs that produced it —
+           legacy's own "Calculated Wt" column. `Cons Wt` two along holds the
+           same figure in this mode; that is legacy's shape and not a
+           duplication to tidy away, because the two mean different things: this
+           is what the formula says, and that is what the document uses. */
+        header: "Calculated Wt",
+        width: "5.5rem",
         align: "right",
         cell: (r) => {
-          const eff = effectiveLength(numOrNull(r.length), numOrNull(r.length_tolerance));
-          return <span className="tabular-nums text-sm">{eff == null ? "—" : fmtNumber(eff)}</span>;
+          const g = calculatedGrams(inputOf(r), gsm);
+          /* A DASH, NEVER 0.000, when the GSM or a measurement is missing. The
+             order supplies the GSM and `gsmForStructure` abstains where its
+             colourways disagree, so a zero here would read as "this size needs
+             no cloth" in the column everything downstream multiplies. */
+          return <span className="tabular-nums text-sm">{g == null ? "—" : fmtNumber(g)}</span>;
         },
       },
     ];
@@ -3240,15 +3357,25 @@ export function FabricBomScreen({
     return [
       {
         header: "Size",
-        width: "6rem",
+        width: "4.5rem",
         cell: (r) => (
           <Truncated>
-            {/* TAGGED WHEN THE ORDER NO LONGER STATES IT — the same wording shape
-                as the dia's "not declared". A value the record already holds
-                always survives, and reads as the exception it is rather than
-                being silently dropped. */}
-            {r.label}
-            {r.declared ? "" : "  (not on the order)"}
+            {/* "ALL SIZES" WHILE THE TOGGLE IS OFF. The row shown is a real size
+                row — the first one — but it is standing for every size, and
+                printing "S" over a figure that covers the whole run is the one
+                thing that would make the toggle read as a filter. */}
+            {!e.size_wise ? (
+              "All sizes"
+            ) : (
+              <>
+                {/* TAGGED WHEN THE ORDER NO LONGER STATES IT — the same wording
+                    shape as the dia's "not declared". A value the record already
+                    holds always survives, and reads as the exception it is
+                    rather than being silently dropped. */}
+                {r.label}
+                {r.declared ? "" : "  (not on the order)"}
+              </>
+            )}
           </Truncated>
         ),
       },
@@ -3259,7 +3386,7 @@ export function FabricBomScreen({
            editable". A Combobox, so typed text is a SEARCH and never a stored
            value; `diaOptionsFor` keeps a held value visible and tagged. */
         header: "Dia",
-        width: "8rem",
+        width: "6.5rem",
         cell: (r) => (
           <Combobox
             compact
@@ -3277,7 +3404,7 @@ export function FabricBomScreen({
            against. Free text rather than a pick — it is a commercial figure the
            supplier quotes, not one this BOM declares anywhere. */
         header: "Purch. width",
-        width: "8rem",
+        width: "5.5rem",
         align: "right",
         cell: (r) => (
           <Input
@@ -3290,14 +3417,62 @@ export function FabricBomScreen({
       },
       ...(mode === "calculated" ? measured : []),
       {
-        header: "Grams",
-        width: "7rem",
+        /**
+         * "Cons Qty" — UNITS OF CLOTH PER GARMENT, AND A FIELD SINCE 0523.
+         *
+         * The client's spec: *"the physical length or unit quantity of fabric
+         * consumed per single garment piece (e.g. 1.25 metres per t-shirt) …
+         * the field is fully editable and acts as a manual override"*, and
+         * `Net Weight = Order Quantity x Cons Qty x Cons Wt`.
+         *
+         * IT USED TO BE THIS COLUMN'S HEADING OVER SOMETHING ELSE ENTIRELY —
+         * `netKg(orderQty, grams)`, a weight in kilograms — so the multiplier
+         * the formula names had nowhere to be typed and the column that
+         * appeared to hold it held an output.
+         *
+         * NOT `required`, because BLANK MEANS 1 (`consQtyOf`) and one panel set
+         * per garment is the ordinary case. A star here would hold the cursor on
+         * a cell whose empty state is already the right answer.
+         */
+        header: "Cons Qty",
+        width: "4.5rem",
         align: "right",
-        /* REQUIRED IN DIRECT MODE ONLY, because that is the only mode in which
-           it is a field. In calculated mode the measurements are what the star
-           belongs on — and a star over a derived cell would hold the cursor on a
-           box nothing can be typed into (AGENTS.md: a readOnly field never
-           holds, "which is why a composed name requires its SOURCES instead"). */
+        cell: (r) => (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            aria-label="Cons Qty"
+            value={r.cons_qty}
+            onChange={(ev) => set(r, { cons_qty: ev.target.value })}
+          />
+        ),
+      },
+      {
+        /**
+         * "Cons Wt" — THE PIECE WEIGHT IN GRAMS, typed in Direct and locked in
+         * Calculated (client 2026-09-03: *"the field remains fully unlocked for
+         * direct keyboard input, allowing the user to type the physical piece
+         * weight directly from the offline CAD report"*, and *"if the user
+         * toggles the mode to Calculated, the system locks the Cons Wt field and
+         * dynamically computes the piece weight"*).
+         *
+         * IT WAS DERIVED IN BOTH MODES until 0523 — it printed
+         * `grossKg(netKg(...))`, the order's whole gross weight — so the one
+         * figure the CAD room actually supplies had no cell, and the column
+         * named after it showed a total instead. The typed value is not a
+         * fallback for when the formula cannot run: Direct is the mode used
+         * 99.9% of the time, and the formula is the estimate offered when nobody
+         * has a CAD figure.
+         *
+         * REQUIRED IN DIRECT MODE ONLY, because that is the only mode in which
+         * it is a field. In calculated mode the measurements are what the star
+         * belongs on — and a star over a derived cell would hold the cursor on a
+         * box nothing can be typed into (AGENTS.md: a readOnly field never
+         * holds, "which is why a composed name requires its SOURCES instead").
+         */
+        header: "Cons Wt",
+        width: "5.5rem",
+        align: "right",
         required: mode === "direct",
         cell: (r) =>
           mode === "direct" ? (
@@ -3305,23 +3480,13 @@ export function FabricBomScreen({
               className="h-8 text-right"
               required
               inputMode="decimal"
+              aria-label="Cons Wt (grams)"
               value={r.grams}
               onChange={(ev) => set(r, { grams: ev.target.value })}
             />
           ) : (
             (() => {
-              const g = calculatedGrams(
-                {
-                  table_width: numOrNull(r.table_width),
-                  length: numOrNull(r.length),
-                  length_tolerance: numOrNull(r.length_tolerance),
-                },
-                gsm,
-              );
-              /* A DASH, NEVER 0.000, when the GSM or a measurement is missing.
-                 The order supplies the GSM and `gsmForStructure` abstains where
-                 its colourways disagree, so a zero here would read as "this size
-                 needs no cloth" in the column everything downstream multiplies. */
+              const g = calculatedGrams(inputOf(r), gsm);
               return (
                 <span className="tabular-nums text-sm">{g == null ? "—" : fmtNumber(g)}</span>
               );
@@ -3330,10 +3495,10 @@ export function FabricBomScreen({
       },
       {
         /* THE ORDER QUANTITY FOR THIS SIZE, summed across colourways — the first
-           factor of Formula 1, shown because a Net kg with no visible quantity
-           behind it is a number the planner has to take on trust. */
+           factor of the spec's Step 1, shown because a Net kg with no visible
+           quantity behind it is a number the planner has to take on trust. */
         header: "Order qty",
-        width: "7rem",
+        width: "5rem",
         align: "right",
         cell: (r) => {
           const q = qtyOf(r);
@@ -3345,48 +3510,37 @@ export function FabricBomScreen({
         },
       },
       {
-        /* THE CLIENT'S OWN WORD. It was "Net kg" until they sent the field list:
-           `Cons Qty` is what the planner and the spec both call this, and a
-           screen using a different noun for one number is how a report and a
-           conversation come to disagree about which figure is meant. */
-        header: "Cons Qty",
-        width: "7rem",
+        /* STEP 1 — Net Weight (Kg) = Order Qty x Cons Qty x Cons Wt / 1000.
+           The client's worked example: 500 x 1 x 120 g = 60 kg. */
+        header: "Net Wt",
+        width: "5rem",
         align: "right",
         cell: (r) => {
-          const g = gramsFor(e.calc_mode, {
-            size_id: r.size_id,
-            dia: numOrNull(r.dia),
-            purchase_width: numOrNull(r.purchase_width),
-            grams: numOrNull(r.grams),
-            table_width: numOrNull(r.table_width),
-            length: numOrNull(r.length),
-            length_tolerance: numOrNull(r.length_tolerance),
-          }, gsm);
-          const n = netKg(qtyOf(r), g);
+          const row = inputOf(r);
+          const n = netKg(qtyOf(r), consQtyOf(row), gramsFor(e.calc_mode, row, gsm));
           return <span className="tabular-nums text-sm">{n == null ? "—" : fmtNumber(n)}</span>;
         },
       },
       {
-        /* `Cons Wt` — the client's word again, and "the actual value dispatched
-           to the yarn purchase module". Emphasised for that reason and no
-           other: it is the figure that leaves this tab. */
-        header: "Cons Wt",
-        width: "7rem",
+        /* STEP 2 — Required Weight = Net x (1 + EndBit Loss) x (1 + Component
+           Proc. Loss). COMPOUNDED, not summed: 1% then 5% is x1.0605.
+
+           EMPHASISED, because it is the figure that leaves this tab — "the
+           actual value dispatched to the yarn purchase module". The two
+           percentages are the fabric row's own; the Fabric Process route's steps
+           compound onto this same figure further downstream, which is why this
+           column stops at the row's allowances rather than trying to show a
+           final purchase weight it cannot see. */
+        header: "Req. Wt",
+        width: "5rem",
         align: "right",
         cell: (r) => {
-          const g = gramsFor(e.calc_mode, {
-            size_id: r.size_id,
-            dia: numOrNull(r.dia),
-            purchase_width: numOrNull(r.purchase_width),
-            grams: numOrNull(r.grams),
-            table_width: numOrNull(r.table_width),
-            length: numOrNull(r.length),
-            length_tolerance: numOrNull(r.length_tolerance),
-          }, gsm);
-          const gr = grossKg(netKg(qtyOf(r), g), wastage);
+          const row = inputOf(r);
+          const n = netKg(qtyOf(r), consQtyOf(row), gramsFor(e.calc_mode, row, gsm));
+          const req = requiredKg(n, [endbit, wastage]);
           return (
             <span className="tabular-nums text-sm font-medium">
-              {gr == null ? "—" : fmtNumber(gr)}
+              {req == null ? "—" : fmtNumber(req)}
             </span>
           );
         },
@@ -3431,35 +3585,72 @@ export function FabricBomScreen({
    * `required` column one could have carried.
    */
   /**
-   * THE FABRICS THE MANUAL TAB OFFERS — the MASTER, not this BOM's own lines.
+   * THE FABRICS THE MANUAL TAB OFFERS — THIS BOM'S OWN FABRIC LINES.
    *
-   * The client asked for both of these on 2026-09-03 and they pull opposite
-   * ways: *"it will list the previous tab give fabrics"* and, an hour earlier,
-   * *"that fabric field needs to be one search with global understanding —
-   * whatever the user searches it should understand, needs to fetch the right
-   * fabric."* The master satisfies the second and CONTAINS everything the first
-   * names, so it is the reading that loses nothing.
+   * ## THE CLIENT ASKED FOR BOTH READINGS AND HAS NOW SETTLED IT
    *
-   * IT IS ALSO WHAT THIS SCREEN HAS ALREADY BEEN CORRECTED TO, THREE TIMES. The
-   * Components tab's picker read `bomFabricOptions` — the cloths this BOM's
-   * lines already name — and that list is EMPTY on a freshly seeded BOM and
-   * self-referential besides: the only way a cloth entered it was being picked,
-   * and the only control that picked it read from it. See the note where
-   * `bomFabricOptions` used to stand.
+   * On 2026-09-03 they said *"that fabric field needs to be one search with
+   * global understanding — whatever the user searches it should understand,
+   * needs to fetch the right fabric"* and, an hour later, *"it will list the
+   * previous tab give fabrics"*. Those pull opposite ways and this cell was
+   * built on the first, reasoning that the master CONTAINS everything the
+   * second names. Shown the result — a picker offering nine cloths on a BOM
+   * with no fabric lines — they were explicit (screenshot 2670): *"this manual
+   * tab fabric field fetch from the fabric master but it should get from fabric
+   * lines tab"*. The later instruction wins.
    *
-   * NOT NARROWED BY STRUCTURE EITHER, and that is the difference between this
-   * cell and the Fabric Lines one. There a row states its Structure first and
-   * the cloth is chosen under it; here the cloth is the FIRST thing chosen and
-   * the structure is derived from it (0522). A narrowing would need a parent
-   * this row does not have.
+   * IT IS ALSO THE RULE THE DOCUMENT NEEDS. A Manual entry states the weight of
+   * a cloth THIS BOM CUTS: `entryFabric` (actions.ts) attributes that weight to
+   * a fabric line, and the yarn split divides it across that fabric's
+   * composition. A cloth with no line behind it is a weight with nothing to
+   * attribute it to — the requirement engine would refuse it on save, which is
+   * a worse way to learn than not being offered it.
+   *
+   * SEARCH IS NOT WHAT NARROWS — the picker still matches on every word the
+   * operator types, over whatever it is given. Scoping the CANDIDATES and
+   * understanding the QUERY are independent, so the first instruction survives
+   * this change intact.
+   *
+   * ## WHY `bomFabricOptions`' TWO OBJECTIONS DO NOT APPLY HERE
+   *
+   * That list was deleted on 2026-09-02 (see the note where it stood) for two
+   * reasons, and only one of them was ever about this tab:
+   *
+   *  - **Self-reference.** On COMPONENTS it was fatal: the only way a cloth
+   *    entered the list was being picked, and the only control that picked it
+   *    read from the list. Here there is no such loop — this picker sets
+   *    `entry.item_id`, never a LINE's, and the lines are named on Fabric Lines
+   *    and Components. Nothing this cell does can add to its own options.
+   *  - **Empty on a seeded BOM.** That one is REAL and is live right now: the
+   *    order in screenshot 2670 has 0 fabric lines, so this list is empty on it.
+   *    It is answered rather than dodged — the picker carries an `emptyHint`
+   *    naming the tab that fills it. Empty-and-explain, never a silent fallback
+   *    to the master: a fallback would make the scoping advisory and the
+   *    operator would never learn which tab actually owns the answer.
+   *
+   * NOT NARROWED BY STRUCTURE, which is unchanged and is the difference between
+   * this cell and the Fabric Lines one. There a row states its Structure first
+   * and the cloth is chosen under it; here the cloth is the FIRST thing chosen
+   * and the structure is derived from it (0522). A structure narrowing would
+   * need a parent this row does not have.
    */
   const manualFabricOptions = (held: string | null) => {
-    if (!held || fabrics.some((f) => f.id === held)) return fabrics;
-    /* THE HELD CLOTH ALWAYS SURVIVES — AGENTS.md, "Disabled rows". A fabric
-       since removed from the master would otherwise render the cell empty and
-       the next Save would write that emptiness over a real FK. */
+    /* THE MASTER ROWS, FILTERED BY THE LINES — not rows rebuilt from the lines.
+       `setEntryFabric` reads `category_id` off the row it is handed and
+       `entryUnitName` reads `base_uom_id`, so the option has to be the whole
+       master row; a `{id, name}` shaped from a line would set the structure to
+       null and blank the MeasurementUnit cell. */
+    const named = new Set(lines.map((l) => l.item_id).filter(Boolean));
+    const scoped = fabrics.filter((f) => named.has(f.id));
+    if (!held || scoped.some((f) => f.id === held)) return scoped;
+    /* THE HELD CLOTH ALWAYS SURVIVES — AGENTS.md, "Disabled rows", and it
+       matters MORE now than under the master: a planner who names a cloth here
+       and then removes its line on Fabric Lines would otherwise watch this cell
+       empty itself, and the next Save would write that emptiness over a real FK.
+       Re-admitted AFTER the filter, so one row keeping its value never widens
+       the list for any other. */
     const row = fabrics.find((f) => f.id === held);
-    return row ? [...fabrics, row] : fabrics;
+    return row ? [...scoped, row] : scoped;
   };
 
   /** The entry's cloth, resolved once. Null while none is named. */
@@ -3548,25 +3739,32 @@ export function FabricBomScreen({
   const manualEntryColumns: ManualEntryColumn[] = [
     {
       header: "Fabric",
-      width: "13rem",
+      width: "11rem",
       cell: (e) => (
         <RecordPicker
           label="Fabric"
           compact
           required
-          /* THE MASTER, GLOBALLY SEARCHABLE — see `manualFabricOptions` for why
-             this is not narrowed to the BOM's own lines and not scoped by a
-             structure the row no longer names. */
+          /* THIS BOM'S OWN FABRIC LINES — see `manualFabricOptions`. Still not
+             scoped by a structure the row no longer names. */
           items={manualFabricOptions(e.item_id)}
           value={e.item_id}
           onChange={(id) => setEntryFabric(e, id)}
+          /* EMPTY-AND-EXPLAIN, and this list is legitimately empty on a BOM
+             whose lines name no cloth yet — which is every freshly seeded one
+             (screenshot 2670 shows exactly that state). A bare "— Select —"
+             over nothing reads as a broken dropdown and teaches the planner
+             nothing; naming the tab that fills it is the whole difference.
+             Same call the Yarn Process picker makes for an unflagged process
+             master (AGENTS.md, nominated vendors). */
+          emptyHint="No fabric on this BOM yet — name one on Fabric Lines first, and it appears here"
         />
       ),
     },
     {
       header: "Type",
       cardLabel: "Knit type",
-      width: "5.5rem",
+      width: "4.5rem",
       /* DERIVED AND READ-ONLY. Plain text rather than a `readOnly` box: a
          derived value was not typed, so it is not a field — the same call the
          Eff. len and Cons Wt cells make one level down. */
@@ -3574,7 +3772,7 @@ export function FabricBomScreen({
     },
     {
       header: "Gsm",
-      width: "4.5rem",
+      width: "4rem",
       align: "right",
       /* THE ORDER'S, abstaining where its colourways disagree. `gsmForStructure`
          is the same function the Save gate and the server's own lookup read, and
@@ -3587,7 +3785,7 @@ export function FabricBomScreen({
     {
       header: "Type",
       cardLabel: "Roll form",
-      width: "6.5rem",
+      width: "6rem",
       cell: (e) => (
         <Select
           compact
@@ -3609,7 +3807,7 @@ export function FabricBomScreen({
     },
     {
       header: "Calculated",
-      width: "6.5rem",
+      width: "6rem",
       cell: (e) => (
         <Select
           compact
@@ -3630,7 +3828,7 @@ export function FabricBomScreen({
     },
     {
       header: "MeasurementUnit",
-      width: "5.5rem",
+      width: "5rem",
       /* THE CLOTH'S OWN BASE UNIT, which is the unit the requirement is stored
          in — `entryFabric` on the server reads the same column. Blank until a
          fabric is named, which is what legacy's own screenshot shows. */
@@ -3638,7 +3836,7 @@ export function FabricBomScreen({
     },
     {
       header: "Assort Color wise",
-      width: "5rem",
+      width: "4.5rem",
       align: "center",
       cell: (e) => (
         <input
@@ -3653,8 +3851,40 @@ export function FabricBomScreen({
       ),
     },
     {
+      /**
+       * LEGACY'S "SIZE WISE" TOGGLE (client 2026-09-03: *"if the Size Wise
+       * toggle is unchecked, the system applies a single, flat consumption
+       * quantity across all sizes; if checked, the grid expands to display
+       * size-specific rows"*).
+       *
+       * ON BY DEFAULT, which is what this tab has always done. Off is the
+       * convenience — one figure typed once — and never the default: a planner
+       * holding per-size CAD figures must not have to switch something on to
+       * enter them.
+       *
+       * IT CHANGES WHAT IS ASKED, NEVER WHAT IS STORED. Unchecked, the grid
+       * shows one row and every keystroke is written to EVERY size (see `set` in
+       * `sizeColumns`), so the stored rows are identical to what the planner
+       * would have typed five times. That is why this is a boolean on the entry
+       * rather than a nullable `size_id` on the size table: a second storage
+       * shape would need every downstream reader to learn about it.
+       */
+      header: "Size Wise",
+      width: "4rem",
+      align: "center",
+      cell: (e) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-primary"
+          aria-label="Size Wise"
+          checked={e.size_wise}
+          onChange={(ev) => setEntryCell(e.key, { size_wise: ev.target.checked })}
+        />
+      ),
+    },
+    {
       header: "EndBit Loss %",
-      width: "5.5rem",
+      width: "5rem",
       align: "right",
       cell: (e) => (
         <Input
@@ -3668,7 +3898,7 @@ export function FabricBomScreen({
     },
     {
       header: "Component Proc. Loss %",
-      width: "6rem",
+      width: "5.5rem",
       align: "right",
       /* `wastage_pct` UNDER LEGACY'S NAME. 0494 called it "Wastage / Damage %"
          from the client's written spec; legacy's own header for the same cell —
@@ -3686,7 +3916,7 @@ export function FabricBomScreen({
     },
     {
       header: "Components",
-      width: "5rem",
+      width: "4.5rem",
       align: "center",
       /* LEGACY'S [Click], opening the panel list this weight covers. The COUNT
          rides on it because a cell reading only "Click" says nothing about
@@ -3706,7 +3936,7 @@ export function FabricBomScreen({
     },
     {
       header: "Assort Color",
-      width: "5rem",
+      width: "4.5rem",
       align: "center",
       /* DECLARED AND NOT YET BUILT, and it says so where the operator is
          standing rather than doing nothing when clicked. Legacy opens a
@@ -3834,7 +4064,33 @@ export function FabricBomScreen({
             sizes they are about to enter. A chevron would be a second way to say
             the same thing and one more stop on the way along the row. */}
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+          {/* `table-fixed` IS WHAT MAKES THE `<colgroup>` MEAN ANYTHING, and
+              leaving it off is why this row was "uneven" on four machines and
+              fine on the one it was written on (client 2026-09-03, screenshot
+              2670).
+
+              Under the default `table-layout: auto` a declared width is a
+              SUGGESTION: the browser sizes each column from its CONTENT and the
+              space available. Every cell in this row is a control, and the
+              Fabric cell is a real `<input>` with an intrinsic width of its own,
+              so the widths that actually came out depended on the machine's
+              fonts, its zoom and its display scaling — which is exactly a layout
+              that renders differently on every desk.
+
+              `child-grid.tsx` already had this in writing, from the same fault:
+              "under the default `table-layout: auto` a `<th>` width is a
+              SUGGESTION — the browser still distributes by content and available
+              space, so ten declared columns in a narrow container were all
+              squeezed together and every picker read `— S…`" (client
+              2026-08-11). Hand-rolling the table meant hand-rolling that rule
+              too, and this is the half that was missed.
+
+              THE BUDGET FITS RATHER THAN SCROLLS: 65rem of columns + 72px of
+              `#` / `✕` chrome is ~1112px against a ~1250px pane, so nothing
+              moves sideways at 100%. On a scaled display it exceeds the pane and
+              the wrapper scrolls — which is the honest failure, and unlike the
+              old one it is the SAME layout everywhere. */}
+          <table className="w-full table-fixed border-collapse text-sm">
             <colgroup>
               <col className="w-10" />
               {manualEntryColumns.map((c, i) => (
@@ -3855,7 +4111,11 @@ export function FabricBomScreen({
                     key={i}
                     className={cn(
                       GRID_HEADER_TEXT,
-                      "px-2 py-1.5",
+                      /* `break-words`: under `table-fixed` a column cannot widen
+                         for its heading, and "MeasurementUnit" is one unbroken
+                         word wider than its track. Without this it overflows the
+                         cell instead of wrapping inside it. */
+                      "px-2 py-1.5 break-words",
                       c.align === "right"
                         ? "text-right"
                         : c.align === "center"
@@ -3941,7 +4201,17 @@ export function FabricBomScreen({
                                the caption; a second heading here would name the
                                same thing twice. */
                             columns={sizeColumns(e)}
-                            rows={manualSizeRows(e)}
+                            /* ONE ROW WHEN "SIZE WISE" IS OFF — the planner
+                               answers once for the whole run and `set` fans the
+                               figure out to every size. The FIRST row is the one
+                               shown rather than a synthetic "all sizes" row, so
+                               the cells it renders are real stored cells and
+                               `setSizeCell` needs no second addressing mode. */
+                            rows={
+                              e.size_wise
+                                ? manualSizeRows(e)
+                                : manualSizeRows(e).slice(0, 1)
+                            }
                             /* The rows are the ORDER's sizes — no "+ Add", no ✕,
                                and `hideRemove` rather than `lockExisting`
                                because they are re-derived on every render. */
@@ -7157,6 +7427,7 @@ export function FabricBomScreen({
         wastage_pct: numOrNull(e.wastage_pct) ?? 0,
         endbit_loss_pct: numOrNull(e.endbit_loss_pct) ?? 0,
         assort_color_wise: e.assort_color_wise,
+        size_wise: e.size_wise,
         component_ids: e.component_ids,
         sizes: e.sizes.map((z, zi) => ({
           sno: zi + 1,
@@ -7175,13 +7446,15 @@ export function FabricBomScreen({
               grams: numOrNull(z.grams),
               table_width: numOrNull(z.table_width),
               length: numOrNull(z.length),
-              length_tolerance: numOrNull(z.length_tolerance),
+              width_tolerance: numOrNull(z.width_tolerance),
+      cons_qty: numOrNull(z.cons_qty),
             },
             gsmForStructure(e.structure_id),
           ),
           table_width: numOrNull(z.table_width),
           length: numOrNull(z.length),
-          length_tolerance: numOrNull(z.length_tolerance),
+          width_tolerance: numOrNull(z.width_tolerance),
+      cons_qty: numOrNull(z.cons_qty),
         })),
       })),
       /* THE ROUTES (0492), a plain sibling of `dias` — they name their fabric by

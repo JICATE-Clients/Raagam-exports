@@ -144,6 +144,8 @@ export interface FabricBomManualEntry {
   endbit_loss_pct: number | null;
   /** Legacy's "Assort Color wise" checkbox on the same row (0522). */
   assort_color_wise: boolean;
+  /** Legacy's "Size Wise" toggle (0523) — TRUE gives every size its own row. */
+  size_wise: boolean;
   components: FabricBomManualComponent[];
   sizes: FabricBomManualSize[];
 }
@@ -159,8 +161,9 @@ export interface FabricBomManualComponent {
  * One size of one entry.
  *
  * `grams` IS STORED IN BOTH MODES — typed in direct, derived in calculated — so
- * no downstream reader has to know which produced it. `width` / `length` /
- * `length_tolerance` are the calculated mode's INPUTS, not second answers.
+ * no downstream reader has to know which produced it. `table_width` /
+ * `width_tolerance` / `length` are the calculated mode's INPUTS, not second
+ * answers; `cons_qty` is typed in both.
  */
 export interface FabricBomManualSize {
   id: string;
@@ -179,7 +182,12 @@ export interface FabricBomManualSize {
    *  two words could not both be "width". */
   table_width: number | null;
   length: number | null;
-  length_tolerance: number | null;
+  /** The cutting allowance ADDED TO THE WIDTH (0523). It was `length_tolerance`
+   *  and applied to the length until 2026-09-03 — see `calculatedWidth`. */
+  width_tolerance: number | null;
+  /** "Cons Qty" — units of cloth per garment (0523). NULL means 1; read it
+   *  through `consQtyOf`, never with `?? 0`. */
+  cons_qty: number | null;
 }
 
 /**
@@ -439,7 +447,13 @@ export const fabricBomManualSizeInput = z.object({
   grams: numN,
   table_width: numN,
   length: numN,
-  length_tolerance: numN,
+  /* THE ALLOWANCE IS ON THE WIDTH (0523) — `calculatedWidth` records why this
+     was `length_tolerance` and applied to the length until 2026-09-03. */
+  width_tolerance: numN,
+  /* "Cons Qty" — units of cloth per garment. NULLABLE and NULL MEANS 1: a
+     column default would make an untouched row indistinguishable from a
+     deliberate 1. `consQtyOf` is the one place that reading lives. */
+  cons_qty: numN,
 });
 
 /**
@@ -484,6 +498,11 @@ export const fabricBomManualEntryInput = z.object({
   endbit_loss_pct: z.coerce.number().min(0).max(100).nullable().default(0),
   /* Legacy's "Assort Color wise" checkbox on the same row (0522). */
   assort_color_wise: z.coerce.boolean().default(false),
+  /* Legacy's "Size Wise" toggle (0523). TRUE — the default and the existing
+     behaviour — gives every size its own row; FALSE lets the planner type one
+     figure that the screen writes to every size, so it changes what is ASKED
+     and never what is stored. */
+  size_wise: z.coerce.boolean().default(true),
   component_ids: z.array(z.string().uuid()).default([]),
   sizes: z.array(fabricBomManualSizeInput).default([]),
 });

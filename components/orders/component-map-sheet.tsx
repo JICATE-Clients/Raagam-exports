@@ -1215,7 +1215,30 @@ export function ComponentMapBody({
               own card fallback. If the panel level needs one, it is a second
               renderer here, not a change to the shape. */}
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+            {/* `table-fixed` IS WHAT MAKES THE `<th style={{width}}>` BELOW MEAN
+                ANYTHING (client 2026-09-03, screenshot 2670: "it works in my
+                system but on 4 other systems it's a css error … uneven aligned
+                ui").
+
+                Under the default `table-layout: auto` a declared width is a
+                SUGGESTION — the browser sizes each column from its CONTENT and
+                the space available — and every cell in this row is a control,
+                the Fabric and Component cells real pickers with intrinsic widths
+                of their own. So the columns that actually came out depended on
+                the machine's fonts, its zoom and its display scaling. The
+                client's own machine reports 125%: a 1920px screen is 1536 CSS
+                px, which is a different layout from the 1920 it was built on.
+
+                THIS IS THE DRIFT THE NOTE ABOVE ALREADY PREDICTED, one rule
+                further along: "a hand-rolled grid owes the primitive its RULES,
+                not just its columns". `child-grid.tsx` has carried this one in
+                writing since 2026-08-11 — "under the default `table-layout:
+                auto` a `<th>` width is a SUGGESTION … every picker read `— S…`"
+                — and it never reached this copy either.
+
+                62rem of columns + 36px for `#` is ~1028px against a ~1310px
+                pane at 125%, so the row fits rather than scrolling. */}
+            <table className="w-full table-fixed border-collapse text-sm">
               <thead>
                 <tr>
                   {/* NO FILL ON THE HEADER, AND THIS IS `ChildGrid`'S RULE RATHER
