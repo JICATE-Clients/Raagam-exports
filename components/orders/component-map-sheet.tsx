@@ -118,15 +118,14 @@
  * than a fold that is long".
  */
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Truncated } from "@/components/ui/truncated";
-import { Button } from "@/components/ui/button";
-import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   FABRIC_FORM_OPTIONS,
   availablePanels,
@@ -445,7 +444,6 @@ export function ComponentMapBody({
    * already open returns the same key, so React bails out instead of re-rendering
    * on every Tab within a row.
    */
-  const [openPanel, setOpenPanel] = useState<string | null>(null);
 
   const panels: PanelGroup[] = useMemo(() => {
     const out: PanelGroup[] = [];
@@ -986,301 +984,226 @@ export function ComponentMapBody({
   ];
 
   return (
-      <div className="space-y-4">
-          {/* LEVEL 1 — THE STYLE (client 2026-09-02, legacy screenshot 2613:
-              `S No | StyleRefNo | StyleNo | ArticleNo`).
+    <div className="space-y-4">
+      {/* LEVEL 1 — THE STYLE (client 2026-09-02, legacy screenshot 2613:
+          `S No | StyleRefNo | StyleNo | ArticleNo`).
 
-              READ-ONLY AND NOT A GRID. Legacy draws it as the outer band of a
-              three-level tree and it is genuinely one row here — the tree is
-              scoped to one style — so a grid around it would be chrome with a
-              header, an ordinal and an "+ Add" for something nobody adds from
-              this screen. Plain text also keeps it off the Tab path, the same
-              call the Coordinate column makes: nothing is typed, so nothing
-              should be a tab stop.
+          READ-ONLY AND NOT A GRID. Legacy draws it as the outer band of a
+          three-level tree and it is genuinely one row here — the tree is
+          scoped to one style — so a grid around it would be chrome with a
+          header, an ordinal and an "+ Add" for something nobody adds from
+          this screen. Plain text also keeps it off the Tab path, the same
+          call the Coordinate column makes: nothing is typed, so nothing
+          should be a tab stop.
 
-              IT PRINTS THE REF EVEN WHEN THE ORDER CANNOT NAME THE STYLE. A line
-              carries `style_ref_no` by value, so the ref is always known; Style
-              No and Article No come from the order's combo tree and dash when it
-              has nothing to say. */}
-          <dl className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-1 rounded-md border border-border bg-surface-muted px-3 py-2">
-            {[
-              { label: "Style Ref No", value: styleIdentity?.ref || styleRefNo },
-              { label: "Style No", value: styleIdentity?.style ?? "" },
-              { label: "Article No", value: styleIdentity?.article ?? "" },
-            ].map((f) => (
-              <div key={f.label}>
-                <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-                  {f.label}
-                </dt>
-                <dd className="m-0 text-sm font-medium">
-                  <Truncated>{f.value || "—"}</Truncated>
-                </dd>
-              </div>
-            ))}
-          </dl>
-
-          {/* LEVEL 2 + LEVEL 3 — THE PANELS, EACH WITH ITS OWN SPLIT DIRECTLY
-              BENEATH IT (client 2026-09-02, artifact approved: "need to split it
-              below of that actual coordinate, not like this manner").
-
-              ## WHY THIS IS A HAND-WRITTEN `<table>` AND NOT A `ChildGrid`
-
-              `ChildGrid` has no row-detail slot in table mode — its own note says
-              a nested grid is "markup the caller emits" — and that limit is
-              exactly what produced the layout the client rejected: with nowhere
-              to put a detail row, every panel's split stacked underneath the
-              whole table. Both splits then read "PANEL — COLOURWAYS", because a
-              split names its panel by Component and neither had been picked, so
-              nothing on screen tied either one to a row.
-
-              A full-width row BETWEEN records is the only shape that cannot come
-              adrift, and it is one only the caller can write. So the outer grid
-              is ours; the colourway grids inside it stay `ChildGrid`s.
-
-              ## THE CONTRACT MARKERS ARE CARRIED DELIBERATELY
-
-              AGENTS.md is explicit that a hand-rolled grid is how ~22 screens
-              drifted off the keyboard contract, and that the fix is never
-              per-screen. This grid is hand-rolled for a layout reason, so it pays
-              the contract in full rather than opting out of it:
-
-                · `data-grid-body` + `gridKeyNav` on the SAME element — the
-                  handler reads `e.currentTarget`, so they cannot be split;
-                · `data-grid-row` per record, which is the axis ↑↓←→ walk and what
-                  scopes `ownDescendants`;
-                · `data-row-remove` on each ✕, so Ctrl+Del still deletes a panel
-                  now that Tab lands on fields only;
-                · `data-row-add` on "+ Add part", which is what Enter steers by.
-
-              Nothing here sets `tabIndex` — `cycleTab` already skips non-fields
-              on every surface, and a local override is the per-component patch
-              the rule bans (it would also drop the ✕ out of screen-reader order).
-
-              ## WHAT IS LOST, STATED RATHER THAN DISCOVERED
-
-              The `#` ordinal, the header band and the row chrome came free from
-              `ChildGrid` and are now written here. That is the one place this can
-              drift from the Fabric Lines grid beside it — so the columns stay
-              declared in `panelColumns`, and the header row and the body read the
-              SAME array. A column added there appears in both or in neither.
-
-              THE STACKED-CARD FALLBACK IS ALSO GONE, and this is the real cost.
-              `ChildGrid` swaps to cards below `tableFrom`; this table scrolls
-              sideways instead. On a phone that is worse, and this app ships as an
-              installed PWA — but a full-width detail row is a TABLE construct, so
-              a card layout would have to re-invent the nesting the client asked
-              for rather than degrade to it. The colourway grids inside keep their
-              own card fallback. If the panel level needs one, it is a second
-              renderer here, not a change to the shape. */}
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className="w-9 whitespace-nowrap border-b border-border bg-surface-muted px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[.07em] text-muted-foreground">
-                    #
-                  </th>
-                  {panelColumns.map((c) => (
-                    <th
-                      key={c.header}
-                      style={c.width ? { width: c.width } : undefined}
-                      className={`whitespace-nowrap border-b border-border bg-surface-muted px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[.07em] text-muted-foreground ${
-                        c.align === "right" ? "text-right" : "text-left"
-                      }`}
-                    >
-                      {c.header}
-                      {/* required-star: exempt -- DERIVED FROM `ChildGridColumn.required`,
-                          not typed. This is the star `ChildGrid` draws from the same
-                          prop; it is written out here only because the outer grid is
-                          hand-rolled for the split row below, and the check reads a
-                          literal `*` in source without seeing what produced it.
-
-                          BOTH HALVES ARE PRESENT, which is what the rule actually
-                          asks for and what AGENTS.md calls declaring `required`
-                          TWICE on a grid that renders its own row: `required: true`
-                          on the column draws this star, and the CONTROL inside the
-                          cell carries `required` too (RecordPicker on Component,
-                          Select on Open/Tubular) — so the field stamps
-                          `data-required-empty` and the cursor holds. A star with
-                          nothing behind it is the exact divergence being guarded
-                          against, and it is not what this is. */}
-                      {c.required && <span className="text-danger">*</span> /* required-star: exempt -- derived from `ChildGridColumn.required`, and the cell's control carries `required` too, so the cursor genuinely holds. Full reasoning directly above; the marker sits on THIS line because a JSX comment block closes with a brace that `exempt_above` reads as code, so its walk upward stops before reaching it. */}
-                    </th>
-                  ))}
-                  <th className="w-9 border-b border-border bg-surface-muted" />
-                </tr>
-              </thead>
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
-                {panels.map((p, i) => (
-                  <Fragment key={p.key}>
-                    <tr
-                      data-grid-row
-                      /* FOCUS OPENS IT — the keyboard's whole route in, and the
-                         auto-close in one handler: arriving anywhere in a row
-                         makes that row the open one, so moving to the next panel
-                         shuts the previous. `onFocus` bubbles, so this catches
-                         the mouse and the keyboard alike. */
-                      onFocus={() => setOpenPanel((k) => (k === p.key ? k : p.key))}
-                      /* AND A CLICK ANYWHERE, MINUS BUTTONS. The row's ✕ is
-                         inside this handler's reach, and unfolding a panel on the
-                         way to deleting it is a flicker with no purpose. */
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest("button")) return;
-                        setOpenPanel(p.key);
-                      }}
-                      className={
-                        openPanel === p.key ? "bg-surface-muted/60" : "cursor-pointer"
-                      }
-                    >
-                      <td className="border-b border-border/50 px-2 py-1.5 text-xs tabular-nums text-muted-foreground">
-                        {i + 1}
-                      </td>
-                      {panelColumns.map((c, ci) => (
-                        <td
-                          key={c.header}
-                          className={`border-b border-border/50 px-2 py-1.5 align-middle ${
-                            c.align === "right" ? "text-right" : ""
-                          }`}
-                        >
-                          {c.cell(p, ci)}
-                        </td>
-                      ))}
-                      <td className="border-b border-border/50 px-1 py-1.5 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          data-row-remove
-                          aria-label={`Remove ${componentName(p.component_id) ?? "panel"}`}
-                          className="text-danger hover:text-danger"
-                          onClick={() => onRemovePanel(p.key)}
-                        >
-                          ✕
-                        </Button>
-                      </td>
-                    </tr>
-
-                    {/* THE SPLIT — a full-width row of THIS table, so it can
-                        never come adrift from the record above it. Indented past
-                        the ordinal and rail-marked, which is what says
-                        "subordinate" without a second frame; the caption names
-                        the panel, because the whole failure of the stacked
-                        version was two splits that could not say whose they
-                        were.
-
-                        RENDERED ONLY WHILE OPEN, never hidden with CSS. A
-                        display-hidden row keeps its fields in the DOM, and
-                        `focusablesIn` tests `offsetParent` — so Tab would skip
-                        them correctly, but `landOnAddedRow` diffs the grid body
-                        to find what APPEARED, and fields that were always there
-                        are not new. Unmounting is what makes the open land
-                        somewhere. */}
-                    {openPanel === p.key && (
-                    <tr>
-                      <td colSpan={panelColumns.length + 2} className="bg-surface-muted p-0 pl-9">
-                        <div className="border-l-[3px] border-primary bg-surface px-3 pb-3 pt-2.5">
-                          <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[.09em] text-primary">
-                            Colourways{" "}
-                            <span className="font-normal tracking-[.04em] text-muted-foreground">
-                              of {componentName(p.component_id) || "this panel"}
-                            </span>
-                          </div>
-                          <ChildGrid<MapLine>
-                            /* grid-caption: exempt -- the line above names this
-                               grid AND the panel it belongs to, which a caption
-                               cannot say. */
-                            columns={colourColumns}
-                            rows={p.lines}
-                            tableFrom="6xl"
-                            /* NO "+ Add" AND NO ✕. A panel is N lines, one per
-                               colourway, and `onAddPanel` writes all N — an Add
-                               here would invent a colourway the order does not
-                               declare and a ✕ would delete one it does.
-                               `hideRemove` rather than `lockExisting`, because
-                               these rows are re-derived on every render and
-                               `lockExisting` guards only the set present at
-                               mount. */
-                            hideAdd
-                            hideRemove
-                            onAdd={() => false}
-                            onRemove={() => {}}
-                            renderMobileRow={(row, ri) => (
-                              <FieldGrid>
-                                {colourColumns.map((c, ci) => (
-                                  /* `required={c.required}` IS NOT OPTIONAL HERE.
-                                     A grid that renders its own row calls this
-                                     INSTEAD of the `columns.map()` that wraps
-                                     each cell in `RequiredScope`, so
-                                     `ChildGridColumn.required` never reaches the
-                                     control — and the trap is that it still does
-                                     HALF its job: the header `*` draws, and
-                                     nothing holds. A star with nothing behind it
-                                     is the exact divergence the one-declaration
-                                     rule exists to make impossible, arriving
-                                     through the prop that is meant to guarantee
-                                     it (AGENTS.md, "Mandatory fields"). Four
-                                     screens rediscovered this independently;
-                                     `--check grid-required-mobile` is why this
-                                     one did not have to. */
-                                  <Field key={ci} label={c.header} required={c.required} size="sm">
-                                    {c.cell(row, ri)}
-                                  </Field>
-                                ))}
-                              </FieldGrid>
-                            )}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
+          IT PRINTS THE REF EVEN WHEN THE ORDER CANNOT NAME THE STYLE. A line
+          carries `style_ref_no` by value, so the ref is always known; Style
+          No and Article No come from the order's combo tree and dash when it
+          has nothing to say. */}
+      <dl className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-1 rounded-md border border-border bg-surface-muted px-3 py-2">
+        {[
+          { label: "Style Ref No", value: styleIdentity?.ref || styleRefNo },
+          { label: "Style No", value: styleIdentity?.style ?? "" },
+          { label: "Article No", value: styleIdentity?.article ?? "" },
+        ].map((f) => (
+          <div key={f.label}>
+            <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+              {f.label}
+            </dt>
+            <dd className="m-0 text-sm font-medium">
+              <Truncated>{f.value || "—"}</Truncated>
+            </dd>
           </div>
+        ))}
+      </dl>
 
-          {/* `data-row-add` IS WHAT Tab STEERS BY. Enter or Tab off the last field
-              LANDS on this button and a second Enter is what adds — the client's
-              2026-08-19 reversal — and it needs no key handler: `enterAdvances`
-              stands down on anything that is not an input/select/trigger, so the
-              browser's native click fires. */}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-row-add
-            className="w-32"
-            onClick={() => {
-              /* RULE 2b — "when a structured fabric like Rib is selected, its
-                 component should automatically default to Neck".
+      {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE (client 2026-09-03,
+          approved from the artifact: panels on the left, the open panel on the
+          right).
 
-                 IT IS NOT A RULE ABOUT RIBS. `solePanel` fills the cell only when
-                 the style leaves exactly ONE panel available against this fabric,
-                 which on the client's own tee is NECK under 1X1 LYCRA RIB and
-                 nothing under Single Jersey (three panels, so nothing to default
-                 to). A style that ribs a cuff as well gets two options and no
-                 guess — and a guessed FK reads on screen exactly like a chosen
-                 one.
+          ## THIS IS `ChildGrid`'s `masterDetail`, NOT A LAYOUT BUILT HERE
 
-                 COMPUTED AT THE MOMENT OF ADDING, over the panels already mapped,
-                 so the third Add on a Single Jersey with two panels taken DOES
-                 default to the one that is left — the client's rule 4, for free. */
-              const seed = solePanel(
-                availablePanels({
-                  decls,
-                  siblings: allLines,
-                  styleRefNo,
-                  structureId,
-                  held: null,
-                }),
-              );
-              onAddPanel({
-                component_id: seed?.component_id ?? null,
-                coordinate_id: seed?.coordinate_id ?? null,
-              });
-            }}
-          >
-            + Add part
-          </Button>
-        </div>
+          The rail, its 3px active border, its scroll cap, and its keyboard
+          (↑↓ carry the selection, Enter drops the cursor into the form,
+          roving tabindex so the pane costs ONE Tab stop) are all the
+          primitive's — see `mdListKeyNav` in child-grid.tsx. The one screen
+          that had this before is Material BOM, and the prop set is copied from
+          it rather than rediscovered: `forceCards flatRows foldRows
+          masterDetail` plus a `renderListItem`.
+
+          ## WHAT THIS REPLACES, AND WHY THE TABLE COULD NOT DO IT
+
+          A hand-written `<table>` stood here with each panel's colourways as a
+          full-width row beneath it. Its own note explained the reason: "`ChildGrid`
+          has no row-detail slot in table mode". That is true of TABLE mode only.
+          In cards mode the row body is `renderMobileRow`, so the nested grid is
+          simply part of it — which is why this version needs no
+          `<thead>`/`<tbody>`, no `openPanel` state, and no hand-rolled
+          `RequiredScope`: the fold, the ordinal, the ✕, `data-row-remove`,
+          Ctrl+Del and the required-star contract all come back from the grid.
+
+          ## THE RAIL APPEARS AT TWO PANELS, NOT ONE
+
+          `mdActive` is `masterDetail && rows.length > 1`. A style with a single
+          panel renders as one plain card with no rail, which is right: a list of
+          one is not a list, and the same rule already governs Material BOM. */}
+      <ChildGrid<PanelGroup>
+        /* grid-caption: exempt -- the style band above names this grid, and it
+           is the only grid at this level. */
+        columns={panelColumns}
+        rows={panels}
+        /* CARDS, NOT A TABLE, and it is `masterDetail` that requires it: a
+           `<tr>` cannot be a pane. `flatRows` keeps the section in ONE frame
+           rather than a box per panel (the operator's standing rule). */
+        forceCards
+        flatRows
+        /* ONE PANEL OPEN AT A TIME, which the row itself is the affordance for
+           — focus or click opens it, exactly as the table did and as Order
+           Entry's Structure Details does. There is no toggle control. */
+        foldRows
+        masterDetail
+        /* INERT BY CONTRACT (see the prop): text and chips, nothing focusable.
+           The fields live in the pane next door, and anything tabbable here
+           would be a second stop per panel on a surface whose whole point is
+           that it has one. */
+        renderListItem={(p) => {
+          const name = componentName(p.component_id);
+          const coord = coordinateName(p.coordinate_id);
+          return (
+            <>
+              <span className="block truncate text-sm font-semibold">
+                {name || "New part"}
+              </span>
+              <span className="mt-1 flex flex-wrap items-center gap-1">
+                {coord && (
+                  <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                    {coord}
+                  </span>
+                )}
+                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+                  {p.lines.length} {p.lines.length === 1 ? "colourway" : "colourways"}
+                </span>
+              </span>
+            </>
+          );
+        }}
+        /* REQUIRED BY `foldRows` AND ALL BUT UNUSED: with the rail active the
+           folded rows ARE the rail and render nowhere else. It still has to
+           exist — the grid gates its open-on-focus handler on
+           `foldRows && renderFoldedRow` — and it IS what a single-panel style
+           shows, where there is no rail. */
+        renderFoldedRow={(p) => (
+          <span className="text-sm font-medium">
+            {componentName(p.component_id) || "New part"}
+          </span>
+        )}
+        /* THE DETAIL PANE. `renderMobileRow` is the row body in cards mode, so
+           this is both the open pane and the narrow-screen fallback — one
+           definition, which is what stops the two drifting.
+
+           `required={c.required}` IS NOT OPTIONAL HERE. A grid that renders its
+           own row does not get `ChildGridColumn.required` routed into the
+           control, so the star would draw with nothing behind it — the exact
+           divergence AGENTS.md's "declare `required` twice" rule exists to
+           prevent, and what `--check grid-required-mobile` looks for. */
+        renderMobileRow={(p) => (
+          <div className="space-y-3">
+            <FieldGrid>
+              {panelColumns.map((c, ci) => (
+                <Field key={c.header} label={c.header} required={c.required} size="sm">
+                  {c.cell(p, ci)}
+                </Field>
+              ))}
+            </FieldGrid>
+            <div>
+              {/* THE CAPTION NAMES ITS PANEL, and that is not decoration: the
+                  failure of the stacked version was two splits that could not
+                  say whose they were. */}
+              <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[.09em] text-primary">
+                Colourways{" "}
+                <span className="font-normal tracking-[.04em] text-muted-foreground">
+                  of {componentName(p.component_id) || "this panel"}
+                </span>
+              </div>
+            <ChildGrid<MapLine>
+              /* grid-caption: exempt -- the line above names this
+                 grid AND the panel it belongs to, which a caption
+                 cannot say. */
+              columns={colourColumns}
+              rows={p.lines}
+              tableFrom="6xl"
+              /* NO "+ Add" AND NO ✕. A panel is N lines, one per
+                 colourway, and `onAddPanel` writes all N — an Add
+                 here would invent a colourway the order does not
+                 declare and a ✕ would delete one it does.
+                 `hideRemove` rather than `lockExisting`, because
+                 these rows are re-derived on every render and
+                 `lockExisting` guards only the set present at
+                 mount. */
+              hideAdd
+              hideRemove
+              onAdd={() => false}
+              onRemove={() => {}}
+              renderMobileRow={(row, ri) => (
+                <FieldGrid>
+                  {colourColumns.map((c, ci) => (
+                    /* `required={c.required}` IS NOT OPTIONAL HERE.
+                       A grid that renders its own row calls this
+                       INSTEAD of the `columns.map()` that wraps
+                       each cell in `RequiredScope`, so
+                       `ChildGridColumn.required` never reaches the
+                       control — and the trap is that it still does
+                       HALF its job: the header `*` draws, and
+                       nothing holds. A star with nothing behind it
+                       is the exact divergence the one-declaration
+                       rule exists to make impossible, arriving
+                       through the prop that is meant to guarantee
+                       it (AGENTS.md, "Mandatory fields"). Four
+                       screens rediscovered this independently;
+                       `--check grid-required-mobile` is why this
+                       one did not have to. */
+                    <Field key={ci} label={c.header} required={c.required} size="sm">
+                      {c.cell(row, ri)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              )}
+            />
+            </div>
+          </div>
+        )}
+        /* RULE 2b, UNCHANGED FROM THE BUTTON THIS REPLACES — "when a
+           structured fabric like Rib is selected, its component should
+           automatically default to Neck".
+
+           IT IS NOT A RULE ABOUT RIBS. `solePanel` fills the cell only when the
+           style leaves exactly ONE panel available against this fabric, which on
+           the client's own tee is NECK under 1X1 LYCRA RIB and nothing under
+           Single Jersey (three panels, so nothing to default to). A style that
+           ribs a cuff as well gets two options and no guess — and a guessed FK
+           reads on screen exactly like a chosen one.
+
+           COMPUTED AT THE MOMENT OF ADDING, over the panels already mapped, so
+           the third Add on a Single Jersey with two panels taken DOES default to
+           the one that is left — the client's rule 4, for free. */
+        onAdd={() => {
+          const seed = solePanel(
+            availablePanels({
+              decls,
+              siblings: allLines,
+              styleRefNo,
+              structureId,
+              held: null,
+            }),
+          );
+          onAddPanel({
+            component_id: seed?.component_id ?? null,
+            coordinate_id: seed?.coordinate_id ?? null,
+          });
+        }}
+        onRemove={(p) => onRemovePanel(p.key)}
+        addLabel="+ Add part"
+      />
+    </div>
   );
 }
