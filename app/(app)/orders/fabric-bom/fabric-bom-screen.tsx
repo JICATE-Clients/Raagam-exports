@@ -58,8 +58,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Combobox } from "@/components/ui/combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
-import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { SectionGrid } from "@/components/masters/section-grid";
+import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
   SectionBody,
@@ -470,6 +469,22 @@ const editableRows = (rows: OrderPalette["yarn"] | undefined): PaletteRow[] => {
   return out.length ? out : [{ key: "p0", value: "" }];
 };
 
+/**
+ * ONE EMPTY ROW, WHICH IS WHAT A COLOUR PANEL LOOKS LIKE BEFORE ANYONE TYPES
+ * (client 2026-09-03: the three tables must start with a row, not with none).
+ *
+ * `editableRows` below already ends `out.length ? out : [{ key: "p0", ... }]`,
+ * so a panel seeded FROM AN ORDER has always had its blank row. The gap was
+ * earlier than that: `paletteDraft` is null until an order is picked and
+ * `loadOrderPalette` answers, so on a fresh BOM the three tables rendered
+ * `paletteEdit?.fabric ?? []` ' + EM + ' zero rows, a header and a button.
+ *
+ * A FUNCTION, NOT A SHARED CONSTANT. Each panel needs its own array and its own
+ * row object; one frozen literal handed to all three would give them one
+ * identity, and the first edit would appear to change all three at once.
+ */
+const blankPalette = (): PaletteRow[] => [{ key: "p0", value: "" }];
+
 /** The prints panel's half of `editableRows` — a print names itself. */
 const editablePrintRows = (rows: OrderPalette["prints"] | undefined): PaletteRow[] => {
   const seen = new Set<string>();
@@ -523,6 +538,155 @@ const today = () => calendarToday();
 const BLANK = (): Form => ({ garment_order_id: null, bom_date: today() });
 
 const blankDia = (key: string): DiaRow => ({ key, knit_type: "", dia: "" });
+
+/**
+ * ONE COLOUR/PRINT PANEL, AS A HAND-ROLLED TABLE (client 2026-09-03, asked
+ * three times: the four panels side by side in a single row).
+ *
+ * ## WHY THIS IS NOT A `ChildGrid`, WHICH IS THE FIRST THING TO CHECK
+ *
+ * `ChildGrid` draws a TABLE only above a container-query threshold and stacked
+ * CARDS below it: `@lg` (512px) by default, `@md` (448px) with `narrow`, then
+ * 1024 / 1152 / 1280 through `tableFrom`. There is nothing lower, and no
+ * force-table escape hatch.
+ *
+ * Four panels across an ~1180px pane give each one ~286px, and at the widths
+ * this brief asks for (210 / 210 / 210 / 280) they are narrower still. Every
+ * grid falls under 448, so all four render as cards: no frame, no header, no
+ * ordinal or remove column, and the Dia panel's two columns stacked instead of
+ * side by side. That is not a hypothesis — it shipped on 2026-09-03 and was
+ * reported back the same day. Four real `ChildGrid` tables would need
+ * 4 × 448 + gaps = 1828px, past even the `wide` cap of 1720.
+ *
+ * So the layout and the primitive genuinely cannot both be had, and the layout
+ * is what was asked for three times.
+ *
+ * ## WHAT IT COSTS, STATED PLAINLY
+ *
+ * This is a 23rd hand-rolled grid in a codebase whose AGENTS.md names the other
+ * ~22 as the reason a keyboard fix had to be made twice. That cost is paid down
+ * rather than ignored: the contract is MARKER-driven, not component-driven, so
+ * every marker is emitted here and the keyboard behaves as it does in any
+ * `ChildGrid`:
+ *
+ *   `data-grid-body` + `gridKeyNav`  —  arrows, Enter, the "+ Add" hand-off
+ *   `data-grid-row`                  —  the row axis those keys walk
+ *   `data-row-remove` + aria-label   —  Ctrl+Del drives this by `.click()`
+ *   `data-row-add`                   —  what Enter off the last field lands on
+ *
+ * What is genuinely lost is `ChildGrid`'s stacked-card fallback below the
+ * breakpoint. These panels hold ONE input each, so a 210px column is legible on
+ * a phone where a fourteen-column grid would not be — which is the reason the
+ * fallback exists at all.
+ *
+ * ## THE CELLS ARE STILL THE COLUMNS'
+ *
+ * `columns[].cell` is untouched and rendered as-is, so the pickers, the Input
+ * wiring and the per-row filters keep ONE definition shared with every other
+ * reader of those column arrays. Only the chrome is written here.
+ */
+function PaletteTable<T extends { key: string }>({
+  label,
+  columns,
+  rows,
+  onAdd,
+  onRemove,
+  addLabel,
+  width,
+}: {
+  label: string;
+  columns: ChildGridColumn<T>[];
+  rows: readonly T[];
+  onAdd: () => void;
+  onRemove: (row: T) => void;
+  addLabel: string;
+  /** The panel's cap — a STATIC literal per call site, never interpolated:
+   *  Tailwind scans source text, so a computed class compiles to no CSS. */
+  width: string;
+}) {
+  return (
+    <div className={cn("min-w-0 flex-1", width)}>
+      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            {/* 36px, as asked. The data columns share what is left EQUALLY
+                rather than taking their declared `width`: those were sized for
+                a half-pane cell and total more than a 210px panel holds, so
+                honouring them here would overflow the frame. */}
+            <col className="w-9" />
+            {columns.map((c) => (
+              <col key={c.header} />
+            ))}
+            <col className="w-8" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-border">
+              <th className="px-1.5 py-1.5 text-center text-[12.5px] font-semibold text-foreground">
+                #
+              </th>
+              {columns.map((c) => (
+                <th
+                  key={c.header}
+                  className="truncate border-l border-border px-1.5 py-1.5 text-left text-[12.5px] font-semibold text-foreground"
+                >
+                  {c.header}
+                </th>
+              ))}
+              <th className="border-l border-border" />
+            </tr>
+          </thead>
+          {/* THE TWO MARKERS THAT MAKE THIS A GRID TO THE KEYBOARD. `gridKeyNav`
+              reads `data-grid-body` for the row axis and drives a row's own
+              `data-row-remove` on Ctrl+Del; without them this would be a table
+              the arrows walk as plain fields. */}
+          <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
+            {rows.map((row, i) => (
+              <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
+                <td className="px-1.5 py-1 text-center text-xs tabular-nums text-muted-foreground">
+                  {i + 1}
+                </td>
+                {columns.map((c, ci) => (
+                  <td key={c.header} className="border-l border-border/50 px-1.5 py-1">
+                    {c.cell(row, ci)}
+                  </td>
+                ))}
+                <td className="border-l border-border/50 px-0.5 py-1 text-center">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-row-remove
+                    aria-label={`Remove ${label.toLowerCase()} row ${i + 1}`}
+                    className="px-1 text-danger hover:text-danger"
+                    onClick={() => onRemove(row)}
+                  >
+                    {"✕"}
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* `data-row-add` IS WHAT ENTER STEERS BY (AGENTS.md, "Add a grid row"):
+          Enter or Tab off the last field lands here and a second Enter adds. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        data-row-add
+        className="mt-2"
+        onClick={onAdd}
+      >
+        {addLabel}
+      </Button>
+    </div>
+  );
+}
+
 
 /**
  * What the ORDER says about a line's cloth — legacy FabricAllocation's two
@@ -1073,7 +1237,9 @@ export function FabricBomScreen({
    * clobbers an edit in progress.
    */
   const [paletteDraft, setPaletteDraft] = useState<{
-    forOrder: string;
+    /** `string | null`, the same as `Form.garment_order_id` — see
+     *  `mutPalette`, which starts a draft before an order is named. */
+    forOrder: string | null;
     fabric: PaletteRow[];
     yarn: PaletteRow[];
     prints: PaletteRow[];
@@ -1089,7 +1255,36 @@ export function FabricBomScreen({
     panel: "fabric" | "yarn" | "prints",
     fn: (xs: PaletteRow[]) => PaletteRow[],
   ) => {
-    setPaletteDraft((d) => (d ? { ...d, [panel]: fn(d[panel]) } : d));
+    /**
+     * IT CREATES THE DRAFT WHEN THERE IS NONE, and that is the other half of
+     * the default row (2026-09-03).
+     *
+     * This used to read `d ? {...} : d` — a no-op while `paletteDraft` was
+     * null. So even once the three tables drew their blank row, typing in it
+     * went nowhere: the row was there, the keystrokes were not kept, and the
+     * field cleared itself on the next render. A row the operator cannot type
+     * into is worse than no row, because it looks like the feature works.
+     *
+     * `forOrder` IS ALLOWED TO BE NULL, matching `Form.garment_order_id`. The
+     * guard on `paletteEdit` below is an identity test, not a truthiness one,
+     * so a draft started with no order (null) is read back only while no order
+     * is picked — and the loader replaces it wholesale the moment one is,
+     * which is the existing rule and is right: the order's palette is the
+     * source, and anything typed before an order was named was typed against
+     * no order at all.
+     */
+    setPaletteDraft((d) => {
+      const base =
+        d && d.forOrder === form.garment_order_id
+          ? d
+          : {
+              forOrder: form.garment_order_id,
+              fabric: blankPalette(),
+              yarn: blankPalette(),
+              prints: blankPalette(),
+            };
+      return { ...base, [panel]: fn(base[panel]) };
+    });
     setDirty(true);
   };
   const setPaletteCell = (panel: "fabric" | "yarn" | "prints", key: string, value: string) =>
@@ -4848,39 +5043,20 @@ export function FabricBomScreen({
   ];
 
   /**
-   * THE STACKED FALLBACK NEEDS ITS LABELS, and dropping it as redundant is a
-   * mistake this file records having made once already (see `renderMobileRow` on
-   * the Fabric Lines grid): `ChildGrid`'s default stacked cell is a bare div with
-   * NO VISIBLE LABEL, so below the table breakpoint these panels would degrade to
-   * unlabelled scraps of text — worse here than on a grid of inputs, because a
-   * bare "—" under no heading says nothing at all.
+   * `mobileRowFor` IS GONE WITH THE GRIDS THAT USED IT (2026-09-03).
    *
-   * A FACTORY OVER THE PANEL'S OWN COLUMNS, not one shared renderer. The first
-   * cut passed a single `paletteMobileRow` to all three read-only panels, and it
-   * closed over `paletteColumns` — so the Roll form prints panel, which has ONE
-   * column where the others have two, would have labelled its print name
-   * "Colour" and shown it under a "Type" heading with a dash in it. Both arrays
-   * are `ChildGridColumn<PaletteRow>[]`, so the type checker had nothing to say.
-   * Reading each panel's own `columns` is what makes the stacked labels and the
-   * table headers one declaration per panel rather than one for the set.
+   * It supplied `renderMobileRow` to the four Colour/Print panels — the
+   * labelled stacked fallback `ChildGrid` renders below its table threshold,
+   * whose own default is a bare div with no visible label. Those panels are
+   * `PaletteTable`s now (see the note there for why they had to leave
+   * `ChildGrid` at this width), and a hand-rolled table has no card mode to
+   * fall back to, so there was nothing left for it to feed.
+   *
+   * THE LESSON IT CARRIED IS STILL TRUE, and belongs to whoever adds the next
+   * `ChildGrid` here: dropping `renderMobileRow` as redundant is a mistake this
+   * file has made once already — see the note on the Fabric Lines grid, which
+   * still passes one.
    */
-  /* NAMED, because an anonymous component definition trips `react/display-name`
-     — the one lint ERROR in this file, pre-existing at HEAD and owned by nobody.
-     Naming the inner function is the whole fix; nothing about the behaviour or
-     the reasoning above changes. */
-  const mobileRowFor =
-    (cols: ChildGridColumn<PaletteRow>[]) =>
-    function PaletteMobileRow(row: PaletteRow) {
-      return (
-      <FieldGrid>
-        {cols.map((c, ci) => (
-          <Field key={ci} label={c.header} size="sm">
-            {c.cell(row, ci)}
-          </Field>
-        ))}
-      </FieldGrid>
-      );
-    };
 
   const diaColumns: ChildGridColumn<DiaRow>[] = [
     {
@@ -5644,117 +5820,94 @@ export function FabricBomScreen({
               The ✕ column is already `w-8` in the primitive, so it needs
               nothing. If a third screen needs this set, it belongs in
               `ChildGrid` rather than being copied a third time. */}
-          <SectionGrid className="[&_input]:text-xs [&_select]:text-xs [&_td]:px-1.5 [&_td]:py-1 [&_th:first-child]:w-8 [&_td:first-child]:w-8">
-            <div className="min-w-0">
-              <ChildGrid<PaletteRow>
-                /* grid-caption: exempt -- four grids share this section; without captions
-                   the operator cannot tell which is which. */
-                label="Colour"
-                columns={editableColourColumns("Colour", "fabric")}
-                rows={paletteEdit?.fabric ?? []}
-                /* EDITABLE SINCE 2026-09-02, and what that replaced was
-                   `hideAdd hideRemove` with a no-op `onAdd`/`onRemove` pair —
-                   `ChildGrid` has no `readOnly` prop, so those four together
-                   were the read-only idiom. The rows are no longer derived, so
-                   the `lockExisting` trap the old comment warned about cannot
-                   arise: these keys are minted once and never re-derived. */
-                onAdd={() =>
-                  mutPalette("fabric", (xs) => [...xs, { key: newKey(), value: "" }])
-                }
-                onRemove={(r) => mutPalette("fabric", (xs) => xs.filter((x) => x.key !== r.key))}
-                /* ONE BLANK ROW, ALWAYS (client 2026-09-03: the panels
-                   "came without one row also so add one row as default").
-                   `seedRow` calls `onAdd` whenever the list empties, so a
-                   panel with nothing stored still shows a header and one
-                   editable row rather than a bare "+ Add" button. Safe
-                   here because the row is a container the operator may
-                   legitimately clear and retype — the case the prop
-                   documents itself for. */
-                seedRow
-                addLabel="+ Add colour"
-                addClassName="mt-2"
-                renderMobileRow={mobileRowFor(editableColourColumns("Colour", "fabric"))}
-              />
-            </div>
-            <div className="min-w-0">
-              <ChildGrid<PaletteRow>
-                /* grid-caption: exempt -- the other half of the colour pair. */
-                label="Yarn Colour"
-                columns={editableColourColumns("Yarn colour", "yarn")}
-                rows={paletteEdit?.yarn ?? []}
-                onAdd={() => mutPalette("yarn", (xs) => [...xs, { key: newKey(), value: "" }])}
-                onRemove={(r) => mutPalette("yarn", (xs) => xs.filter((x) => x.key !== r.key))}
-                /* ONE BLANK ROW, ALWAYS (client 2026-09-03: the panels
-                   "came without one row also so add one row as default").
-                   `seedRow` calls `onAdd` whenever the list empties, so a
-                   panel with nothing stored still shows a header and one
-                   editable row rather than a bare "+ Add" button. Safe
-                   here because the row is a container the operator may
-                   legitimately clear and retype — the case the prop
-                   documents itself for. */
-                seedRow
-                addLabel="+ Add yarn colour"
-                addClassName="mt-2"
-                renderMobileRow={mobileRowFor(editableColourColumns("Yarn colour", "yarn"))}
-              />
-            </div>
-            <div className="min-w-0">
-              <ChildGrid<PaletteRow>
-                /* grid-caption: exempt -- the third of four grids in one section. */
-                label="Roll form prints"
-                columns={editableColourColumns("Roll form print", "prints")}
-                /* `editablePrintRows` seeded these, not `editableRows`: a
-                   print names ITSELF (`print_name`) where a dyeing carries a
-                   `color_name`, so the two builders differ by the field they
-                   read and by nothing else. */
-                rows={paletteEdit?.prints ?? []}
-                onAdd={() => mutPalette("prints", (xs) => [...xs, { key: newKey(), value: "" }])}
-                onRemove={(r) => mutPalette("prints", (xs) => xs.filter((x) => x.key !== r.key))}
-                /* ONE BLANK ROW, ALWAYS (client 2026-09-03: the panels
-                   "came without one row also so add one row as default").
-                   `seedRow` calls `onAdd` whenever the list empties, so a
-                   panel with nothing stored still shows a header and one
-                   editable row rather than a bare "+ Add" button. Safe
-                   here because the row is a container the operator may
-                   legitimately clear and retype — the case the prop
-                   documents itself for. */
-                seedRow
-                addLabel="+ Add print"
-                addClassName="mt-2"
-                renderMobileRow={mobileRowFor(editableColourColumns("Roll form print", "prints"))}
-              />
-            </div>
-            {/* THE ONE EDITABLE PANEL — the only one of the four carrying a
-                real `onAdd` / `onRemove` rather than `hideAdd hideRemove` and the
-                no-op pair. `ChildGrid` has no `readOnly` prop, so those two flags
-                together are what remove the "+ Add" button and every row's ✕.
+          {/* ONE ROW OF FOUR (client 2026-09-03). `SectionGrid` is gone with
+              the grids it laid out — see `PaletteTable` for why these four
+              cannot be `ChildGrid`s at this width, and what that costs.
 
-                IT IS ALSO THE ONLY PANEL THE ORDER CANNOT ANSWER, which is why
-                the tab reads three-read-one-typed: the order declares its
-                colours and prints, and the knitting diameter or woven width is
-                a BOM-time fact about how the cloth is MADE. */}
-            <div className="min-w-0">
-              <ChildGrid<DiaRow>
-                /* grid-caption: exempt -- the fourth of four grids in one section. */
-                label="Dia / Size Width Details"
-                columns={diaColumns}
-                rows={dias}
-                onAdd={() => mutDias((xs) => [...xs, blankDia(newKey())])}
-                onRemove={(r) => mutDias((xs) => xs.filter((x) => x.key !== r.key))}
-                /* ONE BLANK ROW, ALWAYS (client 2026-09-03: the panels
-                   "came without one row also so add one row as default").
-                   `seedRow` calls `onAdd` whenever the list empties, so a
-                   panel with nothing stored still shows a header and one
-                   editable row rather than a bare "+ Add" button. Safe
-                   here because the row is a container the operator may
-                   legitimately clear and retype — the case the prop
-                   documents itself for. */
-                seedRow
-                addLabel="+ Add dia"
-                addClassName="mt-2"
-              />
-            </div>
-          </SectionGrid>
+              A FLEX ROW, NOT `grid-cols-4`, so the screen still declares no
+              `grid-cols-*` or `col-span-*` of its own (AGENTS.md). The two
+              descendant rules are the compact pass: `text-xs` on every control
+              (`Input`/`Select` are `text-sm`), and nothing else — the cells
+              carry their own `px-1.5 py-1` and the controls their own 32px
+              from the app's editor density.
+
+              `flex-nowrap` HOLDS THE LINE, and the trade is that below ~900px
+              of pane the four overflow rather than stacking. 210 + 210 + 210 +
+              280 + 3 gaps = 946px, so that is outside this editor's normal
+              width. */}
+          <div className="flex w-full flex-row flex-nowrap items-start gap-3 [&_input]:text-xs [&_select]:text-xs">
+            <PaletteTable<PaletteRow>
+              label="Colour"
+              columns={editableColourColumns("Colour", "fabric")}
+              rows={paletteEdit?.fabric ?? blankPalette()}
+              width="max-w-[210px]"
+              onAdd={() => mutPalette("fabric", (xs) => [...xs, { key: newKey(), value: "" }])}
+              /* THE LAST ROW COMES BACK BLANK, which is what `ChildGrid`'s
+                 `seedRow` did for these panels before. A panel with no row at
+                 all is a header and a button, and the client asked for one
+                 default row (2026-09-02). */
+              onRemove={(r) =>
+                mutPalette("fabric", (xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [{ key: newKey(), value: "" }];
+                })
+              }
+              addLabel="+ Add colour"
+            />
+            <PaletteTable<PaletteRow>
+              label="Yarn Colour"
+              columns={editableColourColumns("Yarn colour", "yarn")}
+              rows={paletteEdit?.yarn ?? blankPalette()}
+              width="max-w-[210px]"
+              onAdd={() => mutPalette("yarn", (xs) => [...xs, { key: newKey(), value: "" }])}
+              onRemove={(r) =>
+                mutPalette("yarn", (xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [{ key: newKey(), value: "" }];
+                })
+              }
+              addLabel="+ Add yarn colour"
+            />
+            <PaletteTable<PaletteRow>
+              label="Roll form prints"
+              /* `editablePrintRows` seeded these, not `editableRows`: a print
+                 names ITSELF (`print_name`) where a dyeing carries a
+                 `color_name`, so the two builders differ by the field they read
+                 and by nothing else. */
+              columns={editableColourColumns("Roll form print", "prints")}
+              rows={paletteEdit?.prints ?? blankPalette()}
+              width="max-w-[210px]"
+              onAdd={() => mutPalette("prints", (xs) => [...xs, { key: newKey(), value: "" }])}
+              onRemove={(r) =>
+                mutPalette("prints", (xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [{ key: newKey(), value: "" }];
+                })
+              }
+              addLabel="+ Add print"
+            />
+            {/* THE ONE PANEL THE ORDER CANNOT ANSWER, which is why this tab
+                reads three-read-one-typed: the order declares its colours and
+                prints, and the knitting diameter or woven width is a BOM-time
+                fact about how the cloth is MADE.
+
+                TWO COLUMNS IN ONE ROW — Type beside Dia / Size / Width, which
+                is what the extra 70px of width is for. */}
+            <PaletteTable<DiaRow>
+              label="Dia / Size Width Details"
+              columns={diaColumns}
+              rows={dias}
+              width="max-w-[280px]"
+              onAdd={() => mutDias((xs) => [...xs, blankDia(newKey())])}
+              onRemove={(r) =>
+                mutDias((xs) => {
+                  const left = xs.filter((x) => x.key !== r.key);
+                  return left.length ? left : [blankDia(newKey())];
+                })
+              }
+              addLabel="+ Add dia"
+            />
+          </div>
         </SectionBody>
       ),
     },
