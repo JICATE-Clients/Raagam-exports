@@ -42,6 +42,9 @@ import {
 } from "@/lib/orders/material-bom/requirement";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
+/* THE ONE FORMULA FOR STEP 2, imported rather than restated — see `requiredKg`.
+   `manual.ts` imports nothing from here, so there is no cycle. */
+import { requiredKg } from "./manual";
 
 export type { ProductionSlice, Refusal };
 export { isRefusal };
@@ -124,9 +127,21 @@ export type FabricLineScope = {
 export type FabricLineInput = {
   /** Fabric per garment, in the consumption unit. */
   consumption: number | null;
-  /** The CUTTING room's buffer. Not process loss — that is step 4, and applying
-   *  it here as well charges the same loss twice. */
+  /** The CUTTING room's buffer — legacy's "Component Proc. Loss %". Not the
+   *  process route's loss: that is step 4, and applying it here as well charges
+   *  the same loss twice. */
   wastage_pct: number | null;
+  /**
+   * A SECOND ALLOWANCE ON THE SAME ROW, COMPOUNDED WITH THE FIRST (0523).
+   *
+   * Legacy's Manual row carries two — "EndBit Loss %" beside "Component Proc.
+   * Loss %" — and the client's spec states the sequential form,
+   * `Net x (1 + Loss₁) x (1 + Loss₂) x …`. Optional, because the LINE route has
+   * only ever had one: omit it and the arithmetic is exactly what it was.
+   *
+   * COMPOUNDED, NOT SUMMED. 1% then 5% is x1.0605, not x1.06.
+   */
+  endbit_loss_pct?: number | null;
   /** `uoms.decimal_places_allowed` of the consumption unit. */
   decimals: number | null;
   /**
@@ -331,11 +346,20 @@ function sizedRequirement(
   line: FabricLineInput,
   slice: ProductionSlice,
 ): number | Refusal {
-  const wastage = num(line.wastage_pct) ?? 0;
-  if (wastage < 0 || wastage > 100) return { refused: "Wastage must be between 0 and 100" };
-
+  /* THE ALLOWANCES COMPOUND — `requiredKg`'s rule, called through it rather than
+     restated here, so the figure the screen prints and the figure this stores
+     cannot come from two formulas (0523). The ceiling is the only difference
+     between them, and it is deliberate. */
   const qty = num(slice.qty) ?? 0;
-  return ceilToPrecision(qty * consumption * (1 + wastage / 100), uomPrecision(line.decimals));
+  const required = requiredKg(qty * consumption, [line.endbit_loss_pct, line.wastage_pct]);
+  if (required == null) {
+    /* `requiredKg` REFUSES AN OUT-OF-RANGE LOSS rather than clamping it: a 150%
+       allowance is a typo, and treating it as 100 would triple a purchase
+       without saying so. The message names both cells, because the row now has
+       two and "wastage" alone would send the planner to the wrong one. */
+    return { refused: "Each loss % must be between 0 and 100" };
+  }
+  return ceilToPrecision(required, uomPrecision(line.decimals));
 }
 
 /**

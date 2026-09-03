@@ -202,7 +202,8 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
       grams: r.grams ?? null,
       table_width: r.table_width ?? null,
       length: r.length ?? null,
-      length_tolerance: r.length_tolerance ?? null,
+      width_tolerance: r.width_tolerance ?? null,
+      cons_qty: r.cons_qty ?? null,
       sno: 0,
     }))
     .filter(
@@ -213,7 +214,12 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
           r.grams != null ||
           r.table_width != null ||
           r.length != null ||
-          r.length_tolerance != null),
+          r.width_tolerance != null ||
+          /* `cons_qty` COUNTS AS SAYING SOMETHING (0523). It is the spec's own
+             multiplier and a row carrying only it is a row the planner typed
+             into — dropping it here would silently discard the figure the CAD
+             report gave them. */
+          r.cons_qty != null),
     )
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
@@ -481,6 +487,13 @@ function requirementRows(
            refuses it slice by slice and names the size. */
         consumption: null,
         wastage_pct: entry.wastage_pct,
+        /* THE SECOND ALLOWANCE, COMPOUNDED WITH THE FIRST (0523). Legacy's
+           Manual row carries both — "EndBit Loss %" and "Component Proc.
+           Loss %" — and the client's spec states the sequential form. Passed
+           through so the stored requirement and the figure the screen prints
+           come from ONE formula (`requiredKg`), differing only by this route's
+           ceiling. */
+        endbit_loss_pct: entry.endbit_loss_pct,
         decimals: fabric.uom_id ? (uomDecimals.get(fabric.uom_id) ?? null) : null,
         bySize,
       },

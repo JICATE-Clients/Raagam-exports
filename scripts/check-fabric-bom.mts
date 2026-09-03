@@ -54,9 +54,10 @@ import {
   calcModeOf,
   calculatedGrams,
   consumptionMap,
-  effectiveLength,
+  calculatedWidth,
+  toInches,
   gramsFor,
-  grossKg,
+  requiredKg,
   manualProblem,
   netKg,
   takenComponentIds,
@@ -154,7 +155,8 @@ const sizeRow = (size_id: string, grams: number | null): ManualSizeInput => ({
   grams,
   table_width: null,
   length: null,
-  length_tolerance: null,
+  width_tolerance: null,
+  cons_qty: null,
 });
 
 /** One entry, as `manualProblem` wants it. */
@@ -365,15 +367,26 @@ refute(
   fabricRequirementFor(line({ consumption: 0 }), slice),
   0,
 );
+/* THE SENTENCE NAMES "each loss" SINCE 0523, because the row carries two of
+   them — "EndBit Loss %" and "Component Proc. Loss %" — and "wastage" alone
+   would send the planner to the wrong cell. */
 check(
-  "wastage above 100 refuses",
+  "a loss above 100 refuses",
   refusalOf(fabricRequirementFor(line({ wastage_pct: 120 }), slice)),
-  "Wastage must be between 0 and 100",
+  "Each loss % must be between 0 and 100",
 );
 check(
-  "a negative wastage refuses",
+  "a negative loss refuses",
   refusalOf(fabricRequirementFor(line({ wastage_pct: -1 }), slice)),
-  "Wastage must be between 0 and 100",
+  "Each loss % must be between 0 and 100",
+);
+/* AND THE SECOND ONE IS CHECKED TOO, which the pair above cannot prove: a
+   reader that validated only `wastage_pct` would let a 150% endbit through and
+   silently treble a purchase. */
+check(
+  "the endbit loss is range-checked as well",
+  refusalOf(fabricRequirementFor(line({ endbit_loss_pct: 150 }), slice)),
+  "Each loss % must be between 0 and 100",
 );
 
 // ---------------------------------------------------------------------------
@@ -685,16 +698,47 @@ check("a zero weight is absent too", consumptionMap("direct", [sizeRow(SZ_S, 0)]
 
 // -- THE CLIENT'S OWN WORKED EXAMPLE ----------------------------------------
 
-/* Formula 1, verbatim from the spec: 10,510 pcs x 50 g Neck (Rib) / 1000 =
+/* Formula 1, verbatim from the spec: 10,510 pcs x 1 x 50 g Neck (Rib) / 1000 =
    525.5 Kg. It is here because it is the one figure the client stated as an
    ANSWER rather than as a rule, so it is the one this module can be wrong about
    without any reviewer noticing. */
-check("10,510 pcs x 50 g = 525.5 kg (the client's Neck/Rib example)", netKg(10510, 50), 525.5);
-check("Formula 2 — 5% wastage on 525.5 = 551.775", grossKg(525.5, 5), 551.775);
-check("no wastage leaves Net unchanged", grossKg(525.5, 0), 525.5);
-check("a null Net is not a zero Gross", grossKg(null, 5), null);
-refute("…and never 0, which reads as 'no cloth needed'", grossKg(null, 5), 0);
-check("a wastage outside 0-100 refuses rather than scaling", grossKg(100, 150), null);
+check("10,510 pcs x 50 g = 525.5 kg (the client's Neck/Rib example)", netKg(10510, 1, 50), 525.5);
+
+/* THE SECOND WORKED EXAMPLE, from the 2026-09-03 spec: "Size M Order Qty 500
+   Pcs, Manual Cons Qty 1, Manual Cons Wt 120 grams => 500 x 1 x 120g = 60,000g
+   (60 kg)". */
+check("500 pcs x 1 x 120 g = 60 kg (the client's Size M example)", netKg(500, 1, 120), 60);
+
+/* CONS QTY IS A REAL FACTOR AND NOT DECORATION. It joined the formula on
+   2026-09-03; before that the screen had a `Cons Qty` COLUMN that printed
+   `netKg`'s own output, so the multiplier had nowhere to be entered. A vector
+   that only ever passed 1 could not tell the two apart. */
+check("Cons Qty multiplies — 2 panels per garment doubles the net", netKg(500, 2, 120), 120);
+check("…and 1.25 metres per t-shirt is 1.25x", netKg(500, 1.25, 120), 75);
+check("a blank Cons Qty is ONE, never zero", netKg(500, null, 120), 60);
+refute("…and never 0, which would plan the order at no cloth", netKg(500, null, 120), 0);
+
+/* STEP 2 — the allowances COMPOUND. 525.5 x 1.05 = 551.775 with one; with a 1%
+   endbit before it, 525.5 x 1.01 x 1.05 = 557.29275. */
+check("one loss behaves exactly as the single wastage did", requiredKg(525.5, [5]), 551.775);
+/* ROUNDED, AND THE ROUNDING IS THE POINT rather than a convenience.
+   `requiredKg` multiplies the FACTORS together first and applies them once
+   (1.01 x 1.05 = 1.0605…, then x525.5), where the expression on the right
+   applies them one at a time — so the two land on 557.29275 and
+   557.2927500000001. Both are the same number; only the float association
+   differs, and asserting raw equality across two associations tests the IEEE
+   spec rather than this module. Six decimals is far finer than any purchase
+   weight and still catches the sum-vs-product error below by a wide margin. */
+const p6 = (n: number | null) => (n == null ? null : Math.round(n * 1e6) / 1e6);
+check("two losses compound, 1% then 5%", p6(requiredKg(525.5, [1, 5])), p6(525.5 * 1.01 * 1.05));
+refute("…and are NOT summed to 6%", p6(requiredKg(525.5, [1, 5])), p6(525.5 * 1.06));
+check("order does not matter to the product", requiredKg(525.5, [5, 1]), requiredKg(525.5, [1, 5]));
+check("a null loss in the list is 0, not a refusal", requiredKg(525.5, [null, 5]), 551.775);
+check("no losses at all leave Net unchanged", requiredKg(525.5, []), 525.5);
+check("a null Net is not a zero requirement", requiredKg(null, [5]), null);
+refute("…and never 0, which reads as 'no cloth needed'", requiredKg(null, [5]), 0);
+check("a loss outside 0-100 refuses rather than scaling", requiredKg(100, [150]), null);
+check("…and one bad loss refuses the whole product", requiredKg(100, [5, 150]), null);
 
 /* THE THREE ENTRIES OF THE CLIENT'S OWN SCENARIO B, summed. 180 + 20 + 50 =
    250 g of cloth per garment, and the entries partition the panels so the sum is
@@ -703,53 +747,75 @@ check("a wastage outside 0-100 refuses rather than scaling", grossKg(100, 150), 
 check(
   "Scenario B's three entries sum to one garment's 250 g",
   [
-    netKg(10510, 180),
-    netKg(10510, 20),
-    netKg(10510, 50),
+    netKg(10510, 1, 180),
+    netKg(10510, 1, 20),
+    netKg(10510, 1, 50),
   ].reduce((a, b) => a + (b ?? 0), 0),
-  netKg(10510, 250),
+  netKg(10510, 1, 250),
 );
 
 // -- the calculated mode -----------------------------------------------------
 
-/* THE TOLERANCE IS ADDED, NOT SCALED. Legacy prints Length, Length Tolerance and
-   a second Length in one row of the same units; reading the middle one as a
-   percentage compiles and is wrong by a factor of the length. 70 + 2 = 72; the
-   percentage reading gives 71.4 — close enough to look plausible on screen and
-   wrong on every panel. */
-check("effective length adds the tolerance", effectiveLength(70, 2), 72);
-check("…and a missing tolerance is 0, not a missing length", effectiveLength(70, null), 70);
-check("a tolerance with no length is not a length", effectiveLength(null, 2), null);
+/* THE TOLERANCE IS ON THE WIDTH, AND IT WAS ON THE LENGTH UNTIL 2026-09-03.
+   0491 read legacy's `Length | Length Tolerance | Length` band and added the
+   allowance to the length; the client's written spec says "extra safety margin
+   added to the width" and "Calculated Width (cm) = Width + Tolerance". Both
+   readings produce a plausible weight, which is why it survived — so the vector
+   asserts the WIDTH by name. */
+check("the calculated width adds the tolerance", calculatedWidth(52, 2), 54);
+check("…and a missing tolerance is 0, not a missing width", calculatedWidth(52, null), 52);
+check("a tolerance with no width is not a width", calculatedWidth(null, 2), null);
 
-/* 55cm x 72cm x 180 g/m² / 1e4 = 71.28 g. cm² to m², x gsm, and the result is
+/* ADDED, NOT SCALED. Reading the tolerance as a percentage compiles and is wrong
+   by a factor of the width: 52 + 2 = 54, where the percentage reading gives
+   53.04 — close enough to look right on screen and wrong on every panel. */
+refute("…and is not a percentage of the width", calculatedWidth(52, 2), 52 * 1.02);
+
+/* THE CLIENT'S OWN INCHES EXAMPLE: "52 cm -> 20.4 Inches". The machine is set in
+   inches while the pattern is drawn in centimetres. */
+check("52 cm reads 20.47 inches", Math.round((toInches(52) ?? 0) * 100) / 100, 20.47);
+check("a missing width has no inch reading either", toInches(null), null);
+
+/* 54cm x 70cm x 180 g/m² / 1e4 = 68.04 g. cm² to m², x gsm, and the result is
    GRAMS — the unit the whole tab works in.
 
    NO x2, AND THIS IS THE VECTOR THAT SAYS SO. The first cut doubled it for
-   "front and back panel"; the client's field-by-field spec states the formula
-   without it, `TableWidth` being the panel width the planner types. The doubling
-   was also wrong on its own terms for a neck rib, which is ONE panel — so it is
-   refuted by name here rather than merely absent. */
-const measured = { table_width: 55, length: 70, length_tolerance: 2 };
-check("the panel weight is tableWidth x eff.length x gsm / 1e4, in grams", calculatedGrams(measured, 180), 71.28);
-refute("…never doubled for a front-and-back that nobody asked for", calculatedGrams(measured, 180), 142.56);
-refute("…and not 0.07128, which would be kilograms leaking in", calculatedGrams(measured, 180), 0.07128);
+   "front and back panel"; the client's spec states the formula without it. The
+   doubling was also wrong on its own terms for a neck rib, which is ONE panel —
+   so it is refuted by name here rather than merely absent. */
+const measured = { table_width: 52, length: 70, width_tolerance: 2 };
+check("the panel weight is calc.width x length x gsm / 1e4, in grams", calculatedGrams(measured, 180), 68.04);
+refute("…never doubled for a front-and-back that nobody asked for", calculatedGrams(measured, 180), 136.08);
+refute("…and not 0.06804, which would be kilograms leaking in", calculatedGrams(measured, 180), 0.06804);
 
-/* THE CONSTANT IS NAMED AND PROVISIONAL — the client has said it "will be
-   adjusted and verified in a later discussion". Asserting the formula THROUGH
-   the constant means the day it moves, this vector moves with it in one place
-   and every other vector here still pins the shape. */
+/* THE TOLERANCE REACHES THE WEIGHT, which is the half a `calculatedWidth` vector
+   alone cannot prove: the formula could still be multiplying the raw width. */
+refute(
+  "the weight uses the CALCULATED width, not the raw one",
+  calculatedGrams(measured, 180),
+  (52 * 70 * 180) / GRAMS_CONVERSION,
+);
+refute(
+  "…and it is not the old length+tolerance reading either",
+  calculatedGrams(measured, 180),
+  (52 * 72 * 180) / GRAMS_CONVERSION,
+);
+
+/* THE CONSTANT IS NAMED, and the client confirmed 10,000 on 2026-09-03.
+   Asserting the formula THROUGH the constant means the day it moves, this vector
+   moves with it in one place and every other vector here still pins the shape. */
 check(
   "the divisor is GRAMS_CONVERSION, not a literal buried in the expression",
   calculatedGrams(measured, 180),
-  (55 * 72 * 180) / GRAMS_CONVERSION,
+  (54 * 70 * 180) / GRAMS_CONVERSION,
 );
 
 /* IT MULTIPLIES `table_width`, NEVER `dia`. They were one word until 0495 and
    the client separated them: dia is the ROLL's diameter and a constraint,
    table_width is the panel on the cutting table. A reader that grabbed the wrong
-   one gets a plausible number — 60 dia against a 55cm panel is only 9% out,
-   which is exactly the size of error that survives review. */
-check("a dia on the row changes nothing", calculatedGrams({ ...measured, dia: 60 } as never, 180), 71.28);
+   one gets a plausible number — 60 dia against a 52cm panel is only 15% out,
+   which is the size of error that survives review. */
+check("a dia on the row changes nothing", calculatedGrams({ ...measured, dia: 60 } as never, 180), 68.04);
 check("no table width is not a weight", calculatedGrams({ ...measured, table_width: null }, 180), null);
 check("no length is not a weight", calculatedGrams({ ...measured, length: null }, 180), null);
 check("no GSM is not a weight", calculatedGrams(measured, null), null);
@@ -763,12 +829,13 @@ const bothRow: ManualSizeInput = {
   dia: null,
   purchase_width: null,
   grams: 999,
-  table_width: 55,
+  table_width: 52,
   length: 70,
-  length_tolerance: 2,
+  width_tolerance: 2,
+  cons_qty: null,
 };
 check("direct mode reads the typed grams", gramsFor("direct", bothRow, 180), 999);
-check("calculated mode reads the measurements", gramsFor("calculated", bothRow, 180), 71.28);
+check("calculated mode reads the measurements", gramsFor("calculated", bothRow, 180), 68.04);
 check("an unreadable mode falls back to direct, never to a computed figure", gramsFor("nonsense", bothRow, 180), 999);
 check("calcModeOf normalises case", calcModeOf("CALCULATED"), "calculated");
 
@@ -777,7 +844,7 @@ check("calcModeOf normalises case", calcModeOf("CALCULATED"), "calculated");
 check(
   "consumptionMap is mode-aware",
   consumptionMap("calculated", [bothRow], 180),
-  { [SZ_S]: 0.07128 },
+  { [SZ_S]: 0.06804 },
 );
 
 // -- the "no duplicate component allocation" rule ---------------------------
