@@ -683,10 +683,14 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   // of the section means must be reached deliberately, never landed on by the
   // operator's typing rhythm. Enter ON one still ticks it (the branch above), so
   // arrowing across and pressing Enter works exactly as it reads.
-  const next =
-    idx === -1
-      ? undefined
-      : items.slice(idx + 1).find((el) => isFieldLike(el) && !isOffTabPath(el));
+  //
+  // `itemsAfter`, NOT `slice(idx + 1)`. A focused element absent from `items` (a
+  // readOnly box — see the note there) used to yield `next: undefined`, and
+  // "no next field" is what step 2 below reads as END OF THE SECTION: Enter from
+  // the FIRST field of Order Info, the RE No, handed over to the next section,
+  // and on the last section it would have gone on to Save. Absent from the tab
+  // order is not the same fact as last on the surface.
+  const next = itemsAfter(items, t).find((el) => isFieldLike(el) && !isOffTabPath(el));
   if (
     enterTicks({
       tickBox: !!tickBox,
@@ -872,7 +876,21 @@ export type FillProbe = {
   ariaExpanded: string | null;
   /** Carries `data-field-trigger` — a picker button that is really a field. */
   fieldTrigger: boolean;
+  /** `input.type` lower-cased, or null for anything that is not an `<input>`.
+   *  Read by the date-family branch below; a probe that omits it reads as a
+   *  plain text box, which is why it is REQUIRED rather than optional. */
+  inputType: string | null;
+  /** Inside a `data-grid-row` — where `gridKeyNav` owns all four arrows and
+   *  every one of them is a MOVE. The date branch below stands down on it. */
+  inGrid: boolean;
 };
+
+/**
+ * The `<input>` types whose arrows ARE the value — the same family
+ * `ownsArrowKeys` stands down on, and that is not a coincidence: the two lists
+ * describe one fact about these controls from opposite sides.
+ */
+const DATE_LIKE = new Set(["date", "time", "datetime-local", "month", "week"]);
 
 /** The pure rule. Split from the DOM so it can be exercised without a browser —
  *  see scripts/check-keyboard-holds.mts. */
@@ -888,6 +906,45 @@ export function keyFills(p: FillProbe, key: string): boolean {
   // they are its entire keyboard interface. (The touch / SSR / multiple /
   // uncontrolled branch of components/ui/select.tsx.)
   if (p.tag === "SELECT" && arrowY) return true;
+  /**
+   * A DATE BOX HAS NO POPUP EITHER, AND ALL FOUR ARROWS ARE ITS VALUE
+   * (Orders ▸ Order Management ▸ Order Entry ▸ Order Info, client 2026-09-03:
+   * "up down arrow and enter key" not working).
+   *
+   * `<input type="date">` draws its own dd/mm/yyyy: ↑/↓ step the focused
+   * segment, ←/→ move between segments. It has no caret either —
+   * `selectionStart` throws on it, so `atCaretEdge` answers "at the edge" and
+   * the hold read every → as a departure. The result on a blank MANDATORY date
+   * was a HALF-DEAD control: ↑ and ← went through (`keyMovesBackward` allows
+   * backward out of a required hold) while ↓ and → were refused, so the box
+   * counted up and would not count down.
+   *
+   * THE HOLD GIVES UP NOTHING BY ALLOWING THEM. `ownsArrowKeys` already claims
+   * this family, so `arrowNavigate` stands down and no arrow moves focus off one
+   * of these fields in the first place: refusing them protected no departure and
+   * only removed the keys that FILL the box — the unsatisfiable cage this whole
+   * function exists to prevent, arriving through a control type rather than
+   * through a list. Tab and Enter are the keys that really do leave, they are in
+   * no branch here, and they still hold until a date is entered.
+   *
+   * `type="number"` is deliberately NOT in `DATE_LIKE`: `ownsArrowKeys` does not
+   * claim it, so its arrows genuinely do move to another field, and a spinner is
+   * not how an operator fills a quantity.
+   *
+   * AND IT STANDS DOWN INSIDE A CHILD GRID, which is the whole reason `inGrid`
+   * exists. The argument above is "no arrow moves focus off this field" — true
+   * on a form, FALSE in a grid, where `gridKeyNav` claims ↑/↓ for the row and
+   * ←/→ for the column and the browser never sees the key at all. There the
+   * segment stepping does not happen, so allowing the arrows would buy the
+   * operator nothing and would let ↑/↓ walk straight out of a held cell — the
+   * exact hole this function's own note warns about for `ownsArrowKeys`. A
+   * mandatory date cell in a grid is filled by typing, as it was before.
+   *
+   * Vectors for all three shapes in scripts/check-keyboard-holds.mts.
+   */
+  if (!p.inGrid && p.inputType && DATE_LIKE.has(p.inputType)) {
+    if (arrowY || key === "ArrowLeft" || key === "ArrowRight") return true;
+  }
   return false;
 }
 
@@ -897,6 +954,8 @@ export function probeOf(el: HTMLElement): FillProbe {
     role: el.getAttribute("role"),
     ariaExpanded: el.getAttribute("aria-expanded"),
     fieldTrigger: el.matches(FIELD_TRIGGER),
+    inputType: el instanceof HTMLInputElement ? el.type.toLowerCase() : null,
+    inGrid: !!el.closest("[data-grid-row]"),
   };
 }
 
@@ -1083,6 +1142,55 @@ export function spatialNeighbour(
 }
 
 /**
+ * A FOCUSED ELEMENT IS NOT ALWAYS ONE OF `items`, AND THAT IS NOT AN ERROR
+ * (client 2026-09-03, Order Info ▸ RE No).
+ *
+ * `FOCUSABLE_SELECTOR` excludes `[tabindex="-1"]`, and `<Input readOnly>` sets
+ * exactly that — so every derived / auto-generated box in the app is absent
+ * from `regionItems` while still being perfectly CLICKABLE. Focus lands there
+ * by mouse all the time.
+ *
+ * `items.indexOf(el)` therefore answers -1 for a field that is genuinely on
+ * screen and genuinely focused, and every caller that read -1 as "give up"
+ * turned that field into a DEAD END: the operator clicks the RE No box to read
+ * the order number, presses →, and nothing happens — no arrow, no Enter, and
+ * Tab has never visited it. The only way out was the mouse.
+ *
+ * The rule these two restore is the one the holds already state for a different
+ * reason: **a field you can arrive at must be a field you can leave.** Nothing
+ * here puts such a field back ON the keyboard path — it stays out of `items`, so
+ * no key ever targets it. It can only be left.
+ *
+ * DOM order is the right axis because `regionItems` is already in it (region
+ * rank first, then a stable sort, so within one region it is document order),
+ * which is also the visual order of a form row.
+ */
+function itemsAfter(items: HTMLElement[], el: HTMLElement): HTMLElement[] {
+  const idx = items.indexOf(el);
+  if (idx !== -1) return items.slice(idx + 1);
+  return items.filter(
+    (i) => !!(el.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_FOLLOWING),
+  );
+}
+
+/** The item before / after `el` in region order, whether or not `el` is one of
+ *  them. The sequential fallback `arrowNavigate` uses when geometry finds
+ *  nothing — see `itemsAfter` for why the -1 case has to be handled. */
+function sequentialNeighbour(
+  items: HTMLElement[],
+  el: HTMLElement,
+  forward: boolean,
+): HTMLElement | null {
+  const idx = items.indexOf(el);
+  if (idx !== -1) return items[forward ? idx + 1 : idx - 1] ?? null;
+  if (forward) return itemsAfter(items, el)[0] ?? null;
+  const before = items.filter(
+    (i) => !!(el.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_PRECEDING),
+  );
+  return before[before.length - 1] ?? null;
+}
+
+/**
  * THE GLOBAL ARROW CONTRACT: ↓/↑ move to the field above / below, ←/→ to the
  * field left / right — everywhere, on every control that does not own arrows
  * itself.
@@ -1120,8 +1228,11 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
   if (horizontal && !atCaretEdge(t, forward ? "next" : "prev")) return false;
 
   const items = regionItems(root, t);
-  const idx = items.indexOf(t);
-  if (idx === -1) return false;
+  // NOT `indexOf(t) === -1 -> return false`. That bail is what made a readOnly
+  // box a dead end for every arrow (see `itemsAfter`); `root` is an ANCESTOR of
+  // the focused element by construction — `scopeOf(document.activeElement)` in
+  // keyboard-nav-provider.tsx — so being absent from `items` never means "not
+  // on this surface", only "not a tab stop".
   const dir =
     e.key === "ArrowDown"
       ? "down"
@@ -1130,7 +1241,7 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
         : e.key === "ArrowRight"
           ? "right"
           : "left";
-  const next = spatialNeighbour(t, dir, items) ?? items[forward ? idx + 1 : idx - 1];
+  const next = spatialNeighbour(t, dir, items) ?? sequentialNeighbour(items, t, forward);
   /**
    * OFF THE EDGE OF THE SECTION, THE ARROWS HAND OVER TOO (client 2026-08-19:
    * "I can't move section to section using the arrow key").
