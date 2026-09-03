@@ -40,6 +40,54 @@ const withSerwist = withSerwistInit({
   additionalPrecacheEntries: [{ url: "/offline", revision: null }],
 });
 
+/**
+ * VERSION SKEW: THE "THE CSS DISAPPEARED" REPORT, AND WHY THE FIX IS NOT HERE
+ * (reported 2026-09-03, on Fabric BOM ▸ Components).
+ *
+ * ## THE FAILURE
+ *
+ * A deploy replaces every hashed asset. A tab that was already open is still
+ * running the OLD document, which links `/_next/static/css/<old hash>.css` —
+ * a file the new deployment does not serve. The stylesheet 404s and the page
+ * renders unstyled. The markup is fine; only the CSS is gone.
+ *
+ * `app/sw.ts` makes it likelier rather than causing it: `clientsClaim: true`
+ * hands the open tab to the new worker immediately, so it is reading the new
+ * precache while still running the old bundle — the exact state the comment
+ * beside `skipWaiting` in that file describes.
+ *
+ * ## WHY IT LOOKS LIKE "ONLY SOME USERS"
+ *
+ * `components/pwa/silent-updater.tsx` repairs this by reloading, and it is
+ * gated on `isSafeToReload()` (lib/reload-guard.ts) — false while a form is
+ * dirty, an overlay is open, or the operator typed in the last few seconds. So
+ * the users who see it are precisely the ones with unsaved work in an editor
+ * when a deploy lands, which is why an editor tab like Components collects the
+ * reports. It DOES recover: `attempt()` re-runs on the busy subscription, on
+ * visibility change, on `online`, and every 30s. The cost is that the page
+ * looks broken until the operator saves or closes.
+ *
+ * ## THE FIX IS VERCEL SKEW PROTECTION, A PROJECT SETTING
+ *
+ * Turn it on in the Vercel project (Settings ▸ Deployment Protection ▸ Skew
+ * Protection). Vercel then routes a request carrying an old deployment id back
+ * to the deployment that served it, so the old tab keeps fetching its own CSS
+ * and never breaks. Nothing has to change in this file: Vercel sets
+ * `NEXT_DEPLOYMENT_ID`, and `next/dist/server/config.js` adopts it
+ * automatically when `hasNextSupport` is true (i.e. on Vercel).
+ *
+ * ## DO NOT SET `deploymentId` HERE INSTEAD. IT IS THE WRONG LEVER, TWICE.
+ *
+ * It does not keep old assets alive — it stamps `?dpl=` on asset URLs and adds
+ * a deployment-id header, and on a mismatch Next answers with a HARD
+ * NAVIGATION. Next's own note on it: "there may be a loss of application
+ * state". That is a forced reload over half-typed work, which is the single
+ * thing `lib/reload-guard.ts` and AGENTS.md's auto-reload rule exist to
+ * prevent — it would trade an ugly screen for lost data.
+ *
+ * And once Skew Protection is on, a hand-written value here is a BUILD ERROR:
+ * `config.js` throws when `deploymentId` disagrees with `NEXT_DEPLOYMENT_ID`.
+ */
 const nextConfig: NextConfig = {
   // Where the build output goes. Overridable so a VERIFICATION build can be sent
   // somewhere the running dev server isn't reading from.

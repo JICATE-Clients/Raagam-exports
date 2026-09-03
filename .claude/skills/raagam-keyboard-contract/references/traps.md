@@ -449,7 +449,24 @@ forms" — because every picker in every grid had it.
 | list open | ↑ ↓ Enter | Tab |
 | list closed | ↓ | ↑ Enter Tab |
 | native `<select>` | ↑ ↓ | Enter Tab |
+| `<input type=date>` and the time family, ON A FORM | ↑ ↓ ← → | Enter Tab |
+| the same date box IN A CHILD GRID | — | all of them |
 | text field | — | all of them |
+
+The date row is the second one to be added, and it arrived the same way the
+first did — as a report (client 2026-09-03, Order Info, which has two mandatory
+dates). `<input type="date">` has no popup and no caret: ↑/↓ step the focused
+segment and ←/→ move between dd, mm and yyyy, so all four arrows are how the
+value is typed. With no branch for it, a blank one refused ↓ and → while letting
+↑ and ← through (`keyMovesBackward`), which reads as a box that counts up and
+will not count down. Nothing is given up by allowing them: `ownsArrowKeys`
+already claims the family, so no arrow moves focus off one of these fields
+anyway — the refusal was protecting no departure. Two exclusions carry that
+same test: `type="number"` is not in the family at all, because `ownsArrowKeys`
+does not claim it and its arrows really do move; and the family stands down
+INSIDE a `data-grid-row`, because there `gridKeyNav` claims ↑/↓ for the row and
+←/→ for the column, the browser never sees the key, and no segment is stepped —
+allowing them would buy nothing and would let ↑/↓ walk out of a held cell.
 
 Two things it is easy to get wrong when extending this:
 

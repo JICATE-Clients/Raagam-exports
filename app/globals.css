@@ -1248,3 +1248,60 @@ body {
   font-weight: inherit;
   color: var(--foreground);
 }
+
+/* A RAIL MAY OPT OUT OF THE BLUE RING (client 2026-09-03, on Fabric BOM ▸
+   Components: "remove blue bg colour for carts").
+
+   THE RING STAYS EVERYWHERE ELSE, and that is the whole reason this is an
+   opt-out rather than an edit to the rule above. The ring is itself a client
+   request — 2026-08-28, "make the box also bold while client in that material"
+   — made against Material BOM, whose rail is twenty near-identical "Material N"
+   lines where a heavier box is what finds your place. Components' rail is eight
+   distinct part NAMES; the name alone tells the operator which one they are on,
+   so the ring reads as decoration there and was asked to go.
+
+   WHAT STILL SAYS "THIS ONE". The entry keeps `bg-surface` against the rail's
+   muted fill, the 3px `border-l-primary`, and the bold from the rule above —
+   three cues, none of them a blue box. Selection is never left unmarked, which
+   matters more than usual here: focus and selection cannot come apart in this
+   list (the arrows carry both), so these cues ARE the focus indicator.
+
+   IT HAS TO LIVE HERE, NOT IN A `className`. The rule above is UNLAYERED, and
+   unlayered CSS beats every `@layer` — so a Tailwind utility on the grid, at
+   any specificity, would lose to it. Same trap the focus floor documents. This
+   sits immediately after the rule it undoes, so equal specificity resolves by
+   source order. */
+[data-md-plain] [aria-current="true"] {
+  box-shadow: none;
+}
+
+/* AND THE RAIL'S OWN FILL GOES WITH IT (client 2026-09-03, screenshot 160649:
+   "remove this blue background colour").
+
+   The pane is `bg-surface-muted/60` — a cool grey that reads blue against the
+   white sheet, and it is what shows THROUGH the entries, since an unselected
+   entry paints nothing of its own. So the fill is the pane's, not the card's,
+   which is why removing it here empties every card at once.
+
+   WHY IT EXISTS ELSEWHERE, and therefore why this is scoped: on Material BOM a
+   short list left "an empty white column running down the page" (client
+   2026-08-20, screenshot 2406, "that separate item and table look not good"),
+   and tinting the list is what turns that emptiness into the bottom of a pane.
+   Components' rail is eight entries that fill their column, so there is no
+   emptiness for a tint to explain.
+
+   THE PANE IS STILL A PANE: `md:border-r` draws the edge against the detail
+   side, and the skin still boxes every entry.
+
+   WHAT SELECTION IS DOWN TO, stated because it is now thin. The open entry
+   paints `bg-surface`, which against a transparent pane is white on white — so
+   the fill no longer distinguishes it, and with the ring off above, the cues
+   that remain are the 3px `border-l-primary` and the skin's bold text. Two, and
+   both are real, but there is no third. If a future change takes either one,
+   the selection becomes invisible — and in this list that is worse than it
+   sounds, because the arrows carry selection AND focus together, so these cues
+   are also the focus indicator. */
+[data-md-plain] [data-md-list] {
+  background-color: transparent;
+}
+

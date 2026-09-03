@@ -240,6 +240,18 @@ list, walk down it, and **Enter would not pick anything** (client 2026-08-04).
 - **an OPEN list owns ↑ ↓ and Enter** — moving the highlight and picking are both filling;
 - **a CLOSED list opens on ↓** — the only keyboard route to reaching a value;
 - **a native `<select>` fills on ↑ ↓** — it has no popup, the arrows *are* the value;
+- **an `<input type="date">` fills on ALL FOUR ARROWS** (client 2026-09-03, Order
+  Info) — same reason one step further: no popup and no caret either, so ↑ ↓ step
+  the focused segment and ← → move between dd, mm and yyyy. Without the branch a
+  blank mandatory date refused ↓ and → while `keyMovesBackward` let ↑ and ←
+  through, so the box counted up and would not count down. Allowing them costs
+  the hold nothing: `ownsArrowKeys` already claims the date family, so no arrow
+  moves focus off one of these fields in the first place. Two exclusions come
+  off that same test: `type="number"` is not in the family (its arrows really do
+  move to the next field), and the family stands down inside a `data-grid-row`,
+  where `gridKeyNav` claims ↑/↓ for the row and ←/→ for the column — there
+  nothing is stepped, so allowing them would only let ↑/↓ walk out of a held
+  cell;
 - **Tab is in none of those branches** — leaving an open list without choosing is exactly
   the departure being refused, so an open list must never become an escape hatch.
 - **Ctrl+Del still removes a child-grid row.** A blank mandatory cell in a row the operator

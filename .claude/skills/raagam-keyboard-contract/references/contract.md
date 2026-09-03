@@ -213,7 +213,10 @@ about it is load-bearing:
 - **A hold refuses MOVEMENT and never refuses CHOOSING.** Not a courtesy — without
   it the required hold is unsatisfiable, and the operator can neither fill the
   field nor leave it. `keyFills` (lib/focus.ts) draws the line: an OPEN list owns
-  ↑ ↓ and Enter, a CLOSED list opens on ↓, a native `<select>` fills on ↑ ↓, and
+  ↑ ↓ and Enter, a CLOSED list opens on ↓, a native `<select>` fills on ↑ ↓, an
+  `<input type="date">` (and the time family) fills on all four arrows — it has
+  no popup and no caret, so ↑↓ step a segment and ←→ move between them, though
+  not inside a child grid, where those same keys are the row and the column — and
   **Tab is in none of those branches** so an open list never becomes an escape
   hatch. Ctrl+Del likewise survives — every Ctrl/⌘ chord bails out before the hold
   is consulted — and it is the only way to abandon a half-added grid row.
