@@ -5,6 +5,7 @@ import { isRefusal } from "@/lib/orders/gos/types";
 import { GosSheetDocument } from "@/components/orders/gos-sheet";
 import { GosPrintButton } from "@/components/orders/gos-print-button";
 import { Card, CardBody } from "@/components/ui/card";
+import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
 
 /**
  * THE GARMENT ORDER SHEET, at `/orders/<sales order id>/gos`.
@@ -69,6 +70,14 @@ export default async function GosPage({
         </div>
         {!isRefusal(sheet) && <GosPrintButton />}
       </div>
+
+      {/* THE SWITCHER ACROSS THE ORDER'S THREE DOCUMENTS (client 2026-09-02).
+          Below the breadcrumb rather than inside it: the header row's job is
+          "where am I / act on this page", and folding three links into it would
+          push the toolbar buttons off the right on a narrow screen. It carries
+          its own `print:hidden`. */}
+      <OrderDocumentTabs orderId={orderId} current="gos" />
+
 
       {isRefusal(sheet) ? (
         /*

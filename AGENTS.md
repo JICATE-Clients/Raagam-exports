@@ -6,6 +6,45 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Project conventions
 
+## Hooks above every early return (STANDING)
+
+**A screen that returns early declares EVERY hook above that line.** React counts
+hooks by position, so a hook below a branch runs on one render and is skipped on
+the next: the component throws "Rendered more hooks than during the previous
+render", `app/(app)/error.tsx` swallows the route, and the operator gets "This
+screen couldn't load" with no digest and nothing to search for.
+
+`garment-order-screen.tsx` is where this lives — it returns at
+`if (mode === "list")` and renders the 19,000-line editor beneath — and it has
+now recorded the rule **five times in its own comments, once per occurrence**.
+The fifth (2026-09-02) put two `sqOptions` hooks 1,300 lines under the branch and
+took `/orders/garment-orders` down in production. A comment written by the last
+person to be bitten is not a guard; it is a note the next person reads afterwards.
+
+**ESLint named it correctly every single time** — `react-hooks/rules-of-hooks`,
+"React Hook "useState" is called conditionally". Detection was never what was
+missing. Three things kept the answer off the screen, and all three are now shut:
+
+- **`next build` does not lint** (Next 16 dropped it) and `npm run build:check`
+  is this repo's gate, so the gate and the check had nothing to do with each
+  other. `build:check` now runs `check:hooks` first.
+- **`npm run lint` was unusable in exactly the state that follows a build.**
+  `.next-verify` — the dist dir `build:check` itself writes — was the one
+  alternate dist dir missing from `eslint.config.mjs`'s ignores, so a full lint
+  died with ENOENT on Next's own cleaned-up output. Two halves of one bug.
+- **A full lint is minutes long**, most of it type-aware rules, which is long
+  enough to get skipped. `check:hooks` runs that ONE rule with no type
+  information, over ~1,280 files, in about 20 seconds.
+
+`npm run check:hooks`, verified by being made to FAIL first against the deployed
+2026-09-02 build before being trusted. It is deliberately narrow and is not a
+replacement for `npm run lint` — it is the part of it that must never be skipped.
+
+**The fix is always to MOVE the hook up, never to silence the rule.** Where the
+hook only memoised a cheap pass over the order's own rows, drop the memo and make
+it a plain `const` — `orderStructureIds`, `declaredComboOptions` and `orderVal` in
+that file are each a `useMemo` deleted for this reason, and each says so.
+
 ## Auto-reload guard (STANDING)
 
 A new deploy reloads the user's tab **automatically and silently** — no banner, no
@@ -918,6 +957,47 @@ Checked by `python scripts/audit_layout.py . --check autofill`, which reads
 comment-stripped source (half a dozen files describe an `<input>` in prose) and skips the
 types with no suggestion list — checkbox, radio, file, date. Opt out per line with an
 `autofill: exempt -- <reason>` comment; the login fields above are the shape that earns one.
+
+## A SECOND FK BREAKS EVERY EXISTING EMBED (STANDING)
+
+**The day a table gains a second foreign key to a table it already points at,
+every bare PostgREST embed on it stops working — all at once, everywhere, in
+silence.** `purchase_orders` has `vendor_id` (the supplier) and `agent_id` (the
+buying agent), so `vendors(name)` is no longer a question PostgREST can answer:
+
+```
+GET /purchase_orders?select=id,code,vendors(name)
+300  PGRST201  'purchase_orders with vendors' is ambiguous
+```
+
+Eleven call sites across five services were in that state on 2026-09-02 — the
+dashboard's approval queue, its overdue-PO alert and its spend-by-vendor tile,
+the Tally PO export, three PO pickers, the PO cancellation list, GRN's open-PO
+feed, the PO list and the PO **detail page** (that one uses `.maybeSingle()`, so
+a 300 makes the page `return null` and the route 404s outright).
+
+Name the foreign key column: `vendors!vendor_id(name)`. The **key stays
+`vendors`**, so no reader changes — which is what makes the fix a one-token edit
+rather than a refactor. `vendors!purchase_orders_vendor_id_fkey(name)` also
+works; the column form is preferred because a constraint rename should not be
+able to break a screen.
+
+**IT WAS INVISIBLE FOR TWO REASONS, AND THE SECOND IS THE ONE TO LEARN.** Every
+site reads `data ?? []` and never looks at `error` — the failure "A FAILED QUERY
+IS AN ERROR, NOT AN EMPTY LIST" that `getAmendments` already records in its own
+words. On top of that, `purchase_orders` holds **zero rows today**, so a broken
+screen and a correct one are indistinguishable: nothing looks wrong until the
+first purchase order is raised, at which point ten screens quietly report there
+are none. An empty list is a real and unremarkable answer, so it gets believed
+rather than reported — the same trap the "empty REPORT is the dangerous one"
+note under Cascading filters describes.
+
+A `.select()` string is not type-checked, not linted and not exercised by any
+build, so nothing else in this repo can catch it. `npm run check:embeds` does,
+against a DECLARED table of ambiguous pairs — same shape as `FLAGLESS_PICKERS` —
+with the catalog query to regenerate it in the script's header. Run that query
+whenever a migration adds an FK to a table that already has one to the same
+target. Verified by being made to FAIL first against all eleven pre-fix sites.
 
 ## Function grants (STANDING)
 

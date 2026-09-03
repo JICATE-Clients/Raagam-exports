@@ -124,6 +124,17 @@ import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
 import { capsName } from "@/lib/validation/formats";
 import { Truncated } from "@/components/ui/truncated";
 import { PriceMatrix } from "@/components/orders/price-matrix";
+/* THE SIZE-ACROSS GRIDS SHARE ONE LOOK, DECLARED ONCE. Assort (below) and
+   the Prices rate matrix draw the same frame since 2026-09-02, so the bands
+   and the column rule live in `matrix-grid.ts` rather than being written out
+   twice — two hand-written looks agree on the day they are written. */
+import {
+  MATRIX_FOOT,
+  MATRIX_HEAD,
+  MATRIX_SIZE_TOKEN,
+  matrixCell,
+  sizeColPx,
+} from "@/components/orders/matrix-grid";
 import { adoptedPrice, reshapeRates } from "@/lib/orders/amendments/price-modes";
 import { ApprovalQtyLines } from "@/components/orders/approval-qty-lines";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -255,20 +266,23 @@ import {
   type PackComponentRow,
 } from "@/lib/orders/amendments/pack-composition";
 import {
-  /* `PRICE_TYPE_OPTIONS` WENT THE SAME WAY ON 2026-08-29, and for a reason
-     worth keeping: it was the `else` of `priceModeOptions` — "no pack type, so
-     offer everything" — and the client has replaced that with Style-wise alone
-     (`NO_PACK_PRICE_MODES`). Both branches are now narrow, so the full tuple is
-     no longer a MENU anywhere; it is the vocabulary `price_type` may hold. A
-     file importing it again is a file about to re-open a list the client closed. */
+  /* `PRICE_TYPE_OPTIONS` IS STILL NOT IMPORTED HERE, and the reason survived
+     2026-09-02's widening. The `else` of `priceModeOptions` is `NO_PACK_PRICE_MODES`
+     again — the four per-garment modes, not Style-wise alone — but it is still not
+     the full tuple: the two PACK modes stay off a non-pack order, because a rate
+     per BOX with no declared method has nothing to multiply. So the tuple remains
+     the vocabulary `price_type` may hold rather than a menu, and a file reaching
+     for it here is a file about to offer a box rate on an order with no box. */
   /* `PACK_WISE_PRICE` WENT WITH THE MODE-NAME TESTS (2026-08-28). The grid's
      shape is `priceAxes(mode).size` and its unit is `isPackWise(mode)`, so the
      one literal this file compared against has no reader left — which is the
      point: a third mode arriving needed no edit at either site. */
   PACK_WISE_SIZE_PRICE,
   PACK_BRANCH_PRICE_MODES,
-  /* What the Prices tab offers with NO pack type — Style-wise alone since
-     2026-08-29. The pack branch above is unchanged. */
+  /* What the Prices tab offers with NO pack type — the four per-garment modes
+     (Style-wise, Color-wise, Size-wise, Color-wise Size-wise) since 2026-09-02,
+     when the client reversed 08-29's "Style Price only". The pack branch above
+     is unchanged, and the two pack modes are still excluded here. */
   NO_PACK_PRICE_MODES,
   isPackBranchMode,
   SEASON_OPTIONS,
@@ -1549,6 +1563,43 @@ export function GarmentOrderScreen({
    * `if (mode === "list")` return crashes this screen on every load.
    */
   const [showPriceQty, setShowPriceQty] = useState(false);
+  /**
+   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
+   *
+   * Client 2026-09-01: "copying from the SQ No should instantly pull the
+   * structure, estimated compositions, and initial parameters into the Confirmed
+   * Order (RE) layout to eliminate repetitive manual data entry", against the
+   * client's own template proposal: "copy the SQ's generic structure rows and
+   * associate them by default with all active combos on the RE … keep these
+   * fields fully editable".
+   *
+   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
+   * screen states four times over. The LIST is a picker's options and may arrive
+   * whenever; the COPY writes into combos, and an effect that wrote would refill
+   * a structure the operator had deliberately cleared, and would fire again the
+   * moment a SAVED order re-opened.
+   *
+   * UP HERE WITH THE OTHER STATE, ABOVE THE `if (mode === "list")` RETURN,
+   * for the same hard reason `openStyleKey` is — a hook declared below that
+   * line runs in edit mode and not in list mode, and this screen crosses the
+   * boundary on EVERY load. Declared beside `copyFromSq` where it read better,
+   * these two were React's 69th hook in one render and its 68th-and-nothing in
+   * the next: "Rendered more hooks than during the previous render", a blank
+   * /orders/garment-orders rather than a subtle bug. That is the FOURTH time
+   * this file has recorded the rule, and the first three all say the same
+   * thing — the branch is what makes position load-bearing, so a hook goes up
+   * here even when its only reader is 4,000 lines below.
+   */
+  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadSqOptions().then((res) => {
+      if (!cancelled && res.ok) setSqOptions(res.rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   /**
    * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the
    * `structureProblems` advisory (client 2026-08-18: "remove this message; if
@@ -4266,6 +4317,7 @@ export function GarmentOrderScreen({
     [taLadder],
   );
 
+
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
     const columns: Column<GarmentOrderAmendment>[] = [
@@ -4341,50 +4393,82 @@ export function GarmentOrderScreen({
              no longer see asks them to confirm against nothing. */
           label={r.sales_order?.order_number ?? r.code}
           /*
-           * THE REQUIREMENT SHEET, REACHED FROM THE ROW THAT ALREADY ANSWERS
-           * WHETHER IT EXISTS (2026-08-25).
+           * THE ORDER'S THREE DOCUMENTS, REACHED FROM THE ROW (2026-08-25,
+           * reworked 2026-09-02).
            *
-           * The Material BOM column beside it says `Pending` / `Recorded`, and
+           * The Material BOM column beside it says `Pending` / `Updated`, and
            * whoever reads that is exactly the person who then wants the sheet.
            * Without this they leave for Orders ▸ All Orders and re-find the same
            * order there, because THIS list does not link to `/orders/<id>` at all
            * — its eye is `RowActions`' record-view overlay, not navigation.
            *
-           * ## A DISABLED ITEM SAYS WHY IN ITS OWN LABEL
+           * ## THE BOM GATE WAS REMOVED, AND THAT REVERSES WHAT STOOD HERE
            *
-           * `DropdownItem` has no `title` and no hint slot, so a greyed row
-           * reading “Requirement sheet” teaches nothing — the operator clicks,
-           * nothing happens, and the feature reads as broken. The label carries
-           * the reason instead. Opening it anyway would land on a sheet that
-           * correctly refuses, which is a wasted trip the row can prevent.
+           * Until 2026-09-02 the requirement item DISABLED itself while the
+           * order's Material BOM read `Pending`, and folded the reason into its
+           * own label — `DropdownItem` has no `title` and no hint slot, so a
+           * greyed row saying only “Requirement sheet” teaches nothing. That
+           * reasoning was sound and the client overrode it anyway: “if we click
+           * it, it will open the material bom report here … don't need to go
+           * there”. A report the operator can always open beats one that
+           * silently refuses to be opened, even when the refusal is correct.
            *
-           * The route keys on the SALES ORDER, like `/gos` beside it: the floor
-           * asks for “the sheet for HO/RE/26-27/0009”, and the document resolves
-           * the current BOM itself.
+           * SO THE EXPLANATION MOVED, IT WAS NOT DELETED. Both sheet pages
+           * already answer a missing BOM with a named refusal, and each now
+           * carries a link on to the screen that would create one. Removing the
+           * gate WITHOUT that would have been the trade the old comment warns
+           * about — a click that lands somewhere blank.
+           *
+           * The `!soId` gate STAYS, and is a different kind of thing: there is
+           * no route to push without an order id, so that item is not refusing,
+           * it has nowhere to go. It keeps its self-explaining label.
+           *
+           * The routes key on the SALES ORDER, like `/gos` beside them: the floor
+           * asks for “the sheet for HO/RE/26-27/0009”, and each document resolves
+           * its own current BOM.
            */
           menu={(() => {
-            const pending = (bomStatus[r.id]?.status ?? "pending") === "pending";
             const soId = r.sales_order_id;
             return [
               /* THE ORDER SHEET NEEDS NO GATE HERE. It prints an entered garment
-                 order, and every row on this list IS one — so unlike the
-                 requirement beneath it there is no state in which opening this
-                 lands on a refusal. */
+                 order, and every row on this list IS one — so unlike the two
+                 beneath it there is no state in which opening this lands on a
+                 refusal. */
+              /* ONE `section` ON EACH, so the menu prints a DOCUMENTS heading
+                 above the group (client 2026-09-02: the three read as a bare
+                 list). The ⋮ trigger carries no label of its own — Edit and
+                 Delete are icon buttons beside it, not entries in here — so the
+                 heading is the only thing that says what this menu is FOR.
+                 THE LABELS LOSE THE WORD "report" TO THE HEADING. The menu is
+                 176px wide and "Material BOM report" wraps to two lines in it;
+                 the heading supplies the noun once instead of every row paying
+                 for it. */
               {
+                section: "Documents",
                 label: soId ? "Order sheet" : "Order sheet — no order number yet",
                 icon: FileText,
                 disabled: !soId,
                 onClick: () => router.push(`/orders/${soId}/gos`),
               },
               {
-                label: !soId
-                  ? "Requirement sheet — no order number yet"
-                  : pending
-                    ? "Requirement sheet — no Material BOM yet"
-                    : "Requirement sheet",
+                section: "Documents",
+                label: soId ? "Material BOM" : "Material BOM — no order number yet",
                 icon: ClipboardList,
-                disabled: !soId || pending,
+                disabled: !soId,
                 onClick: () => router.push(`/orders/${soId}/requirement`),
+              },
+              /* THE FABRIC BOM REPORT (client 2026-09-02), step 3's document
+                 beside step 2's. It is NOT gated on the Material BOM pill next
+                 to it and must never be: the two BOMs are separate documents on
+                 separate cycles, and an order can have its cloth planned before
+                 its trims. Reading one status for both is how a screen starts
+                 hiding a document that exists. */
+              {
+                section: "Documents",
+                label: soId ? "Fabric BOM" : "Fabric BOM — no order number yet",
+                icon: Layers,
+                disabled: !soId,
+                onClick: () => router.push(`/orders/${soId}/fabric-requirement`),
               },
             ];
           })()}
@@ -5578,32 +5662,6 @@ export function GarmentOrderScreen({
    * rather than a preference: `garment_style_components` has no such columns.
    * They stay the operator's (client 2026-08-17, same message).
    */
-  /**
-   * COPY FROM SQ NO (0511) — the quotation list and the copy it performs.
-   *
-   * Client 2026-09-01: "copying from the SQ No should instantly pull the
-   * structure, estimated compositions, and initial parameters into the Confirmed
-   * Order (RE) layout to eliminate repetitive manual data entry", against the
-   * client's own template proposal: "copy the SQ's generic structure rows and
-   * associate them by default with all active combos on the RE … keep these
-   * fields fully editable".
-   *
-   * LOADED ON AN EFFECT, COPIED ON AN ACTION — and the split is the rule this
-   * screen states four times over. The LIST is a picker's options and may arrive
-   * whenever; the COPY writes into combos, and an effect that wrote would refill
-   * a structure the operator had deliberately cleared, and would fire again the
-   * moment a SAVED order re-opened.
-   */
-  const [sqOptions, setSqOptions] = useState<SqOption[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    loadSqOptions().then((res) => {
-      if (!cancelled && res.ok) setSqOptions(res.rows);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   /**
    * WHICH COMBOS A COPY WOULD REACH — computed from state, never counted inside
@@ -7433,15 +7491,22 @@ export function GarmentOrderScreen({
      * 0467 set pack still narrows if that switch is ever flipped back on.
      */
     /**
-     * AND THE OTHER SIDE IS NARROW TOO, SINCE 2026-08-29 (client: "when Pack
-     * Type is No the system completely disables the Pack Wise and Pack Size
-     * grids and locks the grid to standard Style Price only").
+     * AND THE OTHER SIDE OFFERS THE FOUR PER-GARMENT MODES AGAIN (client
+     * 2026-09-02, reversing the second half of 08-29).
      *
-     * This fell through to the whole six-mode tuple, so an order with no pack
-     * type could be priced Color-wise or Size-wise. It now offers Style-wise
-     * alone. THE PACK BRANCH IS UNCHANGED â€” 08-28's three modes stand exactly as
-     * they were; this is the `else`, and confusing the two would make Pack-wise
-     * pricing unreachable on the only orders it exists for.
+     * 08-29 read "when Pack Type is No the system completely disables the Pack
+     * Wise and Pack Size grids and locks the grid to standard Style Price only",
+     * and both halves were built. The client has kept the first and dropped the
+     * second: the pack grids stay unreachable without a pack type, and
+     * Color-wise / Size-wise / Color-wise Size-wise come back beside Style-wise.
+     * It was reported as the dropdown having lost its other entries, which is
+     * what a one-item `<Select>` is from the operator's side.
+     *
+     * THE PACK BRANCH IS UNCHANGED - 08-28's three modes stand exactly as they
+     * were; this is the `else`, and confusing the two would make Pack-wise
+     * pricing unreachable on the only orders it exists for. What both branches
+     * still agree on is that the two PACK modes need a declared method. That is
+     * the GATE, and 09-02 widened the narrowing, not the gate.
      */
     const live: readonly string[] = packPricingActive
       ? PACK_BRANCH_PRICE_MODES
@@ -12171,13 +12236,10 @@ export function GarmentOrderScreen({
    * 26px of chrome, not 18.4: that figure was calibrated when the cell was a
    * bare figure. An `<Input>` is a different container and needs its own.
    */
-  const sizeColPx = (label: string, digits: number) =>
-    Math.round(
-      Math.max(
-        Math.min(6, Math.max(2, label.length)),
-        Math.min(7, Math.max(2, digits)),
-      ) * 7.8 + 26,
-    );
+  /* `sizeColPx` MOVED TO `components/orders/matrix-grid.ts` on 2026-09-02, so
+     the Prices matrix sizes its columns by the same rule this one does. The
+     reasoning above is that module's now; it is repeated there rather than
+     summarised, because the rule is the comment. */
 
   /** Identity (ref + combo, with the style name under them) and the row total. */
   const ASSORT_ID_W = 340;
@@ -12292,16 +12354,14 @@ export function GarmentOrderScreen({
     ].join(" ");
 
     /* One shared class per band, so a cell added to the header and forgotten in
-       the body cannot drift: both read the same string. */
-    const HEAD =
-      "sticky top-0 z-20 flex min-h-8 items-center justify-center border-b " +
-      "border-border-strong bg-surface-muted px-1 text-[10.5px] font-semibold " +
-      "uppercase tracking-wide text-muted-foreground";
-    const CELL =
-      "flex min-h-9 items-center justify-center border-b border-border px-0.5";
-    const FOOT =
-      "sticky bottom-0 z-20 flex min-h-9 items-center justify-center border-t " +
-      "border-border-strong bg-surface-muted px-1 text-xs font-bold tabular-nums";
+       the body cannot drift: both read the same string. SHARED WITH THE PRICES
+       MATRIX since 2026-09-02 (`components/orders/matrix-grid.ts`) — the two
+       tabs draw one frame, and a second copy of these strings is how they would
+       stop. `min-h-9` is passed rather than baked in because the rate grid runs
+       at 26px, a compaction the client bought separately. */
+    const HEAD = MATRIX_HEAD;
+    const CELL = matrixCell("min-h-9");
+    const FOOT = MATRIX_FOOT;
 
     /* PIECES ONLY (0473) — the boxes row shares this column and its figure is
        a different unit. Summed in, a size ordering 100 boxes of a 4-piece pack
@@ -12333,7 +12393,7 @@ export function GarmentOrderScreen({
                  The size the operator ticked over there is visibly the size they
                  are filling in here. */
               <div key={z.size_id} className={HEAD}>
-                <span className="rounded border border-border bg-surface px-1.5 py-px font-mono text-[13px] font-medium normal-case tracking-normal tabular-nums text-foreground">
+                <span className={MATRIX_SIZE_TOKEN}>
                   {sizeLabel(z.size_id) || "-"}
                 </span>
               </div>
@@ -15908,6 +15968,9 @@ export function GarmentOrderScreen({
    * reason the prop's own note gives — the flag has to sit on the same object as
    * the fieldless content, or the two eventually disagree.
    */
+  /* `disabled` is `TabItem`'s own and is NOT restated here — it type-checked
+     all along, which is exactly why the rail never receiving it was invisible.
+     See the spread in `sections` below. */
   type OrderTab = TabItem & { skipTab?: boolean; wide?: boolean };
   const tabs: OrderTab[] = [
     /**
@@ -16865,7 +16928,15 @@ export function GarmentOrderScreen({
                   <span className="text-sm font-medium text-foreground">
                     {st.style_ref_no}
                   </span>
-                  {st.style && (
+                  {/* ONLY WHEN IT SAYS SOMETHING THE REF DOES NOT. "THE REF IS
+                      THE NAME NOW" (2026-08-25) — `pickStyle` writes the ref
+                      into `style` — so on every order entered since, this
+                      printed the same string twice: "MENS T SHIRT/0034 MENS T
+                      SHIRT/0034" (client 2026-09-02, screenshot 2642). Kept
+                      rather than deleted because a document SAVED before that
+                      date can still carry a real, different style name, and
+                      dropping the span would hide it. */}
+                  {st.style && st.style.trim() !== st.style_ref_no.trim() && (
                     <span className="text-sm text-muted-foreground">{st.style}</span>
                   )}
                   {st.article_no && (
@@ -17639,7 +17710,7 @@ export function GarmentOrderScreen({
             a column. */}
         <div className="flex items-start gap-x-3">
         <div className="min-w-0 flex-1 space-y-2 @2xl/editor:space-y-1.5">
-          <FieldRow>
+          <FieldGrid>
             {/* AUTO, NOT PICKED (client 2026-08-11).
                 This was a dropdown of orders that already existed — amendment
                 behaviour on the screen an order is ENTERED on. The SC No is now
@@ -17662,7 +17733,7 @@ export function GarmentOrderScreen({
                 in `validity` (see the note on the Unit entry there), which is
                 where the record — rather than any box — is judged. The chain is
                 the same shape it always was, one link longer. */}
-            <Field label="RE No" w="code" htmlFor="hd-scno">
+            <Field label="RE No" size="xs" htmlFor="hd-scno">
               <Input
                 id="hd-scno"
                 readOnly
@@ -17688,7 +17759,7 @@ export function GarmentOrderScreen({
                 has been told off for once already. It appears the day the first
                 SQ exists. */}
             {sqOptions.length > 0 && (
-              <Field label="Copy from SQ No" w="name" htmlFor="hd-sqno">
+              <Field label="Copy from SQ No" size="xs" htmlFor="hd-sqno">
                 <div className="flex items-center gap-2">
                   <RecordPicker
                     id="hd-sqno"
@@ -17784,7 +17855,7 @@ export function GarmentOrderScreen({
               label="Unit"
               required={unitAuto.required && !editId}
               offTabPath={unitAuto.offTabPath}
-              w="num"
+              size="xs"
             >
               <RecordPicker
                 label="Unit"
@@ -17863,7 +17934,7 @@ export function GarmentOrderScreen({
               label="Date"
               required={dateAuto.required}
               offTabPath={dateAuto.offTabPath}
-              w="code"
+              size="xs"
               htmlFor="hd-date"
             >
               {/*
@@ -17925,7 +17996,7 @@ export function GarmentOrderScreen({
                 into one entry (client 2026-08-31) and the row this order already
                 holds always survives the fold. The whole argument, and why the
                 fold cannot live in the service, is on `customerFold` above. */}
-            <Field label="Customer" required w="name">
+            <Field label="Customer" required size="xs">
               <RecordPicker
                 label="Customer"
                 compact
@@ -17998,7 +18069,7 @@ export function GarmentOrderScreen({
               * and the hold — two statements of one fact, and the second one
               * appears only after a blur. `<Field required>` is the declaration.
               */}
-            <Field label="PO No" required w="code" htmlFor="hd-pono">
+            <Field label="PO No" required size="xs" htmlFor="hd-pono">
               <ValidatedInput
                 id="hd-pono"
                 format="doc_ref"
@@ -18052,7 +18123,7 @@ export function GarmentOrderScreen({
               * only option is the held row — so it can never overwrite the
               * ordinary empty box on a working field.
               */}
-            <Field label="Merchand." required w="term">
+            <Field label="Merchand." required size="xs">
               <RecordPicker
                 label="Merchand."
                 compact
@@ -18079,7 +18150,7 @@ export function GarmentOrderScreen({
                 onChange={(id) => set({ merchandiser_id: id })}
               />
             </Field>
-          </FieldRow>
+          </FieldGrid>
 
           {/* LINE 2 — THE ORDER'S TERMS. The break is where it has always been:
               line 1 is who the order is and who it is for, line 2 is what it is
@@ -18113,7 +18184,7 @@ export function GarmentOrderScreen({
               and `container-type: inline-size` applies SIZE CONTAINMENT, so a
               shrink-to-fit flex item wrapping it measures 0 and collapses. A
               field in the row needs none of that. */}
-          <FieldRow>
+          <FieldGrid>
             {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
                 entry run is SCNo → Date → Customer → PO No → Merchandiser →
                 Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
@@ -18130,10 +18201,10 @@ export function GarmentOrderScreen({
                 entry blocks Save; the Zod rule guards the writer. One
                 declaration is not enough on a header field — all three, or the
                 star is decoration. */}
-            <Field label="Deli.Dt" w="code" htmlFor="hd-deli" required>
+            <Field label="Deli.Dt" size="xs" htmlFor="hd-deli" required>
               <Input id="hd-deli" type="date" required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
             </Field>
-            <Field label="Season" w="range" htmlFor="hd-season" required>
+            <Field label="Season" size="xs" htmlFor="hd-season" required>
               <Select id="hd-season" required value={form.season} onChange={(e) => set({ season: e.target.value })}>
                 <option value=""></option>
                 {SEASON_OPTIONS.map((o) => (
@@ -18188,7 +18259,7 @@ export function GarmentOrderScreen({
               * is a live FACET, the second one narrowing the Style picker
               * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
               */}
-            <Field label="Excess %" w="num" htmlFor="hd-excess">
+            <Field label="Excess %" size="xs" htmlFor="hd-excess">
               <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
             </Field>
             {/**
@@ -18249,7 +18320,7 @@ export function GarmentOrderScreen({
 
                 Keys are untouched — it is the same real `<input type="checkbox">`
                 underneath, so Tab, Enter and Space behave as they did. */}
-            <Toggle
+            <Toggle className={FIELD_SPAN.xs}
               id="hd-pack"
               label="Pack"
               checked={form.pack}
@@ -18312,7 +18383,7 @@ export function GarmentOrderScreen({
               * meaning — see the note on the Quantities tab, which is where it
               * lives and what it opens.
               */}
-            <Toggle
+            <Toggle className={FIELD_SPAN.xs}
               id="hd-multord"
               label="Multi Style"
               checked={form.mult_ord}
@@ -18351,7 +18422,7 @@ export function GarmentOrderScreen({
                 placeholder is left as-is deliberately: changing it to something
                 like "Select a rule" would quietly erase the evidence that blank
                 used to mean something. */}
-            <Field label="Rejection Rule" w="name" required>
+            <Field label="Rejection Rule" size="xs" required>
               <RecordPicker
                 label="Rejection Rule"
                 /* `compact` — WITHOUT IT THE LABEL RENDERS TWICE (client 2026-08-12,
@@ -18396,7 +18467,7 @@ export function GarmentOrderScreen({
                 de-clutter rules. That reasoning did not die with the cell: it is
                 what the per-style Files cell is built as, so it lives on the
                 `variant="cell"` control in `file-attachments.tsx`. */}
-          </FieldRow>
+          </FieldGrid>
           {/**
             * THE FOLD SAYS WHAT IT HID (client 2026-08-31, the other half of the
             * Customer dedup ask).
@@ -18550,23 +18621,38 @@ export function GarmentOrderScreen({
      */
     ...tabs
       .filter((t) => t.key !== "reason" || amending)
+      /**
+       * SPREAD, NEVER A WHITELIST — THIS MAP SILENTLY ATE `disabled` FOR TWO
+       * DAYS (client 2026-09-02: "i told you know if the pack type is no
+       * disable the tab do it").
+       *
+       * It listed the seven keys it forwarded, so a flag a tab declared and
+       * this line did not name was DROPPED ON THE WAY TO THE RAIL. Pack type(s)
+       * has set `disabled: true` in its Pack-off branch since 2026-08-31 and
+       * the section stayed fully clickable, because only `skipTab` was on the
+       * list — half of one ruling arriving and half not.
+       *
+       * NOTHING COULD CATCH IT. `disabled` is a real optional field of
+       * `TabItem`, so the declaration type-checks; the map's result is a
+       * different object, so the omission type-checks too; and the two halves
+       * disagree only at RUNTIME, on an order with Pack switched off. This is
+       * the shape [[raagam-stated-vs-enforced]] names — a rule written down in
+       * one place with nothing carrying it to the place that enforces it — and
+       * the whitelist is what made it possible.
+       *
+       * So the spread is the fix rather than an eighth line: the NEXT flag a
+       * section declares arrives without anyone remembering this map exists.
+       * The three keys below are overrides and must stay after it — they are
+       * derived per key and outrank whatever a tab happens to carry.
+       */
       .map((t) => ({
-        key: t.key,
-        label: t.label,
+        ...t,
         icon: SECTION_ICONS[t.key] ?? FileText,
         done: sectionDone[t.key],
         // Only `logistic` can carry one today; the lookup is keyed rather than
         // hard-coded so a field declared against another tab tomorrow shows up
         // on the rail without this line being remembered.
         problems: validity.bySection[t.key],
-        // Forwarded, never re-derived — see `OrderTab`.
-        skipTab: t.skipTab,
-        /* Style(s) is the only section that sets it today. Forwarded by key
-           rather than hard-coded here for the reason `problems` above is: a
-           second section that needs the wider pane declares it on itself and
-           appears correctly without this line being remembered. */
-        wide: t.wide,
-        content: t.content,
       })),
   ];
 

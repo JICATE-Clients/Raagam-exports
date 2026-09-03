@@ -6,6 +6,7 @@ import { RequirementSheetDocument } from "@/components/orders/requirement-sheet"
 import { RequirementToolbar } from "@/components/orders/requirement-toolbar";
 import { fmtDateTime } from "@/lib/format";
 import { Card, CardBody } from "@/components/ui/card";
+import { OrderDocumentTabs } from "@/components/orders/order-document-tabs";
 
 /**
  * THE ACCESSORIES REQUIREMENT SHEET, at `/orders/<sales order id>/requirement`.
@@ -69,17 +70,37 @@ export default async function RequirementPage({
         )}
       </div>
 
+      {/* THE SWITCHER ACROSS THE ORDER'S THREE DOCUMENTS (client 2026-09-02).
+          Below the breadcrumb rather than inside it: the header row's job is
+          "where am I / act on this page", and folding three links into it would
+          push the toolbar buttons off the right on a narrow screen. It carries
+          its own `print:hidden`. */}
+      <OrderDocumentTabs orderId={orderId} current="material" />
+
       {isSheetRefusal(data) ? (
         /*
          * A REFUSAL IS THE SENTENCE IT CARRIES, never an empty sheet. A blank
          * requirement is indistinguishable from an order that genuinely needs no
          * trims — and on paper there is nobody to disbelieve it. The same rule
          * the engine follows for a quantity, one layer out.
+         *
+         * IT IS REACHED, NOT AVOIDED (client 2026-09-02). The Garment Order row
+         * menu used to grey its own item out while the BOM was missing, so this
+         * card was the state nobody saw; it now opens unconditionally, and this
+         * is the whole explanation an operator gets. Which is why it names the
+         * screen to go to instead of only stating the fact — a dead end here is
+         * what the removed gate was protecting against.
          */
         <Card>
           <CardBody>
             <p className="text-sm font-medium">Nothing to print</p>
             <p className="mt-1 text-sm text-muted-foreground">{data.refused}</p>
+            <Link
+              href="/orders/material-bom-amendment"
+              className="mt-3 inline-block text-sm font-medium text-primary hover:underline"
+            >
+              Open Material BOM →
+            </Link>
           </CardBody>
         </Card>
       ) : (

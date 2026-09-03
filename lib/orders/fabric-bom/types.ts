@@ -75,6 +75,13 @@ export interface FabricBomLine {
   required_print: string | null;
   /** Legacy Components ▸ "Specification" (0495). */
   specification: string | null;
+  /** Yarn-dyed only (0513 · 0514) — the UOM its stripe repeat ratio is in,
+   *  % or CM from the UOM MASTER. A different question from
+   *  `consumption_uom_id` below, which is the unit the consumption FIGURE is in;
+   *  0514's header lists the four readings this cell has had. */
+  mixing_uom_id: string | null;
+  /** Yarn-dyed only (0513) — distinct yarn colours knit into the pattern. */
+  no_of_colors: number | null;
   /** Fabric per garment, in `consumption_uom_id`. */
   consumption: number | null;
   consumption_uom_id: string | null;
@@ -314,6 +321,43 @@ export interface FabricBom {
    *  A sibling of `lines` rather than a child of one: an entry groups several
    *  components at one combined weight. */
   manualEntries: FabricBomManualEntry[];
+  /** [Detail] ▸ Yarn Dyed Details (0512) — the two TYPED panels. Mixing Details
+   *  is derived from `ydRepeats` and is deliberately not stored; see
+   *  `mixingDetailRows` in yarn-dyed.ts. */
+  ydRepeats: FabricBomYdRepeat[];
+  ydCombinations: FabricBomYdCombination[];
+}
+
+/**
+ * One yarn colour repeat — [Detail] ▸ Yarn Dyed Details ▸ Repeats (0512).
+ *
+ * ADDRESSED BY THE FABRIC GROUP, HELD BY VALUE (`style_ref_no · structure_id ·
+ * item_id`), never by `line_id`: the overlay is opened for a group of N
+ * colourway lines, and `updateFabricBom` deletes every line by `bom_id` and
+ * re-inserts, so a cascade off a line would make an ordinary Save destroy these.
+ */
+export interface FabricBomYdRepeat {
+  id: string;
+  style_ref_no: string | null;
+  structure_id: string | null;
+  item_id: string | null;
+  sno: number;
+  yarn_item_id: string | null;
+  dye_type: "dyed" | "grey";
+  color_name: string | null;
+  uom_id: string | null;
+  value: number | null;
+  twisted_yarn: string | null;
+}
+
+/** One yarn-dyed combination — same addressing as `FabricBomYdRepeat`. */
+export interface FabricBomYdCombination {
+  id: string;
+  style_ref_no: string | null;
+  structure_id: string | null;
+  item_id: string | null;
+  combo: string | null;
+  yd_combo_name: string | null;
 }
 
 /**
@@ -436,6 +480,12 @@ export const fabricBomLineInput = z
     /* Legacy Components ▸ "Specification" (0495). */
     specification: capsTextNullable(),
     consumption: numN,
+    /* THE TWO YARN-DYED CELLS (0513). Optional HERE and conditionally required
+       in `missingFabricLineFields` — the type that decides them lives on
+       `items.fabric_type_id`, which this schema cannot reach from `item_id`.
+       AGENTS.md states that division; the migration header states it again. */
+    mixing_uom_id: uuidN,
+    no_of_colors: z.coerce.number().int().min(1).max(99).nullable().default(null),
     consumption_uom_id: uuidN,
     wastage_pct: z.coerce.number().min(0).max(100).nullable().default(0),
     requirement_basis: z.enum(FABRIC_BASES).nullable().default(null),
@@ -530,6 +580,63 @@ export const fabricBomDiaInput = z.object({
   dia: numN,
 });
 
+/**
+ * ONE YARN COLOUR REPEAT — [Detail] ▸ Yarn Dyed Details ▸ Repeats (0512).
+ *
+ * THE THREE ADDRESS FIELDS ARE THE ROW'S IDENTITY, not decoration. The overlay
+ * is opened for a fabric GROUP (`fabricGroupKey` = style · structure · item),
+ * and `updateFabricBom` deletes every LINE by `bom_id` and re-inserts — so a
+ * repeat keyed to a line id would be destroyed by an ordinary Save from the
+ * Fabric Lines grid. 0512's header states this at length; it is the same call
+ * `dias` already makes.
+ *
+ * EVERY VALUE FIELD OPTIONAL, for `fabricBomDiaInput`'s reason: a grid opens on
+ * a blank row and is filled left to right, so refusing a half-filled row here
+ * blocks Save on a row nobody has finished. `ydRepeatFilled` in actions.ts is
+ * what decides whether a row is worth STORING.
+ *
+ * `dye_type` DEFAULTS TO `dyed` BECAUSE THAT IS WHAT THE PANEL IS FOR. `grey`
+ * is the undyed remainder and is excluded from Mixing Details entirely — see
+ * `mixingDetailRows` in yarn-dyed.ts.
+ */
+export const fabricBomYdRepeatInput = z.object({
+  style_ref_no: nullableText,
+  structure_id: uuidN,
+  item_id: uuidN,
+  sno: z.coerce.number().int().nonnegative().default(0),
+  yarn_item_id: uuidN,
+  dye_type: z.enum(["dyed", "grey"]).default("dyed"),
+  /* CAPSED IN THE SCHEMA, like `color_name` on the line — never only in the
+     action, or `lib/data-io` writes a lower-cased colour straight to Postgres. */
+  color_name: capsTextNullable(),
+  uom_id: uuidN,
+  value: numN,
+  twisted_yarn: capsTextNullable(),
+});
+
+/**
+ * ONE YARN-DYED COMBINATION — [Detail] ▸ Yarn Dyed Details ▸ Combinations.
+ *
+ * Addressed exactly as a repeat is, and for the same reasons. `combo` is held
+ * BY NAME because that is how this whole document keys a colourway (0426).
+ */
+export const fabricBomYdCombinationInput = z.object({
+  style_ref_no: nullableText,
+  structure_id: uuidN,
+  item_id: uuidN,
+  combo: capsTextNullable(),
+  yd_combo_name: capsTextNullable(),
+});
+
+/**
+ * One palette name as the payload carries it — trimmed and upper-cased, and
+ * allowed to be empty. See the `palette` key below for why it is not `capsName`.
+ */
+const paletteName = z
+  .string()
+  .trim()
+  .transform((v) => v.toUpperCase());
+
 export const fabricBomInput = z.object({
   /**
    * MANDATORY, and it is the only header field that is.
@@ -545,6 +652,11 @@ export const fabricBomInput = z.object({
   remark: nullableText,
   lines: z.array(fabricBomLineInput).default([]),
   dias: z.array(fabricBomDiaInput).default([]),
+  /** [Detail] ▸ Yarn Dyed Details ▸ Repeats (0512). Plain siblings of `dias`,
+   *  addressed by the fabric group they belong to rather than by a line. */
+  yd_repeats: z.array(fabricBomYdRepeatInput).default([]),
+  /** [Detail] ▸ Yarn Dyed Details ▸ Combinations (0512). */
+  yd_combinations: z.array(fabricBomYdCombinationInput).default([]),
   /**
    * Fabric Process ▸ one route per FABRIC (0492).
    *
@@ -580,6 +692,42 @@ export const fabricBomInput = z.object({
    * run.
    */
   manualEntries: z.array(fabricBomManualEntryInput).default([]),
+  /**
+   * Color/Print Details ▸ the ORDER's palette, editable from this screen
+   * (client 2026-09-02).
+   *
+   * ## IT IS NOT A CHILD OF THIS DOCUMENT AND MUST NOT LOOK LIKE ONE
+   *
+   * Every other key on this object writes an `order_fabric_bom_*` row. This one
+   * writes `garment_order_amendment_dyeings` / `_prints` — the ORDER's tables —
+   * because the three panels show the order's palette and 0490's one-list design
+   * is kept; what changed is only who may write to it. See `./palette.ts`.
+   *
+   * ## A SET OF NAMES, NOT A SET OF ROWS
+   *
+   * A dyeing row carries `dye_type` and `color_id` that this tab never displays,
+   * so the payload deliberately cannot express them: sending rows would let a
+   * screen that shows one column overwrite three. `paletteDiff` turns these
+   * names into inserts and deletes, and every surviving row is left untouched.
+   *
+   * OPTIONAL, so a caller that does not touch the tab sends nothing and the
+   * palette is left exactly as it is. `undefined` means "not my business";
+   * an empty array means "the operator emptied this panel", and those are
+   * different instructions — `.default([])` here would make every save that
+   * omits the key try to delete the order's whole palette.
+   */
+  palette: z
+    .object({
+      /* CAPS IN THE SCHEMA, which is where AGENTS.md puts the transform — an
+         action-level `.toUpperCase()` misses every writer that is not the
+         action. NOT `capsName()`, though: its `.min(1)` would reject the blank
+         row a ChildGrid opens on and fail the whole save on an empty panel.
+         `paletteDiff` is what drops blanks, and it must be handed them. */
+      fabric: z.array(paletteName).default([]),
+      yarn: z.array(paletteName).default([]),
+      prints: z.array(paletteName).default([]),
+    })
+    .optional(),
 });
 
 /**
@@ -603,6 +751,8 @@ export type FabricBomLineInput = z.infer<typeof fabricBomLineInput>;
 export type FabricBomManualEntryInput = z.infer<typeof fabricBomManualEntryInput>;
 export type FabricBomManualSizeInput = z.infer<typeof fabricBomManualSizeInput>;
 export type FabricBomDiaInput = z.infer<typeof fabricBomDiaInput>;
+export type FabricBomYdRepeatInput = z.infer<typeof fabricBomYdRepeatInput>;
+export type FabricBomYdCombinationInput = z.infer<typeof fabricBomYdCombinationInput>;
 /* Re-exported so a caller needing the payload type does not have to know that
    the route rules live in `./processes.ts` — the schema itself stays there,
    beside the narrowing the picker reads, so there is still one declaration. */
@@ -648,6 +798,22 @@ export type OrderFabricSeedRow = {
   component_name: string | null;
   fabric_type: string | null;
   color_name: string | null;
+  /**
+   * THE PART'S "ROLL FORM PRINT" AS A NAME (client 2026-09-02, screenshot 2637).
+   *
+   * `garment_order_amendment_combo_components.print_id` — the last cell of the
+   * Structure Details parts grid — resolved here, and it lands on the seeded
+   * line's `required_print`. The client chose that mapping over a column of its
+   * own: Components already has a Required Print cell, and two cells carrying
+   * one fact is how they come to disagree.
+   *
+   * A NAME AND NOT AN ID, because `required_print` is TEXT on the BOM line, fed
+   * by a `<Combobox>` over the order's declared print palette. Resolving it here
+   * is the same call `component_name` and `structure_name` already make, for
+   * their reason: the screen holds the master lists, and a print the order names
+   * that the master has since deactivated would resolve to nothing there.
+   */
+  print_name: string | null;
   /**
    * SOLID / MELANGE / YARN DYED, and the GSM band — legacy FabricAllocation's
    * own `Type` and `GSM Range` columns (client screenshot 2581, 2026-09-01).

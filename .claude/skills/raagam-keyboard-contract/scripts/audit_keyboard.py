@@ -313,6 +313,9 @@ DUP_HOLD_EXEMPT = {
     # The name is a composed <div> preview, not an input. There is no field to
     # hold; Save is gated on the error instead.
     "yarn-quick-create-sheet.tsx",
+    # Same shape, one class along: the Fabric name is composed from the type,
+    # the structure and the yarn composition, and is rendered as a <div>.
+    "fabric-quick-create-sheet.tsx",
     # A WARNING, not an error. Two consignees may legitimately share a GSTIN
     # (branches, a re-keyed party) and `canSave` is not gated on it -- holding
     # here would cage the operator on a field they have every right to leave.

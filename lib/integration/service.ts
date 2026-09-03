@@ -350,7 +350,7 @@ export async function getPurchaseOrderRows(
   const supabase = await createClient();
   let query = supabase
     .from("purchase_orders")
-    .select("id, code, order_date, total_amount, vendors(name)")
+    .select("id, code, order_date, total_amount, vendors!vendor_id(name)")
     .order("order_date", { ascending: true });
   if (periodStart) query = query.gte("order_date", periodStart);
   if (periodEnd) query = query.lte("order_date", periodEnd);
