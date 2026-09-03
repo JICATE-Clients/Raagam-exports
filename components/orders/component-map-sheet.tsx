@@ -126,6 +126,8 @@ import { Field, FieldGrid } from "@/components/ui/field";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Truncated } from "@/components/ui/truncated";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
+import type { FieldSize } from "@/lib/ui/sizes";
+import { cn } from "@/lib/utils";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   FABRIC_FORM_OPTIONS,
@@ -735,6 +737,29 @@ export function ComponentMapBody({
     [panels],
   );
 
+  /**
+   * PER-FIELD WIDTH FOR THE OPEN-PANEL ROW, keyed by header rather than added
+   * to `ChildGridColumn` — that type is shared across every grid in the app,
+   * and a span belongs to how ONE screen lays its fields out, not to the
+   * column's own definition. Looked up by header for the same reason
+   * `FIELD_GROUPS` in Material BOM's own file is: this array is read in more
+   * than one order-sensitive place, so an index would drift the day a column
+   * moved.
+   */
+  const FIELD_SIZES: Record<string, FieldSize> = {
+    /* `sm`, not `xs` — at `xs` (2/32, ~78px) "Coordinate"'s own label nearly
+       fills its cell, leaving the 8px track gap as the only space before
+       "Component" starts, which read as one run-on label (client screenshot
+       2679: "Coordinate Component*" with no visible gap between them). */
+    Coordinate: "sm",
+    Component: "lg",
+    Structure: "lg",
+    "Structure Type": "sm",
+    "Fabric Type": "sm",
+    Fabric: "xl",
+    Gsm: "xs",
+  };
+
   const panelColumns: ChildGridColumn<PanelRow>[] = [
     {
       /* COORDINATE IS SHOWN AND NOT EDITED. Legacy prints it and it is real
@@ -943,7 +968,7 @@ export function ComponentMapBody({
          on the CHANGE and never in an effect — an effect would rewrite every
          stored line's style when a saved BOM is opened. */
       header: "Assort Color",
-      width: "8rem",
+      width: "6rem",
       cell: (l) => (
         <Select
           compact
@@ -962,7 +987,7 @@ export function ComponentMapBody({
     },
     {
       header: "Fabric Type",
-      width: "7rem",
+      width: "5rem",
       cell: (l) => typeCell(l.key, l.item_id),
     },
     {
@@ -970,7 +995,7 @@ export function ComponentMapBody({
          body and a navy body may legitimately name two cloths; the panel row
          above writes every colourway at once and this changes one. */
       header: "Fabric",
-      width: "12rem",
+      width: "8rem",
       cell: (l) => (
         <RecordPicker
           label="Fabric"
@@ -1042,7 +1067,7 @@ export function ComponentMapBody({
          Typed text in a Combobox is a search and is never committed — see
          `commit` in combobox.tsx. */
       header: "Required Color",
-      width: "9rem",
+      width: "6rem",
       cell: (l) => (
         <Combobox
           compact
@@ -1056,7 +1081,7 @@ export function ComponentMapBody({
     },
     {
       header: "Required Print",
-      width: "9rem",
+      width: "6rem",
       cell: (l) => (
         <Combobox
           compact
@@ -1070,7 +1095,7 @@ export function ComponentMapBody({
     },
     {
       header: "Specification",
-      width: "10rem",
+      width: "6rem",
       cell: (l) => (
         <Input
           className="h-8"
@@ -1144,15 +1169,15 @@ export function ComponentMapBody({
           `mdActive` is `masterDetail && rows.length > 1`, so a style with a
           single panel renders as one plain card with no rail. A list of one is
           not a list, and Material BOM behaves the same way. */}
-      {/* `data-md-plain` TURNS OFF THE RAIL'S BLUE RING (client 2026-09-03).
-          The skin draws `box-shadow: inset 0 0 0 2px #037bb8` on whatever
-          carries `aria-current="true"`, which on this rail read as a blue box
-          around the open part. The rule that answers this marker is in
-          `app/globals.css`, immediately under the one it undoes, and it has to
-          be there: that rule is UNLAYERED, so no Tailwind class here could beat
-          it. The entry still says which one it is — white against the rail's
-          muted fill, a 3px left border and bold text. */}
-      <div data-md-plain>
+      {/* THE RAIL NOW MATCHES MATERIAL BOM'S OWN, FULL STOP (client
+          2026-09-03, screenshots 2676-2678, repeated: "same like material bom
+          tab layout, size, color everything ... just customizing for this
+          screen"). `data-md-plain` stood here for one afternoon opting OUT of
+          the skin's blue ring ("remove blue bg colour for carts"); that
+          instruction is reversed by this one, which asks for the opposite —
+          the same ring, the same fill, the same everything Material BOM's
+          rail already has. Nothing to write here any more: the grid gets the
+          skin's default treatment by not opting out of it. */}
       <ChildGrid<PanelRow>
         /* grid-caption: exempt -- the style band above names this grid, and it
            is the only grid at this level. */
@@ -1163,11 +1188,14 @@ export function ComponentMapBody({
            box per panel, which is the operator's standing rule. */
         forceCards
         flatRows
-        /* THE RAIL IS SIZED TO ITS TEXT (client 2026-09-03): 160px, and each
-           entry at `px-2.5 py-1`. See `railCompact` on the grid for why it is
-           opt-in rather than the default. The type size is the other half and
-           lives below, because `renderListItem` is the caller's. */
-        railCompact
+        /* `railCompact` IS GONE (client 2026-09-03, on being shown Material
+           BOM's own rail as the reference and asked to match it: "same ...
+           size ... everything"). It bought a 160px rail sized to eight short
+           part names; the trade was a rail with no room for the subtitle and
+           figure `renderListItem` now carries, which is exactly Material
+           BOM's own shape. Dropping the prop is what returns the rail to its
+           268px default — the same width, the same padding, as Material BOM's
+           own list. */
         /**
          * `fill` IS LOAD-BEARING HERE, AND ITS ABSENCE IS WHAT BROKE THE PANE
          * (reported 2026-09-03 with a screenshot: every field stacked in a
@@ -1216,19 +1244,74 @@ export function ComponentMapBody({
            ONE LINE IS ALSO WHAT MAKES THE ENTRY COMPACT. The padding is
            `ChildGrid`'s own (`px-3 py-2`); dropping the meta row is what takes
            each card from two lines to one, so nothing here sets a height. */
-        renderListItem={(p) => (
-          /* `text-xs font-semibold` — a part name is a short label the operator
-             scans, not prose, so 12px is legible at a glance and is what makes a
-             `py-1` entry read as deliberate rather than cramped. */
-          <span className="block truncate text-xs font-semibold">
-            {componentName(p.component_id) || "New part"}
-          </span>
-        )}
-        /* REQUIRED BY `foldRows`, AND ALL BUT UNUSED WITH THE RAIL UP: there
-           the folded rows ARE the rail and render nowhere else. It still has to
-           exist — the grid gates its open-on-focus handler on
-           `foldRows && renderFoldedRow` — and it IS what a single-panel style
-           shows, which has no rail. */
+        /**
+         * MATERIAL BOM'S OWN SHAPE, FIELD FOR FIELD (client 2026-09-03,
+         * screenshots 2676-2678, on being shown a bare-name rail beside
+         * Material BOM's: "same ... size, color everything ... just
+         * customizing for this screen").
+         *
+         * THIS REVERSES 2026-09-03's OWN EARLIER ANSWER, deliberately — the
+         * one that cut the rail to a single line and removed a coordinate chip
+         * and a colourway count ("this text only ... remove pieces and 1
+         * colourway"). That instruction was about a SECOND LINE OF PROSE
+         * repeated down twenty entries; this one is a direct, repeated
+         * instruction to match a named reference screen, given after seeing
+         * the reduced version and finding it unfinished. The later, more
+         * specific instruction is the one this file now follows — a reader
+         * who finds the older comment quoted elsewhere is holding something
+         * this supersedes.
+         *
+         * A DOT, A NAME, A SUBTITLE, A FIGURE — Material BOM's own four, and
+         * "customized for this screen" is exactly the substitution below:
+         * this screen has no material consumption to put in the figure slot,
+         * so the colourway count takes it, the same number the pane's own
+         * heading already carries (see `renderMobileRow`) — one fact, printed
+         * in the two places Material BOM prints its own.
+         */
+        renderListItem={(p) => {
+          const name = componentName(p.component_id);
+          const structure = rollUp(p.lines.map((l) => factsFor(l).structure));
+          const n = p.lines.length;
+          const answered = p.lines.filter((l) => l.fabric_form.trim()).length;
+          /* THREE STATES, THE SAME READING `manualEntryColumns`' rail uses one
+             tab along: idle before a component is named (nothing to answer
+             yet), warn once it is named and something on it is not, ok once
+             every colourway states its Type. */
+          const state = !name ? "idle" : n > 0 && answered === n ? "ok" : "warn";
+          return (
+            <div className="flex items-center gap-2.5">
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                  state === "ok" && "bg-success",
+                  state === "warn" && "bg-warning",
+                  state === "idle" && "bg-border-strong opacity-50",
+                )}
+              />
+              <span className="min-w-0 flex-1">
+                <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                  {name || "New part"}
+                </Truncated>
+                {structure && (
+                  <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                    {structure}
+                  </Truncated>
+                )}
+              </span>
+              {n > 0 && (
+                <span className="shrink-0 text-right leading-tight">
+                  <span className="text-sm font-semibold tabular-nums text-accent">{n}</span>{" "}
+                  <span className="block text-[10px] tracking-wide text-muted-foreground">
+                    {n === 1 ? "colourway" : "colourways"}
+                  </span>
+                </span>
+              )}
+            </div>
+          );
+        }}
+        /* SAME CONTENT, THE FOLDED SHAPE — what a single-panel style shows (no
+           rail to carry a dot or a count) and what `foldRows` requires to
+           exist at all. */
         renderFoldedRow={(p) => (
           <span className="text-sm font-medium">
             {componentName(p.component_id) || "New part"}
@@ -1288,30 +1371,35 @@ export function ComponentMapBody({
                 </span>
               )}
             </div>
-            {/* ALL SEVEN ON ONE ROW (client 2026-09-03): Coordinate, Component,
-                Structure, Structure Type, Fabric Type, Fabric, Gsm.
+            {/* SIZED LIKE MATERIAL BOM'S OWN FIELDS, NOT A UNIFORM `xs` ROW
+                (client 2026-09-03, screenshots 2676-2678, repeated: "same ...
+                size ... everything"). `cols={14}` at a flat `xs` was the
+                previous answer to "all seven on one row" — 155px per field,
+                against Material BOM's own ~157-315px — and it is what made
+                the row read as cramped next to the reference it was being
+                compared to. THIS REVERSES THAT WIDTH, not the one-row layout:
+                seven fields still fit one line, they simply stop being equal.
 
-                `cols={14}` IS THE TRACK THAT EXISTS FOR THIS, and the number is
-                not a preference. The smallest span is `xs` (2), so the house
-                12-column track tops out at SIX fields — seven simply do not fit
-                it, whatever sizes are chosen. 7 × 2 = 14 exactly, which is why
-                `FIELD_TRACK_14` is 14 and not 13 or 16: the fields keep the
-                span they already have instead of needing a new size. Orders ▸
-                Style ▸ Style Details asked for the same thing in 2026-08-17 and
-                is the other caller.
-
-                WHAT IT COSTS, since the track's own note asks for this to be a
-                decision rather than a default: a field here is ~155px against
-                LAYOUT.md §3's ~280px. Coordinate, Structure Type and Gsm are
-                read-only short values and Fabric Type is a Select, so those four
-                are comfortable. Component and Fabric are the pressured pair —
-                both are pickers over long names, and at 155px they will clip.
-                Neither loses its value: the picker trigger carries
-                `text-ellipsis` and `<Truncated>` reveals the rest on hover, which
-                is the app's standing answer for a clipped value. */}
-            <FieldGrid cols={14}>
+                `cols={32}`, the SAME track the colourways row below already
+                uses, so this file has one wide track rather than two. Spans
+                are PER FIELD, by weight rather than by habit: Component and
+                Fabric are pickers over names the operator reads and reads
+                again — Fabric doubly so, since the master composes long
+                strings there ("SOLID 1X1 LYCRA RIB (30'S COTTON …)") — so they
+                take `lg` and `xl`; Structure gets `lg` for the same reason one
+                step down; Coordinate, Structure Type, Fabric Type and Gsm are
+                short, read or picked in one glance, and stay at `xs`/`sm`.
+                3+6+6+3+3+8+2 = 31 of 32, so the row still reads as full the
+                way Material BOM's own does, with 1 column of slack rather
+                than a remainder fighting for space. */}
+            <FieldGrid cols={32}>
               {panelColumns.map((c, ci) => (
-                <Field key={c.header} label={c.header} required={c.required} size="xs">
+                <Field
+                  key={c.header}
+                  label={c.header}
+                  required={c.required}
+                  size={FIELD_SIZES[c.header] ?? "xs"}
+                >
                   {c.cell(p, ci)}
                 </Field>
               ))}
@@ -1337,14 +1425,27 @@ export function ComponentMapBody({
                  was removed on 2026-09-03 -- see the note there. */
               columns={colourColumns}
               rows={p.lines}
-              /* `5xl` (1024), NOT `6xl` (1152) — RE-APPLIED ACROSS THIS MERGE
-                 (client 2026-09-03). This branch predates it: a 1366x768 laptop
-                 at 100% gives the pane 1155 CSS px, so `6xl` cleared the switch
-                 by THREE pixels, and a scrollbar or one notch of zoom turned the
-                 grid into stacked cards. `check:grid-budget` fails any threshold
-                 within 64px of that pane, so it cannot come back quietly — and
-                 it is what caught this one, on this merge. */
-              tableFrom="5xl"
+              /* NO `tableFrom` OVERRIDE — the default `@lg` (512px) switch,
+                 and this is the second correction to this ONE line in one day.
+
+                 `5xl` (1024) replaced `6xl` (1152) on the earlier merge, reasoned
+                 against the FULL 1155px pane `check:grid-budget` measures — and
+                 that reasoning does not apply here, because this grid is nested
+                 INSIDE the master-detail split, not laid out across the whole
+                 pane. With the rail at Material BOM's own 268px (re-applied the
+                 same day this line last changed), the detail side gets at most
+                 ~867px on that same 1366x768 laptop — under `5xl` outright, so
+                 the "fix" was still wrong, just not wrong enough to show on a
+                 wider screen.
+
+                 `check:grid-budget`'S OWN HEADER SAYS SO: "a grid nested inside a
+                 master-detail pane has far less width than MIN_PANE ... passing
+                 here is necessary and not sufficient for one of those." This is
+                 that grid. Leaving `tableFrom` unset is what makes the primitive
+                 responsible for the number instead of a second guess at it here:
+                 `@lg` is well inside 867px for `colourColumns`' own ~66rem, so
+                 the table shows on the narrowest screen this app supports
+                 without this file re-deriving what fits. */
               /* NO "+ Add" AND NO ✕. A panel is N lines, one per
                  colourway, and `onAddPanel` writes all N — an Add
                  here would invent a colourway the order does not
@@ -1451,7 +1552,6 @@ export function ComponentMapBody({
         addClassName="px-2.5"
         addLabel="+ Add part"
       />
-      </div>
     </div>
   );
 }
