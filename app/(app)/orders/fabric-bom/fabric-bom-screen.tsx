@@ -4233,10 +4233,17 @@ export function FabricBomScreen({
                 onRemove={() => {}}
                 tableFrom="5xl"
                 centerHeaders
+                /* ONE COMPACT ROW HERE TOO, cols={32} — the same treatment
+                   the fabric row above got (client 2026-09-04: "size to
+                   conv item make it single [row], compact the field size").
+                   Legacy's 10-field band (Size .. Conv. Item) is all short
+                   numeric inputs, a Combobox and one disabled button, so
+                   every field takes `xs` uniformly — nothing here is a name
+                   long enough to need `MANUAL_FIELD_SIZES`'s wider span. */
                 renderMobileRow={(row) => (
-                  <FieldGrid>
+                  <FieldGrid cols={32}>
                     {sizeColumns(e).map((c, ci) => (
-                      <Field key={ci} label={c.header} required={c.required} size="sm">
+                      <Field key={ci} label={c.header} required={c.required} size="xs">
                         {c.cell(row, ci)}
                       </Field>
                     ))}
