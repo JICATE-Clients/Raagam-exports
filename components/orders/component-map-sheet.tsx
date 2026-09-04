@@ -993,45 +993,31 @@ export function ComponentMapBody({
         );
       },
     },
-    /* THE CLOTH, READ-ONLY — legacy's `Structure Type | Fabric Type | Fabric`,
-       narrowed to just Fabric Type (client instruction, 2026-09-04: remove
-       Structure Type and Fabric from this tab). EDITED ON FABRIC LINES and
-       (for a single colourway) the colour row below — this row is a summary,
-       never a second editor for either.
+    /* THE CLOTH SUMMARY IS GONE FROM THIS ROW ENTIRELY (client cleanup spec,
+       2026-09-04) — legacy's `Structure Type | Fabric Type | Fabric` went in
+       three passes on the same day, this being the third and last:
 
-       NO STANDALONE `Structure` CELL EITHER (client cleanup spec, same day —
-       "purge redundant columns"). It printed the same fabric-category name
-       the panel's own Component picker was already filtered and scoped by
-       (`structureId`), so it repeated a fact the operator supplied by
-       choosing the panel rather than stating a new one.
+         1. Structure Type and the panel-level Fabric picker (which
+            bulk-wrote every colourway at once) — removed together, "purge
+            redundant columns".
+         2. A standalone `Structure` cell was never added back for the same
+            reason: it printed the same fabric-category name the panel's own
+            Component picker was already filtered and scoped by
+            (`structureId`), repeating a fact the operator supplied by
+            choosing the panel rather than stating a new one.
+         3. `Fabric Type` itself, THIS instruction ("before Fabric Type …
+            near the Component … remove this one only") — by the time it
+            reached this point it had already been made read-only (the
+            panel-level Fabric picker it used to narrow was gone), so it was
+            a pure echo of `fabricTypeOfId` with nothing left to do. Removed
+            outright rather than left as dead chrome.
 
-       STRUCTURE TYPE AND FABRIC ARE BOTH GONE FROM THIS ROW, not just
-       Structure — Structure Type ("Circular", `categories.fabric_structure_id`)
-       and the panel-level Fabric picker (which bulk-wrote every colourway at
-       once) are both removed outright, on the same instruction. The
-       per-colourway Fabric picker below is UNCHANGED and is now the only
-       place a panel's cloth is set from this tab. */
-    {
-      /* FABRIC TYPE IS NOW READ-ONLY. It used to be a `<Select>` whose ONLY
-         job was narrowing the panel-level Fabric picker beside it
-         (`typeCell`, "A DROPDOWN THAT NARROWS THE FABRIC CELL BESIDE IT") —
-         with that picker gone there is nothing left for it to narrow, and
-         leaving it as an interactive control would ship a dropdown whose
-         `onChange` does nothing visible, which is worse than no control at
-         all. `fabricTypeOfId` is the SAME derivation the Select's own
-         `value` already read (the fabric master's own `fabric_type`, off the
-         rolled-up held item), so this shows exactly what was on screen
-         before — only the interactivity is gone. Deliberately NOT switched
-         to `factsFor(l).fabricType` (the ORDER's `item_sub_type`): those are
-         two different columns that have already been printed under each
-         other's header once by mistake (screenshot 2581, see `LineFacts`),
-         and this cell must keep showing what it always showed. */
-      header: "Fabric Type",
-      width: "7rem",
-      cell: (p) => (
-        <ClothText value={fabricTypeOfId(rollUp(p.lines.map((l) => l.item_id ?? "")) || null)} />
-      ),
-    },
+       NAMED "this one only" DELIBERATELY: the colourway row's own `Fabric
+       Type` cell below is UNCHANGED — it still narrows that row's own
+       per-colourway Fabric picker and stays live. Two cells shared a label
+       and only one of them had a job left; only that one left the row.
+       The per-colourway Fabric picker is now the only place a panel's cloth
+       is set or summarised on this tab. */
     /* NO `Open / Tubular` HERE ANY MORE (client 2026-09-02: "no more
        Open / Tubular tab — to colourways panel"). It has moved to the colour
        row's `Type`, which is where legacy draws it and which the colour row was
