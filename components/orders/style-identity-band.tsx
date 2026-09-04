@@ -39,7 +39,21 @@ import { cn } from "@/lib/utils";
  * match this band's THREE fields on 2026-09-03 ("like same components tab,
  * style reference no, style no, article no") — a hard-coded two-field version
  * would have answered the new request by breaking that one. Defaults to every
- * field, so Manual's call site is unchanged; only Components passes `omit`.
+ * field, so a new caller is unchanged by default.
+ *
+ * TWO DIFFERENT CALLERS ARE FREE TO PASS TWO DIFFERENT `omit`s — that is
+ * the whole point of the prop, and it is what happened here even though
+ * both ended up at the same place. Manual kept all three fields until two
+ * SEPARATE later messages on Manual's OWN band, hours apart: "Article No
+ * ... no need in header style listing, remove it", then "Style Ref No —
+ * this field also sno need remove it". Each was a narrower ask than
+ * Components' original "delete Style Ref No and Article No" — naming one
+ * field at a time — and Manual's `omit` grew from `[]` to `["article"]` to
+ * `["ref", "article"]` across them, arriving at the SAME value Components
+ * already passed by coincidence, not because the two bands were re-unified
+ * on purpose. Read each call site for its own `omit`; do not assume they
+ * match just because they draw the same component, and do not collapse
+ * them into one shared default on the strength of them matching today.
  */
 export function StyleIdentityBand({
   /** The style reference the surface is scoped to — always known, by value. */

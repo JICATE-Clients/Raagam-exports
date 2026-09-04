@@ -88,8 +88,14 @@
  *
  *   1. STYLE     — Style No, read-only. Style Ref No and Article No were
  *                  dropped from THIS band on 2026-09-04 (client cleanup
- *                  spec) — Manual's copy of `StyleIdentityBand` keeps all
- *                  three, via `omit`.
+ *                  spec). Manual's own copy of `StyleIdentityBand` kept all
+ *                  three at first, then lost them the same way but in two
+ *                  separate messages hours later — Article No first, then
+ *                  Style Ref No — landing on the SAME `omit={["ref",
+ *                  "article"]}` this band passes. Both bands now show Style
+ *                  No alone; read each call site's own `omit` rather than
+ *                  assuming a shared component means they always agree —
+ *                  they were allowed to diverge and just happened not to.
  *   2. PANEL     — Coordinate · Layout Type (0530, gates Component) ·
  *                  Component · Fabric Type (read-only). Folds.
  *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric (GSM as a read-only

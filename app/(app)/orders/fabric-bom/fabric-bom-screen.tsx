@@ -4155,6 +4155,16 @@ export function FabricBomScreen({
         <StyleIdentityBand
           styleRefNo={styleRow.style_ref_no}
           identity={styleIdentityFor(styleRow.style_ref_no)}
+          /* ARTICLE NO, THEN STYLE REF NO, DROPPED (client 2026-09-04, two
+             messages on this exact band: first "Article No ... no need in
+             header style listing, remove it", then "Style Ref No — this
+             field also sno need remove it"). Now `omit={["ref", "article"]}`
+             — the SAME omit the Components tab passes one caller up, so the
+             two bands that were deliberately allowed to diverge have
+             converged back to matching by coincidence of two separate asks,
+             not because they were re-unified on purpose. Style No is the
+             only field left on either band. */
+          omit={["ref", "article"]}
         />
 
         {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE, THE COMPONENTS TAB'S OWN
