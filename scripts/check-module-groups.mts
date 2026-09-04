@@ -523,6 +523,15 @@ const REDIRECTED: Record<string, string> = {
   // render there. Its three children (Order Amendment, Process Amendment,
   // Approve Amendment) keep their own routes unchanged, now under `retired`.
   "/orders/changes": "/orders/retired",
+  // The Confirmations & Review sub-module row was removed (request,
+  // 2026-09-04: "meaned remove this sub module" — the whole group, corrected
+  // from an earlier ask against Contract Review alone). `/orders/confirmations`
+  // was that group's own hub route — never a screen in its own right — and
+  // with the group gone from MODULE_GROUPS there is nothing left for
+  // `GroupHub` to render there. Its three children (Due Date Confirmations,
+  // Contract Review, Price Confirmation) keep their own routes unchanged, now
+  // under `retired`.
+  "/orders/confirmations": "/orders/retired",
 };
 
 for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {

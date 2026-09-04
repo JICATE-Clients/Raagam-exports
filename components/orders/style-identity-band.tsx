@@ -32,16 +32,27 @@ import { cn } from "@/lib/utils";
  *
  * WHITE, NOT FILLED (client 2026-08-27: "that inside cell for some sections is
  * grey — make it white too"). The border already says this is a band.
+ *
+ * `omit` DROPS FIELDS FOR ONE CALLER WITHOUT TOUCHING THE OTHER (client
+ * 2026-09-04, "Structure Details & Components" cleanup spec: "delete Style
+ * Ref No and Article No" from the Components tab's band). Manual was told to
+ * match this band's THREE fields on 2026-09-03 ("like same components tab,
+ * style reference no, style no, article no") — a hard-coded two-field version
+ * would have answered the new request by breaking that one. Defaults to every
+ * field, so Manual's call site is unchanged; only Components passes `omit`.
  */
 export function StyleIdentityBand({
   /** The style reference the surface is scoped to — always known, by value. */
   styleRefNo,
   /** Style No and Article No off the order's tree; null when it cannot say. */
   identity,
+  /** Fields to leave off this band for THIS caller. Defaults to none. */
+  omit,
   className,
 }: {
   styleRefNo: string;
   identity: { ref: string; style: string; article: string } | null;
+  omit?: readonly ("ref" | "style" | "article")[];
   className?: string;
 }) {
   return (
@@ -52,10 +63,12 @@ export function StyleIdentityBand({
       )}
     >
       {[
-        { label: "Style Ref No", value: identity?.ref || styleRefNo },
-        { label: "Style No", value: identity?.style ?? "" },
-        { label: "Article No", value: identity?.article ?? "" },
-      ].map((f) => (
+        { key: "ref", label: "Style Ref No", value: identity?.ref || styleRefNo },
+        { key: "style", label: "Style No", value: identity?.style ?? "" },
+        { key: "article", label: "Article No", value: identity?.article ?? "" },
+      ]
+        .filter((f) => !omit?.includes(f.key as "ref" | "style" | "article"))
+        .map((f) => (
         <div key={f.label}>
           <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
             {f.label}

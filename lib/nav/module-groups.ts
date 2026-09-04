@@ -567,39 +567,30 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // and Fabric Plan already sit in — reachable from `/orders/retired`
       // and from nav search (`moduleLeafItems` does not filter `hidden`),
       // just no longer a row of their own under Orders.
-      {
-        kind: "group",
-        slug: "confirmations",
-        label: "Confirmations & Review",
-        description: "Sign off dates, prices and contract terms before production",
-        children: [
-          { href: "/orders/due-date-confirmations", label: "Due Date Confirmations", description: "Confirm delivery dates with the buyer" },
-          { href: "/orders/contract-review", label: "Contract Review", description: "Review order terms before acceptance" },
-          { href: "/orders/price-confirmation", label: "Price Confirmation", description: "Confirm agreed order prices" },
-        ],
-      },
+      // THE "CONFIRMATIONS & REVIEW" ROW IS GONE (request, 2026-09-04: first
+      // "remove this child" against Contract Review alone, corrected to
+      // "meaned remove this sub module" — the whole group, not one of its
+      // three). Same shape as the Amendments removal just above it: a
+      // dissolved GROUP, so its own hub route (`/orders/confirmations`)
+      // becomes a `redirect()` — declared in `REDIRECTED`,
+      // `scripts/check-module-groups.mts` — while all three children keep
+      // their own working pages over live tables (`sales_order_amendments`
+      // and friends) and are re-declared as plain children of `retired`.
+      // GARMENT PROCESS PLAN CAME OFF THIS LIST (request, 2026-09-04: "remove
+      // the garment process plan"). It had already left once (08-17b, "only 7
+      // are needed") and come back as a plain row here on 08-17 when the
+      // `cardOnly` flag was dropped from Order Setup — see the row's own
+      // history above this point. This time it goes the way Fabric Plan and
+      // CAD Markers went the day before: a plain child of `retired`, not a
+      // second dissolved-hub redirect, because the screen is a working
+      // document over `order_garment_processes` and friends, not a superseded
+      // menu.
       {
         kind: "group",
         slug: "execution",
         label: "Order Execution",
-        description: "Process plans, work orders, advised items and packing advice",
+        description: "Work orders, advised items and packing advice",
         children: [
-          // ITS ROW IS HERE AGAIN — the `cardOnly` flag came off on 2026-08-17
-          // when the client cut Order Setup to seven steps and this screen was
-          // the one removed.
-          //
-          // THE FLAG HAD TO GO IN THE SAME EDIT. `cardOnly` means "the row lives
-          // elsewhere", and the elsewhere was Order Setup ▸ step 4: leaving it on
-          // would have made `owningNavHref` and `moduleLeafItems` both skip the
-          // only listing left, so the screen would have had no sidebar row and no
-          // command-palette entry while its route carried on working — reachable
-          // by URL and by nothing else. That is the shape the 14-step Garment
-          // Orders hub died of, and check:nav asserts against it.
-          //
-          // Which is also why this is where the row belongs rather than a new
-          // group: the screen was ALREADY listed here, because running a process
-          // plan is execution work. Only the flag moved.
-          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
           { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders" },
           { href: "/orders/advised-items", label: "Advised Items", description: "Select an accepted order and prepare its advised items" },
           { href: "/orders/packing-advice", label: "Packing List Advice", description: "Prepare packing list advice for an order" },
@@ -704,7 +695,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, All Orders, Style, Fabric Plan and CAD Markers by request, and Order Amendment, Process Amendment and Approve Amendment because the Amendments row itself was removed. They all still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, All Orders, Style, Fabric Plan and CAD Markers by request, Order Amendment, Process Amendment and Approve Amendment because the Amendments row itself was removed, Due Date Confirmations, Contract Review and Price Confirmation because the Confirmations & Review row itself was removed, and Garment Process Plan by request. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
@@ -797,6 +788,21 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/orders/amendments", label: "Order Amendment", description: "Amend a saved garment order across styles, prices, packing and logistics" },
           { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
           { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },
+          // DUE DATE CONFIRMATIONS, CONTRACT REVIEW AND PRICE CONFIRMATION
+          // JOINED ON 2026-09-04, off the dissolved Confirmations & Review
+          // group — same reasoning as the three amendment screens just above:
+          // three working screens over `sales_order_amendments` and friends,
+          // not a superseded menu, so `hidden` rather than `redirect()`. The
+          // GROUP's own hub route (`/orders/confirmations`) is the one that
+          // redirects, in `REDIRECTED` beside `/orders/changes`.
+          { href: "/orders/due-date-confirmations", label: "Due Date Confirmations", description: "Confirm delivery dates with the buyer" },
+          { href: "/orders/contract-review", label: "Contract Review", description: "Review order terms before acceptance" },
+          { href: "/orders/price-confirmation", label: "Price Confirmation", description: "Confirm agreed order prices" },
+          // GARMENT PROCESS PLAN JOINED ON 2026-09-04 (request: "remove the
+          // garment process plan"), off Order Execution — see that group's own
+          // note, just above this table, for the full history. A working
+          // screen over `order_garment_processes`, not a superseded menu.
+          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
         ],
       },
     ],

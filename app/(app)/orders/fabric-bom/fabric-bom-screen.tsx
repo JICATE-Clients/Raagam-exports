@@ -4316,6 +4316,16 @@ export function FabricBomScreen({
          #  Structure  GSM Range  Fabric*  Type  Mixing Uom*  No Of Colors
          Style Ref No  Style No  Style Color  Article No  Detail
 
+     `GSM Range` LEFT AGAIN ON 2026-09-04, and this is not a reversal of the
+     paragraph above — legacy's own column, restored here in full on 09-02,
+     is what a later, separate cleanup instruction then withdrew app-wide
+     (Fabric Allocation, Components, Manual Direct Entry). "Column for
+     column with legacy" was never absolute; the client's later word on a
+     specific field still wins, the same way it already did for `Type` on
+     the Style master (AGENTS.md). See the note on `Fabric` below for where
+     the value went — not deleted, moved under the Fabric cell as a
+     read-only reference.
+
      THAT REVERSES THE 09-01 WRITTEN SPEC IN FULL, deliberately. That spec said
      "EXCLUDE (do not develop): Mixing · UOM · Number of Colors · Style Ref
      Number", and this file acted on it. All four are back on the client's own
@@ -4347,20 +4357,14 @@ export function FabricBomScreen({
      `renderMobileRow` below maps over `lineColumns` itself, so the table and the
      stacked cards read one list.
 
-     THE WIDTH BUDGET IS NOW THE BINDING CONSTRAINT, and it is what re-tuned five
-     cells that were not otherwise part of this change. Eleven columns must still
-     sum to less than `tableFrom`'s 1152 including 72px of `#`/`✕` chrome, or the
-     table appears at 1152 and immediately scrolls sideways — which
-     `doc/ui/LAYOUT.md` rules out. They sum to 63rem = 1008px + 72 = 1080, with
-     72px of headroom.
-
-     `Fabric` PAID FOR IT: 18rem → 13rem. That partly walks back the 09-01
-     widening, which was made because the master composes the yarn count and
-     blend into the name and 5rem clipped it to ten characters. 13rem is 208px —
-     wider than the ~215px legacy itself gives the column at this density, and
-     `RecordPicker` carries `text-ellipsis` plus the hover/press reveal, so the
-     full string stays reachable. Eleven columns of real content do not fit
-     1080px any other way; the alternative was a row that scrolls. */
+     THE WIDTH BUDGET WAS THE BINDING CONSTRAINT WHEN THIS WAS ELEVEN COLUMNS —
+     superseded 2026-09-04, when `GSM Range` left the row entirely (client
+     cleanup spec — see the note on `Fabric` below). TEN columns now sum to
+     63.5rem = 1016px + 72px of `#`/`✕` chrome = 1088px, 64px under
+     `tableFrom`'s 1152 — more headroom than this row has had since it grew
+     back to legacy's full column set, spent partly on widening `Fabric`
+     back up (11rem → 13rem) rather than banked entirely, so a reader is not
+     tempted to add an eleventh column believing there is 4.5rem still free. */
 
     {
       header: "Structure",
@@ -4386,27 +4390,25 @@ export function FabricBomScreen({
       ),
     },
     {
-      /* LEGACY'S OWN COLUMN, BESIDE ITS OWN NEIGHBOUR (screenshot 2581:
-         `Structure | GSM Range | Fabric | Type`). It describes the structure, so
-         it sits against it.
-
-         PLAIN TEXT, NOT A DISABLED `<Input>` — the same choice `paletteColumns`
-         below already makes and for a sharper reason here: text is not focusable
-         at all, so `isFieldLike` never sees it and Tab keeps landing only on
-         cells a value can be typed into (AGENTS.md, "Tab lands on fields"). A
-         readOnly Input would be skipped too (`tabIndex={-1}` since 2026-07-29)
-         but draws a box that says otherwise.
-
-         `<Truncated>` because the cell is 5rem and "175 - 185" is close to it:
-         an ellipsis has to be a promise the rest is reachable. */
-      header: "GSM Range",
-      align: "right",
-      width: "4.5rem",
-      cell: (r) => <ClothText value={descriptorFor(r).gsm} />,
-    },
-    {
       header: "Fabric",
       required: true,
+      /* THE STANDALONE `GSM Range` COLUMN IS GONE (client cleanup spec,
+         2026-09-04): "the GSM field is NOT needed in the Fabric Allocation,
+         Component, or Manual Direct Entry grids and must be completely
+         removed … redundant … already declared and locked during the
+         initial fabric master setup under the Composition/Color Combo tab
+         … re-displaying or re-entering it in the allocation tabs is
+         unnecessary double-entry." Manual's own GSM column left the same
+         way on 2026-09-04 (see the comment on `manualEntryColumns`, same
+         spec) — this is the same instruction reaching its second grid.
+
+         KEPT ONLY AS A READ-ONLY REFERENCE BESIDE THE FABRIC NAME, per the
+         spec's explicit exception: "GSM is kept only as a basic read-only
+         text reference label alongside the Fabric Name … to help operators
+         easily identify which rolls they are allocating." `descriptorFor(r)
+         .gsm` — the SAME derivation the removed column read, never deleted
+         — now renders under the picker instead of beside it. Nothing about
+         the derivation changed; only where it is drawn. */
       /* THE ONE WIDE COLUMN AGAIN, and this reverses the 2026-08-18 equal-width
          instruction for this cell alone (client, 2026-09-01).
 
@@ -4451,14 +4453,16 @@ export function FabricBomScreen({
          `KGS`) rather than to a uniform figure — the 2026-08-18 equal-width
          instruction was written for a row where nothing fitted, and every cell
          being equally unreadable was never the point of it. */
-      /* 11rem — 176px, down from 13rem/208px, and it is STILL the widest
-         column in the row (Structure is now 160). That is what keeps the
-         09-01 instruction above true in substance: this cell already
-         truncates and already reveals on hover (`<Truncated>`), so 32px
-         costs a few characters before the ellipsis rather than a value
-         nobody can read. See THE WIDTH BUDGET on `tableFrom`. */
-      width: "11rem",
+      /* 13rem — 208px, UP from 11rem/176px now that `GSM Range`'s 4.5rem
+         column is gone (2026-09-04): the row has 4.5rem of freed width and
+         this cell spends 2rem of it (the rest is genuine headroom, not
+         reinvested — see the row total below). It is still the widest
+         column (Structure is 160px), and it now also carries the GSM
+         reference line under the picker, which is the other reason it
+         needed the room back. See THE WIDTH BUDGET on `tableFrom`. */
+      width: "13rem",
       cell: (r) => (
+        <div className="flex min-w-0 flex-col gap-0.5">
         <RecordPicker
           label="Fabric"
           compact
@@ -4537,6 +4541,17 @@ export function FabricBomScreen({
             });
           }}
         />
+        {/* THE READ-ONLY GSM REFERENCE — see the note at the top of this
+            column. `descriptorFor` still abstains exactly as it always did
+            (blank on a colourway mismatch, an unpicked structure, or no
+            order); a blank line here draws nothing rather than a dash with
+            nothing to point at. */}
+        {descriptorFor(r).gsm && (
+          <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+            {descriptorFor(r).gsm} GSM
+          </Truncated>
+        )}
+        </div>
       ),
     },
     {
@@ -4565,7 +4580,9 @@ export function FabricBomScreen({
        * already says it (`MELANGE SINGLE JERSEY`), so an editable cell over a
        * named cloth could contradict the row's own Fabric cell with nothing to
        * arbitrate — and four other things read this word. Plain text, not a
-       * disabled input, exactly as `GSM Range` above.
+       * disabled input — the same choice the GSM reference line under
+       * `Fabric` makes, and for the same reason (AGENTS.md, "Tab lands on
+       * fields").
        *
        * WHAT WAS ACTUALLY WRONG IS THAT IT WAS DEAD WITH NOTHING TO DERIVE FROM.
        * A line starts with no fabric, so the first thing an operator meets is a
@@ -6920,9 +6937,11 @@ export function FabricBomScreen({
       icon: Shapes,
       done: lines.some((l) => !!l.component_id),
       /* WIDE, for Fabric Lines' reason. A panel row is Coordinate · Component ·
-         Structure · Fabric Type · Fabric · GSM · Open/Tubular, and the colour
-         rows beneath it carry four more cells — at the ordinary 1180px cap the
-         fabric name (legacy's longest cell) wraps under its own label. */
+         Structure Type · Fabric Type · Fabric (GSM read-only beneath it) ·
+         Open/Tubular — `Structure` itself dropped 2026-09-04, client cleanup
+         spec, see component-map-sheet.tsx — and the colour rows beneath it
+         carry a few more cells. At the ordinary 1180px cap the fabric name
+         (legacy's longest cell) wraps under its own label. */
       wide: true,
       content: (
         <SectionBody title="Components">

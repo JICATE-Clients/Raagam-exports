@@ -85,14 +85,27 @@ import { styleKey } from "@/lib/orders/amendments/style-key";
  * ("a specific, mandatory field on this tab").
  *
  * LOWERCASE VALUES, matching 0495's CHECK and every other text vocabulary on
- * this table. The labels are legacy's own words.
+ * this table. `open` is UNCHANGED — the label below is the only thing the
+ * 2026-09-04 cleanup spec asked to rename ("rename the column selector 'Open'
+ * to 'Open Width'"), and the CHECK constraint, every save payload and every
+ * comparison against `l.fabric_form === "open"` all read the value, never the
+ * label. Renaming the stored word too would be a migration, not a wording fix.
+ *
+ * STILL NOT `LAYOUT_TYPE_OPTIONS` BELOW, even though the two labels now read
+ * identically ("Open Width" / "Tubular"). This is `fabric_form`
+ * ('open'/'tubular'), the Components tab's own colourway-row field, entered
+ * AFTER the panel's Component is already chosen; `LAYOUT_TYPE_OPTIONS` is
+ * `layout_type`/`width_form` ('open_width'/'tubular'), the declared-per-style
+ * fact 0527 built to GATE a Component picker on the Manual tab. Matching
+ * words on screen does not make them one column — see 0527's own header for
+ * why the two were kept spelled apart at the data layer.
  *
  * NOT `knit_type` (0490), which is Circular / Flat / Woven. That says how the
  * cloth is MADE; this says how the roll reaches cutting. A circular knit is the
  * one that can be either, which is exactly why both columns exist.
  */
 export const FABRIC_FORM_OPTIONS = [
-  { value: "open", label: "Open" },
+  { value: "open", label: "Open Width" },
   { value: "tubular", label: "Tubular" },
 ] as const;
 

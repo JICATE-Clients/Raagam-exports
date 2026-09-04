@@ -86,22 +86,33 @@
  * So the sheet is now scoped to the STYLE (`detailLines` on the screen), and it
  * draws legacy's three levels:
  *
- *   1. STYLE     — Style Ref No · Style No · Article No, read-only.
- *   2. PANEL     — Coordinate · Component · Structure · Fabric Type · Fabric ·
- *                  GSM · Open/Tubular. Folds.
- *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric · GSM · Type ·
- *                  Required Colour · Required Print · Specification.
+ *   1. STYLE     — Style No, read-only. Style Ref No and Article No were
+ *                  dropped from THIS band on 2026-09-04 (client cleanup
+ *                  spec) — Manual's copy of `StyleIdentityBand` keeps all
+ *                  three, via `omit`.
+ *   2. PANEL     — Coordinate · Component · Fabric Type · Fabric (with GSM as
+ *                  a read-only reference beneath it) · Open/Tubular. Folds.
+ *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric (GSM the same way) ·
+ *                  Type · Required Colour · Required Print.
  *
- * ## TWO OF LEGACY'S COLUMNS ARE DELIBERATELY ABSENT
+ * ## THREE OF LEGACY'S COLUMNS ARE DELIBERATELY ABSENT
  *
- * **Structure Type** (legacy prints "Circular" on every row) has no per-structure
- * source here. A structure is a `categories` row; the knit family is stored on
- * `order_fabric_bom_dias.knit_type`, which is a property of a DIA and not of the
- * structure. Deriving one from the other would be a guess printed as a fact.
- * Rendering the column empty is worse than leaving it out — that is the same
- * call the `Mixing Uom` cell got on 2026-09-02, in as many words: a column of
- * dashes in every row of every BOM. Say where it should come from and it is one
- * cell to add.
+ * **Structure** (the panel row's rolled-up fabric-category name, e.g.
+ * "THREE-THREAD FLEECE") and **Specification** (the colour row's free-text
+ * cell) were both dropped on 2026-09-04, client cleanup spec: "purge
+ * redundant columns" to fit the pane's width ceiling. Neither carried a
+ * write path this file owned that the other columns did not already cover —
+ * Structure was a pure `rollUp` of `factsFor(l).structure`, and Specification
+ * had no reader anywhere in `lib/orders/fabric-bom` beyond its own Zod field
+ * (`lib/orders/fabric-bom/types.ts`), which is untouched, so a value saved
+ * before this change is not lost — it is simply no longer editable here.
+ *
+ * **Structure Type** (legacy prints "Circular" on every row) is NOT one of
+ * these three, and the two read the same word ("absent") for different
+ * reasons — worth saying because this paragraph used to claim it had no
+ * source and was not drawn. It has one: `categories.fabric_structure_id`,
+ * the structure master's own knit family, restored 2026-09-02 after that
+ * search stopped short (see the panel column below). It stays.
  *
  * **Conv. Item** stays the stub 0495 agreed with the client — a [Click] into a
  * screen no transcript describes. A button that opens nothing is a dead
@@ -119,7 +130,6 @@
  */
 
 import { useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldGrid } from "@/components/ui/field";
@@ -776,66 +786,48 @@ export function ComponentMapBody({
    * "some field looks squeezed and some field have much gap ... based on
    * values can allocate space"; then "add extra little length to coordinate
    * and structure, fabric"; then, once Gsm's own border made its clip
-   * visible, "gsm field ui will fix".
+   * visible, "gsm field ui will fix" — and since 2026-09-04, `Structure` and
+   * the standalone `Gsm` column are both GONE (the client cleanup spec:
+   * GSM moved to a read-only reference under Fabric, Structure dropped as a
+   * repeat of what choosing the panel already states). What is left of the
+   * three rounds' tuning is kept for the fields that survived them; nothing
+   * was re-tuned to fill the space the two removals freed — a tighter row
+   * is the purge's own point.
    *
-   * EACH SPAN IS SIZED TO WHAT THE FIELD ACTUALLY HOLDS, catalog-checked
-   * rather than guessed:
+   * EACH REMAINING SPAN IS STILL SIZED TO WHAT THE FIELD ACTUALLY HOLDS,
+   * catalog-checked rather than guessed:
    *
    *   Coordinate      "PIECES" / "TOP"           — 3-6 chars
    *   Component       "SIDE PANELS", "NECK TAPE" — 8-11 chars, plus a picker
-   *   Structure       "THREE-THREAD FLEECE"       — the longest of the short
-   *                   fields, 15-20 chars — widened past `xl` below
    *   Structure Type  "Circular Knit"             — 13 chars, fixed vocabulary
    *   Fabric Type     "Solid" / "Yarn Dyed"       — 5-9 chars, the shortest
-   *                   of the six, so it is what pays for Gsm's own bump
+   *                   field on the row
    *   Fabric          composed master names        — 40-80+ chars; no span
    *                   shows one in full, so this gets the most room going
    *                   and `Truncated` carries the rest, same as everywhere
    *                   else a composed name is read (AGENTS.md, "Truncated
-   *                   values") — widened past `xl` below, alongside Structure
-   *   Gsm             "275 - 285"                 — 9 chars, a fixed range.
-   *                   THE CLIENT'S OWN EXAMPLE of a field that must not grow
-   *                   past what it needs — `xs` was that, right up until the
-   *                   border in the fix below gave it visible padding to clip
-   *                   against, and "275 - 285" started reading "27…"
-   *
-   * 3+3+9+3+2+9+3 = 32 exactly — full width with nothing spare, Structure
-   * and Fabric each carrying the +1 the `className` override below adds.
+   *                   values") — widened past `xl` below
    */
   const FIELD_SIZES: Record<string, FieldSize> = {
     Coordinate: "sm",
     Component: "sm",
-    Structure: "xl",
     "Structure Type": "sm",
-    /* `xs`, freeing the column Gsm needed (client, on the boxed Gsm cell
-       clipping to "27…": "gsm field ui will fix"). A Select's own value is
-       the shortest of the six — "Solid" / "Melange" / "Yarn Dyed" against
-       Gsm's "275 - 285" — and it keeps the app's usual clip-and-reveal
-       fallback if "Yarn Dyed" ever brushes the edge. */
     "Fabric Type": "xs",
     Fabric: "xl",
-    /* `sm`, not `xs` — "275 - 285" is 9 characters and was clipping to "27…"
-       inside its own border the moment the cell gained one (client
-       screenshot 2686). `xs` (2/32) was sized for bare text with no box
-       around it; the border's own padding is what pushed a genuinely tight
-       field over the edge. Still the smallest field on the row bar Fabric
-       Type — "maintain the current space" stands as "don't let it grow past
-       what it needs", not "never fix a clip". */
-    Gsm: "sm",
   };
 
   /**
-   * A LITTLE MORE ROOM THAN `xl` GIVES, FOR THE TWO FIELDS THAT NEED IT MOST
+   * A LITTLE MORE ROOM THAN `xl` GIVES, FOR THE ONE FIELD THAT NEEDS IT MOST
    * (client 2026-09-03: "add extra little length to that coordinate and
-   * structure, fabric field").
+   * structure, fabric field" — Structure has since been removed, 2026-09-04;
+   * Fabric is the survivor this override still applies to).
    *
    * `xl` (8/32) IS THE NAMED CEILING — `FIELD_SPAN`'s own note calls it "NOT a
    * field width" in the ordinary sense, the category reserved for a control
    * sharing its row with something wide rather than for the widest ordinary
-   * field. Structure and Fabric are exactly that: the two longest values in
-   * the row (structure names run 15-20 characters, composed fabric names run
-   * 40-80+), so this is the one row in the file where going past the ceiling
-   * is the honest answer rather than a habit.
+   * field. Fabric is exactly that: composed fabric names run 40-80+
+   * characters, so this is the one field on the row where going past the
+   * ceiling is the honest answer rather than a habit.
    *
    * `className` OVER `size`, RESOLVED BY `twMerge` (`cn` in lib/utils.ts) —
    * `Field` appends the caller's `className` after `SPAN[size]`, and `twMerge`
@@ -846,11 +838,11 @@ export function ComponentMapBody({
    * TEXT for class names, so `` `@lg/section:col-span-${n}` `` would compile to
    * no CSS at all (the same warning `FIELD_TRACK_32` itself carries).
    *
-   * Coordinate and the other four stay on `FIELD_SIZES` alone; the row's own
-   * comment above carries the current breakdown, since Gsm's later fix moved
-   * a column from Fabric Type to Gsm without changing this override at all —
-   * a span this wide only ever depends on the ROW summing to 32, not on which
-   * neighbour gave up the column.
+   * Coordinate and the other three stay on `FIELD_SIZES` alone; the row's own
+   * comment above carries the current breakdown. A span this wide only ever
+   * depends on the ROW's own total, not on which neighbour gave up a column —
+   * which is why removing Structure and Gsm (2026-09-04) needed no change
+   * here at all.
    */
   const WIDE_FIELD_CLASSNAME = "@lg/section:col-span-9";
 
@@ -866,8 +858,8 @@ export function ComponentMapBody({
       width: "7rem",
       /* `ClothText`, NOT A BARE `<Truncated>` (client 2026-09-03, screenshots
          2673-2674, "took reference ui from material bom" — comparing against
-         Material BOM's own field band). Structure, Structure Type and Gsm
-         beside it all go through `ClothText`, whose `min-h-8 items-center`
+         Material BOM's own field band). Structure Type beside it also goes
+         through `ClothText`, whose `min-h-8 items-center`
          wrapper centres the text against an h-8 control's height; this cell
          did not, so its line sat at its own natural baseline instead of level
          with the pickers and Selects either side of it — the one field in the
@@ -936,16 +928,17 @@ export function ComponentMapBody({
         );
       },
     },
-    /* THE CLOTH, READ-ONLY — legacy's `Structure | Fabric Type | Fabric | Gsm`.
+    /* THE CLOTH, READ-ONLY — legacy's `Structure Type | Fabric Type | Fabric`.
        SHOWN HERE, EDITED ON FABRIC LINES: those are cells of that grid, which is
        legacy's FabricAllocation tab, and a second editor for them would be two
        places for one line to be changed from. `(mixed)` is a real answer, not a
-       placeholder — see `rollUp`. */
-    {
-      header: "Structure",
-      width: "9rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).structure))} />,
-    },
+       placeholder — see `rollUp`.
+
+       NO STANDALONE `Structure` CELL (client cleanup spec, 2026-09-04 —
+       "purge redundant columns"). It printed the same fabric-category name
+       the panel's own Component picker was already filtered and scoped by
+       (`structureId`), so it repeated a fact the operator supplied by
+       choosing the panel rather than stating a new one. */
     {
       /* LEGACY'S `Structure Type` — "Circular" — restored 2026-09-02 after being
          left out for want of a source. It has one: `categories.fabric_structure_id`,
@@ -984,8 +977,18 @@ export function ComponentMapBody({
          picker EMPTY rather than picking one of them to display — an abstain, not
          a guess, and typing into it then sets both. */
       header: "Fabric",
-      width: "16rem",
-      cell: (p) => (
+      /* 18rem, up from 16rem now that the standalone `Gsm` column beside it
+         is gone (client cleanup spec, 2026-09-04: GSM is "already declared
+         and locked" on the fabric master and "re-displaying or re-entering
+         it in the allocation tabs is unnecessary double-entry" — removed
+         from Fabric Allocation, this tab and Manual Direct Entry alike, kept
+         only as a read-only reference "alongside the Fabric Name"). See the
+         reference line rendered under the picker below. */
+      width: "18rem",
+      cell: (p) => {
+        const gsm = rollUp(p.lines.map((l) => factsFor(l).gsm));
+        return (
+        <div className="flex min-w-0 flex-col gap-0.5">
         <RecordPicker
           label="Fabric"
           compact
@@ -1017,13 +1020,17 @@ export function ComponentMapBody({
             clearFilter(p.addr);
           }}
         />
-      ),
-    },
-    {
-      header: "Gsm",
-      align: "right",
-      width: "5rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).gsm))} />,
+        {/* THE READ-ONLY GSM REFERENCE — `rollUp` abstains to "" on colourways
+            that disagree, same as the picker's own value does, so a blank
+            panel draws nothing rather than a guessed figure. */}
+        {gsm && (
+          <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+            {gsm} GSM
+          </Truncated>
+        )}
+        </div>
+        );
+      },
     },
     /* NO `Open / Tubular` HERE ANY MORE (client 2026-09-02: "no more
        Open / Tubular tab — to colourways panel"). It has moved to the colour
@@ -1039,18 +1046,23 @@ export function ComponentMapBody({
   ];
 
   /**
-   * LEVEL 3's COLUMNS — legacy's order (screenshot 2613), minus `Conv. Item`.
+   * LEVEL 3's COLUMNS — legacy's order (screenshot 2613), minus `Conv. Item`,
+   * minus `Gsm` (2026-09-04 — GSM is "already declared and locked" on the
+   * fabric master; kept only as a read-only reference under the Fabric cell,
+   * not a column of its own), and minus `Specification` (same date, same
+   * cleanup spec — "purge redundant columns"; the field itself is untouched,
+   * see the note where the column used to sit).
    *
-   *   S No · Assort Color · Fabric Type · Fabric · Gsm · Type ·
-   *   Required Color · Required Print · Specification
+   *   S No · Assort Color · Fabric Type · Fabric · Type ·
+   *   Required Color · Required Print
    *
-   * FABRIC TYPE / FABRIC / GSM ARE REPEATED FROM THE PANEL ROW AND ARE NOT
+   * FABRIC TYPE / FABRIC ARE REPEATED FROM THE PANEL ROW AND ARE NOT
    * REDUNDANT. `item_id` is a column of the LINE, and a line is per colourway, so
    * a white body and a navy body may name two different fabric items — the panel
    * row rolls them up and says "(mixed)", and these are where the values are.
    *
-   * Widths: 8 + 6 + 12 + 5 + 6 + 9 + 9 + 10 = 65rem ≈ 1040px, inside the wide
-   * section's row even after the 1rem indent.
+   * Widths: 6 + 5 + 10 + 6 + 6 + 6 = 39rem = 624px, well inside this
+   * nested grid's own (rail-reduced) pane.
    */
   const colourColumns: ChildGridColumn<MapLine>[] = [
     {
@@ -1089,8 +1101,12 @@ export function ComponentMapBody({
          body and a navy body may legitimately name two cloths; the panel row
          above writes every colourway at once and this changes one. */
       header: "Fabric",
-      width: "8rem",
+      /* 10rem, up from 8rem now the standalone `Gsm` column is gone (client
+         cleanup spec, 2026-09-04 — same instruction as the panel row above
+         and Fabric Allocation's own Fabric cell). */
+      width: "10rem",
       cell: (l) => (
+        <div className="flex min-w-0 flex-col gap-0.5">
         <RecordPicker
           label="Fabric"
           compact
@@ -1111,13 +1127,15 @@ export function ComponentMapBody({
             clearFilter(l.key);
           }}
         />
+        {/* THE READ-ONLY GSM REFERENCE — see the panel row's own note above;
+            this is the per-colourway line's own value, not a roll-up. */}
+        {factsFor(l).gsm && (
+          <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+            {factsFor(l).gsm} GSM
+          </Truncated>
+        )}
+        </div>
       ),
-    },
-    {
-      header: "Gsm",
-      align: "right",
-      width: "5rem",
-      cell: (l) => <ClothText value={factsFor(l).gsm} />,
     },
     {
       /* `Type` IS OPEN/TUBULAR, AND IT IS ANSWERED HERE NOW (client 2026-09-02).
@@ -1187,17 +1205,11 @@ export function ComponentMapBody({
         />
       ),
     },
-    {
-      header: "Specification",
-      width: "6rem",
-      cell: (l) => (
-        <Input
-          className="h-8"
-          value={l.specification}
-          onChange={(e) => onPatchLine(l.key, { specification: e.target.value })}
-        />
-      ),
-    },
+    /* NO `Specification` CELL (client cleanup spec, 2026-09-04 — "purge
+       redundant columns"). `specification` stays on `MapLine` and on the
+       line's own Zod schema (`lib/orders/fabric-bom/types.ts`), untouched —
+       only the editable cell is gone, so a value saved before this change is
+       not lost, just no longer reachable from this screen. */
   ];
 
   return (
@@ -1225,8 +1237,18 @@ export function ComponentMapBody({
           so its own copy of the markup came back with the master-detail
           redesign. The Manual tab draws the shared component, and the client's
           instruction was that Manual look "like same components tab" — two
-          copies is how that stops being true without anyone editing either. */}
-      <StyleIdentityBand styleRefNo={styleRefNo} identity={styleIdentity} />
+          copies is how that stops being true without anyone editing either.
+
+          `omit={["ref", "article"]}` HERE ONLY (client cleanup spec,
+          2026-09-04: delete Style Ref No and Article No from this tab).
+          Manual's own call site is untouched, so it keeps all three — the
+          spec names "the Structure Details and Component sub-panels", not
+          Manual's identity band. */}
+      <StyleIdentityBand
+        styleRefNo={styleRefNo}
+        identity={styleIdentity}
+        omit={["ref", "article"]}
+      />
 
       {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE (client 2026-09-03,
           approved from the artifact: panels on the left, the open one on the
@@ -1476,11 +1498,7 @@ export function ComponentMapBody({
                   label={c.header}
                   required={c.required}
                   size={FIELD_SIZES[c.header] ?? "xs"}
-                  className={
-                    c.header === "Structure" || c.header === "Fabric"
-                      ? WIDE_FIELD_CLASSNAME
-                      : undefined
-                  }
+                  className={c.header === "Fabric" ? WIDE_FIELD_CLASSNAME : undefined}
                 >
                   {c.cell(p, ci)}
                 </Field>
@@ -1541,16 +1559,19 @@ export function ComponentMapBody({
               onAdd={() => false}
               onRemove={() => {}}
               renderMobileRow={(row, ri) => (
-                /* ALL EIGHT ON ONE ROW (client 2026-09-03): Assort Color,
-                   Fabric Type, Fabric, Gsm, Type, Required Color, Required
-                   Print, Specification.
+                /* SIX ON ONE ROW (originally eight, client 2026-09-03; `Gsm`
+                   and `Specification` both dropped 2026-09-04): Assort
+                   Color, Fabric Type, Fabric, Type, Required Color, Required
+                   Print.
 
-                   `cols={32}` BECAUSE EIGHT DOES NOT FIT ANY NARROWER TRACK.
-                   The smallest span is `xs` (2), so 12 columns hold six fields
-                   and 14 hold seven — this row needs eight. 32 is the widest
-                   declared track and 8 × `md` (4) is 32 exactly, so the row
-                   fills it with no remainder and every field keeps a span that
-                   already exists.
+                   STILL `cols={32}`, NOT RE-TUNED DOWN. 12 or 14 would fit six
+                   `md` (4) fields with less left over, but `colourColumns`
+                   above is shared with the DESKTOP table's own widths and
+                   `FIELD_SIZES` two fields up the file, both keyed to the
+                   32-track's numbers ("275 - 285" reasoning etc.) — a second
+                   track here would need those re-derived for no visible gain,
+                   since 6 × `md` (4) = 24 of 32 simply leaves the row's own
+                   trailing quarter blank rather than misaligning anything.
 
                    THIS IS THE CARD PATH, NOT THE TABLE, and that is why the
                    fix belongs here. The grid still declares `tableFrom="6xl"`,
@@ -1560,14 +1581,10 @@ export function ComponentMapBody({
                    bans. Below that breakpoint `renderMobileRow` IS the row, and
                    this is it.
 
-                   THE PRESSURE IS ON SPECIFICATION AND FABRIC. At 4/32 a field
-                   is ~137px, which is comfortable for the three Selects, the
-                   derived Gsm and the colour names, and tight for free text.
+                   At 4/32 a field is ~137px, comfortable for the three
+                   Selects, the derived Fabric name and the colour combos.
                    Nothing is lost — the controls clip with an ellipsis and
-                   `<Truncated>` reveals the rest — but if it reads badly the
-                   answer is a span PER COLUMN summing to 32 (Gsm `xs`, the
-                   Selects `sm`, Fabric and Specification `lg`), not a wider
-                   track: there is no track above 32. */
+                   `<Truncated>` reveals the rest. */
                 <FieldGrid cols={32}>
                   {colourColumns.map((c, ci) => (
                     /* `required={c.required}` IS NOT OPTIONAL HERE.
