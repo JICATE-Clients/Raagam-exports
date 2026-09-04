@@ -40,7 +40,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
 import { RecordPicker } from "@/components/masters/record-picker";
-import { Sheet } from "@/components/ui/sheet";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Tabs } from "@/components/ui/tabs";
 import { fmtNumber } from "@/lib/format";
 import { colourCountNote } from "@/lib/orders/fabric-bom/fabric-line-rules";
@@ -537,10 +538,14 @@ export function YarnDyedSheet({
   onPatchYdCombination,
   onAddYdCombination,
   onRemoveYdCombination,
+  origin,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  /** The [Detail] button's own rect, so the sheet grows out of it — see
+   *  AGENTS.md's "A sub-detail Sheet's size". */
+  origin?: SheetOrigin | null;
   ydRepeats: readonly YdRepeatRow[];
   ydCombinations: readonly YdCombinationRow[];
   /** Every yarn the BOM's fabrics name. `RepeatsPanel` narrows it to this
@@ -571,6 +576,23 @@ export function YarnDyedSheet({
       /* CLEARS THE FULL-SCREEN EDITOR BENEATH IT, the same base the Structure
          Details overlay uses one module along. */
       zIndexBase={120}
+      /* `md`, NOT `lg` (2026-09-04, AGENTS.md "A sub-detail Sheet's size").
+         THE FIRST PASS ON THIS FILE KEPT IT `lg`, REASONING FROM THE WRONG
+         COUNT: "four tabs, three of them a ChildGrid" counts everything the
+         sheet CONTAINS, not what it SHOWS — `Tabs` renders one panel at a
+         time (the client's own "if we click the tab, the actual screen of
+         that field will display in that single screen"), so the operator
+         is never looking at more than ONE `ChildGrid` at once. That is
+         exactly Combination's and Pack Composition's shape, not a bigger
+         one, and the operator confirmed it reads as oversized in the app
+         the same way those two did. `md` is right for the same reason it
+         was right there: enough width for `ChildGrid`'s responsive table to
+         stay a table (below ~512px it drops to stacked cards with no column
+         headers — Style ▸ Process's own note, 2026-08-12), nothing wider. */
+      size="md"
+      alignToPane
+      origin={origin}
+      footer={<SubSheetFooter onDone={onClose} parent="fabric BOM" />}
     >
       <Tabs
         /* THE CLIENT'S "TOP BAR" (2026-09-02, screenshot 114300 —

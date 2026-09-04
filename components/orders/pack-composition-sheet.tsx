@@ -216,14 +216,21 @@ export function PackCompositionSheet({
     <Sheet
       open={open}
       onClose={onClose}
-      /* `lg` + `fullBleed`, the same pair the Process, Structure Details and
-         Assortments sub-sheets all settled on. They answer different questions
-         — `size` is the width CLASS, `fullBleed` removes the reading-width
-         inset — and this surface needs both: at `sm` the `ChildGrid` inside
-         falls back to stacked cards and drops its column headers, which is how
-         the Process sheet shipped three unlabelled boxes. */
-      size="lg"
-      fullBleed
+      /* `md`, NOT `lg` + `fullBleed` (AGENTS.md, "A sub-detail Sheet's size",
+         STANDING, 2026-09-03). This sheet used to claim it matched Process's
+         own choice — it did not: `StyleProcessSheet` is `size="md"` +
+         `alignToPane` + `origin`, and always has been since it was restored
+         on 2026-08-29. The `ChildGrid` reasoning that comment cited is real
+         (`sm`'s ~408px drops the grid to stacked cards below `@lg`'s 512px,
+         the Process sheet's own 2026-08-12 defect) — it argues for `md` over
+         `sm`, which is what this now is; it never argued for `lg`. This
+         surface's three columns (16rem + 14rem + 9rem, ~624px) fit `md`'s
+         ~1112px of content with room to spare. */
+      size="md"
+      /* CENTRED OVER THE CONTENT PANE, and GROWS OUT OF THE BUTTON THAT
+         OPENED IT — the same two props Style ▸ Process sets, same reason. */
+      alignToPane
+      origin={origin}
       zIndexBase={120}
       title={styleLabel ? `Pack Composition — ${styleLabel}` : "Pack Composition"}
       footer={<SubSheetFooter onDone={onClose} />}

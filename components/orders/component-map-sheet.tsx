@@ -1328,6 +1328,15 @@ export function ComponentMapBody({
            Entry's Structure Details does. There is no toggle control. */
         foldRows
         masterDetail
+        /* OPENS ON THE FIRST PART RATHER THAN NOTHING (2026-09-04, operator:
+           "why the bottom looks so flying … default open first component
+           with that table panel"). Opt-in on `child-grid.tsx`'s own prop —
+           see its note for why this is not the same question as "a grid
+           opens with everything folded" (Structure Details, 2026-08-19):
+           that rule is about a document's sections re-expanding as noise;
+           this is a navigation rail with nothing to navigate TO, which reads
+           as broken rather than calm. */
+        defaultOpenKey={gridPanels[0]?.key ?? null}
         /* INERT BY CONTRACT (see the prop): text and chips, nothing focusable.
            The fields live in the pane next door, and anything tabbable here
            would be a second Tab stop per panel on a surface whose whole point

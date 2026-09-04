@@ -1168,6 +1168,7 @@ export function ChildGrid<T extends { key: string }>({
   rowSummary,
   foldRows = false,
   masterDetail = false,
+  defaultOpenKey,
   railAlways = false,
   railWidthPx,
   railCompact = false,
@@ -1701,6 +1702,28 @@ export function ChildGrid<T extends { key: string }>({
    */
   masterDetail?: boolean;
   /**
+   * WHICH ROW OPENS ON MOUNT, INSTEAD OF `ALL_FOLDED` (2026-09-04, Fabric BOM
+   * ▸ Components: "why the bottom looks so flying… default open first
+   * component with that table panel").
+   *
+   * THIS IS NOT A REVERSAL OF "A GRID OPENS WITH EVERYTHING FOLDED"
+   * (2026-08-19, on Combos ▸ Structure Details — see `openRowKey`'s own
+   * note). That rule is about a data-entry grid's SECTIONS: several answered
+   * sections pre-expanded on a document the operator is EDITING reads as
+   * noise, and the client said so directly. A `masterDetail` RAIL is a
+   * different shape — a navigation list beside a detail pane, the one this
+   * screen already borrowed whole from Material BOM — and a rail with
+   * nothing selected is not "closed and calm", it is a list floating over an
+   * empty pane with no content to anchor it, which is what was reported here.
+   * List-then-detail UI opening on its first item is the ordinary case, not
+   * the exception `openRowKey`'s note is guarding against.
+   *
+   * OPT-IN AND UNDEFINED BY DEFAULT, so every existing caller — Material
+   * BOM's own `masterDetail` rail included — keeps mounting on `ALL_FOLDED`
+   * exactly as before. Only a caller that names a row here changes.
+   */
+  defaultOpenKey?: string | null;
+  /**
    * SHOW THE RAIL EVEN AT ONE ROW, opting a caller OUT of "a list of one is
    * not a list" (the note on `mdActive` below, client 2026-08-20).
    *
@@ -1859,7 +1882,7 @@ export function ChildGrid<T extends { key: string }>({
    * `landOnAddedRow` (AGENTS.md) to put the cursor in. Mounting closed and
    * opening on add are two different questions and need two different values.
    */
-  const [openRowKey, setOpenRowKey] = useState<string | null>(ALL_FOLDED);
+  const [openRowKey, setOpenRowKey] = useState<string | null>(defaultOpenKey ?? ALL_FOLDED);
   const seeded = useRef(false);
   useEffect(() => {
     if (!seedRow || hideAdd) return;
