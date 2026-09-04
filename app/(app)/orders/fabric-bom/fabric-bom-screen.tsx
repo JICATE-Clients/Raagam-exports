@@ -4273,11 +4273,25 @@ export function FabricBomScreen({
                 hideRemove
                 onAdd={() => false}
                 onRemove={() => {}}
-                tableFrom="5xl"
+                /* NO `tableFrom` OVERRIDE ANY MORE — dropped 2026-09-04, the
+                   same call Components' Colourways grid already made for the
+                   same reason (see its own note). This grid's old `"5xl"`
+                   (1024px) was set when it had the WHOLE pane to itself; now
+                   it renders inside the rail-reduced detail column, which
+                   never reaches 1024 on the client's own screen, so the
+                   table never switched back on and every size stacked as a
+                   card repeating "Size", "TableWidth" … on every row
+                   (client: "it should came inside the table, the column
+                   header only have the label, like size etc"). Falling
+                   through to the primitive's default `@lg` (512px) is well
+                   inside what the detail pane has even after 268px goes to
+                   the rail — this grid's own declared widths sum to 47.5rem
+                   (760px), so the table fits with room spare rather than
+                   scrolling sideways. `centerHeaders` stays: it only matters
+                   once the table is actually showing. */
                 centerHeaders
-                /* ONE COMPACT ROW HERE TOO, cols={32} — the same treatment
-                   the fabric row above got (client 2026-09-04: "size to
-                   conv item make it single [row], compact the field size"),
+                /* THE FALLBACK, NOT THE NORMAL PATH ANY MORE — for whatever
+                   narrower surface still lands below `@lg`. ONE COMPACT ROW,
                    sized by `SIZE_FIELD_SIZES` after a flat `xs` overlapped
                    three of its own labels — see that constant's note. */
                 renderMobileRow={(row) => (

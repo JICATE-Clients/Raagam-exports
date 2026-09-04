@@ -241,7 +241,17 @@ export type LineFacts = {
    screen come to render the same absence two different ways. */
 export function ClothText({ value }: { value: string }) {
   return (
-    <div className="flex h-9 min-h-8 w-full items-center rounded-md border border-border bg-surface-muted px-3 @2xl/editor:h-8">
+    /* `border-border-strong`, NOT `border-border` — REVISED AGAIN 2026-09-04
+       (client, Manual's compact rail row: "no border in some of fields").
+       `--border` (#cfd5dd) against this box's own `bg-surface-muted`
+       (#f1f3f5) is a real but faint edge — legible at a table cell's normal
+       width, and this box is now often squeezed to `xs` (~60px) beside a
+       picker or Select whose OWN border carries a bright required-empty
+       ring, which is exactly the comparison that made the fainter line
+       disappear. `--border-strong` (#9aa4b2) is the same token
+       `child-grid.tsx` already reaches for whenever a rule needs to be seen
+       rather than merely present. */
+    <div className="flex h-9 min-h-8 w-full items-center rounded-md border border-border-strong bg-surface-muted px-3 @2xl/editor:h-8">
       <Truncated className="text-sm text-muted-foreground">{value || "—"}</Truncated>
     </div>
   );
