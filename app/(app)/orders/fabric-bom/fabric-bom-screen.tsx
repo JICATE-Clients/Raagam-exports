@@ -3835,6 +3835,13 @@ export function FabricBomScreen({
     },
     {
       header: "MeasurementUnit",
+      /* "Unit" IN THE STACKED LAYOUT ONLY — the header stays legacy's own
+         unbroken compound word for the table, but that word has no space to
+         wrap on and no room to sit unbroken in the rail's compact row
+         (client 2026-09-04, screenshot 2694: it ran into the field beside
+         it). Same disambiguation `cardLabel` already gives the three "Type"
+         columns. */
+      cardLabel: "Unit",
       width: "4rem",
       /* THE CLOTH'S OWN BASE UNIT, which is the unit the requirement is stored
          in — `entryFabric` on the server reads the same column. Blank until a
@@ -4048,15 +4055,50 @@ export function FabricBomScreen({
    * "same like material bom tab layout, size, color everything ...
    * customized it first plan with artifact then can implement it").
    *
-   * FABRIC ALONE TAKES `md`: it is the row's one `RecordPicker`, and a
-   * fabric's own name is the longest value on the row. The other thirteen
-   * are a Select, two checkboxes, three derived `ClothText` cells and three
-   * `[Click]` buttons — none of them needs more than `xs` (2/32) to read.
-   * 4 + 13x2 = 30 of the 32 columns `FieldGrid` divides the compact row
-   * into, the same one-row shape the artifact confirmed ("row 1, row 2 as
-   * single row compacted").
+   * FABRIC ALONE TOOK `md` AT FIRST: it is the row's one `RecordPicker`, and
+   * a fabric's own name is the longest value on the row. Two more joined it
+   * 2026-09-04, both for the same reason and both single, unbreakable words
+   * with no space to wrap on — `xs` (2/32, ~60px in the rail-reduced detail
+   * pane) is enough room for "Gsm" or "Widths" and not enough for these:
+   * **`Calculated`** (10 letters, the Select's own label) and
+   * **`Components`** (10 letters, the [Click] button's). Screenshot 2694
+   * showed exactly this — "Components" running into "Assort Color" beside
+   * it with no gap. `MeasurementUnit` had the same defect and is fixed the
+   * other way, with a `cardLabel` (see that column) rather than a wider
+   * span, because its FULL word is legacy's own and has to survive
+   * somewhere on screen; `Calculated` and `Components` are this screen's
+   * own wording, free to just take more room instead.
+   *
+   * 4 (Fabric) + 3 + 3 (Calculated, Components) + 11x2 (everything else) =
+   * 32 exactly — still the one compact row the artifact confirmed, now
+   * sized by what each label actually needs rather than a flat guess.
    */
-  const MANUAL_FIELD_SIZES: Record<string, FieldSize> = { Fabric: "md" };
+  const MANUAL_FIELD_SIZES: Record<string, FieldSize> = {
+    Fabric: "md",
+    Calculated: "sm",
+    Components: "sm",
+  };
+
+  /**
+   * THE SIZE GRID'S OWN FIELD SIZES, SAME REASON AS `MANUAL_FIELD_SIZES`
+   * ABOVE AND SAME DEFECT SCREENSHOT 2694 SHOWED THERE — "TableWidth" ran
+   * into "Width" beside it with no gap.
+   *
+   * NO `cardLabel` HERE, UNLIKE `MeasurementUnit` ABOVE: every header in
+   * `sizeColumns` is legacy's own band, verbatim, by explicit operator
+   * instruction (2026-09-03, "same labels, same order … verbatim") — the
+   * printed word cannot change, so the fix can only be the SPAN. `xs` (2/32)
+   * is enough for a short single word ("Width", "Length", "Size") or two
+   * short ones that wrap ("Cons Qty", "Cons Wt"); `sm` (3/32) goes to the
+   * three unbreakable-or-long ones — `TableWidth` (one word, 10 letters),
+   * `Length Tolerance` (its second word alone is 9), `Calculated Wt` (same
+   * shape). 3x3 + 7x2 = 23 of 32, so the row still fits with room spare.
+   */
+  const SIZE_FIELD_SIZES: Record<string, FieldSize> = {
+    TableWidth: "sm",
+    "Length Tolerance": "sm",
+    "Calculated Wt": "sm",
+  };
 
   const manualStylePane = (styleRow: ManualStyleRow) => {
     const refusal = styleRefusal(styleRow.style_ref_no);
@@ -4235,15 +4277,18 @@ export function FabricBomScreen({
                 centerHeaders
                 /* ONE COMPACT ROW HERE TOO, cols={32} — the same treatment
                    the fabric row above got (client 2026-09-04: "size to
-                   conv item make it single [row], compact the field size").
-                   Legacy's 10-field band (Size .. Conv. Item) is all short
-                   numeric inputs, a Combobox and one disabled button, so
-                   every field takes `xs` uniformly — nothing here is a name
-                   long enough to need `MANUAL_FIELD_SIZES`'s wider span. */
+                   conv item make it single [row], compact the field size"),
+                   sized by `SIZE_FIELD_SIZES` after a flat `xs` overlapped
+                   three of its own labels — see that constant's note. */
                 renderMobileRow={(row) => (
                   <FieldGrid cols={32}>
                     {sizeColumns(e).map((c, ci) => (
-                      <Field key={ci} label={c.header} required={c.required} size="xs">
+                      <Field
+                        key={ci}
+                        label={c.header}
+                        required={c.required}
+                        size={SIZE_FIELD_SIZES[c.header] ?? "xs"}
+                      >
                         {c.cell(row, ci)}
                       </Field>
                     ))}
