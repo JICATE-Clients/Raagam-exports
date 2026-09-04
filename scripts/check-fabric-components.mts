@@ -542,7 +542,11 @@ check(
 // 10. Open / Tubular — the client's Point 5 vocabulary.
 // ---------------------------------------------------------------------------
 check("10a exactly two forms", FABRIC_FORM_OPTIONS.map((o) => o.value), ["open", "tubular"]);
-check("10b labels are legacy's own words", FABRIC_FORM_OPTIONS.map((o) => o.label), ["Open", "Tubular"]);
+/* "Open" -> "Open Width" (client cleanup spec, 2026-09-04): the LABEL only —
+   10a above still holds the value at "open", unrenamed. See FABRIC_FORM_OPTIONS'
+   own note for why this now reads the same as LAYOUT_TYPE_OPTIONS' label
+   without being the same column. */
+check("10b labels are the 2026-09-04 spec's words", FABRIC_FORM_OPTIONS.map((o) => o.label), ["Open Width", "Tubular"]);
 check("10c the label resolves", fabricFormLabel("tubular"), "Tubular");
 /* AN UNANSWERED CELL PRINTS NOTHING, not "Open". A default here would report a
    roll form nobody chose, on a field the client called mandatory. */

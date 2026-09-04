@@ -108,6 +108,7 @@ function normalizeLines(data: FabricBomInput) {
       fabric_type: clean(c.fabric_type),
       color_name: clean(c.color_name),
       fabric_form: c.fabric_form ?? null,
+      layout_type: c.layout_type ?? null,
       required_print: clean(c.required_print),
       specification: clean(c.specification),
       /* THE TWO YARN-DYED CELLS (0513). THIS MAP IS FIELD BY FIELD, so a column
