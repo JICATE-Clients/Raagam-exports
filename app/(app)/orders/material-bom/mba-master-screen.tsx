@@ -1303,6 +1303,10 @@ export function MbaMasterScreen({
    * construction with nothing on screen saying so.
    */
   const [comboLineKey, setComboLineKey] = useState<string | null>(null);
+  /** The Combinations button's own rect, so its sheet grows out of that
+   *  button — same mechanism as `garment-order-screen.tsx`'s `processOrigin` /
+   *  `packOrigin` (AGENTS.md, "A sub-detail Sheet's size"). */
+  const [comboOrigin, setComboOrigin] = useState<DOMRect | null>(null);
 
   const [copyOpen, setCopyOpen] = useState(false);
   const [pendingCopy, setPendingCopy] = useState<{
@@ -5032,7 +5036,13 @@ export function MbaMasterScreen({
                   ? `Combinations — ${itemName(r.item_id)} (${blocked})`
                   : `Combinations — ${itemName(r.item_id)}`
               }
-              onClick={() => setComboLineKey(r.key)}
+              /* Captures the button's own rect so the sheet scales out of
+                 THIS button — `currentTarget`, not `target`: the click can
+                 land on the icon/text node inside it. See `comboOrigin`. */
+              onClick={(ev) => {
+                setComboOrigin(ev.currentTarget.getBoundingClientRect());
+                setComboLineKey(r.key);
+              }}
             >
               {r.combinations.length ? (
                 <span className="tabular-nums text-xs">{r.combinations.length}</span>
@@ -6718,6 +6728,8 @@ export function MbaMasterScreen({
         <BomCombinationSheet
           open
           onClose={() => setComboLineKey(null)}
+          /* The Combinations cell that opened this — see `comboOrigin`. */
+          origin={comboOrigin}
           /* LEGACY'S OWN HEADER, read-only — Category, Type, Item, Attribute and
              the line's figure. Blank rather than a dash wherever the line has
              not answered yet: a form field is not a table cell, and the

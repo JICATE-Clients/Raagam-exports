@@ -1248,3 +1248,17 @@ body {
   font-weight: inherit;
   color: var(--foreground);
 }
+
+/* `[data-md-plain]` WAS THE RAIL'S OPT-OUT OF THE BLUE RING AND THE FILL
+   (client 2026-09-03, "remove blue bg colour for carts" / screenshot 160649,
+   "remove this blue background colour"), SCOPED TO FABRIC BOM's COMPONENTS
+   TAB — the only screen that ever set the marker.
+
+   BOTH RULES AND THE MARKER ARE GONE (2026-09-03, same day, later): shown
+   Material BOM's own rail as the reference and asked to match it exactly —
+   "same ... size, color everything" — Components dropped the marker
+   (`component-map-sheet.tsx`) rather than this file growing a second opt-out
+   to explain. Deleted rather than left dead: an unlayered rule nothing sets
+   the attribute for is a trap for the next screen that reaches for
+   `data-md-plain` expecting it to still mean something. */
+

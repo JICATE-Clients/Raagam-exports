@@ -3003,6 +3003,9 @@ export function GarmentOrderScreen({
   /* The Pack Composition sheet's opener, keyed the same way (0467). */
   const [packForKey, setPackForKey] = useState<string | null>(null);
   const packStyle = styles.find((r) => r.key === packForKey) ?? null;
+  /* The Pack Composition button's own rect, same mechanism as `processOrigin`
+   *  above (AGENTS.md, "A sub-detail Sheet's size", 2026-09-03). */
+  const [packOrigin, setPackOrigin] = useState<DOMRect | null>(null);
 
   /**
    * THIS STYLE'S OWN PARTS, for the Process sheet's Component cell (0421).
@@ -6472,7 +6475,14 @@ export function GarmentOrderScreen({
                   /* NAMES THE FIELD THAT TURNS IT ON rather than greying out in
                      silence — the rule the Assort gate states. */
                   title={named ? undefined : "Name a style on this row first"}
-                  onClick={() => setPackForKey(r.key)}
+                  /* Captures the button's own rect so the sheet scales out of
+                     THIS row rather than the middle of the screen — see
+                     `packOrigin`. `currentTarget`, not `target`: the click
+                     can land on the text node inside the button. */
+                  onClick={(e) => {
+                    setPackOrigin(e.currentTarget.getBoundingClientRect());
+                    setPackForKey(r.key);
+                  }}
                 >
                   {members
                     ? `${members} member${members === 1 ? "" : "s"} · ${fmtNumber(per)} pcs`
@@ -19304,6 +19314,8 @@ export function GarmentOrderScreen({
         <PackCompositionSheet
           open
           onClose={() => setPackForKey(null)}
+          /* The Pack Composition cell that opened this — see `packOrigin`. */
+          origin={packOrigin}
           styleLabel={packStyle.style_ref_no.trim() || "this style"}
           rows={packStyle.pack_components}
           onChange={(next) => updateStyle(packStyle.key, { pack_components: next })}

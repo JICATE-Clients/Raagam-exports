@@ -88,7 +88,7 @@
  */
 
 import { useMemo } from "react";
-import { Sheet } from "@/components/ui/sheet";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Field, FieldRow } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -148,9 +148,13 @@ export function BomCombinationSheet({
   onChange,
   newKey,
   readOnly = false,
+  origin,
 }: {
   open: boolean;
   onClose: () => void;
+  /** The Combinations cell's own rect, so the sheet grows out of it — see
+   *  `AGENTS.md`'s "A sub-detail Sheet's size". */
+  origin?: SheetOrigin | null;
   /* THE LINE, READ-ONLY, IN LEGACY'S OWN ORDER — Category, Type, Item,
      Attribute, and the line's figure. The sheet covers the screen, so once it is
      open there is nothing else left to say which line these names belong to. */
@@ -236,13 +240,24 @@ export function BomCombinationSheet({
     <Sheet
       open={open}
       onClose={onClose}
-      /* `lg`, and `sm` is not the tempting alternative it looks like. A surface's
-         size is a function of what is ON it, and one text column wants less
-         width than five cells did — but `Sheet` offers only `sm` and `lg`, and
-         at `sm` the `ChildGrid` inside falls back to stacked cards and drops its
-         column headers. That would leave the one field on this screen as an
-         unlabelled box, which is worse than a dialog wider than it needs. */
-      size="lg"
+      /* `md`, NOT `lg` (2026-09-03, AGENTS.md "A sub-detail Sheet's size").
+         THE COMMENT THIS REPLACED WAS WRONG, NOT JUST OUTDATED: it said
+         "`Sheet` offers only `sm` and `lg`" — it has offered `md` (`max-w-6xl`)
+         since before this file was written, for exactly this shape of screen: a
+         `ChildGrid` that needs more than `sm`'s ~408px but nothing close to a
+         full-screen page. `sm` really was wrong, for the reason given — the
+         grid falls back to stacked cards and drops its column headers below
+         ChildGrid's own responsive breakpoint — but the fix was the missing
+         middle size, not the widest one. Style ▸ Process
+         (`style-process-sheet.tsx`) and Order Info ▸ Pack Composition
+         (`pack-composition-sheet.tsx`) are the same shape and both settled on
+         `md` for the same reason. */
+      size="md"
+      /* CENTRED OVER THE CONTENT PANE, AND GROWS OUT OF THE BUTTON THAT OPENED
+         IT — the other two props that go with `md` on this shape of sheet, per
+         the same STANDING section. */
+      alignToPane
+      origin={origin}
       /* Above the BOM's own editor overlay — this opens from a grid cell inside
          it, and a nested sheet needs the higher base to stack reliably. */
       zIndexBase={120}

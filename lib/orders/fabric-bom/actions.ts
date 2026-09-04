@@ -202,8 +202,9 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
       grams: r.grams ?? null,
       table_width: r.table_width ?? null,
       length: r.length ?? null,
-      width_tolerance: r.width_tolerance ?? null,
+      length_tolerance: r.length_tolerance ?? null,
       cons_qty: r.cons_qty ?? null,
+      finished_width: r.finished_width ?? null,
       sno: 0,
     }))
     .filter(
@@ -214,12 +215,16 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
           r.grams != null ||
           r.table_width != null ||
           r.length != null ||
-          r.width_tolerance != null ||
+          r.length_tolerance != null ||
           /* `cons_qty` COUNTS AS SAYING SOMETHING (0523). It is the spec's own
              multiplier and a row carrying only it is a row the planner typed
              into — dropping it here would silently discard the figure the CAD
              report gave them. */
-          r.cons_qty != null),
+          r.cons_qty != null ||
+          /* THE "Widths" POPUP'S OTHER FIELD COUNTS TOO (0526) — a row touched
+             only through that button and never through the main grid is still
+             a row the planner answered. */
+          r.finished_width != null),
     )
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }

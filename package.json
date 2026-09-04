@@ -34,6 +34,7 @@
     "check:search": "node --experimental-strip-types scripts/check-search-match.mts",
     "check:grid-budget": "node scripts/check-grid-budget.mjs",
     "check:hooks": "node scripts/check-hooks.mjs",
+    "check:holds": "node --experimental-strip-types scripts/check-keyboard-holds.mts",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "check:nav-paths": "npx --yes tsx scripts/check-nav-paths.mts",
     "check:approval-tree": "npx --yes tsx scripts/check-approval-tree.mts",

@@ -36,7 +36,6 @@
  */
 
 import {
-  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -53,23 +52,19 @@ import {
   Waypoints,
   Ruler,
   Spool,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-/* The Components cell is a SET, which is the one thing that makes a Manual
-   entry not a fabric line — see 0494. */
-import { MultiSelect } from "@/components/ui/multi-select";
 /* A Combobox, so the Manual sheet's Table width cell PICKS rather than accepts:
    typed text in one is a SEARCH and is never committed (`commit` in
    combobox.tsx). That is what makes the declared dia list mean something. */
 import { Combobox } from "@/components/ui/combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
+import type { FieldSize } from "@/lib/ui/sizes";
 import {
   ChildGrid,
-  GRID_HEADER_TEXT,
   gridKeyNav,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
@@ -83,6 +78,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Sheet } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -129,13 +125,10 @@ import {
   calcModeOf,
   calculatedGrams,
   consumptionMap,
-  calculatedWidth,
-  toInches,
+  effectiveLength,
   consQtyOf,
   gramsFor,
-  requiredKg,
   manualProblem,
-  netKg,
   takenComponentIds,
   type ManualSizeInput,
 } from "@/lib/orders/fabric-bom/manual";
@@ -336,11 +329,21 @@ type ManualSizeRow = {
    */
   table_width: string;
   length: string;
-  /** The cutting allowance ADDED TO THE WIDTH (0523) — `calculatedWidth`
-   *  records why this was `length_tolerance` until 2026-09-03. */
-  width_tolerance: string;
+  /** The cutting allowance ADDED TO THE LENGTH (0524) — `effectiveLength`
+   *  records the same-day 0523→0524 reversal on this field. */
+  length_tolerance: string;
   /** "Cons Qty" — units of cloth per garment. BLANK MEANS 1 (`consQtyOf`). */
   cons_qty: string;
+  /**
+   * THE "Widths" [Click] POPUP'S OWN FIELD (0526) — legacy's "Width Details"
+   * sub-form shows eight columns (screenshot 2681: Width | Width Tolerance |
+   * Width | Calculated Width | Final Width | Width For Calc | Finished Width
+   * | Purchase Width), but the operator's own correction is that only TWO are
+   * real: this and `purchase_width` above. 0525 shipped `roll_width` /
+   * `roll_width_tolerance` for the first pair instead — wrong, reverted the
+   * same day. The other six columns are not stored anywhere.
+   */
+  finished_width: string;
 };
 
 /**
@@ -760,8 +763,9 @@ const blankManualSize = (key: string, size_id: string | null, dia = ""): ManualS
   grams: "",
   table_width: "",
   length: "",
-  width_tolerance: "",
+  length_tolerance: "",
   cons_qty: "",
+  finished_width: "",
 });
 
 const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
@@ -1037,6 +1041,19 @@ export function FabricBomScreen({
    * removed. The same reason every other write on this tab addresses by key.
    */
   const [componentsFor, setComponentsFor] = useState<string | null>(null);
+  /** THE COMPONENTS BUTTON'S OWN RECT, so its sheet grows out of THAT button
+   *  rather than the middle of the screen — the same mechanism
+   *  `garment-order-screen.tsx`'s Style ▸ Process sheet uses (`processOrigin`),
+   *  applied here for the same reason: "a surface's size is a function of
+   *  what is ON it, not of how it is opened" (operator instruction,
+   *  2026-09-03: apply this to every [Click]-opened sheet on this tab). */
+  const [componentsOrigin, setComponentsOrigin] = useState<DOMRect | null>(null);
+  /** WHICH MANUAL ENTRY'S "Widths" POPUP IS OPEN — legacy's [Click] on the
+   *  Widths cell (screenshot 2681, "Width Details"). By entry key, same
+   *  reason as `componentsFor` above. */
+  const [widthsFor, setWidthsFor] = useState<string | null>(null);
+  /** The Widths button's own rect — same mechanism as `componentsOrigin`. */
+  const [widthsOrigin, setWidthsOrigin] = useState<DOMRect | null>(null);
   /** The picker hands us its `commit` so a save selects the new fabric and
    *  closes the list in one step. A ref because the sheet outlives the callback
    *  (the same shape `bank-picker.tsx` uses). */
@@ -1424,6 +1441,10 @@ export function FabricBomScreen({
    *  Components rail section now, and this popup is legacy's own [Detail]. */
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const detailLine = lines.find((l) => l.key === detailKey) ?? null;
+  /** The [Detail] button's own rect, so its sheet grows out of that button —
+   *  same mechanism as `componentsOrigin` / `widthsOrigin` below (AGENTS.md,
+   *  "A sub-detail Sheet's size"). */
+  const [detailOrigin, setDetailOrigin] = useState<DOMRect | null>(null);
 
   /**
    * WHICH YARN, AND WHICH FABRIC, HAS ITS ROUTE UNFOLDED — legacy's `[+]`
@@ -1449,18 +1470,6 @@ export function FabricBomScreen({
    * edit, which is how the Colourways accordion lost its split on 2026-09-03.
    */
   const [openYarnId, setOpenYarnId] = useState<string | null>(null);
-  /**
-   * WHICH MANUAL FABRIC ROW IS UNFOLDED — its sizes render beneath it (0522).
-   *
-   * DECLARED HERE, WITH THE OTHER OPEN-ROW STATE, and above every branch in this
-   * component: AGENTS.md's standing rule is that a screen returning early
-   * declares every hook above that line, and a hook added down beside the markup
-   * it serves is the one that gets moved under a branch later.
-   *
-   * `null` is all of them shut, the same mount state `openYarnId` takes and the
-   * client's 08-19 "sections should be in closed state".
-   */
-  const [openEntryKey, setOpenEntryKey] = useState<string | null>(null);
   const [openFabricId, setOpenFabricId] = useState<string | null>(null);
 
 
@@ -1953,8 +1962,9 @@ export function FabricBomScreen({
           grams: z.grams == null ? "" : String(z.grams),
           table_width: z.table_width == null ? "" : String(z.table_width),
           length: z.length == null ? "" : String(z.length),
-          width_tolerance: z.width_tolerance == null ? "" : String(z.width_tolerance),
+          length_tolerance: z.length_tolerance == null ? "" : String(z.length_tolerance),
           cons_qty: z.cons_qty == null ? "" : String(z.cons_qty),
+          finished_width: z.finished_width == null ? "" : String(z.finished_width),
         })),
       })),
     );
@@ -2907,7 +2917,7 @@ export function FabricBomScreen({
       grams: numOrNull(z.grams),
       table_width: numOrNull(z.table_width),
       length: numOrNull(z.length),
-      width_tolerance: numOrNull(z.width_tolerance),
+      length_tolerance: numOrNull(z.length_tolerance),
       cons_qty: numOrNull(z.cons_qty),
     }));
 
@@ -3172,6 +3182,30 @@ export function FabricBomScreen({
   };
 
   /**
+   * LEGACY'S "Coordinate" COLUMN (client 2026-09-03, screenshot 2680: the
+   * [Click] ▸ Components popup, `PIECES | FRONT BODY1 | ✓`) — READ-ONLY, the
+   * same call the Components TAB's own `coordinateName` already makes for the
+   * identical cell: a component's coordinate is a property of the STYLE's
+   * declared pairing (`garment_order_amendment_style_components`), not of the
+   * component in isolation, so an editable box here would be a second place
+   * for it to disagree with the order.
+   *
+   * REUSES DATA THIS SCREEN ALREADY HOLDS — `styleDecls` and `data.coordinates`
+   * are fetched once for the whole order and already passed to the Components
+   * tab as `decls=` / `coordinates=` (below); this is the same lookup, not a
+   * second fetch. `null` style_ref_no in a declaration means "every style", so
+   * it matches after a style-scoped row fails to.
+   */
+  const coordinateForComponent = (componentId: string, styleRefNo: string): string | null => {
+    const ref = styleRefNo.trim() || null;
+    const decl =
+      styleDecls.find((d) => d.component_id === componentId && d.style_ref_no === ref) ??
+      styleDecls.find((d) => d.component_id === componentId && d.style_ref_no === null);
+    if (!decl?.coordinate_id) return null;
+    return data.coordinates?.find((c) => c.id === decl.coordinate_id)?.name ?? null;
+  };
+
+  /**
    * The entry's own grid — one row per size, and THE COLUMNS DEPEND ON THE MODE.
    *
    * Direct asks for the weight; calculated asks for the measurements and shows
@@ -3189,10 +3223,6 @@ export function FabricBomScreen({
   const sizeColumns = (e: ManualEntryRow): ChildGridColumn<ManualDisplayRow>[] => {
     const mode = calcModeOf(e.calc_mode);
     const gsm = gsmForStructure(e.structure_id);
-    const wastage = numOrNull(e.wastage_pct);
-    /* THE SECOND ALLOWANCE (0523). Legacy's row carries both and the spec
-       compounds them — see `requiredKg`. */
-    const endbit = numOrNull(e.endbit_loss_pct);
     /**
      * A KEYSTROKE, WRITTEN TO ONE SIZE OR TO ALL OF THEM (0523).
      *
@@ -3211,28 +3241,6 @@ export function FabricBomScreen({
       if (e.size_wise) return setSizeCell(e.key, r, patch);
       for (const row of manualSizeRows(e)) setSizeCell(e.key, row, patch);
     };
-    /**
-     * THE ORDER QUANTITY THIS ROW SPEAKS FOR.
-     *
-     * With "Size Wise" on that is the row's own size. With it OFF the single
-     * visible row answers for the WHOLE run, so this is the sum of every size —
-     * and that is not cosmetic: `Net Wt` and `Req. Wt` multiply it, and showing
-     * one size's 500 pieces under a figure that covers 2,370 would understate
-     * the purchase by a factor of five on the cell the yarn module reads.
-     *
-     * IT IS ALSO ARITHMETICALLY THE SAME ANSWER. Cons Qty and Cons Wt are
-     * identical across sizes while the toggle is off, so
-     * `Σ(qtyᵢ) x cons x wt` is `Σ(qtyᵢ x cons x wt)` — the total is exact rather
-     * than an approximation of the per-size sum.
-     */
-    const qtyOf = (r: ManualDisplayRow) => {
-      const sizes = orderSizesFor(e.style_ref_no);
-      if (!e.size_wise) {
-        const total = sizes.reduce((n, z) => n + (z.qty ?? 0), 0);
-        return sizes.length ? total : null;
-      }
-      return sizes.find((z) => z.size_id === r.size_id)?.qty ?? null;
-    };
 
     /** This row as the arithmetic wants it, built once per cell rather than
      *  four times. */
@@ -3243,17 +3251,34 @@ export function FabricBomScreen({
       grams: numOrNull(r.grams),
       table_width: numOrNull(r.table_width),
       length: numOrNull(r.length),
-      width_tolerance: numOrNull(r.width_tolerance),
+      length_tolerance: numOrNull(r.length_tolerance),
       cons_qty: numOrNull(r.cons_qty),
     });
 
     /**
-     * THE CALCULATED MODE'S INPUTS, and only in that mode (client 2026-09-03:
-     * "when the user toggles the system to Calculated mode, the Piece Weight
-     * field is locked to read-only, and the following input fields are
-     * revealed"). Direct is the mode used 99.9% of the time, and in it these are
-     * not fields that are temporarily unavailable — they are not part of the
-     * question being asked.
+     * ALWAYS VISIBLE, IN BOTH MODES — reversed 2026-09-03 (0524), on the
+     * operator's explicit instruction after being shown the running Direct-mode
+     * screen and confirming they want legacy's full 11-column band on screen
+     * regardless of mode. This overrides the client's own written words quoted
+     * here until now: *"when the user toggles the system to Calculated mode,
+     * the Piece Weight field is locked to read-only, and the following input
+     * fields are revealed"* — Direct was gating these five columns out
+     * entirely, not merely leaving them unlocked, on that quote's authority.
+     * `mode` still decides whether Cons Wt is a typed field or a computed span
+     * (below) — only these columns' VISIBILITY stopped depending on it.
+     *
+     * ORDER, LABELS AND THE TOLERANCE'S TARGET ALL REVERTED 2026-09-03 (0524),
+     * hours after 0523 moved the allowance to the width. `effectiveLength` in
+     * ./manual.ts carries the arithmetic's history; this array's SEQUENCE AND
+     * WORDING are legacy's own `Width | Length | Length Tolerance | Length |
+     * Calculated Wt` band, field for field and label for label (operator
+     * instruction, 2026-09-03 19:58 screenshot: same labels, same order,
+     * verbatim) — "Length Tolerance" sits beside Length here, not beside
+     * Width, because that is what it now modifies, and the derived cell after
+     * it is headed "Length" again rather than "Calc. length", matching
+     * legacy's own repeat. `Calc. width (in)` is dropped: it existed only
+     * because 0523 needed an inches reading on the WIDTH, and legacy's band
+     * has no inches column at all.
      */
     const measured: ChildGridColumn<ManualDisplayRow>[] = [
       {
@@ -3261,7 +3286,8 @@ export function FabricBomScreen({
            pattern block", stored as `table_width`. Distinct from the `Dia`
            column, which is the ROLL's diameter and a constraint: the panels must
            fit across it. One word for both is how a reader multiplies by 60
-           where 55 was meant. */
+           where 55 was meant. PLAIN, with no tolerance and no derived cell of
+           its own — the allowance is on the length now, not here. */
         header: "Width",
         width: "4.5rem",
         align: "right",
@@ -3274,50 +3300,6 @@ export function FabricBomScreen({
             onChange={(ev) => set(r, { table_width: ev.target.value })}
           />
         ),
-      },
-      {
-        /* THE ALLOWANCE, ON THE WIDTH (0523). It was applied to the LENGTH until
-           2026-09-03 — see `calculatedWidth` for why both readings looked right
-           and only one was. */
-        header: "Tol.",
-        width: "4rem",
-        align: "right",
-        cell: (r) => (
-          <Input
-            className="h-8 text-right"
-            inputMode="decimal"
-            aria-label="Width tolerance (cm)"
-            value={r.width_tolerance}
-            onChange={(ev) => set(r, { width_tolerance: ev.target.value })}
-          />
-        ),
-      },
-      {
-        /* Width + Tolerance, derived — the figure the weight actually
-           multiplies. Text rather than a readOnly box: a derived value was not
-           typed, so it is not a field. */
-        header: "Calc. width",
-        width: "4.5rem",
-        align: "right",
-        cell: (r) => {
-          const w = calculatedWidth(numOrNull(r.table_width), numOrNull(r.width_tolerance));
-          return <span className="tabular-nums text-sm">{w == null ? "—" : fmtNumber(w)}</span>;
-        },
-      },
-      {
-        /* THE SAME WIDTH IN INCHES, because the knitting machine is set in
-           inches while the pattern is drawn in centimetres — the client's own
-           example is 52 cm reading 20.4". Derived from the cm cell beside it, so
-           the two can never disagree. */
-        header: "Calc. width (in)",
-        width: "4.5rem",
-        align: "right",
-        cell: (r) => {
-          const i = toInches(
-            calculatedWidth(numOrNull(r.table_width), numOrNull(r.width_tolerance)),
-          );
-          return <span className="tabular-nums text-sm">{i == null ? "—" : fmtNumber(i)}</span>;
-        },
       },
       {
         /* The pattern length, in centimetres. */
@@ -3333,6 +3315,41 @@ export function FabricBomScreen({
             onChange={(ev) => set(r, { length: ev.target.value })}
           />
         ),
+      },
+      {
+        /* THE ALLOWANCE, ON THE LENGTH (0524, reverting 0523's few hours on the
+           width) — see `effectiveLength` for the full history. LABEL IS
+           LEGACY'S OWN "Length Tolerance", verbatim (operator instruction,
+           2026-09-03) — it was abbreviated to "Tol." before; the field is
+           unchanged, only the printed word. */
+        header: "Length Tolerance",
+        width: "5rem",
+        align: "right",
+        cell: (r) => (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            aria-label="Length tolerance (cm)"
+            value={r.length_tolerance}
+            onChange={(ev) => set(r, { length_tolerance: ev.target.value })}
+          />
+        ),
+      },
+      {
+        /* Length + Tolerance, derived — the figure the weight actually
+           multiplies. Text rather than a readOnly box: a derived value was not
+           typed, so it is not a field. LEGACY REPEATS "Length" FOR THIS SAME
+           CELL, and the header below is now that same literal word (operator
+           instruction, 2026-09-03) — this was "Calc. length" before, renamed
+           distinctly so the two headers would not match; the operator's
+           instruction is to keep them matching, as legacy does. */
+        header: "Length",
+        width: "4.5rem",
+        align: "right",
+        cell: (r) => {
+          const l = effectiveLength(numOrNull(r.length), numOrNull(r.length_tolerance));
+          return <span className="tabular-nums text-sm">{l == null ? "—" : fmtNumber(l)}</span>;
+        },
       },
       {
         /* THE FORMULA'S OUTPUT, shown beside the inputs that produced it —
@@ -3384,8 +3401,11 @@ export function FabricBomScreen({
            them where exactly one is declared — the client's own instruction,
            "they should automatically prepopulate the Dia field here but remain
            editable". A Combobox, so typed text is a SEARCH and never a stored
-           value; `diaOptionsFor` keeps a held value visible and tagged. */
-        header: "Dia",
+           value; `diaOptionsFor` keeps a held value visible and tagged.
+           HEADER TEXT IS LEGACY'S OWN "TableWidth" (2026-09-03 19:58 screenshot,
+           operator instruction: same label, same position, verbatim) — the
+           field is still `dia`, unrenamed; only the printed word changed. */
+        header: "TableWidth",
         width: "5.5rem",
         cell: (r) => (
           <Combobox
@@ -3398,24 +3418,7 @@ export function FabricBomScreen({
           />
         ),
       },
-      {
-        /* A SECOND WIDTH AND NOT A RESTATEMENT OF THE DIA: cloth is knitted at
-           one and invoiced at another, and purchasing needs the one it buys
-           against. Free text rather than a pick — it is a commercial figure the
-           supplier quotes, not one this BOM declares anywhere. */
-        header: "Purch. width",
-        width: "4.5rem",
-        align: "right",
-        cell: (r) => (
-          <Input
-            className="h-8 text-right"
-            inputMode="decimal"
-            value={r.purchase_width}
-            onChange={(ev) => set(r, { purchase_width: ev.target.value })}
-          />
-        ),
-      },
-      ...(mode === "calculated" ? measured : []),
+      ...measured,
       {
         /**
          * "Cons Qty" — UNITS OF CLOTH PER GARMENT, AND A FIELD SINCE 0523.
@@ -3494,58 +3497,55 @@ export function FabricBomScreen({
           ),
       },
       {
-        /* THE ORDER QUANTITY FOR THIS SIZE, summed across colourways — the first
-           factor of the spec's Step 1, shown because a Net kg with no visible
-           quantity behind it is a number the planner has to take on trust. */
-        header: "Order qty",
-        width: "5rem",
-        align: "right",
-        cell: (r) => {
-          const q = qtyOf(r);
-          return (
-            <span className="tabular-nums text-sm text-muted-foreground">
-              {q == null ? "—" : fmtNumber(q)}
-            </span>
-          );
-        },
-      },
-      {
-        /* STEP 1 — Net Weight (Kg) = Order Qty x Cons Qty x Cons Wt / 1000.
-           The client's worked example: 500 x 1 x 120 g = 60 kg. */
-        header: "Net Wt",
-        width: "5rem",
-        align: "right",
-        cell: (r) => {
-          const row = inputOf(r);
-          const n = netKg(qtyOf(r), consQtyOf(row), gramsFor(e.calc_mode, row, gsm));
-          return <span className="tabular-nums text-sm">{n == null ? "—" : fmtNumber(n)}</span>;
-        },
-      },
-      {
-        /* STEP 2 — Required Weight = Net x (1 + EndBit Loss) x (1 + Component
-           Proc. Loss). COMPOUNDED, not summed: 1% then 5% is x1.0605.
+        /* LEGACY'S [Click] AT THE END OF THIS SAME ROW (2026-09-03 19:58
+           screenshot), and the same unanswered destination the Components tab's
+           own "Conv. Item" already carries — "a [Click] into a screen no
+           transcript describes" (0495). SAME TREATMENT AS "Assort Color" /
+           "Widths" three columns up on the fabric row above: disabled, with the
+           reason on a wrapping span rather than the button, because a disabled
+           control eats pointer events and a `title` on it directly is
+           unreachable. Never invent the sheet behind it — that is the failure
+           this tab already recorded once ("a screenshot cannot show a grain",
+           0491).
 
-           EMPHASISED, because it is the figure that leaves this tab — "the
-           actual value dispatched to the yarn purchase module". The two
-           percentages are the fabric row's own; the Fabric Process route's steps
-           compound onto this same figure further downstream, which is why this
-           column stops at the row's allowances rather than trying to show a
-           final purchase weight it cannot see. */
-        header: "Req. Wt",
-        width: "5rem",
-        align: "right",
-        cell: (r) => {
-          const row = inputOf(r);
-          const n = netKg(qtyOf(r), consQtyOf(row), gramsFor(e.calc_mode, row, gsm));
-          const req = requiredKg(n, [endbit, wastage]);
-          return (
-            <span className="tabular-nums text-sm font-medium">
-              {req == null ? "—" : fmtNumber(req)}
-            </span>
-          );
-        },
+           THIS IS THE LAST COLUMN OF THE GRID, and legacy's own (operator
+           instruction, 2026-09-03: same 11 columns, same order, same labels,
+           verbatim, nothing else on screen). `Purch. width` / `Order qty` /
+           `Net Wt` / `Req. Wt` briefly trailed after it as this screen's own
+           additions and were removed the same day, on the same instruction —
+           see the comment below this array for where their figures still
+           live. */
+        header: "Conv. Item",
+        width: "4.5rem",
+        align: "center",
+        cell: () => (
+          <span
+            className="block"
+            title="Legacy opens a sub-detail here. It is not built yet — send that screen and it will be."
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-full"
+              disabled
+              aria-label="Conv. Item — not built yet"
+            >
+              Click
+            </Button>
+          </span>
+        ),
       },
     ];
+    /* PURCH. WIDTH / ORDER QTY / NET WT / REQ. WT WERE HERE, TRAILING AFTER
+       Conv. Item — this screen's own additions beyond legacy's 11-column band.
+       Removed from the grid 2026-09-03 on the operator's explicit instruction.
+       The underlying figures are not lost: `purchase_width` is still stored
+       (still a field on `ManualSizeInput`/`FabricBomManualSize`, just not
+       shown here), and Net/Required weight are computed independently for the
+       actual purchase requirement by `fabricRequirementRows` in
+       `requirement.ts`, which this screen never fed — see this file's own
+       header comment, "THIS MODULE DOES NOT MULTIPLY THE ORDER". */
   };
 
   /**
@@ -3717,10 +3717,17 @@ export function FabricBomScreen({
    * disambiguates them in the stacked layout, where two identical labels would
    * be meaningless.
    *
+   * A THIRD "Type" TRAILS AFTER `Widths`, outside this verified band — Solid /
+   * Melange / Yarn Dyed, added 2026-09-03 on operator instruction. It is not
+   * legacy's own (the screenshots above name only the two), so it is kept out
+   * of the sequence those screenshots verified rather than inserted between
+   * them; see the comment on that column for the full reasoning.
+   *
    * THE WIDTH BUDGET IS WHY THE TABLE RENDERS AT ALL: 65.5rem of columns plus
    * ~72px of chrome is about 1120px, under the 1152 this grid switches at. A
    * single-style order's pane is ~1293 CSS px — and that is every live order,
-   * all seven of which declare one style.
+   * all seven of which declare one style. The trailing Type column adds to
+   * that budget; `check:grid-budget` is what proves it still fits.
    */
   /** Legacy's row needs a CENTRED column (the checkbox and the three [Click]
    *  cells) and `FoldListColumn` offers only left/right — that list's cells are
@@ -3739,7 +3746,7 @@ export function FabricBomScreen({
   const manualEntryColumns: ManualEntryColumn[] = [
     {
       header: "Fabric",
-      width: "10rem",
+      width: "9rem",
       cell: (e) => (
         <RecordPicker
           label="Fabric"
@@ -3768,7 +3775,7 @@ export function FabricBomScreen({
       /* DERIVED AND READ-ONLY. Plain text rather than a `readOnly` box: a
          derived value was not typed, so it is not a field — the same call the
          Eff. len and Cons Wt cells make one level down. */
-      cell: (e) => <Truncated>{entryKnitType(e) || "—"}</Truncated>,
+      cell: (e) => <ClothText value={entryKnitType(e)} />,
     },
     {
       header: "Gsm",
@@ -3779,7 +3786,7 @@ export function FabricBomScreen({
          it answers for the structure this row's CLOTH belongs to. */
       cell: (e) => {
         const g = gsmForStructure(e.structure_id);
-        return <span className="tabular-nums">{g == null ? "—" : g}</span>;
+        return <ClothText value={g == null ? "" : String(g)} />;
       },
     },
     {
@@ -3828,11 +3835,18 @@ export function FabricBomScreen({
     },
     {
       header: "MeasurementUnit",
+      /* "Unit" IN THE STACKED LAYOUT ONLY — the header stays legacy's own
+         unbroken compound word for the table, but that word has no space to
+         wrap on and no room to sit unbroken in the rail's compact row
+         (client 2026-09-04, screenshot 2694: it ran into the field beside
+         it). Same disambiguation `cardLabel` already gives the three "Type"
+         columns. */
+      cardLabel: "Unit",
       width: "4rem",
       /* THE CLOTH'S OWN BASE UNIT, which is the unit the requirement is stored
          in — `entryFabric` on the server reads the same column. Blank until a
          fabric is named, which is what legacy's own screenshot shows. */
-      cell: (e) => <Truncated>{entryUnitName(e) || "—"}</Truncated>,
+      cell: (e) => <ClothText value={entryUnitName(e)} />,
     },
     {
       header: "Assort Color wise",
@@ -3928,7 +3942,14 @@ export function FabricBomScreen({
           variant="outline"
           size="sm"
           className="h-8 w-full"
-          onClick={() => setComponentsFor(e.key)}
+          /* Captures the button's own rect so the sheet scales out of THIS
+             button — `currentTarget`, not `target`: the click can land on the
+             text node inside it. Same call `garment-order-screen.tsx` makes
+             for Style ▸ Process. */
+          onClick={(ev) => {
+            setComponentsOrigin(ev.currentTarget.getBoundingClientRect());
+            setComponentsFor(e.key);
+          }}
         >
           {e.component_ids.length ? String(e.component_ids.length) : "Click"}
         </Button>
@@ -3967,27 +3988,53 @@ export function FabricBomScreen({
       ),
     },
     {
+      /* LEGACY'S [Click] ▸ "Width Details" (screenshot 2681) — LIVE now
+         (0525), the same shape Components' button already has: a Sheet with
+         its own per-size grid, opened by entry key. */
       header: "Widths",
       width: "4.5rem",
       align: "center",
-      /* Same as Assort Color above, and for the same reason. */
-      cell: () => (
-        <span
-          className="block"
-          title="Legacy opens a sub-detail here. It is not built yet — send that screen and it will be."
+      cell: (e) => (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 w-full"
+          onClick={(ev) => {
+            setWidthsOrigin(ev.currentTarget.getBoundingClientRect());
+            setWidthsFor(e.key);
+          }}
         >
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 w-full"
-            disabled
-            aria-label="Widths — not built yet"
-          >
-            Click
-          </Button>
-        </span>
+          Click
+        </Button>
       ),
+    },
+    {
+      /* A THIRD "Type" — SOLID · MELANGE · YARN DYED, off the fabric itself
+         (`fabricTypeOf`, the ONE derivation this file already reads five other
+         places: the Fabric Lines grid, the Save gate, `problems`, the yarn-dyed
+         mandatory check). NOT legacy's own row (screenshots 2666 · 2667 name
+         only the two "Type" columns above — knit family and roll form), so it
+         TRAILS after Widths rather than sitting between them, the same
+         treatment the trailing Purch. width / Order qty / Net Wt / Req. Wt
+         columns got on the size grid below: this screen's own addition, added
+         2026-09-03 on operator instruction, kept out of legacy's verified
+         sequence.
+
+         `cardLabel` DISAMBIGUATES IT FROM THE OTHER TWO in the stacked mobile
+         layout, the same way "Knit type" and "Roll form" already do — three
+         columns headed bare "Type" would be three identical labels stacked on
+         top of each other there. */
+      header: "Type",
+      cardLabel: "Fabric type",
+      /* NARROWER THAN THE OTHER TWO "Type" COLUMNS ON PURPOSE — this trails
+         outside legacy's verified band and the width budget has no slack left
+         for a fourth full-width column (`check:grid-budget`). `Truncated`
+         handles it: "Solid"/"Melange" fit as typed, "Yarn Dyed" clips to an
+         ellipsis with the full word on hover/hold — the reveal is the point of
+         that primitive, not a workaround. */
+      width: "2rem",
+      cell: (e) => <ClothText value={fabricTypeOf(e.item_id)} />,
     },
   ];
 
@@ -3998,8 +4045,64 @@ export function FabricBomScreen({
     ? (entries.find((e) => e.key === componentsFor) ?? null)
     : null;
 
+  /** The entry whose Widths sheet is open — same resolution as
+   *  `componentsForEntry` above, same reason. */
+  const widthsForEntry = widthsFor ? (entries.find((e) => e.key === widthsFor) ?? null) : null;
+
+  /**
+   * MANUAL ENTRY FIELD SIZES, THE SAME SHAPE `FIELD_SIZES` GIVES THE
+   * COMPONENTS TAB'S RAIL (client 2026-09-03, approved from an artifact:
+   * "same like material bom tab layout, size, color everything ...
+   * customized it first plan with artifact then can implement it").
+   *
+   * FABRIC ALONE TOOK `md` AT FIRST: it is the row's one `RecordPicker`, and
+   * a fabric's own name is the longest value on the row. Two more joined it
+   * 2026-09-04, both for the same reason and both single, unbreakable words
+   * with no space to wrap on — `xs` (2/32, ~60px in the rail-reduced detail
+   * pane) is enough room for "Gsm" or "Widths" and not enough for these:
+   * **`Calculated`** (10 letters, the Select's own label) and
+   * **`Components`** (10 letters, the [Click] button's). Screenshot 2694
+   * showed exactly this — "Components" running into "Assort Color" beside
+   * it with no gap. `MeasurementUnit` had the same defect and is fixed the
+   * other way, with a `cardLabel` (see that column) rather than a wider
+   * span, because its FULL word is legacy's own and has to survive
+   * somewhere on screen; `Calculated` and `Components` are this screen's
+   * own wording, free to just take more room instead.
+   *
+   * 4 (Fabric) + 3 + 3 (Calculated, Components) + 11x2 (everything else) =
+   * 32 exactly — still the one compact row the artifact confirmed, now
+   * sized by what each label actually needs rather than a flat guess.
+   */
+  const MANUAL_FIELD_SIZES: Record<string, FieldSize> = {
+    Fabric: "md",
+    Calculated: "sm",
+    Components: "sm",
+  };
+
+  /**
+   * THE SIZE GRID'S OWN FIELD SIZES, SAME REASON AS `MANUAL_FIELD_SIZES`
+   * ABOVE AND SAME DEFECT SCREENSHOT 2694 SHOWED THERE — "TableWidth" ran
+   * into "Width" beside it with no gap.
+   *
+   * NO `cardLabel` HERE, UNLIKE `MeasurementUnit` ABOVE: every header in
+   * `sizeColumns` is legacy's own band, verbatim, by explicit operator
+   * instruction (2026-09-03, "same labels, same order … verbatim") — the
+   * printed word cannot change, so the fix can only be the SPAN. `xs` (2/32)
+   * is enough for a short single word ("Width", "Length", "Size") or two
+   * short ones that wrap ("Cons Qty", "Cons Wt"); `sm` (3/32) goes to the
+   * three unbreakable-or-long ones — `TableWidth` (one word, 10 letters),
+   * `Length Tolerance` (its second word alone is 9), `Calculated Wt` (same
+   * shape). 3x3 + 7x2 = 23 of 32, so the row still fits with room spare.
+   */
+  const SIZE_FIELD_SIZES: Record<string, FieldSize> = {
+    TableWidth: "sm",
+    "Length Tolerance": "sm",
+    "Calculated Wt": "sm",
+  };
+
   const manualStylePane = (styleRow: ManualStyleRow) => {
     const refusal = styleRefusal(styleRow.style_ref_no);
+    const manualEntries = entriesForStyle(styleRow.style_ref_no);
     return (
       <div className="space-y-4">
         {/* LEVEL 1 — THE STYLE (client 2026-09-03: "first row like same
@@ -4022,253 +4125,204 @@ export function FabricBomScreen({
           identity={styleIdentityFor(styleRow.style_ref_no)}
         />
 
-        {/* LEVEL 2 + LEVEL 3 — THE FABRICS, EACH WITH ITS SIZES DIRECTLY BENEATH
-            IT. Legacy's second and third grids (screenshot 2667).
+        {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE, THE COMPONENTS TAB'S OWN
+            SHAPE (client 2026-09-03: "now we need to apply this rail ui
+            layout for the manual tab customized it first plan with artifact
+            then can implement it" — planned in an artifact, corrected twice
+            ("the first two row show same single you updated its as two
+            rows" -> a labelled divider; "row 1, row 2 as single row
+            compacted" -> one row) and confirmed).
 
-            ## WHY THIS IS A HAND-WRITTEN `<table>` AND NOT A `ChildGrid`
+            ## WHY THE HAND-WRITTEN `<table>` COULD GO
 
-            `ChildGrid` has no row-detail slot in table mode, and the sizes MUST
-            hang under the fabric they belong to — that is the whole shape
-            legacy has and the whole reason the card version was rejected. It is
-            the same call the Components tab made one tab along (2026-09-02) for
-            the same limit, and this table is deliberately its twin so the two
-            do not drift.
+            It used to say `ChildGrid` "has no row-detail slot in table
+            mode", and that was true only of TABLE mode. `masterDetail`
+            switches the grid to CARDS, where the open row's body is
+            `renderMobileRow` — so the sizes hang under their fabric by being
+            PART of that body, the same way Components' Colourways grid
+            hangs under its panel. That is what lets the whole hand-rolled
+            keyboard contract (`data-grid-body` + `gridKeyNav`,
+            `data-grid-row`, `data-row-remove`, `data-row-add`, `Fragment`,
+            the `onFocus`/`onClick` fold) go with it: `ChildGrid`'s own
+            `mdListKeyNav` and its roving-tabindex rail already carry all of
+            that, for free, the same as it does for every other
+            `masterDetail` grid in this file.
 
-            `ProcessFoldList` is the other near-miss and it is genuinely wrong
-            here: its own note says its cells are "read-only by construction",
-            and that is what makes its responsive twin safe. Every cell in this
-            row is a control.
+            ## THE RAIL SHOWS ONLY AT TWO ENTRIES, NOT ONE
 
-            ## IT PAYS THE KEYBOARD CONTRACT IN FULL RATHER THAN OPTING OUT
-
-            AGENTS.md records what ~22 hand-rolled grids cost, so:
-
-              · `data-grid-body` + `gridKeyNav` on the SAME element — the handler
-                reads `e.currentTarget`, so they cannot be split;
-              · `data-grid-row` per record, the axis ↑↓←→ walk and what scopes
-                `ownDescendants`;
-              · `data-row-remove` on each ✕, so Ctrl+Del still deletes a fabric
-                now that Tab lands on fields only;
-              · `data-row-add` on "+ Add fabric", which is what Enter steers by.
-
-            Nothing here sets `tabIndex` — `cycleTab` already skips non-fields on
-            every surface, and a local override is the per-component patch the
-            rule bans.
-
-            ## THE FOLD FOLLOWS FOCUS, WITH NO CHEVRON
-
-            `ChildGrid`'s own rule, for its reason: "if the user moved to next
-            structure details, close the first one automatically" (client
-            2026-08-18). `onFocus` bubbles, so one handler catches the mouse and
-            the keyboard, and a row the planner is typing in is the row whose
-            sizes they are about to enter. A chevron would be a second way to say
-            the same thing and one more stop on the way along the row. */}
-        <div className="overflow-x-auto">
-          {/* `table-fixed` IS WHAT MAKES THE `<colgroup>` MEAN ANYTHING, and
-              leaving it off is why this row was "uneven" on four machines and
-              fine on the one it was written on (client 2026-09-03, screenshot
-              2670).
-
-              Under the default `table-layout: auto` a declared width is a
-              SUGGESTION: the browser sizes each column from its CONTENT and the
-              space available. Every cell in this row is a control, and the
-              Fabric cell is a real `<input>` with an intrinsic width of its own,
-              so the widths that actually came out depended on the machine's
-              fonts, its zoom and its display scaling — which is exactly a layout
-              that renders differently on every desk.
-
-              `child-grid.tsx` already had this in writing, from the same fault:
-              "under the default `table-layout: auto` a `<th>` width is a
-              SUGGESTION — the browser still distributes by content and available
-              space, so ten declared columns in a narrow container were all
-              squeezed together and every picker read `— S…`" (client
-              2026-08-11). Hand-rolling the table meant hand-rolling that rule
-              too, and this is the half that was missed.
-
-              THE BUDGET FITS RATHER THAN SCROLLS: 65rem of columns + 72px of
-              `#` / `✕` chrome is ~1112px against a ~1250px pane, so nothing
-              moves sideways at 100%. On a scaled display it exceeds the pane and
-              the wrapper scrolls — which is the honest failure, and unlike the
-              old one it is the SAME layout everywhere. */}
-          <table className="w-full table-fixed border-collapse text-sm">
-            <colgroup>
-              <col className="w-10" />
-              {manualEntryColumns.map((c, i) => (
-                <col key={i} style={c.width ? { width: c.width } : undefined} />
-              ))}
-              <col className="w-8" />
-            </colgroup>
-            <thead>
-              {/* NO FILL ON THE HEADER — `child-grid.tsx`'s rule, restated by the
-                  client against this very screen on 2026-09-03 ("that grey bg
-                  too … just same white color"). `border-b` closes the band and
-                  `GRID_HEADER_TEXT` keeps the labels darker than the cells, so a
-                  third signal saying the same thing is what comes off. */}
-              <tr className="border-b border-border">
-                <th className={cn(GRID_HEADER_TEXT, "px-2 py-1.5 text-right")}>#</th>
-                {manualEntryColumns.map((c, i) => (
-                  <th
-                    key={i}
-                    className={cn(
-                      GRID_HEADER_TEXT,
-                      /* `break-words`: under `table-fixed` a column cannot widen
-                         for its heading, and "MeasurementUnit" is one unbroken
-                         word wider than its track. Without this it overflows the
-                         cell instead of wrapping inside it. */
-                      "px-2 py-1.5 break-words",
-                      c.align === "right"
-                        ? "text-right"
-                        : c.align === "center"
-                          ? "text-center"
-                          : "text-left",
-                    )}
+            EVERY OTHER `masterDetail` GRID HIDES ITS RAIL AT ONE ROW
+            (`mdActive`, `child-grid.tsx`: "a list of one is not a list",
+            client 2026-08-20) — Components and Material BOM both open on a
+            single plain card, no rail, exactly one blank line. Manual asked
+            for the opposite the same day this rail shipped (client
+            2026-09-04, "not yet updated ui" on a single-fabric BOM — they
+            wanted the rail's SHAPE visible from the first fabric, not only
+            once a second one exists): `railAlways` is the opt-out, and it
+            is this call site's alone — nothing else in the app passes it,
+            so Components and Material BOM are exactly as they were. */}
+        <ChildGrid<ManualEntryRow>
+          /* grid-caption: exempt -- the style band above names this grid,
+             and it is the only grid at this level. */
+          columns={manualEntryColumns}
+          rows={manualEntries}
+          forceCards
+          flatRows
+          /* NEITHER `railWidthPx` NOR `railCompact` IS SET — Material BOM's
+             OWN rail, not Components' (client 2026-09-04, on this exact
+             screen: "button size and that rail bg etc are not samelike
+             material bom i need it like so"). Components deliberately
+             narrowed to 220px and tightened its padding for its own reasons
+             (client 2026-09-03: "220px — a little narrower", "use compact
+             that rail menu") — reasons that belong to Components' rail, not
+             to every masterDetail grid. Leaving both unset falls through to
+             `child-grid.tsx`'s own defaults (268px, `px-3 py-2`), which are
+             Material BOM's figures — the one masterDetail grid never
+             customises either prop. */
+          /* LOAD-BEARING, THE SAME WAY IT IS ON COMPONENTS. Every column in
+             `manualEntryColumns` declares a `width` — it was written for the
+             `<table>` this replaces — so without `fill` the card would hug
+             that declared width and the detail pane would collapse to it. */
+          fill
+          foldRows
+          masterDetail
+          railAlways
+          /* THREE STATES, THE SAME READING `manualProblem` already gives the
+             Save gate and `styleRefusal`: idle before a fabric is named,
+             warn once one is named and `manualProblem` still finds something
+             to ask for, ok once it returns null. One rule, read here instead
+             of re-derived for the dot. */
+          renderListItem={(e) => {
+            const gsm = gsmForStructure(e.structure_id);
+            const problem = e.item_id
+              ? manualProblem(entryLike(e), orderSizesFor(e.style_ref_no), gsm)
+              : null;
+            const state = !e.item_id ? "idle" : problem === null ? "ok" : "warn";
+            const subtitle = [entryKnitType(e), gsm != null ? `${fmtNumber(gsm)} GSM` : ""]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    state === "ok" && "bg-success",
+                    state === "warn" && "bg-warning",
+                    state === "idle" && "bg-border-strong opacity-50",
+                  )}
+                />
+                <span className="min-w-0 flex-1">
+                  <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                    {entryFabricRow(e)?.name || "New fabric"}
+                  </Truncated>
+                  {subtitle && (
+                    <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                      {subtitle}
+                    </Truncated>
+                  )}
+                </span>
+              </div>
+            );
+          }}
+          /* SAME CONTENT, THE FOLDED SHAPE — what a single-fabric style
+             shows, required by `foldRows`. */
+          renderFoldedRow={(e) => (
+            <span className="text-sm font-medium">{entryFabricRow(e)?.name || "New fabric"}</span>
+          )}
+          /* THE DETAIL PANE, AND `renderMobileRow` IS THE ROW BODY BELOW
+             `masterDetail`'s breakpoint TOO — one definition. */
+          renderMobileRow={(e) => (
+            <div className="space-y-3">
+              {/* NO HEADING — the rail already names the fabric; a second
+                 naming here is the same redundancy Components dropped its
+                 own pane heading for. The spacer keeps the ✕ its `pr-9`
+                 room. */}
+              <div className="h-1 pr-9" />
+              {/* ONE COMPACT ROW, cols={32} — the artifact's confirmed shape
+                 ("row 1, row 2 as single row compacted"), sized by
+                 `MANUAL_FIELD_SIZES` rather than a flat guess. */}
+              <FieldGrid cols={32}>
+                {manualEntryColumns.map((c, ci) => (
+                  <Field
+                    key={c.header + ci}
+                    label={c.cardLabel ?? c.header}
+                    size={MANUAL_FIELD_SIZES[c.header] ?? "xs"}
                   >
-                    {c.header}
-                  </th>
+                    {c.cell(e, ci)}
+                  </Field>
                 ))}
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody
-              data-grid-body
-              onKeyDown={(ev) => gridKeyNav(ev)}
-            >
-              {entriesForStyle(styleRow.style_ref_no).map((e, i) => {
-                const open = openEntryKey === e.key;
-                return (
-                  <Fragment key={e.key}>
-                    <tr
-                      data-grid-row
-                      /* FOCUS OPENS IT — see the note above. The functional
-                         update is what keeps this free: re-focusing inside the
-                         row already open returns the same key, so React bails
-                         out instead of re-rendering on every Tab. */
-                      onFocus={() =>
-                        setOpenEntryKey((k) => (k === e.key ? k : e.key))
-                      }
-                      /* AND A CLICK ANYWHERE, minus buttons: the row's own ✕ and
-                         its [Click] cells are inside this handler's reach, and
-                         unfolding a row on the way to deleting it is a flicker
-                         with no purpose. */
-                      onClick={(ev) => {
-                        if ((ev.target as HTMLElement).closest("button")) return;
-                        setOpenEntryKey(e.key);
-                      }}
-                      className="border-b border-border align-middle"
-                    >
-                      <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
-                        {i + 1}
-                      </td>
-                      {manualEntryColumns.map((c, ci) => (
-                        <td
-                          key={ci}
-                          className={cn(
-                            "px-2 py-1",
-                            c.align === "right"
-                              ? "text-right"
-                              : c.align === "center"
-                                ? "text-center"
-                                : "text-left",
-                          )}
-                        >
-                          {c.cell(e, i)}
-                        </td>
-                      ))}
-                      <td className="px-1 py-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          data-row-remove
-                          className="text-muted-foreground hover:text-danger"
-                          aria-label="Remove row"
-                          onClick={() =>
-                            mutEntries((xs) => xs.filter((x) => x.key !== e.key))
-                          }
-                        >
-                          <X className="h-4 w-4 shrink-0" />
-                        </Button>
-                      </td>
-                    </tr>
-                    {open && (
-                      /* LEVEL 3 — THE SIZES, spanning the whole row. This is the
-                         construct a card layout cannot express, and the reason
-                         the table is hand-rolled. */
-                      <tr className="border-b border-border-strong">
-                        <td colSpan={manualEntryColumns.length + 2} className="px-2 pb-3 pt-1">
-                          <ChildGrid<ManualDisplayRow>
-                            /* grid-caption: exempt -- the fabric row above is
-                               the caption; a second heading here would name the
-                               same thing twice. */
-                            columns={sizeColumns(e)}
-                            /* ONE ROW WHEN "SIZE WISE" IS OFF — the planner
-                               answers once for the whole run and `set` fans the
-                               figure out to every size. The FIRST row is the one
-                               shown rather than a synthetic "all sizes" row, so
-                               the cells it renders are real stored cells and
-                               `setSizeCell` needs no second addressing mode. */
-                            rows={
-                              e.size_wise
-                                ? manualSizeRows(e)
-                                : manualSizeRows(e).slice(0, 1)
-                            }
-                            /* The rows are the ORDER's sizes — no "+ Add", no ✕,
-                               and `hideRemove` rather than `lockExisting`
-                               because they are re-derived on every render. */
-                            hideAdd
-                            hideRemove
-                            onAdd={() => false}
-                            onRemove={() => {}}
-                            tableFrom="5xl"
-                            centerHeaders
-                            renderMobileRow={(row) => (
-                              <FieldGrid>
-                                {sizeColumns(e).map((c, ci) => (
-                                  <Field
-                                    key={ci}
-                                    label={c.header}
-                                    required={c.required}
-                                    size="sm"
-                                  >
-                                    {c.cell(row, ci)}
-                                  </Field>
-                                ))}
-                              </FieldGrid>
-                            )}
-                          />
-                          {manualSizeRows(e).length === 0 && (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              This style states no sizes yet — size quantities are
-                              entered on Orders ▸ Order Management ▸ Order Entry,
-                              under Approval Qty.
-                            </p>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          /* `data-row-add` IS WHAT ENTER STEERS BY (AGENTS.md, "Tab lands on
-             fields"): Enter or Tab off the last cell lands here, and a second
-             Enter is what adds. `toolbar-size: exempt -- a grid's own "+ Add" is
-             the dense size, not the header row's. */
-          data-row-add
-          className="mt-2"
-          onClick={() =>
+              </FieldGrid>
+              {/* LEVEL 3 — THE SIZES, still this fabric's own nested grid,
+                 unchanged in content: only its container moved, from a
+                 `<td colSpan>` spanning the whole pane to this card. */}
+              <ChildGrid<ManualDisplayRow>
+                /* grid-caption: exempt -- the fabric card above is the
+                   caption; a second heading here would name the same thing
+                   twice. */
+                columns={sizeColumns(e)}
+                /* ONE ROW WHEN "SIZE WISE" IS OFF — the planner answers once
+                   for the whole run and `set` fans the figure out to every
+                   size. The FIRST row is the one shown rather than a
+                   synthetic "all sizes" row, so the cells it renders are
+                   real stored cells and `setSizeCell` needs no second
+                   addressing mode. */
+                rows={e.size_wise ? manualSizeRows(e) : manualSizeRows(e).slice(0, 1)}
+                /* The rows are the ORDER's sizes — no "+ Add", no ✕, and
+                   `hideRemove` rather than `lockExisting` because they are
+                   re-derived on every render. */
+                hideAdd
+                hideRemove
+                onAdd={() => false}
+                onRemove={() => {}}
+                /* NO `tableFrom` OVERRIDE ANY MORE — dropped 2026-09-04, the
+                   same call Components' Colourways grid already made for the
+                   same reason (see its own note). This grid's old `"5xl"`
+                   (1024px) was set when it had the WHOLE pane to itself; now
+                   it renders inside the rail-reduced detail column, which
+                   never reaches 1024 on the client's own screen, so the
+                   table never switched back on and every size stacked as a
+                   card repeating "Size", "TableWidth" … on every row
+                   (client: "it should came inside the table, the column
+                   header only have the label, like size etc"). Falling
+                   through to the primitive's default `@lg` (512px) is well
+                   inside what the detail pane has even after 268px goes to
+                   the rail — this grid's own declared widths sum to 47.5rem
+                   (760px), so the table fits with room spare rather than
+                   scrolling sideways. `centerHeaders` stays: it only matters
+                   once the table is actually showing. */
+                centerHeaders
+                /* THE FALLBACK, NOT THE NORMAL PATH ANY MORE — for whatever
+                   narrower surface still lands below `@lg`. ONE COMPACT ROW,
+                   sized by `SIZE_FIELD_SIZES` after a flat `xs` overlapped
+                   three of its own labels — see that constant's note. */
+                renderMobileRow={(row) => (
+                  <FieldGrid cols={32}>
+                    {sizeColumns(e).map((c, ci) => (
+                      <Field
+                        key={ci}
+                        label={c.header}
+                        required={c.required}
+                        size={SIZE_FIELD_SIZES[c.header] ?? "xs"}
+                      >
+                        {c.cell(row, ci)}
+                      </Field>
+                    ))}
+                  </FieldGrid>
+                )}
+              />
+              {manualSizeRows(e).length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  This style states no sizes yet — size quantities are entered on
+                  Orders ▸ Order Management ▸ Order Entry, under Approval Qty.
+                </p>
+              )}
+            </div>
+          )}
+          onAdd={() =>
             mutEntries((xs) => [...xs, blankManualEntry(newKey(), styleRow.style_ref_no)])
           }
-        >
-          + Add fabric
-        </Button>
+          onRemove={(e) => mutEntries((xs) => xs.filter((x) => x.key !== e.key))}
+          addLabel="+ Add fabric"
+        />
         {/* SAID WHERE IT CAN BE ACTED ON — see `styleRefusal`. Amber, not red:
             the BOM is still saveable as a draft, and the sentence is a
             direction rather than a rejection. */}
@@ -4385,7 +4439,7 @@ export function FabricBomScreen({
       header: "GSM Range",
       align: "right",
       width: "4.5rem",
-      cell: (r) => <Truncated>{descriptorFor(r).gsm || "—"}</Truncated>,
+      cell: (r) => <ClothText value={descriptorFor(r).gsm} />,
     },
     {
       header: "Fabric",
@@ -4579,7 +4633,7 @@ export function FabricBomScreen({
          owe a mixing ratio". */
       cell: (r) =>
         r.item_id ? (
-          <Truncated>{fabricTypeOf(r.item_id) || "—"}</Truncated>
+          <ClothText value={fabricTypeOf(r.item_id)} />
         ) : (
           <Select
             compact
@@ -4762,7 +4816,7 @@ export function FabricBomScreen({
       header: "Style Ref No",
       /* 5.5rem — 88px. "16-27/0010" is ten characters. */
       width: "5.5rem",
-      cell: (r) => <Truncated>{styleRefFor(r) || "—"}</Truncated>,
+      cell: (r) => <ClothText value={styleRefFor(r)} />,
     },
     {
       /**
@@ -4780,7 +4834,7 @@ export function FabricBomScreen({
       header: "Style No",
       /* 4rem — 64px. A style number is six digits. */
       width: "4rem",
-      cell: (r) => <Truncated>{styleIdentityFor(styleRefFor(r))?.style || "—"}</Truncated>,
+      cell: (r) => <ClothText value={styleIdentityFor(styleRefFor(r))?.style ?? ""} />,
     },
     {
       /**
@@ -4833,7 +4887,7 @@ export function FabricBomScreen({
       header: "Article No",
       /* 4rem — 64px. "AR-4471". */
       width: "4rem",
-      cell: (r) => <Truncated>{styleIdentityFor(styleRefFor(r))?.article || "—"}</Truncated>,
+      cell: (r) => <ClothText value={styleIdentityFor(styleRefFor(r))?.article ?? ""} />,
     },
     {
       /**
@@ -4910,7 +4964,13 @@ export function FabricBomScreen({
               data-row-open
               disabled={!!reason}
               aria-label={reason ? `Detail — ${reason}` : "Detail"}
-              onClick={() => setDetailKey(r.key)}
+              /* Captures the button's own rect so the sheet scales out of
+                 THIS button — `currentTarget`, not `target`: the click can
+                 land on the text node inside it. See `detailOrigin`. */
+              onClick={(ev) => {
+                setDetailOrigin(ev.currentTarget.getBoundingClientRect());
+                setDetailKey(r.key);
+              }}
             >
               Detail
             </Button>
@@ -7446,15 +7506,16 @@ export function FabricBomScreen({
               grams: numOrNull(z.grams),
               table_width: numOrNull(z.table_width),
               length: numOrNull(z.length),
-              width_tolerance: numOrNull(z.width_tolerance),
+              length_tolerance: numOrNull(z.length_tolerance),
       cons_qty: numOrNull(z.cons_qty),
             },
             gsmForStructure(e.structure_id),
           ),
           table_width: numOrNull(z.table_width),
           length: numOrNull(z.length),
-          width_tolerance: numOrNull(z.width_tolerance),
+          length_tolerance: numOrNull(z.length_tolerance),
       cons_qty: numOrNull(z.cons_qty),
+          finished_width: numOrNull(z.finished_width),
         })),
       })),
       /* THE ROUTES (0492), a plain sibling of `dias` — they name their fabric by
@@ -7688,6 +7749,8 @@ export function FabricBomScreen({
       <YarnDyedSheet
         open={!!detailLine}
         onClose={() => setDetailKey(null)}
+        /* The [Detail] button that opened this — see `detailOrigin`. */
+        origin={detailOrigin}
         /* THE CLOTH IS THE SUBJECT — and it changed back on 2026-09-02.
            It named the fabric, then the STYLE while this popup carried the
            components tree (which is per style), and now the fabric again,
@@ -7746,41 +7809,278 @@ export function FabricBomScreen({
           control is rendered from inside a mandatory cell; `Sheet` resets the
           scope at its portal boundary, which is the fix AGENTS.md records for
           the New Yarn / Purity defect (2026-08-06). */}
-      {componentsForEntry && (
-        <Sheet
-          open
-          onClose={() => setComponentsFor(null)}
-          title={`Components — ${
+      {componentsForEntry &&
+        (() => {
+          const fabricName =
             fabrics.find((f) => f.id === componentsForEntry.item_id)?.name ??
-            "(no fabric named)"
-          }`}
-        >
-          <div className="space-y-3">
-            <MultiSelect
-              label="Components"
-              required
-              options={componentOptionsFor(componentsForEntry)}
-              values={componentsForEntry.component_ids}
-              onChange={(next) =>
-                setEntryCell(componentsForEntry.key, { component_ids: next })
-              }
-              /* A STATE OF THE RECORD, which is the one thing a placeholder may
-                 still say. With every panel taken by another entry ON THIS STYLE
-                 there is genuinely nothing to choose, and an empty popup with no
-                 words reads as broken rather than as the rule working. */
-              emptyLabel="Every component is already used on this style"
-            />
-            {/* WHY A PANEL CAN ONLY BE HERE ONCE, said where the list refuses.
-                It is arithmetic and not tidiness: entries are the counting unit,
-                so the garment's fabric weight is their sum, and that sum is only
-                right while the entries partition the panels. */}
-            <p className="text-xs text-muted-foreground">
-              A component belongs to one fabric entry per style — the weights are
-              summed, so a panel counted twice is its cloth bought twice.
-            </p>
-          </div>
-        </Sheet>
-      )}
+            "(no fabric named)";
+          /* SAME LOOKUP THE TOP-OF-SCREEN BAND USES for the identical three
+             fields (`styleIdentityFor`) — Style Ref No / Style No / Article No,
+             read-only, legacy's own header above the "Colors Details" grid
+             (screenshot 2680). */
+          const identity = styleIdentityFor(componentsForEntry.style_ref_no);
+          const options = componentOptionsFor(componentsForEntry);
+          const selected = new Set(componentsForEntry.component_ids);
+          const toggle = (id: string) =>
+            setEntryCell(componentsForEntry.key, {
+              component_ids: selected.has(id)
+                ? componentsForEntry.component_ids.filter((x) => x !== id)
+                : [...componentsForEntry.component_ids, id],
+            });
+          return (
+            <Sheet
+              open
+              onClose={() => setComponentsFor(null)}
+              title={`Components — ${fabricName}`}
+              /* `sm`, NOT `md` — same correction as the Widths sheet below,
+                 same reason (operator, screenshot 2690: "no need this much
+                 field size"). `md`'s `max-w-6xl` left the unbounded
+                 `Component` column free to stretch across ~700px of blank
+                 row for text no longer than "BOTTOM RIB". This is a
+                 hand-rolled `<table>`, not a `ChildGrid`, so it carries none
+                 of the responsive-breakpoint risk that keeps Style ▸ Process
+                 on `md` — see the note on the Widths sheet's `size` for the
+                 full reasoning. */
+              size="sm"
+              /* CENTRED OVER THE CONTENT PANE, NOT THE VIEWPORT, and GROWS OUT
+                 OF THE BUTTON THAT OPENED IT — the same two props Style ▸
+                 Process sets for the same reason (its own comments record
+                 both client asks in full); applied here on the operator's
+                 instruction to use "that mechanism for all this kind of
+                 inside button screen". */
+              alignToPane
+              origin={componentsOrigin}
+              /* NO SAVE OF ITS OWN — `component_ids` is written straight onto
+                 `entries` and the whole BOM saves together, the same shape
+                 Style ▸ Process is in. A sheet with fields and no footer at
+                 all is the exact thing the client already reported once as
+                 "missing save button" (`SubSheetFooter`'s own history); this
+                 says what actually happens instead of leaving it to be
+                 guessed. */
+              footer={<SubSheetFooter onDone={() => setComponentsFor(null)} parent="fabric BOM" />}
+            >
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Style Ref No</div>
+                    <div>{identity?.ref || componentsForEntry.style_ref_no || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Style No</div>
+                    <div>{identity?.style || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Article No</div>
+                    <div>{identity?.article || "—"}</div>
+                  </div>
+                </div>
+                {/* LEGACY'S "Colors Details" GRID — Coordinate | Component | a
+                    checkbox, one row per component the style still has to give
+                    (screenshot 2680: PIECES | FRONT BODY1 | ✓). A fixed list
+                    with a check per row, not `ChildGrid`: nothing here is added
+                    or removed as a ROW — the row set is `componentOptionsFor`,
+                    and a click only flips membership in `component_ids`. */}
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full table-fixed border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                        {/* `py-1.5`, TRIMMED FROM `py-2` (client 2026-09-04:
+                            "excess padding between every line ... whole
+                            fabric bom have this issue"). This checklist was
+                            the one table in the file still carrying `py-2` /
+                            `py-3` header-and-data padding where every other
+                            table here — `lineColumns`, the Widths sheet's own
+                            table two screens down, `ChildGrid`'s own table
+                            mode in `child-grid.tsx` — had already settled on
+                            `py-1.5` (header) / `py-1` (data). Matched to that
+                            existing convention rather than inventing a new
+                            number: this table drifted, the convention did
+                            not. */}
+                        <th className="w-20 px-3 py-1.5 font-medium">Coordinate</th>
+                        <th className="px-3 py-1.5 font-medium">Component</th>
+                        <th className="w-10 px-3 py-1.5 text-center font-medium">✓</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {options.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="px-3 py-3 text-center text-muted-foreground">
+                            {/* A STATE OF THE RECORD, which is the one thing a
+                                placeholder may still say. With every panel
+                                taken by another entry ON THIS STYLE there is
+                                genuinely nothing to choose, and an empty grid
+                                with no words reads as broken rather than as
+                                the rule working. */}
+                            Every component is already used on this style
+                          </td>
+                        </tr>
+                      ) : (
+                        options.map((o) => (
+                          <tr key={o.id} className="border-b last:border-b-0">
+                            <td className="px-3 py-1 text-muted-foreground">
+                              <Truncated>
+                                {coordinateForComponent(o.id, componentsForEntry.style_ref_no) ||
+                                  "—"}
+                              </Truncated>
+                            </td>
+                            <td className={cn("px-3 py-1", o.inactive && "text-muted-foreground")}>
+                              <Truncated>
+                                {o.label}
+                                {o.inactive ? " (inactive)" : ""}
+                              </Truncated>
+                            </td>
+                            <td className="px-3 py-1 text-center">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-primary"
+                                aria-label={o.label}
+                                checked={selected.has(o.id)}
+                                onChange={() => toggle(o.id)}
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {/* WHY A PANEL CAN ONLY BE HERE ONCE, said where the grid
+                    refuses. It is arithmetic and not tidiness: entries are the
+                    counting unit, so the garment's fabric weight is their sum,
+                    and that sum is only right while the entries partition the
+                    panels. */}
+                <p className="text-xs text-muted-foreground">
+                  A component belongs to one fabric entry per style — the weights are
+                  summed, so a panel counted twice is its cloth bought twice.
+                </p>
+              </div>
+            </Sheet>
+          );
+        })()}
+
+      {/* LEGACY'S [Click] ▸ "Width Details" (screenshot 2681) — Style No /
+          Article No / Fabric, then a size-wise "Consumption Size Details"
+          grid. Legacy prints all eight columns, but the operator's own
+          correction (2026-09-03, minutes after 0525 shipped the first two as
+          the real pair) is that only TWO are real: Finished Width and
+          Purchase Width. 0525's `roll_width` / `roll_width_tolerance` were
+          the wrong reading and were reverted the same day (0526) — dropped
+          from the database, not left unused. The other five legacy columns
+          (Width, Width Tolerance, the second Width, Calculated Width, Width
+          For Calc) are not drawn at all: every value in the reference
+          screenshot is 0.00, with no worked example, and this tab does not
+          invent a formula from a screenshot of zeros ("a screenshot cannot
+          show a grain", manual.ts's own header). */}
+      {widthsForEntry &&
+        (() => {
+          const fabricName =
+            fabrics.find((f) => f.id === widthsForEntry.item_id)?.name ?? "(no fabric named)";
+          const rows = manualSizeRows(widthsForEntry);
+          const set = (r: ManualDisplayRow, patch: Partial<ManualSizeRow>) => {
+            if (widthsForEntry.size_wise) return setSizeCell(widthsForEntry.key, r, patch);
+            for (const row of manualSizeRows(widthsForEntry)) setSizeCell(widthsForEntry.key, row, patch);
+          };
+          return (
+            <Sheet
+              open
+              onClose={() => setWidthsFor(null)}
+              title={`Widths — ${fabricName}`}
+              /* `sm`, NOT `md` — the operator's own "just field fit screen"
+                 (2026-09-03, screenshot 2687: `md`'s `max-w-6xl` still left a
+                 huge blank pane beside a ~370px table). Style ▸ Process next
+                 door stays on `md` for a REASON THAT DOES NOT APPLY HERE:
+                 its grid is a `ChildGrid`, whose responsive table only
+                 switches in from a ~512px container, so `sm`'s `max-w-md`
+                 (448px, ~408px of content) dropped it to stacked cards with
+                 no column headers (client 2026-08-12, screenshot 2266) — the
+                 exact fault that note warns not to re-introduce. This table
+                 is a plain hand-rolled `<table>` with no such breakpoint: it
+                 renders identically at any container width, so `sm` costs
+                 nothing here that `md` was buying. */
+              size="sm"
+              /* SAME TWO PROPS AS THE COMPONENTS SHEET ABOVE, same reason. */
+              alignToPane
+              origin={widthsOrigin}
+              /* NO SAVE OF ITS OWN — same shape as Components above. */
+              footer={<SubSheetFooter onDone={() => setWidthsFor(null)} parent="fabric BOM" />}
+            >
+              {/* NO Style Ref No / Style No / Article No BAND HERE (operator
+                  instruction, 2026-09-03: remove all three from this sheet).
+                  The Sheet's own `title` above already names the fabric; the
+                  Components sheet keeps its band — this removal is scoped to
+                  Widths only. */}
+              <div className="space-y-4">
+                {/* BACK TO `w-full`, NOW THAT THE SHEET ITSELF IS `sm`
+                    (448px) rather than `md` (1152px). `w-fit` was the right
+                    fix for a 370px table sitting inside an oversized 1152px
+                    box; inside a 448px box the same `w-fit` table left a
+                    smaller but still visible gap on the trailing side
+                    (operator screenshot 2688: "still needs some area fit").
+                    A `sm` dialog is sized FOR content this size, so the two
+                    data columns filling it — Finished Width and Purchase
+                    Width each getting a normal ~9rem input rather than
+                    huddling at `w-28` — is the fit, not a regression back to
+                    the original "huge fields" complaint (that one was a
+                    ~570px input inside a 1152px sheet; this is a ~9rem input
+                    inside a 448px one). */}
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full table-fixed border-collapse text-sm">
+                    <thead>
+                      {/* THE HEADER WAS THE OTHER HALF OF THE "HUGE" COMPLAINT
+                          (operator, having found it: "that header style is the
+                          reason"). `w-24` (6rem) is narrower than "Finished
+                          Width" / "Purchase Width" at `text-xs`, so each header
+                          wrapped to two lines — and a two-line head row is
+                          nearly DOUBLE the height a one-line row needs, which
+                          reads as bulky on a table with only two data columns.
+                          Widened to `w-28` and pinned to one line with
+                          `whitespace-nowrap`; `py-1.5` trims the row's own
+                          padding to match. */}
+                      <tr className="border-b bg-muted/40 text-right text-xs text-muted-foreground">
+                        <th className="w-16 whitespace-nowrap px-2 py-1.5 text-left font-medium">
+                          Size
+                        </th>
+                        <th className="w-28 whitespace-nowrap px-2 py-1.5 font-medium">
+                          Finished Width
+                        </th>
+                        <th className="w-28 whitespace-nowrap px-2 py-1.5 font-medium">
+                          Purchase Width
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r) => (
+                        <tr key={r.key} className="border-b last:border-b-0">
+                          <td className="px-2 py-1 text-left">
+                            <Truncated>{r.label}</Truncated>
+                          </td>
+                          <td className="px-2 py-1">
+                            <Input
+                              className="h-8 text-right"
+                              inputMode="decimal"
+                              aria-label="Finished Width"
+                              value={r.finished_width}
+                              onChange={(ev) => set(r, { finished_width: ev.target.value })}
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <Input
+                              className="h-8 text-right"
+                              inputMode="decimal"
+                              aria-label="Purchase Width"
+                              value={r.purchase_width}
+                              onChange={(ev) => set(r, { purchase_width: ev.target.value })}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Sheet>
+          );
+        })()}
 
       {fabricAddFor && data.fabricCreate.fabricClassId && (
         <FabricQuickCreateSheet

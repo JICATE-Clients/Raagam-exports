@@ -162,7 +162,7 @@ export interface FabricBomManualComponent {
  *
  * `grams` IS STORED IN BOTH MODES — typed in direct, derived in calculated — so
  * no downstream reader has to know which produced it. `table_width` /
- * `width_tolerance` / `length` are the calculated mode's INPUTS, not second
+ * `length_tolerance` / `length` are the calculated mode's INPUTS, not second
  * answers; `cons_qty` is typed in both.
  */
 export interface FabricBomManualSize {
@@ -182,12 +182,24 @@ export interface FabricBomManualSize {
    *  two words could not both be "width". */
   table_width: number | null;
   length: number | null;
-  /** The cutting allowance ADDED TO THE WIDTH (0523). It was `length_tolerance`
-   *  and applied to the length until 2026-09-03 — see `calculatedWidth`. */
-  width_tolerance: number | null;
+  /** The cutting allowance ADDED TO THE LENGTH (0524). It was briefly
+   *  `width_tolerance`, applied to the width, for a few hours on 2026-09-03
+   *  (0523) — see `effectiveLength`. */
+  length_tolerance: number | null;
   /** "Cons Qty" — units of cloth per garment (0523). NULL means 1; read it
    *  through `consQtyOf`, never with `?? 0`. */
   cons_qty: number | null;
+  /**
+   * THE "Widths" [Click] POPUP'S OWN FIELD (0526) — legacy's "Width Details"
+   * sub-form shows eight columns (S No | Width | Width Tolerance | Width |
+   * Calculated Width | Final Width | Width For Calc | Finished Width |
+   * Purchase Width), but the operator's own correction is that only TWO of
+   * them are real: this and `purchase_width` above. 0525 first read the
+   * first pair (Width / Width Tolerance) as the real fields and shipped
+   * `roll_width` / `roll_width_tolerance` for it — wrong, reverted the same
+   * day. The other six columns are not stored anywhere.
+   */
+  finished_width: number | null;
 }
 
 /**
@@ -447,13 +459,17 @@ export const fabricBomManualSizeInput = z.object({
   grams: numN,
   table_width: numN,
   length: numN,
-  /* THE ALLOWANCE IS ON THE WIDTH (0523) — `calculatedWidth` records why this
-     was `length_tolerance` and applied to the length until 2026-09-03. */
-  width_tolerance: numN,
+  /* THE ALLOWANCE IS ON THE LENGTH (0524, reverting 0523's few hours on the
+     width) — `effectiveLength` in ./manual.ts records why. */
+  length_tolerance: numN,
   /* "Cons Qty" — units of cloth per garment. NULLABLE and NULL MEANS 1: a
      column default would make an untouched row indistinguishable from a
      deliberate 1. `consQtyOf` is the one place that reading lives. */
   cons_qty: numN,
+  /* THE "Widths" POPUP'S ONE OTHER REAL FIELD (0526, replacing 0525's
+     roll_width/roll_width_tolerance — see `FabricBomManualSize.finished_width`
+     above). `purchase_width` above is the popup's second field. */
+  finished_width: numN,
 });
 
 /**

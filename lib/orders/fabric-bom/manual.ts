@@ -104,9 +104,9 @@ export type ManualSizeInput = {
   table_width: number | null;
   /** The pattern length, in centimetres. */
   length: number | null;
-  /** The cutting allowance ADDED TO THE WIDTH (0523) — see `calculatedWidth`,
-   *  which records why this was `length_tolerance` until 2026-09-03. */
-  width_tolerance: number | null;
+  /** The cutting allowance ADDED TO THE LENGTH (0524) — see `effectiveLength`,
+   *  which records the same-day 0523→0524 reversal on this field. */
+  length_tolerance: number | null;
   /** "Cons Qty" — units of cloth per garment, typed. NULL means 1; read it
    *  through `consQtyOf` and never with `?? 0`. */
   cons_qty: number | null;
@@ -127,65 +127,62 @@ export type ManualSizeInput = {
  */
 export const GRAMS_CONVERSION = 10_000;
 
-/** Centimetres to an inch. The calculated width is shown in both because the
- *  knitting machine is set in inches and the pattern is drawn in centimetres —
- *  the client's own example is 52 cm reading 20.4". */
-export const CM_PER_INCH = 2.54;
-
 // ---------------------------------------------------------------------------
 // The calculated mode
 // ---------------------------------------------------------------------------
 
 /**
- * Width after the cutting allowance.
+ * Length after the cutting allowance.
  *
- *     calculated width = width + tolerance
+ *     effective length = length + tolerance
  *
- * ## THE TOLERANCE IS ON THE WIDTH, AND UNTIL 2026-09-03 IT WAS ON THE LENGTH
+ * ## THE TOLERANCE IS ON THE LENGTH — REVERSED BACK 2026-09-03 (0524), HOURS
+ * ## AFTER 0523 MOVED IT TO THE WIDTH
  *
- * This function was `effectiveLength(length, tolerance)`. 0491 read legacy's
- * column band — `Length | Length Tolerance | Length` — and added the allowance
- * to the length; the client's written spec says the opposite in as many words:
- * *"Tolerance (cm): extra safety margin added to the width"*, and
- * *"Calculated Width (cm) = Width + Tolerance"*.
+ * This function was `calculatedWidth(width, tolerance)` for a few hours on
+ * 2026-09-03. 0523 read a *written* spec — *"Tolerance (cm): extra safety
+ * margin added to the width"*, *"Calculated Width (cm) = Width + Tolerance"* —
+ * and moved the allowance from `length_tolerance` onto a new `width_tolerance`,
+ * naming legacy's own `Length | Length Tolerance | Length` band as the earlier
+ * (0491) misreading it was correcting.
  *
- * BOTH READINGS PRODUCE A PLAUSIBLE WEIGHT, which is what made it survive: a
- * 2 cm allowance is +2.9% on a 70 cm length and +3.8% on a 52 cm width, so the
- * grid looked right either way and every purchase weight on the tab carried the
- * difference. The stored column was renamed with it (0523) rather than
- * re-interpreted — `length_tolerance` holding a width allowance is the same
- * "one word for two measurements" fault 0495 renamed `width` to `table_width`
- * to fix.
+ * 0524 puts it back on the length, on the operator's explicit instruction
+ * after being shown that written spec side by side with a fresh legacy
+ * screenshot (2026-09-03 19:58) of this exact band, and confirming twice that
+ * the length reading is what is wanted here. The column is `length_tolerance`
+ * again rather than reinterpreted in place, for the same reason 0523 renamed
+ * it the other way: a column holding one measurement's allowance under the
+ * other measurement's name is the "one word for two measurements" fault 0495
+ * fixed once already for `table_width`.
+ *
+ * BOTH READINGS PRODUCE A PLAUSIBLE WEIGHT, which is what let this flip twice
+ * in one day without either number looking wrong on screen: a 2 cm allowance
+ * is +2.9% on a 70 cm length and +3.8% on a 52 cm width. If this is ever
+ * revisited again, that is why a glance at the total will not settle it — go
+ * back to whichever written spec is current.
  *
  * ADDED, NOT SCALED. A tolerance beside a measurement in the same unit is an
  * allowance in that unit — a cutting allowance is "2 cm", never "2%". The
- * percentage reading compiles and is wrong by a factor of the width.
+ * percentage reading compiles and is wrong by a factor of the length.
  *
- * NULL WHEN THERE IS NO WIDTH. A tolerance on its own is not a width, and
- * returning the tolerance would print a plausible small number in the column the
- * operator reads as the panel.
+ * NULL WHEN THERE IS NO LENGTH. A tolerance on its own is not a length, and
+ * returning the tolerance would print a plausible small number in the column
+ * the operator reads as the panel.
  */
-export function calculatedWidth(
-  width: number | null | undefined,
+export function effectiveLength(
+  length: number | null | undefined,
   tolerance: number | null | undefined,
 ): number | null {
-  const w = num(width);
-  if (w == null) return null;
-  return w + (num(tolerance) ?? 0);
-}
-
-/** The same width in inches — what the knitting machine is set to. NULL in,
- *  NULL out, so an unfilled row prints a dash rather than a zero. */
-export function toInches(cm: number | null | undefined): number | null {
-  const v = num(cm);
-  return v == null ? null : v / CM_PER_INCH;
+  const l = num(length);
+  if (l == null) return null;
+  return l + (num(tolerance) ?? 0);
 }
 
 /**
  * The panel weight this size implies, in GRAMS per garment — the spec's
  * "Piece Weight".
  *
- *     g = calculatedWidth(cm) x length(cm) x gsm(g/m2) / GRAMS_CONVERSION
+ *     g = table_width(cm) x effectiveLength(cm) x gsm(g/m2) / GRAMS_CONVERSION
  *
  * ## THERE IS NO x2, AND THERE USED TO BE
  *
@@ -219,11 +216,11 @@ export function toInches(cm: number | null | undefined): number | null {
  * right.
  */
 export function calculatedGrams(
-  row: Pick<ManualSizeInput, "table_width" | "length" | "width_tolerance">,
+  row: Pick<ManualSizeInput, "table_width" | "length" | "length_tolerance">,
   gsm: number | null | undefined,
 ): number | null {
-  const w = calculatedWidth(row.table_width, row.width_tolerance);
-  const l = num(row.length);
+  const w = num(row.table_width);
+  const l = effectiveLength(row.length, row.length_tolerance);
   const g = num(gsm);
   if (w == null || l == null || g == null) return null;
   if (w <= 0 || l <= 0 || g <= 0) return null;

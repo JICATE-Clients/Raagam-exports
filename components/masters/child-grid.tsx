@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FIELD_SPAN, FIELD_TRACK, RequiredScope } from "@/components/ui/field";
@@ -1168,6 +1168,10 @@ export function ChildGrid<T extends { key: string }>({
   rowSummary,
   foldRows = false,
   masterDetail = false,
+  defaultOpenKey,
+  railAlways = false,
+  railWidthPx,
+  railCompact = false,
   renderListItem,
   onOpenRow,
   canFold,
@@ -1698,6 +1702,85 @@ export function ChildGrid<T extends { key: string }>({
    */
   masterDetail?: boolean;
   /**
+   * WHICH ROW OPENS ON MOUNT, INSTEAD OF `ALL_FOLDED` (2026-09-04, Fabric BOM
+   * ▸ Components: "why the bottom looks so flying… default open first
+   * component with that table panel").
+   *
+   * THIS IS NOT A REVERSAL OF "A GRID OPENS WITH EVERYTHING FOLDED"
+   * (2026-08-19, on Combos ▸ Structure Details — see `openRowKey`'s own
+   * note). That rule is about a data-entry grid's SECTIONS: several answered
+   * sections pre-expanded on a document the operator is EDITING reads as
+   * noise, and the client said so directly. A `masterDetail` RAIL is a
+   * different shape — a navigation list beside a detail pane, the one this
+   * screen already borrowed whole from Material BOM — and a rail with
+   * nothing selected is not "closed and calm", it is a list floating over an
+   * empty pane with no content to anchor it, which is what was reported here.
+   * List-then-detail UI opening on its first item is the ordinary case, not
+   * the exception `openRowKey`'s note is guarding against.
+   *
+   * OPT-IN AND UNDEFINED BY DEFAULT, so every existing caller — Material
+   * BOM's own `masterDetail` rail included — keeps mounting on `ALL_FOLDED`
+   * exactly as before. Only a caller that names a row here changes.
+   */
+  defaultOpenKey?: string | null;
+  /**
+   * SHOW THE RAIL EVEN AT ONE ROW, opting a caller OUT of "a list of one is
+   * not a list" (the note on `mdActive` below, client 2026-08-20).
+   *
+   * DEFAULT OFF, SO EVERY EXISTING CALLER IS UNCHANGED — Material BOM and
+   * Fabric BOM ▸ Components both still hide the rail until a second row
+   * exists, which is the behaviour that rule was written for: a document
+   * that starts with exactly one blank line should not spend 220-268px on a
+   * list holding "Not filled in" and nothing else.
+   *
+   * FABRIC BOM ▸ MANUAL ASKED FOR THE OPPOSITE (2026-09-04): its rows are
+   * FABRICS, not a document's own single line, and the operator wants the
+   * rail's shape — a list to click between, a name on each entry — visible
+   * from the first fabric rather than appearing only once a second one is
+   * added. `folded` (below) still requires `rows.length > 1` on its own, so
+   * this changes ONLY whether the rail-and-detail split renders, never
+   * whether the one row's card is suppressed — a single row still shows its
+   * full body, now inside the detail column instead of full width.
+   */
+  railAlways?: boolean;
+  /**
+   * THE RAIL'S OWN WIDTH, IN PX — 268 (Material BOM's own figure, settled
+   * 2026-08-20/08-28) UNLESS A CALLER NAMES ANOTHER ONE.
+   *
+   * A LITERAL PX VALUE, NEVER A CLASS BUILT FROM THIS NUMBER: the column is
+   * inline-styled (`gridTemplateColumns`), not a Tailwind utility, for exactly
+   * the reason every other numeric track in this file is a static class —
+   * Tailwind v4 scans source TEXT, and an interpolated
+   * `` `md:grid-cols-[${n}px_...]` `` compiles to no CSS at all. Inline style
+   * has no such scanning step, so it is the one place in this component a
+   * genuinely per-caller number is safe to accept.
+   *
+   * FABRIC BOM ▸ COMPONENTS HAS NOW ASKED FOR THREE DIFFERENT NUMBERS ON THIS
+   * ONE RAIL (2026-09-03): 160 ("the rail is sized to its text"), then 268
+   * ("same as Material BOM"), then 220 (shown Material BOM's own width next
+   * to the client's own reference screenshot and asked to sit between the
+   * two). A boolean could express the first two; it cannot express a third
+   * — which is the whole reason this became a number instead of staying
+   * `railCompact`.
+   */
+  railWidthPx?: number;
+  /**
+   * TIGHTER ENTRY PADDING — `px-2.5 py-1` instead of `px-3 py-2` — SEPARATE
+   * FROM WIDTH NOW (client 2026-09-03, on Fabric BOM ▸ Components).
+   *
+   * IT USED TO SET BOTH AT ONCE, under one boolean, back when this rail only
+   * ever needed the one narrower number (160). Once a caller needed 220
+   * instead, bundling padding into the same flag would have forced 220px to
+   * carry either 268's roomy padding or 160's tightest — neither of them
+   * actually asked for. The two are independent measurements of the same rail
+   * and are now two independent props.
+   *
+   * IT SIZES NOTHING INSIDE THE RAIL. What an entry SAYS is
+   * `renderListItem`'s, so a caller taking this also sets its own type size —
+   * the same separation that made `renderListItem` its own renderer.
+   */
+  railCompact?: boolean;
+  /**
    * What one line looks like in the master-detail list. Required by
    * `masterDetail`; ignored without it.
    *
@@ -1799,7 +1882,7 @@ export function ChildGrid<T extends { key: string }>({
    * `landOnAddedRow` (AGENTS.md) to put the cursor in. Mounting closed and
    * opening on add are two different questions and need two different values.
    */
-  const [openRowKey, setOpenRowKey] = useState<string | null>(ALL_FOLDED);
+  const [openRowKey, setOpenRowKey] = useState<string | null>(defaultOpenKey ?? ALL_FOLDED);
   const seeded = useRef(false);
   useEffect(() => {
     if (!seedRow || hideAdd) return;
@@ -1856,8 +1939,9 @@ export function ChildGrid<T extends { key: string }>({
   const acrossCompact = across === "compact";
 
   /** Master-detail, but only once a list of lines has something to list —
-   *  see the container below for why one row must not open a pane. */
-  const mdActive = masterDetail && rows.length > 1;
+   *  see the container below for why one row must not open a pane — UNLESS
+   *  the caller opted out of that with `railAlways` (see its own note). */
+  const mdActive = masterDetail && (railAlways || rows.length > 1);
 
   const mode: "across" | "inline" | "cards" | "responsive" = across
     ? "across"
@@ -2638,8 +2722,22 @@ export function ChildGrid<T extends { key: string }>({
                surface rather than as a space between two (client 2026-08-20,
                "add gap between that separation left and right split screen").
                20px after the border is what lets each pane have an edge. */
-            mdActive && "md:grid md:grid-cols-[268px_minmax(0,1fr)] md:gap-x-5 md:gap-y-0 md:space-y-0",
+            mdActive && "md:grid md:gap-x-5 md:gap-y-0 md:space-y-0",
+            /* STATIC LITERALS, both of them, never `md:grid-cols-[${w}px_...]`:
+               Tailwind v4 scans source TEXT, so an interpolated track compiles to
+               no CSS at all and the rail would silently stack instead of sitting
+               beside the pane. The same warning `FIELD_TRACK` carries. */
+            /* A CSS VARIABLE, NOT AN INTERPOLATED CLASS. `railWidthPx` is a
+               runtime number a caller supplies, and Tailwind v4 scans SOURCE
+               TEXT — a template literal built from a prop compiles to no CSS
+               at all, the same trap this file already names for `${w}px`
+               above. `md:grid-cols-[var(--rail-w)_minmax(0,1fr)]` is the
+               fixed literal Tailwind sees; only the VALUE the variable holds
+               changes, set below as an inline style, which has no scanning
+               step to defeat. */
+            mdActive && "md:grid-cols-[var(--rail-w)_minmax(0,1fr)]",
           )}
+          style={mdActive ? ({ "--rail-w": `${railWidthPx ?? 268}px` } as CSSProperties) : undefined}
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
         >
           {mdActive && renderListItem && (
@@ -2718,7 +2816,11 @@ export function ChildGrid<T extends { key: string }>({
                       onOpenRow?.(row, i);
                     }}
                     className={cn(
-                      "w-full border-b border-l-[3px] border-b-border px-3 py-2 text-left transition-colors last:border-b-0",
+                      "w-full border-b border-l-[3px] border-b-border text-left transition-colors last:border-b-0",
+                      /* The rail's own density — see `railCompact`. The 3px left
+                         border and the bottom rule are the SELECTION and the
+                         separator, so neither varies with it. */
+                      railCompact ? "px-2.5 py-1" : "px-3 py-2",
                       /**
                        * ONE MARK, ON THE ENTRY THE ARROWS ARE STANDING ON
                        * (client 2026-09-02, in three steps — and the middle one
