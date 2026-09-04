@@ -7884,20 +7884,27 @@ export function FabricBomScreen({
                   <table className="w-full table-fixed border-collapse text-sm">
                     <thead>
                       <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-                        {/* `w-20`, TRIMMED FROM `w-28` — now that the sheet
-                            itself is `sm` (448px, not `md`'s 1152px), every
-                            pixel Coordinate keeps is a pixel Component does
-                            not get, and Coordinate holds nothing longer than
-                            a short code ("PIECES") where a style has one. */}
-                        <th className="w-20 px-3 py-2 font-medium">Coordinate</th>
-                        <th className="px-3 py-2 font-medium">Component</th>
-                        <th className="w-10 px-3 py-2 text-center font-medium">✓</th>
+                        {/* `py-1.5`, TRIMMED FROM `py-2` (client 2026-09-04:
+                            "excess padding between every line ... whole
+                            fabric bom have this issue"). This checklist was
+                            the one table in the file still carrying `py-2` /
+                            `py-3` header-and-data padding where every other
+                            table here — `lineColumns`, the Widths sheet's own
+                            table two screens down, `ChildGrid`'s own table
+                            mode in `child-grid.tsx` — had already settled on
+                            `py-1.5` (header) / `py-1` (data). Matched to that
+                            existing convention rather than inventing a new
+                            number: this table drifted, the convention did
+                            not. */}
+                        <th className="w-20 px-3 py-1.5 font-medium">Coordinate</th>
+                        <th className="px-3 py-1.5 font-medium">Component</th>
+                        <th className="w-10 px-3 py-1.5 text-center font-medium">✓</th>
                       </tr>
                     </thead>
                     <tbody>
                       {options.length === 0 ? (
                         <tr>
-                          <td colSpan={3} className="px-3 py-4 text-center text-muted-foreground">
+                          <td colSpan={3} className="px-3 py-3 text-center text-muted-foreground">
                             {/* A STATE OF THE RECORD, which is the one thing a
                                 placeholder may still say. With every panel
                                 taken by another entry ON THIS STYLE there is
@@ -7910,19 +7917,19 @@ export function FabricBomScreen({
                       ) : (
                         options.map((o) => (
                           <tr key={o.id} className="border-b last:border-b-0">
-                            <td className="px-3 py-2 text-muted-foreground">
+                            <td className="px-3 py-1 text-muted-foreground">
                               <Truncated>
                                 {coordinateForComponent(o.id, componentsForEntry.style_ref_no) ||
                                   "—"}
                               </Truncated>
                             </td>
-                            <td className={cn("px-3 py-2", o.inactive && "text-muted-foreground")}>
+                            <td className={cn("px-3 py-1", o.inactive && "text-muted-foreground")}>
                               <Truncated>
                                 {o.label}
                                 {o.inactive ? " (inactive)" : ""}
                               </Truncated>
                             </td>
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-3 py-1 text-center">
                               <input
                                 type="checkbox"
                                 className="h-4 w-4 accent-primary"
