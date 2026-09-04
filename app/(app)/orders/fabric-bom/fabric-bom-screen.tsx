@@ -36,7 +36,6 @@
  */
 
 import {
-  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -53,7 +52,6 @@ import {
   Waypoints,
   Ruler,
   Spool,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,9 +62,9 @@ import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field";
+import type { FieldSize } from "@/lib/ui/sizes";
 import {
   ChildGrid,
-  GRID_HEADER_TEXT,
   gridKeyNav,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
@@ -1468,18 +1466,6 @@ export function FabricBomScreen({
    * edit, which is how the Colourways accordion lost its split on 2026-09-03.
    */
   const [openYarnId, setOpenYarnId] = useState<string | null>(null);
-  /**
-   * WHICH MANUAL FABRIC ROW IS UNFOLDED — its sizes render beneath it (0522).
-   *
-   * DECLARED HERE, WITH THE OTHER OPEN-ROW STATE, and above every branch in this
-   * component: AGENTS.md's standing rule is that a screen returning early
-   * declares every hook above that line, and a hook added down beside the markup
-   * it serves is the one that gets moved under a branch later.
-   *
-   * `null` is all of them shut, the same mount state `openYarnId` takes and the
-   * client's 08-19 "sections should be in closed state".
-   */
-  const [openEntryKey, setOpenEntryKey] = useState<string | null>(null);
   const [openFabricId, setOpenFabricId] = useState<string | null>(null);
 
 
@@ -4052,8 +4038,25 @@ export function FabricBomScreen({
    *  `componentsForEntry` above, same reason. */
   const widthsForEntry = widthsFor ? (entries.find((e) => e.key === widthsFor) ?? null) : null;
 
+  /**
+   * MANUAL ENTRY FIELD SIZES, THE SAME SHAPE `FIELD_SIZES` GIVES THE
+   * COMPONENTS TAB'S RAIL (client 2026-09-03, approved from an artifact:
+   * "same like material bom tab layout, size, color everything ...
+   * customized it first plan with artifact then can implement it").
+   *
+   * FABRIC ALONE TAKES `md`: it is the row's one `RecordPicker`, and a
+   * fabric's own name is the longest value on the row. The other thirteen
+   * are a Select, two checkboxes, three derived `ClothText` cells and three
+   * `[Click]` buttons — none of them needs more than `xs` (2/32) to read.
+   * 4 + 13x2 = 30 of the 32 columns `FieldGrid` divides the compact row
+   * into, the same one-row shape the artifact confirmed ("row 1, row 2 as
+   * single row compacted").
+   */
+  const MANUAL_FIELD_SIZES: Record<string, FieldSize> = { Fabric: "md" };
+
   const manualStylePane = (styleRow: ManualStyleRow) => {
     const refusal = styleRefusal(styleRow.style_ref_no);
+    const manualEntries = entriesForStyle(styleRow.style_ref_no);
     return (
       <div className="space-y-4">
         {/* LEVEL 1 — THE STYLE (client 2026-09-03: "first row like same
@@ -4076,253 +4079,168 @@ export function FabricBomScreen({
           identity={styleIdentityFor(styleRow.style_ref_no)}
         />
 
-        {/* LEVEL 2 + LEVEL 3 — THE FABRICS, EACH WITH ITS SIZES DIRECTLY BENEATH
-            IT. Legacy's second and third grids (screenshot 2667).
+        {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE, THE COMPONENTS TAB'S OWN
+            SHAPE (client 2026-09-03: "now we need to apply this rail ui
+            layout for the manual tab customized it first plan with artifact
+            then can implement it" — planned in an artifact, corrected twice
+            ("the first two row show same single you updated its as two
+            rows" -> a labelled divider; "row 1, row 2 as single row
+            compacted" -> one row) and confirmed).
 
-            ## WHY THIS IS A HAND-WRITTEN `<table>` AND NOT A `ChildGrid`
+            ## WHY THE HAND-WRITTEN `<table>` COULD GO
 
-            `ChildGrid` has no row-detail slot in table mode, and the sizes MUST
-            hang under the fabric they belong to — that is the whole shape
-            legacy has and the whole reason the card version was rejected. It is
-            the same call the Components tab made one tab along (2026-09-02) for
-            the same limit, and this table is deliberately its twin so the two
-            do not drift.
+            It used to say `ChildGrid` "has no row-detail slot in table
+            mode", and that was true only of TABLE mode. `masterDetail`
+            switches the grid to CARDS, where the open row's body is
+            `renderMobileRow` — so the sizes hang under their fabric by being
+            PART of that body, the same way Components' Colourways grid
+            hangs under its panel. That is what lets the whole hand-rolled
+            keyboard contract (`data-grid-body` + `gridKeyNav`,
+            `data-grid-row`, `data-row-remove`, `data-row-add`, `Fragment`,
+            the `onFocus`/`onClick` fold) go with it: `ChildGrid`'s own
+            `mdListKeyNav` and its roving-tabindex rail already carry all of
+            that, for free, the same as it does for every other
+            `masterDetail` grid in this file.
 
-            `ProcessFoldList` is the other near-miss and it is genuinely wrong
-            here: its own note says its cells are "read-only by construction",
-            and that is what makes its responsive twin safe. Every cell in this
-            row is a control.
+            ## THE RAIL SHOWS ONLY AT TWO ENTRIES, NOT ONE
 
-            ## IT PAYS THE KEYBOARD CONTRACT IN FULL RATHER THAN OPTING OUT
-
-            AGENTS.md records what ~22 hand-rolled grids cost, so:
-
-              · `data-grid-body` + `gridKeyNav` on the SAME element — the handler
-                reads `e.currentTarget`, so they cannot be split;
-              · `data-grid-row` per record, the axis ↑↓←→ walk and what scopes
-                `ownDescendants`;
-              · `data-row-remove` on each ✕, so Ctrl+Del still deletes a fabric
-                now that Tab lands on fields only;
-              · `data-row-add` on "+ Add fabric", which is what Enter steers by.
-
-            Nothing here sets `tabIndex` — `cycleTab` already skips non-fields on
-            every surface, and a local override is the per-component patch the
-            rule bans.
-
-            ## THE FOLD FOLLOWS FOCUS, WITH NO CHEVRON
-
-            `ChildGrid`'s own rule, for its reason: "if the user moved to next
-            structure details, close the first one automatically" (client
-            2026-08-18). `onFocus` bubbles, so one handler catches the mouse and
-            the keyboard, and a row the planner is typing in is the row whose
-            sizes they are about to enter. A chevron would be a second way to say
-            the same thing and one more stop on the way along the row. */}
-        <div className="overflow-x-auto">
-          {/* `table-fixed` IS WHAT MAKES THE `<colgroup>` MEAN ANYTHING, and
-              leaving it off is why this row was "uneven" on four machines and
-              fine on the one it was written on (client 2026-09-03, screenshot
-              2670).
-
-              Under the default `table-layout: auto` a declared width is a
-              SUGGESTION: the browser sizes each column from its CONTENT and the
-              space available. Every cell in this row is a control, and the
-              Fabric cell is a real `<input>` with an intrinsic width of its own,
-              so the widths that actually came out depended on the machine's
-              fonts, its zoom and its display scaling — which is exactly a layout
-              that renders differently on every desk.
-
-              `child-grid.tsx` already had this in writing, from the same fault:
-              "under the default `table-layout: auto` a `<th>` width is a
-              SUGGESTION — the browser still distributes by content and available
-              space, so ten declared columns in a narrow container were all
-              squeezed together and every picker read `— S…`" (client
-              2026-08-11). Hand-rolling the table meant hand-rolling that rule
-              too, and this is the half that was missed.
-
-              THE BUDGET FITS RATHER THAN SCROLLS: 65rem of columns + 72px of
-              `#` / `✕` chrome is ~1112px against a ~1250px pane, so nothing
-              moves sideways at 100%. On a scaled display it exceeds the pane and
-              the wrapper scrolls — which is the honest failure, and unlike the
-              old one it is the SAME layout everywhere. */}
-          <table className="w-full table-fixed border-collapse text-sm">
-            <colgroup>
-              <col className="w-10" />
-              {manualEntryColumns.map((c, i) => (
-                <col key={i} style={c.width ? { width: c.width } : undefined} />
-              ))}
-              <col className="w-8" />
-            </colgroup>
-            <thead>
-              {/* NO FILL ON THE HEADER — `child-grid.tsx`'s rule, restated by the
-                  client against this very screen on 2026-09-03 ("that grey bg
-                  too … just same white color"). `border-b` closes the band and
-                  `GRID_HEADER_TEXT` keeps the labels darker than the cells, so a
-                  third signal saying the same thing is what comes off. */}
-              <tr className="border-b border-border">
-                <th className={cn(GRID_HEADER_TEXT, "px-2 py-1.5 text-right")}>#</th>
-                {manualEntryColumns.map((c, i) => (
-                  <th
-                    key={i}
-                    className={cn(
-                      GRID_HEADER_TEXT,
-                      /* `break-words`: under `table-fixed` a column cannot widen
-                         for its heading, and "MeasurementUnit" is one unbroken
-                         word wider than its track. Without this it overflows the
-                         cell instead of wrapping inside it. */
-                      "px-2 py-1.5 break-words",
-                      c.align === "right"
-                        ? "text-right"
-                        : c.align === "center"
-                          ? "text-center"
-                          : "text-left",
-                    )}
+            `mdActive` is `masterDetail && rows.length > 1`, so a style with
+            one fabric renders as a single plain card with no rail — the same
+            rule Components' rail follows, not a special case written here. */}
+        <ChildGrid<ManualEntryRow>
+          /* grid-caption: exempt -- the style band above names this grid,
+             and it is the only grid at this level. */
+          columns={manualEntryColumns}
+          rows={manualEntries}
+          forceCards
+          flatRows
+          /* 220px + compact padding — Components' rail settings, copied
+             rather than re-derived (client 2026-09-03, the same afternoon
+             that width was settled there: "220px — a little narrower than
+             now"). One rail width for the app is the point; a second number
+             here would be a second thing to keep in sync by eye. */
+          railWidthPx={220}
+          railCompact
+          /* LOAD-BEARING, THE SAME WAY IT IS ON COMPONENTS. Every column in
+             `manualEntryColumns` declares a `width` — it was written for the
+             `<table>` this replaces — so without `fill` the card would hug
+             that declared width and the detail pane would collapse to it. */
+          fill
+          foldRows
+          masterDetail
+          /* THREE STATES, THE SAME READING `manualProblem` already gives the
+             Save gate and `styleRefusal`: idle before a fabric is named,
+             warn once one is named and `manualProblem` still finds something
+             to ask for, ok once it returns null. One rule, read here instead
+             of re-derived for the dot. */
+          renderListItem={(e) => {
+            const gsm = gsmForStructure(e.structure_id);
+            const problem = e.item_id
+              ? manualProblem(entryLike(e), orderSizesFor(e.style_ref_no), gsm)
+              : null;
+            const state = !e.item_id ? "idle" : problem === null ? "ok" : "warn";
+            const subtitle = [entryKnitType(e), gsm != null ? `${fmtNumber(gsm)} GSM` : ""]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    state === "ok" && "bg-success",
+                    state === "warn" && "bg-warning",
+                    state === "idle" && "bg-border-strong opacity-50",
+                  )}
+                />
+                <span className="min-w-0 flex-1">
+                  <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                    {entryFabricRow(e)?.name || "New fabric"}
+                  </Truncated>
+                  {subtitle && (
+                    <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                      {subtitle}
+                    </Truncated>
+                  )}
+                </span>
+              </div>
+            );
+          }}
+          /* SAME CONTENT, THE FOLDED SHAPE — what a single-fabric style
+             shows, required by `foldRows`. */
+          renderFoldedRow={(e) => (
+            <span className="text-sm font-medium">{entryFabricRow(e)?.name || "New fabric"}</span>
+          )}
+          /* THE DETAIL PANE, AND `renderMobileRow` IS THE ROW BODY BELOW
+             `masterDetail`'s breakpoint TOO — one definition. */
+          renderMobileRow={(e) => (
+            <div className="space-y-3">
+              {/* NO HEADING — the rail already names the fabric; a second
+                 naming here is the same redundancy Components dropped its
+                 own pane heading for. The spacer keeps the ✕ its `pr-9`
+                 room. */}
+              <div className="h-1 pr-9" />
+              {/* ONE COMPACT ROW, cols={32} — the artifact's confirmed shape
+                 ("row 1, row 2 as single row compacted"), sized by
+                 `MANUAL_FIELD_SIZES` rather than a flat guess. */}
+              <FieldGrid cols={32}>
+                {manualEntryColumns.map((c, ci) => (
+                  <Field
+                    key={c.header + ci}
+                    label={c.cardLabel ?? c.header}
+                    size={MANUAL_FIELD_SIZES[c.header] ?? "xs"}
                   >
-                    {c.header}
-                  </th>
+                    {c.cell(e, ci)}
+                  </Field>
                 ))}
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody
-              data-grid-body
-              onKeyDown={(ev) => gridKeyNav(ev)}
-            >
-              {entriesForStyle(styleRow.style_ref_no).map((e, i) => {
-                const open = openEntryKey === e.key;
-                return (
-                  <Fragment key={e.key}>
-                    <tr
-                      data-grid-row
-                      /* FOCUS OPENS IT — see the note above. The functional
-                         update is what keeps this free: re-focusing inside the
-                         row already open returns the same key, so React bails
-                         out instead of re-rendering on every Tab. */
-                      onFocus={() =>
-                        setOpenEntryKey((k) => (k === e.key ? k : e.key))
-                      }
-                      /* AND A CLICK ANYWHERE, minus buttons: the row's own ✕ and
-                         its [Click] cells are inside this handler's reach, and
-                         unfolding a row on the way to deleting it is a flicker
-                         with no purpose. */
-                      onClick={(ev) => {
-                        if ((ev.target as HTMLElement).closest("button")) return;
-                        setOpenEntryKey(e.key);
-                      }}
-                      className="border-b border-border align-middle"
-                    >
-                      <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
-                        {i + 1}
-                      </td>
-                      {manualEntryColumns.map((c, ci) => (
-                        <td
-                          key={ci}
-                          className={cn(
-                            "px-2 py-1",
-                            c.align === "right"
-                              ? "text-right"
-                              : c.align === "center"
-                                ? "text-center"
-                                : "text-left",
-                          )}
-                        >
-                          {c.cell(e, i)}
-                        </td>
-                      ))}
-                      <td className="px-1 py-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          data-row-remove
-                          className="text-muted-foreground hover:text-danger"
-                          aria-label="Remove row"
-                          onClick={() =>
-                            mutEntries((xs) => xs.filter((x) => x.key !== e.key))
-                          }
-                        >
-                          <X className="h-4 w-4 shrink-0" />
-                        </Button>
-                      </td>
-                    </tr>
-                    {open && (
-                      /* LEVEL 3 — THE SIZES, spanning the whole row. This is the
-                         construct a card layout cannot express, and the reason
-                         the table is hand-rolled. */
-                      <tr className="border-b border-border-strong">
-                        <td colSpan={manualEntryColumns.length + 2} className="px-2 pb-3 pt-1">
-                          <ChildGrid<ManualDisplayRow>
-                            /* grid-caption: exempt -- the fabric row above is
-                               the caption; a second heading here would name the
-                               same thing twice. */
-                            columns={sizeColumns(e)}
-                            /* ONE ROW WHEN "SIZE WISE" IS OFF — the planner
-                               answers once for the whole run and `set` fans the
-                               figure out to every size. The FIRST row is the one
-                               shown rather than a synthetic "all sizes" row, so
-                               the cells it renders are real stored cells and
-                               `setSizeCell` needs no second addressing mode. */
-                            rows={
-                              e.size_wise
-                                ? manualSizeRows(e)
-                                : manualSizeRows(e).slice(0, 1)
-                            }
-                            /* The rows are the ORDER's sizes — no "+ Add", no ✕,
-                               and `hideRemove` rather than `lockExisting`
-                               because they are re-derived on every render. */
-                            hideAdd
-                            hideRemove
-                            onAdd={() => false}
-                            onRemove={() => {}}
-                            tableFrom="5xl"
-                            centerHeaders
-                            renderMobileRow={(row) => (
-                              <FieldGrid>
-                                {sizeColumns(e).map((c, ci) => (
-                                  <Field
-                                    key={ci}
-                                    label={c.header}
-                                    required={c.required}
-                                    size="sm"
-                                  >
-                                    {c.cell(row, ci)}
-                                  </Field>
-                                ))}
-                              </FieldGrid>
-                            )}
-                          />
-                          {manualSizeRows(e).length === 0 && (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              This style states no sizes yet — size quantities are
-                              entered on Orders ▸ Order Management ▸ Order Entry,
-                              under Approval Qty.
-                            </p>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          /* `data-row-add` IS WHAT ENTER STEERS BY (AGENTS.md, "Tab lands on
-             fields"): Enter or Tab off the last cell lands here, and a second
-             Enter is what adds. `toolbar-size: exempt -- a grid's own "+ Add" is
-             the dense size, not the header row's. */
-          data-row-add
-          className="mt-2"
-          onClick={() =>
+              </FieldGrid>
+              {/* LEVEL 3 — THE SIZES, still this fabric's own nested grid,
+                 unchanged in content: only its container moved, from a
+                 `<td colSpan>` spanning the whole pane to this card. */}
+              <ChildGrid<ManualDisplayRow>
+                /* grid-caption: exempt -- the fabric card above is the
+                   caption; a second heading here would name the same thing
+                   twice. */
+                columns={sizeColumns(e)}
+                /* ONE ROW WHEN "SIZE WISE" IS OFF — the planner answers once
+                   for the whole run and `set` fans the figure out to every
+                   size. The FIRST row is the one shown rather than a
+                   synthetic "all sizes" row, so the cells it renders are
+                   real stored cells and `setSizeCell` needs no second
+                   addressing mode. */
+                rows={e.size_wise ? manualSizeRows(e) : manualSizeRows(e).slice(0, 1)}
+                /* The rows are the ORDER's sizes — no "+ Add", no ✕, and
+                   `hideRemove` rather than `lockExisting` because they are
+                   re-derived on every render. */
+                hideAdd
+                hideRemove
+                onAdd={() => false}
+                onRemove={() => {}}
+                tableFrom="5xl"
+                centerHeaders
+                renderMobileRow={(row) => (
+                  <FieldGrid>
+                    {sizeColumns(e).map((c, ci) => (
+                      <Field key={ci} label={c.header} required={c.required} size="sm">
+                        {c.cell(row, ci)}
+                      </Field>
+                    ))}
+                  </FieldGrid>
+                )}
+              />
+              {manualSizeRows(e).length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  This style states no sizes yet — size quantities are entered on
+                  Orders ▸ Order Management ▸ Order Entry, under Approval Qty.
+                </p>
+              )}
+            </div>
+          )}
+          onAdd={() =>
             mutEntries((xs) => [...xs, blankManualEntry(newKey(), styleRow.style_ref_no)])
           }
-        >
-          + Add fabric
-        </Button>
+          onRemove={(e) => mutEntries((xs) => xs.filter((x) => x.key !== e.key))}
+          addLabel="+ Add fabric"
+        />
         {/* SAID WHERE IT CAN BE ACTED ON — see `styleRefusal`. Amber, not red:
             the BOM is still saveable as a draft, and the sentence is a
             direction rather than a rejection. */}
