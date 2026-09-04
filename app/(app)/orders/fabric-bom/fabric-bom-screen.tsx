@@ -4125,13 +4125,17 @@ export function FabricBomScreen({
           rows={manualEntries}
           forceCards
           flatRows
-          /* 220px + compact padding — Components' rail settings, copied
-             rather than re-derived (client 2026-09-03, the same afternoon
-             that width was settled there: "220px — a little narrower than
-             now"). One rail width for the app is the point; a second number
-             here would be a second thing to keep in sync by eye. */
-          railWidthPx={220}
-          railCompact
+          /* NEITHER `railWidthPx` NOR `railCompact` IS SET — Material BOM's
+             OWN rail, not Components' (client 2026-09-04, on this exact
+             screen: "button size and that rail bg etc are not samelike
+             material bom i need it like so"). Components deliberately
+             narrowed to 220px and tightened its padding for its own reasons
+             (client 2026-09-03: "220px — a little narrower", "use compact
+             that rail menu") — reasons that belong to Components' rail, not
+             to every masterDetail grid. Leaving both unset falls through to
+             `child-grid.tsx`'s own defaults (268px, `px-3 py-2`), which are
+             Material BOM's figures — the one masterDetail grid never
+             customises either prop. */
           /* LOAD-BEARING, THE SAME WAY IT IS ON COMPONENTS. Every column in
              `manualEntryColumns` declares a `width` — it was written for the
              `<table>` this replaces — so without `fill` the card would hug
