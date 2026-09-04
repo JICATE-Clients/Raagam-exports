@@ -70,6 +70,11 @@ export interface FabricBomLine {
   /** Legacy Components ▸ "Type" — 'open' | 'tubular' (0495). How the roll
    *  reaches cutting, not how the cloth is knitted (`FabricBomDia.knit_type`). */
   fabric_form: string | null;
+  /** 'open_width' | 'tubular' (0530) — the PANEL's Layout Type, chosen BEFORE
+   *  its Component and gating that picker (`componentsHiddenForLayout`).
+   *  NOT `fabric_form` above — see the 0530 migration header for why this
+   *  module has three Open/Tubular-shaped columns and none of them merge. */
+  layout_type: string | null;
   /** Legacy Components ▸ "Required Print" — text, matching the order's own
    *  `prints.print_name`, which 0477 made manual entry (0495). */
   required_print: string | null;
@@ -573,6 +578,12 @@ export const fabricBomLineInput = z
        text, so a value the CHECK would reject is refused here first, in words,
        rather than as a constraint violation at insert. */
     fabric_form: z.enum(["open", "tubular"]).nullable().default(null),
+    /* THE PANEL'S Layout Type (0530) — chosen before Component, gating that
+       picker. OPTIONAL, unlike `fabric_form` above: the client's spec asks
+       the operator to choose it, not that a BOM be unsaveable without it,
+       and `componentsHiddenForLayout` already treats "not chosen" as "hide
+       nothing" rather than as an error state. */
+    layout_type: z.enum(["open_width", "tubular"]).nullable().default(null),
     /* Legacy Components ▸ "Required Print" (0495). TEXT because 0477 made the
        order's prints manual entry — there is no id to point at. CAPS in the
        SCHEMA for the reason stated on `color_name` above. */

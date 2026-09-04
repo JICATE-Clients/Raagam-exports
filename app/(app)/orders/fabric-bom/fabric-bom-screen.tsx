@@ -282,6 +282,14 @@ type LineRow = {
   color_name: string;
   /** 'open' | 'tubular' — legacy's "Type" (0495). Mandatory once a fabric is named. */
   fabric_form: string;
+  /**
+   * 'open_width' | 'tubular' (0530) — the PANEL's chosen Layout Type, entered
+   * BEFORE its Component and gating that picker. NOT `fabric_form` above,
+   * which is a colourway-row field entered after Component and answers a
+   * different question — see the migration's own header for all three
+   * Open/Tubular-shaped columns in this module and why none of them merge.
+   */
+  layout_type: string | null;
   required_print: string;
   specification: string;
   /* THE UNIT SURVIVED ITS THREE NEIGHBOURS (client, 2026-09-01). 0494 moved the
@@ -852,6 +860,7 @@ const blankLine = (key: string): LineRow => ({
   fabric_type: "",
   color_name: "",
   fabric_form: "",
+  layout_type: null,
   required_print: "",
   specification: "",
   mixing_uom_id: null,
@@ -1950,6 +1959,7 @@ export function FabricBomScreen({
         fabric_type: l.fabric_type ?? "",
         color_name: l.color_name ?? "",
         fabric_form: l.fabric_form ?? "",
+        layout_type: l.layout_type ?? null,
         required_print: l.required_print ?? "",
         specification: l.specification ?? "",
         mixing_uom_id: l.mixing_uom_id ?? null,
@@ -2284,100 +2294,6 @@ export function FabricBomScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.garment_order_id, editId, seedRows]);
 
-  // ---- the line grid -------------------------------------------------------
-
-  /**
-   * FABRIC LINES DRAWS ONE ROW PER **ALLOCATION**, NOT PER PANEL (client
-   * 2026-09-02, screenshot 2645: "why this much fabric lines adding
-   * automatically — fix the error").
-   *
-   * ## WHAT THE OPERATOR SAW, AND WHY IT WAS NOT A SEEDING BUG
-   *
-   * The order declares 13 panels — 3 colourways × (3 jersey panels + 1 rib) plus
-   * one contrast back body — and the seed created exactly 13 lines. Verified
-   * against the catalog: 13 panels, **6 allocations**. Nothing duplicated.
-   *
-   * What was wrong is that this tab drew all 13. It has no Component column —
-   * legacy's FabricAllocation row has none either — so rows 1, 2 and 3 were
-   * identical in every visible cell: same Structure, same GSM Range, same Style
-   * Ref, same Style No, same Style Color. Three rows the screen gave the
-   * operator no way to tell apart, each demanding its own Fabric. That reads as
-   * a bug because on this tab it *is* one.
-   *
-   * ## THE GRAIN IS LEGACY'S OWN, AND IT IS THE CLIENT'S "STRUCTURE STAYS,
-   * ## FABRIC CHANGES" RULE READ FORWARDS
-   *
-   * An allocation is (style, colourway, structure, **fabric**). A structure gets
-   * a SECOND row exactly when its panels are cut from a second cloth — which is
-   * that rule, and the only thing that legitimately splits a structure in two.
-   * So a freshly seeded BOM shows 6 rows, because every panel starts with no
-   * fabric and they collapse; mapping the sleeve to a melange on Components
-   * splits that structure into two rows here, visibly, with the fabric being the
-   * thing that differs. The panel-level detail stays where it belongs.
-   *
-   * This REVERSES the "show every panel row" answer of an hour earlier, and does
-   * so on the client seeing it: that answer was given against a 4-row preview.
-   *
-   * ## NOTHING BELOW THIS TAB CHANGES
-   *
-   * `lines` is still one row per panel and is what Save writes, what the
-   * Components tree reads, and what the requirement explodes. This is a VIEW —
-   * the same call `PanelGroup` already makes one tab over, where N colourway
-   * lines draw as one panel row. Two groupings of one array, each for the
-   * question its own tab asks.
-   */
-  const allocationKeyOf = (l: LineRow) =>
-    [l.style_ref_no, l.combo, l.structure_id ?? "", l.item_id ?? ""]
-      .map((v) => v.trim().toUpperCase())
-      .join(SEP);
-
-  /**
-   * One representative line per allocation, in first-seen order.
-   *
-   * THE REPRESENTATIVE IS A REAL MEMBER, not a synthesised row: every cell on
-   * this grid reads a field that is group-wide by construction (structure,
-   * fabric, style, colourway, the mixing cells), so the first member's value IS
-   * the group's. The per-PANEL fields that genuinely vary — component,
-   * coordinate, required print, open/tubular — have no column here, which is
-   * what makes one representative honest rather than a rollUp that would have to
-   * say "(mixed)". `specification` was in that list until 2026-09-03 and is now
-   * stored-only, with no cell on ANY tab — see `MapLine.specification`.
-   */
-  const allocationRows = useMemo(() => {
-    const seen = new Set<string>();
-    const out: LineRow[] = [];
-    for (const l of lines) {
-      const k = allocationKeyOf(l);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(l);
-    }
-    return out;
-  }, [lines]);
-
-  /**
-   * Write a cell to EVERY panel of the allocation, never to the one row drawn.
-   *
-   * This is what makes the grouping safe rather than merely tidier. Patching the
-   * representative alone would set the fabric on one of three panels and leave
-   * the other two blank — invisible on this tab, and the Save gate would then
-   * refuse the document naming a line the operator cannot see. Every cell here
-   * goes through it; `setCell` stays for the Components tree, which edits ONE
-   * colourway's line on purpose.
-   */
-  const setAlloc = (row: LineRow, patch: Partial<LineRow>) => {
-    const k = allocationKeyOf(row);
-    mut((xs) => xs.map((x) => (allocationKeyOf(x) === k ? { ...x, ...patch } : x)));
-  };
-
-  /** Remove an allocation — and every panel under it, for `setAlloc`'s reason.
-   *  A row the operator deletes must not leave lines behind that only the
-   *  Components tab can see. */
-  const removeAlloc = (row: LineRow) => {
-    const k = allocationKeyOf(row);
-    mut((xs) => xs.filter((x) => allocationKeyOf(x) !== k));
-  };
-
   const comboOptions = pickedOrder?.combos ?? [];
 
   // ---- the order's own descriptors for a line (client screenshot 2581) ------
@@ -2410,6 +2326,11 @@ export function FabricBomScreen({
    * STL/26-27/0007 among them. Answering with the first match would print one
    * colourway's GSM against another's fabric, and a guessed GSM reads exactly
    * like a declared one. So: one distinct answer or a dash.
+   *
+   * MOVED ABOVE `allocationKeyOf` ON 2026-09-04 (client "Type-Based Fabric
+   * Listing" spec) — the grouping key now reads `.sub` off this function, so
+   * it has to exist before the grouping does. Nothing about the derivation
+   * itself changed; only where it sits in the file.
    */
   /* AN IIFE, NOT A `useMemo` (2026-09-02). It memoised a FUNCTION, and the
      React Compiler cannot preserve that: it reported "existing memoization could
@@ -2503,6 +2424,162 @@ export function FabricBomScreen({
         : NO_DESCRIPTOR;
     };
   })();
+
+  // ---- the line grid -------------------------------------------------------
+
+  /**
+   * FABRIC LINES DRAWS ONE ROW PER **ALLOCATION**, NOT PER PANEL (client
+   * 2026-09-02, screenshot 2645: "why this much fabric lines adding
+   * automatically — fix the error").
+   *
+   * ## WHAT THE OPERATOR SAW, AND WHY IT WAS NOT A SEEDING BUG
+   *
+   * The order declares 13 panels — 3 colourways × (3 jersey panels + 1 rib) plus
+   * one contrast back body — and the seed created exactly 13 lines. Verified
+   * against the catalog: 13 panels, **6 allocations**. Nothing duplicated.
+   *
+   * What was wrong is that this tab drew all 13. It has no Component column —
+   * legacy's FabricAllocation row has none either — so rows 1, 2 and 3 were
+   * identical in every visible cell: same Structure, same GSM Range, same Style
+   * Ref, same Style No, same Style Color. Three rows the screen gave the
+   * operator no way to tell apart, each demanding its own Fabric. That reads as
+   * a bug because on this tab it *is* one.
+   *
+   * ## THE GRAIN WAS LEGACY'S OWN — SUPERSEDED 2026-09-04 BY "TYPE-BASED
+   * ## FABRIC LISTING"
+   *
+   * An allocation used to be (style, colourway, structure, **fabric**), full
+   * stop. The client's later spec asks for one further collapse: "the system
+   * scans the colour combos … to determine how many times to list a fabric
+   * based on its active Dyeing Types (Solid, Melange, Yarn Dyed)". Three combos
+   * that are all Solid list the fabric ONCE; a fabric split across Solid,
+   * Melange and Yarn Dyed lists THREE times — one per type actually present,
+   * never one per combo. The reason is physical, not cosmetic: each Dyeing Type
+   * implies a different manufacturing route and different required fields
+   * (Yarn Dyed alone needs the Mixing/Yarn Detail sub-panel), so consolidating
+   * combos that share a route is correct and splitting combos that don't is
+   * required, not optional.
+   *
+   * `dyeingKeyOf` below is the mechanism: it reads the SAME `descriptorFor(l)
+   * .sub` the `Type`-adjacent GSM Range cell already derives from the order's
+   * own combo structures (never re-derived — one function, read twice), and
+   * groups by it INSTEAD OF by `combo` whenever it resolves to an answer.
+   * `descriptorFor` already abstains (returns "") when a structure's colourways
+   * disagree on GSM/sub-type in a way this function cannot itself resolve —
+   * that abstention is preserved here as a FALLBACK to the old per-combo key,
+   * never as a reason to guess which type a line belongs to.
+   *
+   * The FABRIC still splits an allocation in two on its own — "structure stays,
+   * fabric changes" is unchanged and composes with the type key exactly the way
+   * it always composed with the combo key: two lines of one Dyeing-Type group
+   * become two allocation rows the moment their fabrics differ.
+   *
+   * This REVERSES the "show every panel row" answer of an hour earlier
+   * (2026-09-02), and does so on the client seeing it: that answer was given
+   * against a 4-row preview.
+   *
+   * ## NOTHING BELOW THIS TAB CHANGES
+   *
+   * `lines` is still one row per panel and is what Save writes, what the
+   * Components tree reads, and what the requirement explodes. This is a VIEW —
+   * the same call `PanelGroup` already makes one tab over, where N colourway
+   * lines draw as one panel row. Two groupings of one array, each for the
+   * question its own tab asks.
+   */
+  /**
+   * THE DYEING-TYPE KEY, WITH A COMBO FALLBACK.
+   *
+   * `descriptorFor(l).sub` is the label ("Solid"/"Melange"/"Yarn Dyed") the
+   * order's OWN combo structures state for this line's (style, combo,
+   * structure) — the exact match, never the loose/abstaining one, because a
+   * line naming its own combo has an unambiguous answer to read. A prefix
+   * distinguishes the two branches so a Dyeing Type label can never collide
+   * with a combo name that happens to read the same.
+   */
+  const dyeingKeyOf = (l: LineRow): string => {
+    const sub = descriptorFor(l).sub;
+    return sub ? `TYPE:${sub}` : `COMBO:${l.combo}`;
+  };
+
+  const allocationKeyOf = (l: LineRow) =>
+    [l.style_ref_no, dyeingKeyOf(l), l.structure_id ?? "", l.item_id ?? ""]
+      .map((v) => v.trim().toUpperCase())
+      .join(SEP);
+
+  /**
+   * One representative line per allocation, in first-seen order.
+   *
+   * THE REPRESENTATIVE IS A REAL MEMBER, not a synthesised row: every cell on
+   * this grid reads a field that is group-wide by construction (structure,
+   * fabric, style, the mixing cells), so the first member's value IS the
+   * group's. The per-PANEL fields that genuinely vary — component, coordinate,
+   * required print, open/tubular — have no column here, which is what makes one
+   * representative honest rather than a rollUp that would have to say
+   * "(mixed)". `specification` was in that list until 2026-09-03 and is now
+   * stored-only, with no cell on ANY tab — see `MapLine.specification`.
+   *
+   * COLOURWAY IS NO LONGER GROUP-WIDE, since 2026-09-04: an allocation can now
+   * span several combos that share one Dyeing Type. `Style Ref No` and
+   * `Style No` / `Article No` stay safe (they are STYLE-wide, not per-combo),
+   * but `Style Color` — legacy's own combo-derived cell — is not, and its
+   * column reads a roll-up rather than the representative's own value. See
+   * that cell's own note.
+   *
+   * A PLAIN CONST, NOT A `useMemo`, since 2026-09-04. `allocationKeyOf` now
+   * closes over `descriptorFor`, itself rebuilt every render (see its own
+   * comment), so `useMemo`'s dependency array could never honestly name
+   * anything that stayed stable across renders — the exact "existing
+   * memoization could not be preserved" shape AGENTS.md's hooks rule already
+   * has a remedy for: drop the memo. The loop below is over `lines`, which is
+   * the same order of magnitude `descriptorFor`'s own "cheap pass" already
+   * accepts paying once a render.
+   */
+  const allocationRows = (() => {
+    const seen = new Set<string>();
+    const out: LineRow[] = [];
+    for (const l of lines) {
+      const k = allocationKeyOf(l);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(l);
+    }
+    return out;
+  })();
+
+  /**
+   * Every underlying line an allocation ROW stands for — the read half of
+   * `setAlloc`'s write. Needed since 2026-09-04: a row can now be several
+   * combos sharing one Dyeing Type, so a cell that genuinely varies per combo
+   * (`Style Color`) has to read every member to say so, the same way
+   * `rollUp` already does one tab over on the Components tree.
+   */
+  const allocationMembers = (row: LineRow) => {
+    const k = allocationKeyOf(row);
+    return lines.filter((x) => allocationKeyOf(x) === k);
+  };
+
+  /**
+   * Write a cell to EVERY panel of the allocation, never to the one row drawn.
+   *
+   * This is what makes the grouping safe rather than merely tidier. Patching the
+   * representative alone would set the fabric on one of three panels and leave
+   * the other two blank — invisible on this tab, and the Save gate would then
+   * refuse the document naming a line the operator cannot see. Every cell here
+   * goes through it; `setCell` stays for the Components tree, which edits ONE
+   * colourway's line on purpose.
+   */
+  const setAlloc = (row: LineRow, patch: Partial<LineRow>) => {
+    const k = allocationKeyOf(row);
+    mut((xs) => xs.map((x) => (allocationKeyOf(x) === k ? { ...x, ...patch } : x)));
+  };
+
+  /** Remove an allocation — and every panel under it, for `setAlloc`'s reason.
+   *  A row the operator deletes must not leave lines behind that only the
+   *  Components tab can see. */
+  const removeAlloc = (row: LineRow) => {
+    const k = allocationKeyOf(row);
+    mut((xs) => xs.filter((x) => allocationKeyOf(x) !== k));
+  };
 
   /**
    * The three names a Fabric Process card is headed with (0492).
@@ -4850,16 +4927,36 @@ export function FabricBomScreen({
          holds a colourway name ("MELANGE GREY", "OPTICAL WHITE"), which
          88px cut to two syllables. See THE WIDTH BUDGET on `tableFrom`. */
       width: "7.5rem",
-      cell: (r) => (
-        <Combobox
-          compact
-          inputClassName="h-8"
-          clearable
-          options={declaredColours.map((c) => ({ value: c, label: c }))}
-          value={r.color_name}
-          onChange={(v) => setAlloc(r, { color_name: v ?? "" })}
-        />
-      ),
+      /* READ-ONLY THE MOMENT THE ROW SPANS MORE THAN ONE COMBO (2026-09-04,
+         Type-Based Fabric Listing — see `allocationKeyOf`'s own note). Every
+         OTHER editable cell on this grid writes through to the whole
+         allocation because the value genuinely is one value for the group
+         (Fabric, Structure); Style Color is the one cell that is NOT — three
+         Solid combos consolidated into one row do not share a colour, and
+         `setAlloc` would stamp whichever one the operator last typed onto
+         all three. So a multi-combo row prints "(multiple)" instead of
+         offering a picker with no correct answer, the same "abstain rather
+         than guess" rule `descriptorFor` above already lives by. A row that
+         still names exactly one combo keeps the ORIGINAL picker — writing
+         through a single member was always safe and stays that way. */
+      cell: (r) => {
+        const members = allocationMembers(r);
+        const multiCombo = rollUp(members.map((l) => l.combo)) === "(mixed)";
+        return multiCombo ? (
+          <Truncated className="block px-1 text-sm text-muted-foreground">
+            (multiple)
+          </Truncated>
+        ) : (
+          <Combobox
+            compact
+            inputClassName="h-8"
+            clearable
+            options={declaredColours.map((c) => ({ value: c, label: c }))}
+            value={r.color_name}
+            onChange={(v) => setAlloc(r, { color_name: v ?? "" })}
+          />
+        );
+      },
     },
     {
       /** LEGACY'S `Article No` — derived with `Style No` above and from the same
@@ -5715,6 +5812,10 @@ export function FabricBomScreen({
           fabric_type: l.fabric_type ?? "",
           color_name: l.color_name ?? "",
           fabric_form: l.fabric_form ?? "",
+          /* THE PANEL'S OWN ENGINEERING, same as component_id and structure_id
+             beside it — layout_type is chosen once per panel and copying a
+             panel's engineering is exactly what this recall does. */
+          layout_type: l.layout_type ?? null,
           required_print: l.required_print ?? "",
           specification: l.specification ?? "",
           consumption_uom_id: l.consumption_uom_id,
@@ -6937,11 +7038,12 @@ export function FabricBomScreen({
       icon: Shapes,
       done: lines.some((l) => !!l.component_id),
       /* WIDE, for Fabric Lines' reason. A panel row is Coordinate · Component ·
-         Structure Type · Fabric Type · Fabric (GSM read-only beneath it) ·
-         Open/Tubular — `Structure` itself dropped 2026-09-04, client cleanup
-         spec, see component-map-sheet.tsx — and the colour rows beneath it
-         carry a few more cells. At the ordinary 1180px cap the fabric name
-         (legacy's longest cell) wraps under its own label. */
+         Fabric Type (read-only) · Open/Tubular — `Structure`, `Structure
+         Type` and the panel-level `Fabric` picker were all dropped
+         2026-09-04, client cleanup spec, see component-map-sheet.tsx — and
+         the colour rows beneath it carry a few more cells, including their
+         own per-colourway Fabric picker, now the only place a panel's cloth
+         is set from this tab. */
       wide: true,
       content: (
         <SectionBody title="Components">
@@ -7504,6 +7606,7 @@ export function FabricBomScreen({
         fabric_type: l.fabric_type || null,
         color_name: l.color_name || null,
         fabric_form: (l.fabric_form || null) as "open" | "tubular" | null,
+        layout_type: (l.layout_type || null) as "open_width" | "tubular" | null,
         required_print: l.required_print || null,
         specification: l.specification || null,
         mixing_uom_id: l.mixing_uom_id,
