@@ -1173,6 +1173,7 @@ export function ChildGrid<T extends { key: string }>({
   railWidthPx,
   railCompact = false,
   railBg = true,
+  railAdd = false,
   renderListItem,
   onOpenRow,
   canFold,
@@ -1795,6 +1796,35 @@ export function ChildGrid<T extends { key: string }>({
    */
   railBg?: boolean;
   /**
+   * PUT THE "+ Add" INSIDE THE RAIL, at the foot of the list rather than
+   * under both panes (client 2026-09-04, Fabric BOM ▸ Components: the rail
+   * "must ALWAYS render on the left ... containing the '+ Add part' button
+   * inside it").
+   *
+   * OPT-IN AND OFF BY DEFAULT, the same shape as `railAlways`, `railWidthPx`,
+   * `railCompact` and `defaultOpenKey` above — Material BOM's rail keeps its
+   * Add under the grid exactly as before, and only a caller that asks moves.
+   * A rail's Add is a rail concern on a grid whose rows ARE the rail, and it
+   * is a full-width footer control on a grid whose rows are the pane; there
+   * is no single answer to default to.
+   *
+   * IT PAYS FOR `railAlways` AT ZERO ROWS. An always-on rail with nothing in
+   * it is a tinted empty column; with the Add in it, the empty rail is the
+   * thing that says how a part gets made, which is the state this pairing was
+   * asked for.
+   *
+   * THE BUTTON DOES NOT GO INSIDE `data-md-list`, and that is not a detail.
+   * That element carries `data-focus-optional`, which `isOffTabPath` reads
+   * with `closest` — so an Add nested in it would inherit "off the typing
+   * path" and stop being a Tab stop, undoing "Enter or Tab off the last row
+   * LANDS ON the '+ Add' button" (AGENTS.md, client 2026-08-19). The list and
+   * the button are therefore siblings inside a wrapper that carries the
+   * pane's own chrome; `mdListKeyNav` finds its entries within
+   * `data-md-list`, whose own note already promises that wrapping the pane
+   * cannot break ↑↓.
+   */
+  railAdd?: boolean;
+  /**
    * What one line looks like in the master-detail list. Required by
    * `masterDetail`; ignored without it.
    *
@@ -2026,7 +2056,16 @@ export function ChildGrid<T extends { key: string }>({
    * Budgets) and both are `forceCards`, so this pairs on exactly the grids that
    * asked for it and changes nothing else.
    */
-  const addOnTotalsRow = !!addBtn && hasTotals && mode !== "responsive";
+  /**
+   * THE ADD RIDES IN THE RAIL — see `railAdd`. Derived here rather than at the
+   * two render sites so "which of the three places does this button live in"
+   * is answered once: `addInRail` wins, then the totals row, then the foot of
+   * the grid. `renderListItem` is in the test because it is what `mdActive`
+   * itself gates the rail on — no list renderer, no rail, and an Add put in a
+   * rail that does not exist would vanish rather than move.
+   */
+  const addInRail = mdActive && !!renderListItem && !!addBtn && railAdd;
+  const addOnTotalsRow = !!addBtn && !addInRail && hasTotals && mode !== "responsive";
   /** Where the figures start — everything left of it belongs to the label. */
   const firstTotalIndex = columns.findIndex((c) => c.total && c.total.kind !== "blank");
 
@@ -2114,6 +2153,31 @@ export function ChildGrid<T extends { key: string }>({
     // page 1.
     (keepOne && rows.length <= 1) ||
     (lockExisting && storedKeys.has(row.key));
+  /**
+   * DOES THE TABLE DRAW ITS ✕ COLUMN AT ALL?
+   *
+   * `locked` is a PER-ROW question and cannot answer this one. The table's
+   * trailing cell is emitted unconditionally and only the `<Button>` inside it
+   * is gated — deliberately, and the note on the inline track below records
+   * why: `lockExisting` withholds the ✕ from SOME rows, so a track that came
+   * and went per row would put a stored line and a freshly added one on two
+   * different widths.
+   *
+   * `hideRemove` is not that question. It is stated once for the whole grid and
+   * cannot change while the grid is mounted, so every row is locked by
+   * construction and the column is empty by construction — 32px and a left
+   * border after the last real column, for a button that can never appear.
+   * Fabric BOM ▸ Components' colourways grid is the one that showed it: it
+   * passes `hideRemove` (a colourway is not a row an operator adds or deletes —
+   * `onAddPanel` writes all N), so its table ended on an empty cell hanging off
+   * Specification.
+   *
+   * SO THE GATE IS `hideRemove` AND NOTHING ELSE. `keepOne` and `lockExisting`
+   * both stay unconditional: they are row-dependent, and a column appearing the
+   * moment a second row is added is the drift this cell was made unconditional
+   * to prevent.
+   */
+  const removeColumn = !hideRemove;
 
   return (
     // TWO ELEMENTS, TWO JOBS — the outer one is the CONTAINER-QUERY element and
@@ -2247,7 +2311,7 @@ export function ChildGrid<T extends { key: string }>({
                     {c.required && <span className="ml-0.5 text-danger">*</span>}
                   </th>
                 ))}
-                <th className="w-8 border-l border-border" />
+                {removeColumn && <th className="w-8 border-l border-border" />}
               </tr>
             </thead>
             {/* The handler must sit on the SAME element as `data-grid-body` —
@@ -2308,6 +2372,7 @@ export function ChildGrid<T extends { key: string }>({
                       </RequiredScope>
                     </td>
                   ))}
+                  {removeColumn && (
                   <td className="border-l border-border px-1 py-1.5 text-center">
                     {!locked(row) && (
                     <Button
@@ -2332,6 +2397,7 @@ export function ChildGrid<T extends { key: string }>({
                     </Button>
                     )}
                   </td>
+                  )}
                 </tr>
                 );
               })}
@@ -2374,7 +2440,7 @@ export function ChildGrid<T extends { key: string }>({
                       {renderTotal(c.total, rows)}
                     </td>
                   ))}
-                  <td className="border-l border-border" />
+                  {removeColumn && <td className="border-l border-border" />}
                 </tr>
               </tfoot>
             )}
@@ -2755,17 +2821,40 @@ export function ChildGrid<T extends { key: string }>({
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
         >
           {mdActive && renderListItem && (
-            /* THE LIST PANE. It renders EVERY row, including the open one —
-               which is highlighted rather than removed, because a list that
-               drops the line you are working on loses your place in it. */
+            /* THE RAIL COLUMN — the scrolling list, and under it the "+ Add"
+               when `railAdd` is set. The pane's own chrome (its ground, its
+               height cap and the rule between the two panes) lives on THIS
+               element rather than on the list, so the button sits inside the
+               pane instead of below it and the list scrolls under a button
+               that stays put.
+
+               THE WRAPPER IS SAFE TO ADD and `data-md-list`'s own note below
+               says so in advance: its entries are found within that element
+               rather than off `el.parentElement`, "so wrapping the pane in
+               another div later cannot quietly break ↑↓". This is that later.
+
+               IT IS ALSO THE ONLY PLACE THE BUTTON CAN GO. Nested inside
+               `data-md-list` it would inherit that element's
+               `data-focus-optional` through `isOffTabPath`'s `closest` and
+               stop being a Tab stop — see `railAdd`. */
+            /* A GROUND OF ITS OWN, and this is what makes it read as a pane
+               rather than as a stray vertical rule. Both halves were
+               `bg-surface`, so the border between them was the only thing
+               saying there were two of anything — and below the last line it
+               ran on down an empty white column (client 2026-08-20, screenshot
+               2406, "that separate item and table look not good"). Tinting the
+               list is what turns that emptiness into the bottom of a pane —
+               which is why `railBg` is an opt-OUT: a caller that takes it is
+               saying its rail does not need the box, not that the box was
+               wrong. It is stated on the WRAPPER rather than on the list
+               because the "+ Add" sits in here too, and a tint that stopped at
+               the last entry would leave the button on a ground of its own. */
             <div
-              /* A GROUND OF ITS OWN, and this is what makes it read as a pane
-                 rather than as a stray vertical rule. Both halves were
-                 `bg-surface`, so the border between them was the only thing
-                 saying there were two of anything — and below the last line it
-                 ran on down an empty white column (client 2026-08-20, screenshot
-                 2406, "that separate item and table look not good"). Tinting the
-                 list is what turns that emptiness into the bottom of a pane. */
+              className={cn(
+                "flex flex-col border-border md:max-h-[560px] md:overflow-hidden md:border-r",
+                railBg && "bg-surface-muted/60",
+              )}>
+            <div
               /* THE SCOPE `mdListKeyNav` WALKS. Its entries are found within this
                  element rather than off `el.parentElement`, so wrapping the pane
                  in another div later cannot quietly break ↑↓. */
@@ -2785,10 +2874,15 @@ export function ChildGrid<T extends { key: string }>({
                * marker gets that same result without the mouse-only half.
                */
               data-focus-optional
-              className={cn(
-                "flex flex-col overflow-y-auto border-border md:max-h-[560px] md:border-r",
-                railBg && "bg-surface-muted/60",
-              )}>
+              /* THE GROUND AND THE CAP MOVED UP to the rail column above —
+                 `railBg`'s tint with them, onto the element that also holds the
+                 "+ Add", so opting out of the tint takes the whole pane rather
+                 than just the part of it the entries fill. What stays here is
+                 the scrolling itself. `min-h-0` is what lets a flex child
+                 actually scroll instead of growing past its parent's cap —
+                 without it the list would push the "+ Add" out of the pane at
+                 exactly the row count that makes an Add most useful. */
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               {view.map((row, localI) => {
                 const i = offset + localI;
                 const isOpen =
@@ -2893,6 +2987,15 @@ export function ChildGrid<T extends { key: string }>({
                   </button>
                 );
               })}
+            </div>
+            {addInRail && (
+              /* SEPARATED BY A RULE, NOT BY A GAP. The entries run edge to edge
+                 down the pane, so a button floating in whitespace under them
+                 would read as a third thing; a border makes it the foot of the
+                 list. `shrink-0` keeps it at its own height while the list
+                 above takes the slack. */
+              <div className="shrink-0 border-t border-border p-1.5">{addBtn}</div>
+            )}
             </div>
           )}
           {view.map((row, localI) => {
@@ -3159,9 +3262,10 @@ export function ChildGrid<T extends { key: string }>({
           />
         )}
 
-        {/* Below the grid unless it is riding the totals row — see
-            `addOnTotalsRow`. Rendered in exactly one of the two places. */}
-        {!addOnTotalsRow && addBtn}
+        {/* Below the grid unless it is riding the totals row or sitting in the
+            rail — see `addOnTotalsRow` and `addInRail`. Rendered in exactly one
+            of the three places. */}
+        {!addOnTotalsRow && !addInRail && addBtn}
       </div>
     </div>
   );

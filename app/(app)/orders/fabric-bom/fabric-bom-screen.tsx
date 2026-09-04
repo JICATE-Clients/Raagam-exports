@@ -3934,6 +3934,29 @@ export function FabricBomScreen({
       width: "4.5rem",
       align: "center",
       cell: (e) => (
+        /* THE BOX IS CENTRED IN AN INPUT'S OWN HEIGHT (client 2026-09-04:
+           the checkboxes must line up with the fields beside them).
+
+           `FIELD_TRACK_32` carries `items-end`, so every cell on this row is
+           bottom-aligned — which lines up eight 36px `<Input>`s perfectly and
+           left a 16px checkbox sitting on their bottom edge, reading as
+           dropped rather than aligned. Giving the box the SAME height the
+           primitive gives an input (`h-9 @2xl/editor:h-8`, input.tsx) and
+           centring it inside makes the two cells the same size, so `items-end`
+           has equal things to align.
+
+           THE HEIGHT IS COPIED FROM THE PRIMITIVE, NOT CHOSEN. If `Input`'s
+           compact density ever changes, this has to follow it — which is why
+           the classes are written the same way round rather than as a bare
+           `h-8`. It is the one place a call site restates them, and it is
+           restating them to MATCH, not to override.
+
+           THE LABEL STAYS LEFT-ALIGNED, deliberately. `Field` owns the label
+           (and with it `RequiredScope`), so centring it would mean
+           hand-rolling one — and two centred labels among six left-aligned
+           ones reads as a mistake, not as a column. What the operator is
+           looking at is the BOX not lining up, and that is what this fixes. */
+        <span className="flex h-9 items-center justify-center @2xl/editor:h-8">
         <input
           type="checkbox"
           className="h-4 w-4 accent-primary"
@@ -3943,6 +3966,7 @@ export function FabricBomScreen({
             setEntryCell(e.key, { assort_color_wise: ev.target.checked })
           }
         />
+        </span>
       ),
     },
     {
@@ -3968,6 +3992,29 @@ export function FabricBomScreen({
       width: "4rem",
       align: "center",
       cell: (e) => (
+        /* THE BOX IS CENTRED IN AN INPUT'S OWN HEIGHT (client 2026-09-04:
+           the checkboxes must line up with the fields beside them).
+
+           `FIELD_TRACK_32` carries `items-end`, so every cell on this row is
+           bottom-aligned — which lines up eight 36px `<Input>`s perfectly and
+           left a 16px checkbox sitting on their bottom edge, reading as
+           dropped rather than aligned. Giving the box the SAME height the
+           primitive gives an input (`h-9 @2xl/editor:h-8`, input.tsx) and
+           centring it inside makes the two cells the same size, so `items-end`
+           has equal things to align.
+
+           THE HEIGHT IS COPIED FROM THE PRIMITIVE, NOT CHOSEN. If `Input`'s
+           compact density ever changes, this has to follow it — which is why
+           the classes are written the same way round rather than as a bare
+           `h-8`. It is the one place a call site restates them, and it is
+           restating them to MATCH, not to override.
+
+           THE LABEL STAYS LEFT-ALIGNED, deliberately. `Field` owns the label
+           (and with it `RequiredScope`), so centring it would mean
+           hand-rolling one — and two centred labels among six left-aligned
+           ones reads as a mistake, not as a column. What the operator is
+           looking at is the BOX not lining up, and that is what this fixes. */
+        <span className="flex h-9 items-center justify-center @2xl/editor:h-8">
         <input
           type="checkbox"
           className="h-4 w-4 accent-primary"
@@ -3975,6 +4022,7 @@ export function FabricBomScreen({
           checked={e.size_wise}
           onChange={(ev) => setEntryCell(e.key, { size_wise: ev.target.checked })}
         />
+        </span>
       ),
     },
     {
@@ -4105,16 +4153,56 @@ export function FabricBomScreen({
    * 32 exactly — still the one compact row the artifact confirmed, now
    * sized by what each label actually needs rather than a flat guess.
    */
-  const MANUAL_FIELD_SIZES: Record<string, FieldSize> = {
-    Fabric: "md",
-    Calculated: "sm",
-    Components: "sm",
+  /**
+   * THE TOP ROW'S WIDTH PER FIELD, IN STATIC CLASSES (client 2026-09-04: one
+   * neat horizontal row, labels on one line).
+   *
+   * IT REPLACES `MANUAL_FIELD_SIZES`, which held `FieldSize` spans for this
+   * same row. A span is a `col-span-*` class and says what a field is worth on
+   * the 32-column track; this row is a flex line now, where a `col-span-*` is
+   * inert, so the old lookup could not have worked and was deleted rather than
+   * left standing as a table nothing reads.
+   *
+   * `SIZE_FIELD_SIZES` BELOW IS NOT THE SAME THING AND STAYS. The size grid's
+   * `renderMobileRow` is still a `FieldGrid cols={32}`, so spans are still the
+   * right vocabulary there. Two layouts on one screen, two vocabularies —
+   * which is why this is a new constant rather than an edit to that one.
+   *
+   * STATIC STRINGS, NEVER `w-[${c.width}]`. The columns already declare a
+   * `width` for the table, and interpolating it here would compile to no CSS
+   * at all — Tailwind v4 scans source TEXT (the trap `FIELD_TRACK` and
+   * `railWidthPx` both record). These are the same figures rounded to the
+   * scale: 9rem → `w-36`, 6rem → `w-24`, 4rem → `w-20`.
+   *
+   * `Assort Color wise` IS THE ONE THAT IS NOT ITS COLUMN'S WIDTH. Its column
+   * is 4.5rem, sized for a centred checkbox under a wrapped two-line heading;
+   * with the label held to ONE line it is the longest string on the row
+   * (~105px at `text-xs`), so it gets `w-28` and the row stays honest. A
+   * nowrap label in a box narrower than itself does not wrap — it overflows,
+   * which is the failure this number exists to avoid.
+   */
+  const MANUAL_FIELD_W: Record<string, string> = {
+    Fabric: "w-36",
+    Type: "w-24",
+    Calculated: "w-24",
+    "Assort Color wise": "w-28",
+    "Size Wise": "w-20",
+    "EndBit Loss %": "w-24",
+    Components: "w-24",
+    "Assort Color": "w-24",
   };
 
   /**
-   * THE SIZE GRID'S OWN FIELD SIZES, SAME REASON AS `MANUAL_FIELD_SIZES`
-   * ABOVE AND SAME DEFECT SCREENSHOT 2694 SHOWED THERE — "TableWidth" ran
-   * into "Width" beside it with no gap.
+   * THE SIZE GRID'S OWN FIELD SIZES — spans on the 32-column track, for the
+   * defect screenshot 2694 showed: "TableWidth" ran into "Width" beside it
+   * with no gap.
+   *
+   * THIS IS THE LAST OF THE PAIR. `MANUAL_FIELD_SIZES` stood beside it and
+   * did the same job for the ENTRY row above; that row became a flex line on
+   * 2026-09-04 (see `MANUAL_FIELD_W`), where a `col-span-*` is inert, so its
+   * lookup was deleted rather than left as a table nothing reads. The size
+   * grid's own `renderMobileRow` is still a `FieldGrid cols={32}`, so this one
+   * is live and the vocabulary is still the right one HERE.
    *
    * NO `cardLabel` HERE, UNLIKE `MeasurementUnit` ABOVE: every header in
    * `sizeColumns` is legacy's own band, verbatim, by explicit operator
@@ -4221,11 +4309,42 @@ export function FabricBomScreen({
           foldRows
           masterDetail
           railAlways
+          /* 180px, THE SAME NUMBER COMPONENTS SETTLED ON (client 2026-09-04:
+             compact this rail too, "consistent with the Components tab rail").
+
+             THE NOTE ABOVE SAID NEITHER WIDTH NOR PADDING WAS SET, then that
+             `railCompact` was; this is the third step of that same narrowing
+             and it finishes the job. Leaving `railWidthPx` unset fell through
+             to the primitive's default 268 — Material BOM's figure — so this
+             rail carried Components' PADDING at Material BOM's WIDTH, which is
+             the one combination nobody asked for. 180 is Components' own
+             settled number (see its call site for why not 160 and not 220), so
+             the two rails on one screen are now the same object rather than
+             two readings of "compact". */
+          railWidthPx={180}
           railCompact
           /* THE TINT IS OFF (client 2026-09-04: "need remove that grey bg from
              that rail" — both this rail and Components'). See `railBg`'s own
              note on `child-grid.tsx`. */
           railBg={false}
+          /* OPENS ON THE FIRST FABRIC RATHER THAN NOTHING — the LAST prop that
+             still differed from Components' rail (client 2026-09-04: make the
+             New fabric cards reference the Components module).
+
+             It is the same fix, one tab along: Components took `defaultOpenKey`
+             on 2026-09-04 because a rail with nothing selected reads as a list
+             floating over an empty pane ("why the bottom looks so flying …
+             default open first component with that table panel"), and this rail
+             — now that `railAlways` makes it render from the first fabric —
+             was in exactly that state on arrival.
+
+             NOT A REVERSAL OF "A GRID OPENS WITH EVERYTHING FOLDED"
+             (2026-08-19). That rule is about a data-entry grid's SECTIONS
+             pre-expanding as noise on a document being edited; this is a
+             navigation rail beside a detail pane, where list-then-detail
+             opening on its first item is the ordinary case. `child-grid.tsx`'s
+             own note on the prop carries the full argument. */
+          defaultOpenKey={manualEntries[0]?.key ?? null}
           /* THREE STATES, THE SAME READING `manualProblem` already gives the
              Save gate and `styleRefusal`: idle before a fabric is named,
              warn once one is named and `manualProblem` still finds something
@@ -4241,7 +4360,16 @@ export function FabricBomScreen({
               .filter(Boolean)
               .join(" · ");
             return (
-              <div className="flex items-center gap-2.5">
+              /* `gap-1.5` AND `text-xs font-semibold` — COMPONENTS' OWN ENTRY,
+                 to the class (client 2026-09-04: style this rail consistently
+                 with that one). Both numbers were tuned there when that rail
+                 went to 180px: a 6px dot does not need a 10px gutter when the
+                 name has ~150px to live in, and a semibold 12px name reads
+                 heavier than the medium 12.5px this carried while still
+                 separating further from the 10px muted subtitle beneath it.
+                 The padding is `railCompact`'s (`px-2.5 py-1`), so nothing
+                 here sets one — that is the primitive's, on both rails. */
+              <div className="flex items-center gap-1.5">
                 <span
                   className={cn(
                     "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -4251,14 +4379,30 @@ export function FabricBomScreen({
                   )}
                 />
                 <span className="min-w-0 flex-1">
-                  <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                  <Truncated className="block text-xs font-semibold leading-tight text-foreground">
                     {entryFabricRow(e)?.name || "New fabric"}
                   </Truncated>
-                  {subtitle && (
-                    <Truncated className="block text-[10px] leading-tight text-muted-foreground">
-                      {subtitle}
-                    </Truncated>
-                  )}
+                  {/* THE SUBTITLE LINE IS ALWAYS DRAWN, EVEN WITH NOTHING TO
+                      SAY (client 2026-09-04: the cards must be the same size as
+                      the Components tab's).
+
+                      IT WAS `{subtitle && …}`, SO A CARD WITH NO SUBTITLE WAS
+                      ONE LINE TALL among two-line neighbours. On Components
+                      that never showed — every panel resolves a structure — but
+                      a fresh Manual entry has no fabric picked, so knit type and
+                      GSM are both empty and "New fabric" rendered short. The
+                      rail's own padding and radius were identical the whole
+                      time; the height difference was the LINE COUNT.
+
+                      A NON-BREAKING SPACE THROUGH THE REAL `Truncated`, which
+                      is `Field`'s own idiom for `label=""` and for its reason,
+                      quoted there: the reserved row then carries "that
+                      component's exact metrics" instead of a second, drifting
+                      copy of them. An empty string would collapse the line box
+                      to zero and change nothing. */}
+                  <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                    {subtitle || "\u00A0"}
+                  </Truncated>
                 </span>
               </div>
             );
@@ -4277,20 +4421,163 @@ export function FabricBomScreen({
                  own pane heading for. The spacer keeps the ✕ its `pr-9`
                  room. */}
               <div className="h-1 pr-9" />
-              {/* ONE COMPACT ROW, cols={32} — the artifact's confirmed shape
-                 ("row 1, row 2 as single row compacted"), sized by
-                 `MANUAL_FIELD_SIZES` rather than a flat guess. */}
-              <FieldGrid cols={32}>
+              {/* ONE COMPACT ROW — the artifact's confirmed shape ("row 1, row
+                 2 as single row compacted"), and since 2026-09-04 a real flex
+                 line rather than the 32-column track, sized per field by
+                 `MANUAL_FIELD_W`.
+
+                 THE TRACK COULD NOT KEEP THE LABELS ON ONE LINE, which is what
+                 the client asked for. `FIELD_TRACK_32` gives each field a
+                 fixed share of 32 columns and lets a long heading wrap inside
+                 it — `items-end` then keeps the CONTROLS level, but the row
+                 grows to the tallest label and "Assort Color wise" sits over
+                 two lines. A flex line sizes each field to what it holds, so
+                 one nowrap line is representable at all.
+
+                 IN A FRAME OF ITS OWN (client 2026-09-04: enclose the top row
+                 of fields in a card). The pane held three things — this row,
+                 the Sizes grid and a refusal line — and only the MIDDLE one
+                 was boxed, so eight controls floated above a framed table and
+                 read as loose chrome rather than as this fabric's own answers.
+
+                 IT IS `DetailSection`'s CARD WITHOUT `DetailSection`'s LABEL,
+                 and both halves are deliberate. The border, radius and padding
+                 are copied from that component (`rounded-lg border
+                 border-border`, `p-2.5 @2xl/editor:p-2`) so this frame and
+                 every boxed section in the app are the same object. The label
+                 band is what is left out: `DetailSection` always renders one
+                 (`min-h-5`), and a heading here is the redundancy the note
+                 above already refuses — the rail names the fabric.
+
+                 WHITE, NOT A TINT — AND THIS IS THE SECOND TIME (client
+                 2026-09-04: "remove the blue background color behind the top
+                 control bar ... clean and white to match the rest of the
+                 form").
+
+                 IT SHIPPED FILLED FOR ONE ROUND. The card was drawn with a
+                 border and no ground, which is this file's own convention two
+                 screens down ("NO FILL — the client's 2026-09-03 'just same
+                 white color'"); a request for `bg-gray-50` put a fill on it,
+                 and `bg-surface-muted` (#f1f3f5) is the app's nearest declared
+                 token to that. It is a NEUTRAL grey, but it carries a faint
+                 blue cast against pure white, which is what got reported as a
+                 "blue background" — the same word used a turn earlier for the
+                 focused-cell fill, and a different thing entirely.
+
+                 SO THE RULE HOLDS AFTER ALL: the row tint went app-wide on
+                 2026-08-18 ("no more that grey state in anywhere"), the rails
+                 lost theirs on 2026-09-04, and this card is now the third
+                 surface to be told the same thing. `bg-surface` is stated
+                 explicitly rather than left to inherit, so the card cannot
+                 pick up a ground from whatever it is nested in later.
+
+                 IT IS A FLEX ROW AND NOT `FieldGrid cols={32}`, AND THIS
+                 PARAGRAPH USED TO SAY THE OPPOSITE. It argued that a
+                 hand-written `flex flex-wrap items-end` "would align this row
+                 and nothing else, which is the drift the one-track rule exists
+                 to prevent" — sound, and overtaken the same day: the 32-column
+                 track gives every cell an equal share of the row, and these
+                 eight are a Select, three checkboxes and a number, whose
+                 LABELS are long where their controls are tiny. On that track
+                 the labels wrapped to two lines. The flex row sizes each cell
+                 to its own content instead (`MANUAL_FIELD_W`), which is what
+                 `whitespace-nowrap` below is holding to one line.
+
+                 THE BASELINE RULE SURVIVES THE MOVE, which is the half that
+                 mattered: `items-end` is stated here explicitly, doing exactly
+                 what `FIELD_TRACK_32` carries it for — a label that does wrap
+                 cannot drop its control below the row. So this is a row that
+                 opted out of the track, not one that forgot it. */}
+              {/* `w-fit` — THE BOX ENDS WHERE THE CONTROLS END (client
+                  2026-09-04: "remove the extra empty space on the right").
+
+                  IT WAS A BLOCK-LEVEL `flex`, so it took the pane's full width
+                  and drew its border out to the right edge with nothing under
+                  it — eight controls occupying maybe half the row and a framed
+                  band of white after them, which reads as a field that failed
+                  to render rather than as the end of the bar. Same complaint,
+                  and the same shape, as the empty ✕ column on Fabric Lines the
+                  same day.
+
+                  `width: fit-content` IS SAFE WITH `flex-wrap`, and that pairing
+                  is the whole reason this is `w-fit` rather than `inline-flex`.
+                  `fit-content` resolves to max-content only while max-content
+                  FITS — past that it falls back to the available width, so the
+                  row still breaks to a second line on a narrow pane instead of
+                  growing the sideways scroll the operator's rule 4 bans. It
+                  needs no `max-w-full` for the same reason. `inline-flex` would
+                  have done the shrink-wrap too and dragged inline-level
+                  baseline alignment in with it, for nothing gained.
+
+                  `p-2.5` MATCHES THE PARAGRAPH ABOVE, which has claimed
+                  `DetailSection`'s padding since this card was built while the
+                  class actually read `p-3` — the drift that note warns about,
+                  sitting inside the note itself. The `@2xl/editor:p-2` half is
+                  deliberately NOT copied: this bar renders inside the editor
+                  container at almost every width it is seen, so taking that
+                  step would make the padding p-2 nearly always and 2.5 the
+                  exception — the opposite of what was asked for.
+
+                  `gap-2 p-2` IS THE COMPONENTS TAB'S DENSITY, MEASURED FROM IT
+                  (client 2026-09-04: *"in manual table same as components tab
+                  … top table compact size, refer the components tab"*).
+
+                  THE REFERENCE MOVED, WHICH IS WHY THIS IS THE SECOND PASS.
+                  Components used to put its panel fields in a `FieldGrid` above
+                  its table, and on 2026-09-04 it merged them INTO the table as
+                  its first columns (`panelInRowColumns`) — so its top row is now
+                  `ChildGrid`'s own table density: `<td className="px-1.5 py-1">`,
+                  ~6px between one control and the next. `gap-3` (12px) and
+                  `p-2.5` (10px) were asked for one instruction earlier, against
+                  the looser thing Components was at the time.
+
+                  `gap-2` (8px) RATHER THAN `gap-1.5` (6px) EXACTLY. A table cell's
+                  6px is a HALF-gutter — two adjacent cells put 12px between their
+                  contents, and a `border-l` in the middle of it. This row has no
+                  gridlines, so the gap is the only separation there is, and 6px
+                  between eight unruled controls reads as one smear. 8px is the
+                  same optical distance the table gets, which is what "same as the
+                  components tab" means here — not the same number.
+
+                  THE FIELD WIDTHS ARE ALREADY IN RANGE and are deliberately not
+                  touched: `MANUAL_FIELD_W` runs w-20…w-36 (80—144px) against
+                  Components' own 5rem—10rem columns (80—160px). The looseness was
+                  never in the fields.
+
+                  `items-end` IS UNCHANGED, and is what puts the labels and
+                  controls on one baseline — it stops a label that wraps from
+                  dropping its own control below the row. See the note above on
+                  why this row is a flex rather than `FIELD_TRACK_32`. */}
+              <div className="flex w-fit flex-wrap items-end gap-2 rounded-lg border border-border bg-surface p-2">
                 {manualEntryColumns.map((c, ci) => (
                   <Field
                     key={c.header + ci}
                     label={c.cardLabel ?? c.header}
-                    size={MANUAL_FIELD_SIZES[c.header] ?? "xs"}
+                    /* `whitespace-nowrap` HOLDS THE LABEL TO ONE LINE, which is
+                       the whole reason this is a flex row rather than the
+                       32-column track (client 2026-09-04). It inherits to the
+                       `Label` inside — `white-space` is an inherited property,
+                       so this is one declaration rather than a reach into the
+                       primitive's markup.
+
+                       `shrink-0` IS WHAT MAKES THE PROMISE TRUE. A flex item
+                       may shrink below its content by default, and `Field`
+                       already sets `min-w-0`, which removes the one thing that
+                       would have stopped it — so without this the nowrap label
+                       would be clipped by its own box the moment the row got
+                       tight, which is worse than the wrapping it replaces.
+                       `flex-wrap` on the container is the release valve: the
+                       row breaks to a second line rather than scrolling
+                       sideways (the operator's rule 4). */
+                    className={cn(
+                      "shrink-0 whitespace-nowrap",
+                      MANUAL_FIELD_W[c.header] ?? "w-24",
+                    )}
                   >
                     {c.cell(e, ci)}
                   </Field>
                 ))}
-              </FieldGrid>
+              </div>
               {/* LEVEL 3 — THE SIZES, still this fabric's own nested grid,
                  unchanged in content: only its container moved, from a
                  `<td colSpan>` spanning the whole pane to this card. */}
@@ -4361,6 +4648,28 @@ export function FabricBomScreen({
             mutEntries((xs) => [...xs, blankManualEntry(newKey(), styleRow.style_ref_no)])
           }
           onRemove={(e) => mutEntries((xs) => xs.filter((x) => x.key !== e.key))}
+          /* "+ Add fabric" GOES IN THE RAIL, under the fabrics it adds to
+             (client 2026-09-04: the button below the list items, matching
+             Components').
+
+             THE LAST PROP THIS RAIL WAS MISSING. It already took `railAlways`,
+             `railWidthPx`, `railCompact` and `railBg` — everything about how
+             the rail LOOKS — while its Add still rendered at the foot of the
+             whole grid, a pane's width away from the list it grows. Components
+             took `railAdd` when the prop was written; this call site did not,
+             and that difference is the entire reason the two rails read
+             differently.
+
+             `w-full px-2.5` IS COMPONENTS' OWN `addClassName`, verbatim: full
+             width so the button is the foot of the pane rather than a pill
+             floating in a column it does not fill, and `px-2.5` to sit on the
+             same left edge as the entries above it (`railCompact`'s padding).
+             Nothing here sets a colour, a height or a radius — the button is
+             `ChildGrid`'s own `variant="outline" size="sm"`, which is what the
+             raagam skin paints green, so "matching" is achieved by passing the
+             same props rather than by restating the result. */
+          railAdd
+          addClassName="w-full px-2.5"
           addLabel="+ Add fabric"
         />
         {/* SAID WHERE IT CAN BE ACTED ON — see `styleRefusal`. Amber, not red:
@@ -4972,6 +5281,45 @@ export function FabricBomScreen({
        * screenshot 2585's Components tab behind it) — it opens the panel
        * mapping for THIS fabric (0495).
        *
+       * ## IT IS THE LAST COLUMN, AND NOTHING FOLLOWS IT
+       *
+       * The row USED TO END ON TWO BLANK HEADINGS — this column's own
+       * `header: ""` and, after it, the `<th className="w-8">` `ChildGrid`
+       * emits for its remove button. Two adjacent empty header cells with a
+       * gridline between them read as a column that failed to render rather
+       * than as the end of the row (client 2026-09-04).
+       *
+       * IT WAS FIRST ANSWERED BY MERGING THE TWO — [Detail] and the ✕ in one
+       * `flex gap-2` Actions cell at 8rem. The client then asked for the ✕
+       * *"deleted completely"*, with **no extra columns or borders after
+       * Detail**, so the merge is gone and the width is back to 4.5rem.
+       * Recording it because the merged version is the obvious answer to the
+       * complaint and is NOT what was wanted.
+       *
+       * `hideRemove` ON THE GRID IS WHAT DELETES THE TRACK. That prop is the
+       * primitive's only gate on the trailing cell — its own note says so at
+       * length ("SO THE GATE IS `hideRemove` AND NOTHING ELSE") — and it takes
+       * the `<th>`, the `<td>` and the `border-l` between them together, which
+       * is what "no extra columns or borders" needs. Styling the border away
+       * would have left the empty column standing.
+       *
+       * ## THE COST, STATED BECAUSE IT IS NOT VISIBLE
+       *
+       * **A FABRIC LINE CAN NO LONGER BE DELETED FROM THIS TAB — BY MOUSE OR
+       * BY KEYBOARD.** Ctrl+Del is not a separate implementation: `gridKeyNav`
+       * finds the row's own `[data-row-remove]` and calls `.click()` on it, so
+       * a row with no ✕ has no Ctrl+Del either. The card layout below the
+       * breakpoint loses its corner ✕ to the same prop (`cornerRemove` reads
+       * `locked`, which `hideRemove` sets for every row). `+ Add fabric` still
+       * adds, so this tab grows and does not shrink.
+       *
+       * `onRemove={removeAlloc}` IS DELIBERATELY LEFT WIRED. Nothing calls it
+       * today, and that is the point: putting the ✕ back is one prop, not a
+       * re-implementation of what it means to delete a fabric line (the whole
+       * ALLOCATION goes, never the drawn row alone — see `removeAlloc`).
+       *
+       * ## THE TWO THINGS THAT ARE NOT NEW
+       *
        * A CELL OF THE ROW, so Tab, Enter and the arrows all reach it.
        * `data-row-open` is what puts it on the Tab path; the Combos ▸ Structure
        * Details button was mouse-only until the same marker was added to it
@@ -4983,11 +5331,8 @@ export function FabricBomScreen({
        * operator to describe something that does not exist yet. The `title` says
        * so rather than leaving a dead control.
        *
-       * NARROWER THAN `CELL`, and it stays that way though the row is now six
-       * columns rather than thirteen. The figure was tuned when a full-width
-       * cell here was what pushed the row past the frame and turned the table
-       * into stacked cards; 4.5rem fits "Detail" at `text-xs` with room, and
-       * widening it now would only spend slack the row does not need.
+       * NARROWER THAN `CELL`: 4.5rem fits "Detail" at `text-xs` with room, and
+       * widening it would only spend slack the row does not need.
        */
       header: "",
       width: "4.5rem",
@@ -6859,17 +7204,30 @@ export function FabricBomScreen({
                tab asks a different question of the same array. */
             rows={allocationRows}
             seedRow
-            /* ## THE WIDTH BUDGET — 1150px AGAINST A 1152px BREAKPOINT
+            /* ## THE WIDTH BUDGET — 1056px AGAINST A 1155px PANE
 
-               The declared widths sum to ~1150px including the row chrome,
-               and the table may appear from 1152 (@6xl). Keep that
-               inequality true when a column is added or resized: over 1152
-               the table renders and immediately scrolls sideways. Without it
-               the switch is @lg, which is 512px in a container query, and a
-               laptop would get a table it has to scroll.
+               The declared widths sum to 1056px including the row chrome,
+               against the 1155px smallest pane this app supports (a 1366x768
+               laptop at 100% zoom). Keep that inequality true when a column is
+               added or resized: over 1155 the table renders and immediately
+               scrolls sideways there. `npm run check:grid-budget` is what
+               enforces it — this paragraph is the reasoning, not the guard,
+               and the script exists precisely because a budget written in a
+               comment holds only until the next column.
 
-               THERE IS 2px OF HEADROOM LEFT, AND THAT IS A WARNING RATHER
-               THAN A MEASUREMENT TO TRUST. 2026-09-03 widened Structure to
+               THE CHROME IS 40px HERE, NOT 72. `hideRemove` deleted the ✕
+               track outright (see the prop below), so the row pays for the
+               ordinal `#` and nothing else.
+
+               THERE IS 99px OF HEADROOM, AND IT IS NEWLY THERE — 32px from the
+               deleted ✕ column and the rest from `GSM Range` leaving the row.
+               THE PARAGRAPH BELOW IS THE OLD ELEVEN-COLUMN STATE and is kept
+               because its LESSON outlived its arithmetic: the five columns it
+               names were trimmed to their contents' known maximum, so they are
+               not slack to be borrowed a second time. Widen from the 99px, not
+               from them.
+
+               (Historic, 2026-09-03.) It widened Structure to
                160 and Style Color to 150 (+118px) because both were clipping
                their values, and paid for it by trimming five columns whose
                contents have a known short maximum — Fabric 208—176, Mixing
@@ -6929,9 +7287,38 @@ export function FabricBomScreen({
                 { ...blankLine(newKey()), style_ref_no: orderIdentity?.ref ?? "" },
               ])
             }
-            /* REMOVES THE WHOLE ALLOCATION. Deleting the drawn row alone would
-               leave its sibling panels behind — invisible here, and enough to
-               keep refusing a Save the operator believes they have cleared. */
+            /* NO ✕ ON THIS TAB AT ALL (client 2026-09-04: *"delete the ✕
+               column completely … the Detail column should be the last column,
+               with no extra columns or borders after it"*).
+
+               `hideRemove` IS THE WHOLE OF IT, and it is the right prop rather
+               than a style: it is the primitive's only gate on the trailing
+               track — its own note spells that out ("SO THE GATE IS
+               `hideRemove` AND NOTHING ELSE") — and it drops the `<th>`, the
+               `<td>` and the `border-l` between them together. Hiding the
+               border alone would have left an empty column standing, which is
+               the half of the complaint that started this.
+
+               ## THIS TAB CAN NO LONGER DELETE A FABRIC LINE
+
+               Not by mouse and NOT BY KEYBOARD. Ctrl+Del is not a second
+               implementation — `gridKeyNav` finds the row's own
+               `[data-row-remove]` and clicks it, so a row with no ✕ has no
+               Ctrl+Del either. The card layout loses its corner ✕ to the same
+               prop (`cornerRemove` reads `locked`, which `hideRemove` sets for
+               every row). `+ Add fabric` still adds, so the tab grows and does
+               not shrink. Stated here because nothing on screen says it: an
+               operator meets it as a missing control, not as a message.
+
+               `onRemove` IS LEFT WIRED THOUGH NOTHING CALLS IT, deliberately.
+               Putting the ✕ back is then one prop rather than a
+               re-implementation of what deleting a fabric line MEANS —
+
+               IT REMOVES THE WHOLE ALLOCATION. Deleting the drawn row alone
+               would leave its sibling panels behind — invisible here, and
+               enough to keep refusing a Save the operator believes they have
+               cleared. */
+            hideRemove
             onRemove={removeAlloc}
             addLabel="+ Add fabric"
           />

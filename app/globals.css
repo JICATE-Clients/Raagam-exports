@@ -576,6 +576,32 @@ body {
  * derived readOnly field (Material's composed name) is not a live destination
  * and must not advertise itself as one.
  */
+/* THERE IS NO CELL FILL EITHER, as of 2026-09-04 — the same instruction the
+   row wash got on 2026-08-18, one level down, and reported the same way: the
+   Fabric picker on Fabric BOM ▸ Manual "light blue ... change it to white, so
+   it matches the other input boxes".
+
+   IT WAS NEVER ABOUT THAT ONE FIELD. The rule painted whichever control held
+   focus inside a `[data-grid-row]`, and a picker's trigger is a real <input>,
+   so Fabric only looked singled out because it is the first field in the row
+   and takes the cursor. Clicking EndBit Loss % moved the blue there. That is
+   also why it read as a stray colour rather than as a state: every OTHER box
+   was white at the same moment, so the fill looked like a property of the
+   Fabric box instead of a property of focus.
+
+   WHAT IS LOST, STATED PLAINLY. The note beside `--cell-active` argued the
+   cursor is located three ways — this fill, the focus ring, and the rule
+   between rows — and one of the three is now gone. The ring is the half that
+   matters and it stays (`outline: 2px solid var(--ring)`, in the @layer base
+   block above), but it is `:focus-visible`, so it answers a KEYBOARD cursor.
+   This fill was plain `:focus`, so it also answered a MOUSE click. On a dense
+   grid a mouse user now has the row rule and nothing in the cell.
+
+   RESTORING IT IS THIS BLOCK, UNCOMMENTED. `--cell-active` is deliberately
+   left declared for that — inert, the same way `[data-row-box]`'s opt-out
+   markers were left standing when the row wash went, and for the reason given
+   there: "the exclusion that would be needed again if the wash ever returns".
+
 [data-grid-row]
   :is(
     input:not([type="button"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),
@@ -585,6 +611,7 @@ body {
   ):not([disabled]):not([tabindex="-1"]):focus {
   background-color: var(--cell-active);
 }
+*/
 
 /*
  * Bug Reporter (JKKN Bug Boundary) floating button — on phones our MobileNav is
