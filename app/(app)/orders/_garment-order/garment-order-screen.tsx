@@ -18683,11 +18683,22 @@ export function GarmentOrderScreen({
     >
       <PageHeader
         title={
-          amending
-            ? "Amend Garment Order"
-            : editId
-              ? "Edit Garment Order"
-              : "New Garment Order"
+          /* THE RE NO RIDES ON THE TITLE, matching every child sheet this
+             screen opens (Fabric BOM, Material BOM, CAD, …), each of which
+             names itself by the order's RE No rather than a generic label
+             (operator request, 2026-09-04 — this page was the one screen in
+             the chain still saying only "Edit Garment Order"). `previewNo` is
+             already resolved before first paint for a brand-new order (see
+             `initialOrderNo`), so the number is here even before a save
+             mints one — never a placeholder like a bare "auto" would be,
+             because an unresolved preview is simply absent from the string. */
+          (savedOrderNo ?? previewNo
+            ? `${amending ? "Amend Garment Order" : editId ? "Edit Garment Order" : "New Garment Order"} · ${savedOrderNo ?? previewNo}`
+            : amending
+              ? "Amend Garment Order"
+              : editId
+                ? "Edit Garment Order"
+                : "New Garment Order")
         }
         /* NO DERIVED BACK LINK ON THE EDITOR — the one case `backTarget` cannot
            see. `PageHeader` resolves a "← Back to <parent>" off the nav registry
