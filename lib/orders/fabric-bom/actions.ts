@@ -42,6 +42,7 @@ import {
    would be two names for one predicate. */
 import {
   comboKey,
+  stageProblem,
   stageProcessQty,
   yarnPurchase,
   yarnStageStarted,
@@ -269,13 +270,14 @@ function normalizeDias(data: FabricBomInput) {
  * A LOSS OR A RATE WITH NO PROCESS GOES TOO, for that reason and one more: both
  * are figures about a step that does not exist.
  *
- * ## RENUMBERED PER FABRIC, WHICH `uq_ofbp_item_sno` REQUIRES
+ * ## RENUMBERED PER GROUP, WHICH `uq_ofbp_item_sno` REQUIRES
  *
- * 0492's unique index is (bom_id, item_id, sno), so the counter restarts on each
- * fabric. One running counter across the document would not collide — it would
- * just number the second fabric's first step 5 — but the ordinal is what the
- * screen renders as `#`, and a route reading "#5 #6" under a fabric with two
- * steps is a document explaining itself wrongly.
+ * 0492's unique index was (bom_id, item_id, sno); 0528 widened it to
+ * (bom_id, item_id, combo, component_id, sno) for the split routes, so the
+ * counter now restarts per (fabric, combo, component) GROUP rather than per
+ * fabric alone. A colour-wise route's WHITE steps and BLACK steps are two
+ * routes that happen to share a fabric, so each counts its own steps 1, 2, 3 —
+ * exactly as two different fabrics already did before this migration.
  *
  * ## ORPHANS GO SILENTLY, AND THAT IS THE INTENDED READING
  *
@@ -284,28 +286,66 @@ function normalizeDias(data: FabricBomInput) {
  * no longer plans would leave the Budget costing a process nobody ordered. The
  * screen keeps such a card VISIBLE while its rows exist, so this is never the
  * first the operator hears of it.
+ *
+ * A step whose GROUP no longer matches the fabric's current toggles is
+ * dropped the same way — a colour-wise step left over from before "Assort
+ * Color Wise" was switched off (it carries a `combo` a now-unified route has
+ * nowhere to put), or a unified step left over from before it was switched ON
+ * (it carries no `combo` for a route that now requires one). Checked against
+ * the SCOPE, not against which colourway/component values still exist on the
+ * fabric's lines — the same trust level `stage_id` / `process_id` already get
+ * here (the database's own FK is what refuses a value naming nothing real).
+ * The screen's own `orphanedProcessCount` warns before Save from the identical
+ * rule, so the two can never disagree about which rows survive.
  */
-function normalizeProcesses(data: FabricBomInput, fabricIds: Set<string>) {
+function normalizeProcesses(
+  data: FabricBomInput,
+  fabricIds: Set<string>,
+  scopeByItem: Map<string, { assort_color_wise: boolean; component_wise: boolean }>,
+) {
   const nextSno = new Map<string, number>();
   const out: Record<string, unknown>[] = [];
 
   for (const p of data.processes) {
     if (!p.process_id) continue;
     if (!fabricIds.has(p.item_id)) continue;
-    const sno = (nextSno.get(p.item_id) ?? 0) + 1;
-    nextSno.set(p.item_id, sno);
+    const scope = scopeByItem.get(p.item_id) ?? { assort_color_wise: false, component_wise: false };
+    if (scope.assort_color_wise !== !!p.combo) continue;
+    if (scope.component_wise !== !!p.component_id) continue;
+    const groupKey = `${p.combo ?? ""}::${p.component_id ?? ""}`;
+    const snoKey = `${p.item_id}::${groupKey}`;
+    const sno = (nextSno.get(snoKey) ?? 0) + 1;
+    nextSno.set(snoKey, sno);
     out.push({
       item_id: p.item_id,
+      combo: p.combo ?? null,
+      component_id: p.component_id ?? null,
       sno,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
       loss_for_id: p.loss_for_id ?? null,
-      description: clean(p.description),
       loss_pct: p.loss_pct ?? null,
       type_id: p.type_id ?? null,
     });
   }
   return out;
+}
+
+/**
+ * The two split toggles worth storing (0528) — one row per fabric that still
+ * exists on the BOM AND has at least one toggle on. A fabric with neither
+ * toggle needs no row: absence already reads as "both off", 0492's original
+ * unified shape, so persisting a false/false row would only be a second way
+ * to say nothing.
+ */
+function normalizeProcessScopes(data: FabricBomInput, fabricIds: Set<string>) {
+  return data.processScopes
+    .filter((s) => fabricIds.has(s.item_id) && (s.assort_color_wise || s.component_wise))
+    .map((s) => ({
+      item_id: s.item_id,
+      assort_color_wise: s.assort_color_wise,
+      component_wise: s.component_wise,
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -652,6 +692,7 @@ function normalizeYarns(
         stage_id: st.stage_id,
         process_id: st.process_id,
         loss_for_id: st.loss_for_id ?? null,
+        combo: st.combo ?? "",
         description: st.description ?? "",
         /* THE PAYLOAD HAS ALREADY COERCED THIS TO A NUMBER and the shared
            predicate reads text, so the two are bridged HERE rather than by
@@ -669,11 +710,10 @@ function normalizeYarns(
       y.item_id,
       fabrics,
       compositions,
-      /* ONLY THE LOSS SINCE 0520. `For` describes how the loss is measured and
-         no longer scopes it, so the engine is not handed a value it would only
-         ignore — the same call the screen's `weightFor` makes, deliberately, so
-         the preview and the stored figure stay one computation. */
-      kept.map((st) => ({ loss_pct: st.loss_pct ?? null })),
+      /* `combo` SCOPES THE LOSS AGAIN (0504, restored 0529) — the same call the
+         screen's `weightFor` makes, deliberately, so the preview and the stored
+         figure stay one computation. */
+      kept.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
     );
 
@@ -693,23 +733,26 @@ function normalizeYarns(
            `chk_ofbys_not_both`, which is deliberately weaker than the parent's
            exclusive-or so that this state is representable.
 
-           THE YARN'S OWN REFUSAL IS THE ONLY REASON LEFT (0520). `stageProblem`
-           used to add a second — a step naming a colourway the requirement does
-           not have — and a step can no longer name one, so that state is
-           unrepresentable rather than merely rare. See its note in
-           `yarn-process.ts` for why a guard that cannot fire was deleted rather
-           than kept. */
-        const problem = refused ? weight.refused : null;
+           TWO REASONS A STEP CAN CARRY NO FIGURE (0529, restoring 0520's
+           second): the yarn's own refusal, or `stageProblem` — this STEP names a
+           colourway the requirement does not have (a combo removed from the
+           order, or renamed, after the treatment was recorded). */
+        const problem = refused
+          ? weight.refused
+          : st.process_id
+            ? stageProblem(st.combo ?? null, byCombo)
+            : null;
         return {
           sno: i + 1,
           stage_id: st.stage_id ?? null,
           process_id: st.process_id ?? null,
           loss_for_id: st.loss_for_id ?? null,
+          combo: st.combo ?? null,
           description: st.description ?? null,
           loss_pct: st.loss_pct ?? null,
           ...(st.process_id && !problem
             ? {
-                process_qty: stageProcessQty(byCombo),
+                process_qty: stageProcessQty(st.combo ?? null, byCombo),
                 uom_id: refused ? null : weight.uom_id,
                 refusal_reason: null,
               }
@@ -813,6 +856,10 @@ async function writeLines(
   for (const t of [
     "order_fabric_bom_requirements",
     "order_fabric_bom_processes",
+    /* THE SPLIT TOGGLES (0528). Same position as the routes above and for the
+       same reason: keyed on `bom_id` + `item_id`, references no line, so
+       nothing forces it before or after any other delete in this list. */
+    "order_fabric_bom_process_scope",
     "order_fabric_bom_lines",
     "order_fabric_bom_dias",
     /* THE YARNS, AND THEIR ROUTES BY CASCADE (0493).
@@ -889,7 +936,15 @@ async function writeLines(
   const fabricIds = new Set(
     lines.map((l) => l.item_id).filter((v): v is string => !!v),
   );
-  const processRows = normalizeProcesses(data, fabricIds);
+  const scopeRows = normalizeProcessScopes(data, fabricIds);
+  if (scopeRows.length) {
+    const { error } = await s
+      .from("order_fabric_bom_process_scope")
+      .insert(scopeRows.map((r) => ({ ...r, bom_id: bomId })));
+    if (error) return fail(error.message);
+  }
+  const scopeByItem = new Map(scopeRows.map((r) => [r.item_id, r]));
+  const processRows = normalizeProcesses(data, fabricIds, scopeByItem);
   if (processRows.length) {
     const { error } = await s
       .from("order_fabric_bom_processes")

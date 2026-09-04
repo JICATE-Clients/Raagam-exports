@@ -143,8 +143,11 @@ import {
 import { FabricProcessGrid } from "@/components/orders/fabric-process-grid";
 import {
   blankFabricProcess,
+  blankFabricProcessScope,
+  processGroupsFor,
   routeStepCount,
   type FabricProcessRow,
+  type FabricProcessScope,
 } from "@/lib/orders/fabric-bom/processes";
 /* Yarn Process (0493). NO grid component beside `FabricProcessGrid`: this tab
    flattened to four columns on the client's spec, so its cells live here with
@@ -196,9 +199,11 @@ import {
 import type { FabricOption } from "@/lib/orders/fabric-bom/fabric-options";
 import { FabricQuickCreateSheet } from "@/components/masters/fabric-quick-create-sheet";
 import {
+  componentsHiddenForLayout,
   fabricFormLabel,
   fabricGroupKey,
   rollUp,
+  type LayoutType,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
 
@@ -964,6 +969,13 @@ export function FabricBomScreen({
    */
   const [procs, setProcs] = useState<FabricProcessRow[]>([]);
   /**
+   * ONE FABRIC'S TWO SPLIT TOGGLES (0528) — legacy's `[Assort Color]` /
+   * `[Components]` on the Fabric Process outer row, read as CONTROLS. A flat
+   * list for the same reason `procs` is one: a fabric no line names any more
+   * should not keep a scope entry alive under a key nothing renders.
+   */
+  const [procScopes, setProcScopes] = useState<FabricProcessScope[]>([]);
+  /**
    * Yarn Process — THE ANSWERS ONLY, keyed by yarn id (0493).
    *
    * NOT THE ROWS. The rows are derived on every render from the fabrics' own
@@ -1048,12 +1060,6 @@ export function FabricBomScreen({
    *  what is ON it, not of how it is opened" (operator instruction,
    *  2026-09-03: apply this to every [Click]-opened sheet on this tab). */
   const [componentsOrigin, setComponentsOrigin] = useState<DOMRect | null>(null);
-  /** WHICH MANUAL ENTRY'S "Widths" POPUP IS OPEN — legacy's [Click] on the
-   *  Widths cell (screenshot 2681, "Width Details"). By entry key, same
-   *  reason as `componentsFor` above. */
-  const [widthsFor, setWidthsFor] = useState<string | null>(null);
-  /** The Widths button's own rect — same mechanism as `componentsOrigin`. */
-  const [widthsOrigin, setWidthsOrigin] = useState<DOMRect | null>(null);
   /** The picker hands us its `commit` so a save selects the new fabric and
    *  closes the list in one step. A ref because the sheet outlives the callback
    *  (the same shape `bank-picker.tsx` uses). */
@@ -1209,6 +1215,26 @@ export function FabricBomScreen({
    */
   const setFabricProcs = (itemId: string, next: FabricProcessRow[]) =>
     mutProcs((xs) => [...xs.filter((x) => x.item_id !== itemId), ...next]);
+
+  /**
+   * ONE FABRIC'S SCOPE, WRITTEN OR CLEARED.
+   *
+   * A fabric with no entry reads as both toggles off (`blankFabricProcessScope`
+   * only stands in on the READ side, in `scopeFor` below) — so this never
+   * inserts a false/false row, matching `normalizeProcessScopes`'s own refusal
+   * to persist one.
+   */
+  const setFabricScope = (itemId: string, patch: Partial<FabricProcessScope>) => {
+    setProcScopes((xs) => {
+      const current = xs.find((x) => x.item_id === itemId) ?? blankFabricProcessScope(itemId);
+      const next = { ...current, ...patch };
+      const rest = xs.filter((x) => x.item_id !== itemId);
+      return next.assort_color_wise || next.component_wise ? [...rest, next] : rest;
+    });
+    setDirty(true);
+  };
+  const scopeFor = (itemId: string): FabricProcessScope =>
+    procScopes.find((x) => x.item_id === itemId) ?? blankFabricProcessScope(itemId);
 
   // ---- the picked order ----------------------------------------------------
 
@@ -1442,7 +1468,7 @@ export function FabricBomScreen({
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const detailLine = lines.find((l) => l.key === detailKey) ?? null;
   /** The [Detail] button's own rect, so its sheet grows out of that button —
-   *  same mechanism as `componentsOrigin` / `widthsOrigin` below (AGENTS.md,
+   *  same mechanism as `componentsOrigin` below (AGENTS.md,
    *  "A sub-detail Sheet's size"). */
   const [detailOrigin, setDetailOrigin] = useState<DOMRect | null>(null);
 
@@ -1887,6 +1913,7 @@ export function FabricBomScreen({
        on a blank step the moment it is rendered, which is where that rule
        belongs. */
     setProcs([]);
+    setProcScopes([]);
     /* NO BLANK YARN, and not for `setProcs`' reason above but for a stronger
        one (0493): there is no such thing as a blank yarn row. The rows are
        derived from the fabrics' compositions, so a new BOM with no fabric named
@@ -1980,15 +2007,25 @@ export function FabricBomScreen({
       (b.processes ?? []).map((p) => ({
         key: newKey(),
         item_id: p.item_id,
+        combo: p.combo,
+        component_id: p.component_id,
         stage_id: p.stage_id,
         process_id: p.process_id,
         loss_for_id: p.loss_for_id,
-        description: p.description ?? "",
         /* Text, like every numeric cell on this screen: a controlled `<Input>`
            cannot hold "1." or "" as a number, so the form keeps text and the
            boundary converts once. */
         loss_pct: p.loss_pct == null ? "" : String(p.loss_pct),
         type_id: p.type_id,
+      })),
+    );
+    /* THE TWO SPLIT TOGGLES (0528). Straight across, same reason as the routes
+       just above — `item_id` is a stable master id. */
+    setProcScopes(
+      (b.processScopes ?? []).map((s) => ({
+        item_id: s.item_id,
+        assort_color_wise: s.assort_color_wise,
+        component_wise: s.component_wise,
       })),
     );
 
@@ -2048,11 +2085,13 @@ export function FabricBomScreen({
               key: newKey(),
               stage_id: st.stage_id,
               process_id: st.process_id,
-              /* THE `For` COLUMN, A LOOKUP ID SINCE 0520 — it held a colourway
-                 until 2026-09-03. Null passes straight through: the picker's
-                 empty value IS null, unlike the `<select>` this replaced, whose
-                 empty value was `""` and needed the coalesce. */
+              /* THE `For` COLUMN'S LABEL, A LOOKUP ID SINCE 0520. Null passes
+                 straight through: the picker's empty value IS null. */
               loss_for_id: st.loss_for_id ?? null,
+              /* THE `For` COLUMN'S ARITHMETIC (0504, restored 0529) — which
+                 colourway this step applies to. `""` for "every colourway",
+                 the `<select>` cell's empty value. */
+              combo: st.combo ?? "",
               description: st.description ?? "",
               /* Text, like every numeric cell on this screen: a controlled
                  `<Input>` cannot hold "1." or "" as a number, so the form keeps
@@ -3165,8 +3204,26 @@ export function FabricBomScreen({
       })),
       { key: e.key, style_ref_no: e.style_ref_no.trim() || null },
     );
+    /* THE "FAB RAIL" LAYOUT FILTER (0527) — RULE 4, the sibling of rule 3
+       above. A component this style has declared EXCLUSIVELY under the
+       OTHER Layout Type is hidden; everything else (undeclared, or
+       declared with no stated layout) is offered regardless, so an order
+       whose styles have never said which layout a part belongs to sees no
+       change at all — see `componentsHiddenForLayout`'s own doc comment.
+
+       ALREADY-TICKED SURVIVES THE HIDE, not just the taken-by-a-sibling
+       filter above: this entry's own `component_ids` are kept even if a
+       style declaration would now hide them, or narrowing a declaration
+       after the fact would blank an answer already saved. */
+    const hidden = componentsHiddenForLayout(
+      styleDecls,
+      e.style_ref_no.trim() || null,
+      (e.width_form || null) as LayoutType | null,
+    );
+    const selected = new Set(e.component_ids);
     return data.components
       .filter((c) => !taken.has(c.id))
+      .filter((c) => selected.has(c.id) || !hidden.has(c.id))
       /* `{ id, label }`, which is `MultiSelectOption` — not the `{ value, label }`
          a `Combobox` takes. Two option shapes in one file, and the type checker
          is the only thing that tells them apart. */
@@ -3256,16 +3313,21 @@ export function FabricBomScreen({
     });
 
     /**
-     * ALWAYS VISIBLE, IN BOTH MODES — reversed 2026-09-03 (0524), on the
-     * operator's explicit instruction after being shown the running Direct-mode
-     * screen and confirming they want legacy's full 11-column band on screen
-     * regardless of mode. This overrides the client's own written words quoted
-     * here until now: *"when the user toggles the system to Calculated mode,
-     * the Piece Weight field is locked to read-only, and the following input
-     * fields are revealed"* — Direct was gating these five columns out
-     * entirely, not merely leaving them unlocked, on that quote's authority.
-     * `mode` still decides whether Cons Wt is a typed field or a computed span
-     * (below) — only these columns' VISIBILITY stopped depending on it.
+     * HIDDEN IN DIRECT MODE, VISIBLE ONLY IN CALCULATED — REVERSED BACK
+     * 2026-09-04, undoing 0524's "always visible" call from hours earlier.
+     * 0524 had these five columns always on screen, on the operator's
+     * explicit instruction that day to match legacy's full band regardless of
+     * mode. The client's later, formal redesign spec restates the ORIGINAL
+     * written words, unchanged and just as explicit: *"when the user toggles
+     * the system to Calculated mode, the Piece Weight field is locked to
+     * read-only, and the following input fields are revealed"* — i.e. in
+     * Direct mode these are not merely unlocked, they are not part of the
+     * question being asked at all, and 99.9% of entries never see them. If
+     * this is ever revisited again, that is why "the column used to always
+     * show" is not by itself a reason to revert it a third time — check
+     * which spec is current. `mode` still decides whether Cons Wt is a typed
+     * field or a computed span (below); it now ALSO decides whether this
+     * whole array is spread into the grid at all (see the `return` below).
      *
      * ORDER, LABELS AND THE TOLERANCE'S TARGET ALL REVERTED 2026-09-03 (0524),
      * hours after 0523 moved the allowance to the width. `effectiveLength` in
@@ -3402,10 +3464,14 @@ export function FabricBomScreen({
            "they should automatically prepopulate the Dia field here but remain
            editable". A Combobox, so typed text is a SEARCH and never a stored
            value; `diaOptionsFor` keeps a held value visible and tagged.
-           HEADER TEXT IS LEGACY'S OWN "TableWidth" (2026-09-03 19:58 screenshot,
-           operator instruction: same label, same position, verbatim) — the
-           field is still `dia`, unrenamed; only the printed word changed. */
-        header: "TableWidth",
+           HEADER RENAMED "TableWidth" → "Finish Dia" (client redesign, point
+           2): "the physical width or diameter of the finished fabric roll …
+           required by the cutting room". That is exactly what this column
+           already IS — `dia`, the roll's finished diameter/width constraint,
+           never `table_width` (the panel width the formula multiplies, in
+           `measured` below) — so only the printed word changes; the field
+           stays `dia`, unrenamed. */
+        header: "Finish Dia",
         width: "5.5rem",
         cell: (r) => (
           <Combobox
@@ -3418,7 +3484,10 @@ export function FabricBomScreen({
           />
         ),
       },
-      ...measured,
+      /* CALCULATED MODE ONLY — see the docblock on `measured` above. Direct
+         mode (99.9% of entries) skips straight from Finish Dia to Cons Qty /
+         Cons Wt; the five measurement columns are not spread in at all. */
+      ...(mode === "calculated" ? measured : []),
       {
         /**
          * "Cons Qty" — UNITS OF CLOTH PER GARMENT, AND A FIELD SINCE 0523.
@@ -3496,46 +3565,11 @@ export function FabricBomScreen({
             })()
           ),
       },
-      {
-        /* LEGACY'S [Click] AT THE END OF THIS SAME ROW (2026-09-03 19:58
-           screenshot), and the same unanswered destination the Components tab's
-           own "Conv. Item" already carries — "a [Click] into a screen no
-           transcript describes" (0495). SAME TREATMENT AS "Assort Color" /
-           "Widths" three columns up on the fabric row above: disabled, with the
-           reason on a wrapping span rather than the button, because a disabled
-           control eats pointer events and a `title` on it directly is
-           unreachable. Never invent the sheet behind it — that is the failure
-           this tab already recorded once ("a screenshot cannot show a grain",
-           0491).
-
-           THIS IS THE LAST COLUMN OF THE GRID, and legacy's own (operator
-           instruction, 2026-09-03: same 11 columns, same order, same labels,
-           verbatim, nothing else on screen). `Purch. width` / `Order qty` /
-           `Net Wt` / `Req. Wt` briefly trailed after it as this screen's own
-           additions and were removed the same day, on the same instruction —
-           see the comment below this array for where their figures still
-           live. */
-        header: "Conv. Item",
-        width: "4.5rem",
-        align: "center",
-        cell: () => (
-          <span
-            className="block"
-            title="Legacy opens a sub-detail here. It is not built yet — send that screen and it will be."
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 w-full"
-              disabled
-              aria-label="Conv. Item — not built yet"
-            >
-              Click
-            </Button>
-          </span>
-        ),
-      },
+      /* "Conv. Item" IS GONE (client redesign, point 1: "unit conversions are
+         now calculated automatically on-save"). It was a genuine stub — a
+         disabled button with nothing behind it, never a real destination —
+         so unlike Widths above, nothing is thrown away by removing it.
+         Cons Wt is now THE LAST COLUMN of the grid. */
     ];
     /* PURCH. WIDTH / ORDER QTY / NET WT / REQ. WT WERE HERE, TRAILING AFTER
        Conv. Item — this screen's own additions beyond legacy's 11-column band.
@@ -3637,9 +3671,9 @@ export function FabricBomScreen({
   const manualFabricOptions = (held: string | null) => {
     /* THE MASTER ROWS, FILTERED BY THE LINES — not rows rebuilt from the lines.
        `setEntryFabric` reads `category_id` off the row it is handed and
-       `entryUnitName` reads `base_uom_id`, so the option has to be the whole
-       master row; a `{id, name}` shaped from a line would set the structure to
-       null and blank the MeasurementUnit cell. */
+       `entryFabric` (server) reads `base_uom_id`, so the option has to be the
+       whole master row; a `{id, name}` shaped from a line would set the
+       structure to null and lose the unit the requirement is stored in. */
     const named = new Set(lines.map((l) => l.item_id).filter(Boolean));
     const scoped = fabrics.filter((f) => named.has(f.id));
     if (!held || scoped.some((f) => f.id === held)) return scoped;
@@ -3683,14 +3717,6 @@ export function FabricBomScreen({
     return kinds.size === 1
       ? (KNIT_TYPE_OPTIONS.find((o) => o.value === [...kinds][0])?.label ?? "")
       : "";
-  };
-
-  /** Legacy's "MeasurementUnit" — the cloth's own base unit, which is what the
-   *  requirement is measured in. The server's `entryFabric` reads the same
-   *  column, so the cell and the stored row cannot disagree. */
-  const entryUnitName = (e: ManualEntryRow): string => {
-    const id = entryFabricRow(e)?.base_uom_id ?? null;
-    return (id ? data.uoms.find((u) => u.id === id)?.name : "") ?? "";
   };
 
   /**
@@ -3768,27 +3794,14 @@ export function FabricBomScreen({
         />
       ),
     },
-    {
-      header: "Type",
-      cardLabel: "Knit type",
-      width: "4.5rem",
-      /* DERIVED AND READ-ONLY. Plain text rather than a `readOnly` box: a
-         derived value was not typed, so it is not a field — the same call the
-         Eff. len and Cons Wt cells make one level down. */
-      cell: (e) => <ClothText value={entryKnitType(e)} />,
-    },
-    {
-      header: "Gsm",
-      width: "4rem",
-      align: "right",
-      /* THE ORDER'S, abstaining where its colourways disagree. `gsmForStructure`
-         is the same function the Save gate and the server's own lookup read, and
-         it answers for the structure this row's CLOTH belongs to. */
-      cell: (e) => {
-        const g = gsmForStructure(e.structure_id);
-        return <ClothText value={g == null ? "" : String(g)} />;
-      },
-    },
+    /* KNIT TYPE / FAMILY AND GSM ARE OFF THIS GRID (client redesign,
+       business-rationale point 1: knit type is "already defined in the
+       earlier fabric master setups" and GSM is "already locked in the
+       Composition tab" — re-showing either here was redundant clutter on a
+       screen used for 99.9%-of-the-time Direct entry. Neither derivation
+       was deleted — `gsmForStructure` still feeds the calculated-mode
+       formula and `entryKnitType` still labels the rail's own subtitle
+       below; only these two grid COLUMNS are gone. */
     {
       header: "Type",
       cardLabel: "Roll form",
@@ -3833,21 +3846,12 @@ export function FabricBomScreen({
         </Select>
       ),
     },
-    {
-      header: "MeasurementUnit",
-      /* "Unit" IN THE STACKED LAYOUT ONLY — the header stays legacy's own
-         unbroken compound word for the table, but that word has no space to
-         wrap on and no room to sit unbroken in the rail's compact row
-         (client 2026-09-04, screenshot 2694: it ran into the field beside
-         it). Same disambiguation `cardLabel` already gives the three "Type"
-         columns. */
-      cardLabel: "Unit",
-      width: "4rem",
-      /* THE CLOTH'S OWN BASE UNIT, which is the unit the requirement is stored
-         in — `entryFabric` on the server reads the same column. Blank until a
-         fabric is named, which is what legacy's own screenshot shows. */
-      cell: (e) => <ClothText value={entryUnitName(e)} />,
-    },
+    /* UNIT/MeasurementUnit IS OFF THIS GRID (client redesign, point 1: "the
+       unit selector is hidden from the UI" — the system silently assigns
+       Kgs to a knit fabric row and Yards/Metres to a woven one). Nothing
+       about the assignment changed: `entryFabric` on the server still reads
+       the cloth's own base unit off `item_id`; `entryUnitName` just has no
+       column left to render into. */
     {
       header: "Assort Color wise",
       width: "4.5rem",
@@ -3910,24 +3914,15 @@ export function FabricBomScreen({
         />
       ),
     },
-    {
-      header: "Component Proc. Loss %",
-      width: "4.5rem",
-      align: "right",
-      /* `wastage_pct` UNDER LEGACY'S NAME. 0494 called it "Wastage / Damage %"
-         from the client's written spec; legacy's own header for the same cell —
-         the one that multiplies Net into Gross — is this. The column keeps its
-         name in the schema, where every reader already knows it. */
-      cell: (e) => (
-        <Input
-          className="text-right"
-          inputMode="decimal"
-          aria-label="Component Proc. Loss %"
-          value={e.wastage_pct}
-          onChange={(ev) => setEntryCell(e.key, { wastage_pct: ev.target.value })}
-        />
-      ),
-    },
+    /* COMPONENT PROC. LOSS % IS OFF THIS GRID (client redesign, point 1: it
+       "prevented confusion with the sequential fabric process losses
+       configured in the next tab"). `wastage_pct` is UNCHANGED in the schema
+       and still one of `requiredKg`'s two compounding factors alongside
+       EndBit Loss % — this hides the column, it does not zero the value.
+       Existing rows keep whatever they were saved with; there is currently
+       no other screen this session's work wires up to set it going forward,
+       so a NEW entry's wastage_pct simply stays at its stored default until
+       the Fabric Process tab (or a client decision) gives it a home. */
     {
       header: "Components",
       width: "4.5rem",
@@ -3987,55 +3982,19 @@ export function FabricBomScreen({
         </span>
       ),
     },
-    {
-      /* LEGACY'S [Click] ▸ "Width Details" (screenshot 2681) — LIVE now
-         (0525), the same shape Components' button already has: a Sheet with
-         its own per-size grid, opened by entry key. */
-      header: "Widths",
-      width: "4.5rem",
-      align: "center",
-      cell: (e) => (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 w-full"
-          onClick={(ev) => {
-            setWidthsOrigin(ev.currentTarget.getBoundingClientRect());
-            setWidthsFor(e.key);
-          }}
-        >
-          Click
-        </Button>
-      ),
-    },
-    {
-      /* A THIRD "Type" — SOLID · MELANGE · YARN DYED, off the fabric itself
-         (`fabricTypeOf`, the ONE derivation this file already reads five other
-         places: the Fabric Lines grid, the Save gate, `problems`, the yarn-dyed
-         mandatory check). NOT legacy's own row (screenshots 2666 · 2667 name
-         only the two "Type" columns above — knit family and roll form), so it
-         TRAILS after Widths rather than sitting between them, the same
-         treatment the trailing Purch. width / Order qty / Net Wt / Req. Wt
-         columns got on the size grid below: this screen's own addition, added
-         2026-09-03 on operator instruction, kept out of legacy's verified
-         sequence.
+    /* THE "Widths" BUTTON IS GONE (client redesign, point 1: "completely
+       removed"), and with it the sub-sheet it opened — `widthsFor`,
+       `widthsOrigin`, `widthsForEntry` and the Sheet render all removed.
+       This DOES throw away a real, just-shipped entry point for two fields
+       (`purchase_width`, `finished_width` on `ManualSizeRow`) — the client's
+       spec is explicit that this is intended, so the schema and the fields
+       are left as-is (harmless, just unreachable from this screen) rather
+       than migrated away, in case a future screen needs to read them.
 
-         `cardLabel` DISAMBIGUATES IT FROM THE OTHER TWO in the stacked mobile
-         layout, the same way "Knit type" and "Roll form" already do — three
-         columns headed bare "Type" would be three identical labels stacked on
-         top of each other there. */
-      header: "Type",
-      cardLabel: "Fabric type",
-      /* NARROWER THAN THE OTHER TWO "Type" COLUMNS ON PURPOSE — this trails
-         outside legacy's verified band and the width budget has no slack left
-         for a fourth full-width column (`check:grid-budget`). `Truncated`
-         handles it: "Solid"/"Melange" fit as typed, "Yarn Dyed" clips to an
-         ellipsis with the full word on hover/hold — the reveal is the point of
-         that primitive, not a workaround. */
-      width: "2rem",
-      cell: (e) => <ClothText value={fabricTypeOf(e.item_id)} />,
-    },
+       FABRIC TYPE IS ALSO GONE (point 1: "coloration rules … do not affect
+       manual piece-weight entries"). `fabricTypeOf` stays imported — it is
+       still read by the Fabric Lines grid, the Save gate, `problems` and the
+       yarn-dyed mandatory check, none of which lived on this array. */
   ];
 
   /** The entry whose Components sheet is open, resolved from the key. Null when
@@ -4044,10 +4003,6 @@ export function FabricBomScreen({
   const componentsForEntry = componentsFor
     ? (entries.find((e) => e.key === componentsFor) ?? null)
     : null;
-
-  /** The entry whose Widths sheet is open — same resolution as
-   *  `componentsForEntry` above, same reason. */
-  const widthsForEntry = widthsFor ? (entries.find((e) => e.key === widthsFor) ?? null) : null;
 
   /**
    * MANUAL ENTRY FIELD SIZES, THE SAME SHAPE `FIELD_SIZES` GIVES THE
@@ -4167,17 +4122,20 @@ export function FabricBomScreen({
           rows={manualEntries}
           forceCards
           flatRows
-          /* NEITHER `railWidthPx` NOR `railCompact` IS SET — Material BOM's
-             OWN rail, not Components' (client 2026-09-04, on this exact
-             screen: "button size and that rail bg etc are not samelike
-             material bom i need it like so"). Components deliberately
-             narrowed to 220px and tightened its padding for its own reasons
-             (client 2026-09-03: "220px — a little narrower", "use compact
-             that rail menu") — reasons that belong to Components' rail, not
-             to every masterDetail grid. Leaving both unset falls through to
-             `child-grid.tsx`'s own defaults (268px, `px-3 py-2`), which are
-             Material BOM's figures — the one masterDetail grid never
-             customises either prop. */
+          /* `railWidthPx` STAYS UNSET -- Material BOM's own 268px, not
+             Components' 220px (client 2026-09-04, on this exact screen:
+             "button size and that rail bg etc are not samelike material bom
+             i need it like so"). Width was never the complaint, so it is
+             still left to fall through to `child-grid.tsx`'s default.
+
+             `railCompact` IS NOW SET, correcting the note above rather than
+             contradicting it -- the same day, after seeing the un-compacted
+             rows, the client asked to shrink the rail's length (screenshot,
+             2026-09-04). Components already carries `railCompact` for its
+             own reasons (client 2026-09-03: "use compact that rail menu"),
+             so this call site now borrows its padding without borrowing its
+             width -- the two props are independent and this is intentionally
+             a partial match, not a full revert to Components' rail. */
           /* LOAD-BEARING, THE SAME WAY IT IS ON COMPONENTS. Every column in
              `manualEntryColumns` declares a `width` — it was written for the
              `<table>` this replaces — so without `fill` the card would hug
@@ -4186,6 +4144,11 @@ export function FabricBomScreen({
           foldRows
           masterDetail
           railAlways
+          railCompact
+          /* THE TINT IS OFF (client 2026-09-04: "need remove that grey bg from
+             that rail" — both this rail and Components'). See `railBg`'s own
+             note on `child-grid.tsx`. */
+          railBg={false}
           /* THREE STATES, THE SAME READING `manualProblem` already gives the
              Save gate and `styleRefusal`: idle before a fabric is named,
              warn once one is named and `manualProblem` still finds something
@@ -5392,10 +5355,10 @@ export function FabricBomScreen({
       r.item_id,
       fabricGross,
       compositionById,
-      /* ONLY THE LOSS. `For` stopped scoping the arithmetic on 2026-09-03
-         (0520) — every step now treats every colourway — so the engine is not
-         handed a value it would only ignore. */
-      r.stages.map((st) => ({ loss_pct: numOrNull(st.loss_pct) })),
+      /* `combo` SCOPES THE LOSS AGAIN (0504, restored 0529) — the same call the
+         action's `normalizeYarns` makes, so the preview and the stored figure
+         stay one computation. */
+      r.stages.map((st) => ({ combo: st.combo || null, loss_pct: numOrNull(st.loss_pct) })),
       uom?.decimal_places_allowed ?? null,
     );
   };
@@ -5972,6 +5935,12 @@ export function FabricBomScreen({
 
   const yarnPanel = (r: YarnRow) => {
     const w = weightFor(r);
+    /* THE COLOURWAYS THIS YARN IS ACTUALLY NEEDED IN (0504, restored 0529) —
+       read off the same breakdown the weight came out of, never the order's
+       whole combo list (the cascading-filter rule, AGENTS.md). `""` is
+       filtered out: it means "no colour axis on this fabric's requirement",
+       not a colourway the `For` field could scope to. */
+    const combos = isRefusal(w) ? [] : w.byCombo.map((c) => c.combo).filter(Boolean);
     return (
       <>
         {/* WHY THIS YARN HAS NO WEIGHT, and the only place left that says so
@@ -5995,6 +5964,7 @@ export function FabricBomScreen({
              / COLOR WISE, already loaded for `FabricProcessGrid` below. One list
              behind both `For` columns; see the prop. */
           lossFor={data.processLookups.lossFor}
+          combos={combos}
           /* THE SCREEN'S OWN GENERATOR, so a process added to a reopened BOM
              cannot collide with the keys `openExisting` has already issued. */
           newKey={newKey}
@@ -6094,6 +6064,18 @@ export function FabricBomScreen({
        route they are typing covers the collar as well as the body. */
     combos: [...new Set(g.lines.map((l) => l.combo.trim()).filter(Boolean))],
     panels: [...new Set(g.lines.map((l) => componentName(l)).filter(Boolean))],
+    /* SAME FACT AS `panels` ABOVE, BY ID RATHER THAN BY NAME — what
+       `processGroupsFor` (0528) needs to split a route "Component Wise".
+       `panels` stays name-only: it is read-only prose on the outer row and
+       has never needed an id to click through to anything. Deduped by
+       `component_id`, the same panel identity `takenComponentIds` reads. */
+    panelIds: [
+      ...new Map(
+        g.lines
+          .filter((l): l is LineRow & { component_id: string } => !!l.component_id)
+          .map((l) => [l.component_id, { id: l.component_id, name: componentName(l) }] as const),
+      ).values(),
+    ],
   }));
 
   type FabricRouteRow = (typeof fabricRouteRows)[number];
@@ -6148,6 +6130,18 @@ export function FabricBomScreen({
       cell: (r) => <ClothText value={r.panels.join(", ")} />,
     },
   ];
+
+  /**
+   * HAS THE ORDER DECLARED A PRINT? (0528) — "if the user has not configured
+   * an All-Over Print (AOP) or Roll form print under the Color/Composition
+   * tab, block the dyer/planner from selecting Print as a process sequence
+   * stage." `declaredPrints` IS that tab's Roll form prints panel (Color/
+   * Print Details, 0490), already computed above from the DRAFT with a
+   * fall-back to the loaded palette while the draft is still null — reused
+   * rather than re-derived, so this gate and that panel can never read the
+   * order's prints differently.
+   */
+  const printDeclared = declaredPrints.length > 0;
 
   // ---- sections ------------------------------------------------------------
 
@@ -7101,6 +7095,11 @@ export function FabricBomScreen({
                    */
                   foldRows
                   masterDetail
+                  /* THE TINT IS OFF (client 2026-09-04: "need remove that grey
+                     bg from that rail" — the Manual tab's other rail, the
+                     fabric-entry list below, got the same instruction). See
+                     `railBg`'s own note on `child-grid.tsx`. */
+                  railBg={false}
                   renderListItem={(row) => {
                     /* INERT BY CONTRACT — see `renderListItem` on the grid.
                        Text, a dot and a count; nothing focusable, because the
@@ -7341,25 +7340,109 @@ export function FabricBomScreen({
                 );
                 return steps ? `${steps} step${steps === 1 ? "" : "s"}` : "No route yet";
               }}
-              renderPanel={(r) => (
-                <FabricProcessGrid
-                  itemId={r.item_id}
-                  rows={procs.filter((p) => p.item_id === r.item_id)}
-                  onChange={(next) => setFabricProcs(r.item_id, next)}
-                  processes={data.processes}
-                  lookups={data.processLookups}
-                  /* THE SCREEN'S OWN GENERATOR, so a route added to a
-                     reopened BOM cannot collide with the keys `openExisting`
-                     has already issued. */
-                  newKey={newKey}
-                  /* The HOST screen's permissions standing in for "may I
-                     maintain this shared code list" — the model every
-                     `LookupDialogPicker` call site in this app uses. */
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                  readOnly={!perms.canEdit && !perms.canCreate}
-                />
-              )}
+              renderPanel={(r) => {
+                const scope = scopeFor(r.item_id);
+                const fabricRows = procs.filter((p) => p.item_id === r.item_id);
+                const groups = processGroupsFor(scope, r.combos, r.panelIds);
+                const groupKeys = new Set(groups.map((g) => g.key));
+                /* ROWS A TOGGLE FLIP LEFT BEHIND — a step whose (combo,
+                   component_id) matches no group `processGroupsFor` currently
+                   returns for this fabric. `normalizeProcesses` drops exactly
+                   these on Save (same rule, so the two can never disagree);
+                   this is the operator's warning before that happens, the same
+                   idiom the outer row already uses for "no fabric line uses
+                   this any more". */
+                const orphaned = fabricRows.filter(
+                  (p) => !groupKeys.has(`${p.combo ?? ""}::${p.component_id ?? ""}`),
+                ).length;
+                const readOnly = !perms.canEdit && !perms.canCreate;
+                return (
+                  <div className="space-y-3">
+                    {/* LEGACY'S `[Assort Color]` / `[Components]` ON THE OUTER
+                        ROW, READ AS CONTROLS (0528) — see the tab's own header
+                        comment for why that is a reversal of 0492's original
+                        reading rather than a new feature. Disabled the same way
+                        every other control on this screen is: the host
+                        permission, not a second "may I split a route" rule. */}
+                    <div className="flex flex-wrap items-center gap-4">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={scope.assort_color_wise}
+                          disabled={readOnly}
+                          onChange={(e) =>
+                            setFabricScope(r.item_id, { assort_color_wise: e.target.checked })
+                          }
+                        />
+                        <span className="text-sm text-foreground">Assort Color Wise</span>
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={scope.component_wise}
+                          disabled={readOnly}
+                          onChange={(e) =>
+                            setFabricScope(r.item_id, { component_wise: e.target.checked })
+                          }
+                        />
+                        <span className="text-sm text-foreground">Component Wise</span>
+                      </label>
+                    </div>
+                    {orphaned > 0 && (
+                      <div className="text-xs text-warning">
+                        {orphaned} existing step{orphaned === 1 ? "" : "s"} no longer match
+                        this fabric&apos;s grouping and will be dropped on Save.
+                      </div>
+                    )}
+                    {groups.map((g) => (
+                      <div key={g.key} className="space-y-1">
+                        {/* A HEADING ONLY WHEN THERE IS MORE THAN ONE GROUP —
+                            Case A's single unified grid gets none, matching
+                            every other "no heading sentence" surface on this
+                            screen (AGENTS.md, de-clutter). */}
+                        {groups.length > 1 && (
+                          <div className="text-xs font-medium text-muted-foreground">
+                            {g.label}
+                          </div>
+                        )}
+                        <FabricProcessGrid
+                          itemId={r.item_id}
+                          combo={g.combo}
+                          componentId={g.component_id}
+                          rows={fabricRows.filter(
+                            (p) => (p.combo ?? null) === g.combo && (p.component_id ?? null) === g.component_id,
+                          )}
+                          onChange={(next) =>
+                            setFabricProcs(r.item_id, [
+                              ...fabricRows.filter(
+                                (p) =>
+                                  (p.combo ?? null) !== g.combo || (p.component_id ?? null) !== g.component_id,
+                              ),
+                              ...next,
+                            ])
+                          }
+                          processes={data.processes}
+                          lookups={data.processLookups}
+                          printDeclared={printDeclared}
+                          /* THE SCREEN'S OWN GENERATOR, so a route added to a
+                             reopened BOM cannot collide with the keys
+                             `openExisting` has already issued. */
+                          newKey={newKey}
+                          /* The HOST screen's permissions standing in for "may
+                             I maintain this shared code list" — the model
+                             every `LookupDialogPicker` call site in this app
+                             uses. */
+                          canCreate={perms.canCreate}
+                          canEdit={perms.canEdit}
+                          readOnly={readOnly}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                );
+              }}
             />
           )}
 
@@ -7527,15 +7610,31 @@ export function FabricBomScreen({
          `uq_ofbp_item_sno` needs. */
       processes: procs.map((p, i) => ({
         item_id: p.item_id,
+        combo: p.combo,
+        component_id: p.component_id,
+        /* `sno` HERE IS A PLACEHOLDER, not the ordinal the server writes — it
+           only has to satisfy the schema's `nonnegative`. `normalizeProcesses`
+           renumbers per GROUP (fabric x combo x component), which this flat,
+           unsorted `procs` array cannot do correctly across several fabrics'
+           worth of groups; that is the server's job, same as it always was for
+           `sno` here. */
         sno: i + 1,
         stage_id: p.stage_id,
         process_id: p.process_id,
         loss_for_id: p.loss_for_id,
-        description: p.description || null,
         loss_pct: numOrNull(p.loss_pct),
         /* NO `rate` — the client removed the column on 2026-09-03 and it went
-           from the row, the schema and the table with it (0521). */
+           from the row, the schema and the table with it (0521). NO
+           `description` either — 2026-09-04, the same shape (0528). */
         type_id: p.type_id,
+      })),
+      /* THE TWO SPLIT TOGGLES (0528). Sent straight — `normalizeProcessScopes`
+         is what decides which of these are worth a row (a fabric no longer
+         named, or with neither toggle on, gets none). */
+      processScopes: procScopes.map((s) => ({
+        item_id: s.item_id,
+        assort_color_wise: s.assort_color_wise,
+        component_wise: s.component_wise,
       })),
       /* THE YARN ROWS AND THEIR TREATMENTS, DERIVED AND THEN SENT (0493 · 0504).
          `yarnRows` is not form state — it is the fabrics' compositions with the
@@ -7556,10 +7655,10 @@ export function FabricBomScreen({
           sno: j + 1,
           stage_id: st.stage_id,
           process_id: st.process_id,
-          /* THE `For` LOOKUP (0520). Already null when unset — no coalesce to
-             get wrong, which is the small gain of an id over the free text this
-             replaced. */
+          /* THE `For` COLUMN'S LABEL (0520). Already null when unset. */
           loss_for_id: st.loss_for_id,
+          /* THE `For` COLUMN'S ARITHMETIC (0504, restored 0529). */
+          combo: st.combo || null,
           description: st.description || null,
           loss_pct: numOrNull(st.loss_pct),
         })),
@@ -7953,130 +8052,6 @@ export function FabricBomScreen({
                   A component belongs to one fabric entry per style — the weights are
                   summed, so a panel counted twice is its cloth bought twice.
                 </p>
-              </div>
-            </Sheet>
-          );
-        })()}
-
-      {/* LEGACY'S [Click] ▸ "Width Details" (screenshot 2681) — Style No /
-          Article No / Fabric, then a size-wise "Consumption Size Details"
-          grid. Legacy prints all eight columns, but the operator's own
-          correction (2026-09-03, minutes after 0525 shipped the first two as
-          the real pair) is that only TWO are real: Finished Width and
-          Purchase Width. 0525's `roll_width` / `roll_width_tolerance` were
-          the wrong reading and were reverted the same day (0526) — dropped
-          from the database, not left unused. The other five legacy columns
-          (Width, Width Tolerance, the second Width, Calculated Width, Width
-          For Calc) are not drawn at all: every value in the reference
-          screenshot is 0.00, with no worked example, and this tab does not
-          invent a formula from a screenshot of zeros ("a screenshot cannot
-          show a grain", manual.ts's own header). */}
-      {widthsForEntry &&
-        (() => {
-          const fabricName =
-            fabrics.find((f) => f.id === widthsForEntry.item_id)?.name ?? "(no fabric named)";
-          const rows = manualSizeRows(widthsForEntry);
-          const set = (r: ManualDisplayRow, patch: Partial<ManualSizeRow>) => {
-            if (widthsForEntry.size_wise) return setSizeCell(widthsForEntry.key, r, patch);
-            for (const row of manualSizeRows(widthsForEntry)) setSizeCell(widthsForEntry.key, row, patch);
-          };
-          return (
-            <Sheet
-              open
-              onClose={() => setWidthsFor(null)}
-              title={`Widths — ${fabricName}`}
-              /* `sm`, NOT `md` — the operator's own "just field fit screen"
-                 (2026-09-03, screenshot 2687: `md`'s `max-w-6xl` still left a
-                 huge blank pane beside a ~370px table). Style ▸ Process next
-                 door stays on `md` for a REASON THAT DOES NOT APPLY HERE:
-                 its grid is a `ChildGrid`, whose responsive table only
-                 switches in from a ~512px container, so `sm`'s `max-w-md`
-                 (448px, ~408px of content) dropped it to stacked cards with
-                 no column headers (client 2026-08-12, screenshot 2266) — the
-                 exact fault that note warns not to re-introduce. This table
-                 is a plain hand-rolled `<table>` with no such breakpoint: it
-                 renders identically at any container width, so `sm` costs
-                 nothing here that `md` was buying. */
-              size="sm"
-              /* SAME TWO PROPS AS THE COMPONENTS SHEET ABOVE, same reason. */
-              alignToPane
-              origin={widthsOrigin}
-              /* NO SAVE OF ITS OWN — same shape as Components above. */
-              footer={<SubSheetFooter onDone={() => setWidthsFor(null)} parent="fabric BOM" />}
-            >
-              {/* NO Style Ref No / Style No / Article No BAND HERE (operator
-                  instruction, 2026-09-03: remove all three from this sheet).
-                  The Sheet's own `title` above already names the fabric; the
-                  Components sheet keeps its band — this removal is scoped to
-                  Widths only. */}
-              <div className="space-y-4">
-                {/* BACK TO `w-full`, NOW THAT THE SHEET ITSELF IS `sm`
-                    (448px) rather than `md` (1152px). `w-fit` was the right
-                    fix for a 370px table sitting inside an oversized 1152px
-                    box; inside a 448px box the same `w-fit` table left a
-                    smaller but still visible gap on the trailing side
-                    (operator screenshot 2688: "still needs some area fit").
-                    A `sm` dialog is sized FOR content this size, so the two
-                    data columns filling it — Finished Width and Purchase
-                    Width each getting a normal ~9rem input rather than
-                    huddling at `w-28` — is the fit, not a regression back to
-                    the original "huge fields" complaint (that one was a
-                    ~570px input inside a 1152px sheet; this is a ~9rem input
-                    inside a 448px one). */}
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full table-fixed border-collapse text-sm">
-                    <thead>
-                      {/* THE HEADER WAS THE OTHER HALF OF THE "HUGE" COMPLAINT
-                          (operator, having found it: "that header style is the
-                          reason"). `w-24` (6rem) is narrower than "Finished
-                          Width" / "Purchase Width" at `text-xs`, so each header
-                          wrapped to two lines — and a two-line head row is
-                          nearly DOUBLE the height a one-line row needs, which
-                          reads as bulky on a table with only two data columns.
-                          Widened to `w-28` and pinned to one line with
-                          `whitespace-nowrap`; `py-1.5` trims the row's own
-                          padding to match. */}
-                      <tr className="border-b bg-muted/40 text-right text-xs text-muted-foreground">
-                        <th className="w-16 whitespace-nowrap px-2 py-1.5 text-left font-medium">
-                          Size
-                        </th>
-                        <th className="w-28 whitespace-nowrap px-2 py-1.5 font-medium">
-                          Finished Width
-                        </th>
-                        <th className="w-28 whitespace-nowrap px-2 py-1.5 font-medium">
-                          Purchase Width
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r) => (
-                        <tr key={r.key} className="border-b last:border-b-0">
-                          <td className="px-2 py-1 text-left">
-                            <Truncated>{r.label}</Truncated>
-                          </td>
-                          <td className="px-2 py-1">
-                            <Input
-                              className="h-8 text-right"
-                              inputMode="decimal"
-                              aria-label="Finished Width"
-                              value={r.finished_width}
-                              onChange={(ev) => set(r, { finished_width: ev.target.value })}
-                            />
-                          </td>
-                          <td className="px-2 py-1">
-                            <Input
-                              className="h-8 text-right"
-                              inputMode="decimal"
-                              aria-label="Purchase Width"
-                              value={r.purchase_width}
-                              onChange={(ev) => set(r, { purchase_width: ev.target.value })}
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
               </div>
             </Sheet>
           );

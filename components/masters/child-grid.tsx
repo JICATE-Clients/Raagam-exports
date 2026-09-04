@@ -1172,6 +1172,7 @@ export function ChildGrid<T extends { key: string }>({
   railAlways = false,
   railWidthPx,
   railCompact = false,
+  railBg = true,
   renderListItem,
   onOpenRow,
   canFold,
@@ -1780,6 +1781,19 @@ export function ChildGrid<T extends { key: string }>({
    * the same separation that made `renderListItem` its own renderer.
    */
   railCompact?: boolean;
+  /**
+   * THE PANE'S TINT, OPT-OUT (client 2026-09-04, Fabric BOM ▸ Components and
+   * ▸ Manual: "need remove that grey bg from that rail").
+   *
+   * `bg-surface-muted/60` on the list pane was added on 2026-08-20 so the
+   * pane read as a box rather than running on down an empty white column
+   * once the entries ran out — see the note on the pane `<div>` below. That
+   * reasoning still holds for Material BOM, the rail it was written for, so
+   * this is a per-caller opt-out rather than a deletion: Components and
+   * Manual are the two call sites that pass `false`, Material BOM passes
+   * nothing and keeps the tint.
+   */
+  railBg?: boolean;
   /**
    * What one line looks like in the master-detail list. Required by
    * `masterDetail`; ignored without it.
@@ -2771,7 +2785,10 @@ export function ChildGrid<T extends { key: string }>({
                * marker gets that same result without the mouse-only half.
                */
               data-focus-optional
-              className="flex flex-col overflow-y-auto bg-surface-muted/60 border-border md:max-h-[560px] md:border-r">
+              className={cn(
+                "flex flex-col overflow-y-auto border-border md:max-h-[560px] md:border-r",
+                railBg && "bg-surface-muted/60",
+              )}>
               {view.map((row, localI) => {
                 const i = offset + localI;
                 const isOpen =

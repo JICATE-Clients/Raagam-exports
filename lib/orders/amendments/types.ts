@@ -922,10 +922,13 @@ export interface AmendmentStyleSize {
  * are, and read back by the same pass: `writeChildren` reinserts `..._styles`
  * wholesale, so an id would dangle.
  *
- * `pickStyle` SEEDS these from `garment_style_components` — so the order starts
- * from what the style declares and can then differ from it, which is the whole
- * point of the order holding its own rows. Editing the master instead would
- * rewrite every other order already pointing at that style.
+ * `pickStyle` USED TO SEED THESE FROM `garment_style_components` — WITHDRAWN
+ * 2026-08-25 (client: "Style — allow it manual entry now, unwire that style
+ * mapping … field in orderinfo"). The Style master's own Components tab is
+ * retired; Coordinate/Component/Structure/Layout Type are typed straight onto
+ * this row now, and this table (`garment_order_amendment_style_components`,
+ * 0457) is the only place any of them is declared. A reader finding
+ * `pickStyle` cited elsewhere in this codebase is holding pre-08-25 history.
  */
 export interface AmendmentStyleComponent {
   id: string;
@@ -952,6 +955,10 @@ export interface AmendmentStyleComponent {
   /** "Fabric" — withdrawn as a cell on the master 2026-08-11, stored for the
    *  same reason `comp_type` is. */
   item_id: string | null;
+  /** Open Width | Tubular, or null — which Layout Type this part is normally
+   *  cut in (0527, the "Fab Rail" spec). Optional and read permissively: see
+   *  `componentsHiddenForLayout` in lib/orders/fabric-bom/component-map.ts. */
+  layout_type: string | null;
 }
 
 /**
@@ -1744,6 +1751,12 @@ export const amendmentStyleComponentInput = z.object({
   fabric_category_id: uuidN,
   comp_type: nullableText,
   item_id: uuidN,
+  // Open Width | Tubular, or null (0527) — matches
+  // `goa_style_components_layout_type_check`. A bare nullable text rather
+  // than a z.enum: the CHECK is the one place the vocabulary is enforced,
+  // and a stray value here should reach it and fail there, not be silently
+  // narrowed away before the database ever sees it.
+  layout_type: nullableText,
 });
 
 export const amendmentDyeingInput = z.object({

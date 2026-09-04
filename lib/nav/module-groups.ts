@@ -552,36 +552,21 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // that is not rendered. Moving the entry into the group that already means
       // "off the menu, still on the URL" needs none of that and is the shape
       // three screens have been in since 08-14.
-      // Sits directly under Order Entry by request (operator, 2026-08-08), not
-      // in 14-step flow position — amending an order is what the operator does
-      // next after raising one, so the two rows belong side by side. Row ORDER
-      // in this array is the sidebar's order; nothing else reads it, so moving a
-      // group here is safe and is the only way to move a row.
-      {
-        kind: "group",
-        slug: "changes",
-        label: "Amendments",
-        description: "Raise and approve changes to a confirmed order",
-        children: [
-          // A ROW AGAIN, AND A REAL ONE (client 2026-08-13).
-          //
-          // It was `cardOnly` here, pointing at the same route as Order Entry ▸
-          // Garment Order — one screen, two labels, one URL, so the two cards
-          // opened the identical list and the labels had no choice but to
-          // contradict each other. The screen has an amend DOOR of its own now:
-          // the entry route above raises an order, `/orders/amendments` amends
-          // a saved one, and the same component answers both from a `mode` prop.
-          //
-          // Dropping `cardOnly` is the point, not tidying. `owningNavHref` now
-          // resolves this route to Amendments rather than to Order Entry, so
-          // the sidebar lights the group the operator is actually in; and
-          // `moduleLeafItems` gives "Order Amendment" a nav-search entry, which
-          // a `cardOnly` child never had.
-          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a saved garment order across styles, prices, packing and logistics" },
-          { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
-          { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },
-        ],
-      },
+      // THE "AMENDMENTS" ROW IS GONE (request, 2026-09-04: "remove the
+      // amendment child from order module"). It sat here as its own
+      // sub-module row from 2026-08-13 — see the history above this point —
+      // with three real children (Order Amendment, Process Amendment,
+      // Approve Amendment).
+      //
+      // ALL THREE ROUTES STAY LIVE. The standing rule is "a screen that loses
+      // its sidebar row keeps its URL" (see `retired` below), and these are
+      // working screens over live tables (`sales_order_amendments` and
+      // friends) — deleting them would strand in-flight amendment data, not
+      // tidy a menu. They are re-declared as plain children of `retired`,
+      // the same "off the menu, still on the URL" group Order Booking, Style
+      // and Fabric Plan already sit in — reachable from `/orders/retired`
+      // and from nav search (`moduleLeafItems` does not filter `hidden`),
+      // just no longer a row of their own under Orders.
       {
         kind: "group",
         slug: "confirmations",
@@ -719,7 +704,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, and All Orders, Style, Fabric Plan and CAD Markers by request. They all still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, All Orders, Style, Fabric Plan and CAD Markers by request, and Order Amendment, Process Amendment and Approve Amendment because the Amendments row itself was removed. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
@@ -797,6 +782,21 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // HubCard, so assertion 8 is satisfied here exactly as it was there.
           { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
           { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
+          // AMENDMENTS JOINED ON 2026-09-04 (request: "remove the amendment
+          // child from order module"), and it is the FIFTH kind of screen in
+          // this group — not a superseded menu, not a live register, not a
+          // folded-in master, not a hidden step of the flow, but a whole
+          // sub-module row whose children each keep their own working page.
+          //
+          // The row was Order Entry ▸ Amendments from 2026-08-13 (see the
+          // history above this group), with a real amend door of its own —
+          // `garment-order-screen.tsx` answers both `mode="create"` and
+          // `mode="amend"` off the same component, and `createAmendment`
+          // still mints nothing; it amends the `sales_orders` row already on
+          // file. None of that changed here — only the sidebar row did.
+          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a saved garment order across styles, prices, packing and logistics" },
+          { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
+          { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },
         ],
       },
     ],

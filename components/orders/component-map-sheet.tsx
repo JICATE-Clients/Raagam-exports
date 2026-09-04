@@ -1297,6 +1297,12 @@ export function ComponentMapBody({
            own note on `child-grid.tsx` for why the two stopped being one
            flag. */
         railCompact
+        /* THE TINT IS OFF (client 2026-09-04: "need remove that grey bg from
+           that rail"). This reverses the 2026-09-03 "match Material BOM,
+           full stop" instruction for the pane's background only — width,
+           padding and the ring above stay matched; see `railBg`'s own note
+           on `child-grid.tsx`. */
+        railBg={false}
         /**
          * `fill` IS LOAD-BEARING HERE, AND ITS ABSENCE IS WHAT BROKE THE PANE
          * (reported 2026-09-03 with a screenshot: every field stacked in a

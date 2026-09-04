@@ -42,6 +42,11 @@ import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Sheet } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
+// The "Fab Rail" Layout Type vocabulary (0527) — declared once in
+// component-map.ts, the module Fabric BOM ▸ Manual's own filter
+// (`componentsHiddenForLayout`) reads, so the two screens cannot drift on
+// what Open Width / Tubular are spelled.
+import { LAYOUT_TYPE_OPTIONS } from "@/lib/orders/fabric-bom/component-map";
 import {
   styleProcessRowStarted,
   type ComponentOption,
@@ -402,6 +407,14 @@ type StyleComponentRow = {
   comp_type: string;
   /** "Fabric" — withdrawn as a cell on the master 2026-08-11. Stored, not shown. */
   item_id: string | null;
+  /**
+   * Open Width | Tubular, or "" — which Layout Type this part is normally
+   * cut in (0527, the "Fab Rail" spec). Read by Fabric BOM ▸ Manual's
+   * Components picker (`componentsHiddenForLayout`) to narrow the list once
+   * an entry states its own Layout Type; optional here, so a style that has
+   * never answered it changes nothing on that screen.
+   */
+  layout_type: string;
 };
 type StyleRow = {
   key: string;
@@ -910,6 +923,7 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       fabric_category_id: x.fabric_category_id,
       comp_type: txt(x.comp_type),
       item_id: x.item_id,
+      layout_type: txt(x.layout_type),
     };
     if (list) list.push(row);
     else componentsByStyle.set(k, [row]);
@@ -3827,6 +3841,7 @@ export function GarmentOrderScreen({
           fabric_category_id: c.fabric_category_id,
           comp_type: c.comp_type || null,
           item_id: c.item_id,
+          layout_type: c.layout_type || null,
         })),
       ),
       /* Flattened like `style_sizes` above, and just as deliberately unfiltered:
@@ -5127,6 +5142,7 @@ export function GarmentOrderScreen({
         fabric_category_id: null,
         comp_type: "",
         item_id: null,
+        layout_type: "",
       },
     ]);
   };
@@ -14735,6 +14751,32 @@ export function GarmentOrderScreen({
             })
           }
         />
+      ),
+    },
+    {
+      /* LAYOUT TYPE — the "Fab Rail" spec (0527): which of a fabric roll's two
+         presentations (Open Width / Tubular) this part is normally cut in.
+         Optional, like Structure beside it: a style that has never answered
+         it changes nothing on Fabric BOM ▸ Manual's Components picker — see
+         `componentsHiddenForLayout` in lib/orders/fabric-bom/component-map.ts,
+         which reads this column permissively (blank = offered under either
+         Layout Type). NOT required — the same reasoning Structure states: a
+         part can be named before its cutting layout is decided. */
+      header: "Layout Type",
+      cell: (c) => (
+        <Select
+          compact
+          aria-label="Layout Type"
+          value={c.layout_type}
+          onChange={(ev) => patchComponent(r.key, c.key, { layout_type: ev.target.value })}
+        >
+          <option value="" />
+          {LAYOUT_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
       ),
     },
     ];

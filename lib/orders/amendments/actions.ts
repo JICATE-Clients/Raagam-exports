@@ -363,6 +363,11 @@ function normalizeStyleComponents(
       fabric_category_id: r.fabric_category_id,
       comp_type: clean(r.comp_type),
       item_id: r.item_id,
+      // Rides through like comp_type/item_id above (0527) — no cell reads it
+      // back here, but `writeChildren` rewrites this grid wholesale, so
+      // dropping it from the payload would NULL a Layout Type the operator
+      // just typed on the very next save.
+      layout_type: clean(r.layout_type),
     }))
     /* THE SCREEN'S PREDICATE, WITH THE SCREEN'S ARGUMENT — one function, three
        readers (`componentRowStarted`). The hand-written three-field test that

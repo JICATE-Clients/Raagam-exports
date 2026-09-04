@@ -305,24 +305,23 @@ export async function pullCostLines(
         "item_id, purchase_qty, uom_id, refusal_reason, " +
           "bom:order_fabric_boms(garment_order_id, is_draft)",
       ),
-    /* THE YARN PROCESSES (0504 · 0520) — the tab's SECOND budget section. One
-       line per step that names a process, quantified by what that step handles.
-       Read from the stage rather than recomputed, for the reason every pulled
-       source here is read: the quantity is a figure the Fabric BOM computed and
-       re-deriving it would be a second answer.
+    /* THE YARN PROCESSES (0504 · 0520 · 0529) — the tab's SECOND budget
+       section. One line per step that names a process, quantified by what that
+       step handles. Read from the stage rather than recomputed, for the reason
+       every pulled source here is read: the quantity is a figure the Fabric BOM
+       computed and re-deriving it would be a second answer.
 
-       IT USED TO SELECT `combo` AND 0520 DROPPED THAT COLUMN. A step quantified
-       "the purple lot alone" is gone with it — every step now handles the yarn's
-       whole purchase. Leaving the name in this `select()` would not have been a
-       stale comment: PostgREST fails the whole query on an unknown column, and
-       this file reads `yarnStageRes.data ?? []`, so the Budget would have
-       silently lost every yarn process line rather than erroring — the failure
-       AGENTS.md records under "A SECOND FK BREAKS EVERY EXISTING EMBED". A
-       `.select()` string is not type-checked, so `tsc` had nothing to say. */
+       `combo` IS SELECTED AGAIN (0529) — a step quantified "the purple lot
+       alone" is back, and the description below names it. 0520 had dropped the
+       column; its own comment here warned that leaving a dropped column in a
+       `.select()` string fails the WHOLE query silently (this file reads
+       `yarnStageRes.data ?? []`), the failure AGENTS.md records under "A
+       SECOND FK BREAKS EVERY EXISTING EMBED" — restoring the column here
+       without 0529 re-adding it to the table would be exactly that trap. */
     s
       .from("order_fabric_bom_yarn_stages")
       .select(
-        "process_qty, uom_id, " +
+        "process_qty, uom_id, combo, " +
           "process:processes(name), " +
           "yarn:order_fabric_bom_yarns(item_id, " +
           "bom:order_fabric_boms(garment_order_id, is_draft))",
@@ -424,6 +423,7 @@ export async function pullCostLines(
   type YarnStageRow = {
     process_qty: number | null;
     uom_id: string | null;
+    combo: string | null;
     process: { name: string } | null;
     yarn: {
       item_id: string | null;
@@ -452,14 +452,11 @@ export async function pullCostLines(
       source: "yarn_process",
       garment_order_id: bom.garment_order_id,
       item_id: r.yarn?.item_id ?? null,
-      /* THE PROCESS, AND NOTHING ELSE SINCE 0520. It used to append the
-         colourway, which was what distinguished two dyeing lines on one yarn;
-         `For` no longer names one, so there is nothing to append and two steps
-         of the same process on one yarn now read alike. That is honest rather
-         than tidy — they ARE the same work on the same weight, and inventing a
-         suffix to tell them apart would be the screen making up a distinction
-         the document no longer records. */
-      description: r.process.name,
+      /* THE COLOURWAY APPENDS AGAIN (0529) — what distinguishes two dyeing
+         lines on one yarn, restored with `combo`. A step naming no colourway
+         still reads as just the process name, `filter(Boolean)` dropping the
+         empty second part rather than a stray " · ". */
+      description: [r.process.name, r.combo].filter(Boolean).join(" · "),
       qty: Number(r.process_qty),
       uom_id: r.uom_id,
       /* NO RATE. The Yarn Process tab stores none — it is a quantity document,
