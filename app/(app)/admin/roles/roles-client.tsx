@@ -139,13 +139,13 @@ function PermissionMatrix({
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-surface-muted">
-            <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground min-w-[180px]">
+            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground min-w-[180px]">
               Module
             </th>
             {ACTIONS.map((action) => (
               <th
                 key={action}
-                className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground capitalize"
+                className="px-3 py-2 text-center text-xs font-bold text-muted-foreground capitalize"
               >
                 {action}
               </th>

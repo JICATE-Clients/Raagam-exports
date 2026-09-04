@@ -2427,9 +2427,9 @@ export function MaterialMasterScreen({
                     <table className="w-full border-collapse text-sm">
                       <thead>
                         <tr className="border-b border-border bg-surface-muted">
-                          <th className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
-                          <th className="px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Attribute</th>
-                          <th className="border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Value</th>
+                          <th className="w-10 px-2 py-1.5 text-center text-xs font-bold text-muted-foreground">#</th>
+                          <th className="px-2 py-1.5 text-left text-xs font-bold text-muted-foreground">Attribute</th>
+                          <th className="border-l border-border px-2 py-1.5 text-left text-xs font-bold text-muted-foreground">Value</th>
                         </tr>
                       </thead>
                       <tbody>

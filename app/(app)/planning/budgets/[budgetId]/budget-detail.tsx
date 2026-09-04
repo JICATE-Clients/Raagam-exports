@@ -312,7 +312,7 @@ function PurchaseSection({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
-            <p className="mb-3 text-xs font-semibold text-muted-foreground">
+            <p className="mb-3 text-xs font-bold text-muted-foreground">
               {formMode === "add" ? `Add ${title.toLowerCase()}` : `Edit ${title.toLowerCase()}`}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -619,7 +619,7 @@ function ProcessSection({
 
   const itemFormUI = (processId: string, proc: ProcessWithItems, isAdd: boolean) => (
     <div className="rounded-md border border-border bg-surface-muted p-4">
-      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         {isAdd ? "Add item" : "Edit item"}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -702,7 +702,7 @@ function ProcessSection({
           .map((proc) => (
             <div key={`child-${proc.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Items for: {proc.process_name ?? `Process ${proc.sno}`}
                 </p>
                 {canMutate && addItemFor !== proc.id && (
@@ -894,7 +894,7 @@ function CmtSection({
 
   const opFormUI = (cmtId: string, cmt: CmtWithOps, isAdd: boolean) => (
     <div className="rounded-md border border-border bg-surface-muted p-4">
-      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         {isAdd ? "Add operation" : "Edit operation"}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -954,7 +954,7 @@ function CmtSection({
         {/* CMT add/edit form */}
         {cmtFormMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
-            <p className="mb-3 text-xs font-semibold text-muted-foreground">
+            <p className="mb-3 text-xs font-bold text-muted-foreground">
               {cmtFormMode === "add" ? "Add CMT" : "Edit CMT"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -1034,7 +1034,7 @@ function CmtSection({
           .map((cmt) => (
             <div key={`ops-${cmt.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Operations for: {cmt.style_ref_no ?? `CMT ${cmt.sno}`}
                 </p>
                 {canMutate && addOpFor !== cmt.id && (
@@ -1159,7 +1159,7 @@ function OtherEntriesSection({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
-            <p className="mb-3 text-xs font-semibold text-muted-foreground">
+            <p className="mb-3 text-xs font-bold text-muted-foreground">
               {formMode === "add" ? `Add ${title.toLowerCase()}` : `Edit ${title.toLowerCase()}`}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">

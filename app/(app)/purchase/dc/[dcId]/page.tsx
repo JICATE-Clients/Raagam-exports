@@ -110,19 +110,19 @@ export default async function DcDetailPage({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface-muted">
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                       Description
                     </th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
                       Sent Qty
                     </th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
                       Returned
                     </th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
                       Balance
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground" />
+                    <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground" />
                   </tr>
                 </thead>
                 <tbody>

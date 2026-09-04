@@ -214,7 +214,7 @@ function DyeColorsTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
-            <p className="mb-3 text-xs font-semibold text-muted-foreground">
+            <p className="mb-3 text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add dye color" : "Edit dye color"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -488,7 +488,7 @@ function FabricsTab({
 
   const clothFormUI = (fabricId: string, fabric: FabricBomFabric, isAdd: boolean) => (
     <div className="rounded-md border border-border bg-surface-muted p-4">
-      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         {isAdd ? "Add cloth" : "Edit cloth"}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
@@ -614,7 +614,7 @@ function FabricsTab({
           .map((fab) => (
             <div key={`child-${fab.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Cloths for: Fabric {fab.sno}
                 </p>
                 {canMutate && addClothFor !== fab.id && (
@@ -825,7 +825,7 @@ function ComponentsTab({
           .map((comp) => (
             <div key={`child-${comp.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Combos for: Component {comp.sno}
                 </p>
                 {canMutate && addComboFor !== comp.id && (
@@ -857,7 +857,7 @@ function ComponentsTab({
 
               {addComboFor === comp.id && (
                 <div className="rounded-md border border-border bg-surface-muted p-4">
-                  <p className="mb-3 text-xs font-semibold text-muted-foreground">Add combo</p>
+                  <p className="mb-3 text-xs font-bold text-muted-foreground">Add combo</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                     <div>
                       <Label>Assort Color</Label>

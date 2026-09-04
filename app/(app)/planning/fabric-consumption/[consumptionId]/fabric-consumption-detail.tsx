@@ -243,7 +243,7 @@ function ComponentsTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add component" : "Edit component"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -413,7 +413,7 @@ function ConsumptionsTab({
         {/* Sizes nested read-only under each entry */}
         {consumption.entries.some((e) => e.sizes.length > 0) && (
           <div className="mt-2 space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground">Sizes (read-only)</p>
+            <p className="text-xs font-bold text-muted-foreground">Sizes (read-only)</p>
             {consumption.entries.map((entry) =>
               entry.sizes.length > 0 ? (
                 <div key={entry.id} className="rounded-md border border-border/50 p-3">
@@ -452,7 +452,7 @@ function ConsumptionsTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add entry" : "Edit entry"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">

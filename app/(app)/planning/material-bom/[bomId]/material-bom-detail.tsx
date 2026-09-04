@@ -138,7 +138,7 @@ function ProductLineForm({
 }) {
   return (
     <div className="rounded-md border border-border bg-surface-muted p-4">
-      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         {isAdd ? "Add product" : "Edit product"}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -694,7 +694,7 @@ function ProcessSequenceTab({
     isAdd: boolean,
   ) => (
     <div className="rounded-md border border-border bg-surface-muted p-4">
-      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         {isAdd ? "Add stage" : "Edit stage"}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
@@ -823,7 +823,7 @@ function ProcessSequenceTab({
           .map((seq) => (
             <div key={`child-${seq.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Stages for: {seq.process_seq_name ?? `Sequence ${seq.sno}`}
                 </p>
                 {canMutate && addStageFor !== seq.id && (

@@ -216,7 +216,7 @@ export function RfqDetail({
               onSubmit={handleAddQuote}
               className="rounded-md border border-border bg-surface-muted p-4"
             >
-              <p className="mb-3 text-xs font-semibold text-muted-foreground">
+              <p className="mb-3 text-xs font-bold text-muted-foreground">
                 Add vendor quote
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
@@ -332,19 +332,19 @@ export function RfqDetail({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface-muted">
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                       Vendor
                     </th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
                       Total
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                       Currency
                     </th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
                       Lead time
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                    <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                       Status
                     </th>
                     <th className="px-3 py-2" />

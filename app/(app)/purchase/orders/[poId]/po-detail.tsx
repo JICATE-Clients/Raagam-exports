@@ -129,7 +129,7 @@ function LineForm({
 
   return (
     <div className="rounded-md border border-border bg-surface-muted p-4">
-      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         {isAdd ? "Add line" : "Edit line"}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
@@ -935,7 +935,7 @@ export function PoDetail({
             .filter((l) => expandedLines.has(l.id))
             .map((l) => (
               <div key={`del-${l.id}`} className="ml-4">
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                <p className="mb-1 text-xs font-bold text-muted-foreground">
                   Delivery schedule for: {l.description}
                 </p>
                 <PoDeliveryEditor
