@@ -1595,7 +1595,23 @@ export function ChildGrid<T extends { key: string }>({
    * index slot, so it has nowhere to go here. No `flushRows` grid declares a
    * `total` today; a grid that needs both wants its index back.
    *
-   * No effect outside inline mode, exactly as `flushRows` has none.
+   * IT REACHES THE TABLE TOO, SINCE 2026-09-04 (Fabric BOM ▸ Components, whose
+   * panel fields became the first columns of its colourway table the same day:
+   * "remove the # 1 column cell"). This note used to end "no effect outside
+   * inline mode" — true when written, and it left a table grid with no way to
+   * drop a track its caller did not want, which is a gap rather than a
+   * decision. The three tracks still leave together: the `<th>`, the row's
+   * number, and the `1 +` in the totals label's `colSpan` (a colSpan counting a
+   * column the header no longer draws shears every figure one place right of
+   * what it totals).
+   *
+   * THE SPAN IS FLOORED AT 1, because `colSpan={0}` is not "no columns" in
+   * HTML — it means "span every remaining column", which would put the label
+   * across the whole totals band. It can only arise when the FIRST column is
+   * also the first totalled one, which is the case the paragraph above already
+   * calls "a grid that needs both wants its index back".
+   *
+   * `flushRows` is still inline-only; only this half moved.
    */
   hideIndex?: boolean;
   /**
@@ -2280,7 +2296,15 @@ export function ChildGrid<T extends { key: string }>({
                   those two already said, and it read as a panel inside a panel
                   now that the grid has its card back. */}
               <tr className="border-b border-border">
-                <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
+                {/* THE `#` TRACK, AND `hideIndex` NOW REACHES IT. This branch
+                    drew it unconditionally while the prop's own note said "no
+                    effect outside inline mode" — accurate, and it meant a table
+                    grid had no way to drop a column its caller did not want.
+                    See `hideIndex` for what the three tracks are and why they
+                    have to leave together. */}
+                {!hideIndex && (
+                  <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
+                )}
                 {columns.map((c, i) => (
                   <th
                     key={i}
@@ -2330,7 +2354,9 @@ export function ChildGrid<T extends { key: string }>({
                   // fourteen cells read as one line again.
                   className="border-b border-border last:border-0 hover:bg-surface-muted/40"
                 >
-                  <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
+                  {!hideIndex && (
+                    <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
+                  )}
                   {columns.map((c, ci) => (
                     <td
                       key={ci}
@@ -2421,8 +2447,11 @@ export function ChildGrid<T extends { key: string }>({
                       taller than the rows above it (client 2026-08-11). Spanning
                       is also what a totals row is supposed to look like: the label
                       on the left, each figure under the column it totals. */}
+                  {/* `1 +` IS THE `#` CELL, so it goes when that column does —
+                      a colSpan counting a track the header no longer draws
+                      shears every figure one column right of what it totals. */}
                   <td
-                    colSpan={1 + Math.max(0, firstTotalIndex)}
+                    colSpan={Math.max(1, (hideIndex ? 0 : 1) + Math.max(0, firstTotalIndex))}
                     className="whitespace-nowrap px-2 py-1.5 text-right text-[11px] uppercase tracking-wide text-muted-foreground"
                   >
                     {totalsLabel}

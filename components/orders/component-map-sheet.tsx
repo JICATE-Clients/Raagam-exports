@@ -150,7 +150,11 @@ import { cn } from "@/lib/utils";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   FABRIC_FORM_OPTIONS,
-  LAYOUT_TYPE_OPTIONS,
+  /* `LAYOUT_TYPE_OPTIONS` LEFT WITH THE COLUMN (2026-09-04) — it fed that
+     Select's `<option>` list and had no second reader here. It is still
+     exported and still the one vocabulary, so restoring the column restores
+     this import; `componentsHiddenForLayout` and `LayoutType` below stay
+     because rule 4 on the Component cell reads them either way. */
   availablePanels,
   componentsHiddenForLayout,
   /* MOVED OUT OF THIS FILE (2026-09-03), unchanged. The Fabric Process tab's
@@ -839,63 +843,25 @@ export function ComponentMapBody({
          sits in changed. */
       cell: (p) => <ClothText value={coordinateName(p.coordinate_id) ?? ""} />,
     },
-    {
-      /* SECTION 4 OF THE "STRUCTURE DETAILS & COMPONENTS" SPEC (client,
-         2026-09-04): "the component dropdown must filter dynamically based
-         on [the panel's] layout type". Confirmed with the operator
-         (AskUserQuestion, same date) as a NEW field here, before Component
-         — not the colourway-row `fabric_form`/"Type" (sequenced AFTER
-         Component, rejected as a gate on 2026-09-02 for repeating a
-         mandatory cell down every colourway), and not the per-style
-         DECLARED fact 0527 built for the Manual tab. See 0530's migration
-         header for all three Open/Tubular-shaped columns this module now
-         carries and why none of them merge.
+    /* THE `Layout Type` COLUMN STOOD HERE AND IS GONE (client 2026-09-04:
+       "remove the # 1 column cell and layout type"), one day after 0530 added
+       it. Recorded rather than silently deleted, because the SCHEMA half is
+       untouched and a reader will find it: `fabric_bom_lines.layout_type` still
+       exists, `PanelRow.layout_type` still carries it, and `onPatchPanel` still
+       writes it — only the cell that let an operator choose one is gone.
 
-         OPTIONAL, unlike Component beside it — see the Zod schema's own
-         note (`fabricBomLineInput`) on why this is not a Save-blocking
-         mandatory field. */
-      header: "Layout Type",
-      width: "7rem",
-      cell: (p) => {
-        /* THE SAME rule2+rule3 LIST COMPONENT READS, computed once here so
-           the "would this leave nothing?" safety check can test each
-           Layout Type against it without re-deriving `availablePanels`
-           per option. */
-        const declared = availablePanels({
-          decls,
-          siblings: allLines.filter((l) => !p.lines.some((x) => x.key === l.key)),
-          styleRefNo,
-          structureId: p.structure_id ?? structureId,
-          held: p.component_id,
-        });
-        /* GREY OUT A LAYOUT TYPE THAT WOULD LEAVE THE COMPONENT DROPDOWN
-           EMPTY (spec's "Safety Check"). The panel's OWN held component
-           always keeps its Layout Type selectable — disabling the value a
-           panel already carries would make an answered row look wrong. */
-        const emptyUnder = (lt: LayoutType) => {
-          if (p.layout_type === lt && p.component_id) return false;
-          const hidden = componentsHiddenForLayout(decls, styleRefNo, lt);
-          return declared.every((o) => hidden.has(o.component_id));
-        };
-        return (
-          <Select
-            compact
-            className="h-8"
-            value={p.layout_type ?? ""}
-            onChange={(e) =>
-              onPatchPanel(p.addr, { layout_type: e.target.value || null })
-            }
-          >
-            <option value="" />
-            {LAYOUT_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value} disabled={emptyUnder(o.value)}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-        );
-      },
-    },
+       WHAT THAT COSTS, EXACTLY: `layout_type` is now unset on every new panel,
+       so RULE 4 below never narrows anything. That degrades gracefully rather
+       than breaking — `componentsHiddenForLayout` already owns "nothing chosen
+       hides nothing", so the Component list simply falls back to rules 2+3, and
+       the field was optional in `fabricBomLineInput` so no Save is blocked. A
+       panel saved with a Layout Type before today keeps it, and it still
+       narrows that panel's list; nothing can change it from this screen.
+
+       PUTTING IT BACK IS THIS COLUMN OBJECT PLUS ONE IMPORT.
+       `componentsHiddenForLayout` and `LayoutType` are still imported and live
+       — rule 4 below reads them either way — but `LAYOUT_TYPE_OPTIONS` fed
+       only the removed Select and went with it (see the import block). */
     {
       header: "Component",
       required: true,
@@ -1029,56 +995,17 @@ export function ComponentMapBody({
    * Widths: 6 + 5 + 10 + 6 + 6 + 6 = 39rem = 624px, well inside this
    * nested grid's own (rail-reduced) pane.
    */
-  /**
-   * THE PANEL'S OWN THREE FIELDS, RE-EXPRESSED AS COLUMNS OF THE COLOURWAY
-   * TABLE (client 2026-09-04: "merge the top fields ... directly into the
-   * table as columns ... right after #").
-   *
-   * ## THEY ARE A DIFFERENT GRAIN, AND THAT IS THE WHOLE NOTE
-   *
-   * Coordinate, Layout Type and Component belong to the PANEL — one value
-   * shared by every colourway of it — while every column after them belongs to
-   * the LINE. Putting the first three in a per-line table denormalises them: a
-   * panel with three colourways draws each of the three values three times.
-   *
-   * THAT IS SAFE HERE ONLY BECAUSE THE WRITE STILL GOES TO THE PANEL. The cell
-   * is handed the PanelRow, not the line, so it calls `onPatchPanel` exactly as
-   * it did above the table — every copy is the same value read from and written
-   * to one place, so they cannot drift. Editing the third row's Component
-   * changes all three rows, which is what a merged view of a one-to-many is
-   * supposed to do; it is not an edit that can go wrong, only one that looks
-   * surprising the first time.
-   *
-   * A `rowSpan` WOULD BE THE HONEST MARKUP and is not available: `ChildGrid`
-   * renders one `<td>` per column per row and has no span vocabulary, and
-   * teaching it one for a single call site is a much larger change than this
-   * request. Rendering the control on the FIRST row only was the other option
-   * and was rejected — blank cells under a filled one read as "these rows have
-   * no component", which is a worse lie than a repeated truth.
-   *
-   * ## WHY A FUNCTION RATHER THAN A CONSTANT
-   *
-   * The panel is only in scope inside `renderMobileRow`, so the list has to be
-   * built per open panel. It is cheap — three closures over `p`, rebuilt only
-   * when the open row re-renders — and it keeps `panelColumns` and
-   * `colourColumns` as the single declarations they already were, rather than
-   * forking a fourth list that would have to be kept in step with both.
-   */
-  const panelInRowColumns = (p: PanelRow): ChildGridColumn<MapLine>[] => [
-    /* `total` IS DROPPED, NOT CARRIED. It is typed to the ROW
-       (`ChildGridTotal<PanelRow>`), so spreading it whole makes the mapped
-       column unassignable to `ChildGridColumn<MapLine>` — and none of these
-       three declares one anyway: they are two pickers and a select, and a
-       column of repeated panel values has nothing worth summing. Destructuring
-       it out states that rather than casting the difference away. */
-    ...panelColumns.map(({ total: _total, cell, ...rest }) => ({
-      ...rest,
-      /* THE PANEL, NOT THE LINE. `i` is passed through so a cell that reads its
-         index still gets the row's real position. */
-      cell: (_line: MapLine, i: number) => cell(p, i),
-    })),
-    ...colourColumns,
-  ];
+  /* `panelInRowColumns` STOOD HERE FOR ONE ITERATION AND IS GONE (client
+     2026-09-04). It prepended `panelColumns` to `colourColumns` so the panel's
+     own fields could be the table's first columns, and it worked — but it
+     denormalised a one-to-many: Coordinate and Component belong to the PANEL,
+     so a panel with three colourways drew each value three times, and only the
+     fact that the cell was handed the PanelRow (so the write went through
+     `onPatchPanel`) kept the copies from drifting.
+     THE SIDE-BY-SIDE SPLIT REPLACES IT and needs no adapter at all: the two
+     lists go back to describing their own grains, and the layout — not a
+     mapped column list — is what puts them on one row. That is why this is a
+     deletion rather than a second helper beside it. */
 
   const colourColumns: ChildGridColumn<MapLine>[] = [
     {
@@ -1480,7 +1407,15 @@ export function ComponentMapBody({
                as air; tightening it also reads as one unit rather than two
                columns. The dot keeps `shrink-0`, so the whole of the
                narrowing lands on the text. */
-            <div className="flex items-center gap-1.5">
+            /* `min-h-7` INSTEAD OF A BLANK RESERVED LINE — kept in step with
+               the Manual rail, whose call site carries the full reasoning
+               (client 2026-09-04). Short version: reserving the second line
+               with a non-breaking space made every card the same HEIGHT and
+               pushed the visible line to the top of it, so `items-center`
+               centred the dot below the title. A minimum height on the row
+               gives the same uniform box AND lets the centring work, because
+               there is no blank line inside the block being centred. */
+            <div className="flex min-h-7 items-center gap-1.5">
               <span
                 className={cn(
                   "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -1508,27 +1443,11 @@ export function ComponentMapBody({
                 <Truncated className="block text-xs font-semibold leading-tight text-foreground">
                   {name || "New part"}
                 </Truncated>
-                {/* ALWAYS DRAWN, EVEN WITH NOTHING TO SAY — the same change
-                    the Manual rail took the same day, and kept in step with it
-                    on purpose (client 2026-09-04: the two rails' cards must be
-                    the same size).
-
-                    IT HAS NEVER SHOWN HERE, because every panel resolves a
-                    structure off its own lines. That is exactly why it is worth
-                    fixing on both: a card whose subtitle is conditional is one
-                    line tall among two-line neighbours the moment the condition
-                    fails, and the difference cost a round trip on Manual where
-                    a fresh entry names no fabric. Leaving this one conditional
-                    would make the pair disagree again the first time `rollUp`
-                    returned nothing.
-
-                    A NON-BREAKING SPACE THROUGH THE REAL `Truncated` — `Field`'s
-                    own idiom for `label=""`, so the reserved row carries that
-                    component's exact metrics rather than a second copy of
-                    them. An empty string collapses the line box to zero. */}
-                <Truncated className="block text-[10px] leading-tight text-muted-foreground">
-                  {structure || "\u00A0"}
-                </Truncated>
+                {structure && (
+                  <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                    {structure}
+                  </Truncated>
+                )}
               </span>
 
             </div>
@@ -1573,26 +1492,44 @@ export function ComponentMapBody({
                 block would bring back the ORIGINAL defect this heading was
                 built to fix: an ✕ with nothing above it to belong to. */}
             <div className="h-1 pr-9" />
-            {/* SIZED LIKE MATERIAL BOM'S OWN FIELDS, NOT A UNIFORM `xs` ROW
-                (client 2026-09-03, screenshots 2676-2678: "same ... size ...
-                everything"; refined the same day against the RESULT — "some
-                field looks squeezed and some field have much gap ... based
-                on values can allocate space"). `cols={14}` at a flat `xs` was
-                the original answer to "all seven on one row" — 155px for
-                every field regardless of what it held, which squeezed
-                Structure's 20-character names exactly as much as Gsm's
-                9-character range.
+            {/* THE PANEL'S OWN FIELDS, BESIDE THE TABLE RATHER THAN ABOVE OR
+                INSIDE IT (client 2026-09-04: "keep the controls and the table on
+                the same horizontal row side-by-side, but separate them").
 
-                 THIS BLOCK IS A TOMBSTONE AS OF 2026-09-04. The panel fields
-                 no longer render above the table at all — they are its first
-                 three COLUMNS now (client: "merge the top fields ... directly
-                 into the table as columns"), assembled by `panelInRowColumns`.
-                 The `cols={32}` track and the `FIELD_SIZES` spans this
-                 paragraph described both went with the row; widths come from
-                 `ChildGridColumn.width` on `panelColumns` instead. Left
-                 standing because the notes above record WHY each field is the
-                 size it is, which is still the reasoning behind those widths. */}
-            <div>
+                THIS IS THE THIRD ARRANGEMENT OF THESE TWO FIELDS IN ONE DAY, and
+                the middle one is why the split reads as an improvement rather
+                than a revert. They began ABOVE the table as a `FieldGrid` row;
+                they were then merged INTO it as its first columns, which fixed
+                the wasted band but denormalised them — Coordinate and Component
+                belong to the PANEL, so a panel with three colourways drew each
+                value three times and only `onPatchPanel` kept the copies
+                honest. Side by side gives back the single control per value
+                without giving back the band: one row of screen, two grains,
+                each stated once.
+
+                `items-start`, NOT `items-center`: the table grows with the
+                colourway count and the two fields do not, so centring would
+                float them against a tall grid. They belong at its top edge,
+                level with its header row. */}
+            <div className="flex items-start gap-4">
+              {/* `w-48` AND `shrink-0`. The table is the part that has to
+                  breathe — six columns against two — so the fields take a fixed
+                  column and the grid takes the rest through `flex-1`. Without
+                  `shrink-0` a wide table would squeeze the picker instead, which
+                  is the opposite of the trade this layout is making. */}
+              <div className="w-48 shrink-0 space-y-2">
+                {panelColumns.map((c, ci) => (
+                  /* `required={c.required}` REACHES THE CONTROL HERE, and it has
+                     to: `Field` is what draws the star AND opens the
+                     `RequiredScope` the cursor hold reads (AGENTS.md, "Mandatory
+                     fields"). Rendering `c.cell` bare would keep the column's
+                     declaration and lose both halves it buys. */
+                  <Field key={c.header} label={c.header} required={c.required} className="w-full">
+                    {c.cell(p, ci)}
+                  </Field>
+                ))}
+              </div>
+              <div className="min-w-0 flex-1">
               {/* NO "COLOURWAYS OF <PANEL>" CAPTION (client 2026-09-03).
 
                   IT EARNED ITS PLACE UNDER THE OLD LAYOUT AND DOES NOT UNDER
@@ -1611,8 +1548,27 @@ export function ComponentMapBody({
                  above), so a caption would be a third naming. This
                  reason REPLACES "the line above names it": that line
                  was removed on 2026-09-03 -- see the note there. */
-              columns={panelInRowColumns(p)}
+              columns={colourColumns}
               rows={p.lines}
+              /* NO `#` COLUMN (client 2026-09-04: "remove the # 1 column
+                 cell").
+
+                 THE ORDINAL HAD NOTHING LEFT TO NUMBER once the panel fields
+                 became this table's first columns. A row here is one COLOURWAY
+                 of one panel, named by its own Assort Color cell, and the panel
+                 above it is named by the rail and by the Component column — so
+                 "3" was counting a thing nobody refers to by number. That is the
+                 same test `hideIndex`'s own note applies ("in a one-column list
+                 of sizes the VALUE is the identity"), and it is why this is the
+                 prop rather than a `[&_td:first-child]:hidden` at the call site:
+                 the header cell, the row cell and the totals `colSpan` are three
+                 tracks that must leave together.
+
+                 `hideIndex` REACHED CARDS ONLY UNTIL TODAY — the table branch
+                 drew the ordinal unconditionally. Extending it was safe to do
+                 rather than work around: the prop had ZERO call sites in the
+                 app, so no existing grid could change appearance. */
+              hideIndex
               /* NO `tableFrom` OVERRIDE — the default `@lg` (512px) switch,
                  and this is the second correction to this ONE line in one day.
 
@@ -1696,6 +1652,7 @@ export function ComponentMapBody({
                 </FieldGrid>
               )}
             />
+              </div>
             </div>
           </div>
         )}
@@ -1743,7 +1700,7 @@ export function ComponentMapBody({
            Filling the width is what makes it the bottom of the list — and the
            rail's own `p-1.5` is the only inset, so its edges line up with the
            entries above it. */
-        addClassName="w-full px-2.5"
+        addClassName="w-full justify-start px-2.5"
         addLabel="+ Add part"
       />
     </div>

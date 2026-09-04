@@ -4369,7 +4369,32 @@ export function FabricBomScreen({
                  separating further from the 10px muted subtitle beneath it.
                  The padding is `railCompact`'s (`px-2.5 py-1`), so nothing
                  here sets one — that is the primitive's, on both rails. */
-              <div className="flex items-center gap-1.5">
+              /* `min-h-7` INSTEAD OF A BLANK RESERVED LINE (client 2026-09-04:
+                 the dot and text "look shifted toward the top/left edge ...
+                 make sure the vertical alignment and internal padding are
+                 balanced").
+
+                 THE HEIGHT FIX AND THE CENTRING FIX ARE ONE PROBLEM, and the
+                 first attempt bought one with the other. Cards had to stop
+                 differing in height when a subtitle was absent, so the subtitle
+                 rendered a non-breaking space when empty — right height, wrong
+                 content: the visible line became the TOP of a two-line block
+                 with blank space beneath it, and `items-center` then centred the
+                 dot against the whole block, i.e. BELOW the title it belongs to.
+                 Reserving space is not the same as filling it.
+
+                 A MINIMUM HEIGHT ON THE ROW ANSWERS BOTH. 28px is the two-line
+                 stack this rail draws when a subtitle exists — `text-xs` (12px)
+                 over `text-[10px]`, both `leading-tight` (1.25): 15 + 12.5 =
+                 27.5px. A card WITH a subtitle fills it; a card without holds
+                 the same box and `items-center` centres the one line it has.
+                 Same height either way, content centred in both — which the
+                 reserved blank line could not do.
+
+                 STATIC, NOT COMPUTED: `min-h-7` is a class Tailwind can see. A
+                 `min-h-[…]` built from the two font sizes would compile to no
+                 CSS at all, the trap `FIELD_TRACK` and `railWidthPx` record. */
+              <div className="flex min-h-7 items-center gap-1.5">
                 <span
                   className={cn(
                     "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -4382,27 +4407,11 @@ export function FabricBomScreen({
                   <Truncated className="block text-xs font-semibold leading-tight text-foreground">
                     {entryFabricRow(e)?.name || "New fabric"}
                   </Truncated>
-                  {/* THE SUBTITLE LINE IS ALWAYS DRAWN, EVEN WITH NOTHING TO
-                      SAY (client 2026-09-04: the cards must be the same size as
-                      the Components tab's).
-
-                      IT WAS `{subtitle && …}`, SO A CARD WITH NO SUBTITLE WAS
-                      ONE LINE TALL among two-line neighbours. On Components
-                      that never showed — every panel resolves a structure — but
-                      a fresh Manual entry has no fabric picked, so knit type and
-                      GSM are both empty and "New fabric" rendered short. The
-                      rail's own padding and radius were identical the whole
-                      time; the height difference was the LINE COUNT.
-
-                      A NON-BREAKING SPACE THROUGH THE REAL `Truncated`, which
-                      is `Field`'s own idiom for `label=""` and for its reason,
-                      quoted there: the reserved row then carries "that
-                      component's exact metrics" instead of a second, drifting
-                      copy of them. An empty string would collapse the line box
-                      to zero and change nothing. */}
-                  <Truncated className="block text-[10px] leading-tight text-muted-foreground">
-                    {subtitle || "\u00A0"}
-                  </Truncated>
+                  {subtitle && (
+                    <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                      {subtitle}
+                    </Truncated>
+                  )}
                 </span>
               </div>
             );
@@ -4669,7 +4678,7 @@ export function FabricBomScreen({
              raagam skin paints green, so "matching" is achieved by passing the
              same props rather than by restating the result. */
           railAdd
-          addClassName="w-full px-2.5"
+          addClassName="w-full justify-start px-2.5"
           addLabel="+ Add fabric"
         />
         {/* SAID WHERE IT CAN BE ACTED ON — see `styleRefusal`. Amber, not red:
