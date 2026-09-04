@@ -1168,6 +1168,7 @@ export function ChildGrid<T extends { key: string }>({
   rowSummary,
   foldRows = false,
   masterDetail = false,
+  railAlways = false,
   railWidthPx,
   railCompact = false,
   renderListItem,
@@ -1700,6 +1701,26 @@ export function ChildGrid<T extends { key: string }>({
    */
   masterDetail?: boolean;
   /**
+   * SHOW THE RAIL EVEN AT ONE ROW, opting a caller OUT of "a list of one is
+   * not a list" (the note on `mdActive` below, client 2026-08-20).
+   *
+   * DEFAULT OFF, SO EVERY EXISTING CALLER IS UNCHANGED — Material BOM and
+   * Fabric BOM ▸ Components both still hide the rail until a second row
+   * exists, which is the behaviour that rule was written for: a document
+   * that starts with exactly one blank line should not spend 220-268px on a
+   * list holding "Not filled in" and nothing else.
+   *
+   * FABRIC BOM ▸ MANUAL ASKED FOR THE OPPOSITE (2026-09-04): its rows are
+   * FABRICS, not a document's own single line, and the operator wants the
+   * rail's shape — a list to click between, a name on each entry — visible
+   * from the first fabric rather than appearing only once a second one is
+   * added. `folded` (below) still requires `rows.length > 1` on its own, so
+   * this changes ONLY whether the rail-and-detail split renders, never
+   * whether the one row's card is suppressed — a single row still shows its
+   * full body, now inside the detail column instead of full width.
+   */
+  railAlways?: boolean;
+  /**
    * THE RAIL'S OWN WIDTH, IN PX — 268 (Material BOM's own figure, settled
    * 2026-08-20/08-28) UNLESS A CALLER NAMES ANOTHER ONE.
    *
@@ -1895,8 +1916,9 @@ export function ChildGrid<T extends { key: string }>({
   const acrossCompact = across === "compact";
 
   /** Master-detail, but only once a list of lines has something to list —
-   *  see the container below for why one row must not open a pane. */
-  const mdActive = masterDetail && rows.length > 1;
+   *  see the container below for why one row must not open a pane — UNLESS
+   *  the caller opted out of that with `railAlways` (see its own note). */
+  const mdActive = masterDetail && (railAlways || rows.length > 1);
 
   const mode: "across" | "inline" | "cards" | "responsive" = across
     ? "across"

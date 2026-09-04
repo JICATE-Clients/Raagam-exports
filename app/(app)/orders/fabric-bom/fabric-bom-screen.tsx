@@ -1441,6 +1441,10 @@ export function FabricBomScreen({
    *  Components rail section now, and this popup is legacy's own [Detail]. */
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const detailLine = lines.find((l) => l.key === detailKey) ?? null;
+  /** The [Detail] button's own rect, so its sheet grows out of that button —
+   *  same mechanism as `componentsOrigin` / `widthsOrigin` below (AGENTS.md,
+   *  "A sub-detail Sheet's size"). */
+  const [detailOrigin, setDetailOrigin] = useState<DOMRect | null>(null);
 
   /**
    * WHICH YARN, AND WHICH FABRIC, HAS ITS ROUTE UNFOLDED — legacy's `[+]`
@@ -4104,9 +4108,16 @@ export function FabricBomScreen({
 
             ## THE RAIL SHOWS ONLY AT TWO ENTRIES, NOT ONE
 
-            `mdActive` is `masterDetail && rows.length > 1`, so a style with
-            one fabric renders as a single plain card with no rail — the same
-            rule Components' rail follows, not a special case written here. */}
+            EVERY OTHER `masterDetail` GRID HIDES ITS RAIL AT ONE ROW
+            (`mdActive`, `child-grid.tsx`: "a list of one is not a list",
+            client 2026-08-20) — Components and Material BOM both open on a
+            single plain card, no rail, exactly one blank line. Manual asked
+            for the opposite the same day this rail shipped (client
+            2026-09-04, "not yet updated ui" on a single-fabric BOM — they
+            wanted the rail's SHAPE visible from the first fabric, not only
+            once a second one exists): `railAlways` is the opt-out, and it
+            is this call site's alone — nothing else in the app passes it,
+            so Components and Material BOM are exactly as they were. */}
         <ChildGrid<ManualEntryRow>
           /* grid-caption: exempt -- the style band above names this grid,
              and it is the only grid at this level. */
@@ -4128,6 +4139,7 @@ export function FabricBomScreen({
           fill
           foldRows
           masterDetail
+          railAlways
           /* THREE STATES, THE SAME READING `manualProblem` already gives the
              Save gate and `styleRefusal`: idle before a fabric is named,
              warn once one is named and `manualProblem` still finds something
@@ -4882,7 +4894,13 @@ export function FabricBomScreen({
               data-row-open
               disabled={!!reason}
               aria-label={reason ? `Detail — ${reason}` : "Detail"}
-              onClick={() => setDetailKey(r.key)}
+              /* Captures the button's own rect so the sheet scales out of
+                 THIS button — `currentTarget`, not `target`: the click can
+                 land on the text node inside it. See `detailOrigin`. */
+              onClick={(ev) => {
+                setDetailOrigin(ev.currentTarget.getBoundingClientRect());
+                setDetailKey(r.key);
+              }}
             >
               Detail
             </Button>
@@ -7661,6 +7679,8 @@ export function FabricBomScreen({
       <YarnDyedSheet
         open={!!detailLine}
         onClose={() => setDetailKey(null)}
+        /* The [Detail] button that opened this — see `detailOrigin`. */
+        origin={detailOrigin}
         /* THE CLOTH IS THE SUBJECT — and it changed back on 2026-09-02.
            It named the fabric, then the STYLE while this popup carried the
            components tree (which is per style), and now the fabric again,
