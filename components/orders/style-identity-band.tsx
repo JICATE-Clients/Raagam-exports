@@ -31,7 +31,33 @@ import { cn } from "@/lib/utils";
  * loading one — which is why `ref` is a separate prop and not read out of it.
  *
  * WHITE, NOT FILLED (client 2026-08-27: "that inside cell for some sections is
- * grey — make it white too"). The border already says this is a band.
+ * grey — make it white too"). No longer a bordered box to fill — see below —
+ * but the instruction is still why this never grows a background tint.
+ *
+ * ## A DIVIDER, NOT A CARD (2026-09-04)
+ *
+ * The bordered `w-fit` box read as an orphan once `omit` left only Style No on
+ * it (screenshot 2720): a small box alone above a lot of empty row, repeating
+ * the style number the page header already shows one line up. On the Manual
+ * tab it is worse, because `manualStylePane` draws one band PER STYLE ROW —
+ * so a multi-style order stacked several of these orphaned boxes down the
+ * page with nothing telling the operator where one style's block ended and
+ * the next began.
+ *
+ * The fix keeps the band's two jobs — it still names whichever style the rail
+ * below belongs to, and it still stands in for that rail's `grid-caption` —
+ * and gives it a reason to occupy the full row instead of a fraction of it:
+ * it is now a labelled divider (label/value pairs, then a hairline that fills
+ * the rest of the row) rather than a bordered box floating in whitespace. On
+ * Manual that hairline is what marks the boundary between one style's block
+ * and the next; on Components, with one style, it reads as the rule above the
+ * rail it names. Planned in an artifact ("Anchoring the Style Band") before
+ * being built, per the operator's own habit for this exact band (see the
+ * 2026-09-03 note on the Manual call site).
+ *
+ * The `w-fit`/border/rounded/px/py classes are gone for this reason — a
+ * caller that still wants the old boxed look would have to opt back in, not
+ * discover it silently reappearing on the next unrelated change to `className`.
  *
  * `omit` DROPS FIELDS FOR ONE CALLER WITHOUT TOUCHING THE OTHER (client
  * 2026-09-04, "Structure Details & Components" cleanup spec: "delete Style
@@ -70,12 +96,7 @@ export function StyleIdentityBand({
   className?: string;
 }) {
   return (
-    <dl
-      className={cn(
-        "grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-1 rounded-md border border-border px-3 py-2",
-        className,
-      )}
-    >
+    <dl className={cn("flex w-full items-baseline gap-x-6", className)}>
       {[
         { key: "ref", label: "Style Ref No", value: identity?.ref || styleRefNo },
         { key: "style", label: "Style No", value: identity?.style ?? "" },
@@ -83,7 +104,7 @@ export function StyleIdentityBand({
       ]
         .filter((f) => !omit?.includes(f.key as "ref" | "style" | "article"))
         .map((f) => (
-        <div key={f.label}>
+        <div key={f.label} className="flex shrink-0 items-baseline gap-2">
           <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
             {f.label}
           </dt>
@@ -92,6 +113,10 @@ export function StyleIdentityBand({
           </dd>
         </div>
       ))}
+      {/* THE HAIRLINE, NOT THE BOX — fills the rest of the row so the label
+          reads as a section break rather than a card with dead space beside
+          it. `aria-hidden`: it carries no information of its own. */}
+      <div aria-hidden className="h-px min-w-[2rem] flex-1 self-center bg-border" />
     </dl>
   );
 }

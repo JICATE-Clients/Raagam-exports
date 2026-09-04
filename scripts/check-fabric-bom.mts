@@ -120,6 +120,7 @@ const assort = (size: string, qty: number, comboName = "WHITE", ref = S1): Assor
 function order(over: Partial<OrderProductionInput> = {}): OrderProductionInput {
   return {
     excessPct: 0,
+    rejectionPct: 0,
     rejectionRuleChosen: false,
     tiers: null,
     approvals: [approval(600, "WHITE"), approval(400, "NAVY")],
@@ -496,6 +497,26 @@ refute(
   "...not 165, which is the target with the rejection buffer dropped",
   total("colour", WHITE, line(), withRejection),
   165,
+);
+
+/*
+ * THE FLAT `rejectionPct` (0531, backend calc spec Formula 5) NEVER REACHES
+ * FABRIC — it is Material BOM's own companion term, added specifically
+ * because Material BOM had no rejection concept at all before it existed.
+ * `fullTarget`/`productionTarget` read only the tiered rule above; setting
+ * BOTH on one order must produce the identical 690/172.5 this section already
+ * proved, not 690 plus a second helping.
+ */
+const withRejectionAndFlat = order({ ...withRejection, rejectionPct: 8 });
+check(
+  "a flat rejection_pct alongside the tiered rule changes nothing here",
+  total("colour", WHITE, line(), withRejectionAndFlat),
+  172.5,
+);
+refute(
+  "...it is not folded into the fabric target a second time",
+  total("colour", WHITE, line(), withRejectionAndFlat),
+  172.5 * 1.08,
 );
 
 /*

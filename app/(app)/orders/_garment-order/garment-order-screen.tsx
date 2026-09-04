@@ -1238,6 +1238,24 @@ type HeaderForm = {
   pay_terms_id: string | null;
   /** Supplies Approval Qty's Projection buffer (0413). Null = no projection. */
   rejection_rule_id: string | null;
+  /**
+   * A SECOND, FLAT REJECTION FIGURE — deliberately alongside
+   * `rejection_rule_id`, not instead of it (backend calc spec, 2026-09-04:
+   * "Total Production Target Piece Count = Total Ordered Pieces x
+   * (1 + Rejection% / 100)", rounded up).
+   *
+   * `rejection_rule_id`'s tiered Projection already feeds Fabric BOM
+   * (`fullTarget` → `productionTarget` → `rejectionFor`) and REFUSES a line
+   * rather than defaulting to 0 when no tier covers the order's quantity —
+   * a deliberate, tested 0413 behaviour this field does not touch. This one
+   * is the spec's own simple flat percentage, defaulting to 0, and it feeds
+   * Material BOM ONLY (`materialTarget`, `lib/orders/material-bom/requirement.ts`)
+   * — the one BOM that has never had a rejection term at all. Reusing the
+   * Rejection Rule's own Fabric BOM wiring for this too would double-count
+   * rejection on Fabric BOM the moment both are set; see the plan this was
+   * built from for the full reasoning.
+   */
+  rejection_pct: string;
   /** The Style Quotation this order was raised from (0511). */
   sq_detail_id: string | null;
   ex_rate: string;
@@ -1278,6 +1296,7 @@ const BLANK: HeaderForm = {
   pay_mode: "",
   pay_terms_id: null,
   rejection_rule_id: null,
+  rejection_pct: "",
   sq_detail_id: null,
   ex_rate: "",
   avg_rate: "",
@@ -3585,6 +3604,7 @@ export function GarmentOrderScreen({
       pay_mode: r.pay_mode ?? "",
       pay_terms_id: r.pay_terms_id,
       rejection_rule_id: r.rejection_rule_id,
+      rejection_pct: r.rejection_pct ? String(r.rejection_pct) : "",
       sq_detail_id: r.sq_detail_id,
       ex_rate: r.ex_rate ? String(r.ex_rate) : "",
       avg_rate: r.avg_rate ? String(r.avg_rate) : "",
@@ -3706,6 +3726,7 @@ export function GarmentOrderScreen({
       delivery_date: form.delivery_date || null,
       excess_pct: numOrNull(form.excess_pct) ?? 0,
       rejection_rule_id: form.rejection_rule_id,
+      rejection_pct: numOrNull(form.rejection_pct) ?? 0,
       sq_detail_id: form.sq_detail_id,
       pack: form.pack,
       is_set_pack: form.is_set_pack,
@@ -18496,6 +18517,28 @@ export function GarmentOrderScreen({
                    blank here is a STATE OF THE ORDER (no rejection projection), not
                    an unanswered field. */
                 placeholder="No rejection"
+              />
+            </Field>
+            {/* "Rejection %" — A SEPARATE FLAT FIGURE, BESIDE THE RULE ABOVE,
+                NOT REPLACING IT (backend calc spec, 2026-09-04, Formula 5:
+                "Total Production Target Piece Count = Total Ordered Pieces x
+                (1 + Rejection% / 100)", default 0). Mirrors "Excess %" above
+                (`<Field size="xs">` + a plain `type="number" <Input>`, no
+                picker) because that is the same shape of value: a number the
+                merchandiser types, not a master row to pick.
+
+                FEEDS MATERIAL BOM ONLY — see `rejection_pct`'s own doc on
+                `HeaderForm` for why: the Rejection Rule above already feeds
+                Fabric BOM's target, and adding this flat percentage there too
+                would double-count. Never `required` — 0 is a complete,
+                ordinary answer ("no rejection considered"), unlike the rule
+                picker's own now-required state above. */}
+            <Field label="Rejection %" size="xs" htmlFor="hd-rejection-pct">
+              <Input
+                id="hd-rejection-pct"
+                type="number"
+                value={form.rejection_pct}
+                onChange={(e) => set({ rejection_pct: e.target.value })}
               />
             </Field>
             {/* THE "Attachments" CELL STOOD HERE AND IS GONE (client

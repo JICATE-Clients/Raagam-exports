@@ -49,7 +49,7 @@ export type { BomStatus };
 import { ASSORT_WEIGHT_SELECT, assortSizeWeights } from "@/lib/orders/assort-weights";
 
 export const ORDER_SELECT =
-  "id, code, po_no, amend_date, delivery_date, excess_pct, rejection_rule_id, " +
+  "id, code, po_no, amend_date, delivery_date, excess_pct, rejection_rule_id, rejection_pct, " +
   "customer:customers(id,code,name), " +
   "sales_order:sales_orders(id,order_number), " +
   /* THREE MORE COLUMNS ON THE STYLE (0495), for the Fabric BOM's Manual tab,
@@ -78,6 +78,8 @@ export type OrderRow = {
   delivery_date: string | null;
   excess_pct: number | null;
   rejection_rule_id: string | null;
+  /** The order's flat rejection allowance (0531) — see `OrderProductionInput.rejectionPct`. */
+  rejection_pct: number | null;
   customer: { id: string; code: string | null; name: string } | null;
   sales_order: { id: string; order_number: string | null } | null;
   styles:
@@ -143,6 +145,7 @@ export function orderProductionInput(
 
   return {
     excessPct: Number(row.excess_pct) || 0,
+    rejectionPct: Number(row.rejection_pct) || 0,
     // A rule NAMED is what makes a tier gap a refusal rather than a zero buffer
     // (see `productionTarget`). Read off the order, never inferred from whether
     // tiers happened to resolve.

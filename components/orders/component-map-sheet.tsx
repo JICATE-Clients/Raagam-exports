@@ -998,7 +998,17 @@ export function ComponentMapBody({
    * a white body and a navy body may name two different fabric items — the panel
    * row rolls them up and says "(mixed)", and these are where the values are.
    *
-   * Widths: 6 + 5 + 10 + 6 + 6 + 6 = 39rem = 624px, well inside this
+   * `Fabric Type` AND `Type` WIDENED, 5→7 AND 6→8rem (operator report,
+   * 2026-09-04: the values were "hidden because the field width is small").
+   * Both render through `<Select>`, which is a `Combobox` on desktop the
+   * moment its own blank `<option>` makes it `clearable` (see `select.tsx`) —
+   * so both cells carry a clear ✕ beside the value, not just a chevron. "YARN
+   * DYED" (9 chars) and "Open Width" (10 chars) plus that ✕ do not fit 5/6rem;
+   * `Type` in `fabric-bom-screen.tsx`'s `lineColumns` gets away with 6rem for
+   * "Yarn Dyed" only because that cell prints plain `ClothText`, with no ✕ to
+   * share the box with.
+   *
+   * Widths: 6 + 7 + 10 + 8 + 6 + 6 = 43rem = 688px, well inside this
    * nested grid's own (rail-reduced) pane.
    */
   /* `panelInRowColumns` STOOD HERE FOR ONE ITERATION AND IS GONE (client
@@ -1042,7 +1052,7 @@ export function ComponentMapBody({
     },
     {
       header: "Fabric Type",
-      width: "5rem",
+      width: "7rem",
       cell: (l) => typeCell(l.key, l.item_id),
     },
     {
@@ -1103,7 +1113,10 @@ export function ComponentMapBody({
          complaint, the same write-through is the fix — not moving the cell back. */
       header: "Type",
       required: true,
-      width: "6rem",
+      /* 8rem — "Open Width" (10 chars) plus the clear ✕ this cell carries
+         (see the array's own note above) needed more than the 6rem it opened
+         at. */
+      width: "8rem",
       cell: (l) => (
         <Select
           compact
@@ -1255,37 +1268,21 @@ export function ComponentMapBody({
            box per panel, which is the operator's standing rule. */
         forceCards
         flatRows
-        /* 180px — NEITHER OF THE PRIMITIVE'S TWO NAMED WIDTHS (client
-           2026-09-03, then again 2026-09-04; the fourth number on this one
-           rail). The history is a narrowing, and every step of it was a
-           reading of the SAME reference screenshot: 268 (Material BOM's own
-           width, arrived at via "same as Material BOM") read wider than the
-           reference once the two sat side by side; 220 was the correction and
-           was still wide of the line drawn on it (2026-09-04, "cut roughly
-           25-30% … so the right-side detail form gets more horizontal
-           space").
-           IT DOES NOT GO BACK TO 160. That number was tried on 09-03 ("the
-           rail is sized to its text") and rejected as too tight the moment the
-           entry grew its second line, and the subtitle it was too tight FOR is
-           still here — so this stops at the bottom of the range the reference
-           allows (170-190) rather than at the width already known to fail.
-           `railWidthPx` exists on the primitive because of this exact call
-           site — see its own note on `child-grid.tsx` — so this is a number,
-           not a second boolean, and the entry's own padding stays the
-           primitive's `railCompact` (`px-2.5 py-1`), which is already tighter
-           than the reference asked for. */
-        railWidthPx={180}
-        /* TIGHTER PADDING TOO (client, same afternoon: "use compact that
-           rail menu"). Independent of the width now — see `railCompact`'s
-           own note on `child-grid.tsx` for why the two stopped being one
-           flag. */
-        railCompact
-        /* THE TINT IS OFF (client 2026-09-04: "need remove that grey bg from
-           that rail"). This reverses the 2026-09-03 "match Material BOM,
-           full stop" instruction for the pane's background only — width,
-           padding and the ring above stay matched; see `railBg`'s own note
-           on `child-grid.tsx`. */
-        railBg={false}
+        /* BACK TO MATERIAL BOM'S OWN WIDTH, PADDING AND TINT — `railWidthPx`,
+           `railCompact` and `railBg={false}` all REMOVED (client 2026-09-04,
+           later the same day as the narrowing below: "the size of the rail
+           menu and color etc I need same" — i.e. as Material BOM's).
+           This is a second reversal on the same afternoon, not a new
+           decision: 2026-09-03 asked for "same like material bom tab layout,
+           size, color everything", 2026-09-04 morning narrowed it three times
+           (180px, then compact padding, then the tint dropped — each kept in
+           git history and formerly recorded here), and this instruction puts
+           it back to that first "full stop" state. Falling through to
+           `child-grid.tsx`'s defaults (268px, `px-3 py-2`, `bg-surface-muted/60`)
+           IS "same as Material BOM" — that screen sets none of the three
+           either. If a future ask narrows this again, narrow it explicitly
+           rather than re-adding these three as a set: the width, the padding
+           and the tint are independent props for exactly this reason. */
         /**
          * `fill` IS LOAD-BEARING HERE, AND ITS ABSENCE IS WHAT BROKE THE PANE
          * (reported 2026-09-03 with a screenshot: every field stacked in a
@@ -1346,6 +1343,11 @@ export function ComponentMapBody({
            `child-grid.tsx` for why it cannot simply be nested inside the list
            (`data-focus-optional` would take it off the Tab path). */
         railAdd
+        /* NO `railBorder` HERE — the borderless rail is `child-grid.tsx`'s
+           OWN DEFAULT now (client 2026-09-04: raised here first as "remove
+           that rail border", then made "global … Material BOM and Manual tab"
+           the same day). `gap-x-8` still keeps the rail and the pane apart;
+           only the seam lines are gone, app-wide. */
         /* OPENS ON THE FIRST PART RATHER THAN NOTHING (2026-09-04, operator:
            "why the bottom looks so flying … default open first component
            with that table panel"). Opt-in on `child-grid.tsx`'s own prop —
@@ -1407,12 +1409,11 @@ export function ComponentMapBody({
              every colourway states its Type. */
           const state = !name ? "idle" : n > 0 && answered === n ? "ok" : "warn";
           return (
-            /* `gap-1.5` — THE DOT IS 6px AND THE GUTTER WAS 10px. On a 180px
-               rail the name has ~150px to live in, so the space between a
-               6px dot and the text it belongs to is worth more as name than
-               as air; tightening it also reads as one unit rather than two
-               columns. The dot keeps `shrink-0`, so the whole of the
-               narrowing lands on the text. */
+            /* `gap-2.5`, MATERIAL BOM'S OWN GUTTER — `gap-1.5` was tuned for a
+               180px rail (see the width/padding/tint note above); back at
+               268px there is no width pressure buying anything by tightening
+               it, so this reverts with the width rather than staying an
+               orphaned narrowing. The dot keeps `shrink-0`. */
             /* `min-h-7` INSTEAD OF A BLANK RESERVED LINE — kept in step with
                the Manual rail, whose call site carries the full reasoning
                (client 2026-09-04). Short version: reserving the second line
@@ -1420,8 +1421,9 @@ export function ComponentMapBody({
                pushed the visible line to the top of it, so `items-center`
                centred the dot below the title. A minimum height on the row
                gives the same uniform box AND lets the centring work, because
-               there is no blank line inside the block being centred. */
-            <div className="flex min-h-7 items-center gap-1.5">
+               there is no blank line inside the block being centred. This one
+               is NOT tied to the width narrowing — it stays. */
+            <div className="flex min-h-7 items-center gap-2.5">
               <span
                 className={cn(
                   "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -1431,22 +1433,18 @@ export function ComponentMapBody({
                 )}
               />
               <span className="min-w-0 flex-1">
-                {/* `text-xs font-semibold`, AND THE WEIGHT IS WHAT PAYS FOR THE
-                    SIZE. 12.5px/medium was tuned against a 220px rail; at 180px
-                    the name is the one thing that must stay findable at a
-                    glance, so it drops half a pixel to a real scale step and
-                    takes the weight back — a semibold 12px name reads heavier
-                    than a medium 12.5px one, while the subtitle beneath stays
-                    at 10px/muted, so the two lines separate MORE than before
-                    rather than less.
+                {/* `text-[12.5px] font-medium` — MATERIAL BOM'S OWN SCALE.
+                    `text-xs font-semibold` was the 180px-rail compensation
+                    (a heavier, half-pixel-smaller name to stay findable in a
+                    tighter column); at Material BOM's own width that trade
+                    buys nothing, so this reverts along with the gap above.
 
                     NO `truncate` CLASS HERE. `Truncated` writes that span
                     itself (AGENTS.md, "Truncated values": the class comes off
                     the call site), and it is what makes a clipped part name
-                    readable on hover or press-and-hold — which is the whole
-                    reason a narrower rail is safe to ship. Adding `truncate`
+                    readable on hover or press-and-hold. Adding `truncate`
                     beside it would clip the value with nothing revealing it. */}
-                <Truncated className="block text-xs font-semibold leading-tight text-foreground">
+                <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
                   {name || "New part"}
                 </Truncated>
                 {structure && (
@@ -1492,12 +1490,19 @@ export function ComponentMapBody({
                 apart, and the client is right that the second saying earns
                 nothing the first did not.
 
-                THE ✕ STILL NEEDS THE `pr-9` ROOM `cornerRemove` FLOATS INTO
-                — that half of the old heading's job stays, on a bare spacer
-                rather than on text that repeats the rail. Dropping the whole
-                block would bring back the ORIGINAL defect this heading was
-                built to fix: an ✕ with nothing above it to belong to. */}
-            <div className="h-1 pr-9" />
+                THE SPACER THAT USED TO STAND HERE IS GONE (operator report,
+                2026-09-04, on the Manual tab's identical rail: "rail start
+                and the fab table start is uneven … make it equal" — the same
+                pane shape, so the same fix). It bought the ✕ "something to
+                belong to", but nothing it protected actually sits under it:
+                `cornerRemove` floats `right-1` against this FULL-width row
+                wrapper, while the Coordinate/Component fields and the table
+                below are both left-aligned and narrower than the pane — nor
+                does the ✕ need flow content above it to read as attached to
+                the panel; it is already inside the same bordered row as
+                everything else. Keeping an empty div here only cost the pane
+                the same 16px the Manual tab's own spacer cost it, which is
+                exactly the gap the operator was pointing at. */}
             {/* THE PANEL'S OWN FIELDS, BESIDE THE TABLE RATHER THAN ABOVE OR
                 INSIDE IT (client 2026-09-04: "keep the controls and the table on
                 the same horizontal row side-by-side, but separate them").
@@ -1694,19 +1699,22 @@ export function ComponentMapBody({
         /* THE ADDRESS, NOT THE GRID'S KEY — `removePanel` resolves
            `component_id ?? panel_uid` through `inScope`. See `gridPanels`. */
         onRemove={(p) => onRemovePanel(p.addr)}
-        /* THE BUTTON MATCHES THE PILLS. `ChildGrid`'s add is
-           `variant="outline" size="sm"`, already `text-xs`; this trims its `px-3`
-           to the entries' `px-2.5` so the rail keeps one left edge from the first
-           part down to the button.
+        /* THE BUTTON MATCHES THE ENTRIES. `ChildGrid`'s add is
+           `variant="outline" size="sm"`, already `text-xs` and already `px-3` —
+           which is what the entries now use too, since `railCompact` (and its
+           `px-2.5`) came off this rail (see the width/padding/tint note above).
+           `px-3` here keeps one left edge from the first part down to the
+           button rather than reintroducing the mismatch the two were tuned
+           together to avoid.
 
            `w-full` ARRIVED WITH `railAdd` (2026-09-04). Under the grid the
            button was one control on an empty row and sized to its own text; at
-           the foot of a 180px rail that left it floating in a column it does not
-           fill, reading as a stray pill rather than as the pane's own footer.
-           Filling the width is what makes it the bottom of the list — and the
-           rail's own `p-1.5` is the only inset, so its edges line up with the
-           entries above it. */
-        addClassName="w-full justify-start px-2.5"
+           the foot of a narrow rail that left it floating in a column it does
+           not fill, reading as a stray pill rather than as the pane's own
+           footer. Filling the width is what makes it the bottom of the list —
+           and the rail's own `p-1.5` is the only inset, so its edges line up
+           with the entries above it. */
+        addClassName="w-full justify-start px-3"
         addLabel="+ Add part"
       />
     </div>

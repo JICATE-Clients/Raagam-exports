@@ -120,6 +120,7 @@ const assort = (size: string, qty: number, comboName = "WHITE", ref = S1): Assor
 function order(over: Partial<OrderProductionInput> = {}): OrderProductionInput {
   return {
     excessPct: 0,
+    rejectionPct: 0,
     rejectionRuleChosen: false,
     tiers: null,
     approvals: [approval(600)],
@@ -340,6 +341,69 @@ const gapOrder = order({
 });
 check("a tier gap does not stop a material", refusalOf(productionSlices("order", gapOrder)), null);
 check("and the base is unchanged by the gap", totalProductionOf(gapOrder), 640);
+
+// ---------------------------------------------------------------------------
+// 3c. THE FLAT `rejectionPct` (0531, backend calc spec Formula 5) — the
+//     material-only companion to the tiered rule above, never the same field.
+// ---------------------------------------------------------------------------
+
+// The spec's own worked example: 657 ordered x 1.02 = 670.14, rounded UP to
+// 671 — "adding exactly 14 extra pieces to cover rejections". One item per
+// one piece keeps the base equal to the target, the same trick the excess
+// vectors above use, so the spec's own figure can be asserted directly.
+check(
+  "spec worked example: 657 pcs at 2% rejection = 671",
+  required(
+    "order",
+    order({ rejectionPct: 2, approvals: [approval(657, "WHITE", S1, 0)], combos: [combo("WHITE", S1)] }),
+    line({ no_of_items: 1, per_pieces: 1 }),
+  ),
+  [{ label: "Whole order", value: 671 }],
+);
+refute(
+  "not 670 — that is the un-rounded 670.14 truncated instead of ceiled",
+  required(
+    "order",
+    order({ rejectionPct: 2, approvals: [approval(657, "WHITE", S1, 0)], combos: [combo("WHITE", S1)] }),
+    line({ no_of_items: 1, per_pieces: 1 }),
+  ),
+  [{ label: "Whole order", value: 670 }],
+);
+
+// COMPOSES WITH THE BUYER'S EXCESS, ROUNDED SEPARATELY — 600 + 5% excess (30,
+// ceil) + 2% rejection (12, ceil) = 642, not one combined 7% pass (642 either
+// way here, so the refutation below is the vector that actually separates
+// them: a combined-percentage engine rounds 7% of 600 = 42 ONCE, this engine
+// rounds 5% and 2% SEPARATELY and sums the two ceilings).
+check(
+  "5% excess and 2% rejection both apply, rounded independently",
+  totalOf(required("order", order({ excessPct: 5, rejectionPct: 2 }), line({ no_of_items: 1, per_pieces: 1 }))),
+  642,
+);
+
+// NEVER DOUBLE-COUNTED WITH THE TIERED RULE — `richOrder` above already has a
+// tiered rejection rule feeding the FABRIC target (670 there); giving it a
+// flat `rejectionPct` too must add ONLY the flat term to the MATERIAL target,
+// because `fullTarget` (Fabric BOM) never reads `rejectionPct` and
+// `materialTarget` never reads the tiered rule — see both functions' own
+// headers. 600 + 30 excess + 10 approval + ceil(600*0.02)=12 = 652.
+const richOrderWithFlat = order({
+  excessPct: 5,
+  rejectionPct: 2,
+  rejectionRuleChosen: true,
+  tiers: TIERS,
+  approvals: [approval(600, "WHITE", S1, 10)],
+});
+check(
+  "the tiered rule and the flat percentage both apply, to different BOMs, additively on this one",
+  totalProductionOf(richOrderWithFlat),
+  652,
+);
+refute(
+  "not 670 — that would be the flat term added on top of the FABRIC target, double-counting",
+  totalProductionOf(richOrderWithFlat),
+  670,
+);
 
 // EXCESS IS PER APPROVAL ROW, NOT ON THE TOTAL — the client's own worked example
 // (`excessQty`'s header: 500 at 5% reads as 25, not 24). Two rows of 250 round

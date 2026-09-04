@@ -46,8 +46,9 @@ import { Tabs } from "@/components/ui/tabs";
 import { fmtNumber } from "@/lib/format";
 import { colourCountNote } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import {
+  colorNetWeight,
   mixingDetailRows,
-  type MixingDetailRow,
+  type MixingDetailWithNet,
   type YdRepeatRow,
 } from "@/lib/orders/fabric-bom/yarn-dyed";
 import type { FabricComposition } from "@/lib/orders/fabric-bom/yarn-process";
@@ -309,19 +310,38 @@ export function MixingDetailsPanel({
   declaredColourCount,
   yarnName,
   uomName,
+  uomCode,
+  fabricTotalGross,
+  fabricUomName,
 }: {
   repeats: readonly YdRepeatRow[];
   declaredColourCount: number | null;
   composition: FabricComposition | null;
   yarnName: (id: string | null) => string;
   uomName: (id: string | null) => string;
+  /** The stripe cm/inch conversion's own resolver — `uoms.code`, never the
+   *  display `name` `uomName` gives. See `mixingDetailRows`'s own doc. */
+  uomCode: (id: string | null) => string;
+  /**
+   * THIS FABRIC'S OWN CALCULATED REQUIREMENT — Backend calc spec, Formula 3
+   * ("Net Color Yarn Weight_i = Total Fabric Consumption Weight x P_i/100").
+   * Summed across whatever colourways (order combos) this cloth serves, off
+   * the SAME `FabricGross[]` `./yarn-process.ts`'s `yarnNetByCombo` reads —
+   * never a second requirement figure for one fabric. `null` when this
+   * fabric has no calculated requirement yet, which `colorNetWeight` reads
+   * as "unanswerable", not zero.
+   */
+  fabricTotalGross: number | null;
+  /** The requirement's own unit — printed beside Net Wt so a kg figure is
+   *  never read as a metre one. */
+  fabricUomName: string;
 }) {
   const rows = useMemo(
-    () => mixingDetailRows(repeats, composition, yarnName),
-    [repeats, composition, yarnName],
+    () => colorNetWeight(mixingDetailRows(repeats, composition, yarnName, uomCode), fabricTotalGross),
+    [repeats, composition, yarnName, uomCode, fabricTotalGross],
   );
 
-  const columns: ChildGridColumn<MixingDetailRow>[] = [
+  const columns: ChildGridColumn<MixingDetailWithNet>[] = [
     { header: "Yarn", width: "13rem", cell: (r) => <Truncated>{r.yarn_name || "—"}</Truncated> },
     {
       header: "Type",
@@ -355,6 +375,21 @@ export function MixingDetailsPanel({
         ),
     },
     {
+      /* Formula 3's own figure — `fabricGross x mixing_pct/100`, computed in
+         `colorNetWeight`. Never printed over a refusal: a Mixing % the
+         operator cannot see the reason for should not be followed by a
+         number that looks trustworthy. */
+      header: "Net Wt",
+      align: "right",
+      width: "6.5rem",
+      cell: (r) =>
+        r.refusal ? (
+          <span className="text-sm text-muted-foreground">—</span>
+        ) : (
+          <NumCell value={r.net_weight} suffix={r.net_weight != null ? ` ${fabricUomName}` : ""} />
+        ),
+    },
+    {
       header: "Twisted Yarn",
       width: "7rem",
       cell: (r) => <Truncated>{r.twisted_yarn || "—"}</Truncated>,
@@ -373,7 +408,7 @@ export function MixingDetailsPanel({
         share of its own yarn, Mixing % is its share of the whole cloth. Nothing
         here is typed.
       </p>
-      <ChildGrid<MixingDetailRow>
+      <ChildGrid<MixingDetailWithNet>
         columns={columns}
         rows={rows}
         /* TABLE MODE, NOT `inlineCards` — every cell here is plain text, and
@@ -532,6 +567,9 @@ export function YarnDyedSheet({
   declaredColourCount,
   yarnName,
   uomName,
+  uomCode,
+  fabricTotalGross,
+  fabricUomName,
   onPatchYdRepeat,
   onAddYdRepeat,
   onRemoveYdRepeat,
@@ -561,6 +599,12 @@ export function YarnDyedSheet({
   declaredColourCount: number | null;
   yarnName: (id: string | null) => string;
   uomName: (id: string | null) => string;
+  /** See `MixingDetailsPanel`'s own note — `uoms.code`, for the stripe
+   *  cm/inch conversion. */
+  uomCode: (id: string | null) => string;
+  /** See `MixingDetailsPanel`'s own note — Formula 3's net-weight column. */
+  fabricTotalGross: number | null;
+  fabricUomName: string;
   onPatchYdRepeat: (key: string, patch: Partial<YdRepeatRow>) => void;
   onAddYdRepeat: () => void;
   onRemoveYdRepeat: (row: YdRepeatRow) => void;
@@ -638,6 +682,9 @@ export function YarnDyedSheet({
                 declaredColourCount={declaredColourCount}
                 yarnName={yarnName}
                 uomName={uomName}
+                uomCode={uomCode}
+                fabricTotalGross={fabricTotalGross}
+                fabricUomName={fabricUomName}
               />
             ),
           },

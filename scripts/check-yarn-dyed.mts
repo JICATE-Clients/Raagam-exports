@@ -28,7 +28,11 @@
  * Run: npm run check:yarn-dyed
  */
 
-import { mixingDetailRows, type YdRepeatRow } from "../lib/orders/fabric-bom/yarn-dyed";
+import {
+  colorNetWeight,
+  mixingDetailRows,
+  type YdRepeatRow,
+} from "../lib/orders/fabric-bom/yarn-dyed";
 import type { FabricComposition } from "../lib/orders/fabric-bom/yarn-process";
 
 let failures = 0;
@@ -69,6 +73,12 @@ const repeat = (p: Partial<YdRepeatRow> & { key: string }): YdRepeatRow => ({
 
 const names = (id: string | null) => (id ? `YARN ${id}` : "");
 
+/** Every existing call below passes `null` uom ids, so `codes` answers ""
+ *  for them — same as an unset Uom field — leaving sections 1-5 exercising
+ *  the untouched single-unit path. Sections 6-7 use real ids. */
+const UOM_CODES: Record<string, string> = { u_cm: "CM", u_in: "INCH", u_pct: "%", u_mtr: "MTR" };
+const codes = (id: string | null) => (id ? (UOM_CODES[id] ?? "") : "");
+
 // ---------------------------------------------------------------------------
 console.log("\n1. The captured document (screenshot 2615) — one yarn, 60 / 40 / grey");
 // ---------------------------------------------------------------------------
@@ -88,6 +98,7 @@ console.log("\n1. The captured document (screenshot 2615) — one yarn, 60 / 40 
     ],
     cotton,
     names,
+    codes,
   );
 
   eq("row count (the Grey repeat draws no row)", rows.length, 2);
@@ -119,6 +130,7 @@ console.log("   50/50 cotton-polyester; the cotton is dyed 60 NAVY / 40 WHITE.")
     ],
     blend,
     names,
+    codes,
   );
 
   // The colour split WITHIN the cotton is unchanged by the blend...
@@ -157,6 +169,7 @@ console.log("\n3. An UNDECLARED blend REFUSES — it does not quietly assume 100
     [repeat({ key: "1", yarn_item_id: "A", color_name: "RED", value: 100 })],
     undeclared,
     names,
+    codes,
   );
 
   eqNum("Calculated % is still answerable", rows[0].calculated_pct, 100);
@@ -183,6 +196,7 @@ console.log("\n4. `Grey` is out of the DENOMINATOR, not merely out of the panel"
     ],
     cotton,
     names,
+    codes,
   );
 
   eq("still two rows", rows.length, 2);
@@ -203,9 +217,122 @@ console.log("\n5. An unanswered yarn prints nothing, not 0%");
     [repeat({ key: "1", yarn_item_id: "C", color_name: "NAVY", value: null })],
     cotton,
     names,
+    codes,
   );
   eqNum("Calculated % of a blank value", rows[0].calculated_pct, null);
   eqNum("Mixing % of a blank value", rows[0].mixing_pct, null);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n6. STRIPE WIDTHS IN cm AND inch CONVERT BEFORE THEY DIVIDE (Formula 2)");
+console.log("   4cm + 2in — the spec's own worked example is 4cm + 2cm = 66.67/33.33;");
+console.log("   this is the SAME ratio in different units: 4cm + 5.08cm.");
+// ---------------------------------------------------------------------------
+{
+  const cotton: FabricComposition = {
+    fabric_id: "F6",
+    fabric_name: "YARN DYED STRIPE",
+    components: [{ yarn_id: "C", blend_pct: null }],
+  };
+  const rows = mixingDetailRows(
+    [
+      repeat({ key: "1", yarn_item_id: "C", color_name: "GREEN", uom_id: "u_cm", value: 4 }),
+      repeat({ key: "2", yarn_item_id: "C", color_name: "RED", uom_id: "u_in", value: 2 }),
+    ],
+    cotton,
+    names,
+    codes,
+  );
+
+  // 4 / (4 + 2*2.54) = 4 / 9.08 = 44.05...%; refutes the pre-fix reading of
+  // 4 / (4+2) = 66.67%, which is what an implementation still summing raw
+  // values regardless of unit would print.
+  eqNum("GREEN Calculated % — unit-converted, NOT 66.67", rows[0].calculated_pct, (4 / 9.08) * 100);
+  eqNum("RED Calculated % — unit-converted, NOT 33.33", rows[1].calculated_pct, (5.08 / 9.08) * 100);
+  eq("neither the typed Value nor the Uom is rewritten", [rows[0].value, rows[1].value], [4, 2]);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n7. A LENGTH UNIT MIXED WITH % ABSTAINS — it does not guess");
+// ---------------------------------------------------------------------------
+{
+  const cotton: FabricComposition = {
+    fabric_id: "F7",
+    fabric_name: "YARN DYED STRIPE",
+    components: [{ yarn_id: "C", blend_pct: null }],
+  };
+  const rows = mixingDetailRows(
+    [
+      repeat({ key: "1", yarn_item_id: "C", color_name: "GREEN", uom_id: "u_cm", value: 4 }),
+      repeat({ key: "2", yarn_item_id: "C", color_name: "RED", uom_id: "u_pct", value: 40 }),
+    ],
+    cotton,
+    names,
+    codes,
+  );
+
+  eqNum("cm mixed with % — GREEN abstains rather than reading 4/44", rows[0].calculated_pct, null);
+  eqNum("cm mixed with % — RED abstains too", rows[1].calculated_pct, null);
+  // THE ABSTENTION SAYS WHY, the same rule Section 3's blend refusal already
+  // holds to — a null with nothing beside it is indistinguishable on screen
+  // from "nothing to declare" (the Mixing % cell's own note).
+  eq("...and both rows say why, not just a blank —", [rows[0].refusal === null, rows[1].refusal === null], [false, false]);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n8. NET WEIGHT PER COLOUR (Formula 3) — mixing_pct x the fabric's own gross");
+console.log("   50/50 cotton-polyester, cotton dyed 60 NAVY / 40 WHITE, 1,000 kg of cloth.");
+// ---------------------------------------------------------------------------
+{
+  const blend: FabricComposition = {
+    fabric_id: "F8",
+    fabric_name: "YARN DYED PC JERSEY",
+    components: [
+      { yarn_id: "C", blend_pct: 50 },
+      { yarn_id: "P", blend_pct: 50 },
+    ],
+  };
+  const mixing = mixingDetailRows(
+    [
+      repeat({ key: "1", yarn_item_id: "C", color_name: "NAVY", value: 60 }),
+      repeat({ key: "2", yarn_item_id: "C", color_name: "WHITE", value: 40 }),
+    ],
+    blend,
+    names,
+    codes,
+  );
+  const withNet = colorNetWeight(mixing, 1000);
+
+  // Mixing % is 30/20 (the cotton's colour split, halved for the blend share)
+  // — Net Wt multiplies that straight onto the cloth's own 1,000 kg.
+  eqNum("NAVY Net Wt — 30% of 1,000 kg", withNet[0].net_weight, 300);
+  eqNum("WHITE Net Wt — 20% of 1,000 kg", withNet[1].net_weight, 200);
+
+  const noRequirement = colorNetWeight(mixing, null);
+  eqNum("no fabric requirement yet — Net Wt abstains, NOT 0", noRequirement[0].net_weight, null);
+
+  const undeclared: FabricComposition = {
+    fabric_id: "F9",
+    fabric_name: "YARN DYED STRIPE",
+    components: [
+      { yarn_id: "A", blend_pct: null },
+      { yarn_id: "B", blend_pct: null },
+    ],
+  };
+  const refused = colorNetWeight(
+    mixingDetailRows(
+      [repeat({ key: "1", yarn_item_id: "A", color_name: "RED", value: 100 })],
+      undeclared,
+      names,
+      codes,
+    ),
+    1000,
+  );
+  eqNum(
+    "an unresolvable blend share still refuses — Net Wt abstains too, NOT 1000",
+    refused[0].net_weight,
+    null,
+  );
 }
 
 console.log(

@@ -83,6 +83,7 @@ export function FabricProcessGrid({
   canCreate = false,
   canEdit = false,
   readOnly = false,
+  hideHeader = false,
 }: {
   /** The fabric these steps belong to — stamped onto every row added. */
   itemId: string;
@@ -115,6 +116,10 @@ export function FabricProcessGrid({
   canCreate?: boolean;
   canEdit?: boolean;
   readOnly?: boolean;
+  /** Drop this instance's column header — the caller's job when a fabric's
+   *  route is split into several of these grids stacked in a row; see
+   *  `ChildGrid`'s own `hideHeader` note for why. */
+  hideHeader?: boolean;
 }) {
   const patch = (key: string, next: Partial<FabricProcessRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
@@ -365,6 +370,7 @@ export function FabricProcessGrid({
          `@lg` is 512px of CONTAINER, not 1024 — see `tableFrom`. */
       tableFrom="5xl"
       centerHeaders
+      hideHeader={hideHeader}
       /* `renderMobileRow` STAYS. The DEFAULT stacked cell is a bare <div> around
          a RequiredScope with NO VISIBLE LABEL, so dropping this as redundant
          turns the sub-@5xl fallback into six unlabelled boxes — the mistake
