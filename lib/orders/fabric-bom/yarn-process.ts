@@ -407,6 +407,22 @@ export const stageCoversCombo = (stageCombo: string | null, combo: string): bool
  * ORDER DOES NOT CHANGE THE PRODUCT, and that is worth stating rather than
  * relying on: multiplication commutes, so re-ordering the stages moves nothing.
  * `sno` orders what the planner READS, not what the arithmetic does.
+ *
+ * RE-RAISED AND REAFFIRMED, NOT RECONCILED (2026-09-04). A backend
+ * calculation spec sent this same day independently re-derives the
+ * backward-solve side of this exact tension — its own worked example is
+ * 0427's `100 / (1 - 0.05) = 105.26`, not this file's `100 x 1.05 = 105`.
+ * It was reviewed against the 2026-09-01 client decision recorded above
+ * rather than applied here: the two computations are not actually the same
+ * question (this is a per-stage yarn uplift inside ONE fabric BOM document;
+ * `lib/orders/fabric-plan/route.ts`'s `routeQuantities()` solves a whole
+ * process ROUTE's input from its output on a separate document, and IS the
+ * backward form — see that file), and reversing an explicit, tested,
+ * client-approved formula on the strength of a spec document that was not
+ * shown the 2026-09-01 decision is not a fix, it is a second, unreviewed
+ * decision wearing the first one's clothes. If this is genuinely meant to
+ * change, it needs a fresh client call naming THIS function, not an
+ * inference from a document written without it in view.
  */
 export function comboUplift(
   stages: readonly { combo: string | null; loss_pct: number | null }[],

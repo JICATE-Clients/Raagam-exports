@@ -65,6 +65,7 @@ import { Field, FieldGrid, FieldRow, RequiredScope } from "@/components/ui/field
 import type { FieldSize } from "@/lib/ui/sizes";
 import {
   ChildGrid,
+  GRID_HEADER_TEXT,
   gridKeyNav,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
@@ -80,6 +81,7 @@ import { RecordPicker } from "@/components/masters/record-picker";
 import { Sheet } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Truncated } from "@/components/ui/truncated";
+import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { today as calendarToday } from "@/lib/calendar";
@@ -200,6 +202,7 @@ import type { FabricOption } from "@/lib/orders/fabric-bom/fabric-options";
 import { FabricQuickCreateSheet } from "@/components/masters/fabric-quick-create-sheet";
 import {
   componentsHiddenForLayout,
+  declaredPanelsFor,
   fabricFormLabel,
   fabricGroupKey,
   rollUp,
@@ -803,10 +806,11 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
   wastage_pct: "",
   endbit_loss_pct: "",
   assort_color_wise: false,
-  /* TRUE, which is what the tab has always done. Off is the convenience, never
-     the default: a planner who has per-size figures from CAD must not have to
-     switch something on to enter them. */
-  size_wise: true,
+  /* FALSE (client, 2026-09-04: "its auto enabled so disable it" — reversing
+     the earlier default). A new entry now asks once and fans the answer to
+     every size; the planner switches this ON only when the sizes genuinely
+     differ. */
+  size_wise: false,
   component_ids: [],
   sizes: [],
 });
@@ -1673,27 +1677,15 @@ export function FabricBomScreen({
     (itemId ? (fabrics.find((f) => f.id === itemId)?.fabric_type ?? null) : null) ?? "";
 
   /**
-   * THE STYLE THIS LINE IS FOR — the line's own, else the ORDER's (client
-   * 2026-09-02: "from order entry fetch Style Ref No, Style No — now its fetching
-   * wrong details").
-   *
-   * IT WAS FETCHING NOTHING, AND THAT WAS A REGRESSION I INTRODUCED. `style_ref_no`
-   * used to be written by the `Combo` cell through `styleForCombo`. When the
-   * client's field spec repointed that cell to `color_name` (the Colour tab's
-   * Required Colour), the write went with it — so nothing set the style at all
-   * and three columns printed a dash. It also silently broke the GSM cell, whose
-   * index is keyed on the style; one deleted write, two visibly wrong columns.
-   *
-   * `orderIdentity` IS THE FALLBACK AND IT ABSTAINS ON A MULTI-STYLE ORDER, which
-   * is the honest behaviour rather than a limitation: with two styles declared
-   * there is no way to know which one a line is for, and naming the first would
-   * be a confident lie in a column the operator cannot correct. A single-style
-   * order — which is what the order header shows and what these three columns are
-   * for — resolves completely.
+   * `styleRefFor` — Fabric Lines' own "line's style, else the order's" — WAS
+   * HERE AND IS GONE (operator request, 2026-09-04: remove Style Ref No,
+   * Style No and Style Color from this row). Its only two callers were those
+   * columns' cells; a new fabric line still gets the order's style directly
+   * off `orderIdentity` (`+ Add fabric`'s handler), which never went through
+   * this function. `orderIdentity` itself stays — `styleIdentityFor` still
+   * reads it elsewhere in this file (Manual, Components, the Combos rail) —
+   * this is only the one reader that was local to this row.
    */
-  const styleRefFor = (r: { style_ref_no: string }): string =>
-    r.style_ref_no.trim() || orderIdentity?.ref || "";
-
   const factsForLine = (l: { key: string }) => {
     const line = lines.find((x) => x.key === l.key);
     const d = line ? descriptorFor(line) : null;
@@ -1989,7 +1981,12 @@ export function FabricBomScreen({
         wastage_pct: e.wastage_pct == null ? "" : String(e.wastage_pct),
         endbit_loss_pct: e.endbit_loss_pct == null ? "" : String(e.endbit_loss_pct),
         assort_color_wise: e.assort_color_wise ?? false,
-        size_wise: e.size_wise ?? true,
+        /* SAME REVERSED DEFAULT AS `blankManualEntry`, for a NULL stored value
+           (a legacy row saved before this column existed) — never disagreeing
+           with what a brand-new entry now starts as. A row that itself was
+           saved with `size_wise = true` still reads true; only the fallback
+           for "nothing was ever saved here" flipped. */
+        size_wise: e.size_wise ?? false,
         component_ids: (e.components ?? []).map((c) => c.component_id),
         sizes: (e.sizes ?? []).map((z) => ({
           key: newKey(),
@@ -2582,6 +2579,34 @@ export function FabricBomScreen({
   };
 
   /**
+   * REFUSES A STRUCTURE/FABRIC PICK THAT WOULD SILENTLY MERGE THIS ROW INTO
+   * ANOTHER (client-reported, 2026-09-04: a freshly added row picks the same
+   * Structure and Fabric an existing row already holds, and the row "hides"
+   * with no message).
+   *
+   * `allocationRows`' dedup is correct for two PANELS that share a route — that
+   * IS the Type-Based Fabric Listing design — but wrong the instant the
+   * operator is the one typing a row into collision: the just-completed row
+   * drops out of view with no error, no toast, nothing, because the dedup was
+   * built for panels arriving already-grouped, not for a row changing key
+   * under the operator's own click. And it is not merely a display gap — the
+   * row survives in `lines` either way, so the silent case also risks a hidden
+   * duplicate reaching Save (AGENTS.md: "an empty result reads as a real
+   * answer" is the same failure one level up).
+   *
+   * Compares the row's key AFTER the patch against every OTHER row's key
+   * BEFORE it — never the row's own — so re-confirming a value the row
+   * already holds is never refused.
+   */
+  const collidesWith = (row: LineRow, patch: Partial<LineRow>): number | null => {
+    const nextKey = allocationKeyOf({ ...row, ...patch });
+    const idx = allocationRows.findIndex(
+      (x) => x.key !== row.key && allocationKeyOf(x) === nextKey,
+    );
+    return idx === -1 ? null : idx + 1;
+  };
+
+  /**
    * The three names a Fabric Process card is headed with (0492).
    *
    * RESOLVED THROUGH THE SCREEN'S OWN OPTION LISTS, which is safe HERE and is
@@ -3118,7 +3143,8 @@ export function FabricBomScreen({
    * the declared style adopts the unscoped entries and no such row is drawn.
    * See `soleStyleRef`: this is the reading half of that one decision, and it
    * has to be here rather than at the call sites because `manualStylePane`,
-   * `styleRefusal` and the rail's dot all ask this same question.
+   * its per-entry problem message and the rail's dot all ask this same
+   * question.
    */
   const entriesForStyle = (ref: string) => {
     const k = ref.trim().toUpperCase();
@@ -3298,12 +3324,32 @@ export function FabricBomScreen({
       (e.width_form || null) as LayoutType | null,
     );
     const selected = new Set(e.component_ids);
+    /* THE BASE LIST IS NOW THE STYLE'S OWN DECLARATION, not the whole
+       `components` master (client, screenshot 2709: "need to show the
+       respective components only from the ... components tab" — ALL BODY,
+       POCKET and WAIST ROPE, three real master rows with nothing declared
+       for this style at all, sat in this list with no way to tell them
+       apart from FRONT BODY or SLEEVE). `declaredPanelsFor` is the SAME
+       function the Components TAB itself reads for rule 2 — scoped to
+       (style, structure), the identical scope `unallocatedComponentsFor`
+       above already reads, so the picker and the advisory can never
+       disagree about what "this fabric's components" means.
+
+       ALREADY-TICKED SURVIVES THE NARROWING TOO, same reason it survives
+       `hidden` below: a component ticked before a style's declaration
+       changed (or before this narrowing existed) must not silently vanish
+       from its own entry's list and blank the choice on the next Save —
+       `availablePanels`' own "the held panel must survive rule 2 as well"
+       rule, one module over. */
+    const declaredIds = new Set(
+      declaredPanelsFor(styleDecls, e.style_ref_no.trim() || null, e.structure_id).map(
+        (p) => p.component_id,
+      ),
+    );
     return data.components
+      .filter((c) => declaredIds.has(c.id) || selected.has(c.id))
       .filter((c) => !taken.has(c.id))
       .filter((c) => selected.has(c.id) || !hidden.has(c.id))
-      /* `{ id, label }`, which is `MultiSelectOption` — not the `{ value, label }`
-         a `Combobox` takes. Two option shapes in one file, and the type checker
-         is the only thing that tells them apart. */
       /* `{ id, label }`, which is `MultiSelectOption` — not the `{ value, label }`
          a `Combobox` takes. Two option shapes in one file, and the type checker
          is the only thing that tells them apart.
@@ -3313,6 +3359,40 @@ export function FabricBomScreen({
          screen passes the boolean through rather than re-deriving it — the
          "read it through one function" half of the Disabled rows rule. */
       .map((c) => ({ id: c.id, label: c.name, inactive: c.inactive }));
+  };
+
+  /**
+   * THE "FAB RAIL" REMAINDER — which of this style's declared panels for one
+   * fabric STRUCTURE are not yet covered by any Manual entry.
+   *
+   * A COVERAGE FACT, NOT A PICKER FILTER. `declaredPanelsFor` is rule 2's own
+   * bounded universe (the style's declared panels for this structure);
+   * subtracting `takenComponentIds` (already allocated anywhere in the style)
+   * leaves exactly what nobody has claimed yet. Deliberately does NOT also
+   * subtract `componentsHiddenForLayout` — that hides options from ONE entry's
+   * own picker by its OWN Layout Type choice, which is a different question
+   * from "does the style still need this panel covered by something".
+   *
+   * `exceptKey` mirrors `takenComponentIds`' own parameter: pass the entry
+   * being edited so its own (possibly still-empty) choices don't count against
+   * it; omit it for a style-wide read (the advisory line below).
+   */
+  const unallocatedComponentsFor = (
+    styleRefNo: string,
+    structureId: string | null,
+    exceptKey = "__unallocated_advisory__",
+  ) => {
+    const ref = styleRefNo.trim() || null;
+    const declared = declaredPanelsFor(styleDecls, ref, structureId);
+    const taken = takenComponentIds(
+      entries.map((x) => ({
+        key: x.key,
+        style_ref_no: x.style_ref_no.trim() || null,
+        component_ids: x.component_ids,
+      })),
+      { key: exceptKey, style_ref_no: ref },
+    );
+    return declared.filter((p) => !taken.has(p.component_id));
   };
 
   /**
@@ -3659,28 +3739,6 @@ export function FabricBomScreen({
        header comment, "THIS MODULE DOES NOT MULTIPLY THE ORDER". */
   };
 
-  /**
-   * The first thing one style's entries cannot answer, in the words the rail's
-   * dot and the dead Save already use.
-   *
-   * IT REPLACES THE SHEET'S `SubSheetFooter`, which refused Done while any of
-   * this style's entries was unanswered and said why. Losing the overlay must
-   * not lose the PROXIMITY that footer bought — "the objection belongs beside
-   * the thing being objected to, not two tabs away at Save". It is advisory
-   * here rather than a refusal, because there is no longer a door to hold shut:
-   * Save is still the gate, through `manualBlockers`, which calls this same
-   * `manualProblem`.
-   */
-  const styleRefusal = (ref: string): string | null =>
-    entriesForStyle(ref)
-      .map((e) =>
-        manualProblem(
-          entryLike(e),
-          orderSizesFor(e.style_ref_no),
-          gsmForStructure(e.structure_id),
-        ),
-      )
-      .find((x) => x !== null)?.refused ?? null;
 
   /**
    * ONE STYLE'S DETAIL PANE — legacy's second and third levels (screenshot
@@ -3769,6 +3827,46 @@ export function FabricBomScreen({
     e.item_id ? (fabrics.find((f) => f.id === e.item_id) ?? null) : null;
 
   /**
+   * A FABRIC'S OWN DEFAULTS — the structure it derives, the "Fab Rail"
+   * leftover components, and the Roll form rolled up from the Components tab.
+   * ONE DERIVATION, TWO CALLERS: `setEntryFabric` (one entry, the moment the
+   * planner picks a fabric by hand) and the auto-seed effect below (many
+   * entries at once, one per fabric already named on Components/Fabric
+   * Lines) — so a hand-picked entry and an auto-seeded one can never disagree
+   * about what a fabric defaults to.
+   *
+   * COMPONENTS: `unallocatedComponentsFor` composes the style's declared
+   * panels for this structure with what's already taken by a sibling entry —
+   * empty on a genuinely fresh structure, so the first entry for a fabric
+   * pre-ticks everything declared and a follow-up split entry pre-ticks only
+   * what is left.
+   *
+   * ROLL FORM (client screenshots 2705/2706: Manual's Roll form and the
+   * Components tab's own "Type" were two independent blanks for the same
+   * fabric): rolled up across every Components-tab line naming this fabric
+   * (`fabricGroups`, `rollUp` — the exact call `fabricRouteRows.form` already
+   * makes) and translated from `fabric_form`'s vocabulary ('open'/'tubular')
+   * to `width_form`'s ('open_width'/'tubular'). `width_form` is still its OWN
+   * column — it answers a different question from `fabric_form` and one
+   * module's note already argues why they were kept apart — this only reads
+   * one to DEFAULT the other. Two lines disagreeing rolls up to "(mixed)",
+   * which resolves to no default rather than a guess — the same "abstain
+   * rather than pick one" rule `solePanel` and `rollUp` itself follow
+   * everywhere else in this file.
+   */
+  const fabricDefaultsFor = (styleRefNo: string, id: string, exceptKey?: string) => {
+    const structureId = fabrics.find((f) => f.id === id)?.category_id ?? null;
+    const componentIds = unallocatedComponentsFor(styleRefNo, structureId, exceptKey).map(
+      (p) => p.component_id,
+    );
+    const agreedForm = rollUp(
+      (fabricGroups.find((g) => g.item_id === id)?.lines ?? []).map((l) => l.fabric_form ?? ""),
+    );
+    const widthForm = agreedForm === "open" ? "open_width" : agreedForm === "tubular" ? "tubular" : "";
+    return { structureId, componentIds, widthForm };
+  };
+
+  /**
    * PICKING THE CLOTH WRITES THE STRUCTURE WITH IT (0522).
    *
    * `items.category_id` IS the structure (0405 · 0415 · 0426), so the two are
@@ -3776,12 +3874,183 @@ export function FabricBomScreen({
    * this keeps the screen's own GSM and size lookups right in the meantime.
    * Clearing the cloth clears the structure, or the entry would keep planning
    * against a structure nothing on the row names.
+   *
+   * ALSO SEEDS COMPONENTS AND ROLL FORM FROM `fabricDefaultsFor`, ONLY where
+   * the entry doesn't already have an answer of its own — component_ids only
+   * when still empty, width_form only when still blank. Never fires on an
+   * entry that already has a choice, saved or typed: this writes a DEFAULT,
+   * and overwriting an existing answer because the fabric changed would be
+   * auto-populate turning into data loss (`solePanel`'s own rule, one module
+   * over).
    */
-  const setEntryFabric = (e: ManualEntryRow, id: string | null) =>
-    setEntryCell(e.key, {
-      item_id: id,
-      structure_id: id ? (fabrics.find((f) => f.id === id)?.category_id ?? null) : null,
+  const setEntryFabric = (e: ManualEntryRow, id: string | null) => {
+    if (!id) {
+      setEntryCell(e.key, { item_id: null, structure_id: null });
+      return;
+    }
+    const d = fabricDefaultsFor(e.style_ref_no, id, e.key);
+    const patch: Partial<ManualEntryRow> = { item_id: id, structure_id: d.structureId };
+    if (e.component_ids.length === 0) patch.component_ids = d.componentIds;
+    if (!e.width_form && d.widthForm) patch.width_form = d.widthForm;
+    setEntryCell(e.key, patch);
+  };
+
+  /**
+   * AUTO-LIST EVERY FABRIC ALREADY NAMED ON COMPONENTS / FABRIC LINES —
+   * client, screenshots 2707/2708: "need to list those fabric in rail
+   * automatically with fabric and roll form value." Before this, a fabric
+   * fully declared on Components (Fabric, Type, every panel mapped) still
+   * needed the planner to click "+ Add fabric" and pick it again by hand
+   * before any of that showed up on Manual.
+   *
+   * ONE REAL ENTRY PER (STYLE, FABRIC), never a virtual/derived one — unlike
+   * `manualSizeRows` below, a Manual entry is planned data with its own
+   * weights and Save gate, and "materialise a virtual row on first keystroke"
+   * would need every mutator on this tab (Roll form, Calculated mode, EndBit
+   * Loss %, the Components sheet, every size cell) to learn to promote a row
+   * first — a much larger and riskier change than seeding a real one now.
+   * Built with `fabricDefaultsFor`, the SAME derivation `setEntryFabric` uses.
+   *
+   * GUARDED SO IT NEVER FIGHTS THE OPERATOR. `manualSeededFabrics` remembers
+   * every (style, fabric) pair this effect has ever considered, so a fabric
+   * the planner deliberately removes from Manual does not reappear on the
+   * next render. `entriesForStyle(...).some(...)` is the second guard,
+   * checked at the moment of seeding rather than trusted from the ref alone,
+   * so a BOM opened with an entry already saved for every fabric seeds
+   * nothing.
+   *
+   * AN EFFECT, DELIBERATELY — the same narrow exception `seededFor` above
+   * documents at length: this is a one-shot fill this file's usual "derive,
+   * never stamp" rule does not reach, because nothing before Save can turn "a
+   * fabric now exists on Fabric Lines" into new rows during render. Depends
+   * on `lines` ONLY — not `entries`, which it writes, or `fabricDefaultsFor`
+   * and `entriesForStyle`, which are re-created every render and would
+   * re-run this on every keystroke; the ref and the per-pair
+   * `entriesForStyle` check are what make that safe rather than merely quiet.
+   *
+   * ROLL FORM ALSO CATCHES UP, on every pass, for entries this effect already
+   * created (client: "even that roll form also need to fill automatically …
+   * fabric and roll form from the Components tab"). Creation only ever reads
+   * `fabric_form` ONCE, at the moment a fabric is first seen — a planner who
+   * names the cloth on Components before stating its Type there would
+   * otherwise get a permanently-blank Roll form on Manual, because the entry
+   * already exists by the time `fabric_form` is set and nothing revisits it.
+   * So separately from creation, ANY entry with a fabric but no Roll form of
+   * its own gets one the moment Components agrees on a Type for that fabric —
+   * scoped to `!e.width_form`, the same "only where the planner has not
+   * already answered" rule `setEntryFabric` applies on a manual pick, so a
+   * Roll form the planner typed or changed by hand is never overwritten.
+   */
+  const manualSeededFabrics = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const seen = new Set<string>();
+    const toAdd: ManualEntryRow[] = [];
+    for (const l of lines) {
+      if (!l.item_id) continue;
+      const styleRef = l.style_ref_no.trim();
+      const seedKey = `${styleRef}${SEP}${l.item_id}`;
+      if (seen.has(seedKey) || manualSeededFabrics.current.has(seedKey)) continue;
+      seen.add(seedKey);
+      manualSeededFabrics.current.add(seedKey);
+      if (entriesForStyle(styleRef).some((e) => e.item_id === l.item_id)) continue;
+      const d = fabricDefaultsFor(styleRef, l.item_id);
+      const entry = blankManualEntry(newKey(), styleRef);
+      entry.item_id = l.item_id;
+      entry.structure_id = d.structureId;
+      entry.component_ids = d.componentIds;
+      entry.width_form = d.widthForm;
+      toAdd.push(entry);
+    }
+    const widthFormCatchUp = new Map<string, string>();
+    for (const e of entries) {
+      if (!e.item_id || e.width_form) continue;
+      const widthForm = fabricDefaultsFor(e.style_ref_no, e.item_id).widthForm;
+      if (widthForm) widthFormCatchUp.set(e.key, widthForm);
+    }
+    if (toAdd.length === 0 && widthFormCatchUp.size === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEntries((xs) => {
+      const caughtUp = widthFormCatchUp.size
+        ? xs.map((e) => (widthFormCatchUp.has(e.key) ? { ...e, width_form: widthFormCatchUp.get(e.key)! } : e))
+        : xs;
+      /* DROP THE SCAFFOLD, DON'T STACK BESIDE IT — `openNew`/`openExisting`'s
+         own single untouched blank entry (a real fabric named nothing beats
+         "New fabric" sitting empty next to three real ones). Only when it is
+         the ONLY entry and genuinely untouched; a scaffold beside real,
+         planner-entered rows is left exactly alone. */
+      const isUntouchedScaffold = (e: ManualEntryRow) =>
+        !e.item_id && !e.structure_id && e.component_ids.length === 0 && !e.style_ref_no.trim();
+      const base = caughtUp.length === 1 && isUntouchedScaffold(caughtUp[0]) ? [] : caughtUp;
+      return [...base, ...toAdd];
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines]);
+
+  /**
+   * AUTO-SPLIT ON UNCHECK — the spec's literal §3.2, reinstated for THIS one
+   * behaviour after the client saw the advisory line alone and asked for the
+   * row itself (screenshots 2712/2713): "I unticked one component, so we
+   * need to list the fabric with this unticked component as [a] 4th fabric."
+   * Reverses the earlier "advisory + prefill on explicit Add" compromise —
+   * the advisory line stays (it is what a legacy save with a real gap still
+   * needs to say), this ADDS the row on top of it.
+   *
+   * ONE NEW ENTRY PER NEWLY-UNCOVERED COMPONENT, for the SAME fabric (same
+   * item_id/structure_id) as the sibling it fell off — a genuine SPLIT, not
+   * the "one entry per distinct fabric" auto-seed above. Reads
+   * `unallocatedComponentsFor`, the SAME set the advisory line prints, so the
+   * row that appears and the sentence that used to be the only sign of it can
+   * never disagree.
+   *
+   * GUARDED AGAINST FIGHTING A DELIBERATE REMOVAL, the same shape as
+   * `manualSeededFabrics` above: `autoSplitOffered` remembers every
+   * (style, fabric, component) this effect has ever split off, so deleting
+   * the spawned row — or un-ticking the same component a second time,
+   * anywhere — does not bring it back. A component landing in the gap for
+   * the FIRST time still spawns a row; one already offered once does not,
+   * whether or not a row still exists for it. This is deliberately an
+   * effect that depends on `entries` (unlike the seed effect above, which
+   * avoids that on purpose): the whole feature IS "react to `entries`
+   * changing", so there is no dependency to omit. It settles in one extra
+   * pass — the entry it creates covers the gap it was created for, so the
+   * next run finds nothing left to split off that fabric.
+   */
+  const autoSplitOffered = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const byFabric = new Map<string, ManualEntryRow[]>();
+    for (const e of entries) {
+      if (!e.item_id) continue;
+      const key = `${e.style_ref_no.trim()}${SEP}${e.item_id}`;
+      const group = byFabric.get(key) ?? [];
+      group.push(e);
+      byFabric.set(key, group);
+    }
+    const toAdd: ManualEntryRow[] = [];
+    for (const [key, group] of byFabric) {
+      const [styleRef, itemId] = key.split(SEP);
+      const remainder = unallocatedComponentsFor(styleRef, group[0].structure_id).filter(
+        (p) => !autoSplitOffered.current.has(`${key}${SEP}${p.component_id}`),
+      );
+      if (remainder.length === 0) continue;
+      for (const p of remainder) autoSplitOffered.current.add(`${key}${SEP}${p.component_id}`);
+      const entry = blankManualEntry(newKey(), styleRef);
+      entry.item_id = itemId;
+      entry.structure_id = group[0].structure_id;
+      entry.width_form = fabricDefaultsFor(styleRef, itemId).widthForm;
+      entry.component_ids = remainder.map((p) => p.component_id);
+      toAdd.push(entry);
+    }
+    if (toAdd.length === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEntries((xs) => [...xs, ...toAdd]);
+    // `fabricDefaultsFor`, `unallocatedComponentsFor` and `newKey` are all
+    // re-created every render (plain functions in this component body, not
+    // memoised) — listing them would make the dependency array differ on
+    // every render regardless of whether `entries` itself changed, which
+    // defeats the point of depending on `entries` at all. `entries` is the
+    // one dependency this effect is actually about.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
 
   /** Legacy's first "Type" column — the knit family, off the order's declared
    *  dias. Prefers what the entry's own sizes say (`diaTypeOf`) and falls back
@@ -3882,6 +4151,12 @@ export function FabricBomScreen({
     {
       header: "Type",
       cardLabel: "Roll form",
+      /* THIS `width` IS DEAD HERE, AND DELIBERATELY LEFT AT ITS OLD VALUE —
+         the ChildGrid it was written for (`manualEntryColumns` as a
+         `<table>`) is gone; the entry row is now the hand-rolled flex line
+         below (`MANUAL_FIELD_W`, client 2026-09-04), which reads `cardLabel`
+         and `cell` off this column but never `width`. See `MANUAL_FIELD_W`
+         for the box that actually sizes "Roll form" on screen. */
       width: "6rem",
       cell: (e) => (
         <Select
@@ -3934,15 +4209,43 @@ export function FabricBomScreen({
       width: "4.5rem",
       align: "center",
       cell: (e) => (
-        <input
-          type="checkbox"
-          className="h-4 w-4 accent-primary"
-          aria-label="Assort Color wise"
+        /* THE BOX IS CENTRED IN AN INPUT'S OWN HEIGHT (client 2026-09-04:
+           the checkboxes must line up with the fields beside them).
+
+           `FIELD_TRACK_32` carries `items-end`, so every cell on this row is
+           bottom-aligned — which lines up eight 36px `<Input>`s perfectly and
+           left a 16px checkbox sitting on their bottom edge, reading as
+           dropped rather than aligned. Giving the box the SAME height the
+           primitive gives an input (`h-9 @2xl/editor:h-8`, input.tsx) and
+           centring it inside makes the two cells the same size, so `items-end`
+           has equal things to align.
+
+           THE HEIGHT IS COPIED FROM THE PRIMITIVE, NOT CHOSEN. If `Input`'s
+           compact density ever changes, this has to follow it — which is why
+           the classes are written the same way round rather than as a bare
+           `h-8`. It is the one place a call site restates them, and it is
+           restating them to MATCH, not to override.
+
+           THE LABEL STAYS LEFT-ALIGNED, deliberately. `Field` owns the label
+           (and with it `RequiredScope`), so centring it would mean
+           hand-rolling one — and two centred labels among six left-aligned
+           ones reads as a mistake, not as a column. What the operator is
+           looking at is the BOX not lining up, and that is what this fixes.
+
+           THE APP'S OWN `Toggle`, NOT A RAW CHECKBOX (client 2026-09-04,
+           "update the button ui" on this tick box and `Size Wise` beside it —
+           the same ask, and the same fix, `Fabric Process`'s Group-by strip
+           already had). `ariaLabel`, not `label`: the visible word is
+           `Field`'s own header above it, and `Toggle`'s doc is explicit that
+           a second one here would be the redundant "Pack — Yes" shape it was
+           built to replace. */
+        <span className="flex h-9 items-center justify-center @2xl/editor:h-8">
+        <Toggle
+          ariaLabel="Assort Color wise"
           checked={e.assort_color_wise}
-          onChange={(ev) =>
-            setEntryCell(e.key, { assort_color_wise: ev.target.checked })
-          }
+          onChange={(next) => setEntryCell(e.key, { assort_color_wise: next })}
         />
+        </span>
       ),
     },
     {
@@ -3968,13 +4271,38 @@ export function FabricBomScreen({
       width: "4rem",
       align: "center",
       cell: (e) => (
-        <input
-          type="checkbox"
-          className="h-4 w-4 accent-primary"
-          aria-label="Size Wise"
+        /* THE BOX IS CENTRED IN AN INPUT'S OWN HEIGHT (client 2026-09-04:
+           the checkboxes must line up with the fields beside them).
+
+           `FIELD_TRACK_32` carries `items-end`, so every cell on this row is
+           bottom-aligned — which lines up eight 36px `<Input>`s perfectly and
+           left a 16px checkbox sitting on their bottom edge, reading as
+           dropped rather than aligned. Giving the box the SAME height the
+           primitive gives an input (`h-9 @2xl/editor:h-8`, input.tsx) and
+           centring it inside makes the two cells the same size, so `items-end`
+           has equal things to align.
+
+           THE HEIGHT IS COPIED FROM THE PRIMITIVE, NOT CHOSEN. If `Input`'s
+           compact density ever changes, this has to follow it — which is why
+           the classes are written the same way round rather than as a bare
+           `h-8`. It is the one place a call site restates them, and it is
+           restating them to MATCH, not to override.
+
+           THE LABEL STAYS LEFT-ALIGNED, deliberately. `Field` owns the label
+           (and with it `RequiredScope`), so centring it would mean
+           hand-rolling one — and two centred labels among six left-aligned
+           ones reads as a mistake, not as a column. What the operator is
+           looking at is the BOX not lining up, and that is what this fixes.
+
+           THE APP'S OWN `Toggle`, NOT A RAW CHECKBOX — same fix, same request,
+           as `Assort Color wise` beside it; see that cell's own note. */
+        <span className="flex h-9 items-center justify-center @2xl/editor:h-8">
+        <Toggle
+          ariaLabel="Size Wise"
           checked={e.size_wise}
-          onChange={(ev) => setEntryCell(e.key, { size_wise: ev.target.checked })}
+          onChange={(next) => setEntryCell(e.key, { size_wise: next })}
         />
+        </span>
       ),
     },
     {
@@ -4105,16 +4433,64 @@ export function FabricBomScreen({
    * 32 exactly — still the one compact row the artifact confirmed, now
    * sized by what each label actually needs rather than a flat guess.
    */
-  const MANUAL_FIELD_SIZES: Record<string, FieldSize> = {
-    Fabric: "md",
-    Calculated: "sm",
-    Components: "sm",
+  /**
+   * THE TOP ROW'S WIDTH PER FIELD, IN STATIC CLASSES (client 2026-09-04: one
+   * neat horizontal row, labels on one line).
+   *
+   * IT REPLACES `MANUAL_FIELD_SIZES`, which held `FieldSize` spans for this
+   * same row. A span is a `col-span-*` class and says what a field is worth on
+   * the 32-column track; this row is a flex line now, where a `col-span-*` is
+   * inert, so the old lookup could not have worked and was deleted rather than
+   * left standing as a table nothing reads.
+   *
+   * `SIZE_FIELD_SIZES` BELOW IS NOT THE SAME THING AND STAYS. The size grid's
+   * `renderMobileRow` is still a `FieldGrid cols={32}`, so spans are still the
+   * right vocabulary there. Two layouts on one screen, two vocabularies —
+   * which is why this is a new constant rather than an edit to that one.
+   *
+   * STATIC STRINGS, NEVER `w-[${c.width}]`. The columns already declare a
+   * `width` for the table, and interpolating it here would compile to no CSS
+   * at all — Tailwind v4 scans source TEXT (the trap `FIELD_TRACK` and
+   * `railWidthPx` both record). These are the same figures rounded to the
+   * scale: 9rem → `w-36`, 6rem → `w-24`, 4rem → `w-20`.
+   *
+   * `Assort Color wise` IS THE ONE THAT IS NOT ITS COLUMN'S WIDTH. Its column
+   * is 4.5rem, sized for a centred checkbox under a wrapped two-line heading;
+   * with the label held to ONE line it is the longest string on the row
+   * (~105px at `text-xs`), so it gets `w-28` and the row stays honest. A
+   * nowrap label in a box narrower than itself does not wrap — it overflows,
+   * which is the failure this number exists to avoid.
+   *
+   * `Type` IS THE SAME FAILURE ON THE CONTROL SIDE, NOT THE LABEL (client
+   * 2026-09-04: "Roll form ... value need to display, no wits hided"). The
+   * label "Roll form" fits `w-24` easily; the SELECT beside it holds the
+   * value, and "Open Width" (`WIDTH_FORM_OPTIONS`) plus the control's own
+   * padding and chevron does not fit in 96px — it was the control's text
+   * getting clipped, not the label wrapping. `w-32` gives the longer option
+   * room without reaching for the row's own budget.
+   */
+  const MANUAL_FIELD_W: Record<string, string> = {
+    Fabric: "w-36",
+    Type: "w-32",
+    Calculated: "w-24",
+    "Assort Color wise": "w-28",
+    "Size Wise": "w-20",
+    "EndBit Loss %": "w-24",
+    Components: "w-24",
+    "Assort Color": "w-24",
   };
 
   /**
-   * THE SIZE GRID'S OWN FIELD SIZES, SAME REASON AS `MANUAL_FIELD_SIZES`
-   * ABOVE AND SAME DEFECT SCREENSHOT 2694 SHOWED THERE — "TableWidth" ran
-   * into "Width" beside it with no gap.
+   * THE SIZE GRID'S OWN FIELD SIZES — spans on the 32-column track, for the
+   * defect screenshot 2694 showed: "TableWidth" ran into "Width" beside it
+   * with no gap.
+   *
+   * THIS IS THE LAST OF THE PAIR. `MANUAL_FIELD_SIZES` stood beside it and
+   * did the same job for the ENTRY row above; that row became a flex line on
+   * 2026-09-04 (see `MANUAL_FIELD_W`), where a `col-span-*` is inert, so its
+   * lookup was deleted rather than left as a table nothing reads. The size
+   * grid's own `renderMobileRow` is still a `FieldGrid cols={32}`, so this one
+   * is live and the vocabulary is still the right one HERE.
    *
    * NO `cardLabel` HERE, UNLIKE `MeasurementUnit` ABOVE: every header in
    * `sizeColumns` is legacy's own band, verbatim, by explicit operator
@@ -4133,8 +4509,34 @@ export function FabricBomScreen({
   };
 
   const manualStylePane = (styleRow: ManualStyleRow) => {
-    const refusal = styleRefusal(styleRow.style_ref_no);
     const manualEntries = entriesForStyle(styleRow.style_ref_no);
+    /**
+     * THE "FAB RAIL" ADVISORY — named components this style declares for a
+     * structure it ALREADY HAS AN ENTRY FOR, that no entry has claimed yet.
+     *
+     * ONLY STRUCTURES WITH AT LEAST ONE ENTRY, on purpose: a structure with no
+     * entry at all is "no fabric named for this cloth yet", a bigger and
+     * different gap than "this split isn't finished" — out of scope here, the
+     * same way the per-entry problem below only speaks about entries that
+     * exist.
+     */
+    const unallocatedNote = (() => {
+      const structureIds = [
+        ...new Set(manualEntries.map((e) => e.structure_id).filter((s): s is string => !!s)),
+      ];
+      const groups = structureIds
+        .map((sid) => ({ structureId: sid, remainder: unallocatedComponentsFor(styleRow.style_ref_no, sid) }))
+        .filter((g) => g.remainder.length > 0);
+      if (groups.length === 0) return null;
+      const multi = groups.length > 1;
+      const parts = groups.map((g) => {
+        const names = g.remainder.slice(0, 3).map((p) => componentById.get(p.component_id) ?? "");
+        const more = g.remainder.length > 3 ? ` and ${g.remainder.length - 3} more` : "";
+        const label = `${names.join(", ")}${more}`;
+        return multi ? `${label} (${structureById.get(g.structureId) ?? ""})` : label;
+      });
+      return `Not yet covered by any entry: ${parts.join("; ")}`;
+    })();
     return (
       <div className="space-y-4">
         {/* LEVEL 1 — THE STYLE (client 2026-09-03: "first row like same
@@ -4155,6 +4557,16 @@ export function FabricBomScreen({
         <StyleIdentityBand
           styleRefNo={styleRow.style_ref_no}
           identity={styleIdentityFor(styleRow.style_ref_no)}
+          /* ARTICLE NO, THEN STYLE REF NO, DROPPED (client 2026-09-04, two
+             messages on this exact band: first "Article No ... no need in
+             header style listing, remove it", then "Style Ref No — this
+             field also sno need remove it"). Now `omit={["ref", "article"]}`
+             — the SAME omit the Components tab passes one caller up, so the
+             two bands that were deliberately allowed to diverge have
+             converged back to matching by coincidence of two separate asks,
+             not because they were re-unified on purpose. Style No is the
+             only field left on either band. */
+          omit={["ref", "article"]}
         />
 
         {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE, THE COMPONENTS TAB'S OWN
@@ -4199,20 +4611,16 @@ export function FabricBomScreen({
           rows={manualEntries}
           forceCards
           flatRows
-          /* `railWidthPx` STAYS UNSET -- Material BOM's own 268px, not
-             Components' 220px (client 2026-09-04, on this exact screen:
-             "button size and that rail bg etc are not samelike material bom
-             i need it like so"). Width was never the complaint, so it is
-             still left to fall through to `child-grid.tsx`'s default.
-
-             `railCompact` IS NOW SET, correcting the note above rather than
-             contradicting it -- the same day, after seeing the un-compacted
-             rows, the client asked to shrink the rail's length (screenshot,
-             2026-09-04). Components already carries `railCompact` for its
-             own reasons (client 2026-09-03: "use compact that rail menu"),
-             so this call site now borrows its padding without borrowing its
-             width -- the two props are independent and this is intentionally
-             a partial match, not a full revert to Components' rail. */
+          /* `railWidthPx`, `railCompact` AND `railBg` ALL STAY UNSET NOW —
+             Material BOM's own 268px / `px-3 py-2` / tinted pane, and
+             deliberately (client 2026-09-04, later than every note this
+             block used to carry: "the size of the rail menu and color etc I
+             need same" — i.e. as Material BOM's). This call site used to set
+             all three to match Components' narrower rail; that match is gone
+             because Components' own rail reverted to the same defaults the
+             same afternoon — see its call site. The two rails stay identical
+             by both falling through to the primitive, not by one copying the
+             other's override. */
           /* LOAD-BEARING, THE SAME WAY IT IS ON COMPONENTS. Every column in
              `manualEntryColumns` declares a `width` — it was written for the
              `<table>` this replaces — so without `fill` the card would hug
@@ -4221,16 +4629,29 @@ export function FabricBomScreen({
           foldRows
           masterDetail
           railAlways
-          railCompact
-          /* THE TINT IS OFF (client 2026-09-04: "need remove that grey bg from
-             that rail" — both this rail and Components'). See `railBg`'s own
-             note on `child-grid.tsx`. */
-          railBg={false}
+          /* OPENS ON THE FIRST FABRIC RATHER THAN NOTHING — the LAST prop that
+             still differed from Components' rail (client 2026-09-04: make the
+             New fabric cards reference the Components module).
+
+             It is the same fix, one tab along: Components took `defaultOpenKey`
+             on 2026-09-04 because a rail with nothing selected reads as a list
+             floating over an empty pane ("why the bottom looks so flying …
+             default open first component with that table panel"), and this rail
+             — now that `railAlways` makes it render from the first fabric —
+             was in exactly that state on arrival.
+
+             NOT A REVERSAL OF "A GRID OPENS WITH EVERYTHING FOLDED"
+             (2026-08-19). That rule is about a data-entry grid's SECTIONS
+             pre-expanding as noise on a document being edited; this is a
+             navigation rail beside a detail pane, where list-then-detail
+             opening on its first item is the ordinary case. `child-grid.tsx`'s
+             own note on the prop carries the full argument. */
+          defaultOpenKey={manualEntries[0]?.key ?? null}
           /* THREE STATES, THE SAME READING `manualProblem` already gives the
-             Save gate and `styleRefusal`: idle before a fabric is named,
-             warn once one is named and `manualProblem` still finds something
-             to ask for, ok once it returns null. One rule, read here instead
-             of re-derived for the dot. */
+             Save gate and the entry's own inline problem message: idle before
+             a fabric is named, warn once one is named and `manualProblem`
+             still finds something to ask for, ok once it returns null. One
+             rule, read here instead of re-derived for the dot. */
           renderListItem={(e) => {
             const gsm = gsmForStructure(e.structure_id);
             const problem = e.item_id
@@ -4241,7 +4662,41 @@ export function FabricBomScreen({
               .filter(Boolean)
               .join(" · ");
             return (
-              <div className="flex items-center gap-2.5">
+              /* `gap-2.5` AND `text-[12.5px] font-medium` — MATERIAL BOM'S OWN
+                 SCALE, restored (client 2026-09-04, later the same day: "the
+                 size of the rail menu and color etc I need same" — as Material
+                 BOM's). This rail briefly matched Components' tighter
+                 `gap-1.5`/`text-xs font-semibold`, tuned FOR the 180px width
+                 both rails carried at the time; now that width, the padding
+                 and the tint are all back to the primitive's defaults (see the
+                 note above `railAlways`), the compensation those two classes
+                 were buying no longer applies. */
+              /* `min-h-7` INSTEAD OF A BLANK RESERVED LINE (client 2026-09-04:
+                 the dot and text "look shifted toward the top/left edge ...
+                 make sure the vertical alignment and internal padding are
+                 balanced").
+
+                 THE HEIGHT FIX AND THE CENTRING FIX ARE ONE PROBLEM, and the
+                 first attempt bought one with the other. Cards had to stop
+                 differing in height when a subtitle was absent, so the subtitle
+                 rendered a non-breaking space when empty — right height, wrong
+                 content: the visible line became the TOP of a two-line block
+                 with blank space beneath it, and `items-center` then centred the
+                 dot against the whole block, i.e. BELOW the title it belongs to.
+                 Reserving space is not the same as filling it.
+
+                 A MINIMUM HEIGHT ON THE ROW ANSWERS BOTH. 28px is close to the
+                 two-line stack this rail draws when a subtitle exists —
+                 `text-[12.5px]` over `text-[10px]`, both `leading-tight`
+                 (1.25). A card WITH a subtitle fills it; a card without holds
+                 the same box and `items-center` centres the one line it has.
+                 Same height either way, content centred in both — which the
+                 reserved blank line could not do.
+
+                 STATIC, NOT COMPUTED: `min-h-7` is a class Tailwind can see. A
+                 `min-h-[…]` built from the two font sizes would compile to no
+                 CSS at all, the trap `FIELD_TRACK` and `railWidthPx` record. */
+              <div className="flex min-h-7 items-center gap-2.5">
                 <span
                   className={cn(
                     "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -4271,26 +4726,258 @@ export function FabricBomScreen({
           /* THE DETAIL PANE, AND `renderMobileRow` IS THE ROW BODY BELOW
              `masterDetail`'s breakpoint TOO — one definition. */
           renderMobileRow={(e) => (
+            /* NO LEADING SPACER (operator report, 2026-09-04: "rail start and
+               the fab table start is uneven … make it equal").
+
+               THE SPACER USED TO SIT HERE — an empty `h-1` div, first child
+               of this `space-y-3`, whose only job was to push the real
+               content down clear of the ✕. It bought clearance the CARD no
+               longer needs: the ✕ is `child-grid.tsx`'s own `cornerRemove`
+               button, absolutely positioned `right-1` against the FULL
+               pane-width row wrapper, and the fabric card below is `w-fit`
+               and sits on the LEFT of that wrapper — the two no longer share
+               any horizontal space to collide over, however far down the
+               spacer pushed the card.
+
+               THE REMAINING 8px WAS A PRIMITIVE BUG, FIXED THERE, NOT HERE
+               (operator: "which is global issue need to fix it global").
+               Removing the spacer alone still left the card 8px below the
+               rail: that row wrapper's own `space-y-2` was giving the card a
+               spurious `margin-top` because the ✕ button — `absolute`, out of
+               flow — still counted as a DOM sibling for `:not(:first-child)`.
+               Every `cornerRemove` row in the app carried the same 8px, not
+               only this one; a local `-mt-2` here would have papered over one
+               symptom of it. `child-grid.tsx` now renders that button AFTER
+               its row's content instead of before, which removes the margin
+               at its source — see the comment there. This file needed no
+               compensation once that landed. */
             <div className="space-y-3">
-              {/* NO HEADING — the rail already names the fabric; a second
-                 naming here is the same redundancy Components dropped its
-                 own pane heading for. The spacer keeps the ✕ its `pr-9`
-                 room. */}
-              <div className="h-1 pr-9" />
-              {/* ONE COMPACT ROW, cols={32} — the artifact's confirmed shape
-                 ("row 1, row 2 as single row compacted"), sized by
-                 `MANUAL_FIELD_SIZES` rather than a flat guess. */}
-              <FieldGrid cols={32}>
-                {manualEntryColumns.map((c, ci) => (
-                  <Field
-                    key={c.header + ci}
-                    label={c.cardLabel ?? c.header}
-                    size={MANUAL_FIELD_SIZES[c.header] ?? "xs"}
-                  >
-                    {c.cell(e, ci)}
-                  </Field>
-                ))}
-              </FieldGrid>
+              {/* ONE COMPACT ROW — the artifact's confirmed shape ("row 1, row
+                 2 as single row compacted"), and since 2026-09-04 a real flex
+                 line rather than the 32-column track, sized per field by
+                 `MANUAL_FIELD_W`.
+
+                 THE TRACK COULD NOT KEEP THE LABELS ON ONE LINE, which is what
+                 the client asked for. `FIELD_TRACK_32` gives each field a
+                 fixed share of 32 columns and lets a long heading wrap inside
+                 it — `items-end` then keeps the CONTROLS level, but the row
+                 grows to the tallest label and "Assort Color wise" sits over
+                 two lines. A flex line sizes each field to what it holds, so
+                 one nowrap line is representable at all.
+
+                 IN A FRAME OF ITS OWN (client 2026-09-04: enclose the top row
+                 of fields in a card). The pane held three things — this row,
+                 the Sizes grid and a refusal line — and only the MIDDLE one
+                 was boxed, so eight controls floated above a framed table and
+                 read as loose chrome rather than as this fabric's own answers.
+
+                 IT IS `DetailSection`'s CARD WITHOUT `DetailSection`'s LABEL,
+                 and both halves are deliberate. The border, radius and padding
+                 are copied from that component (`rounded-lg border
+                 border-border`, `p-2.5 @2xl/editor:p-2`) so this frame and
+                 every boxed section in the app are the same object. The label
+                 band is what is left out: `DetailSection` always renders one
+                 (`min-h-5`), and a heading here is the redundancy the note
+                 above already refuses — the rail names the fabric.
+
+                 WHITE, NOT A TINT — AND THIS IS THE SECOND TIME (client
+                 2026-09-04: "remove the blue background color behind the top
+                 control bar ... clean and white to match the rest of the
+                 form").
+
+                 IT SHIPPED FILLED FOR ONE ROUND. The card was drawn with a
+                 border and no ground, which is this file's own convention two
+                 screens down ("NO FILL — the client's 2026-09-03 'just same
+                 white color'"); a request for `bg-gray-50` put a fill on it,
+                 and `bg-surface-muted` (#f1f3f5) is the app's nearest declared
+                 token to that. It is a NEUTRAL grey, but it carries a faint
+                 blue cast against pure white, which is what got reported as a
+                 "blue background" — the same word used a turn earlier for the
+                 focused-cell fill, and a different thing entirely.
+
+                 SO THE RULE HOLDS AFTER ALL: the row tint went app-wide on
+                 2026-08-18 ("no more that grey state in anywhere"), the rails
+                 lost theirs on 2026-09-04, and this card is now the third
+                 surface to be told the same thing. `bg-surface` is stated
+                 explicitly rather than left to inherit, so the card cannot
+                 pick up a ground from whatever it is nested in later.
+
+                 IT IS A FLEX ROW AND NOT `FieldGrid cols={32}`, AND THIS
+                 PARAGRAPH USED TO SAY THE OPPOSITE. It argued that a
+                 hand-written `flex flex-wrap items-end` "would align this row
+                 and nothing else, which is the drift the one-track rule exists
+                 to prevent" — sound, and overtaken the same day: the 32-column
+                 track gives every cell an equal share of the row, and these
+                 eight are a Select, three checkboxes and a number, whose
+                 LABELS are long where their controls are tiny. On that track
+                 the labels wrapped to two lines. The flex row sizes each cell
+                 to its own content instead (`MANUAL_FIELD_W`), which is what
+                 `whitespace-nowrap` below is holding to one line.
+
+                 THE BASELINE RULE SURVIVES THE MOVE, which is the half that
+                 mattered: `items-end` is stated here explicitly, doing exactly
+                 what `FIELD_TRACK_32` carries it for — a label that does wrap
+                 cannot drop its control below the row. So this is a row that
+                 opted out of the track, not one that forgot it. */}
+              {/* `w-fit` — THE BOX ENDS WHERE THE CONTROLS END (client
+                  2026-09-04: "remove the extra empty space on the right").
+
+                  IT WAS A BLOCK-LEVEL `flex`, so it took the pane's full width
+                  and drew its border out to the right edge with nothing under
+                  it — eight controls occupying maybe half the row and a framed
+                  band of white after them, which reads as a field that failed
+                  to render rather than as the end of the bar. Same complaint,
+                  and the same shape, as the empty ✕ column on Fabric Lines the
+                  same day.
+
+                  `width: fit-content` IS SAFE WITH `flex-wrap`, and that pairing
+                  is the whole reason this is `w-fit` rather than `inline-flex`.
+                  `fit-content` resolves to max-content only while max-content
+                  FITS — past that it falls back to the available width, so the
+                  row still breaks to a second line on a narrow pane instead of
+                  growing the sideways scroll the operator's rule 4 bans. It
+                  needs no `max-w-full` for the same reason. `inline-flex` would
+                  have done the shrink-wrap too and dragged inline-level
+                  baseline alignment in with it, for nothing gained.
+
+                  `p-2.5` MATCHES THE PARAGRAPH ABOVE, which has claimed
+                  `DetailSection`'s padding since this card was built while the
+                  class actually read `p-3` — the drift that note warns about,
+                  sitting inside the note itself. The `@2xl/editor:p-2` half is
+                  deliberately NOT copied: this bar renders inside the editor
+                  container at almost every width it is seen, so taking that
+                  step would make the padding p-2 nearly always and 2.5 the
+                  exception — the opposite of what was asked for.
+
+                  `gap-2 p-2` IS THE COMPONENTS TAB'S DENSITY, MEASURED FROM IT
+                  (client 2026-09-04: *"in manual table same as components tab
+                  … top table compact size, refer the components tab"*).
+
+                  THE REFERENCE MOVED, WHICH IS WHY THIS IS THE SECOND PASS.
+                  Components used to put its panel fields in a `FieldGrid` above
+                  its table, and on 2026-09-04 it merged them INTO the table as
+                  its first columns (`panelInRowColumns`) — so its top row is now
+                  `ChildGrid`'s own table density: `<td className="px-1.5 py-1">`,
+                  ~6px between one control and the next. `gap-3` (12px) and
+                  `p-2.5` (10px) were asked for one instruction earlier, against
+                  the looser thing Components was at the time.
+
+                  THE FIELD WIDTHS ARE ALREADY IN RANGE and are deliberately not
+                  touched: `MANUAL_FIELD_W` runs w-20…w-36 (80—144px) against
+                  Components' own 5rem—10rem columns (80—160px). The looseness was
+                  never in the fields.
+
+                  ## TWO BANDS, NOT A `Field` PER COLUMN (operator report,
+                  2026-09-04: "the size row actually look as perfect but here
+                  above fabric row see no more table look because label and
+                  field merge in same box")
+
+                  A `<Field label>` stacks its label ABOVE its control inside
+                  ONE wrapper — correct for a form, and exactly what made this
+                  bar read as eight little forms in a row rather than as a
+                  table with the size grid below it: the size grid's header
+                  band ("Size", "Finish Dia", …) and its body band are two
+                  separate `<tr>`s, and this bar had no second band for the
+                  border between them to fall on. Splitting the label out into
+                  its own row is the only way to draw that line — `Field`'s API
+                  has no way to put a label in one DOM row and its control in
+                  another, so this bar stopped using `Field` and hand-rolls the
+                  two bands with the same pieces `Field` uses internally
+                  (`RequiredScope`), styled with `GRID_HEADER_TEXT` — the exact
+                  constant `ChildGrid`'s own `<th>` uses — so the header band
+                  reads as the SAME kind of heading as the size grid's, not a
+                  second, differently-drawn one.
+
+                  `overflow-hidden` ON THE OUTER BOX is what keeps the header
+                  band's `bg-surface-muted` fill from squaring off the
+                  `rounded-lg` corners the border draws — a filled band ignores
+                  its ancestor's radius unless something clips it.
+
+                  BOTH BANDS CARRY `flex-wrap`, DELIBERATELY IN SYNC: every
+                  column in both bands is the SAME `MANUAL_FIELD_W` width, so
+                  the two rows are the same total px wide and wrap at the same
+                  point on a narrow pane — a header cell and its control can
+                  never end up misaligned by one wrapping before the other. */}
+              <div className="w-fit overflow-hidden rounded-lg border border-border-strong bg-surface">
+                {/* THE HEADER BAND. Plain text, not a second `<Field>` — a
+                    label has nothing to hold a cursor or a value, so it needs
+                    none of what `Field` provides beyond the words themselves. */}
+                <div className="flex flex-wrap bg-surface-muted">
+                  {manualEntryColumns.map((c, ci) => (
+                    <div
+                      key={c.header + ci}
+                      className={cn(
+                        "shrink-0 whitespace-nowrap px-2 py-1.5",
+                        GRID_HEADER_TEXT,
+                        ci > 0 && "border-l border-border-strong",
+                        MANUAL_FIELD_W[c.header] ?? "w-24",
+                      )}
+                    >
+                      {c.cardLabel ?? c.header}
+                    </div>
+                  ))}
+                </div>
+                {/* THE BODY BAND — one control per column, `RequiredScope`
+                    reset to `false` for every one exactly as the `Field` this
+                    replaces did: it never passed `required` either, so this
+                    is a like-for-like carry of that (already inert) default,
+                    not a new declaration. `border-t` is the line the header
+                    band's own `<tr>` would have drawn against the table's
+                    body.
+
+                    `py-2`, NOT `p-2` — HORIZONTAL PADDING LIVES ON THE CELLS,
+                    NOT THE ROW. The header band's own container carries none
+                    (its cells' `px-2` is the only horizontal space there), so
+                    a `p-2` here would shift every body column 8px right of
+                    the header it sits under — exactly the misalignment this
+                    whole restructure exists to remove. Vertical breathing
+                    room survives as `py-2`, which cannot desync anything
+                    horizontal. */}
+                <div className="flex flex-wrap items-center gap-y-2 border-t border-border-strong py-2">
+                  {manualEntryColumns.map((c, ci) => (
+                    <div
+                      key={c.header + ci}
+                      className={cn(
+                        "shrink-0 px-2",
+                        ci > 0 && "border-l border-border-strong",
+                        MANUAL_FIELD_W[c.header] ?? "w-24",
+                      )}
+                    >
+                      <RequiredScope required={false} label={c.cardLabel ?? c.header}>
+                        {c.cell(e, ci)}
+                      </RequiredScope>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* THE ENTRY'S OWN PROBLEM, RIGHT UNDER ITS OWN FIELDS — moved
+                 here from a single line at the foot of the whole style pane
+                 (client 2026-09-04: "the warning message is floating in some
+                 common place instead of rendering in that respective field
+                 below ... this look orphaned").
+                 THAT PANE-WIDE VERSION ONLY EVER SHOWED THE FIRST unanswered
+                 entry across the whole style, once, below every entry's
+                 fabrics and sizes tables — so on a style with several
+                 fabrics it could read as complaining about the wrong one, or
+                 sit a full scroll away from the field it actually named
+                 ("Choose the fabric this weight is for", printed nowhere
+                 near the empty Fabric picker). `manualProblem` is already
+                 computed per entry — the rail's own dot, one call site up,
+                 reads this same function — so this renders that computation's
+                 sentence beside the fields it is about instead of pooling
+                 every entry's answer into one line site-wide. */}
+              {(() => {
+                const problem = manualProblem(
+                  entryLike(e),
+                  orderSizesFor(e.style_ref_no),
+                  gsmForStructure(e.structure_id),
+                );
+                return (
+                  problem && (
+                    <p className="mt-2 text-xs text-warning">{problem.refused}</p>
+                  )
+                );
+              })()}
               {/* LEVEL 3 — THE SIZES, still this fabric's own nested grid,
                  unchanged in content: only its container moved, from a
                  `<td colSpan>` spanning the whole pane to this card. */}
@@ -4361,12 +5048,39 @@ export function FabricBomScreen({
             mutEntries((xs) => [...xs, blankManualEntry(newKey(), styleRow.style_ref_no)])
           }
           onRemove={(e) => mutEntries((xs) => xs.filter((x) => x.key !== e.key))}
+          /* "+ Add fabric" GOES IN THE RAIL, under the fabrics it adds to
+             (client 2026-09-04: the button below the list items, matching
+             Components').
+
+             THE LAST PROP THIS RAIL WAS MISSING at the time: it already took
+             `railAlways` — while its Add still rendered at the foot of the
+             whole grid, a pane's width away from the list it grows. Components
+             took `railAdd` when the prop was written; this call site did not,
+             and that difference is the entire reason the two rails read
+             differently. `railWidthPx`/`railCompact`/`railBg` were also both
+             rails' at that point and are gone from both now — see the note
+             above `railAlways`.
+
+             `w-full px-3` MATCHES COMPONENTS' OWN `addClassName`, verbatim now
+             that neither rail runs `railCompact`: full width so the button is
+             the foot of the pane rather than a pill floating in a column it
+             does not fill, and `px-3` to sit on the same left edge as the
+             entries above it (the primitive's default padding). Nothing here
+             sets a colour, a height or a radius — the button is `ChildGrid`'s
+             own `variant="outline" size="sm"`, which is what the raagam skin
+             paints green, so "matching" is achieved by passing the same props
+             rather than by restating the result. */
+          railAdd
+          addClassName="w-full justify-start px-3"
           addLabel="+ Add fabric"
         />
-        {/* SAID WHERE IT CAN BE ACTED ON — see `styleRefusal`. Amber, not red:
-            the BOM is still saveable as a draft, and the sentence is a
-            direction rather than a rejection. */}
-        {refusal && <p className="text-xs text-warning">{refusal}</p>}
+        {/* THE "FAB RAIL" ADVISORY — a STYLE-level note, deliberately still
+            here rather than beside one entry: it names components no entry
+            has claimed AT ALL, so there is no single field it could sit
+            under. Compare the entry's OWN problem, now rendered inside its
+            own card below (`renderMobileRow`) instead of once here — see
+            that card's note for why the two were split. */}
+        {unallocatedNote && <p className="text-xs text-warning">{unallocatedNote}</p>}
       </div>
     );
   };
@@ -4436,12 +5150,31 @@ export function FabricBomScreen({
 
      THE WIDTH BUDGET WAS THE BINDING CONSTRAINT WHEN THIS WAS ELEVEN COLUMNS —
      superseded 2026-09-04, when `GSM Range` left the row entirely (client
-     cleanup spec — see the note on `Fabric` below). TEN columns now sum to
-     63.5rem = 1016px + 72px of `#`/`✕` chrome = 1088px, 64px under
-     `tableFrom`'s 1152 — more headroom than this row has had since it grew
-     back to legacy's full column set, spent partly on widening `Fabric`
-     back up (11rem → 13rem) rather than banked entirely, so a reader is not
-     tempted to add an eleventh column believing there is 4.5rem still free. */
+     cleanup spec — see the note on `Fabric` below). TEN columns then summed to
+     63.5rem = 1016px + 72px of `#`/`✕` chrome = 1088px.
+
+     `Article No` LEFT TOO, LATER THE SAME DAY (operator request), leaving
+     NINE columns and reopening the "FOUR OF THE FIVE RESTORED CELLS" and
+     "Style No / Article No" lines above — both still describe the 09-02
+     restoration correctly, they just no longer describe this row's current
+     column set. `styleIdentityFor` and `styleRefFor` stayed then: `Style No`
+     still read them, and that was only the `.article` half of that same call.
+
+     `Style Ref No`, `Style No` AND `Style Color` LEFT TOO (operator request,
+     2026-09-04), leaving SIX columns: `# Structure Fabric Type Mixing Uom
+     No Of Colors Detail`. This is a full reversal of the "FOUR OF THE FIVE
+     RESTORED CELLS" paragraph above for three of those four cells — a reader
+     who finds them quoted as present is holding something this supersedes;
+     only `No Of Colors` from that group is still on the row. `styleRefFor`
+     went with them: `Style No`'s cell was its only caller left, and a new
+     fabric line is still seeded with the order's style directly off
+     `orderIdentity` (see `+ Add fabric`'s own handler), never through this
+     function — so nothing on the row or off it still needed it. `combo` and
+     `color_name` stay on `LineRow` and keep being written through unread,
+     the same "nothing dropped from the table" rule the paragraph above
+     already states: `Style Color` was the one visible EDITOR for
+     `color_name` on this grid, and losing the editor is not the same as
+     losing the column. */
 
     {
       header: "Structure",
@@ -4462,7 +5195,16 @@ export function FabricBomScreen({
              the failure the nominated-vendor rule records. */
           items={structureItemsFor(r.structure_id)}
           value={r.structure_id}
-          onChange={(id) => setAlloc(r, { structure_id: id })}
+          onChange={(id) => {
+            const rowNo = collidesWith(r, { structure_id: id });
+            if (rowNo) {
+              toastError(
+                `This Structure + Fabric combination is already row ${rowNo}. Pick a different Fabric here, or edit row ${rowNo} instead.`,
+              );
+              return;
+            }
+            setAlloc(r, { structure_id: id });
+          }}
         />
       ),
     },
@@ -4609,6 +5351,13 @@ export function FabricBomScreen({
              a saved BOM is opened and would rewrite stored lines on load, which
              is the rule `styleForCombo` and `pickStyle` both state. */
           onChange={(id) => {
+            const rowNo = collidesWith(r, { item_id: id });
+            if (rowNo) {
+              toastError(
+                `This Fabric is already listed under the same Structure and Type as row ${rowNo}. No need to add it twice — edit row ${rowNo} instead.`,
+              );
+              return;
+            }
             const f = id ? fabrics.find((x) => x.id === id) : null;
             setAlloc(r, {
               item_id: id,
@@ -4855,122 +5604,54 @@ export function FabricBomScreen({
     },
     {
       /**
-       * LEGACY'S `Style Ref No` (client 2026-09-02), READ-ONLY — the third of
-       * the 09-01 spec's four exclusions to come back, and the one that is not
-       * typed anywhere on this row.
-       *
-       * IT IS WRITTEN BY THE COLOURWAY, not by this cell. `Style Color` below
-       * carries `styleForCombo` onto the line, which is the rule the Combo cell
-       * has stated since 09-01: on the CHANGE, never in an effect, because an
-       * effect also fires when a saved BOM is opened and would rewrite every
-       * stored line's style on load. Making this cell editable as well would
-       * give one column two writers that can disagree.
-       *
-       * BLANK IS A REAL ANSWER and prints as `—`: `fabricSlices` reads an empty
-       * `style_ref_no` as "every style", which is the state every line stored
-       * before 0426 is in.
-       */
-      header: "Style Ref No",
-      /* 5.5rem — 88px. "16-27/0010" is ten characters. */
-      width: "5.5rem",
-      cell: (r) => <ClothText value={styleRefFor(r)} />,
-    },
-    {
-      /**
-       * LEGACY'S `Style No` — DERIVED off the order, stored nowhere (client
-       * 2026-09-02). `styleIdentityFor` is the one statement of it, added the
-       * same day for the Components tree's top level, and 0426's rule is why it
-       * is not copied onto the line: a copy on the BOM is a second place to
-       * disagree with the order, and the order is the one that is right.
-       *
-       * IT ANSWERS PER ROW, WHERE `orderIdentity` ABSTAINS. That one refuses on
-       * a multi-style order because it feeds a header the operator cannot
-       * correct; this one is asked ABOUT the style the row already names, so
-       * there is nothing to guess.
-       */
-      header: "Style No",
-      /* 4rem — 64px. A style number is six digits. */
-      width: "4rem",
-      cell: (r) => <ClothText value={styleIdentityFor(styleRefFor(r))?.style ?? ""} />,
-    },
-    {
-      /**
-       * LEGACY'S `Style Color` — THE ORDER'S REQUIRED COLOUR, off the Colour tab
-       * (client field spec, 2026-09-02).
-       *
-       * "Retrieved from the master colorways defined in the Color Tab under Order
-       * Entry… represents the garment's final target shade (e.g. White, Navy, or
-       * Green). This is critical for downstream planning because it determines
-       * how many kilograms of each colour must be dyed."
-       *
-       * SO IT IS `color_name`, NOT `combo`, AND THAT IS A CORRECTION. This cell
-       * was the assort colourway for about an hour, restored under legacy's
-       * header when the client asked for Style Color back. The spec names its
-       * source as the Colour tab and calls it "(Required Color)", which is
-       * exactly `declaredColours` — `garment_order_amendment_dyeings` with
-       * `section = 'fabric'`, the list the Color/Print Details tab reads.
-       *
-       * `combo` DID NOT LOSE ITS EDITOR. It is the Assort colour column of the
-       * Components tree, where the colourways of a panel are shown together. What
-       * it lost is a SECOND door on this grid, which leaves one editor for each of
-       * the two fields rather than two for one.
-       *
-       * A COMBOBOX OVER THE ORDER'S OWN LIST, so the cell PICKS what an earlier
-       * screen declared rather than accepting a fifth spelling of WHITE — typed
-       * text in a Combobox is a search and is never committed (`commit` in
-       * combobox.tsx). Empty and explain rather than falling back to free text:
-       * an order that has declared no colours yet gives an empty list, and the
-       * Colour/Print Details tab is where that is fixed.
-       */
-      header: "Style Color",
-      /* 9.375rem — 150px (client 2026-09-03), up from 5.5rem/88px. It
-         holds a colourway name ("MELANGE GREY", "OPTICAL WHITE"), which
-         88px cut to two syllables. See THE WIDTH BUDGET on `tableFrom`. */
-      width: "7.5rem",
-      /* READ-ONLY THE MOMENT THE ROW SPANS MORE THAN ONE COMBO (2026-09-04,
-         Type-Based Fabric Listing — see `allocationKeyOf`'s own note). Every
-         OTHER editable cell on this grid writes through to the whole
-         allocation because the value genuinely is one value for the group
-         (Fabric, Structure); Style Color is the one cell that is NOT — three
-         Solid combos consolidated into one row do not share a colour, and
-         `setAlloc` would stamp whichever one the operator last typed onto
-         all three. So a multi-combo row prints "(multiple)" instead of
-         offering a picker with no correct answer, the same "abstain rather
-         than guess" rule `descriptorFor` above already lives by. A row that
-         still names exactly one combo keeps the ORIGINAL picker — writing
-         through a single member was always safe and stays that way. */
-      cell: (r) => {
-        const members = allocationMembers(r);
-        const multiCombo = rollUp(members.map((l) => l.combo)) === "(mixed)";
-        return multiCombo ? (
-          <Truncated className="block px-1 text-sm text-muted-foreground">
-            (multiple)
-          </Truncated>
-        ) : (
-          <Combobox
-            compact
-            inputClassName="h-8"
-            clearable
-            options={declaredColours.map((c) => ({ value: c, label: c }))}
-            value={r.color_name}
-            onChange={(v) => setAlloc(r, { color_name: v ?? "" })}
-          />
-        );
-      },
-    },
-    {
-      /** LEGACY'S `Article No` — derived with `Style No` above and from the same
-       *  call, so the two can never name different styles. */
-      header: "Article No",
-      /* 4rem — 64px. "AR-4471". */
-      width: "4rem",
-      cell: (r) => <ClothText value={styleIdentityFor(styleRefFor(r))?.article ?? ""} />,
-    },
-    {
-      /**
        * LEGACY'S [Detail] BUTTON (screenshot 2581's FabricAllocation column,
        * screenshot 2585's Components tab behind it) — it opens the panel
        * mapping for THIS fabric (0495).
+       *
+       * ## THE ✕ RETURNED THE SAME DAY IT LEFT (operator request, 2026-09-04)
+       *
+       * Both paragraphs below are kept for the history, but "the last column,
+       * nothing follows it" and "can no longer be deleted" are what they were
+       * true OF, not what is true now — a reader who finds either quoted
+       * elsewhere is holding something this supersedes. `hideRemove` came off
+       * the grid (see the prop below); `onRemove={removeAlloc}` was the whole
+       * reinstatement, exactly as its own note here always said it would be —
+       * the whole ALLOCATION goes, never the drawn row alone.
+       *
+       * ## IT WAS THE LAST COLUMN, AND NOTHING FOLLOWED IT
+       *
+       * The row USED TO END ON TWO BLANK HEADINGS — this column's own
+       * `header: ""` and, after it, the `<th className="w-8">` `ChildGrid`
+       * emits for its remove button. Two adjacent empty header cells with a
+       * gridline between them read as a column that failed to render rather
+       * than as the end of the row (client 2026-09-04).
+       *
+       * IT WAS FIRST ANSWERED BY MERGING THE TWO — [Detail] and the ✕ in one
+       * `flex gap-2` Actions cell at 8rem. The client then asked for the ✕
+       * *"deleted completely"*, with **no extra columns or borders after
+       * Detail**, so the merge is gone and the width is back to 4.5rem.
+       * Recording it because the merged version is the obvious answer to the
+       * complaint and is NOT what was wanted.
+       *
+       * `hideRemove` ON THE GRID WAS WHAT DELETED THE TRACK, for the few hours
+       * it was gone. That prop was the primitive's only gate on the trailing
+       * cell — its own note says so at length ("SO THE GATE IS `hideRemove`
+       * AND NOTHING ELSE") — and it took the `<th>`, the `<td>` and the
+       * `border-l` between them together, which is what "no extra columns or
+       * borders" needed. Styling the border away would have left the empty
+       * column standing.
+       *
+       * ## THE COST, WHILE IT STOOD
+       *
+       * **A FABRIC LINE COULD NOT BE DELETED FROM THIS TAB — BY MOUSE OR
+       * BY KEYBOARD.** Ctrl+Del was not a separate implementation: `gridKeyNav`
+       * finds the row's own `[data-row-remove]` and calls `.click()` on it, so
+       * a row with no ✕ had no Ctrl+Del either. The card layout below the
+       * breakpoint lost its corner ✕ to the same prop (`cornerRemove` reads
+       * `locked`, which `hideRemove` set for every row). `+ Add fabric` kept
+       * adding regardless, so the tab could grow but not shrink.
+       *
+       * ## THE TWO THINGS THAT ARE NOT NEW
        *
        * A CELL OF THE ROW, so Tab, Enter and the arrows all reach it.
        * `data-row-open` is what puts it on the Tab path; the Combos ▸ Structure
@@ -4983,11 +5664,8 @@ export function FabricBomScreen({
        * operator to describe something that does not exist yet. The `title` says
        * so rather than leaving a dead control.
        *
-       * NARROWER THAN `CELL`, and it stays that way though the row is now six
-       * columns rather than thirteen. The figure was tuned when a full-width
-       * cell here was what pushed the row past the frame and turned the table
-       * into stacked cards; 4.5rem fits "Detail" at `text-xs` with room, and
-       * widening it now would only spend slack the row does not need.
+       * NARROWER THAN `CELL`: 4.5rem fits "Detail" at `text-xs` with room, and
+       * widening it would only spend slack the row does not need.
        */
       header: "",
       width: "4.5rem",
@@ -5450,9 +6128,31 @@ export function FabricBomScreen({
     (id ? (comp?.yarns ?? []).find((y) => y.id === id)?.name : "") ?? "";
   const ydUomName = (id: string | null) =>
     (id ? data.uoms.find((u) => u.id === id)?.name : "") ?? "";
+  /** `uoms.code`, for the Yarn Dyed stripe cm/inch conversion — see
+   *  `mixingDetailRows`'s own doc on why this reads `code`, never `name`. */
+  const ydUomCode = (id: string | null) =>
+    (id ? data.uoms.find((u) => u.id === id)?.code : "") ?? "";
 
   /** The [Detail] popup's own scope — the line it was opened from. */
   const detailYd = ydFor(detailLine);
+
+  /**
+   * THE OPEN FABRIC'S OWN REQUIREMENT — Mixing Details' "Net Wt" column
+   * (Formula 3), off the SAME `fabricGross` `yarnNetByCombo` reads, never a
+   * second figure for one fabric. Summed across every colourway this cloth
+   * serves; `null` when there is none to sum (no fabric open) or when ANY
+   * of that fabric's slices refused (a partial total would understate what
+   * a dye house needs, which is worse than saying nothing).
+   */
+  const detailFabricGross = detailLine?.item_id
+    ? fabricGross.filter((f) => f.fabric_id === detailLine.item_id)
+    : [];
+  const detailFabricTotalGross =
+    detailFabricGross.length === 0 || detailFabricGross.some((f) => f.gross == null)
+      ? null
+      : detailFabricGross.reduce((sum, f) => sum + (f.gross ?? 0), 0);
+  const detailFabricUomName =
+    ydUomName(detailFabricGross.find((f) => f.uom_id)?.uom_id ?? null) || "";
 
   /**
    * The purchase weight for one yarn, its per-colourway breakdown, or the
@@ -6818,6 +7518,31 @@ export function FabricBomScreen({
        */
       content: (
         <SectionBody title="Fabric Lines">
+          {/* STYLE NO, BACK — NOT AS A COLUMN, AS THE SAME DIVIDER
+              `StyleIdentityBand` DRAWS ON COMPONENTS AND MANUAL (operator
+              request, 2026-09-04: "we need to maintain the style no… use the
+              same UI, add the Style No field on top of the table, take
+              reference from Components"). Style Ref No, Style No and Style
+              Color left this ROW the same day (see `lineColumns`' own note);
+              this reinstates only Style No, and only once for the whole
+              table rather than once per line, because Fabric Lines is ONE
+              flat grid across every fabric on the document — not a pane per
+              style the way Components and Manual are — so there is exactly
+              one place for a document-level label to stand.
+
+              `orderIdentity` IS THE SAME ABSTAIN-ON-MULTI-STYLE FALLBACK this
+              screen already uses for the row-level cells that used to read
+              it (see the note left where `styleRefFor` was) — null on an
+              order declaring more than one style, which prints as "—"
+              rather than naming the first style as a guess. `omit={["ref",
+              "article"]}`: the same two fields Components' and Manual's own
+              bands already drop, so all three read as one convention rather
+              than three independent decisions that happen to agree today. */}
+          <StyleIdentityBand
+            styleRefNo={orderIdentity?.ref ?? ""}
+            identity={styleIdentityFor(orderIdentity?.ref ?? "")}
+            omit={["ref", "article"]}
+          />
           {/* NO "SEED FROM ORDER" BUTTON, AND THE BAND GOES WITH IT
               (client 2026-09-03).
 
@@ -6859,17 +7584,31 @@ export function FabricBomScreen({
                tab asks a different question of the same array. */
             rows={allocationRows}
             seedRow
-            /* ## THE WIDTH BUDGET — 1150px AGAINST A 1152px BREAKPOINT
+            /* ## THE WIDTH BUDGET — AGAINST A 1155px PANE
 
-               The declared widths sum to ~1150px including the row chrome,
-               and the table may appear from 1152 (@6xl). Keep that
-               inequality true when a column is added or resized: over 1152
-               the table renders and immediately scrolls sideways. Without it
-               the switch is @lg, which is 512px in a container query, and a
-               laptop would get a table it has to scroll.
+               The declared widths sum below the row chrome's total, against
+               the 1155px smallest pane this app supports (a 1366x768 laptop
+               at 100% zoom). Keep that inequality true when a column is
+               added or resized: over 1155 the table renders and immediately
+               scrolls sideways there. `npm run check:grid-budget` is what
+               enforces it — this paragraph is the reasoning, not the guard,
+               and the script exists precisely because a budget written in a
+               comment holds only until the next column.
 
-               THERE IS 2px OF HEADROOM LEFT, AND THAT IS A WARNING RATHER
-               THAN A MEASUREMENT TO TRUST. 2026-09-03 widened Structure to
+               THE CHROME IS 72px HERE — the ordinal `#` plus the ✕ track,
+               back since 2026-09-04 (see the `onRemove` note below); it was
+               40px for one afternoon while `hideRemove` deleted the track.
+
+               `Article No` LEFT THE ROW LATER THE SAME DAY (operator
+               request) — one fewer column, 64px more headroom than the
+               figures just below describe. THE PARAGRAPH BELOW IS THE OLD
+               ELEVEN-COLUMN STATE and is kept
+               because its LESSON outlived its arithmetic: the five columns it
+               names were trimmed to their contents' known maximum, so they are
+               not slack to be borrowed a second time. Widen from the 99px, not
+               from them.
+
+               (Historic, 2026-09-03.) It widened Structure to
                160 and Style Color to 150 (+118px) because both were clipping
                their values, and paid for it by trimming five columns whose
                contents have a known short maximum — Fabric 208—176, Mixing
@@ -6914,10 +7653,12 @@ export function FabricBomScreen({
               </FieldGrid>
             )}
             /* A NEW LINE IS BORN KNOWING ITS STYLE (client 2026-09-02, "from
-               order entry fetch Style Ref No, Style No"). `styleRefFor` reads the
-               same fallback the cells display, so what is SHOWN and what is
-               STORED cannot diverge — the display alone would have left the saved
-               document with a blank style while the screen claimed one.
+               order entry fetch Style Ref No, Style No"). Reads `orderIdentity`
+               directly, the same fallback `styleRefFor` used to read for the
+               Style Ref No / Style No / Style Color cells before they left the
+               row (2026-09-04) — this seed survives them because a line's own
+               `style_ref_no` still matters to `fabricSlices` even once nothing
+               on screen prints it.
 
                ON A MULTI-STYLE ORDER THIS SEEDS NOTHING, because `orderIdentity`
                abstains there, and a blank `style_ref_no` legitimately means
@@ -6929,9 +7670,19 @@ export function FabricBomScreen({
                 { ...blankLine(newKey()), style_ref_no: orderIdentity?.ref ?? "" },
               ])
             }
-            /* REMOVES THE WHOLE ALLOCATION. Deleting the drawn row alone would
-               leave its sibling panels behind — invisible here, and enough to
-               keep refusing a Save the operator believes they have cleared. */
+            /* THE ✕ IS BACK (operator request, 2026-09-04), reversing the
+               `hideRemove` the client asked for earlier the same day. A
+               reader who finds "no ✕ on this tab at all" quoted elsewhere —
+               the width-budget note above still does — is holding something
+               this supersedes.
+
+               DROPPING THE PROP IS THE WHOLE CHANGE. `onRemove={removeAlloc}`
+               was left wired for exactly this: it deletes the WHOLE
+               allocation, not the drawn row alone, so its sibling panels
+               never survive it invisibly (see `removeAlloc`'s own note).
+               Ctrl+Del and the card layout's corner ✕ both come back with it
+               — neither is a second implementation, `hideRemove` was the one
+               gate on all three. */
             onRemove={removeAlloc}
             addLabel="+ Add fabric"
           />
@@ -7216,11 +7967,11 @@ export function FabricBomScreen({
                    */
                   foldRows
                   masterDetail
-                  /* THE TINT IS OFF (client 2026-09-04: "need remove that grey
-                     bg from that rail" — the Manual tab's other rail, the
-                     fabric-entry list below, got the same instruction). See
-                     `railBg`'s own note on `child-grid.tsx`. */
-                  railBg={false}
+                  /* `railBg` NO LONGER OVERRIDDEN — back to the primitive's
+                     tinted default, matching Material BOM's rail (client
+                     2026-09-04, later than the "remove that grey bg" ask this
+                     comment used to record: "the size of the rail menu and
+                     color etc I need same" — as Material BOM's). */
                   renderListItem={(row) => {
                     /* INERT BY CONTRACT — see `renderListItem` on the grid.
                        Text, a dot and a count; nothing focusable, because the
@@ -7465,17 +8216,6 @@ export function FabricBomScreen({
                 const scope = scopeFor(r.item_id);
                 const fabricRows = procs.filter((p) => p.item_id === r.item_id);
                 const groups = processGroupsFor(scope, r.combos, r.panelIds);
-                const groupKeys = new Set(groups.map((g) => g.key));
-                /* ROWS A TOGGLE FLIP LEFT BEHIND — a step whose (combo,
-                   component_id) matches no group `processGroupsFor` currently
-                   returns for this fabric. `normalizeProcesses` drops exactly
-                   these on Save (same rule, so the two can never disagree);
-                   this is the operator's warning before that happens, the same
-                   idiom the outer row already uses for "no fabric line uses
-                   this any more". */
-                const orphaned = fabricRows.filter(
-                  (p) => !groupKeys.has(`${p.combo ?? ""}::${p.component_id ?? ""}`),
-                ).length;
                 const readOnly = !perms.canEdit && !perms.canCreate;
                 return (
                   <div className="space-y-3">
@@ -7484,40 +8224,49 @@ export function FabricBomScreen({
                         comment for why that is a reversal of 0492's original
                         reading rather than a new feature. Disabled the same way
                         every other control on this screen is: the host
-                        permission, not a second "may I split a route" rule. */}
-                    <div className="flex flex-wrap items-center gap-4">
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={scope.assort_color_wise}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            setFabricScope(r.item_id, { assort_color_wise: e.target.checked })
-                          }
-                        />
-                        <span className="text-sm text-foreground">Assort Color Wise</span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={scope.component_wise}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            setFabricScope(r.item_id, { component_wise: e.target.checked })
-                          }
-                        />
-                        <span className="text-sm text-foreground">Component Wise</span>
-                      </label>
+                        permission, not a second "may I split a route" rule.
+
+                        A "GROUP BY" STRIP ON THE APP'S OWN `Toggle`, NOT TWO
+                        RAW CHECKBOXES (planned in an artifact, "Fabric Process
+                        Group-By", 2026-09-04). These two booleans don't filter
+                        anything off screen — nothing here is hidden — they pick
+                        which of four ways the route below is split. `Toggle` is
+                        the same switch the Garment Order header already uses for
+                        Pack / Mult. Ord ("an operator scans a yes/no term at a
+                        glance").
+
+                        `w-fit`, NOT A FULL-WIDTH BAND (client 2026-09-04: "look
+                        too much broader bigger box … compact it"). The strip
+                        used to stretch the row's full width for two switches,
+                        which is the same orphaned-whitespace complaint
+                        `style-identity-band.tsx` already recorded once; it now
+                        sizes to its own content, same as that fix.
+
+                        THE DROP-ON-SAVE WARNING IS GONE (client, same message:
+                        "remove this messag too"), not just moved. A toggle flip
+                        that leaves existing steps orphaned still drops them on
+                        Save — `normalizeProcesses` is unchanged — the operator
+                        is simply no longer told so on screen. */}
+                    <div className="inline-flex w-fit items-center gap-4 rounded-md border border-border px-2.5 py-1.5">
+                      <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+                        Group by
+                      </span>
+                      <Toggle
+                        label="Assort Color"
+                        checked={scope.assort_color_wise}
+                        disabled={readOnly}
+                        onChange={(next) =>
+                          setFabricScope(r.item_id, { assort_color_wise: next })
+                        }
+                      />
+                      <Toggle
+                        label="Component"
+                        checked={scope.component_wise}
+                        disabled={readOnly}
+                        onChange={(next) => setFabricScope(r.item_id, { component_wise: next })}
+                      />
                     </div>
-                    {orphaned > 0 && (
-                      <div className="text-xs text-warning">
-                        {orphaned} existing step{orphaned === 1 ? "" : "s"} no longer match
-                        this fabric&apos;s grouping and will be dropped on Save.
-                      </div>
-                    )}
-                    {groups.map((g) => (
+                    {groups.map((g, gi) => (
                       <div key={g.key} className="space-y-1">
                         {/* A HEADING ONLY WHEN THERE IS MORE THAN ONE GROUP —
                             Case A's single unified grid gets none, matching
@@ -7528,10 +8277,21 @@ export function FabricBomScreen({
                             {g.label}
                           </div>
                         )}
+                        {/* ONE SET OF COLUMN LABELS FOR THE WHOLE SPLIT, NOT
+                            ONE PER GROUP (client 2026-09-04: "process and
+                            color field each time have the table labels" —
+                            the same Stage / Process / Loss for / Loss % / Type
+                            header was repeating under every BLUE · FRONT BODY,
+                            BLUE · BACK BODY, … block). Every group draws the
+                            same columns off the same `fabricProcessColumns`
+                            shape, so only the FIRST needs to say what they
+                            are; `g.label` above still marks where one block
+                            ends and the next begins. */}
                         <FabricProcessGrid
                           itemId={r.item_id}
                           combo={g.combo}
                           componentId={g.component_id}
+                          hideHeader={gi > 0}
                           rows={fabricRows.filter(
                             (p) => (p.combo ?? null) === g.combo && (p.component_id ?? null) === g.component_id,
                           )}
@@ -8000,6 +8760,9 @@ export function FabricBomScreen({
         composition={detailYd.composition}
         yarnName={ydYarnName}
         uomName={ydUomName}
+        uomCode={ydUomCode}
+        fabricTotalGross={detailFabricTotalGross}
+        fabricUomName={detailFabricUomName}
         onPatchYdRepeat={patchYdRepeat}
         onAddYdRepeat={detailYd.addRepeat}
         onRemoveYdRepeat={removeYdRepeat}

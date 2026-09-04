@@ -80,8 +80,26 @@ import { join, relative } from "node:path";
  */
 const MIN_PANE = 1155;
 
-/** What `#` and the row's `✕` cost outside the declared columns. */
+/**
+ * What `#` and the row's `✕` cost outside the declared columns.
+ *
+ * TWO CELLS, AND A GRID CAN GIVE ONE OF THEM BACK. `child-grid.tsx` emits the
+ * ordinal `<th className="w-10">` always and the remove `<th className="w-8">`
+ * only while `hideRemove` is unset — that prop is its sole gate on the trailing
+ * track, and the note there says so at length. So the chrome is 72px on an
+ * ordinary grid and 40px on one that has taken the ✕ into a cell of its own.
+ *
+ * THIS WAS A FLAT 72 AND FAILED A CORRECT GRID (2026-09-04). Fabric Lines
+ * merged its [Detail] button and its ✕ into one Actions column, passing
+ * `hideRemove` to drop the empty track between them — so 32px moved from the
+ * chrome INTO a declared width, and a check counting both reported the row 29px
+ * over a pane it actually cleared by 3. A false failure is the one outcome this
+ * script's own header calls worse than no check at all ("a check that cries wolf
+ * gets switched off"), so the assumption is now read per grid rather than
+ * assumed for all of them.
+ */
 const CHROME = 72;
+const CHROME_NO_REMOVE = 40;
 
 /**
  * How far BELOW the minimum pane a `tableFrom` threshold has to sit.
@@ -148,6 +166,13 @@ function grids(src) {
       columns: cols ? cols[1] : null,
       tableFrom: tf ? tf[1] : null,
       cardsOnly: /^\s*(forceCards|inlineCards|across)\b/m.test(text),
+      /* OWN PROPS ONLY, like every other flag here — matched at the element's
+         own indentation, so a nested grid's `hideRemove` (Components' own
+         colourways grid sits inside a render prop) can never hand its parent
+         32px it did not give back. Comments are already stripped, so the
+         several files that DESCRIBE this prop in prose are not read as passing
+         it. */
+      hideRemove: /^\s*hideRemove\b/m.test(text),
     });
   }
   return out;
@@ -186,6 +211,17 @@ for (const file of files) {
   /** And which have a `tableFrom` this can hold them to. */
   const thresholdOf = {};
   for (const g of found) if (g.columns && g.tableFrom) thresholdOf[g.columns] = THRESHOLD[g.tableFrom];
+  /**
+   * WHICH ARRAYS BELONG TO A GRID THAT DRAWS NO ✕ COLUMN — see `CHROME`.
+   *
+   * A `<ChildGrid>` is required for this, and that is deliberate: `hideRemove`
+   * is the primitive's prop, so a hand-rolled `<table>` has no way to claim the
+   * discount. Those keep the full 72px, which is the conservative answer for
+   * markup this script cannot read.
+   */
+  const noRemoveColumn = new Set(
+    found.filter((g) => g.hideRemove && g.columns).map((g) => g.columns),
+  );
 
   /**
    * EVERY SIZED ARRAY IS BUDGETED, NOT ONLY `<ChildGrid>`'S — because the two
@@ -206,14 +242,15 @@ for (const file of files) {
     const threshold = thresholdOf[name] ?? null;
 
     const rem = widths.reduce((a, b) => a + b, 0);
-    const px = rem * 16 + CHROME;
+    const chrome = noRemoveColumn.has(name) ? CHROME_NO_REMOVE : CHROME;
+    const px = rem * 16 + chrome;
     checked++;
 
     if (px > MIN_PANE) {
       failed++;
       console.error(
         `FAIL  ${relative(".", file)}  ${g.columns}\n` +
-          `      ${widths.length} columns = ${rem}rem + ${CHROME}px chrome = ${px}px\n` +
+          `      ${widths.length} columns = ${rem}rem + ${chrome}px chrome = ${px}px\n` +
           `      exceeds the ${MIN_PANE}px minimum pane by ${px - MIN_PANE}px, so the table\n` +
           `      scrolls sideways on a 1366x768 laptop at 100%. Trim ${((px - MIN_PANE) / 16).toFixed(2)}rem.`,
       );

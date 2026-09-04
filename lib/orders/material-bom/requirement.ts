@@ -240,6 +240,15 @@ export type AssortSizeRow = {
 export type OrderProductionInput = {
   /** The order header's Excess %, applied per approval line. */
   excessPct: number;
+  /**
+   * The order header's flat Rejection % (0531, backend calc spec Formula 5) —
+   * `materialTarget`'s own additive term. Deliberately separate from
+   * `rejectionRuleChosen`/`tiers` below: those feed the TIERED Projection
+   * buffer `fullTarget` applies to FABRIC only, and this flat figure is what
+   * gives Material BOM a rejection term at all. See `materialTarget`'s own
+   * header for why the two must never both apply to the same target.
+   */
+  rejectionPct: number;
   /** Whether a Garment Rejection Rule was named on the order (0413). */
   rejectionRuleChosen: boolean;
   tiers: readonly RejectionTier[] | null | undefined;
@@ -723,11 +732,29 @@ export const MATERIAL_BASE_QUANTITY: BaseQuantityRule = "po_excess_approval";
  * back to the client against those figures on 2026-08-21, they confirmed the
  * formula and identified the 20 as an order-level number. So the fix for that
  * order is its data, not this function.
+ *
+ * ## THE 2026-08-21 EXCLUSION WAS ABOUT THE TIERED RULE, AND STILL IS (0531)
+ *
+ * "The rejection allowance is excluded" above means `rejection_rule_id`'s
+ * tiered Projection — the mechanism `fullTarget`/`productionTarget` apply to
+ * Fabric BOM, refusing rather than defaulting to 0 when no tier covers the
+ * order's quantity. This function now ALSO adds the order's flat
+ * `rejectionPct` (backend calc spec Formula 5, `Math.ceil(qty * pct/100)`,
+ * defaulting to 0) — a second, later, deliberately narrower decision, not a
+ * reversal of the first. The two rejection MECHANISMS still cannot both apply
+ * to the same target: Fabric BOM's `fullTarget` reads only the tiered rule,
+ * never `rejectionPct`, so a document with both fields set is never charged
+ * rejection twice.
  */
-export function materialTarget(a: ApprovalRow, excessPct: number): number {
+export function materialTarget(a: ApprovalRow, excessPct: number, rejectionPct: number): number {
   const qty = num(a.qty) ?? 0;
   if (qty <= 0) return 0;
-  return qty + excessQty(qty, excessPct) + Math.max(0, num(a.approval_qty) ?? 0);
+  return (
+    qty +
+    excessQty(qty, excessPct) +
+    Math.max(0, num(a.approval_qty) ?? 0) +
+    Math.ceil((qty * rejectionPct) / 100)
+  );
 }
 
 /**
@@ -887,7 +914,7 @@ function targetsOf(
       if (isRefusal(t)) return t;
       qty = t;
     } else if (rule === "po_excess_approval") {
-      qty = materialTarget(a, order.excessPct);
+      qty = materialTarget(a, order.excessPct, order.rejectionPct);
     } else {
       qty = num(a.qty) ?? 0;
     }

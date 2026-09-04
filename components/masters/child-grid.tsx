@@ -185,8 +185,16 @@ export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2
  *
  * It was typed out twice inside this file before that — the `#` header and the
  * column headers — which is exactly how a third copy starts.
+ *
+ * `font-bold`, NOT `font-semibold` (operator request, 2026-09-04: "globally
+ * make the each table title label as bold"). The 2026-08-26 instruction that
+ * created this constant also said "make bold" and got semibold — a design
+ * judgment call at the time that the later, more literal instruction
+ * overrides. Every caller of this constant, and every table built on
+ * `DataTable` / `SimpleMasterScreen`, moves together — see those files' own
+ * header cells.
  */
-export const GRID_HEADER_TEXT = "text-[12.5px] font-semibold text-foreground";
+export const GRID_HEADER_TEXT = "text-[12.5px] font-bold text-foreground";
 
 /**
  * `openRowKey`'s "nothing is open" value — see the state declaration below.
@@ -1163,6 +1171,7 @@ export function ChildGrid<T extends { key: string }>({
   fill = false,
   flushRows = false,
   hideIndex = false,
+  hideHeader = false,
   listRows = false,
   flatRows = false,
   rowSummary,
@@ -1172,7 +1181,9 @@ export function ChildGrid<T extends { key: string }>({
   railAlways = false,
   railWidthPx,
   railCompact = false,
-  railBg = true,
+  railBg = false,
+  railAdd = false,
+  railBorder = false,
   renderListItem,
   onOpenRow,
   canFold,
@@ -1594,9 +1605,44 @@ export function ChildGrid<T extends { key: string }>({
    * index slot, so it has nowhere to go here. No `flushRows` grid declares a
    * `total` today; a grid that needs both wants its index back.
    *
-   * No effect outside inline mode, exactly as `flushRows` has none.
+   * IT REACHES THE TABLE TOO, SINCE 2026-09-04 (Fabric BOM ▸ Components, whose
+   * panel fields became the first columns of its colourway table the same day:
+   * "remove the # 1 column cell"). This note used to end "no effect outside
+   * inline mode" — true when written, and it left a table grid with no way to
+   * drop a track its caller did not want, which is a gap rather than a
+   * decision. The three tracks still leave together: the `<th>`, the row's
+   * number, and the `1 +` in the totals label's `colSpan` (a colSpan counting a
+   * column the header no longer draws shears every figure one place right of
+   * what it totals).
+   *
+   * THE SPAN IS FLOORED AT 1, because `colSpan={0}` is not "no columns" in
+   * HTML — it means "span every remaining column", which would put the label
+   * across the whole totals band. It can only arise when the FIRST column is
+   * also the first totalled one, which is the case the paragraph above already
+   * calls "a grid that needs both wants its index back".
+   *
+   * `flushRows` is still inline-only; only this half moved.
    */
   hideIndex?: boolean;
+  /**
+   * Drop the `<thead>` for THIS instance — table mode only, and it changes
+   * nothing about cards mode, where `renderMobileRow` labels every field on
+   * every row regardless of grouping and has to (client 2026-09-04, Fabric
+   * Process: "each time have the table labels" — a fabric split "Assort Color
+   * Wise" / "Component Wise" renders one `FabricProcessGrid` per group, and
+   * with N groups that repeated the same five-column header N times down the
+   * page). The columns are structurally identical across a caller's own set of
+   * grids — same `columns` array, same declared widths — so hiding every
+   * header but the first is the fix, not a new shared-header component: the
+   * first instance's `<thead>` already draws the exact table the ones below it
+   * would have drawn.
+   *
+   * Caller's job, not this component's: `ChildGrid` has no idea it is one of
+   * several siblings, so it does not default this from `rows.length` or
+   * anything else — the caller decides which instance is "first" the same way
+   * it decides `key` for each one.
+   */
+  hideHeader?: boolean;
   /**
    * Cards mode, but the rows are flat list items divided by a rule instead of
    * boxes, and `renderMobileRow` owns the whole row INCLUDING its header — no
@@ -1782,18 +1828,74 @@ export function ChildGrid<T extends { key: string }>({
    */
   railCompact?: boolean;
   /**
-   * THE PANE'S TINT, OPT-OUT (client 2026-09-04, Fabric BOM ▸ Components and
-   * ▸ Manual: "need remove that grey bg from that rail").
+   * THE PANE'S TINT, NOW OPT-IN AND OFF BY DEFAULT (client 2026-09-04, this
+   * time about ALL FOUR master-detail rails at once — Components, Manual's
+   * two, and Material BOM's own: "remove grey everywhere, including
+   * Material BOM").
    *
    * `bg-surface-muted/60` on the list pane was added on 2026-08-20 so the
    * pane read as a box rather than running on down an empty white column
    * once the entries ran out — see the note on the pane `<div>` below. That
-   * reasoning still holds for Material BOM, the rail it was written for, so
-   * this is a per-caller opt-out rather than a deletion: Components and
-   * Manual are the two call sites that pass `false`, Material BOM passes
-   * nothing and keeps the tint.
+   * reasoning survived as a PER-CALLER opt-out for two rails (Components and
+   * Manual passed `false`, Material BOM passed nothing and kept the tint)
+   * right up until the same complaint was made about Material BOM's own
+   * rail, at which point "the caller that still wants it" turned out to be
+   * nobody — so the default flipped instead of a fourth call site growing
+   * its own `railBg={false}`. No caller sets this prop today; it stays a
+   * prop, not a deletion, for the rail that eventually DOES want the box-off-
+   * empty-column look this was written for.
    */
   railBg?: boolean;
+  /**
+   * PUT THE "+ Add" INSIDE THE RAIL, at the foot of the list rather than
+   * under both panes (client 2026-09-04, Fabric BOM ▸ Components: the rail
+   * "must ALWAYS render on the left ... containing the '+ Add part' button
+   * inside it").
+   *
+   * OPT-IN AND OFF BY DEFAULT, the same shape as `railAlways`, `railWidthPx`,
+   * `railCompact` and `defaultOpenKey` above — Material BOM's rail keeps its
+   * Add under the grid exactly as before, and only a caller that asks moves.
+   * A rail's Add is a rail concern on a grid whose rows ARE the rail, and it
+   * is a full-width footer control on a grid whose rows are the pane; there
+   * is no single answer to default to.
+   *
+   * IT PAYS FOR `railAlways` AT ZERO ROWS. An always-on rail with nothing in
+   * it is a tinted empty column; with the Add in it, the empty rail is the
+   * thing that says how a part gets made, which is the state this pairing was
+   * asked for.
+   *
+   * THE BUTTON DOES NOT GO INSIDE `data-md-list`, and that is not a detail.
+   * That element carries `data-focus-optional`, which `isOffTabPath` reads
+   * with `closest` — so an Add nested in it would inherit "off the typing
+   * path" and stop being a Tab stop, undoing "Enter or Tab off the last row
+   * LANDS ON the '+ Add' button" (AGENTS.md, client 2026-08-19). The list and
+   * the button are therefore siblings inside a wrapper that carries the
+   * pane's own chrome; `mdListKeyNav` finds its entries within
+   * `data-md-list`, whose own note already promises that wrapping the pane
+   * cannot break ↑↓.
+   */
+  railAdd?: boolean;
+  /**
+   * THE RAIL'S OWN SEAM LINES — the vertical rule between the rail and the
+   * detail pane (`gap-x-8`'s own note already treats it as "not a gutter"),
+   * AND, when `railAdd` is also set, the horizontal rule above the Add
+   * button that makes it read as the foot of the list rather than a button
+   * floating under it. Both are "the rail border" from the operator's side
+   * of the screen even though they are two different declarations, and this
+   * one prop carries both together.
+   *
+   * OFF BY DEFAULT APP-WIDE (client 2026-09-04). Started as a per-caller
+   * opt-out on Fabric BOM ▸ Components ("remove that rail border", then
+   * "I can see the bottom border[,] remove it also") and was asked to become
+   * the shared look the same day ("whichever looks clean, maintain it as
+   * global … Material BOM and Manual tab" too) — the exact same arc
+   * `railBg` records above it: a per-caller flag that every caller ends up
+   * wanting is a default, not three call sites converging on the same
+   * `false` by hand. Material BOM and Manual pass nothing and get the
+   * borderless rail for free; a rail that DOES want the seam back is a
+   * caller passing `railBorder` explicitly, same as `railBg`'s own reversal.
+   */
+  railBorder?: boolean;
   /**
    * What one line looks like in the master-detail list. Required by
    * `masterDetail`; ignored without it.
@@ -2026,7 +2128,16 @@ export function ChildGrid<T extends { key: string }>({
    * Budgets) and both are `forceCards`, so this pairs on exactly the grids that
    * asked for it and changes nothing else.
    */
-  const addOnTotalsRow = !!addBtn && hasTotals && mode !== "responsive";
+  /**
+   * THE ADD RIDES IN THE RAIL — see `railAdd`. Derived here rather than at the
+   * two render sites so "which of the three places does this button live in"
+   * is answered once: `addInRail` wins, then the totals row, then the foot of
+   * the grid. `renderListItem` is in the test because it is what `mdActive`
+   * itself gates the rail on — no list renderer, no rail, and an Add put in a
+   * rail that does not exist would vanish rather than move.
+   */
+  const addInRail = mdActive && !!renderListItem && !!addBtn && railAdd;
+  const addOnTotalsRow = !!addBtn && !addInRail && hasTotals && mode !== "responsive";
   /** Where the figures start — everything left of it belongs to the label. */
   const firstTotalIndex = columns.findIndex((c) => c.total && c.total.kind !== "blank");
 
@@ -2114,6 +2225,31 @@ export function ChildGrid<T extends { key: string }>({
     // page 1.
     (keepOne && rows.length <= 1) ||
     (lockExisting && storedKeys.has(row.key));
+  /**
+   * DOES THE TABLE DRAW ITS ✕ COLUMN AT ALL?
+   *
+   * `locked` is a PER-ROW question and cannot answer this one. The table's
+   * trailing cell is emitted unconditionally and only the `<Button>` inside it
+   * is gated — deliberately, and the note on the inline track below records
+   * why: `lockExisting` withholds the ✕ from SOME rows, so a track that came
+   * and went per row would put a stored line and a freshly added one on two
+   * different widths.
+   *
+   * `hideRemove` is not that question. It is stated once for the whole grid and
+   * cannot change while the grid is mounted, so every row is locked by
+   * construction and the column is empty by construction — 32px and a left
+   * border after the last real column, for a button that can never appear.
+   * Fabric BOM ▸ Components' colourways grid is the one that showed it: it
+   * passes `hideRemove` (a colourway is not a row an operator adds or deletes —
+   * `onAddPanel` writes all N), so its table ended on an empty cell hanging off
+   * Specification.
+   *
+   * SO THE GATE IS `hideRemove` AND NOTHING ELSE. `keepOne` and `lockExisting`
+   * both stay unconditional: they are row-dependent, and a column appearing the
+   * moment a second row is added is the drift this cell was made unconditional
+   * to prevent.
+   */
+  const removeColumn = !hideRemove;
 
   return (
     // TWO ELEMENTS, TWO JOBS — the outer one is the CONTAINER-QUERY element and
@@ -2204,6 +2340,33 @@ export function ChildGrid<T extends { key: string }>({
               hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
             )}
           >
+            {/* COLUMN WIDTHS, DECOUPLED FROM WHETHER `<thead>` RENDERS.
+                `<th style={width}>` is what actually sizes a column (the
+                comment on it below is explicit that a `<td>` never carries
+                one) — which meant `hideHeader` would have silently reflowed
+                every hidden-header instance to equal-width columns the moment
+                it existed, since there would be no `<th>` row left to read a
+                width from. A `<colgroup>` states the same widths at the TABLE
+                level, so an instance with no `<thead>` still lines up under
+                the one that has it. Harmless where a `<thead>` already
+                renders: a `<col>` and its `<th>` agreeing on the same width is
+                not a conflict. */}
+            <colgroup>
+              {!hideIndex && <col style={{ width: "2.5rem" }} />}
+              {columns.map((c, i) => (
+                <col key={i} style={c.width ? { width: c.width } : undefined} />
+              ))}
+              {removeColumn && <col style={{ width: "2rem" }} />}
+            </colgroup>
+            {/* `hideHeader` — a caller with several structurally-identical
+                grids stacked in a row (Fabric Process's one-grid-per-group
+                split) draws this `<thead>` on its FIRST instance only and
+                passes `hideHeader` on the rest, rather than repeating the same
+                five column labels down the page. Everything below still needs
+                its widths, which is why this wraps only the `<thead>` and
+                leaves `<colgroup>`-equivalent sizing on every `<th>` alone for
+                the instance that does render one. */}
+            {!hideHeader && (
             <thead>
               {/* WHITE, NOT GREY (client 2026-08-27: "that inside cell for some
                   sections is grey — make it white too"). This is the ONE part of
@@ -2216,7 +2379,15 @@ export function ChildGrid<T extends { key: string }>({
                   those two already said, and it read as a panel inside a panel
                   now that the grid has its card back. */}
               <tr className="border-b border-border">
-                <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
+                {/* THE `#` TRACK, AND `hideIndex` NOW REACHES IT. This branch
+                    drew it unconditionally while the prop's own note said "no
+                    effect outside inline mode" — accurate, and it meant a table
+                    grid had no way to drop a column its caller did not want.
+                    See `hideIndex` for what the three tracks are and why they
+                    have to leave together. */}
+                {!hideIndex && (
+                  <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
+                )}
                 {columns.map((c, i) => (
                   <th
                     key={i}
@@ -2247,9 +2418,10 @@ export function ChildGrid<T extends { key: string }>({
                     {c.required && <span className="ml-0.5 text-danger">*</span>}
                   </th>
                 ))}
-                <th className="w-8 border-l border-border" />
+                {removeColumn && <th className="w-8 border-l border-border" />}
               </tr>
             </thead>
+            )}
             {/* The handler must sit on the SAME element as `data-grid-body` —
                 gridKeyNav takes its grid from `e.currentTarget`. It used to be on
                 the <table>, which still worked when the grid was derived from the
@@ -2266,7 +2438,9 @@ export function ChildGrid<T extends { key: string }>({
                   // fourteen cells read as one line again.
                   className="border-b border-border last:border-0 hover:bg-surface-muted/40"
                 >
-                  <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
+                  {!hideIndex && (
+                    <td className="px-2 py-1.5 text-center align-top text-xs text-muted-foreground">{startIndex + i + 1}</td>
+                  )}
                   {columns.map((c, ci) => (
                     <td
                       key={ci}
@@ -2274,7 +2448,20 @@ export function ChildGrid<T extends { key: string }>({
                         // FAINTER GRIDLINE. Full-strength rules between cells are
                         // what makes a data grid look like a 1998 spreadsheet;
                         // they only need to be strong enough to separate columns.
-                        "border-l border-border/50 px-1.5 py-1",
+                        //
+                        // ALIGN-TOP, NOT THE TABLE DEFAULT `middle` (operator
+                        // report on Fabric Lines, 2026-09-04: "some fields look
+                        // uneven"). A cell that stacks a control over a small
+                        // reference line — the GSM under Fabric's picker, a hint
+                        // under a Combobox — makes its `<td>` taller than its
+                        // single-line neighbours; centred vertically, those
+                        // neighbours' controls then sit a few px lower than the
+                        // taller cell's own control, and a row that should read
+                        // as one straight line of fields reads as a staircase.
+                        // Every cell's content starting at the same edge is what
+                        // makes the row look like a row regardless of which cells
+                        // happen to carry a second line underneath.
+                        "border-l border-border/50 px-1.5 py-1 align-top",
                         /**
                          * THE CELL IS THE BOX — the control inside it is not.
                          *
@@ -2308,7 +2495,8 @@ export function ChildGrid<T extends { key: string }>({
                       </RequiredScope>
                     </td>
                   ))}
-                  <td className="border-l border-border px-1 py-1.5 text-center">
+                  {removeColumn && (
+                  <td className="border-l border-border px-1 py-1.5 text-center align-top">
                     {!locked(row) && (
                     <Button
                       type="button"
@@ -2332,6 +2520,7 @@ export function ChildGrid<T extends { key: string }>({
                     </Button>
                     )}
                   </td>
+                  )}
                 </tr>
                 );
               })}
@@ -2355,8 +2544,11 @@ export function ChildGrid<T extends { key: string }>({
                       taller than the rows above it (client 2026-08-11). Spanning
                       is also what a totals row is supposed to look like: the label
                       on the left, each figure under the column it totals. */}
+                  {/* `1 +` IS THE `#` CELL, so it goes when that column does —
+                      a colSpan counting a track the header no longer draws
+                      shears every figure one column right of what it totals. */}
                   <td
-                    colSpan={1 + Math.max(0, firstTotalIndex)}
+                    colSpan={Math.max(1, (hideIndex ? 0 : 1) + Math.max(0, firstTotalIndex))}
                     className="whitespace-nowrap px-2 py-1.5 text-right text-[11px] uppercase tracking-wide text-muted-foreground"
                   >
                     {totalsLabel}
@@ -2374,7 +2566,7 @@ export function ChildGrid<T extends { key: string }>({
                       {renderTotal(c.total, rows)}
                     </td>
                   ))}
-                  <td className="border-l border-border" />
+                  {removeColumn && <td className="border-l border-border" />}
                 </tr>
               </tfoot>
             )}
@@ -2730,13 +2922,19 @@ export function ChildGrid<T extends { key: string }>({
                "a single row never folds, there is no next item to move on to".
                The pane appears with the second material and is never seen
                before it earns its width. */
-            /* `gap-x-5`: THE BORDER IS NOT A GUTTER. With `gap-0` the detail
+            /* `gap-x-8`: THE BORDER IS NOT A GUTTER. With `gap-0` the detail
                pane's first label started against the list's right edge, so the
                two panes touched and the rule between them read as a seam in one
                surface rather than as a space between two (client 2026-08-20,
                "add gap between that separation left and right split screen").
-               20px after the border is what lets each pane have an edge. */
-            mdActive && "md:grid md:gap-x-5 md:gap-y-0 md:space-y-0",
+               WIDENED FROM `gap-x-5` (client 2026-09-04, on Fabric BOM ▸
+               Components: "that right side rail too sticked with that
+               splitting border, add a padding") — 20px still read as touching
+               once the rail went back to Material BOM's own width/padding;
+               32px after the border is what it takes on the wider rail. One
+               value for all four master-detail rails, same as the border
+               fixes above it. */
+            mdActive && "md:grid md:gap-x-8 md:gap-y-0 md:space-y-0",
             /* STATIC LITERALS, both of them, never `md:grid-cols-[${w}px_...]`:
                Tailwind v4 scans source TEXT, so an interpolated track compiles to
                no CSS at all and the rail would silently stack instead of sitting
@@ -2755,17 +2953,52 @@ export function ChildGrid<T extends { key: string }>({
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
         >
           {mdActive && renderListItem && (
-            /* THE LIST PANE. It renders EVERY row, including the open one —
-               which is highlighted rather than removed, because a list that
-               drops the line you are working on loses your place in it. */
+            /* THE RAIL COLUMN — the scrolling list, and under it the "+ Add"
+               when `railAdd` is set. The pane's own chrome (its ground, its
+               height cap and the rule between the two panes) lives on THIS
+               element rather than on the list, so the button sits inside the
+               pane instead of below it and the list scrolls under a button
+               that stays put.
+
+               THE WRAPPER IS SAFE TO ADD and `data-md-list`'s own note below
+               says so in advance: its entries are found within that element
+               rather than off `el.parentElement`, "so wrapping the pane in
+               another div later cannot quietly break ↑↓". This is that later.
+
+               IT IS ALSO THE ONLY PLACE THE BUTTON CAN GO. Nested inside
+               `data-md-list` it would inherit that element's
+               `data-focus-optional` through `isOffTabPath`'s `closest` and
+               stop being a Tab stop — see `railAdd`. */
+            /* A GROUND OF ITS OWN was the reasoning for tinting this pane
+               (client 2026-08-20, screenshot 2406, "that separate item and
+               table look not good" — below the last entry it ran on down an
+               empty white column). That reasoning is still true; it is just
+               no longer what any caller wants, having been asked away one
+               rail at a time until none was left (see `railBg`'s own note) —
+               so this is opt-IN and off by default now, stated on the WRAPPER
+               rather than on the list because the "+ Add" sits in here too,
+               and a tint that stopped at the last entry would leave the
+               button on a ground of its own. */
+            /* `md:self-start` — HUG THE RAIL'S OWN CONTENT, DON'T STRETCH TO
+               MATCH THE PANE (planned in an artifact, "Rail Height, Hugged",
+               2026-09-04). A CSS grid row's default `align-items: stretch`
+               pulled this column to match the taller of the two panes, which
+               is invisible while a rail is busy enough to be the taller one
+               itself — but `railAlways` (added the same day) keeps a
+               ONE-ROW rail mounted beside a detail pane that easily outgrows
+               it (Fabric BOM ▸ Manual with a single fabric: one rail card,
+               then ~150px of blank box, then "+ Add fabric" pinned to the
+               bottom of it). This overrides stretch for the rail column
+               only — the detail pane keeps its default, and a rail that IS
+               naturally taller than its pane (Components' multi-part list)
+               is unaffected either way. */
             <div
-              /* A GROUND OF ITS OWN, and this is what makes it read as a pane
-                 rather than as a stray vertical rule. Both halves were
-                 `bg-surface`, so the border between them was the only thing
-                 saying there were two of anything — and below the last line it
-                 ran on down an empty white column (client 2026-08-20, screenshot
-                 2406, "that separate item and table look not good"). Tinting the
-                 list is what turns that emptiness into the bottom of a pane. */
+              className={cn(
+                "flex flex-col border-border md:self-start md:max-h-[560px] md:overflow-hidden",
+                railBorder && "md:border-r",
+                railBg && "bg-surface-muted/60",
+              )}>
+            <div
               /* THE SCOPE `mdListKeyNav` WALKS. Its entries are found within this
                  element rather than off `el.parentElement`, so wrapping the pane
                  in another div later cannot quietly break ↑↓. */
@@ -2785,10 +3018,15 @@ export function ChildGrid<T extends { key: string }>({
                * marker gets that same result without the mouse-only half.
                */
               data-focus-optional
-              className={cn(
-                "flex flex-col overflow-y-auto border-border md:max-h-[560px] md:border-r",
-                railBg && "bg-surface-muted/60",
-              )}>
+              /* THE GROUND AND THE CAP MOVED UP to the rail column above —
+                 `railBg`'s tint with them, onto the element that also holds the
+                 "+ Add", so opting out of the tint takes the whole pane rather
+                 than just the part of it the entries fill. What stays here is
+                 the scrolling itself. `min-h-0` is what lets a flex child
+                 actually scroll instead of growing past its parent's cap —
+                 without it the list would push the "+ Add" out of the pane at
+                 exactly the row count that makes an Add most useful. */
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               {view.map((row, localI) => {
                 const i = offset + localI;
                 const isOpen =
@@ -2894,6 +3132,24 @@ export function ChildGrid<T extends { key: string }>({
                 );
               })}
             </div>
+            {addInRail && (
+              /* SEPARATED BY A RULE, NOT BY A GAP. The entries run edge to edge
+                 down the pane, so a button floating in whitespace under them
+                 would read as a third thing; a border makes it the foot of the
+                 list. `shrink-0` keeps it at its own height while the list
+                 above takes the slack.
+
+                 GATED ON `railBorder` TOO (client 2026-09-04, Components tab,
+                 same request as the vertical rule: "the bottom border, remove
+                 it also"). One prop for the rail's whole seam — the line down
+                 its right edge and the line above its Add button are both
+                 "the rail border" from the operator's side of the screen,
+                 even though they are two different CSS declarations. */
+              <div className={cn("shrink-0 p-1.5", railBorder && "border-t border-border")}>
+                {addBtn}
+              </div>
+            )}
+            </div>
           )}
           {view.map((row, localI) => {
             const i = offset + localI;
@@ -2967,6 +3223,16 @@ export function ChildGrid<T extends { key: string }>({
                 "space-y-2",
                 // `py-2` only — no horizontal padding, so a flat row's fields keep
                 // the grid's own left edge and line up with the sections above it.
+                // `mdActive` IS THE EXCEPTION (client 2026-09-04, on the detail pane
+                // beside a master-detail rail: "what about left side padding" —
+                // asked right after the rail/pane gap was widened). This row has no
+                // "section above" to line up with in that layout; it IS the detail
+                // pane, sitting in the grid's second column, so its own left edge is
+                // an inset from the rail's gap rather than the page's own margin.
+                // `pl-2` is on TOP of the column's `gap-x-8`, not instead of it —
+                // the gap keeps the two panes apart, this keeps the pane's content
+                // off ITS OWN edge. One rule for all four master-detail rails.
+                mdActive && "pl-2",
                 /**
                  * `py-3`, NOT `py-2` (client 2026-08-19, screenshot 2379).
                  *
@@ -2985,6 +3251,30 @@ export function ChildGrid<T extends { key: string }>({
                 listRows || flatRows
                   ? "py-3 first:pt-0 last:pb-0"
                   : "rounded-lg border border-border p-2.5",
+                /**
+                 * `mdActive && "pt-0"` — `first:pt-0` ABOVE NEVER MATCHES IN
+                 * MASTER-DETAIL MODE, and this is a second, independent
+                 * report of the same symptom the `cornerRemove` reorder above
+                 * already fixed once (operator, 2026-09-04, after that fix:
+                 * "still looks a bit unaligned"). `:first-child` is CSS, not
+                 * "first row this map rendered" — it asks whether this div is
+                 * its PARENT's literal first child, and in `mdActive` mode
+                 * the parent's actual first child is the RAIL COLUMN
+                 * (`renderListItem`'s block, rendered just above this map).
+                 * The one row `view.map` renders here (every other row
+                 * returns `null` and leaves no DOM node — see `folded`
+                 * above) is that grid's SECOND child, so `first:pt-0` never
+                 * matches and the row keeps `py-3`'s full 12px top padding
+                 * it was written to lose. `last:pb-0` is unaffected — this
+                 * row genuinely is the last (and only) child either way —
+                 * which is why only the TOP half of the report kept coming
+                 * back. Stated as its own class, not folded into the
+                 * ternary above, because it is a masterDetail-only
+                 * correction of a rule that is otherwise right for every
+                 * OTHER `flatRows` list, where the first row really is the
+                 * parent's first child.
+                 */
+                mdActive && "pt-0",
                 /**
                  * The divider, owned by the row that needs one — see the
                  * container. `localI` is the index on the PAGE, so the first row
@@ -3069,23 +3359,6 @@ export function ChildGrid<T extends { key: string }>({
                   )}
                 </div>
               )}
-              {cornerRemove && (
-                /* THE SAME BUTTON, OUT OF THE FLOW — not a second one and not a
-                   lesser one. `data-row-remove` is what Ctrl+Del drives and the
-                   `aria-label` is what a screen reader reads, so both come with
-                   it; only the line it used to stand on is gone. */
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  data-row-remove
-                  className="absolute right-1 top-1 text-muted-foreground hover:text-danger"
-                  onClick={() => onRemove(row)}
-                  aria-label="Remove row"
-                >
-                  <X className="h-4 w-4 shrink-0" />
-                </Button>
-              )}
               {folded ? (
                 renderFoldedRow!(row, i)
               ) : renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (
@@ -3095,6 +3368,51 @@ export function ChildGrid<T extends { key: string }>({
                         </RequiredScope>
                       </div>
                     ))}
+              {cornerRemove && (
+                /* THE SAME BUTTON, OUT OF THE FLOW — not a second one and not a
+                   lesser one. `data-row-remove` is what Ctrl+Del drives and the
+                   `aria-label` is what a screen reader reads, so both come with
+                   it; only the line it used to stand on is gone.
+
+                   AFTER THE CONTENT IN THE DOM, NOT BEFORE (global fix,
+                   2026-09-04, found chasing a Fabric BOM ▸ Manual report: "rail
+                   start and the fab table start is uneven"). This row's own
+                   `space-y-2` targets `:not(:first-child)`, which counts DOM
+                   ORDER — not layout flow — so an `absolute` button rendered
+                   FIRST still counted as this content's preceding sibling and
+                   cost it a spurious 8px `margin-top` no design ever asked
+                   for. It was invisible on an ordinary card, where nothing
+                   sits beside it at the same height to show the gap, and
+                   obvious the moment a `masterDetail` rail put a reference
+                   point (its own flush-top list) directly next to this pane.
+                   Moving the button after the content removes the margin at
+                   the source, for every `cornerRemove` row in the app, rather
+                   than compensating per call site — position:absolute means
+                   its DOM position never affects where it paints. */
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-row-remove
+                  /* A CHIP, NOT A BARE ICON (client 2026-09-05: "in all
+                     section the close option look floating"). `ghost`'s only
+                     affordance is `hover:bg-surface-muted` — nothing paints
+                     until the pointer is already over it — so at rest this
+                     was an X with no boundary, sitting in the corner of
+                     whatever background happened to be behind it. Every
+                     `cornerRemove` row in the app shares this one button, so
+                     the fix is here rather than per section: a small round
+                     chip that is visibly a CONTROL at rest, not only on
+                     hover. `p-0` cancels `size="sm"`'s `px-3` — a 24px circle
+                     has no room for 12px of horizontal padding beside a 16px
+                     icon — and `h-6 w-6` cancels its `h-8` the same way. */
+                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger"
+                  onClick={() => onRemove(row)}
+                  aria-label="Remove row"
+                >
+                  <X className="h-3.5 w-3.5 shrink-0" />
+                </Button>
+              )}
             </div>
             );
           })}
@@ -3159,9 +3477,10 @@ export function ChildGrid<T extends { key: string }>({
           />
         )}
 
-        {/* Below the grid unless it is riding the totals row — see
-            `addOnTotalsRow`. Rendered in exactly one of the two places. */}
-        {!addOnTotalsRow && addBtn}
+        {/* Below the grid unless it is riding the totals row or sitting in the
+            rail — see `addOnTotalsRow` and `addInRail`. Rendered in exactly one
+            of the three places. */}
+        {!addOnTotalsRow && !addInRail && addBtn}
       </div>
     </div>
   );

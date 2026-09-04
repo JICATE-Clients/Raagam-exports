@@ -1574,6 +1574,10 @@ export interface GarmentOrderAmendment {
   pay_terms_id: string | null;
   /** Which Garment Rejection Rule supplies Approval Qty's Projection (0413). */
   rejection_rule_id: string | null;
+  /** The flat rejection percentage feeding Material BOM only, alongside (not
+   *  instead of) `rejection_rule_id` above — see the field's own note on
+   *  `HeaderForm` in `garment-order-screen.tsx`. Defaults to 0. */
+  rejection_pct: number;
   /** The Style Quotation this order was raised from (0511) — provenance, and
    *  the handle "Copy From SQ No" reaches the fabric estimation through. NULL
    *  for an order booked straight off a customer PO, which is the usual case. */
@@ -2345,6 +2349,11 @@ export const amendmentInput = z.object({
   /* NULL is a real state, not a missing answer: an order with no rule chosen
      has no Projection, and every row predating 0413 is in exactly that state. */
   rejection_rule_id: uuidN,
+  /* THE FLAT COMPANION, DEFAULTING TO 0 (backend calc spec, 2026-09-04) —
+     `num` already defaults an absent/blank value the same way `excess_pct`
+     does two lines up; see the row type for why this is a second field
+     rather than a second meaning for `rejection_rule_id`. */
+  rejection_pct: num,
   /* THE QUOTATION THIS ORDER CAME FROM (0511). `uuidN`, so NULL is a real
      answer rather than a missing one — most orders are booked straight off a
      customer PO and never had a quotation. `headerOnly` spreads whatever is not

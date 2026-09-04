@@ -88,8 +88,14 @@
  *
  *   1. STYLE     — Style No, read-only. Style Ref No and Article No were
  *                  dropped from THIS band on 2026-09-04 (client cleanup
- *                  spec) — Manual's copy of `StyleIdentityBand` keeps all
- *                  three, via `omit`.
+ *                  spec). Manual's own copy of `StyleIdentityBand` kept all
+ *                  three at first, then lost them the same way but in two
+ *                  separate messages hours later — Article No first, then
+ *                  Style Ref No — landing on the SAME `omit={["ref",
+ *                  "article"]}` this band passes. Both bands now show Style
+ *                  No alone; read each call site's own `omit` rather than
+ *                  assuming a shared component means they always agree —
+ *                  they were allowed to diverge and just happened not to.
  *   2. PANEL     — Coordinate · Layout Type (0530, gates Component) ·
  *                  Component · Fabric Type (read-only). Folds.
  *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric (GSM as a read-only
@@ -146,12 +152,15 @@ import { Field, FieldGrid } from "@/components/ui/field";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Truncated } from "@/components/ui/truncated";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
-import type { FieldSize } from "@/lib/ui/sizes";
 import { cn } from "@/lib/utils";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   FABRIC_FORM_OPTIONS,
-  LAYOUT_TYPE_OPTIONS,
+  /* `LAYOUT_TYPE_OPTIONS` LEFT WITH THE COLUMN (2026-09-04) — it fed that
+     Select's `<option>` list and had no second reader here. It is still
+     exported and still the one vocabulary, so restoring the column restores
+     this import; `componentsHiddenForLayout` and `LayoutType` below stay
+     because rule 4 on the Component cell reads them either way. */
   availablePanels,
   componentsHiddenForLayout,
   /* MOVED OUT OF THIS FILE (2026-09-03), unchanged. The Fabric Process tab's
@@ -806,39 +815,19 @@ export function ComponentMapBody({
    * than one order-sensitive place, so an index would drift the day a column
    * moved.
    */
-  /**
-   * BY VALUE, NOT BY HABIT — three rounds on one row (client 2026-09-03):
-   * "some field looks squeezed and some field have much gap ... based on
-   * values can allocate space"; then "add extra little length to coordinate
-   * and structure, fabric"; then, once Gsm's own border made its clip
-   * visible, "gsm field ui will fix". Since 2026-09-04 `Structure` and the
-   * standalone `Gsm` column are GONE (the client cleanup spec: GSM moved to
-   * a read-only reference under Fabric, Structure dropped as a repeat of
-   * what choosing the panel already states), a SECOND same-day instruction
-   * dropped `Structure Type` and the panel-level `Fabric` picker outright,
-   * and a NEW `Layout Type` field was ADDED before Component (section 4 of
-   * the same spec, 0530) — so the row's span list is no longer only
-   * shrinking. Nothing was re-tuned beyond giving the new field a size;
-   * `Layout Type` reuses `Component`'s own `sm`, since both hold a short
-   * fixed vocabulary next to a control with visible chrome (a Select, a
-   * picker).
-   *
-   * EACH REMAINING SPAN IS STILL SIZED TO WHAT THE FIELD ACTUALLY HOLDS,
-   * catalog-checked rather than guessed:
-   *
-   *   Coordinate      "PIECES" / "TOP"           — 3-6 chars
-   *   Layout Type     "Open Width" / "Tubular"   — 6-10 chars, a Select
-   *   Component       "SIDE PANELS", "NECK TAPE" — 8-11 chars, plus a picker
-   *   Fabric Type     "Solid" / "Yarn Dyed"       — 5-9 chars, the shortest
-   *                   field on the row, now read-only (see the column above)
-   */
-  const FIELD_SIZES: Record<string, FieldSize> = {
-    Coordinate: "sm",
-    "Layout Type": "sm",
-    Component: "sm",
-    "Fabric Type": "xs",
-  };
-
+  /* THE PANEL ROW'S SPAN LIST IS GONE WITH THE ROW ITSELF (client 2026-09-04:
+     "merge the top fields ... directly into the table as columns").
+     `FIELD_SIZES` mapped each panel field to a `FieldSize` — a `col-span-*` on
+     the 32-column track — because the three fields were laid out as a
+     `FieldGrid` above the table. They are `<td>`s now, so their width comes
+     from `ChildGridColumn.width` on `panelColumns` below (7rem, 8rem, 10rem),
+     which those columns already declared for the table they now live in. Two
+     vocabularies for one row was the thing to remove; the spans were the half
+     with no reader left.
+     THE SIZING REASONING IT CARRIED IS NOT LOST — it was a restatement of the
+     same catalog check the `width` on each column records ("PIECES" / "TOP" at
+     3-6 chars, "Open Width" / "Tubular" at 6-10, "SIDE PANELS" at 8-11). Read
+     it there. */
   const panelColumns: ChildGridColumn<PanelRow>[] = [
     {
       /* COORDINATE IS SHOWN AND NOT EDITED. Legacy prints it and it is real
@@ -860,63 +849,25 @@ export function ComponentMapBody({
          sits in changed. */
       cell: (p) => <ClothText value={coordinateName(p.coordinate_id) ?? ""} />,
     },
-    {
-      /* SECTION 4 OF THE "STRUCTURE DETAILS & COMPONENTS" SPEC (client,
-         2026-09-04): "the component dropdown must filter dynamically based
-         on [the panel's] layout type". Confirmed with the operator
-         (AskUserQuestion, same date) as a NEW field here, before Component
-         — not the colourway-row `fabric_form`/"Type" (sequenced AFTER
-         Component, rejected as a gate on 2026-09-02 for repeating a
-         mandatory cell down every colourway), and not the per-style
-         DECLARED fact 0527 built for the Manual tab. See 0530's migration
-         header for all three Open/Tubular-shaped columns this module now
-         carries and why none of them merge.
+    /* THE `Layout Type` COLUMN STOOD HERE AND IS GONE (client 2026-09-04:
+       "remove the # 1 column cell and layout type"), one day after 0530 added
+       it. Recorded rather than silently deleted, because the SCHEMA half is
+       untouched and a reader will find it: `fabric_bom_lines.layout_type` still
+       exists, `PanelRow.layout_type` still carries it, and `onPatchPanel` still
+       writes it — only the cell that let an operator choose one is gone.
 
-         OPTIONAL, unlike Component beside it — see the Zod schema's own
-         note (`fabricBomLineInput`) on why this is not a Save-blocking
-         mandatory field. */
-      header: "Layout Type",
-      width: "7rem",
-      cell: (p) => {
-        /* THE SAME rule2+rule3 LIST COMPONENT READS, computed once here so
-           the "would this leave nothing?" safety check can test each
-           Layout Type against it without re-deriving `availablePanels`
-           per option. */
-        const declared = availablePanels({
-          decls,
-          siblings: allLines.filter((l) => !p.lines.some((x) => x.key === l.key)),
-          styleRefNo,
-          structureId: p.structure_id ?? structureId,
-          held: p.component_id,
-        });
-        /* GREY OUT A LAYOUT TYPE THAT WOULD LEAVE THE COMPONENT DROPDOWN
-           EMPTY (spec's "Safety Check"). The panel's OWN held component
-           always keeps its Layout Type selectable — disabling the value a
-           panel already carries would make an answered row look wrong. */
-        const emptyUnder = (lt: LayoutType) => {
-          if (p.layout_type === lt && p.component_id) return false;
-          const hidden = componentsHiddenForLayout(decls, styleRefNo, lt);
-          return declared.every((o) => hidden.has(o.component_id));
-        };
-        return (
-          <Select
-            compact
-            className="h-8"
-            value={p.layout_type ?? ""}
-            onChange={(e) =>
-              onPatchPanel(p.addr, { layout_type: e.target.value || null })
-            }
-          >
-            <option value="" />
-            {LAYOUT_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value} disabled={emptyUnder(o.value)}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-        );
-      },
-    },
+       WHAT THAT COSTS, EXACTLY: `layout_type` is now unset on every new panel,
+       so RULE 4 below never narrows anything. That degrades gracefully rather
+       than breaking — `componentsHiddenForLayout` already owns "nothing chosen
+       hides nothing", so the Component list simply falls back to rules 2+3, and
+       the field was optional in `fabricBomLineInput` so no Save is blocked. A
+       panel saved with a Layout Type before today keeps it, and it still
+       narrows that panel's list; nothing can change it from this screen.
+
+       PUTTING IT BACK IS THIS COLUMN OBJECT PLUS ONE IMPORT.
+       `componentsHiddenForLayout` and `LayoutType` are still imported and live
+       — rule 4 below reads them either way — but `LAYOUT_TYPE_OPTIONS` fed
+       only the removed Select and went with it (see the import block). */
     {
       header: "Component",
       required: true,
@@ -1047,9 +998,31 @@ export function ComponentMapBody({
    * a white body and a navy body may name two different fabric items — the panel
    * row rolls them up and says "(mixed)", and these are where the values are.
    *
-   * Widths: 6 + 5 + 10 + 6 + 6 + 6 = 39rem = 624px, well inside this
+   * `Fabric Type` AND `Type` WIDENED, 5→7 AND 6→8rem (operator report,
+   * 2026-09-04: the values were "hidden because the field width is small").
+   * Both render through `<Select>`, which is a `Combobox` on desktop the
+   * moment its own blank `<option>` makes it `clearable` (see `select.tsx`) —
+   * so both cells carry a clear ✕ beside the value, not just a chevron. "YARN
+   * DYED" (9 chars) and "Open Width" (10 chars) plus that ✕ do not fit 5/6rem;
+   * `Type` in `fabric-bom-screen.tsx`'s `lineColumns` gets away with 6rem for
+   * "Yarn Dyed" only because that cell prints plain `ClothText`, with no ✕ to
+   * share the box with.
+   *
+   * Widths: 6 + 7 + 10 + 8 + 6 + 6 = 43rem = 688px, well inside this
    * nested grid's own (rail-reduced) pane.
    */
+  /* `panelInRowColumns` STOOD HERE FOR ONE ITERATION AND IS GONE (client
+     2026-09-04). It prepended `panelColumns` to `colourColumns` so the panel's
+     own fields could be the table's first columns, and it worked — but it
+     denormalised a one-to-many: Coordinate and Component belong to the PANEL,
+     so a panel with three colourways drew each value three times, and only the
+     fact that the cell was handed the PanelRow (so the write went through
+     `onPatchPanel`) kept the copies from drifting.
+     THE SIDE-BY-SIDE SPLIT REPLACES IT and needs no adapter at all: the two
+     lists go back to describing their own grains, and the layout — not a
+     mapped column list — is what puts them on one row. That is why this is a
+     deletion rather than a second helper beside it. */
+
   const colourColumns: ChildGridColumn<MapLine>[] = [
     {
       /* A `Select`, not a Combobox: the order's colourways are a closed list and a
@@ -1079,7 +1052,7 @@ export function ComponentMapBody({
     },
     {
       header: "Fabric Type",
-      width: "5rem",
+      width: "7rem",
       cell: (l) => typeCell(l.key, l.item_id),
     },
     {
@@ -1140,7 +1113,10 @@ export function ComponentMapBody({
          complaint, the same write-through is the fix — not moving the cell back. */
       header: "Type",
       required: true,
-      width: "6rem",
+      /* 8rem — "Open Width" (10 chars) plus the clear ✕ this cell carries
+         (see the array's own note above) needed more than the 6rem it opened
+         at. */
+      width: "8rem",
       cell: (l) => (
         <Select
           compact
@@ -1266,11 +1242,13 @@ export function ComponentMapBody({
           gone, and the same protection now lives in `gridPanels`, which hands
           the grid `key: panel_uid`. See the note there.
 
-          ## THE RAIL APPEARS AT TWO PANELS, NOT ONE
+          ## THE RAIL IS ALWAYS THERE — SEE `railAlways` ON THE GRID BELOW
 
-          `mdActive` is `masterDetail && rows.length > 1`, so a style with a
-          single panel renders as one plain card with no rail. A list of one is
-          not a list, and Material BOM behaves the same way. */}
+          It used to appear only at two panels ("a list of one is not a list",
+          the shape Material BOM still has), which meant a style with one part
+          drew a flat full-width card and grew the split when the second part
+          arrived. That is the layout branch the client reported on 2026-09-04;
+          the reasoning for opting out of it is on the prop. */}
       {/* THE RAIL NOW MATCHES MATERIAL BOM'S OWN, FULL STOP (client
           2026-09-03, screenshots 2676-2678, repeated: "same like material bom
           tab layout, size, color everything ... just customizing for this
@@ -1290,27 +1268,21 @@ export function ComponentMapBody({
            box per panel, which is the operator's standing rule. */
         forceCards
         flatRows
-        /* 220px — NEITHER OF THE PRIMITIVE'S TWO NAMED WIDTHS (client
-           2026-09-03, the third number on this one rail in one day). 160
-           ("the rail is sized to its text") was too tight for the subtitle
-           and figure this rail grew once "same as Material BOM" arrived;
-           268 (Material BOM's own width, and this rail's setting for a few
-           commits) read as wider than the client's own reference screenshot
-           once the two sat side by side. `railWidthPx` exists on the
-           primitive because of this exact call site — see its own note on
-           `child-grid.tsx` — so this is a number, not a second boolean. */
-        railWidthPx={220}
-        /* TIGHTER PADDING TOO (client, same afternoon: "use compact that
-           rail menu"). Independent of the width now — see `railCompact`'s
-           own note on `child-grid.tsx` for why the two stopped being one
-           flag. */
-        railCompact
-        /* THE TINT IS OFF (client 2026-09-04: "need remove that grey bg from
-           that rail"). This reverses the 2026-09-03 "match Material BOM,
-           full stop" instruction for the pane's background only — width,
-           padding and the ring above stay matched; see `railBg`'s own note
-           on `child-grid.tsx`. */
-        railBg={false}
+        /* BACK TO MATERIAL BOM'S OWN WIDTH, PADDING AND TINT — `railWidthPx`,
+           `railCompact` and `railBg={false}` all REMOVED (client 2026-09-04,
+           later the same day as the narrowing below: "the size of the rail
+           menu and color etc I need same" — i.e. as Material BOM's).
+           This is a second reversal on the same afternoon, not a new
+           decision: 2026-09-03 asked for "same like material bom tab layout,
+           size, color everything", 2026-09-04 morning narrowed it three times
+           (180px, then compact padding, then the tint dropped — each kept in
+           git history and formerly recorded here), and this instruction puts
+           it back to that first "full stop" state. Falling through to
+           `child-grid.tsx`'s defaults (268px, `px-3 py-2`, `bg-surface-muted/60`)
+           IS "same as Material BOM" — that screen sets none of the three
+           either. If a future ask narrows this again, narrow it explicitly
+           rather than re-adding these three as a set: the width, the padding
+           and the tint are independent props for exactly this reason. */
         /**
          * `fill` IS LOAD-BEARING HERE, AND ITS ABSENCE IS WHAT BROKE THE PANE
          * (reported 2026-09-03 with a screenshot: every field stacked in a
@@ -1342,6 +1314,40 @@ export function ComponentMapBody({
            Entry's Structure Details does. There is no toggle control. */
         foldRows
         masterDetail
+        /* THE SPLIT IS PERMANENT (client 2026-09-04). `mdActive` is
+           `masterDetail && (railAlways || rows.length > 1)`, so without this
+           the rail — and with it the whole two-pane shape — appeared only from
+           the SECOND part onwards: a new BOM, or one whose style has a single
+           panel, rendered the old flat full-width card instead, and adding the
+           second part snapped the layout over. That switch is what reads as the
+           screen "flashing the old UI", and it is a branch, not a transition.
+
+           "A LIST OF ONE IS NOT A LIST" IS THE RULE THIS OPTS OUT OF, and the
+           opt-out is the one Fabric BOM ▸ Manual already took on 2026-09-04 for
+           the same reason: that rule was written for a DOCUMENT's own single
+           blank line (Material BOM, client 2026-08-20 — 268px holding the words
+           "Not filled in"), where the rail costs width and says nothing. A part
+           is not that. It is named, it is one of a set the order declares, and
+           the operator wants the rail's shape from the first one — which is
+           also where "+ Add part" now lives, so an empty rail is the thing that
+           says how the next part gets made rather than an empty column.
+
+           `folded` STILL CARRIES `rows.length > 1` ON ITS OWN, so this changes
+           only whether the split renders, never whether a single part's body is
+           suppressed: one part shows its full body, in the detail column. */
+        railAlways
+        /* AND THE "+ Add part" GOES IN THE RAIL WITH THEM (client 2026-09-04:
+           the rail must contain the button). It used to sit under BOTH panes at
+           the foot of the grid, so on a wide screen the control that adds a rail
+           entry stood a pane's width away from the rail. See `railAdd` on
+           `child-grid.tsx` for why it cannot simply be nested inside the list
+           (`data-focus-optional` would take it off the Tab path). */
+        railAdd
+        /* NO `railBorder` HERE — the borderless rail is `child-grid.tsx`'s
+           OWN DEFAULT now (client 2026-09-04: raised here first as "remove
+           that rail border", then made "global … Material BOM and Manual tab"
+           the same day). `gap-x-8` still keeps the rail and the pane apart;
+           only the seam lines are gone, app-wide. */
         /* OPENS ON THE FIRST PART RATHER THAN NOTHING (2026-09-04, operator:
            "why the bottom looks so flying … default open first component
            with that table panel"). Opt-in on `child-grid.tsx`'s own prop —
@@ -1366,8 +1372,10 @@ export function ComponentMapBody({
            — eight of them is a scroll where it need not be one.
 
            ONE LINE IS ALSO WHAT MAKES THE ENTRY COMPACT. The padding is
-           `ChildGrid`'s own (`px-3 py-2`); dropping the meta row is what takes
-           each card from two lines to one, so nothing here sets a height. */
+           `ChildGrid`'s own — `railCompact`'s `px-2.5 py-1`, not the default
+           `px-3 py-2` this note named before the flag existed; dropping the
+           meta row is what takes each card from two lines to one, so nothing
+           here sets a height. */
         /**
          * MATERIAL BOM'S SHAPE, MINUS THE FIGURE (client 2026-09-03, three
          * rounds on this one row: "same ... size, color everything" brought
@@ -1401,7 +1409,21 @@ export function ComponentMapBody({
              every colourway states its Type. */
           const state = !name ? "idle" : n > 0 && answered === n ? "ok" : "warn";
           return (
-            <div className="flex items-center gap-2.5">
+            /* `gap-2.5`, MATERIAL BOM'S OWN GUTTER — `gap-1.5` was tuned for a
+               180px rail (see the width/padding/tint note above); back at
+               268px there is no width pressure buying anything by tightening
+               it, so this reverts with the width rather than staying an
+               orphaned narrowing. The dot keeps `shrink-0`. */
+            /* `min-h-7` INSTEAD OF A BLANK RESERVED LINE — kept in step with
+               the Manual rail, whose call site carries the full reasoning
+               (client 2026-09-04). Short version: reserving the second line
+               with a non-breaking space made every card the same HEIGHT and
+               pushed the visible line to the top of it, so `items-center`
+               centred the dot below the title. A minimum height on the row
+               gives the same uniform box AND lets the centring work, because
+               there is no blank line inside the block being centred. This one
+               is NOT tied to the width narrowing — it stays. */
+            <div className="flex min-h-7 items-center gap-2.5">
               <span
                 className={cn(
                   "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -1411,6 +1433,17 @@ export function ComponentMapBody({
                 )}
               />
               <span className="min-w-0 flex-1">
+                {/* `text-[12.5px] font-medium` — MATERIAL BOM'S OWN SCALE.
+                    `text-xs font-semibold` was the 180px-rail compensation
+                    (a heavier, half-pixel-smaller name to stay findable in a
+                    tighter column); at Material BOM's own width that trade
+                    buys nothing, so this reverts along with the gap above.
+
+                    NO `truncate` CLASS HERE. `Truncated` writes that span
+                    itself (AGENTS.md, "Truncated values": the class comes off
+                    the call site), and it is what makes a clipped part name
+                    readable on hover or press-and-hold. Adding `truncate`
+                    beside it would clip the value with nothing revealing it. */}
                 <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
                   {name || "New part"}
                 </Truncated>
@@ -1457,39 +1490,57 @@ export function ComponentMapBody({
                 apart, and the client is right that the second saying earns
                 nothing the first did not.
 
-                THE ✕ STILL NEEDS THE `pr-9` ROOM `cornerRemove` FLOATS INTO
-                — that half of the old heading's job stays, on a bare spacer
-                rather than on text that repeats the rail. Dropping the whole
-                block would bring back the ORIGINAL defect this heading was
-                built to fix: an ✕ with nothing above it to belong to. */}
-            <div className="h-1 pr-9" />
-            {/* SIZED LIKE MATERIAL BOM'S OWN FIELDS, NOT A UNIFORM `xs` ROW
-                (client 2026-09-03, screenshots 2676-2678: "same ... size ...
-                everything"; refined the same day against the RESULT — "some
-                field looks squeezed and some field have much gap ... based
-                on values can allocate space"). `cols={14}` at a flat `xs` was
-                the original answer to "all seven on one row" — 155px for
-                every field regardless of what it held, which squeezed
-                Structure's 20-character names exactly as much as Gsm's
-                9-character range.
+                THE SPACER THAT USED TO STAND HERE IS GONE (operator report,
+                2026-09-04, on the Manual tab's identical rail: "rail start
+                and the fab table start is uneven … make it equal" — the same
+                pane shape, so the same fix). It bought the ✕ "something to
+                belong to", but nothing it protected actually sits under it:
+                `cornerRemove` floats `right-1` against this FULL-width row
+                wrapper, while the Coordinate/Component fields and the table
+                below are both left-aligned and narrower than the pane — nor
+                does the ✕ need flow content above it to read as attached to
+                the panel; it is already inside the same bordered row as
+                everything else. Keeping an empty div here only cost the pane
+                the same 16px the Manual tab's own spacer cost it, which is
+                exactly the gap the operator was pointing at. */}
+            {/* THE PANEL'S OWN FIELDS, BESIDE THE TABLE RATHER THAN ABOVE OR
+                INSIDE IT (client 2026-09-04: "keep the controls and the table on
+                the same horizontal row side-by-side, but separate them").
 
-                `cols={32}`, the SAME track the colourways row below already
-                uses. Spans are now BY VALUE (`FIELD_SIZES`, above) rather than
-                by a flat guess — see that constant for the per-field
-                reasoning and the catalog figures behind each one. */}
-            <FieldGrid cols={32}>
-              {panelColumns.map((c, ci) => (
-                <Field
-                  key={c.header}
-                  label={c.header}
-                  required={c.required}
-                  size={FIELD_SIZES[c.header] ?? "xs"}
-                >
-                  {c.cell(p, ci)}
-                </Field>
-              ))}
-            </FieldGrid>
-            <div>
+                THIS IS THE THIRD ARRANGEMENT OF THESE TWO FIELDS IN ONE DAY, and
+                the middle one is why the split reads as an improvement rather
+                than a revert. They began ABOVE the table as a `FieldGrid` row;
+                they were then merged INTO it as its first columns, which fixed
+                the wasted band but denormalised them — Coordinate and Component
+                belong to the PANEL, so a panel with three colourways drew each
+                value three times and only `onPatchPanel` kept the copies
+                honest. Side by side gives back the single control per value
+                without giving back the band: one row of screen, two grains,
+                each stated once.
+
+                `items-start`, NOT `items-center`: the table grows with the
+                colourway count and the two fields do not, so centring would
+                float them against a tall grid. They belong at its top edge,
+                level with its header row. */}
+            <div className="flex items-start gap-4">
+              {/* `w-48` AND `shrink-0`. The table is the part that has to
+                  breathe — six columns against two — so the fields take a fixed
+                  column and the grid takes the rest through `flex-1`. Without
+                  `shrink-0` a wide table would squeeze the picker instead, which
+                  is the opposite of the trade this layout is making. */}
+              <div className="w-48 shrink-0 space-y-2">
+                {panelColumns.map((c, ci) => (
+                  /* `required={c.required}` REACHES THE CONTROL HERE, and it has
+                     to: `Field` is what draws the star AND opens the
+                     `RequiredScope` the cursor hold reads (AGENTS.md, "Mandatory
+                     fields"). Rendering `c.cell` bare would keep the column's
+                     declaration and lose both halves it buys. */
+                  <Field key={c.header} label={c.header} required={c.required} className="w-full">
+                    {c.cell(p, ci)}
+                  </Field>
+                ))}
+              </div>
+              <div className="min-w-0 flex-1">
               {/* NO "COLOURWAYS OF <PANEL>" CAPTION (client 2026-09-03).
 
                   IT EARNED ITS PLACE UNDER THE OLD LAYOUT AND DOES NOT UNDER
@@ -1510,6 +1561,25 @@ export function ComponentMapBody({
                  was removed on 2026-09-03 -- see the note there. */
               columns={colourColumns}
               rows={p.lines}
+              /* NO `#` COLUMN (client 2026-09-04: "remove the # 1 column
+                 cell").
+
+                 THE ORDINAL HAD NOTHING LEFT TO NUMBER once the panel fields
+                 became this table's first columns. A row here is one COLOURWAY
+                 of one panel, named by its own Assort Color cell, and the panel
+                 above it is named by the rail and by the Component column — so
+                 "3" was counting a thing nobody refers to by number. That is the
+                 same test `hideIndex`'s own note applies ("in a one-column list
+                 of sizes the VALUE is the identity"), and it is why this is the
+                 prop rather than a `[&_td:first-child]:hidden` at the call site:
+                 the header cell, the row cell and the totals `colSpan` are three
+                 tracks that must leave together.
+
+                 `hideIndex` REACHED CARDS ONLY UNTIL TODAY — the table branch
+                 drew the ordinal unconditionally. Extending it was safe to do
+                 rather than work around: the prop had ZERO call sites in the
+                 app, so no existing grid could change appearance. */
+              hideIndex
               /* NO `tableFrom` OVERRIDE — the default `@lg` (512px) switch,
                  and this is the second correction to this ONE line in one day.
 
@@ -1551,9 +1621,8 @@ export function ComponentMapBody({
 
                    STILL `cols={32}`, NOT RE-TUNED DOWN. 12 or 14 would fit six
                    `md` (4) fields with less left over, but `colourColumns`
-                   above is shared with the DESKTOP table's own widths and
-                   `FIELD_SIZES` two fields up the file, both keyed to the
-                   32-track's numbers ("275 - 285" reasoning etc.) — a second
+                   above is shared with the DESKTOP table's own widths, keyed to
+                   the 32-track's numbers ("275 - 285" reasoning etc.) — a second
                    track here would need those re-derived for no visible gain,
                    since 6 × `md` (4) = 24 of 32 simply leaves the row's own
                    trailing quarter blank rather than misaligning anything.
@@ -1594,6 +1663,7 @@ export function ComponentMapBody({
                 </FieldGrid>
               )}
             />
+              </div>
             </div>
           </div>
         )}
@@ -1629,11 +1699,22 @@ export function ComponentMapBody({
         /* THE ADDRESS, NOT THE GRID'S KEY — `removePanel` resolves
            `component_id ?? panel_uid` through `inScope`. See `gridPanels`. */
         onRemove={(p) => onRemovePanel(p.addr)}
-        /* THE BUTTON MATCHES THE PILLS. `ChildGrid`'s add is
-           `variant="outline" size="sm"`, already `text-xs`; this trims its `px-3`
-           to the entries' `px-2.5` so the rail keeps one left edge from the first
-           part down to the button. */
-        addClassName="px-2.5"
+        /* THE BUTTON MATCHES THE ENTRIES. `ChildGrid`'s add is
+           `variant="outline" size="sm"`, already `text-xs` and already `px-3` —
+           which is what the entries now use too, since `railCompact` (and its
+           `px-2.5`) came off this rail (see the width/padding/tint note above).
+           `px-3` here keeps one left edge from the first part down to the
+           button rather than reintroducing the mismatch the two were tuned
+           together to avoid.
+
+           `w-full` ARRIVED WITH `railAdd` (2026-09-04). Under the grid the
+           button was one control on an empty row and sized to its own text; at
+           the foot of a narrow rail that left it floating in a column it does
+           not fill, reading as a stray pill rather than as the pane's own
+           footer. Filling the width is what makes it the bottom of the list —
+           and the rail's own `p-1.5` is the only inset, so its edges line up
+           with the entries above it. */
+        addClassName="w-full justify-start px-3"
         addLabel="+ Add part"
       />
     </div>
