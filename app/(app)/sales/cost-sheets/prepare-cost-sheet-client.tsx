@@ -352,11 +352,11 @@ export function PrepareCostSheetClient({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-surface-muted">
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Category</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Description</th>
-                        <th className="w-24 px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Qty</th>
-                        <th className="w-28 px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Unit Cost</th>
-                        <th className="w-28 px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Amount</th>
+                        <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">Category</th>
+                        <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">Description</th>
+                        <th className="w-24 px-3 py-2 text-right text-xs font-bold text-muted-foreground">Qty</th>
+                        <th className="w-28 px-3 py-2 text-right text-xs font-bold text-muted-foreground">Unit Cost</th>
+                        <th className="w-28 px-3 py-2 text-right text-xs font-bold text-muted-foreground">Amount</th>
                         <th className="w-10 px-3 py-2" />
                       </tr>
                     </thead>
@@ -400,7 +400,7 @@ export function PrepareCostSheetClient({
                     </tbody>
                     <tfoot>
                       <tr className="border-t border-border bg-surface-muted">
-                        <td colSpan={4} className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                        <td colSpan={4} className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
                           Computed FOB
                         </td>
                         <td className="px-3 py-2 text-right text-xs font-semibold tabular-nums">

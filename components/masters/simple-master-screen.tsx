@@ -805,19 +805,24 @@ export function SimpleMasterScreen<Row>({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-surface-muted">
+              {/* `font-bold`, NOT `font-semibold` (operator request, 2026-09-04:
+                  "globally make the each table title label as bold") — the
+                  same move `DataTable` and `child-grid.tsx`'s `GRID_HEADER_TEXT`
+                  make, so a masters list header reads the same weight as every
+                  other table in the app. */}
               {d.fields.map((f) => (
-                <th key={f.key} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                <th key={f.key} className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                   {f.label}
                   {f.required && <span className="ml-0.5 text-danger">*</span>}
                 </th>
               ))}
               {extraColumns.map((c) => (
-                <th key={c.header} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                <th key={c.header} className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                   {c.header}
                 </th>
               ))}
               {hasStatus && (
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Status</th>
+                <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">Status</th>
               )}
               <th className={cn(ROW_ACTIONS_WIDTH, "px-3 py-2")} />
             </tr>
