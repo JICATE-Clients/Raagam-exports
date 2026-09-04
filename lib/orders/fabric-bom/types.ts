@@ -4,7 +4,7 @@ import { capsTextNullable } from "@/lib/validation/formats";
 /* The route rows' own schema lives beside their narrowing rule, in
    `./processes.ts`, which is client-safe and is imported by the grid as well —
    see that file's header for why the rule is not in SQL. */
-import { fabricBomProcessInput } from "./processes";
+import { fabricBomProcessInput, fabricBomProcessScopeInput } from "./processes";
 import { fabricBomYarnInput } from "./yarn-process";
 
 // ============================================================================
@@ -265,15 +265,15 @@ export interface FabricBomYarn {
 }
 
 /**
- * One process one yarn runs — the child grid (0504 · 0520).
+ * One process one yarn runs — the child grid (0504 · 0520 · 0529).
  *
  * NO `bom_id`: a grandchild, reached only through its yarn, which is 0491's
  * shape for a line's sizes and for its reason.
  *
- * `process_qty` IS WHAT THIS STEP HANDLES — the yarn's whole purchase weight
- * since 0520. It was the weight of the colourways the step treated, until the
- * `For` column stopped naming one. The Budget pulls it as a Yarn Process line,
- * and a step naming no process produces neither a figure nor a line.
+ * `process_qty` IS WHAT THIS STEP HANDLES — the purchase weight of the
+ * colourways `combo` names (0529, restoring 0504's reading after 0520's
+ * "whole yarn" interlude). The Budget pulls it as a Yarn Process line, and a
+ * step naming no process produces neither a figure nor a line.
  */
 export interface FabricBomYarnStage {
   id: string;
@@ -284,10 +284,14 @@ export interface FabricBomYarnStage {
   stage_id: string | null;
   /** A `processes` master row (0227), narrowed by `for_yarn` on the client. */
   process_id: string | null;
-  /** The `For` column — `config_lookups` kind `process_loss_for`, PROCESS WISE
-   *  or COLOR WISE, the same list the fabric route's `Loss for` reads. It named
-   *  a COLOURWAY and divided the weight until 2026-09-03; see 0520. */
+  /** The `For` column's LABEL — `config_lookups` kind `process_loss_for`,
+   *  PROCESS WISE or COLOR WISE, the same list the fabric route's `Loss for`
+   *  reads. COLOR WISE is what the screen keys `combo`'s visibility off; the
+   *  arithmetic reads `combo` alone (0529). */
   loss_for_id: string | null;
+  /** The `For` column's ARITHMETIC — which colourway this step applies to.
+   *  NULL means every one, the ordinary case (0504, restored 0529). */
+  combo: string | null;
   description: string | null;
   loss_pct: number | null;
   process_qty: number | null;
@@ -352,6 +356,10 @@ export interface FabricBom {
   requirements: FabricBomRequirement[];
   dias: FabricBomDia[];
   processes: FabricBomProcess[];
+  /** One row per fabric that has EVER had its route split (0528) — see
+   *  `FabricBomProcessScope`. A fabric absent from this array reads as both
+   *  toggles off, the unified route. */
+  processScopes: FabricBomProcessScope[];
   /** Yarn Process (0493 · 0504) — one row per yarn the BOM's fabrics are made
    *  of, each carrying its treatments and its computed purchase weight. */
   yarns: FabricBomYarn[];
@@ -416,13 +424,19 @@ export interface FabricBomProcess {
   /** The FABRIC this route belongs to — one route per fabric per BOM, however
    *  many lines name it. An `items` row, never a BOM line (0492). */
   item_id: string;
+  /** WHICH GROUP this step belongs to, when the fabric's route is split
+   *  (0528) — both null is the unified route. See `FabricProcessRow`. */
+  combo: string | null;
+  component_id: string | null;
   sno: number;
   /** `config_lookups` kind 'fabric_stage' — GREY, DYED. */
   stage_id: string | null;
   process_id: string | null;
   /** `config_lookups` kind 'process_loss_for' — "Process wise". */
   loss_for_id: string | null;
-  description: string | null;
+  /* NO `description`. It held legacy's [Click]→sub-list text and the client
+     removed the column on 2026-09-04 ("this description column is not
+     needed") — the same shape `rate` left in 0521. */
   loss_pct: number | null;
   /* NO `rate`. It held the fabric-wise processing rate and the client removed
      the column on 2026-09-03 (0521). The route is a quantity document; a price
@@ -431,6 +445,20 @@ export interface FabricBomProcess {
      and is untouched. */
   /** `config_lookups` kind 'fabric_process_type' — deliberately unseeded. */
   type_id: string | null;
+}
+
+/**
+ * One fabric's two split toggles (0528) — legacy's "[Assort Color]" /
+ * "[Components]" on the Fabric Process outer row, read as CONTROLS. See
+ * `processGroupsFor` in `./processes.ts` for how these turn into the groups a
+ * screen renders.
+ */
+export interface FabricBomProcessScope {
+  id: string;
+  bom_id: string;
+  item_id: string;
+  assort_color_wise: boolean;
+  component_wise: boolean;
 }
 
 const nullableText = z.string().optional().nullable();
@@ -740,6 +768,8 @@ export const fabricBomInput = z.object({
    * shape was correct under the constraint it was written for.
    */
   processes: z.array(fabricBomProcessInput).default([]),
+  /** One fabric's two split toggles (0528) — see `FabricBomProcessScope`. */
+  processScopes: z.array(fabricBomProcessScopeInput).default([]),
   /**
    * Yarn Process ▸ one row per yarn the fabrics are made of (0493).
    *

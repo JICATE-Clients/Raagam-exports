@@ -1019,7 +1019,15 @@ export function MasterFullScreen({
           means what it says: the label for a surface that has no other name. */}
       {overlay && !header && (
         <div
-          className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5"
+          /* `bg-primary-soft`, matching the footer band below (client
+             2026-09-04: "can we apply this fro header bar also ... i mean
+             this header same globally use same footer color") — see the note
+             on the footer's background in `raagam-brand-colours` for why the
+             soft tint is the one that stuck. Same token, same reasoning, this
+             is just the OTHER identity band (the `header` prop's sibling
+             below is the one usually on screen; this strip only renders when
+             nothing else names the record). */
+          className="flex items-center justify-between gap-3 border-b border-border bg-primary-soft px-4 py-2.5"
           // Tab order is fields → footer → ✕: the close button stays reachable by
           // keyboard but lands last, out of the typing path. See orderedFocusables.
           data-focus-region="header"
@@ -1032,7 +1040,16 @@ export function MasterFullScreen({
       {/* record header (sticky identity band) — omitted entirely when the host
           route already names the record. See the `header` prop. */}
       {header && (
-        <div className="grid gap-3 border-b border-border bg-surface px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6">
+        <div
+          /* `bg-primary-soft`, SAME TOKEN AS THE FOOTER (client 2026-09-04,
+             screenshot 094248: "apply this fro header bar also ... this
+             header same globally use same footer color"). This is the band
+             the screenshot pointed at — avatar, title, status dot, meta line,
+             the ✕. Same reasoning as the footer's own note: a light tint on
+             an ACTION/IDENTITY band, not a content ground, so it does not
+             reopen the five-times-rejected tinted-surface history. */
+          className="grid gap-3 border-b border-border bg-primary-soft px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6"
+        >
           <div className="flex min-w-0 items-center gap-3">
             {header.avatar ?? (
               <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-primary/10 text-base font-bold text-primary">
@@ -1371,7 +1388,9 @@ export function MasterFullScreen({
            * NO TOP BORDER (client 2026-08-27, screenshot 2513) — the "fine white
            * line" is this rule, and dropping it is what turns a bar back into the
            * bottom of a card. Same surface as the pane above, so the two read as
-           * one sheet with the buttons resting on it.
+           * one sheet with the buttons resting on it. That reasoning survives the
+           * next paragraph unchanged — the footer still needs no border of its
+           * own, because its ground is no longer the same colour as the pane.
            *
            * THE SEPARATION IS NOW SPACE, WHICH IS THE HOUSE ANSWER. `--border-strong`
            * records it in globals.css for the row-divider case — "if it ever looks
@@ -1387,7 +1406,35 @@ export function MasterFullScreen({
            * that appears only while the pane is scrolled — not the border back,
            * which is exactly the bar that was objected to.
            */
-          "bg-surface px-4 py-3",
+          /**
+           * `bg-primary-soft`, NOT `bg-surface` (client 2026-09-04, screenshot
+           * 2700: "this footer bar also have the same white color so the
+           * border of the rail looks floating ... use the brand color the bar
+           * globally").
+           *
+           * A SOLID `bg-primary` WAS TRIED FIRST AND REJECTED, same session
+           * (screenshot 093253 — the rail's own selected pill, a LIGHT blue
+           * fill with blue border and blue text — "i can see some blue in
+           * that ... see this button inside color i told"). That pill's fill
+           * is `--cell-active`/`--primary-soft`-family, not `--primary`
+           * itself, so the ask was always the soft tint, not a solid bar —
+           * which also means Save/Next need no colour inversion: a solid
+           * blue button already reads fine on a 4%-blue ground, the same way
+           * it always read on white.
+           *
+           * THIS IS STILL BRAND ON A SURFACE, so the `raagam-brand-colours`
+           * history applies — five rejections of a tinted ground, most
+           * recently the day before (2026-09-03, "remove that green kind of
+           * bg color from the ui screen"). What makes this one different
+           * (and is why it is called out here rather than silently matching
+           * the pattern that keeps failing): every prior rejection was a
+           * tint on CONTENT — sidebar, page background, a card. This is the
+           * ACTION BAR, and `--primary-soft` is the exact tint already
+           * accepted on a CONTROL (the rail's own selected pill uses the same
+           * family). If a later instruction reverses this, that reversal
+           * governs — the rejections above were not about this band.
+           */
+          "bg-primary-soft px-4 py-3",
           /**
            * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
            * filling its scrollport rather than a separate decision.
@@ -1431,7 +1478,14 @@ export function MasterFullScreen({
             active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
           )}
         >
-          {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
+          {/* PLAIN `text-muted-foreground` AGAIN. The soft 4%-blue ground
+              (`bg-primary-soft`) is close enough to white that the grey tuned
+              for `bg-surface` still reads the same — no inversion needed, only
+              on a SOLID `bg-primary` bar would this go illegible (tried and
+              reverted, see the note on the bar above). */}
+          {footer.status && (
+            <span className="text-xs text-muted-foreground">{footer.status}</span>
+          )}
           <div className="flex-1" />
           {!stepping && footer.extra}
           <Button variant="outline" size="md" onClick={footer.onCancel}>

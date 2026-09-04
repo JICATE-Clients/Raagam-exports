@@ -6,7 +6,7 @@
  * Client screenshot 2587 and the spec of 2026-09-01: a yarn and, beneath it, the
  * steps it runs before knitting — GREY ▸ YARN DYEING ▸ For PURPLE ▸ 3%. The
  * rules and both formulas live in `lib/orders/fabric-bom/yarn-process.ts`;
- * storage is 0504.
+ * storage is 0504 · 0529.
  *
  * ## THE SIBLING OF `fabric-process-grid.tsx`, AND NOT A COPY OF IT
  *
@@ -20,13 +20,15 @@
  *  2. **A different applicability flag** — `for_yarn`, not `for_fabric`.
  *  3. **A derived, un-addable outer row** — see below.
  *
- * `For` USED TO BE THE THIRD AND IS NOT ANY MORE (0520). It named a COLOURWAY
- * here and did arithmetic — a step marked PURPLE grossed up the purple share
- * alone — against the fabric route's `process_loss_for`, which describes how a
- * loss is measured. The client specified this column's values as "Process Wise,
- * Color Wise" on 2026-09-03 and confirmed it knowing that removes the split, so
- * the two columns are now ONE list read twice. They are still not worth merging
- * the components for: what is shared is a lookup kind, not a layout.
+ * `For` NAMES A COLOURWAY AND DOES ARITHMETIC AGAIN (0504, restored 0529 after
+ * 0520 removed it). A step marked PURPLE grosses up the purple share alone. The
+ * fabric route's identically-named `process_loss_for` column is unrelated
+ * arithmetic — it describes how a loss is measured, never what it is measured
+ * against — and this tab's `loss_for_id` cell keeps reading that same shared
+ * list as its LABEL (PROCESS WISE / COLOR WISE), one column along from the new
+ * `Colour` cell that does the dividing. COLOR WISE is what reveals `Colour`; see
+ * `isColorWise` below and `yarn-process.ts`'s file header for why the arithmetic
+ * itself never branches on it.
  *
  * ## THE OUTER ROW IS DERIVED, WHICH IS THE OTHER REAL DIFFERENCE
  *
@@ -48,6 +50,7 @@
  */
 
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -61,12 +64,26 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 
+/**
+ * Does this row's `For` LABEL say "Color Wise"? Purely a UI question — it
+ * decides whether the `Colour` cell is shown, never whether the arithmetic
+ * scopes by it (that reads `combo` alone; see `yarn-process.ts`'s header).
+ *
+ * BOTH SPELLINGS, because this business writes both (AGENTS.md, Near misses) —
+ * a lookup renamed COLOUR WISE must not silently hide the field it names.
+ */
+function isColorWise(lossForId: string | null, lossFor: readonly ConfigLookup[]): boolean {
+  const opt = lossFor.find((l) => l.id === lossForId);
+  return !!opt && /colou?r/i.test(opt.name);
+}
+
 export function YarnProcessGrid({
   rows,
   onChange,
   processes,
   stages,
   lossFor,
+  combos,
   newKey,
   canCreate = false,
   canEdit = false,
@@ -89,9 +106,20 @@ export function YarnProcessGrid({
    * that feeds `FabricProcessGrid`'s `Loss for`. One list behind both `For`
    * columns, so a value the operator adds through "+ Add" on either tab is on
    * both — the alternative was a second lookup kind that would drift the first
-   * time someone extended one of them.
+   * time someone extended one of them. Also what `isColorWise` reads.
    */
   lossFor: ConfigLookup[];
+  /**
+   * The colourways THIS YARN is actually needed in (0504, restored 0529).
+   *
+   * NOT the order's whole combo list, which is the cascading-filter rule
+   * (AGENTS.md) applied to a facet that would otherwise offer answers that
+   * cannot be right: a stage marked For = a colourway this yarn does not appear
+   * in treats nothing, and `stageProblem` would then have to explain a choice
+   * the box should never have offered. The caller derives it from the same
+   * `byCombo` breakdown the weight came out of.
+   */
+  combos: string[];
   /**
    * The SCREEN's key generator, passed in rather than grown here — the argument
    * `FabricProcessGrid` and `StyleProcessGrid` both record: these rows are
@@ -196,21 +224,18 @@ export function YarnProcessGrid({
        * (client 2026-09-03). It is the fabric route's `Loss for` column, one
        * label along, reading the same `process_loss_for` lookup.
        *
-       * ## IT NAMED A COLOURWAY UNTIL 2026-09-03, AND THAT WAS ARITHMETIC
+       * THIS CELL IS A LABEL, NOT ARITHMETIC (0520 · 0529). It used to BE the
+       * colourway and divide the weight; the client replaced its values with two
+       * fixed words on 2026-09-03, which cannot name PURPLE, and confirmed that
+       * knowing it removed the split. 0529 restores the split as its own cell
+       * — `Colour`, next — rather than reversing this one back into double duty:
+       * the client's later instruction about THIS column stands, and what
+       * changed is that the arithmetic gained a place to live beside it.
        *
-       * The cell was a `<Select>` over this yarn's own combos, and a step marked
-       * PURPLE grossed up the purple share alone ("it only applies the dyeing
-       * process to the exact weight percentage of yarn destined for that
-       * specific colour combo" — client, 2026-09-01). Two fixed words cannot
-       * name PURPLE, so choosing them removes that split; the client was shown
-       * exactly that and chose them. The later instruction wins, and this is a
-       * decision to re-open with them rather than a bug to quietly correct —
-       * 0520's header carries the full account.
-       *
-       * A `LookupDialogPicker` AND NOT A `<Select>`, matching the fabric route:
-       * the vocabulary is the operator's to extend, and "+ Add" is how they do
-       * it. That is also what makes the two tabs share one list rather than one
-       * shape.
+       * PICKING COLOR WISE HERE REVEALS `Colour`. Switching away clears it
+       * (`isColorWise` below), so the two cells cannot disagree — a row reading
+       * "Process Wise" with a colourway still attached underneath would gross up
+       * a lot the label denies scoping to.
        */
       header: "For",
       width: "8rem",
@@ -221,11 +246,69 @@ export function YarnProcessGrid({
           compact
           options={lossFor}
           value={r.loss_for_id}
-          onChange={(id) => patch(r.key, { loss_for_id: id || null })}
+          onChange={(id) =>
+            patch(r.key, {
+              loss_for_id: id || null,
+              combo: isColorWise(id || null, lossFor) ? r.combo : "",
+            })
+          }
           canCreate={canCreate && !readOnly}
           canEdit={canEdit && !readOnly}
         />
       ),
+    },
+    {
+      /**
+       * WHICH COLOURWAY THIS TREATMENT IS FOR — and it divides the weight
+       * (0504, restored 0529).
+       *
+       * "It only applies the dyeing process to the exact weight percentage of
+       * yarn destined for that specific colour combo" (client, confirmed as
+       * arithmetic rather than a label, 2026-09-01). So a stage marked PURPLE
+       * grosses up the purple share alone and leaves green at its net weight.
+       *
+       * SHOWN ONLY WHEN `For` IS COLOR WISE. Process Wise treats the whole
+       * yarn — the ordinary case since 0520 — so a colourway box beside it would
+       * offer a choice the arithmetic would ignore, which is worse than not
+       * offering one. A row not yet answering `For` at all shows the dash too:
+       * "empty and explain", not a control the planner cannot yet use.
+       *
+       * BLANK MEANS EVERY COLOURWAY once shown, which is the ordinary case even
+       * under Color Wise — a yarn dyed for the whole order still names no combo.
+       * The option is labelled rather than left as a bare empty row, because ""
+       * and "all" look identical in a `<select>` and only one of them is what
+       * this means.
+       *
+       * A `<Select>` over the yarn's OWN colourways, not a free text box and not
+       * the order's whole list: see the `combos` prop.
+       */
+      header: "Colour",
+      width: "8rem",
+      cell: (r) =>
+        isColorWise(r.loss_for_id, lossFor) ? (
+          <Select
+            compact
+            className="h-8"
+            aria-label="For colourway"
+            value={r.combo}
+            disabled={readOnly}
+            onChange={(e) => patch(r.key, { combo: e.target.value })}
+          >
+            <option value="">All colourways</option>
+            {/* THE HELD VALUE SURVIVES A LIST THAT NO LONGER OFFERS IT — the
+                "Disabled rows" rule. A combo removed from the order after the
+                treatment was recorded would otherwise render as blank, which
+                reads as "applies to everything" and silently widens the loss to
+                every colourway. */}
+            {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        ),
     },
     {
       /* Legacy's greyed "Descriptions" cell, as free text — the same call the
@@ -297,12 +380,12 @@ export function YarnProcessGrid({
          standing on every solid order's yarn with no way to clear it. */
       keepOne={false}
       /* @5xl (1024), AND THE GRID NOW FITS INSIDE IT WHOLE. Every column
-         declares a width since 2026-09-03 — 7 + 12 + 8 + 10 + 4.5 = 41.5rem =
-         664px — and `ChildGrid`'s own chrome is 88px exactly (`#` is `w-10` plus
-         `px-2`, the remove column `w-8`), so the table measures ~752px against a
-         1024px threshold. That margin is the point: the widths can be tuned
-         without anyone having to re-derive whether the grid still renders as a
-         table.
+         declares a width — 7 + 12 + 8 + 8 + 10 + 4.5 = 49.5rem = 792px since
+         `Colour` joined `For` (0529) — and `ChildGrid`'s own chrome is 88px
+         exactly (`#` is `w-10` plus `px-2`, the remove column `w-8`), so the
+         table measures ~880px against a 1024px threshold. That margin is the
+         point: the widths can be tuned without anyone having to re-derive
+         whether the grid still renders as a table.
 
          THE THRESHOLD MATTERS MORE SINCE THIS GRID MOVED INTO A FOLD PANEL: the
          panel costs ~80px of container against the section it used to sit in,

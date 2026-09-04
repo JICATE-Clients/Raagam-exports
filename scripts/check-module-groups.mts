@@ -516,6 +516,13 @@ const REDIRECTED: Record<string, string> = {
   // below was never tested. Found by BREAKING it — the target was pointed at
   // /orders/amendments and the check still said OK.
   "/orders/material-bom-amendment": "/orders/material-bom",
+  // The Amendments sub-module row was removed (request, 2026-09-04: "remove
+  // the amendment child from order module"). `/orders/changes` was that
+  // group's own hub route — never a screen in its own right — and with the
+  // group gone from MODULE_GROUPS there is nothing left for `GroupHub` to
+  // render there. Its three children (Order Amendment, Process Amendment,
+  // Approve Amendment) keep their own routes unchanged, now under `retired`.
+  "/orders/changes": "/orders/retired",
 };
 
 for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {

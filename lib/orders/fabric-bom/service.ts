@@ -106,6 +106,10 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
            `writeLines`. The screen re-associates them by `line_id` while it maps
            the lines onto fresh keys. */
         "processes:order_fabric_bom_processes(*), " +
+        /* THE TWO SPLIT TOGGLES (0528) — a plain top-level child, same shape
+           as `processes` above and for the same reason (a fabric's toggles
+           must persist even with zero route rows). */
+        "processScopes:order_fabric_bom_process_scope(*), " +
         /* THE YARN ROWS AND THEIR TREATMENTS (0493 · 0504). Nested, because a
            stage hangs off a yarn row that exists nowhere else — there is
            nothing to re-associate them by if they are fetched apart from it.
@@ -686,19 +690,21 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
   // select over a MISSING column with an error rather than nulls.
   const { data } = await s
     .from("processes")
-    .select("id, name, inactive, for_fabric")
+    .select("id, name, inactive, for_fabric, is_print")
     .order("name");
   return ((data ?? []) as {
     id: string;
     name: string;
     inactive: boolean | null;
     for_fabric: boolean | null;
+    is_print: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
     name: p.name,
     inactive: p.inactive ?? false,
     for_fabric: p.for_fabric ?? false,
+    is_print: p.is_print ?? false,
   }));
 }
 
@@ -1166,7 +1172,11 @@ export async function getOrderStyleComponents(
   const s = await createClient();
   const { data } = await s
     .from("garment_order_amendment_style_components")
-    .select("style_ref_no, coordinate_id, component_id, fabric_category_id")
+    // `layout_type` (0527) — the Fab Rail's Layout Type declaration, read by
+    // `componentsHiddenForLayout` (lib/orders/fabric-bom/component-map.ts).
+    // An explicit list, not `*`: adding a column here is a one-line edit
+    // forever, the same trade every explicit select in this app makes.
+    .select("style_ref_no, coordinate_id, component_id, fabric_category_id, layout_type")
     .eq("amendment_id", garmentOrderId)
     .order("sno");
 

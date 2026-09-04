@@ -3,7 +3,7 @@
  * Process, the tab that turns a fabric requirement into a YARN PURCHASE.
  *
  * Its output is the largest single quantity in a knitted order and it feeds the
- * Budget directly, so the failure modes here are money rather than pixels. Five
+ * Budget directly, so the failure modes here are money rather than pixels. Six
  * are pinned deliberately, and every one of them is a plausible implementation
  * that looks completely normal on screen.
  *
@@ -44,6 +44,14 @@
  * colours nobody is dyeing. Section 6 pins 918 for the client's own worked
  * example and refutes 927, which is what charging every combo would give.
  *
+ * ## 6. `For` NAMES A COLOURWAY AGAIN (0529)
+ *
+ * 0520 (2026-09-03) replaced the colourway with a fixed PROCESS WISE / COLOR
+ * WISE label and these vectors inverted to match — 927 became the pinned
+ * answer and 918 the refuted one, with a comment explaining why. 0529 restores
+ * the split on a 2026-09-04 business requirements document, so section 6 flips
+ * back: 918 is pinned again and 927 is what these vectors now refute.
+ *
  * Runs under `tsx` for `check-fabric-plan.mts`'s reason: the module imports
  * `@/lib/...` aliases at runtime and Node's ESM resolver reads neither the alias
  * nor the missing extension.
@@ -52,6 +60,7 @@ import {
   comboUplift,
   deriveYarnRows,
   isRefusal,
+  stageProblem,
   stageProcessQty,
   yarnNetByCombo,
   yarnPurchase,
@@ -143,13 +152,13 @@ const gross = (
   refusal: string | null = null,
 ): FabricGross => ({ fabric_id, combo, gross: g, uom_id, refusal });
 
-/* A STEP IS NOW ONLY ITS LOSS. It carried a `combo` until 0520 — the `For`
-   column named a colourway and scoped the arithmetic to it. The client replaced
-   those values with PROCESS WISE / COLOR WISE on 2026-09-03 knowing that removes
-   the scoping, so a step no longer has anything to be matched on. `loss_for_id`
-   is deliberately NOT here: nothing in this engine reads it, and a fixture field
-   no assertion can move is a fixture field that lies about what matters. */
-const stage = (loss_pct: number | null) => ({ loss_pct });
+/* A STEP IS ITS LOSS AND ITS COLOURWAY AGAIN (0529). `loss_for_id` is
+   deliberately NOT here: nothing in this engine reads it — it is the `For`
+   column's LABEL, not its arithmetic — and a fixture field no assertion can
+   move is a fixture field that lies about what matters. `combo` defaults to
+   `null`, "every colourway", so every vector before section 6 is unaffected by
+   its return. */
+const stage = (loss_pct: number | null, combo: string | null = null) => ({ loss_pct, combo });
 
 // ---------------------------------------------------------------------------
 // 1. The rows are derived, de-duplicated and stable
@@ -330,7 +339,7 @@ refute(
   qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), TWO_STAGE, 2)),
   1050,
 );
-check("the uplift factor itself is 1.0506", comboUplift(TWO_STAGE), 1.0506);
+check("the uplift factor itself is 1.0506", comboUplift(TWO_STAGE, ""), 1.0506);
 check(
   "stage ORDER does not change the product — sno orders what is read, not the maths",
   qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), [stage(2), stage(3)], 2)),
@@ -338,24 +347,25 @@ check(
 );
 check(
   "three stages keep compounding",
-  comboUplift([stage(10), stage(10), stage(10)]),
+  comboUplift([stage(10), stage(10), stage(10)], ""),
   1.3310000000000004,
 );
 
 // ---------------------------------------------------------------------------
-// 6. THE NET STILL SPLITS BY COLOURWAY — the LOSS no longer does (0520)
+// 6. `For` NAMES A COLOURWAY AGAIN AND DIVIDES THE LOSS WITH IT (0504,
+//    restored 0529 after 0520's 2026-09-03 interlude removed it)
 //
-// `For` named a colourway until 2026-09-03 and divided the weight with it: a
-// step marked PURPLE grossed up the purple share alone, 618 + 300 = 918, and
-// these vectors asserted that against the client's own worked example. The
-// client then specified the column as "Process Wise, Color Wise" and confirmed
-// it knowing two fixed words cannot name PURPLE. So the split is gone and 927 —
-// which these vectors used to REFUTE by name — is now the right answer.
+// A step marked For = PURPLE grosses up the purple share alone: 618 + 300 =
+// 918. That is the client's own worked example (2026-09-01), the same figure
+// these vectors pinned before 0520 and refute again now that 0520 is
+// reversed. A step naming NO colourway — Process Wise, or `For` left blank —
+// still treats every one: 618 + 309 = 927, exactly 0520's answer, and it stays
+// reachable because it is what "no combo" has always meant on this column.
 //
-// THE HALF THAT SURVIVES IS ASSERTED HARDER FOR IT. The NET is still weighed per
-// colourway, because that comes off the fabric's requirement and never off this
-// column, and each lot is still rounded up on its own. Losing the loss scoping
-// is not licence to sum the colourways first.
+// THE NET SPLITS BY COLOURWAY REGARDLESS, and this was never in question: it
+// comes off the fabric's requirement, not off `For`, and each lot is still
+// rounded up on its own — losing or gaining the loss scoping was never licence
+// to sum the colourways first.
 // ---------------------------------------------------------------------------
 
 const TWO_COMBOS = [gross("pique", 600, "PURPLE"), gross("pique", 300, "GREEN")];
@@ -372,25 +382,30 @@ check(
   ],
 );
 check(
-  "a 3% step now treats every colourway: 618 + 309 = 927",
+  "a step marked For = PURPLE grosses up the purple share alone: 618 + 300 = 918",
+  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3, "PURPLE")], 2)),
+  918,
+);
+refute(
+  "…never 927, which is what treating every colourway (0520's answer) would give",
+  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3, "PURPLE")], 2)),
+  927,
+);
+check(
+  "…and the breakdown grosses only the named lot",
+  combosOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3, "PURPLE")], 2)),
+  [
+    ["GREEN", 300],
+    ["PURPLE", 618],
+  ],
+);
+check(
+  "a step naming NO colourway still treats every one: 618 + 309 = 927",
   qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
   927,
 );
 refute(
-  "…never 918, which is the pre-0520 answer that grossed purple alone",
-  qtyOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
-  918,
-);
-check(
-  "…and the breakdown still names each lot separately",
-  combosOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
-  [
-    ["GREEN", 309],
-    ["PURPLE", 618],
-  ],
-);
-refute(
-  "…so the colourways are never summed into one lot before the uplift",
+  "…so an unscoped step is never mistaken for one scoped to a single lot",
   combosOf(yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2)),
   [["", 927]],
 );
@@ -404,14 +419,30 @@ check(
 // 7. What each step HANDLES — the Budget's Yarn Process line
 // ---------------------------------------------------------------------------
 
-const SPLIT = yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2);
-const BY_COMBO = isRefusal(SPLIT) ? [] : SPLIT.byCombo;
+const PURPLE_SPLIT = yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3, "PURPLE")], 2);
+const PURPLE_BY_COMBO = isRefusal(PURPLE_SPLIT) ? [] : PURPLE_SPLIT.byCombo;
+const UNSCOPED_SPLIT = yarnPurchase(COTTON, TWO_COMBOS, map(PIQUE), [stage(3)], 2);
+const UNSCOPED_BY_COMBO = isRefusal(UNSCOPED_SPLIT) ? [] : UNSCOPED_SPLIT.byCombo;
 
-check("a step handles the yarn's whole purchase", stageProcessQty(BY_COMBO), 927);
+check(
+  "a step marked For = PURPLE handles only the purple lot",
+  stageProcessQty("PURPLE", PURPLE_BY_COMBO),
+  618,
+);
+check(
+  "…and a step naming no colourway handles the whole purchase",
+  stageProcessQty(null, UNSCOPED_BY_COMBO),
+  927,
+);
+check(
+  "…and 'this BOM needs no SCARLET' when a stage names one the requirement lacks",
+  stageProblem("SCARLET", PURPLE_BY_COMBO),
+  "This BOM needs no SCARLET of this yarn — check the For column against the order's colourways",
+);
 refute(
   "…and is summed from the rounded-up lots, not re-derived from the total",
-  stageProcessQty(BY_COMBO),
-  BY_COMBO.reduce((a, c) => a + c.net, 0),
+  stageProcessQty("PURPLE", PURPLE_BY_COMBO),
+  PURPLE_BY_COMBO.reduce((a, c) => a + c.net, 0),
 );
 
 // ---------------------------------------------------------------------------

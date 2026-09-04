@@ -124,6 +124,25 @@ export function rollUp(values: readonly string[]): string {
 }
 
 /**
+ * Open Width or Tubular — the "Fab Rail" Layout Type (0527), the same two
+ * words `order_fabric_bom_manual_entries.width_form` already uses. NOT
+ * `FabricForm` above: that is `fabric_form` ('open'/'tubular'), the
+ * Components tab's own colourway-row field, spelled differently on purpose —
+ * see 0527's header. Comparing a Manual entry's `width_form` against a
+ * declaration's `layout_type` needs no translation because both use this
+ * spelling.
+ */
+export const LAYOUT_TYPE_OPTIONS = [
+  { value: "open_width", label: "Open Width" },
+  { value: "tubular", label: "Tubular" },
+] as const;
+
+export type LayoutType = (typeof LAYOUT_TYPE_OPTIONS)[number]["value"];
+
+export const layoutTypeLabel = (v: string | null | undefined): string =>
+  LAYOUT_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "";
+
+/**
  * One row of the order's own panel-to-fabric declaration
  * (`garment_order_amendment_style_components`, 0457).
  *
@@ -136,6 +155,11 @@ export type StyleComponentDecl = {
   coordinate_id: string | null;
   component_id: string | null;
   fabric_category_id: string | null;
+  /** Which Layout Type this part is normally cut in (0527), or null — see
+   *  `componentsHiddenForLayout` (rule 4). Absent from `PanelOption`: it
+   *  narrows the list, it is not part of a panel's identity, so it travels
+   *  no further than rule 4. */
+  layout_type?: string | null;
 };
 
 /** A BOM line, as far as these rules need to see it. */
@@ -321,6 +345,66 @@ export function availablePanels(input: {
   }
 
   return out;
+}
+
+/**
+ * RULE 4 — the component ids one Layout Type provably EXCLUDES, for Manual's
+ * shape of picker (the whole `components` master, minus what's taken — see
+ * `takenComponentIds` in ./manual.ts, this rule's sibling for the same
+ * reason rule 3 and `takenComponentIds` are siblings).
+ *
+ * "The dropdown list of components must be filtered based on the Layout Type
+ * … an Open Width row must not offer a component only ever cut Tubular."
+ * Reads the SAME per-style declarations rules 2/2b/3 read
+ * (`garment_order_amendment_style_components`), not a global property of the
+ * `components` master — a style could conceivably declare a part differently
+ * from another style, the same reason "Rib means Neck" is data and not code.
+ *
+ * A HIDE-LIST, NOT AN ALLOW-LIST, and that is what keeps this permissive by
+ * construction (0527's migration header). Manual's picker offers every
+ * master component regardless of this style's declarations today — this
+ * rule only ever REMOVES from that list, and only a component this style has
+ * declared AT LEAST ONCE, where EVERY declaration of it states the OTHER
+ * Layout Type. A component with no declaration, or with even one declaration
+ * carrying a null `layout_type`, is never hidden on a fact the style hasn't
+ * stated — the same "restrict only in case X leaks through every state that
+ * is not X" shape the nominated-vendor and cascading-filter rules already
+ * state. `layoutType: null` (nothing chosen on the row yet) hides nothing.
+ *
+ * THE CALLER STILL OWNS HELD SURVIVAL. Unlike `availablePanels`, this
+ * function does not know which component the caller's row already has
+ * ticked — Manual's entries are a multi-select, not a single held value, so
+ * "held" is a set the caller already has as `entry.component_ids`. Subtract
+ * this hide-list AFTER keeping every already-ticked id, or an entry loaded
+ * from a style whose declaration later narrowed would blank a saved answer.
+ */
+export function componentsHiddenForLayout(
+  decls: readonly StyleComponentDecl[],
+  styleRefNo: string | null,
+  layoutType: LayoutType | null,
+): Set<string> {
+  const hidden = new Set<string>();
+  if (!layoutType) return hidden;
+  const want = styleKey(styleRefNo);
+  const byComponent = new Map<string, (string | null | undefined)[]>();
+  for (const d of decls) {
+    if (!d.component_id) continue;
+    if (styleKey(d.style_ref_no) !== want) continue;
+    const list = byComponent.get(d.component_id) ?? [];
+    list.push(d.layout_type);
+    byComponent.set(d.component_id, list);
+  }
+  for (const [id, types] of byComponent) {
+    /* EVERY declaration must be STATED and DISAGREE, or the component stays.
+       A component declared under two coordinates — one saying `tubular`, one
+       saying nothing — has a null among `types`, so `.every` fails and it is
+       NOT hidden: exactly one undeclared coordinate is enough to make this
+       style's answer "not yet said" rather than "no". Only when every
+       declaration of this component names the OTHER layout does the style
+       provably exclude it. */
+    if (types.length > 0 && types.every((t) => t && t !== layoutType)) hidden.add(id);
+  }
+  return hidden;
 }
 
 /**

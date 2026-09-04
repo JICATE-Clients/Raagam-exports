@@ -41,6 +41,17 @@
  * The rows are the screen's state, patched through `onChange` as they are
  * typed, like every other child grid in this module. The BOM's own footer Save
  * is what persists them.
+ *
+ * ## ONE GRID PER GROUP SINCE 2026-09-04 (0528)
+ *
+ * A fabric's route may now be split "Assort Color Wise" and/or
+ * "Component Wise" — legacy's `[Assort Color]` / `[Components]` on the outer
+ * row, read as CONTROLS rather than a second copy of Fabric Lines. This file
+ * still renders exactly ONE route; the caller (`ProcessFoldList`'s panel in
+ * `fabric-bom-screen.tsx`) is what now renders one instance of it per group
+ * `processGroupsFor` returns, instead of always one. `combo` / `componentId`
+ * are what stamp a group's identity onto every row this grid adds — see
+ * `lib/orders/fabric-bom/processes.ts` for the grouping rule itself.
  */
 
 import { Input } from "@/components/ui/input";
@@ -52,6 +63,7 @@ import {
   MAX_ROUTE_STAGES,
   blankFabricProcess,
   fabricProcessRowStarted,
+  printBlocked,
   processesForFabric,
   type FabricProcessLookups,
   type FabricProcessOption,
@@ -60,18 +72,26 @@ import {
 
 export function FabricProcessGrid({
   itemId,
+  combo = null,
+  componentId = null,
   rows,
   onChange,
   processes,
   lookups,
   newKey,
+  printDeclared,
   canCreate = false,
   canEdit = false,
   readOnly = false,
 }: {
   /** The fabric these steps belong to — stamped onto every row added. */
   itemId: string;
-  /** THIS fabric's steps only. The screen filters; this grid never does. */
+  /** WHICH GROUP this grid is one fabric's route split into (0528) — both
+   *  null is the unified route, the caller's own `processGroupsFor` decides.
+   *  Stamped onto every row this grid adds, the same way `itemId` already is. */
+  combo?: string | null;
+  componentId?: string | null;
+  /** THIS group's steps only. The screen filters; this grid never does. */
   rows: FabricProcessRow[];
   onChange: (next: FabricProcessRow[]) => void;
   /** The whole master list, unfiltered — the `for_fabric` narrowing is
@@ -89,6 +109,9 @@ export function FabricProcessGrid({
    * `StyleProcessGrid`.
    */
   newKey: () => string;
+  /** Has the order declared an AOP / Roll form print? (0528) — withheld from
+   *  "Print" processes in the Process picker until it is. */
+  printDeclared: boolean;
   canCreate?: boolean;
   canEdit?: boolean;
   readOnly?: boolean;
@@ -171,20 +194,35 @@ export function FabricProcessGrid({
       width: "12rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
-        <RecordPicker
-          label=""
-          compact
-          items={processesForFabric(processes, { currentValue: r.process_id })}
-          value={r.process_id}
-          onChange={(id) => patch(r.key, { process_id: id })}
-          disabled={readOnly}
-          required={fabricProcessRowStarted(r)}
-          /* Empty-and-explain. An empty list here means the Process master has
-             nothing flagged "Fabric", which is fixed on a DIFFERENT screen — a
-             bare "— Select —" over nothing reads as a broken dropdown and
-             teaches the operator nothing (AGENTS.md, nominated vendors). */
-          emptyHint="No process is flagged for Fabric — tick it on Master Data ▸ Materials ▸ Processes"
-        />
+        <div className="min-w-0">
+          <RecordPicker
+            label=""
+            compact
+            items={processesForFabric(processes, { currentValue: r.process_id, printDeclared })}
+            value={r.process_id}
+            onChange={(id) => patch(r.key, { process_id: id })}
+            disabled={readOnly}
+            required={fabricProcessRowStarted(r)}
+            /* Empty-and-explain. An empty list here means the Process master has
+               nothing flagged "Fabric", which is fixed on a DIFFERENT screen — a
+               bare "— Select —" over nothing reads as a broken dropdown and
+               teaches the operator nothing (AGENTS.md, nominated vendors). */
+            emptyHint="No process is flagged for Fabric — tick it on Master Data ▸ Materials ▸ Processes"
+          />
+          {/* 0528 — "block the dyer/planner from selecting Print … Print
+              details are not available for this style". `printDeclared`
+              withholds every Print-flagged process from the list ABOVE, so
+              this only fires on a row that already holds one from before the
+              print was removed (or from before this gate existed) — the
+              same "held value survives, tagged" idiom `printBlocked` shares
+              with every disabled-row rule in this app. */}
+          {printBlocked(r, processes, printDeclared) && (
+            <div className="mt-0.5 text-xs text-warning">
+              Print details are not available — add a Roll form print on
+              Color/Print Details first.
+            </div>
+          )}
+        </div>
       ),
     },
     {
@@ -203,26 +241,6 @@ export function FabricProcessGrid({
           onChange={(id) => patch(r.key, { loss_for_id: id || null })}
           canCreate={canCreate && !readOnly}
           canEdit={canEdit && !readOnly}
-        />
-      ),
-    },
-    {
-      /* Legacy's [Click]-into-a-sub-list, as free text — the same call the
-         Garment Order's Style ▸ Process grid made on the same evidence. Not
-         `required`: a step with no note is a complete answer. */
-      /* LEGACY'S OWN WORD, PLURAL (client 2026-09-03, who enumerated this
-         tab's columns and wrote "Descriptions"). Same call `Dia / Size / Width`
-         makes on the Fabric BOM section — a legacy header is copied, not
-         improved, so an operator reading the two screens side by side is
-         matching columns rather than translating them. */
-      header: "Descriptions",
-      width: "10rem",
-      cell: (r) => (
-        <Input
-          value={r.description}
-          disabled={readOnly}
-          className="h-8"
-          onChange={(e) => patch(r.key, { description: e.target.value })}
         />
       ),
     },
@@ -323,11 +341,17 @@ export function FabricProcessGrid({
          leave a blank step standing on every such fabric with no way to clear
          it — and nothing on this screen requires a route. */
       keepOne={false}
-      /* @5xl (1024), AND THE WIDTHS WERE CUT TO EARN IT (client 2026-09-03:
-         "check the field size — I need compacted size and [the] right mapping").
-         Stage 8→7, Loss for 9→7.5, Descriptions 12→10, Loss % 5→4.5, Rate 6→5,
-         Type 8→7: ~656px declared plus ~170 of `#`/remove/cell chrome, so the
-         flexible Process column still has ~200px at 1024.
+      /* @5xl (1024). Declared widths (Stage 7 + Process 12 + Loss for 7.5 +
+         Loss % 4.5 + Type 7 = 38rem = 608px) plus ~170px of `#`/remove/cell
+         chrome leaves the flexible Process column comfortable room at 1024 —
+         MORE than before Descriptions (10rem) went (0528, "this description
+         column is not needed"), so the threshold this comment used to defend
+         is no longer close to the edge. Left at `5xl` rather than lowered:
+         nothing asked for the route to switch into stacked-card mode any
+         sooner, and this grid now also renders once PER GROUP when a fabric's
+         route is split — dropping the threshold would flip a two-colourway
+         fabric between table and card mode depending on how many groups fit
+         beside it, which is a worse inconsistency than leaving headroom.
 
          THE THRESHOLD IS NOT COSMETIC HERE — IT DECIDES WHETHER THIS IS A TABLE.
          Below it `ChildGrid` stacks into one labelled field per column, which on
@@ -366,7 +390,12 @@ export function FabricProcessGrid({
          the NEXT one. Silently dropping a fifth stage because a rule changed is
          data loss dressed up as validation. */
       hideAdd={readOnly || rows.length >= MAX_ROUTE_STAGES}
-      onAdd={() => onChange([...rows, blankFabricProcess(newKey(), itemId)])}
+      onAdd={() =>
+        onChange([
+          ...rows,
+          blankFabricProcess(newKey(), itemId, { combo, component_id: componentId }),
+        ])
+      }
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
       addLabel="+ Add process"
     />
