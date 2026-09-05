@@ -6,6 +6,8 @@ import { listConfigLookups } from "@/lib/masters/extras-service";
 import { listPaymentTerms } from "@/lib/masters/payment-term-service";
 import { listCategories } from "@/lib/masters/category-service";
 import type { Category } from "@/lib/masters/category-types";
+import { listLevies } from "@/lib/masters/levy-service";
+import type { Levy } from "@/lib/masters/levy-types";
 import { paymentTermsAsLookups } from "@/lib/masters/lookup-compat";
 import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
@@ -861,17 +863,27 @@ export type AmendmentFormData = {
    * Combos ▸ Structure Details (0408 · 0409) — the four lists that overlay picks
    * from, and every one of them is a MASTER rather than a lookup kind.
    *
-   * `categories` carries `fabric_structure_id`. It USED to be load-bearing here
-   * — the screen derived the knit family from the picked Structure and
-   * `structureProblems` made GSM compulsory only for a circular knit — and that
-   * carve-out was withdrawn on 2026-09-01 ("gsm also need required for all
-   * fabric type"). This overlay now derives no family at all, so the column is
-   * carried for the Category and Material masters and `lib/orders/styles/rules.ts`
-   * rather than for anything on this screen. Kept in the select because
-   * `Category` is one shared row type; dropping it here would narrow a type
-   * three other consumers widen again.
+   * `categories` carries `fabric_structure_id`. IS load-bearing here — the
+   * screen derives the knit family from the picked Structure (`familyCodeOf`)
+   * and `structureProblems` makes GSM compulsory only for a circular knit.
+   * That carve-out was withdrawn on 2026-09-01 ("gsm also need required for
+   * all fabric type") and reinstated on 2026-09-05 when the client asked for
+   * it back, so this overlay is a reader of the column again — alongside the
+   * Category and Material masters and `lib/orders/styles/rules.ts`, which
+   * never stopped reading it. Kept in the select regardless of which rule is
+   * live: `Category` is one shared row type, and dropping it here would
+   * narrow a type three other consumers widen again.
    */
   categories: Category[];
+  /**
+   * Only here to reach `CategoryQuickCreateSheet` (2026-09-05). `CategoryPicker`
+   * switches its "+ Add" from the name-only inline form to the full class-aware
+   * sheet ONLY when handed both `levies` and `fabricStructures` (`useFullQc` in
+   * lookup-picker.tsx) — the same wiring `getStyleFormData` already carries for
+   * the Style master's own Style Category cell. Omitting this silently
+   * downgrades the control to a Name box with no error anywhere.
+   */
+  levies: Levy[];
   /**
    * THE FABRICS behind a structure. No longer an option list of its own (0434):
    * nothing picks a fabric on this screen any more. It is the DERIVATION'S
@@ -1358,6 +1370,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     locations,
     consignees,
     categories,
+    levies,
     fabrics,
     compositions,
     samples,
@@ -1378,6 +1391,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getLocationRows(),
     getConsigneeRows(),
     listCategories(),
+    listLevies(),
     getFabricRows(),
     listCompositionsForPicker(),
     getApprovedSampleRows(),
@@ -1423,6 +1437,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     /* NOT FETCHED (2026-08-31) — zero references anywhere in the repo. */
     ports: [],
     categories,
+    levies,
     fabrics,
     compositions,
     samples,

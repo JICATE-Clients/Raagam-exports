@@ -104,19 +104,19 @@ export function gsmRange(
  * which is a thing that list allows. A name match would compile and run, and
  * silently answer `false` for every circular knit in the database.
  *
- * ## IT NO LONGER DECIDES ANYTHING, AND IS KEPT ON PURPOSE
+ * ## REINSTATED 2026-09-05 — GSM IS CONDITIONAL AGAIN
  *
  * Its one caller was `structureRequiredCells`, gating GSM on the knit family
  * until the client withdrew that carve-out on 2026-09-01 ("gsm also need
- * required for all fabric type"). Nothing calls it today. It survives because
- * three other files — the Structure lookups memo and the `code`-matching notes
- * in `mba-master-screen.tsx` and `process-loss.ts` — cite it BY NAME as this
- * repo's worked example of matching a lookup on its code rather than its label,
- * and deleting it would leave those pointing at nothing.
+ * required for all fabric type"). It went uncalled for four days and survived
+ * only as a citation target for three other files' `code`-matching notes
+ * (the Structure lookups memo, `mba-master-screen.tsx`, `process-loss.ts`).
  *
- * **So do not read its existence as evidence that GSM is still conditional.**
- * If a future rule needs the knit family, this is the right predicate to call;
- * if nothing ever does, it is three lines and a citation target.
+ * The client then asked for the original 2026-08-10 case rule back —
+ * "circular knit type fabric type only gsm … flat and woven fabric gsm field
+ * are optional" — which is the same statement this function always made.
+ * **A later instruction wins**, so `structureRequiredCells` calls this again;
+ * see that function for the reinstated wiring.
  */
 export function isCircularKnit(familyCode: string | null | undefined): boolean {
   return (familyCode ?? "").trim().toLowerCase() === "circular";
@@ -173,31 +173,29 @@ export type StructureRequiredCells = {
  * judgement belongs to the caller, and `structureProblems` below is where it is
  * made.
  *
- * ## GSM IS UNCONDITIONAL NOW, AND THAT WITHDRAWS THE 2026-08-10 RULE
+ * ## GSM IS CONDITIONAL AGAIN — THE 2026-08-10 RULE, REINSTATED 2026-09-05
  *
- * This function shipped earlier the same day with `gsm: isCircularKnit(family)`,
- * arguing that "Circular Knit → GSM compulsory; Woven or Flat Knit → optional"
- * (client 2026-08-10) was the narrower and older statement and so beat a list
- * read off a screenshot. The client was shown that reading and answered it
- * directly — **"gsm also need required for all fabric type"** — so the 08-10
- * carve-out is withdrawn, not overlooked. A later instruction wins; restoring
- * the case rule needs a new client decision, not a tidy-up.
+ * This function briefly went unconditional: the 08-10 rule
+ * ("Circular Knit → GSM compulsory; Woven or Flat Knit → optional") was
+ * withdrawn on 2026-09-01 ("gsm also need required for all fabric type") and
+ * every fabric was made to require GSM. The client then asked for the case
+ * rule back, in the same words as 08-10 — Circular Knit alone carries GSM;
+ * Woven and Flat Knit leave it optional. **A later instruction wins**, so the
+ * 09-01 change is what is withdrawn now, not this one.
  *
- * THE PARAMETER WENT WITH IT. The knit family was this function's only input and
- * GSM was the family's only reader on this screen, so keeping `familyCode` would
- * have left an argument nobody reads — and `familyCodeOf` in the screen
- * computing a value for nobody, and a doc comment in service.ts saying
- * `categories.fabric_structure_id` is selected so "structureProblems decides
- * that GSM is compulsory". Three statements describing a rule that no longer
- * exists is precisely the drift this whole function was extracted to prevent.
- * (The COLUMN is untouched and is not dead: the Category master, the Material
- * master and `lib/orders/styles/rules.ts` all still read it.)
+ * THE PARAMETER CAME BACK WITH IT. `familyCode` is the knit family
+ * (`fabric_structure` lookup `code` — "circular" / "flat_knit" / "woven") the
+ * screen's `familyCodeOf` resolves through the picked Structure's category
+ * (`categories.fabric_structure_id`, 0409). Composition, Tolerance, Fabric
+ * Type and Colour stay unconditional — only GSM was ever the case rule.
  */
-export function structureRequiredCells(): StructureRequiredCells {
+export function structureRequiredCells(
+  familyCode?: string | null,
+): StructureRequiredCells {
   return {
     structure: true,
     composition: true,
-    gsm: true,
+    gsm: isCircularKnit(familyCode),
     gsm_tolerance: true,
     item_sub_type: true,
   };
@@ -212,35 +210,37 @@ export function structureRequiredCells(): StructureRequiredCells {
  * `*` is a property of the column and must not flicker, while a complaint is a
  * property of the row and must stand down while the row is still being typed.
  *
- * IT USED TO CARRY THE KNIT FAMILY, and the paragraph here used to explain why
- * GSM could not be a `required` prop or a SQL CHECK: the row stores a category
+ * IT CARRIES THE KNIT FAMILY AGAIN (2026-09-05) — the row stores a category
  * uuid and neither Zod nor Postgres can see through it to the family without a
- * join (0397's header). **That argument retired with the rule on 2026-09-01** —
- * all five cells are now unconditional, so requiredness is visible to the cell,
- * and the parameter went. What is still true is the half about SQL: a CHECK
- * would make the ORDER the thing that cannot be saved rather than the field
- * that cannot be left, which is not what a mandatory field means here.
+ * join (0397's header), so the caller resolves `familyCode` and hands it in.
+ * What is still true from the 09-01 rewrite: a SQL CHECK would make the ORDER
+ * the thing that cannot be saved rather than the field that cannot be left,
+ * which is not what a mandatory field means here — so this stays screen-side.
  *
  * A STRUCTURE THAT NAMES NO CATEGORY IS NOT AN ERROR HERE. It is a row the
  * operator is still filling in, and the blank Structure cell is what says so —
  * reporting a missing GSM for a row that has not chosen a fabric yet would
  * scold them for the wrong field.
  */
-export function structureProblems(row: ComboStructureLike): string[] {
+export function structureProblems(
+  row: ComboStructureLike,
+  familyCode?: string | null,
+): string[] {
   const problems: string[] = [];
   if (!row.structure_id) return problems;
-  const need = structureRequiredCells();
-  /* "GSM is required", NOT "…for a circular-knit structure" — the message named
-     the case rule that was withdrawn on 2026-09-01, and a sentence naming a
-     condition that no longer applies would send an operator looking for a knit
-     family to change instead of a number to type. */
+  const need = structureRequiredCells(familyCode);
+  /* NAMES THE CASE RULE — unlike the unconditional 09-01 wording, this message
+     fires only on a Circular Knit fabric, so naming the family tells the
+     operator why THIS fabric owes it while a Woven one beside it does not. */
   if (need.gsm && !row.gsm && row.gsm !== 0) {
-    problems.push("GSM is required");
+    problems.push("GSM is required for Circular Knit");
   }
   /*
    * COMPOSITION · TOLERANCE · FABRIC TYPE — UNCONDITIONALLY REQUIRED once the
-   * row names a structure (client 2026-08-31), and GSM joined them on
-   * 2026-09-01 ("gsm also need required for all fabric type").
+   * row names a structure (client 2026-08-31). GSM joined them on 2026-09-01
+   * ("gsm also need required for all fabric type") and left again on
+   * 2026-09-05 when the case rule came back — these three were never part of
+   * that carve-out either time and stay unconditional throughout.
    *
    * ## THEY DID BECOME `required` PROPS — DERIVED, NOT RESTATED
    *
