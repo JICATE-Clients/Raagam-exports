@@ -57,7 +57,6 @@
  */
 import {
   availablePanels,
-  componentsHiddenForLayout,
   declaredPanelsFor,
   fabricFormLabel,
   fabricGroupKey,
@@ -154,16 +153,6 @@ const line = (
   structure_id: structure,
   component_id: component,
 });
-
-/** A style declaration carrying a stated Layout Type (0527) — `decl()` above
- *  never sets one, since rules 2/2b/3 do not read it. */
-const declL = (
-  style: string,
-  coordinate: string | null,
-  component: string,
-  category: string,
-  layout: string | null,
-): StyleComponentDecl => ({ ...decl(style, coordinate, component, category), layout_type: layout });
 
 // ---------------------------------------------------------------------------
 // 2. RULE 2 — the list is filtered by the fabric's structure.
@@ -554,96 +543,29 @@ check("10d an unanswered form has no label", fabricFormLabel(null), "");
 check("10e an unknown value has no label", fabricFormLabel("circular"), "");
 
 // ---------------------------------------------------------------------------
-// 11. RULE 4 — the Layout Type filter (0527, "Fab Rail"), Manual's shape.
+// 11. Open Width / Tubular — the "Fab Rail" Layout Type vocabulary (0527).
 //
-// `componentsHiddenForLayout` is a HIDE-list over the whole `components`
-// master, not an allow-list built from `declaredPanelsFor` — Manual's picker
-// offers every master component today regardless of style declarations, and
-// this rule may only ever REMOVE from that, never add a restriction the
-// style hasn't earned. Proven wrong first: an allow-list implementation
-// passes 11a-11c and fails 11d (an undeclared component would vanish).
+// RULE 4 (`componentsHiddenForLayout`, the picker filter this vocabulary once
+// drove) was retired 2026-09-05 along with the per-style Layout Type
+// declaration it read — Order Info ▸ Style(s) ▸ Components dropped the field
+// by client instruction. Its vectors went with it, the same way
+// `pieceCoordinateId`'s did in `check-style-rules.mts` when ITS feature was
+// withdrawn: a green check against a function nothing calls asserts nothing.
+// The vocabulary itself (`LAYOUT_TYPE_OPTIONS`/`layoutTypeLabel`) is still
+// live — `component-map-sheet.tsx` (0530) reuses it for its own, separate
+// `layout_type` column — so those vectors stay.
 // ---------------------------------------------------------------------------
-check(
-  "11a no Layout Type chosen hides nothing",
-  [...componentsHiddenForLayout(TEE_DECLS, TEE, null)],
-  [],
-);
-
-const LAYOUT_DECLS: StyleComponentDecl[] = [
-  declL(TEE, PIECES, FRONT, JERSEY, "open_width"),
-  declL(TEE, PIECES, BACK, JERSEY, "open_width"),
-  declL(TEE, PIECES, NECK, RIB, "tubular"),
-  // SLEEVE carries no declaration at all.
-];
-
-check(
-  "11b a component declared ONLY tubular is hidden under open_width",
-  componentsHiddenForLayout(LAYOUT_DECLS, TEE, "open_width").has(NECK),
-  true,
-);
-check(
-  "11c that same component is offered under tubular",
-  componentsHiddenForLayout(LAYOUT_DECLS, TEE, "tubular").has(NECK),
-  false,
-);
-check(
-  "11d an UNDECLARED component (Sleeve) is never hidden, either way",
-  [
-    componentsHiddenForLayout(LAYOUT_DECLS, TEE, "open_width").has(SLEEVE),
-    componentsHiddenForLayout(LAYOUT_DECLS, TEE, "tubular").has(SLEEVE),
-  ],
-  [false, false],
-);
-check(
-  "11e a declared-but-matching component is never hidden",
-  componentsHiddenForLayout(LAYOUT_DECLS, TEE, "open_width").has(FRONT),
-  false,
-);
-
-/* ONE UNSTATED DECLARATION AMONG SEVERAL IS ENOUGH TO KEEP IT — a component
-   named under two coordinates, one saying `tubular` and one saying nothing,
-   is a style that has not finished answering, not a style that has excluded
-   the open_width row. The weaker implementation (hide if ANY stated
-   declaration disagrees) fails this: it would hide CUFF here. */
-const MIXED_DECLS: StyleComponentDecl[] = [
-  declL(POLO, PIECES, CUFF, RIB, "tubular"),
-  declL(POLO, TOP, CUFF, RIB, null),
-];
-check(
-  "11f one null declaration among several keeps the component visible",
-  componentsHiddenForLayout(MIXED_DECLS, POLO, "open_width").has(CUFF),
-  false,
-);
-
-/* A component whose every declaration agrees with the chosen layout is kept,
-   even declared twice (two coordinates, same answer). */
-const AGREEING_DECLS: StyleComponentDecl[] = [
-  declL(POLO, PIECES, CUFF, RIB, "open_width"),
-  declL(POLO, TOP, CUFF, RIB, "open_width"),
-];
-check(
-  "11g a component declared twice, both agreeing, is not hidden",
-  componentsHiddenForLayout(AGREEING_DECLS, POLO, "open_width").has(CUFF),
-  false,
-);
-
-check(
-  "11h scoped to the style — a different style's declarations do not hide it here",
-  componentsHiddenForLayout(LAYOUT_DECLS, POLO, "open_width").size,
-  0,
-);
-
-check("11i exactly two Layout Types", LAYOUT_TYPE_OPTIONS.map((o) => o.value), [
+check("11a exactly two Layout Types", LAYOUT_TYPE_OPTIONS.map((o) => o.value), [
   "open_width",
   "tubular",
 ]);
-check("11j labels are the spec's own words", LAYOUT_TYPE_OPTIONS.map((o) => o.label), [
+check("11b labels are the spec's own words", LAYOUT_TYPE_OPTIONS.map((o) => o.label), [
   "Open Width",
   "Tubular",
 ]);
-check("11k the label resolves", layoutTypeLabel("open_width"), "Open Width");
-check("11l an unanswered Layout Type has no label", layoutTypeLabel(null), "");
-check("11m an unknown value has no label", layoutTypeLabel("open"), "");
+check("11c the label resolves", layoutTypeLabel("open_width"), "Open Width");
+check("11d an unanswered Layout Type has no label", layoutTypeLabel(null), "");
+check("11e an unknown value has no label", layoutTypeLabel("open"), "");
 
 // ---------------------------------------------------------------------------
 console.log(failed === 0 ? "\nall vectors pass" : `\n${failed} vector(s) FAILED`);

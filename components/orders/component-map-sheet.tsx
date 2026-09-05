@@ -159,17 +159,20 @@ import {
   /* `LAYOUT_TYPE_OPTIONS` LEFT WITH THE COLUMN (2026-09-04) — it fed that
      Select's `<option>` list and had no second reader here. It is still
      exported and still the one vocabulary, so restoring the column restores
-     this import; `componentsHiddenForLayout` and `LayoutType` below stay
-     because rule 4 on the Component cell reads them either way. */
+     this import. RULE 4 (`componentsHiddenForLayout`) is gone as of
+     2026-09-05 — it read a per-style Layout Type declaration that no longer
+     exists (Order Info ▸ Style(s) ▸ Components dropped the field), so the
+     Component cell below no longer filters by this panel's own `layout_type`
+     either. `layout_type` ITSELF IS UNTOUCHED: the column, `MapLine.layout_type`
+     and `onPatchPanel` still carry it exactly as before — only the narrowing
+     it used to drive is gone. */
   availablePanels,
-  componentsHiddenForLayout,
   /* MOVED OUT OF THIS FILE (2026-09-03), unchanged. The Fabric Process tab's
      fabric row summarises N lines the same way — one structure type, one roll
      form, or "(mixed)" — and a second copy of a rule about abstaining is how two
      surfaces come to abstain differently. */
   rollUp,
   solePanel,
-  type LayoutType,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
 
@@ -320,8 +323,9 @@ type PanelGroup = {
   component_id: string | null;
   coordinate_id: string | null;
   fabric_form: string;
-  /** THE PANEL'S OWN LAYOUT TYPE (0530) — 'open_width' | 'tubular', chosen
-   *  before Component and gating that picker via `componentsHiddenForLayout`.
+  /** THE PANEL'S OWN LAYOUT TYPE (0530) — 'open_width' | 'tubular'. No longer
+   *  gates the Component picker (rule 4 retired 2026-09-05, see
+   *  `component-map.ts`); this value round-trips with no cell reading it back.
    *  Same rollup rule as `fabric_form`: every colourway of one panel is knit
    *  the same way, so there is nothing to roll up — the first line's value
    *  is the panel's. */
@@ -856,18 +860,16 @@ export function ComponentMapBody({
        exists, `PanelRow.layout_type` still carries it, and `onPatchPanel` still
        writes it — only the cell that let an operator choose one is gone.
 
-       WHAT THAT COSTS, EXACTLY: `layout_type` is now unset on every new panel,
-       so RULE 4 below never narrows anything. That degrades gracefully rather
-       than breaking — `componentsHiddenForLayout` already owns "nothing chosen
-       hides nothing", so the Component list simply falls back to rules 2+3, and
-       the field was optional in `fabricBomLineInput` so no Save is blocked. A
-       panel saved with a Layout Type before today keeps it, and it still
-       narrows that panel's list; nothing can change it from this screen.
+       RULE 4 ITSELF IS ALSO GONE NOW (2026-09-05) — `componentsHiddenForLayout`
+       was retired along with the per-style Layout Type declaration it read
+       (Order Info ▸ Style(s) ▸ Components dropped the field). The Component
+       cell below no longer filters by this panel's own `layout_type` either;
+       see `component-map.ts`'s own note where the function used to be.
 
-       PUTTING IT BACK IS THIS COLUMN OBJECT PLUS ONE IMPORT.
-       `componentsHiddenForLayout` and `LayoutType` are still imported and live
-       — rule 4 below reads them either way — but `LAYOUT_TYPE_OPTIONS` fed
-       only the removed Select and went with it (see the import block). */
+       PUTTING THE COLUMN BACK IS THIS COLUMN OBJECT PLUS ONE IMPORT —
+       `LAYOUT_TYPE_OPTIONS` fed only the removed Select and went with it (see
+       the import block) — but a picker filter needs rule 4 rebuilt first,
+       against whatever declares a per-style Layout Type next. */
     {
       header: "Component",
       required: true,
@@ -887,21 +889,6 @@ export function ComponentMapBody({
           structureId: p.structure_id ?? structureId,
           held: p.component_id,
         });
-        /* RULE 4 (0530) — HIDE WHAT THIS PANEL'S CHOSEN LAYOUT TYPE PROVABLY
-           EXCLUDES. `componentsHiddenForLayout` already owns "nothing chosen
-           hides nothing" and "hide only when EVERY declaration disagrees" —
-           this cell only has to keep the HELD component visible regardless,
-           the same held-survival guarantee `availablePanels` above gives rule
-           2+3, now extended to rule 4 as its own docstring requires
-           ("THE CALLER STILL OWNS HELD SURVIVAL"). */
-        const hiddenByLayout = componentsHiddenForLayout(
-          decls,
-          styleRefNo,
-          (p.layout_type as LayoutType) || null,
-        );
-        const visible = options.filter(
-          (o) => o.component_id === p.component_id || !hiddenByLayout.has(o.component_id),
-        );
         /* THE MASTER'S OWN ROWS, NARROWED — never rows rebuilt from the ids.
            `getComponentRows` already resolved `inactive` off the `components`
            table, and reconstructing a row here would hand `RecordPicker` a fresh
@@ -913,7 +900,7 @@ export function ComponentMapBody({
            word for word: it stays on the field, greyed, and cannot be re-picked.
            Dropping it would render a filled cell empty and blank the FK on the
            next save. */
-        const items: PickerRow[] = visible.map(
+        const items: PickerRow[] = options.map(
           (o) =>
             components.find((c) => c.id === o.component_id) ?? {
               id: o.component_id,
@@ -937,7 +924,7 @@ export function ComponentMapBody({
                    is asking the operator to restate something they have already
                    said — and to get it wrong. */
                 coordinate_id:
-                  visible.find((o) => o.component_id === id)?.coordinate_id ?? null,
+                  options.find((o) => o.component_id === id)?.coordinate_id ?? null,
               })
             }
           />

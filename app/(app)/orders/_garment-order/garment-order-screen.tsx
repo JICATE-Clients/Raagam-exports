@@ -23,6 +23,12 @@ import {
   Truck,
   FileText,
   ClipboardList,
+  Puzzle,
+  Disc3,
+  WavesHorizontal,
+  Droplet,
+  Scissors,
+  Search,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,11 +48,6 @@ import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Sheet } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
-// The "Fab Rail" Layout Type vocabulary (0527) — declared once in
-// component-map.ts, the module Fabric BOM ▸ Manual's own filter
-// (`componentsHiddenForLayout`) reads, so the two screens cannot drift on
-// what Open Width / Tubular are spelled.
-import { LAYOUT_TYPE_OPTIONS } from "@/lib/orders/fabric-bom/component-map";
 import {
   styleProcessRowStarted,
   type ComponentOption,
@@ -71,6 +72,7 @@ import {
  * came back.
  */
 import { StyleProcessSheet } from "@/components/orders/style-process-sheet";
+import { StyleIdentityBand } from "@/components/orders/style-identity-band";
 import {
   excessQty,
   projectionQty,
@@ -169,6 +171,7 @@ import {
   componentTypeForCategory,
   filledCoordinates,
   impliedCoordinateId,
+  pieceCoordinateId,
   isUnitKind,
   unitKindFromCoordinates,
   UNIT_KIND_OPTIONS,
@@ -407,14 +410,6 @@ type StyleComponentRow = {
   comp_type: string;
   /** "Fabric" — withdrawn as a cell on the master 2026-08-11. Stored, not shown. */
   item_id: string | null;
-  /**
-   * Open Width | Tubular, or "" — which Layout Type this part is normally
-   * cut in (0527, the "Fab Rail" spec). Read by Fabric BOM ▸ Manual's
-   * Components picker (`componentsHiddenForLayout`) to narrow the list once
-   * an entry states its own Layout Type; optional here, so a style that has
-   * never answered it changes nothing on that screen.
-   */
-  layout_type: string;
 };
 type StyleRow = {
   key: string;
@@ -923,7 +918,6 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       fabric_category_id: x.fabric_category_id,
       comp_type: txt(x.comp_type),
       item_id: x.item_id,
-      layout_type: txt(x.layout_type),
     };
     if (list) list.push(row);
     else componentsByStyle.set(k, [row]);
@@ -3862,7 +3856,6 @@ export function GarmentOrderScreen({
           fabric_category_id: c.fabric_category_id,
           comp_type: c.comp_type || null,
           item_id: c.item_id,
-          layout_type: c.layout_type || null,
         })),
       ),
       /* Flattened like `style_sizes` above, and just as deliberately unfiltered:
@@ -4928,46 +4921,65 @@ export function GarmentOrderScreen({
   };
 
   /**
-   * ORDER UNIT, ANSWERED — AND IT NO LONGER SEEDS A COORDINATE.
+   * ORDER UNIT, ANSWERED — AND IT SEEDS A COORDINATE AGAIN (2026-09-05).
    *
-   * ## IT DID, FOR ONE AFTERNOON, AND THAT WAS A RULE ABOUT THE WRONG THING
+   * ## THE THIRD REVERSAL ON THIS ONE HANDLER
    *
-   * The spec read: "when the Order Unit is Pcs the system automatically sets the
-   * coordinate to Pcs and the coordinate count to 1". So this handler looked up
-   * the GAR master row whose code was PIECES and wrote it into the grid. The
-   * client corrected it the same day: **"no need to choose PIECES also, which is
-   * just one coordinate … whatever it is."**
+   * 0392 built it, 08-29 removed it ("no need to choose PIECES also, which is
+   * just one coordinate … whatever it is"), and the client asked for the
+   * default back on 2026-09-05. `pieceCoordinateId` in `lib/orders/styles/rules.ts`
+   * carries the full argument for why the middle state existed and why this one
+   * is not simply undoing it — read that note before changing this again.
    *
-   * "Pcs" is a COUNT. `coordinateCap` has said since 0392 that a Piece garment
-   * has one coordinate and a Set has several — it has never said WHICH, and a
-   * customer's Pcs order can perfectly well be filed under TOP. Seeding by name
-   * turned a rule about arity into a rule about vocabulary, and coupled the
-   * screen to a master row nobody promised: rename PIECES to PIECE and the
-   * seeding stops, with no error to read. The note where `pieceCoordinateId`
-   * used to live carries the argument in full.
+   * ONLY WHEN THE LINE HAS NOTHING YET. A line already holding a coordinate — a
+   * hand-picked TOP, or Piece switched back from Set — keeps exactly what it
+   * has; this never overwrites an answer, the same "Disabled rows" argument
+   * every default in this screen already follows. `filledCoordinates` is the
+   * same test `styleLineProblems` and the grid's own cap use, so "has nothing
+   * yet" cannot disagree between this handler and the rest of the line.
    *
-   * ## SO THIS IS A PLAIN `updateStyle` AGAIN
+   * WRITES A NORMAL VALUE, NOT A LOCK. The cell stays exactly as editable as
+   * every other coordinate cell — `coordinatesLocked` / `coordinatesFull` are
+   * untouched by this — so a Pcs order that turns out to need a different
+   * coordinate is one click away from correcting it, never a dead end.
    *
-   * A Pcs line opens on the blank row `seedRow` gives every grid, and the
-   * operator picks whichever coordinate it is — one dropdown, once per line.
+   * SILENT IF THE MASTER HAS NO "PIECES" ROW. `pieceCoordinateId` returns null
+   * rather than throwing, and this handler then falls back to the plain
+   * `updateStyle` it used to be — a blank cell, exactly as before this change.
    *
-   * **The keystroke saving the client asked for is NOT lost**, and this is the
-   * half worth being clear about: it moves to `setStyleCoordinate` below, which
-   * back-fills every component the moment that one coordinate is known. That is
-   * where it always belonged — the components can only be filled once there is
-   * something to fill them WITH, and answering Order Unit is not that moment.
-   * The pre-fill also survives on the components grid itself, through
-   * `impliedCoordinateId`, which reads the line's own grid and never a name.
-   *
-   * ## WHAT THIS HANDLER STILL EARNS ITS NAME FOR
-   *
-   * Nothing, today — it is `updateStyle` with one field. It is kept as a named
-   * handler rather than inlined back into the `onChange` because the Order Unit
-   * cell has acquired and shed side effects twice now (0461, then this), and a
-   * named seam is what made the second removal a one-function change.
+   * The keystroke saving from 08-29 is untouched: `setStyleCoordinate` still
+   * back-fills every component the moment a coordinate is known, and now that
+   * moment can be THIS one instead of the operator's own click.
    */
-  const answerUnitKind = (styleKeyId: string, next: string | null) =>
-    updateStyle(styleKeyId, { unit_kind: next });
+  const answerUnitKind = (styleKeyId: string, next: string | null) => {
+    if (next !== "piece") {
+      updateStyle(styleKeyId, { unit_kind: next });
+      return;
+    }
+    const row = styles.find((x) => x.key === styleKeyId);
+    const already = row ? filledCoordinates(row.coordinates) > 0 : true;
+    const seeded = already ? null : pieceCoordinateId(data.coordinates);
+    setStyles((xs) =>
+      xs.map((x) => {
+        if (x.key !== styleKeyId) return x;
+        const coordinates =
+          seeded == null
+            ? x.coordinates
+            : x.coordinates.length === 0
+              ? [{ key: newKey(), coordinate_id: seeded }]
+              : x.coordinates.map((c, i) => (i === 0 ? { ...c, coordinate_id: seeded } : c));
+        const implied = impliedCoordinateId(next, coordinates);
+        return {
+          ...x,
+          unit_kind: next,
+          coordinates,
+          components: implied
+            ? x.components.map((c) => (c.coordinate_id ? c : { ...c, coordinate_id: implied }))
+            : x.components,
+        };
+      }),
+    );
+  };
 
   /**
    * ORDER INFO ▸ STYLES DETAILS ▸ COORDINATES (0461) — the same three mutators
@@ -5163,7 +5175,6 @@ export function GarmentOrderScreen({
         fabric_category_id: null,
         comp_type: "",
         item_id: null,
-        layout_type: "",
       },
     ]);
   };
@@ -6365,13 +6376,12 @@ export function GarmentOrderScreen({
        * stored value and the fallback stay in one function rather than this
        * cell learning the rule a second time.
        */
-      /* PICKING "Piece" CAPS THE COORDINATES GRID AT ONE ROW AND WRITES NOTHING
-         INTO IT (client 2026-08-29: "no need to choose PIECES also, which is
-         just one coordinate … whatever it is"). It seeded a PIECES row for one
-         afternoon; `answerUnitKind` carries why that was a rule about the wrong
-         thing. The back-fill it used to do lives on `setStyleCoordinate`, which
-         runs when the operator picks whichever coordinate it is. A plain
-         two-option `Select`, and now with no side effect at all. */
+      /* PICKING "Piece" CAPS THE COORDINATES GRID AT ONE ROW AND SEEDS IT WITH
+         "PIECES" WHEN THE LINE HAS NOTHING YET (client 2026-08-29 removed the
+         seed, client 2026-09-05 asked for it back). `answerUnitKind` carries
+         the full history and why this is not simply undoing 08-29. The value
+         it writes is a normal, editable one — never locked — so an operator
+         who disagrees corrects it the same way they always could. */
       /* MANDATORY SINCE 2026-08-31 (client): "users must select either Pcs or
          Set ... this is critical because this selection triggers different
          coordinate and component mapping rules".
@@ -6989,15 +6999,40 @@ export function GarmentOrderScreen({
    * across rows, so a ragged row was cost with nothing bought. Detail stays
    * narrower because it is a button, not a value.
    */
-  const comboColumns: ChildGridColumn<ComboRow>[] = [
-    {
-      header: "Style",
-      /* THE STAR STAYS UNCONDITIONAL — a combo with no style is not a colourway,
-         whatever the order carries. What varies is the CONTROL's `required`,
-         below, which stands down only on a row the app has already filled in. */
-      required: true,
-      width: STYLE_COL_W,
-      cell: (r) => {
+  /**
+   * SINGLE STYLE: THE COLUMN GOES, NOT JUST THE CELL (client 2026-09-05: "for
+   * single style we are going to give the combo name only ... every time
+   * creating style name").
+   *
+   * The cell already read-only'd itself here on 2026-08-31 (`auto` below) —
+   * this is the other half, dropping the column so the SAME value is not
+   * printed once per row when there is only one thing it could ever be. The
+   * order's style is said once instead, above the grid (`combos` tab content,
+   * `soleStyleRef`), the same fact the Quantities tab's Pack Composition sheet
+   * already prints once per destination for the identical reason.
+   *
+   * ONLY WHEN THE COLUMN WOULD BE PURE REPETITION. `auto.offTabPath` collapses
+   * a ROW to read-only exactly when the order has one style AND that row
+   * already holds it; this collapses the whole COLUMN only when EVERY row is
+   * in that state. A row whose `style_ref_no` is blank — legacy data, or a
+   * `lib/data-io` import older than the auto-fill — still needs the picker to
+   * repair it (the same "only when the row really holds it" guard the cell
+   * below already states), so the column stays for the WHOLE grid until that
+   * one row is fixed, rather than vanishing under five rows and reappearing
+   * under the sixth.
+   */
+  const singleStyleCombos = !!AssortStyle.soleStyleRef(styles);
+  const comboStyleColumnNeeded =
+    !singleStyleCombos || combos.some((r) => !r.style_ref_no.trim());
+
+  const comboStyleColumn: ChildGridColumn<ComboRow> = {
+    header: "Style",
+    /* THE STAR STAYS UNCONDITIONAL — a combo with no style is not a colourway,
+       whatever the order carries. What varies is the CONTROL's `required`,
+       below, which stands down only on a row the app has already filled in. */
+    required: true,
+    width: STYLE_COL_W,
+    cell: (r) => {
         /**
          * PRE-FETCHED AND STEPPED OVER (client 2026-08-31: "the Style Name on the
          * Composition tab must be automatically pre-fetched and populated in a
@@ -7115,7 +7150,10 @@ export function GarmentOrderScreen({
         </div>
         );
       },
-    },
+    };
+
+  const comboColumns: ChildGridColumn<ComboRow>[] = [
+    ...(comboStyleColumnNeeded ? [comboStyleColumn] : []),
     {
       header: "Combo",
       // A combo with no name is not a colourway — it is what the Prices and
@@ -7138,6 +7176,16 @@ export function GarmentOrderScreen({
     },
     {
       header: "Detail",
+      /* THE STAR IS NEW (2026-09-05); THE RULE BEHIND IT IS NOT. `comboProblems`
+         has refused Save/Next on an incomplete Structure Details tree
+         (Composition, Tolerance, Fabric Type, every part's own cells) since
+         2026-09-01 — `revealFirstProblem` already jumps back here and names
+         the missing cells. What was missing was the STAR: a rule enforced with
+         nothing on screen to say so is the "Stated vs enforced" trap this
+         column was in. `required` here only draws the header mark (this cell
+         is a button, not a `<Field>`, so there is no cursor to hold) — the
+         actual gate stays `comboProblems`, one declaration for both. */
+      required: true,
       width: "8rem",
       /**
        * The legacy [Detail] button (screenshot 2261) — it opens the Structure
@@ -8390,6 +8438,148 @@ export function GarmentOrderScreen({
       ),
     },
   ];
+
+  /**
+   * A pictogram per seeded activity, keyed by `short_name` — purely a wayfinding
+   * aid for the timeline card below, never a source of truth. `ta_activities` is
+   * an editable master (0266), so an operator can add an eleventh activity with
+   * no entry here; `ClipboardList` is what every unmapped `short_name` gets,
+   * exactly the same "seed maps what it knows, everything else falls through"
+   * shape `categoryNameSeed` uses for a vocabulary keyed by class code.
+   */
+  const TA_ICONS: Record<string, LucideIcon> = {
+    FABPLAN: Layers,
+    ACCBOM: Puzzle,
+    YRNPUR: Disc3,
+    KNIT: WavesHorizontal,
+    DYE: Droplet,
+    CUT: Scissors,
+    SEW: Shirt,
+    PACK: Package,
+    INSP: Search,
+    SHIP: Truck,
+  };
+
+  /**
+   * THE T&A GRID AS A SCHEDULE, NOT A TABLE (client request, after reviewing a
+   * timeline mockup). `forceCards` + this function replace the four-column table
+   * with one card per activity — a status-toned icon, the row's own Target Date
+   * pulled forward beside it, and the Activity / Days controls stacked below.
+   *
+   * REUSES `taColumns[0].cell` AND `taColumns[1].cell` VERBATIM — this is not a
+   * second Activity picker or a second Days box, it is the SAME closures the
+   * table row would have called, just placed somewhere else. `renderMobileRow`
+   * bypasses `columns.map()` (see `ChildGridColumn.required`'s own warning), so
+   * calling anything other than the real cell here would fork the Activity
+   * picker's `usedIds` / `data-focus-optional` wiring and the Days input's
+   * `onChange` into a second copy that WILL drift from the table's.
+   *
+   * `RequiredScope` IS STILL HERE, WITH NOTHING TO GUARD TODAY. Neither column
+   * declares `required` right now (withdrawn 2026-08-31, "make it optional …
+   * will implement it later as required") — but the day it comes back, this is
+   * the exact trap the column's own doc comment names: a `renderMobileRow` that
+   * skips `RequiredScope` draws the header's `*` from nowhere (there is no
+   * header here) while silently dropping the hold. Wrapping now means that day
+   * costs nothing here.
+   *
+   * TARGET DATE AND DEPT ARE NOT `taColumns[2]`/`taColumns[3]` CALLED AGAIN —
+   * both are derived, read-only text with no control behind them (a `readOnly`
+   * `<Input>` whose only job on the table is to line up under a `<th>`), so
+   * showing them as plain text here is not a second answer, only a different
+   * rendering of the one `taDates` / `taActivityById` lookup the table cells
+   * already make. Neither is on the Tab path either way.
+   *
+   * NO CONNECTING LINE BETWEEN CARDS. The mockup drew one; `ChildGrid` owns the
+   * spacing between `data-grid-row` boxes and does not expose it, so a hand-timed
+   * line here would hardcode another component's padding and silently go stale
+   * the next time that padding changes. The sequence still reads top-to-bottom
+   * from the numbered date column and the divider `flatRows` already draws
+   * between records.
+   */
+  const taRenderMobileRow = (r: TaRow, i: number) => {
+    const d = taDates.get(r.row_uid);
+    const activity = taActivityById.get(r.activity_id ?? "");
+    const Icon = TA_ICONS[activity?.short_name ?? ""] ?? ClipboardList;
+
+    /**
+     * TONE IS SCHEDULE PROXIMITY, NEVER COMPLETION. This screen has no idea
+     * whether a step is done — `status` / `actual_date` are entered on the
+     * dashboard and never loaded here (see `TaRow`'s own note on why they are
+     * not in this shape). `d.float` is the one honest signal available: calendar
+     * days from today to this step's OWN target date, negative once it has
+     * passed (`lib/ta/schedule.ts`). So the colour says "this date has gone by"
+     * or "this date is close", never "nobody has finished this" — a claim the
+     * data cannot back up from this screen.
+     */
+    const tone: "danger" | "warning" | "info" | "muted" =
+      !d ? "muted" : d.float < 0 ? "danger" : d.float === 0 ? "warning" : d.float <= 3 ? "info" : "muted";
+    const toneNode: Record<typeof tone, string> = {
+      danger: "bg-danger-soft text-danger",
+      warning: "bg-warning-soft text-warning",
+      info: "bg-info-soft text-info",
+      muted: "bg-surface-muted text-muted-foreground",
+    };
+    const toneText: Record<typeof tone, string> = {
+      danger: "text-danger",
+      warning: "text-warning",
+      info: "text-info",
+      muted: "text-muted-foreground",
+    };
+    const caption =
+      !d
+        ? null
+        : d.float < 0
+          ? `${Math.abs(d.float)} day${Math.abs(d.float) === 1 ? "" : "s"} past target`
+          : d.float === 0
+            ? "Target date is today"
+            : d.float <= 3
+              ? `Target in ${d.float} day${d.float === 1 ? "" : "s"}`
+              : null;
+
+    return (
+      <div className="flex gap-3">
+        <div className="w-16 flex-none pt-1 text-right">
+          <div className="text-[10px] font-medium tracking-wide text-muted-foreground">
+            {String(i + 1).padStart(2, "0")}
+          </div>
+          <div className="text-xs font-semibold tabular-nums text-foreground">
+            {d ? fmtDate(d.target_date) : "—"}
+          </div>
+        </div>
+        <div
+          className={cn(
+            "mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-full",
+            toneNode[tone],
+          )}
+        >
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-2 rounded-lg border border-border bg-surface p-3 transition-shadow hover:shadow-md">
+          <div className="flex flex-wrap items-center gap-2">
+            <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
+              {taColumns[0].cell(r, i)}
+            </RequiredScope>
+            {activity?.department && (
+              <span className="rounded-full border border-border bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {activity.department}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">Days</span>
+              <div className="w-16">
+                <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
+                  {taColumns[1].cell(r, i)}
+                </RequiredScope>
+              </div>
+            </div>
+            {caption && <span className={cn("text-xs font-medium", toneText[tone])}>{caption}</span>}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // ---------------- Quantities (0398) ----------------
 
@@ -14797,32 +14987,6 @@ export function GarmentOrderScreen({
         />
       ),
     },
-    {
-      /* LAYOUT TYPE — the "Fab Rail" spec (0527): which of a fabric roll's two
-         presentations (Open Width / Tubular) this part is normally cut in.
-         Optional, like Structure beside it: a style that has never answered
-         it changes nothing on Fabric BOM ▸ Manual's Components picker — see
-         `componentsHiddenForLayout` in lib/orders/fabric-bom/component-map.ts,
-         which reads this column permissively (blank = offered under either
-         Layout Type). NOT required — the same reasoning Structure states: a
-         part can be named before its cutting layout is decided. */
-      header: "Layout Type",
-      cell: (c) => (
-        <Select
-          compact
-          aria-label="Layout Type"
-          value={c.layout_type}
-          onChange={(ev) => patchComponent(r.key, c.key, { layout_type: ev.target.value })}
-        >
-          <option value="" />
-          {LAYOUT_TYPE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
     ];
   };
 
@@ -16277,6 +16441,28 @@ export function GarmentOrderScreen({
       label: "Combos",
       content: (
         <>
+          {/* THE STYLE, SAID ONCE — only when `comboStyleColumnNeeded` has
+             already dropped the grid's own Style column (see the note beside
+             it). `StyleIdentityBand` is the shared band Fabric BOM's Manual
+             and Components tabs already draw for the identical reason,
+             reused rather than hand-rolled — the failure `created-columns.tsx`
+             exists to prevent is six screens growing their own version of one
+             band. `omit={["style"]}`: a Combo row has no separate "Style No",
+             only `style_ref_no` and `article_no`. */}
+          {!comboStyleColumnNeeded && (
+            <StyleIdentityBand
+              styleRefNo={soleStyleRef}
+              identity={{
+                ref: soleStyleRef,
+                style: "",
+                article:
+                  styles.find((s) => styleKey(s.style_ref_no) === styleKey(soleStyleRef))
+                    ?.article_no ?? "",
+              }}
+              omit={["style"]}
+              className="mb-3"
+            />
+          )}
           <ChildGrid<ComboRow>
             columns={comboColumns}
             rows={combos}
@@ -17609,6 +17795,26 @@ export function GarmentOrderScreen({
           <ChildGrid<TaRow>
             columns={taColumns}
             rows={taRows}
+            /* THE LADDER READS AS A SCHEDULE, NOT A TABLE (client, after
+               reviewing a timeline mockup): `forceCards` renders every width as
+               the stacked-card layout, and `renderMobileRow` swaps the default
+               "stack every column" body for `taRenderMobileRow`'s status-toned
+               card. Nothing about the DATA changed — same `columns`, same
+               `onAdd`/`onRemove`, same keyboard contract (`data-grid-row`,
+               Ctrl+Del, Tab-lands-on-fields all still come from `ChildGrid`
+               itself); only which JSX draws inside each row. See
+               `taRenderMobileRow`'s own comment for what it deliberately does
+               NOT try to reproduce from the mockup (a hand-timed connecting
+               line, and a done/in-progress status this screen has no data for). */
+            forceCards
+            /* `flatRows` drops `ChildGrid`'s own "rounded-lg border p-2.5" box
+               around each row — `taRenderMobileRow` draws its OWN card, and
+               without this the two would nest (an outer card holding an inner
+               one, both bordered). What `flatRows` leaves behind is exactly what
+               this layout wants: plain vertical rhythm and the app's usual
+               "a new record starts here" divider between activities. */
+            flatRows
+            renderMobileRow={taRenderMobileRow}
             /* NO `seedRow`. Every other grid on this screen opens on a blank row
                because the operator is the only one who knows what belongs in it;
                this one is seeded from the `ta_activities` master (see
