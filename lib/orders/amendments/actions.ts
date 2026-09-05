@@ -7,12 +7,16 @@ import { writeAudit } from "@/lib/audit";
 import {
   amendmentInput,
   mergeTaCompletions,
+  mergeTaApprovalCompletions,
   styleFileMessage,
   stylesMissingFiles,
   taRowsToWrite,
+  taApprovalRowsToWrite,
   type AmendmentInput,
   type SavedTaRow,
+  type SavedTaApprovalRow,
 } from "./types";
+import { getCustomerApprovalDefaults } from "./service";
 import { normalizeFileRows } from "./file-rows";
 import {
   assortBalanceMessage,
@@ -36,6 +40,10 @@ import { componentRowStarted, impliedCoordinateId } from "@/lib/orders/styles/ru
    would be a date no control enforces: BOTH HALVES OR NEITHER, the rule
    `purchase_qty` already follows. */
 import { orderTaLadder, isRefusal } from "@/lib/orders/ta/order-ladder";
+/* The other ~19 approvals' dates (0537) — PP Sample never reaches this, see
+   `taApprovalRows`'s own header for why that exclusion happens BEFORE this
+   is called, not as an override afterwards. */
+import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -1193,7 +1201,32 @@ async function taActivityRows(
   amendmentId: string,
   data: AmendmentInput,
   quantityRows: ReturnType<typeof normalizeQuantities>,
-): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string }> {
+): Promise<
+  | {
+      ok: true;
+      rows: Record<string, unknown>[];
+      /**
+       * PP Approval's own target_date, read out of THIS SAME ladder call —
+       * never a second computation. `null` when the ladder refused, or when
+       * this order's ladder does not (yet) carry a PPAPPR row. Consumed by
+       * `taApprovalRows` below, which copies it onto the PP Sample row in
+       * `garment_order_amendment_ta_approvals` — see 0537's own migration
+       * comment for why a second, independent calculation of this fact is
+       * exactly the risk this parameter exists to close off.
+       */
+      ppApprovalTargetDate: string | null;
+      /**
+       * The SAME anchor `orderTaLadder` resolved — the earliest Earlier
+       * Shipment Dt across the Quantities rows this save is writing, or the
+       * header Delivery Date. `taApprovalRows` needs this for the ~19
+       * BEFORE_SHIPMENT_DATE approvals; re-resolving it independently there
+       * would be a second opinion about which date is "the" ship date. Null
+       * on a refusal, exactly matching what the ladder itself could say.
+       */
+      anchorDate: string | null;
+    }
+  | { ok: false; error: string }
+> {
   // READ BEFORE ANY DELETE. On a create this is a new id and comes back empty,
   // which is correct and costs one round trip.
   const { data: savedRaw, error: savedErr } = await s
@@ -1212,7 +1245,7 @@ async function taActivityRows(
      vectored by `npm run check:ta-merge` — a merge that is merely written is
      not a merge that is known to work. */
   const rows = taRowsToWrite(normalizeTaActivities(data), saved);
-  if (!rows.length) return { ok: true, rows: [] };
+  if (!rows.length) return { ok: true, rows: [], ppApprovalTargetDate: null, anchorDate: null };
 
   /* THE ACTIVITY'S NAME, SO A REFUSAL CAN NAME THE ROW. `backwardSchedule`
      prints "<label>: enter how many days it needs" and falls back to "A
@@ -1233,14 +1266,21 @@ async function taActivityRows(
      same ladder whatever this returns. */
   const activityIds = [...new Set(rows.map((r) => r.activity_id).filter((v): v is string => !!v))];
   const labels = new Map<string, string>();
+  /* WHICH activity_id IS "PPAPPR" — read alongside `labels` in the SAME
+     query, one extra column rather than a second round trip. Used only to
+     find the PP Approval row's OWN target_date below; never fed into the
+     ladder's arithmetic, which cares about `activity_id`/`days_required`
+     and nothing else. */
+  let ppApprovalActivityId: string | null = null;
   if (activityIds.length) {
     const { data: acts, error: actErr } = await s
       .from("ta_activities")
-      .select("id, name")
+      .select("id, name, short_name")
       .in("id", activityIds);
     if (actErr) return { ok: false, error: actErr.message };
-    for (const a of (acts ?? []) as { id: string; name: string | null }[]) {
+    for (const a of (acts ?? []) as { id: string; name: string | null; short_name: string | null }[]) {
       if (a.name) labels.set(a.id, a.name);
+      if (a.short_name?.toUpperCase() === "PPAPPR") ppApprovalActivityId = a.id;
     }
   }
 
@@ -1271,7 +1311,157 @@ async function taActivityRows(
      vectored — see `mergeTaCompletions` there for why the rule lives outside
      this file. `created_by` is deliberately NOT named on the row, so the
      column's `default auth.uid()` fires (0475's lesson, inverted). */
-  return { ok: true, rows: mergeTaCompletions(rows, saved, targetDates) };
+  const mergedRows = mergeTaCompletions(rows, saved, targetDates);
+
+  /* THE ONE VALUE `taApprovalRows` NEEDS FROM THIS LADDER — found by POSITION
+     in `rows` (and so in `targetDates`, which is index-for-index with it),
+     never by re-querying anything. `null` when this order's ladder carries
+     no PPAPPR row at all (an operator who deleted it, or an order whose
+     ladder was never seeded) — `taApprovalRows` then leaves the PP Sample
+     row undated, which is the honest answer to "when does this order plan
+     to start cutting" when nothing says. */
+  const ppIndex = ppApprovalActivityId
+    ? rows.findIndex((r) => r.activity_id === ppApprovalActivityId)
+    : -1;
+  const ppApprovalTargetDate = ppIndex >= 0 ? (targetDates[ppIndex] ?? null) : null;
+
+  const anchorDate = isRefusal(plan) ? null : plan.anchor.date;
+
+  return { ok: true, rows: mergedRows, ppApprovalTargetDate, anchorDate };
+}
+
+/**
+ * The order's approval tracker (0537) — THE ROWS AS TYPED. Mirrors
+ * `normalizeTaActivities` exactly and for the identical reason: drop rows
+ * that answer nothing, de-duplicate on `row_uid` (unique per amendment;
+ * `uq_goa_ta_approvals_row_uid`), because the merge below reads the saved
+ * rows into a Map keyed by it and two rows sharing an anchor would both
+ * claim one completion. No `sno` — approvals carry no execution order, so
+ * there is nothing to renumber.
+ */
+function normalizeTaApprovals(data: AmendmentInput) {
+  const seen = new Set<string>();
+  return data.ta_approvals
+    .map((r) => ({ row_uid: r.row_uid, approval_id: r.approval_id }))
+    .filter((r) => r.approval_id)
+    .filter((r) => {
+      if (seen.has(r.row_uid)) return false;
+      seen.add(r.row_uid);
+      return true;
+    });
+}
+
+/**
+ * THE APPROVALS TRACKER'S ROWS, MERGED — the second child of this document
+ * that is not replaced wholesale, for the same reason `taActivityRows` above
+ * is not: `actual_sent_date`, `actual_received_date`, `proof_path` and
+ * `status` are entered on the merchandiser board, days or weeks later.
+ *
+ * `ppApprovalTargetDate` AND `anchorDate` ARRIVE ALREADY RESOLVED, from
+ * `taActivityRows`'s own return — this function never calls `orderTaLadder`
+ * and never re-resolves the anchor. ONE LADDER CALL, MULTIPLE WRITES: see
+ * `ta_approvals`' own migration comment for why a second, independent
+ * calculation of either fact is exactly the risk this signature avoids.
+ *
+ * PP SAMPLE NEVER REACHES `computeApprovalSchedule`. It is excluded from the
+ * generic list by `approvalId !== ppSampleApprovalId` before that engine is
+ * even called — not merely overridden afterwards — so a bug in that filter
+ * fails loud (PP Sample stays undated) rather than quietly carrying two
+ * competing answers into the merge.
+ */
+async function taApprovalRows(
+  s: Awaited<ReturnType<typeof createClient>>,
+  amendmentId: string,
+  data: AmendmentInput,
+  ppApprovalTargetDate: string | null,
+  anchorDate: string | null,
+): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string }> {
+  // READ BEFORE ANY DELETE — same reason `taActivityRows` reads first.
+  const { data: savedRaw, error: savedErr } = await s
+    .from("garment_order_amendment_ta_approvals")
+    .select("row_uid, approval_id, actual_sent_date, actual_received_date, proof_path, status")
+    .eq("amendment_id", amendmentId);
+  if (savedErr) return { ok: false, error: savedErr.message };
+  const saved = (savedRaw ?? []) as SavedTaApprovalRow[];
+
+  const rows = taApprovalRowsToWrite(normalizeTaApprovals(data), saved);
+  if (!rows.length) return { ok: true, rows: [] };
+
+  /* ONE LOOKUP FOR PP SAMPLE'S id (never hardcoded — a uuid seeded by a
+     migration is not a literal this file should know), and one for the
+     approvals actually used, in the SAME shape `taActivityRows` queries
+     `ta_activities`. */
+  const { data: ppRow, error: ppErr } = await s
+    .from("ta_approvals")
+    .select("id")
+    .ilike("short_name", "PPSAMPLE")
+    .maybeSingle();
+  if (ppErr) return { ok: false, error: ppErr.message };
+  const ppSampleApprovalId: string | null = ppRow?.id ?? null;
+
+  const approvalIds = [...new Set(rows.map((r) => r.approval_id).filter((v): v is string => !!v))];
+  const meta = new Map<
+    string,
+    { label: string; direction: "AFTER_ORDER_DATE" | "BEFORE_SHIPMENT_DATE"; standardDays: number }
+  >();
+  if (approvalIds.length) {
+    const { data: apprs, error: apprErr } = await s
+      .from("ta_approvals")
+      .select("id, name, apply_condition, standard_days")
+      .in("id", approvalIds);
+    if (apprErr) return { ok: false, error: apprErr.message };
+    for (const a of (apprs ?? []) as {
+      id: string;
+      name: string | null;
+      apply_condition: "AFTER_ORDER_DATE" | "BEFORE_SHIPMENT_DATE";
+      standard_days: number | null;
+    }[]) {
+      meta.set(a.id, {
+        label: a.name ?? "",
+        direction: a.apply_condition,
+        standardDays: a.standard_days ?? 0,
+      });
+    }
+  }
+
+  /* THIS ORDER'S BUYER-LEAD-TIME OVERRIDES (0535). `data.customer_id` is
+     required by the Zod input ("Customer is required"), so this is never
+     skipped for a real save — only a malformed payload could reach here
+     without one, and that payload already failed validation upstream. */
+  const overrides = new Map(
+    (await getCustomerApprovalDefaults(data.customer_id)).map((d) => [d.approval_id, d.lead_time_days]),
+  );
+
+  /* PP SAMPLE IS FILTERED OUT HERE, BEFORE THE GENERIC ENGINE EVER SEES IT —
+     see this function's own header for why that is the load-bearing half of
+     the single-source-of-truth rule, not merely where the override happens
+     to be applied. */
+  const genericInputs = rows
+    .filter((r) => r.approval_id && r.approval_id !== ppSampleApprovalId)
+    .map((r) => {
+      const m = meta.get(r.approval_id!);
+      return {
+        approvalId: r.approval_id!,
+        label: m?.label ?? "",
+        direction: m?.direction ?? ("AFTER_ORDER_DATE" as const),
+        leadTimeDays: overrides.get(r.approval_id!) ?? m?.standardDays ?? 0,
+      };
+    });
+
+  const scheduled = computeApprovalSchedule({
+    approvals: genericInputs,
+    orderDate: data.amend_date,
+    exFactoryDate: anchorDate,
+  });
+  const byApprovalId = new Map(scheduled.map((sc) => [sc.approvalId, sc.targetDate]));
+
+  const targetDates = rows.map((r) => {
+    if (!r.approval_id) return null;
+    if (r.approval_id === ppSampleApprovalId) return ppApprovalTargetDate;
+    return byApprovalId.get(r.approval_id) ?? null;
+  });
+
+  return { ok: true, rows: mergeTaApprovalCompletions(rows, saved, targetDates) };
 }
 
 /**
@@ -1359,6 +1549,20 @@ async function writeChildren(
   const ta = await taActivityRows(s, amendmentId, data, quantityRows);
   if (!ta.ok) return fail(ta.error);
 
+  /**
+   * The order's approval tracker (0537) — RESOLVED HERE, ONE CALL AFTER THE
+   * LADDER ABOVE, for the same "before the delete loop" reason `ta` is.
+   *
+   * `ta.ppApprovalTargetDate` and `ta.anchorDate` are handed straight
+   * through, never recomputed — this is the "ONE LADDER CALL, TWO WRITES"
+   * rule from `ta_approvals`' own migration comment, made concrete: PP
+   * Sample's date in THIS table is the SAME value that just got written into
+   * `garment_order_amendment_ta_activities`' PPAPPR row, not a second
+   * opinion about it.
+   */
+  const approvals = await taApprovalRows(s, amendmentId, data, ta.ppApprovalTargetDate, ta.anchorDate);
+  if (!approvals.ok) return fail(approvals.error);
+
   const inserts: [string, Record<string, unknown>[]][] = [
     ["garment_order_amendment_styles", styleRows],
     // AFTER the styles it depends on, though the order of this list only
@@ -1398,6 +1602,10 @@ async function writeChildren(
        `normalizeTaActivities(data)` in this slot instead would compile, pass
        every check, and destroy every completion record on the order. */
     ["garment_order_amendment_ta_activities", ta.rows],
+    /* The order's approval tracker (0537). MERGED, NOT REPLACED — same shape
+       and the same reasoning as ta_activities immediately above. Read
+       `taApprovalRows` before changing anything here. */
+    ["garment_order_amendment_ta_approvals", approvals.rows],
     // THIS LIST DRIVES THE DELETE LOOP AS WELL AS THE INSERTS. An entry added
     // only to the insert side would leave the previous rows in place and add
     // the new ones beside them, doubling the grid on every save.

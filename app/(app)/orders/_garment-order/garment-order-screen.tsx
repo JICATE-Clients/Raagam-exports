@@ -92,6 +92,7 @@ import { inrValue, isPackWise, orderValue } from "@/lib/orders/amendments/order-
  * from another and then be surprised when the two are asked to diverge.
  */
 import { isRefusal, orderTaLadder } from "@/lib/orders/ta/order-ladder";
+import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Segmented } from "@/components/ui/segmented";
@@ -742,6 +743,25 @@ type TaRow = {
   activity_id: string | null;
   /** A string: it is typed. `numOrNull` narrows it for the ladder and the payload. */
   days_required: string;
+};
+/**
+ * T&A ▸ Approvals ▸ one row of the order's approval tracker (0537).
+ *
+ * ONE FIELD ON SCREEN, THE SAME SHAPE `TaRow` ABOVE IS: `approval_id` is all
+ * the operator types here. Target Date is derived (from the production
+ * ladder for PP Sample, from `computeApprovalSchedule` for everything else)
+ * and Dept-equivalent context is read through `approval_id`, never copied
+ * onto the row — same reasoning `TaRow.activity_id`'s own note gives.
+ *
+ * `actual_sent_date` / `actual_received_date` / `proof_path` / `status` are
+ * NOT here, same as `TaRow` carries no `actual_date`/`status`/`notes`: they
+ * are entered on the merchandiser board, not on this screen, and this
+ * shape's `row_uid` is what lets them survive a save it never touches.
+ */
+type TaApprovalRow = {
+  key: string;
+  row_uid: string;
+  approval_id: string | null;
 };
 /** Quantities ▸ Assort ▸ one size cell (0414). `qty` is a string: it is typed. */
 type AssortSizeRow = { key: string; size_id: string | null; qty: string };
@@ -1717,6 +1737,18 @@ export function GarmentOrderScreen({
    * `seedTaLadder`.
    */
   const [taRows, setTaRows] = useState<TaRow[]>([]);
+  /**
+   * T&A ▸ Approvals — the order's approval tracker (0537).
+   *
+   * NOT PART OF `applyRows`, same reasoning as `taRows` immediately above:
+   * an order carries no approval list of its own.
+   *
+   * Seeded from the CUSTOMER's own defaults, not from a blank row and not
+   * from the `ta_approvals` master directly — see the Customer picker's
+   * `onChange` for where that seeding happens, and why it fires there
+   * rather than in `openOneRow` alongside every other grid's top-up.
+   */
+  const [taApprovalRows, setTaApprovalRows] = useState<TaApprovalRow[]>([]);
 
   /**
    * THE ATTACHED DOCUMENTS (0416) — the style JPG, the buyer's PDF order sheet,
@@ -2061,6 +2093,14 @@ export function GarmentOrderScreen({
     row_uid: crypto.randomUUID(),
     activity_id: null,
     days_required: "",
+  });
+
+  /** One Approvals row the operator added by hand — same `row_uid` reasoning
+   *  as `blankTaRow`: minted with `crypto.randomUUID()`, never `newKey()`. */
+  const blankTaApprovalRow = (): TaApprovalRow => ({
+    key: newKey(),
+    row_uid: crypto.randomUUID(),
+    approval_id: null,
   });
 
   /**
@@ -4139,6 +4179,17 @@ export function GarmentOrderScreen({
         activity_id: r.activity_id,
         days_required: numOrNull(r.days_required),
       })),
+      /**
+       * T&A ▸ APPROVALS (Task 10) — same shape as `ta_activities` above and for
+       * the same reason: no `target_date`, since `taApprovalRows` (actions.ts)
+       * computes it server-side through the identical `computeApprovalSchedule`
+       * / production-ladder split this screen's own `taApprovalDates` reads;
+       * `row_uid` is the only thing that survives a re-save.
+       */
+      ta_approvals: taApprovalRows.map((r) => ({
+        row_uid: r.row_uid,
+        approval_id: r.approval_id,
+      })),
     };
     start(async () => {
       const res = editId
@@ -4358,6 +4409,98 @@ export function GarmentOrderScreen({
     [taLadder],
   );
 
+  /**
+   * T&A ▸ Approvals — each row's target date, MIRRORING WHAT THE SERVER
+   * WILL WRITE ON SAVE (`taApprovalRows` in actions.ts), never a second
+   * opinion about either half of it:
+   *
+   *   - PP Sample's date is read THROUGH the production ladder above
+   *     (`taDates`, keyed to the PPAPPR activity's own row) — the same
+   *     "BOTH HALVES OR NEITHER" rule `taDates` itself exists to satisfy,
+   *     applied one table over.
+   *   - Every other approval runs through `computeApprovalSchedule`, the
+   *     EXACT SAME pure function `actions.ts` calls at save time — a screen
+   *     resolving a schedule the server did not is a date no control
+   *     enforces, the same argument `order-ladder.ts`'s own header makes.
+   *
+   * Buyer overrides come from `data.customerApprovalDefaults` — the WHOLE
+   * table, filtered here by the order's CURRENT customer — never a fetch
+   * triggered by this memo; see the Customer picker's `onChange` for why
+   * that list is loaded whole in the first place.
+   */
+  const taApprovalDates = useMemo(() => {
+    const ppApprovalActivity = data.taActivities.find(
+      (a) => a.short_name?.toUpperCase() === "PPAPPR",
+    );
+    const ppApprovalRow = ppApprovalActivity
+      ? taRows.find((r) => r.activity_id === ppApprovalActivity.id)
+      : undefined;
+    const ppApprovalTargetDate = ppApprovalRow
+      ? (taDates.get(ppApprovalRow.row_uid)?.target_date ?? null)
+      : null;
+
+    const ppSampleApproval = data.taApprovals.find(
+      (a) => a.short_name?.toUpperCase() === "PPSAMPLE",
+    );
+
+    const anchorDate = isRefusal(taLadder) ? null : taLadder.anchor.date;
+
+    /* PP SAMPLE IS FILTERED OUT BEFORE THE GENERIC ENGINE EVER SEES IT —
+       same load-bearing exclusion `taApprovalRows` (actions.ts) makes,
+       mirrored here so the SCREEN cannot show a different answer than the
+       SAVE will write. */
+    const genericInputs = taApprovalRows
+      .filter((r) => r.approval_id && r.approval_id !== ppSampleApproval?.id)
+      .map((r) => {
+        const a = data.taApprovals.find((x) => x.id === r.approval_id);
+        const override = data.customerApprovalDefaults.find(
+          (d) => d.customer_id === form.customer_id && d.approval_id === r.approval_id,
+        );
+        return {
+          approvalId: r.approval_id as string,
+          label: a?.name ?? "",
+          direction: a?.apply_condition ?? ("AFTER_ORDER_DATE" as const),
+          leadTimeDays: override?.lead_time_days ?? a?.standard_days ?? 0,
+        };
+      });
+
+    const scheduled = computeApprovalSchedule({
+      approvals: genericInputs,
+      orderDate: form.amend_date,
+      exFactoryDate: anchorDate,
+    });
+    const byApprovalId = new Map(scheduled.map((sc) => [sc.approvalId, sc]));
+
+    const out = new Map<
+      string,
+      { target_date: string | null; isConflicted: boolean; errorMessage: string | null }
+    >();
+    for (const r of taApprovalRows) {
+      if (!r.approval_id) {
+        out.set(r.row_uid, { target_date: null, isConflicted: false, errorMessage: null });
+      } else if (r.approval_id === ppSampleApproval?.id) {
+        out.set(r.row_uid, { target_date: ppApprovalTargetDate, isConflicted: false, errorMessage: null });
+      } else {
+        const sc = byApprovalId.get(r.approval_id);
+        out.set(r.row_uid, {
+          target_date: sc?.targetDate ?? null,
+          isConflicted: sc?.isConflicted ?? false,
+          errorMessage: sc?.errorMessage ?? null,
+        });
+      }
+    }
+    return out;
+  }, [
+    taApprovalRows,
+    data.taApprovals,
+    data.taActivities,
+    data.customerApprovalDefaults,
+    form.customer_id,
+    form.amend_date,
+    taRows,
+    taDates,
+    taLadder,
+  ]);
 
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
@@ -8522,6 +8665,48 @@ export function GarmentOrderScreen({
            cursor for. */
         <Input readOnly value={taActivityById.get(r.activity_id ?? "")?.department ?? ""} />
       ),
+    },
+  ];
+
+  /**
+   * T&A ▸ Approvals — two columns, PLAIN TABLE (not `forceCards`/road-map, per
+   * the plan): Approval is picked, Target Date is derived through
+   * `taApprovalDates`, never typed. Mirrors the Activity column above —
+   * `RecordPicker`, `usedIds` de-dup, the value a saved row already holds
+   * always survives the picker even if it is later switched off ("Disabled
+   * rows").
+   */
+  const taApprovalColumns: ChildGridColumn<TaApprovalRow>[] = [
+    {
+      header: "Approval",
+      width: "16rem",
+      cell: (r) => (
+        <RecordPicker
+          label="Approval"
+          compact
+          items={data.taApprovals}
+          value={r.approval_id}
+          usedIds={
+            taApprovalRows
+              .filter((x) => x.key !== r.key)
+              .map((x) => x.approval_id)
+              .filter(Boolean) as string[]
+          }
+          onChange={(id) =>
+            setTaApprovalRows((xs) =>
+              xs.map((x) => (x.key === r.key ? { ...x, approval_id: id } : x)),
+            )
+          }
+        />
+      ),
+    },
+    {
+      header: "Target Date",
+      width: "9rem",
+      cell: (r) => {
+        const d = taApprovalDates.get(r.row_uid);
+        return <Input readOnly value={d?.target_date ? fmtDate(d.target_date) : ""} />;
+      },
     },
   ];
 
@@ -18032,6 +18217,29 @@ export function GarmentOrderScreen({
             onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add activity"
           />
+
+          {/**
+            * T&A ▸ APPROVALS — a separate table below the production ladder,
+            * never merged into it. PP Sample lives in THIS list (client
+            * decision: "PP stays IN ta_approvals; production chain reads it"),
+            * so its row here shows the exact same Target Date the ladder above
+            * computed for PPAPPR — one ladder call, two reads, never two
+            * calculations (see `taApprovalDates`'s own doc comment).
+            *
+            * PLAIN TABLE, deliberately not `forceCards` — the plan's own
+            * wording, and the ladder above is already the one place on this
+            * tab that reads as a schedule rather than a grid.
+            */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-foreground">Approvals</h4>
+            <ChildGrid<TaApprovalRow>
+              columns={taApprovalColumns}
+              rows={taApprovalRows}
+              onAdd={() => setTaApprovalRows((xs) => [...xs, blankTaApprovalRow()])}
+              onRemove={(r) => setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add approval"
+            />
+          </div>
         </div>
       ),
     },
@@ -18559,7 +18767,46 @@ export function GarmentOrderScreen({
                 compact
                 items={customerFold.rows}
                 value={form.customer_id}
-                onChange={(id) => set({ customer_id: id })}
+                onChange={(id) => {
+                  set({ customer_id: id });
+                  /**
+                   * SEED THE APPROVALS GRID FROM THIS BUYER'S OWN DEFAULTS
+                   * (0535/0537) — the one place this fires, deliberately not
+                   * folded into `openOneRow`'s top-up alongside every other
+                   * grid: those seed once, from a fixed master, the moment
+                   * the document opens; this seeds from whichever customer
+                   * is CURRENTLY picked, which can change (or be picked for
+                   * the first time) at any point while the order is open.
+                   *
+                   * ONLY WHEN EMPTY — the same "only if empty" test every
+                   * other seed uses, so re-picking the same customer (or a
+                   * saved order's own already-loaded rows) never clobbers
+                   * rows the operator has already edited or a completion the
+                   * dashboard has recorded against a `row_uid`.
+                   *
+                   * `data.customerApprovalDefaults` is the WHOLE table,
+                   * filtered here client-side — the same shape
+                   * `nominatedVendorOptions` already uses for
+                   * `customer_nominated_vendors`, not a fetch triggered by
+                   * the picker. Empty for a buyer with no defaults
+                   * configured: the operator adds approvals by hand, the
+                   * same empty-and-explain shape every scoped list here
+                   * uses.
+                   */
+                  if (id) {
+                    setTaApprovalRows((xs) =>
+                      xs.length
+                        ? xs
+                        : data.customerApprovalDefaults
+                            .filter((d) => d.customer_id === id)
+                            .map((d) => ({
+                              key: newKey(),
+                              row_uid: crypto.randomUUID(),
+                              approval_id: d.approval_id,
+                            })),
+                    );
+                  }
+                }}
               />
             </Field>
             {/**
