@@ -182,6 +182,7 @@ import {
 import { componentsForCoordinate } from "@/lib/masters/component-coordinates";
 import { previewOrderNumber } from "@/lib/orders/actions";
 import { RecordPicker } from "@/components/masters/record-picker";
+import { CategoryPicker } from "@/components/masters/lookup-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -2429,10 +2430,11 @@ export function GarmentOrderScreen({
    *
    * The three rows are not orphaned by this: `categories.fabric_structure_id`
    * still points at them, and the Category master, the Material master and
-   * `lib/orders/styles/rules.ts` all read that column. What it no longer drives
-   * is GSM — the "Circular Knit → compulsory" carve-out was withdrawn on
-   * 2026-09-01 and `familyCodeOf` went with it, so this screen derives no knit
-   * family at all any more. See `structureRequiredCells` in combo-rules.ts.
+   * `lib/orders/styles/rules.ts` all read that column. It also drives GSM
+   * again — the "Circular Knit → compulsory" carve-out was withdrawn on
+   * 2026-09-01 and reinstated on 2026-09-05, and `familyCodeOf` (below,
+   * beside `fabricStructureOpts`) is what this screen resolves the family
+   * through. See `structureRequiredCells` in combo-rules.ts.
    */
 
   const printOpts = useMemo(
@@ -2559,25 +2561,44 @@ export function GarmentOrderScreen({
   /**
    * The `fabric_structure` lookup rows — Circular Knit / Flat Knit / Woven.
    *
-   * NOT A PICKER (0415 took the last one off this screen, and nothing here asks
-   * the operator the knit family directly). It is the second hop of a
-   * DERIVATION: a component names a fabric CATEGORY, the category names its
-   * family, and `compTypeFor` turns that into the `comp_type` this screen now
-   * stores alongside the Style master. This memo is that same fact shaped as
-   * `{id, name}` because that is what the shared rule takes.
+   * NOT A PICKER OF ITS OWN (0415 took the last one off this screen, and
+   * nothing here asks the operator the knit family directly). It serves two
+   * readers now: `componentTypeForCategory` takes the second hop of a
+   * DERIVATION (a component names a fabric CATEGORY, the category names its
+   * family, and that turns into the `comp_type` this screen stores alongside
+   * the Style master); `CategoryPicker`'s Style Category cell (2026-09-05)
+   * hands the whole list to its "+ Add" sheet, which is why this is now the
+   * full `ConfigLookup` shape rather than the `{id, name}` reshape it used to
+   * be — `componentTypeForCategory` only ever read those two fields, so
+   * widening it costs that reader nothing.
    *
-   * `familyCodeOf` USED TO SIT BELOW and make the same two hops for the GSM
-   * rule. It went on 2026-09-01 with the rule it served — GSM is required on
-   * every fabric now — so `compTypeFor` is the only reader of the family left
-   * on this screen.
+   * `familyCodeOf` below makes the same two hops for the GSM rule
+   * (`structureRequiredCells` in combo-rules.ts) — withdrawn 2026-09-01,
+   * reinstated 2026-09-05 when the client asked for the case rule back.
    */
   const fabricStructureOpts = useMemo(
-    () =>
-      lookups
-        .filter((l) => l.kind === "fabric_structure")
-        .map((l) => ({ id: l.id, name: l.name })),
+    () => lookups.filter((l) => l.kind === "fabric_structure"),
     [lookups],
   );
+  /**
+   * The knit family a picked Structure belongs to — `structureRequiredCells`'s
+   * only input (combo-rules.ts). Two hops, same ones `componentTypeForCategory`
+   * makes above: Structure → category → `fabric_structure_id` → this lookup's
+   * `code` ("circular" / "flat_knit" / "woven"). Matched on `code`, not name,
+   * for `isCircularKnit`'s own reason — a lookup row can be renamed from the
+   * picker's pencil and a code survives that.
+   *
+   * NULL for a blank Structure or a category with no family declared, and the
+   * caller (`structureRequiredCells`) treats null exactly like "not circular" —
+   * GSM stays optional until the fabric names a category that says otherwise.
+   */
+  const familyCodeOf = (structureId: string | null): string | null => {
+    const catFamilyId = structureId
+      ? categoryById.get(structureId)?.fabric_structure_id
+      : null;
+    if (!catFamilyId) return null;
+    return fabricStructureOpts.find((o) => o.id === catFamilyId)?.code ?? null;
+  };
   /**
    * Style Category offers GARMENT categories (0394/0461) — the same list the
    * Style master's own cell does.
@@ -2592,25 +2613,35 @@ export function GarmentOrderScreen({
    * beside `styleColumns` is a hook called conditionally. eslint caught it;
    * every other option list on this screen is up here for the same reason.
    */
+  /** Every Item Class row (0394) — only here to hand `CategoryPicker`'s "+ Add"
+   *  the class list, exactly as the Style master's own copy of this field does.
+   *  It is what makes the sheet ASK which class a new category belongs to,
+   *  rather than silently creating under GARMENTS (see `styleCategoriesFor`). */
+  const itemClassOpts = useMemo(() => lookups.filter((l) => l.kind === "item_class"), [lookups]);
   const garmentClassId = useMemo(
-    () =>
-      lookups.find(
-        (l) => l.kind === "item_class" && (l.code ?? "").toUpperCase() === "GAR",
-      )?.id ?? null,
-    [lookups],
+    () => itemClassOpts.find((l) => (l.code ?? "").toUpperCase() === "GAR")?.id ?? null,
+    [itemClassOpts],
   );
-  const styleCategoryItems = useMemo(
-    () =>
-      data.categories
-        .filter((c) => !garmentClassId || c.item_class_id === garmentClassId)
-        .map((c) => ({
-          id: c.id,
-          code: c.short_name,
-          name: c.name ?? c.short_name ?? "(unnamed category)",
-          inactive: isInactive(c),
-        })),
-    [data.categories, garmentClassId],
-  );
+  /**
+   * Style Category's option list (0394/0461) — the same GARMENT categories the
+   * Style master's own cell offers, and now the raw `Category[]` shape
+   * `CategoryPicker` takes rather than a picker-row reshape, exactly as the
+   * Style master's `scopedCategories` does (2026-09-05: bring that screen's
+   * inline Add here too, rather than sending the operator to Master Data to
+   * create a missing category first).
+   *
+   * A PLAIN FUNCTION, NOT A MEMO, because the held value is PER ROW: this grid
+   * has many style lines, each with its own `style_category_id`, so there is no
+   * single id to close over the way the Style master's one `form.style_category_id`
+   * does. Same shape as `samplesForCustomer` below, called fresh per cell. The
+   * held value always survives the filter — "Disabled rows": a category
+   * created outside GARMENTS via the quick-create sheet's own class picker
+   * must not vanish from its own row on the next refresh and blank the FK.
+   */
+  const styleCategoriesFor = (held: string | null) =>
+    data.categories.filter(
+      (c) => !garmentClassId || c.item_class_id === garmentClassId || c.id === held,
+    );
   const structureItems = useMemo(
     () =>
       data.categories
@@ -6364,22 +6395,36 @@ export function GarmentOrderScreen({
            wholesale, so dropping it would NULL it on the next save rather than
            freeze it.
 
-           A `RecordPicker` and not the master's `CategoryPicker`: that control's
-           inline "+ Add" opens the class-aware quick-create sheet, which is a
-           masters affordance every other picker on this screen withholds. */
-        <RecordPicker
+           NOW `CategoryPicker`, NOT `RecordPicker` (client 2026-09-05: bring
+           the master's own inline Add here rather than sending the operator
+           to Master Data to create a missing category first). Handing over
+           `levies` + `fabricStructures` + `itemClasses` is what makes "+ Add"
+           open the full class-aware `CategoryQuickCreateSheet` — the same
+           sheet, the same `createCategory()`, the Style master's own "Style
+           Category" cell already opens — instead of a name-only inline form;
+           omitting any one of the three silently downgrades it with no error
+           anywhere (`useFullQc`, lookup-picker.tsx). */
+        <CategoryPicker
           label="Style Category"
           compact
           required
-          items={styleCategoryItems}
-          value={r.style_category_id}
+          categories={styleCategoriesFor(r.style_category_id)}
+          value={r.style_category_id ?? ""}
           onChange={(id) =>
             updateStyle(r.key, {
-              style_category_id: id,
+              style_category_id: id || null,
               style_category:
-                styleCategoryItems.find((o) => o.id === id)?.name ?? "",
+                data.categories.find((c) => c.id === id)?.name ?? "",
             })
           }
+          itemClassId={garmentClassId ?? undefined}
+          selectedClassCode="GAR"
+          levies={data.levies}
+          fabricStructures={fabricStructureOpts}
+          itemClasses={itemClassOpts}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          canDelete={masterPerms.canEdit}
         />
       ),
     },
@@ -10667,7 +10712,7 @@ export function GarmentOrderScreen({
          versus what is cut from it), the reveal lands in the same place either
          way, and merging them would produce "missing Composition · Colour" —
          a sentence that reads as one row owing both. */
-      const own = structureProblems(st);
+      const own = structureProblems(st, familyCodeOf(st.structure_id));
       const bad = st.components
         .map((c) => componentProblems(c, st.item_sub_type))
         .filter((m) => m.length);
@@ -13969,7 +14014,7 @@ export function GarmentOrderScreen({
         ]
           .filter(Boolean)
           .join("  ·  ");
-        const foldedProblems = structureProblems(st);
+        const foldedProblems = structureProblems(st, familyCodeOf(st.structure_id));
         return (
           /* THE OPEN CARD'S RAIL, TRANSPARENT — see the long note in
              `renderMobileRow`. Same width, same padding, no colour: the two
@@ -14022,21 +14067,19 @@ export function GarmentOrderScreen({
       /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
       addClassName={STRUCTURE_ADD_W}
       renderMobileRow={(st) => {
-        const problems = structureProblems(st);
-        /* THE STARS AND THE HOLDS COME FROM THE RULE, NEVER FROM A LITERAL
-           (client 2026-09-01). `structureRequiredCells` is the same declaration
-           `problems` above is derived from and the same one `comboProblems`
-           gates Save on, so a cell cannot show a `*` the Save button disagrees
-           with — the star/hold divergence AGENTS.md's "one declaration, four
-           enforcers" exists to prevent.
+        const family = familyCodeOf(st.structure_id);
+        const problems = structureProblems(st, family);
+        /* THE STARS AND THE HOLDS COME FROM THE RULE, NEVER FROM A LITERAL.
+           `structureRequiredCells` is the same declaration `problems` above is
+           derived from and the same one `comboProblems` gates Save on, so a
+           cell cannot show a `*` the Save button disagrees with — the
+           star/hold divergence AGENTS.md's "one declaration, four enforcers"
+           exists to prevent.
 
-           IT TAKES NO ARGUMENT, and that is the 2026-09-01 change: all five
-           cells are unconditional, so every fabric on every combo answers the
-           same. It stays a CALL rather than a module constant because the
-           question "what does a fabric owe" belongs to the rule module, and an
-           inlined object here would be the second statement this indirection
-           exists to prevent. */
-        const need = structureRequiredCells();
+           TAKES `family`, REINSTATED 2026-09-05: GSM alone is conditional on
+           the picked Structure's knit family (Circular Knit only), the other
+           four cells are unconditional regardless of what is passed. */
+        const need = structureRequiredCells(family);
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
@@ -14356,25 +14399,26 @@ export function GarmentOrderScreen({
                   place rather than being half-expressed as a condition on the
                   JSX. (Until 2026-09-01 the gate was "unless this is the first
                   FABRIC" — the axis moved, the placement did not.) */}
-              {/* GSM IS REQUIRED ON EVERY FABRIC (client 2026-09-01: "gsm also
-                  need required for all fabric type").
+              {/* GSM IS REQUIRED ONLY ON A CIRCULAR KNIT (client 2026-09-05:
+                  "circular knit type fabric type only gsm … flat and woven
+                  fabric gsm field are optional") — the 2026-08-10 case rule,
+                  BACK after a two-week detour.
 
-                  IT SHIPPED CONDITIONAL EARLIER THE SAME DAY and this comment
-                  said so — "Circular Knit → GSM compulsory; Woven or Flat Knit →
-                  optional" (client 2026-08-10) was read as the narrower and
-                  older statement and left standing. The client was shown that
-                  reading and overruled it in one line, so the 08-10 carve-out is
-                  WITHDRAWN, not overlooked: a later instruction wins, and
-                  restoring it needs a new decision rather than someone noticing
-                  `isCircularKnit` still exists (it does, uncalled, and its own
-                  doc explains why).
+                  IT WAS MADE UNCONDITIONAL ON 2026-09-01 ("gsm also need
+                  required for all fabric type") and this comment said so — the
+                  client was shown the 08-10 carve-out and overruled it in one
+                  line. That withdrawal is itself now withdrawn: a later
+                  instruction wins, and the client's 09-05 ask is that later
+                  instruction. `isCircularKnit` (combo-rules.ts) is called
+                  again, through `familyCodeOf` above resolving the picked
+                  Structure's category → `fabric_structure_id` → this lookup's
+                  `code`.
 
-                  SO THE STAR NO LONGER FLICKERS. It used to appear when you
-                  picked a knit Structure and vanish on a woven one — the one
-                  case-driven star on this card. Nothing here is conditional now,
-                  which is why `need.gsm` reads as a constant: it is still routed
-                  through the rule so the star, the hold and the Save gate cannot
-                  drift apart. */}
+                  SO THE STAR FLICKERS AGAIN, deliberately. It appears on a
+                  Circular Knit Structure and vanishes on a Woven or Flat Knit
+                  one — `need.gsm` is `isCircularKnit(family)`, not a constant,
+                  and it is routed through the one rule so the star, the hold
+                  and the Save gate cannot drift apart from each other. */}
               <Field label="GSM" required={need.gsm} w="num">
                 <Input
                   type="number"
@@ -19135,28 +19179,18 @@ export function GarmentOrderScreen({
                 placeholder="No rejection"
               />
             </Field>
-            {/* "Rejection %" — A SEPARATE FLAT FIGURE, BESIDE THE RULE ABOVE,
-                NOT REPLACING IT (backend calc spec, 2026-09-04, Formula 5:
-                "Total Production Target Piece Count = Total Ordered Pieces x
-                (1 + Rejection% / 100)", default 0). Mirrors "Excess %" above
-                (`<Field size="xs">` + a plain `type="number" <Input>`, no
-                picker) because that is the same shape of value: a number the
-                merchandiser types, not a master row to pick.
-
-                FEEDS MATERIAL BOM ONLY — see `rejection_pct`'s own doc on
-                `HeaderForm` for why: the Rejection Rule above already feeds
-                Fabric BOM's target, and adding this flat percentage there too
-                would double-count. Never `required` — 0 is a complete,
-                ordinary answer ("no rejection considered"), unlike the rule
-                picker's own now-required state above. */}
-            <Field label="Rejection %" size="xs" htmlFor="hd-rejection-pct">
-              <Input
-                id="hd-rejection-pct"
-                type="number"
-                value={form.rejection_pct}
-                onChange={(e) => set({ rejection_pct: e.target.value })}
-              />
-            </Field>
+            {/* "Rejection %" INPUT HIDDEN FROM THIS SCREEN (client 2026-09-05):
+                beside "Rejection Rule" it read as a duplicate of the same
+                concept, and the client wants to settle whether Material BOM
+                should keep its own flat figure or move onto the same ladder
+                Fabric BOM already uses (`rejectionFor`/Rejection Rule) before
+                this is shown again. `rejection_pct` itself, the form field,
+                the load/submit wiring and `materialTarget`'s use of it are all
+                UNTOUCHED — it now always computes with 0 for a new order,
+                since nothing on screen can set it. Do not delete the plumbing
+                or re-add the control without asking; see the plan this was
+                built from (backend calc spec, 2026-09-04, Formula 5) for what
+                it was for. */}
             {/* THE "Attachments" CELL STOOD HERE AND IS GONE (client
                 2026-08-31): the Add File control belongs to a STYLE, so it is
                 the Files cell on each Style(s) row, mandatory before that style
