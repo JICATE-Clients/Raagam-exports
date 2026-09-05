@@ -778,6 +778,64 @@ export function enterTicks(p: TickProbe): boolean {
   return p.hasNextField || !p.located || p.optIn;
 }
 
+/** What `gridKeyNav` is deciding when Enter lands inside a child grid. */
+export interface GridEnterProbe {
+  /**
+   * Is this grid's body a STACK of cards rather than a set of lines?
+   *
+   * `child-grid.tsx` publishes it as `data-grid-axis="stack"` on the cards body
+   * and on no other, so the answer is a property of the LAYOUT and never of the
+   * screen. See the marker for why a card has no column.
+   */
+  stacked: boolean;
+  /** Is there another field left ANYWHERE in this grid, after the cursor? */
+  fieldAfter: boolean;
+  /** Does this grid have a reachable "+ Add" of its own? */
+  hasAdd: boolean;
+}
+
+/**
+ * ENTER INSIDE A CHILD GRID — the rule, separated from the DOM.
+ *
+ * Split out for the reason `enterTicks` and `keyFills` above are: `gridKeyNav`
+ * needs a document and this repo has no browser to give it, so the DECISION is
+ * stated here where `scripts/check-keyboard-holds.mts` can put vectors through
+ * it. What is left in `child-grid.tsx` is the three DOM questions this takes as
+ * answers.
+ *
+ * Three outcomes, and "advance" is the interesting one:
+ *
+ *  - **`"row"`** — the Excel key, "same column one row down". Correct wherever a
+ *    row is a LINE under a shared header: the table, the inline row, and
+ *    `across`'s one-control records.
+ *  - **`"advance"`** — DECLINE the key, so it reaches `enterAdvances` and moves
+ *    one field along. Not implemented here on purpose: "the next field" already
+ *    exists in exactly one place, and a second copy inside the grid is how Tab,
+ *    Enter and the arrows come to disagree inside a single row (AGENTS.md).
+ *  - **`"add"`** — land on the grid's "+ Add". This is the one thing that CANNOT
+ *    be left to `enterAdvances`, which looks for `isFieldLike` and a "+ Add"
+ *    deliberately is not one (`isRowAdd`) — so it would walk past the button and
+ *    hand over to the next section.
+ *
+ * A STACKED ROW NEVER GOES DOWN A COLUMN, because it has none: its fields are a
+ * panel on their own multi-line track, so "column N of the next row" names
+ * nothing an operator can see. On the Garment Order's Style(s) tab that put
+ * Enter in the Style box onto the Style box of the NEXT style card, ten fields
+ * skipped (client 2026-09-05).
+ *
+ * NO "+ Add" IS NOT A REASON TO SWALLOW THE KEY — `"advance"`, so the section
+ * hand-off and Save stay reachable off the last field of a grid that cannot
+ * grow. That is the same decline-and-bubble `ownAddControl` returning null
+ * already meant.
+ */
+export type GridEnter = "row" | "advance" | "add";
+
+export function enterInGrid(p: GridEnterProbe): GridEnter {
+  if (!p.stacked) return "row";
+  if (p.fieldAfter) return "advance";
+  return p.hasAdd ? "add" : "advance";
+}
+
 /**
  * ↓ ON A FIELD OPENS ITS LIST — the same thing ↓ does on a Combobox, so every
  * "choose a stored value" field answers the same key (client 2026-07-28). This is
