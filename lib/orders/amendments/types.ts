@@ -1338,6 +1338,40 @@ export interface AmendmentTaActivity {
 }
 
 /**
+ * One row of the order's approval tracker (0537) — as much of it as the
+ * order screen and server action need. Mirrors `AmendmentTaActivity`'s own
+ * shape and reasoning:
+ *
+ * `row_uid` IS THE ANCHOR, exactly as above — `actual_sent_date` /
+ * `actual_received_date` / `proof_path` are entered on the merchandiser
+ * board, never on this screen, and are carried across a save by `row_uid`.
+ * Never re-derive it for a row read back from the database.
+ *
+ * `target_date` IS WRITTEN, NEVER COMPUTED ON THIS SCREEN. For the PP Sample
+ * row specifically it is copied from the production ladder's own PPAPPR
+ * activity in the SAME save (see `lib/orders/amendments/actions.ts`) — never
+ * a second, independent calculation of the same fact. For every other
+ * approval it comes from `lib/orders/ta/approval-schedule.ts`.
+ */
+export interface AmendmentTaApproval {
+  id: string;
+  amendment_id: string;
+  row_uid: string;
+  /** The `ta_approvals` master row (0534). Name/dept-equivalent info is read
+   *  THROUGH this — never copied onto the row. */
+  approval_id: string | null;
+  target_date: string | null;
+  /** Entered on the merchandiser board. Carried across a save by `row_uid`. */
+  actual_sent_date: string | null;
+  actual_received_date: string | null;
+  /** Storage path inside the PRIVATE bucket the proof file lives in — never a
+   *  URL, same reasoning as `AmendmentFile.storage_path` below. */
+  proof_path: string | null;
+  /** `pending` | `sent` | `received`. Set on the merchandiser board. */
+  status: string;
+}
+
+/**
  * A document attached to the order (0416) — the style JPG, the buyer's original
  * PDF order sheet, a shade card.
  *
@@ -1618,6 +1652,9 @@ export interface GarmentOrderAmendment {
   pack_type_lines: AmendmentPackTypeLine[];
   /** The order's Time & Action ladder (0481). Merged on save, never replaced. */
   ta_activities: AmendmentTaActivity[];
+  /** The order's approval tracker (0537). Merged on save by row_uid, same as
+   *  ta_activities — never replaced wholesale. */
+  ta_approvals: AmendmentTaApproval[];
   quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
   files: AmendmentFile[];
@@ -2067,6 +2104,40 @@ export const amendmentTaActivityInput = z.object({
 });
 
 /**
+ * One row of the order's approval tracker (0537).
+ *
+ * NARROWER THAN THE ROW, FOR THE SAME REASON `amendmentTaActivityInput` IS.
+ * `target_date`, `actual_sent_date`, `actual_received_date`, `proof_path` and
+ * `status` are ALL absent on purpose:
+ *
+ *   * `target_date` is computed by the SERVER — for the PP Sample row, copied
+ *     from the production ladder's own PPAPPR activity in the same save; for
+ *     every other approval, from `lib/orders/ta/approval-schedule.ts`. A
+ *     client stating an opinion about either would be the exact "BOTH HALVES
+ *     OR NEITHER" failure `amendmentTaActivityInput`'s own note names.
+ *
+ *   * `actual_sent_date` / `actual_received_date` / `proof_path` / `status`
+ *     belong to the MERCHANDISER BOARD, entered days or weeks later by
+ *     someone else. Carried across a save by `row_uid`, from the database,
+ *     never from this payload.
+ *
+ * `row_uid` is REQUIRED, same reasoning as `amendmentTaActivityInput`: this
+ * table is created today, so there is no older client whose omission needs
+ * protecting — a missing anchor should fail loud, not delete a completion
+ * record silently.
+ */
+export const amendmentTaApprovalInput = z.object({
+  row_uid: z
+    .string()
+    .uuid(
+      "Every approval row needs its anchor — reload the order rather than " +
+        "saving a form that has lost one, or the sent/received records " +
+        "already logged against it cannot be matched back.",
+    ),
+  approval_id: uuidN,
+});
+
+/**
  * One attached document (0416).
  *
  * `doc_kind` is nullable because the operator picks it AFTER the file lands —
@@ -2404,6 +2475,12 @@ export const amendmentInput = z.object({
    * than the rows it writes, and `normalizeTaActivities` for the merge.
    */
   ta_activities: z.array(amendmentTaActivityInput).default([]),
+  /**
+   * The order's approval tracker (0537). MERGED on save by row_uid, same
+   * shape and reason as ta_activities above — see `amendmentTaApprovalInput`
+   * and `normalizeTaApprovals`.
+   */
+  ta_approvals: z.array(amendmentTaApprovalInput).default([]),
   quantities: z.array(amendmentQuantityInput).default([]),
   files: z.array(amendmentFileInput).default([]),
 })
