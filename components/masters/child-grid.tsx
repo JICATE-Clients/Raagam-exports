@@ -1162,7 +1162,6 @@ export function ChildGrid<T extends { key: string }>({
   hideAdd = false,
   narrow = false,
   tableFrom,
-  tableAlways = false,
   centerHeaders = false,
   lockExisting = false,
   hideRemove = false,
@@ -1313,40 +1312,6 @@ export function ChildGrid<T extends { key: string }>({
    * literal entry, never by interpolating one.
    */
   tableFrom?: TableFrom;
-  /**
-   * RENDER THE TABLE AT EVERY WIDTH — no breakpoint, and the stacked cards
-   * never render at all.
-   *
-   * `responsive` mode picks between a real `<table>` and stacked row-cards on a
-   * container query, and `tableFrom` only ever moves that switch LATER (its
-   * three tiers are 1024 · 1152 · 1280). There is no tier below the default
-   * `@lg` (512px), so a grid in a NARROW PANE can never show its table — which
-   * is right for a ten-column line grid and wrong for a two-column one, where
-   * the cards are strictly worse: they stack two short fields the operator
-   * asked to see side by side, and take the column headers with them.
-   *
-   * Added 2026-09-05 for the Garment Order's Color/Print Details tab, where
-   * three grids share a row and each pane is ~300px: Yarn Dyeing and Fabric
-   * Dyeing are `#` · Type · Colour, Roll form prints is `#` · Roll form prints.
-   * The client asked for each to be "one table" (Tamil, "oru table aa convert
-   * pannu"), and `inlineCards` — the other way to defeat the breakpoint — draws
-   * a header band and aligned columns but NO gridlines, so it reads as loose
-   * fields under grey labels rather than as a table.
-   *
-   * ## ONLY FOR A GRID WHOSE TABLE IS NARROWER THAN ITS PANE
-   *
-   * This is opt-in and must stay so. The breakpoint is not decoration: below it
-   * a wide table either overflows its card — and "a grid wraps, it never scrolls
-   * sideways" is a standing rule — or gets squeezed until every picker reads
-   * "— S…". Forcing the table is safe HERE only because these tables are
-   * ~300px and ~210px wide, so they fit even a phone.
-   *
-   * Pair it with columns that all declare a `width` (so `hugsContent` is true
-   * and the table is `w-auto table-fixed` rather than `w-full min-w-[420px]`),
-   * and size the caller's pane from the sum of those widths — see the call site,
-   * which states the arithmetic.
-   */
-  tableAlways?: boolean;
   /**
    * EVERY COLUMN HEADING IS CENTRED, whatever its cells do (client, 2026-08-18:
    * "make all the heading in center, everything should look neat and clean").
@@ -2234,16 +2199,11 @@ export function ChildGrid<T extends { key: string }>({
    */
   const cardHug =
     mode === "responsive"
-      ? // `tableAlways` renders the table at every width and never the cards,
-        // so the card can hug unconditionally — the collapse this ternary
-        // guards against needs the stacked cards to be on screen.
-        tableAlways
-        ? "w-fit"
-        : tableFrom
-          ? TABLE_FROM[tableFrom].hug
-          : narrow
-            ? "@md:w-fit"
-            : "@lg:w-fit"
+      ? tableFrom
+        ? TABLE_FROM[tableFrom].hug
+        : narrow
+          ? "@md:w-fit"
+          : "@lg:w-fit"
       : "w-fit";
 
   /**
@@ -2355,21 +2315,15 @@ export function ChildGrid<T extends { key: string }>({
         {mode === "responsive" && (
         <div
           className={cn(
-            "overflow-x-auto rounded-lg border border-border",
+            "hidden overflow-x-auto rounded-lg border border-border",
             // See `narrow`: the cap would otherwise push this below @lg and the
             // grid would render as cards. See `wideTable` for the other end —
             // and note @lg is 512px here, not the 1024 the viewport name suggests.
-            //
-            // `tableAlways` removes the gate outright — see the prop.
-            !tableAlways &&
-              cn(
-                "hidden",
-                tableFrom
-                  ? TABLE_FROM[tableFrom].show
-                  : narrow
-                    ? "@md:block"
-                    : "@lg:block",
-              ),
+            tableFrom
+              ? TABLE_FROM[tableFrom].show
+              : narrow
+                ? "@md:block"
+                : "@lg:block",
             hugsContent && "w-fit max-w-full",
           )}
         >
@@ -2948,17 +2902,12 @@ export function ChildGrid<T extends { key: string }>({
                different questions (WHICH rule between rows, and AT WHAT WIDTH
                the cards give way), and an earlier resolution that took one side
                whole would have silently reverted the other's fix. */
-            /* `tableAlways` hides them at EVERY width, which is the half
-               that makes the prop safe: leave this on a breakpoint and the
-               table and the cards both render below it. */
             mode === "responsive" &&
-              (tableAlways
-                ? "hidden"
-                : tableFrom
-                  ? TABLE_FROM[tableFrom].hide
-                  : narrow
-                    ? "@md:hidden"
-                    : "@lg:hidden"),
+              (tableFrom
+                ? TABLE_FROM[tableFrom].hide
+                : narrow
+                  ? "@md:hidden"
+                  : "@lg:hidden"),
             /* TWO PANES, AND ONLY ON A WIDE SURFACE. Below the breakpoint the
                grid falls back to exactly what it does today — list above, open
                row beneath — because a 268px column beside a form is a phone

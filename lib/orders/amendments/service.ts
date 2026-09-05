@@ -193,12 +193,6 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         // read-only here but must be SHOWN, since the tab is where an operator
         // sees how far the order has actually got.
         "ta_activities:garment_order_amendment_ta_activities(*), " +
-        // The order's approval tracker (0537) — same reasoning as
-        // ta_activities immediately above: `*` so `row_uid` round-trips, and
-        // the merchandiser-board-owned columns (actual_sent_date,
-        // actual_received_date, proof_path, status) are read-only here but
-        // shown, so the operator can see what has actually gone out.
-        "ta_approvals:garment_order_amendment_ta_approvals(*), " +
         // The Assort tree (0414). Two levels of embed under the quantity row —
         // and, like every other name here, ONE unresolvable relationship
         // fails the WHOLE query rather than this branch of it, which is why
@@ -258,10 +252,6 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
        sort a refused (undated) row to the front, so sorting on the date would
        be a second, disagreeing answer to "what order is this ladder in?". */
     ta_activities: bySno(r.ta_activities),
-    // NO `bySno` — unlike the production ladder, an approval row carries no
-    // `sno` at all: approvals are not a chain with an execution order, so
-    // there is nothing to sort by. Passed through as PostgREST returns it.
-    ta_approvals: r.ta_approvals ?? [],
     quantities: bySno(r.quantities).map((q) => ({
       ...q,
       // Size cells have no `sno` — the ORDER of a ratio is the column order,
@@ -922,17 +912,6 @@ export type AmendmentFormData = {
    * `TaActivityOption`.
    */
   taActivities: TaActivityOption[];
-  /**
-   * The `ta_approvals` master (0534) — Fit Sample, Photo Sample, PP Sample,
-   * Lap Dip, Strike-off, Trims, etc. See `TaApprovalOption`.
-   */
-  taApprovals: TaApprovalOption[];
-  /**
-   * EVERY customer's approval defaults (0535), unscoped — see
-   * `getAllCustomerApprovalDefaults`'s own note for why this is loaded whole
-   * rather than fetched per Customer change.
-   */
-  customerApprovalDefaults: CustomerApprovalDefault[];
 };
 
 /**
@@ -985,107 +964,6 @@ async function getTaActivityRows(): Promise<TaActivityOption[]> {
     default_offset_days: r.default_offset_days ?? 0,
     is_active: r.is_active,
   }));
-}
-
-/**
- * A T&A approval, as the Approvals grid's Activity-style picker needs it
- * (0534). A `PickerRow` with the extra fields the grid's own derived cells
- * read — same additive shape `TaActivityOption` uses above, for the same
- * reason: handed straight to `RecordPicker`, and the rules that read the
- * extra keys live on the screen.
- */
-export type TaApprovalOption = PickerRow & {
-  short_name: string | null;
-  apply_condition: "AFTER_ORDER_DATE" | "BEFORE_SHIPMENT_DATE";
-  standard_days: number;
-  requires_proof: boolean;
-};
-
-/**
- * The T&A approvals master, for the Approvals grid's Activity-style picker
- * (0534/0537). `is_active` selected and not filtered — same "Disabled rows"
- * call `getTaActivityRows` makes above, for the same reason: a retired
- * approval must still resolve on an order that already names it.
- */
-async function getTaApprovalRows(): Promise<TaApprovalOption[]> {
-  const s = await createClient();
-  const { data, error } = await s
-    .from("ta_approvals")
-    .select("id, short_name, name, apply_condition, standard_days, requires_proof, is_active, sequence")
-    .order("sequence");
-  if (error) throw new Error(`Could not load the T&A approvals master: ${error.message}`);
-  return ((data ?? []) as {
-    id: string;
-    short_name: string | null;
-    name: string | null;
-    apply_condition: "AFTER_ORDER_DATE" | "BEFORE_SHIPMENT_DATE";
-    standard_days: number | null;
-    requires_proof: boolean | null;
-    is_active: boolean | null;
-  }[]).map((r) => ({
-    id: r.id,
-    code: r.short_name,
-    name: r.name ?? r.short_name ?? "",
-    short_name: r.short_name,
-    apply_condition: r.apply_condition,
-    standard_days: r.standard_days ?? 0,
-    requires_proof: r.requires_proof ?? true,
-    inactive: r.is_active === false,
-  }));
-}
-
-/** One customer's own approval selection + lead-time override (0535). */
-export type CustomerApprovalDefault = {
-  customer_id: string;
-  approval_id: string;
-  lead_time_days: number;
-};
-
-/**
- * A SINGLE customer's approval defaults — the SERVER-SIDE lookup
- * `taApprovalRows` (actions.ts) makes at SAVE time, to resolve this order's
- * buyer-specific lead-time override. Scoped by `customerId` because a save
- * only ever needs one buyer's rows.
- *
- * NOT what the SCREEN calls to seed the Approvals grid — see
- * `getAllCustomerApprovalDefaults` below for that. Two different consumers,
- * two different shapes of the same question, the same way this repo already
- * has both a scoped and an unscoped reader for other lookups.
- */
-export async function getCustomerApprovalDefaults(
-  customerId: string,
-): Promise<CustomerApprovalDefault[]> {
-  const s = await createClient();
-  const { data, error } = await s
-    .from("customer_approval_defaults")
-    .select("customer_id, approval_id, lead_time_days")
-    .eq("customer_id", customerId);
-  if (error) throw new Error(`Could not load this customer's approval defaults: ${error.message}`);
-  return (data ?? []) as CustomerApprovalDefault[];
-}
-
-/**
- * EVERY customer's approval defaults, unscoped — loaded once into
- * `AmendmentFormData` and filtered CLIENT-SIDE when the order's Customer
- * changes, the same shape `nominatedVendorOptions` already uses for
- * `customer_nominated_vendors` (a pure function over an already-loaded
- * list, not a fetch triggered by the picker). The table is small — a
- * handful of approvals per customer — so loading all of it once is cheaper
- * than a server round trip on every Customer change, and it keeps the
- * screen's seeding logic pure and testable.
- *
- * Empty for a customer with no defaults configured: the operator adds
- * approvals to the order manually — the same "empty-and-explain" shape
- * every other nominated/scoped list in this app uses, never a fallback to
- * "every approval", which would make the buyer's own list advisory.
- */
-async function getAllCustomerApprovalDefaults(): Promise<CustomerApprovalDefault[]> {
-  const s = await createClient();
-  const { data, error } = await s
-    .from("customer_approval_defaults")
-    .select("customer_id, approval_id, lead_time_days");
-  if (error) throw new Error(`Could not load customer approval defaults: ${error.message}`);
-  return (data ?? []) as CustomerApprovalDefault[];
 }
 
 /**
@@ -1488,8 +1366,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     processes,
     rejectionRules,
     taActivities,
-    taApprovals,
-    customerApprovalDefaults,
   ] = await Promise.all([
     getCustomerRows(),
     getMerchandiserRows(),
@@ -1510,8 +1386,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getProcessRows(),
     getRejectionRuleRows(),
     getTaActivityRows(),
-    getTaApprovalRows(),
-    getAllCustomerApprovalDefaults(),
   ]);
   return {
     /**
@@ -1557,7 +1431,5 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     processes,
     rejectionRules,
     taActivities,
-    taApprovals,
-    customerApprovalDefaults,
   };
 }

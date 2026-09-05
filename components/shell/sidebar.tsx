@@ -6,15 +6,23 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
-import { NAV } from "./nav";
+import { NAV, type SubNavItem } from "./nav";
 import { owningNavHref } from "@/lib/nav/module-groups";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
+import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
 import { cn } from "@/lib/utils";
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(href + "/");
+}
+
+/** A plain left-click, no modifier — the only kind worth intercepting.
+ *  Ctrl/Cmd/Shift/middle-click all mean "open in a new browser tab" and
+ *  must reach the native anchor untouched. */
+function isPlainLeftClick(e: React.MouseEvent) {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
 
 /** Href of the deepest child whose route matches the current path (longest prefix wins). */
@@ -33,6 +41,7 @@ export interface StoreNavLink {
 export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   const pathname = usePathname();
   const user = useAppUser();
+  const openTab = useOpenWorkspaceTab();
   const items = NAV.filter((i) => hasPermission(user, i.module, "view"));
 
   // Live store records are listed directly under the Stores group, ahead of
@@ -141,7 +150,7 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
         {items.map((item) => {
           const Icon = item.icon;
-          const children =
+          const children: SubNavItem[] =
             item.href === "/stores"
               ? [...storeLinks, ...(item.children ?? [])]
               : (item.children ?? []);
@@ -186,6 +195,11 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
                     `pathname` changes, and only ever adds. */}
                 <Link
                   href={item.href}
+                  onClick={(e) => {
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
+                    openTab({ href: item.href, title: item.label });
+                  }}
                   className={cn(
                     "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                     parentStrong
@@ -222,18 +236,56 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
                   {children.map((child) => {
                     const childActive = child.href === activeChildHref;
                     return (
-                      <Link
-                        key={child.href}
-                        href={child.href}
-                        className={cn(
-                          "block rounded-md px-3 py-1.5 text-sm transition-colors",
-                          childActive
-                            ? "bg-primary/10 font-medium text-primary hover:bg-primary/20"
-                            : "text-muted-foreground hover:bg-border hover:text-foreground",
+                      <div key={child.href}>
+                        <Link
+                          href={child.href}
+                          onClick={(e) => {
+                            if (!isPlainLeftClick(e)) return;
+                            e.preventDefault();
+                            openTab({ href: child.href, title: child.label });
+                          }}
+                          className={cn(
+                            "block rounded-md px-3 py-1.5 text-sm transition-colors",
+                            childActive
+                              ? "bg-primary/10 font-medium text-primary hover:bg-primary/20"
+                              : "text-muted-foreground hover:bg-border hover:text-foreground",
+                          )}
+                        >
+                          {child.label}
+                        </Link>
+
+                        {/* THIRD SIDEBAR LEVEL — overrides the standing
+                            "two levels in the sidebar, third on the page"
+                            rule (client override, 2026-09-05), scoped to
+                            only the ACTIVE sub-module so an inactive one
+                            (Order Execution, say) stays a single row. */}
+                        {childActive && !!child.children?.length && (
+                          <div className="ml-3 mt-0.5 space-y-0.5 border-l border-border pl-2">
+                            {child.children.map((grandchild) => {
+                              const grandchildActive = isActive(pathname, grandchild.href);
+                              return (
+                                <Link
+                                  key={grandchild.href}
+                                  href={grandchild.href}
+                                  onClick={(e) => {
+                                    if (!isPlainLeftClick(e)) return;
+                                    e.preventDefault();
+                                    openTab({ href: grandchild.href, title: grandchild.label });
+                                  }}
+                                  className={cn(
+                                    "block rounded-md px-3 py-1 text-[13px] transition-colors",
+                                    grandchildActive
+                                      ? "bg-primary/10 font-medium text-primary hover:bg-primary/20"
+                                      : "text-muted-foreground hover:bg-border hover:text-foreground",
+                                  )}
+                                >
+                                  {grandchild.label}
+                                </Link>
+                              );
+                            })}
+                          </div>
                         )}
-                      >
-                        {child.label}
-                      </Link>
+                      </div>
                     );
                   })}
                 </div>

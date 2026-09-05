@@ -1225,9 +1225,21 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
 };
 
 /** The sidebar `children` for a module — groups become one row each. */
-export function moduleNavChildren(
-  moduleHref: string,
-): { href: string; label: string }[] | undefined {
+export interface NavChild {
+  href: string;
+  label: string;
+  /**
+   * A group's OWN children, one level further in — the sidebar's THIRD
+   * level (client override, 2026-09-05: Sidebar normally stops at two, per
+   * this file's own "one rule" above). Present only for a `kind: "group"`
+   * entry, and only when it has children worth listing; `cardOnly` ones are
+   * excluded (their row lives in another group) and so are `todo` ones
+   * (no route exists yet to link to).
+   */
+  children?: { href: string; label: string }[];
+}
+
+export function moduleNavChildren(moduleHref: string): NavChild[] | undefined {
   const grouping = MODULE_GROUPS[moduleHref];
   if (!grouping) return undefined;
   return grouping.entries
@@ -1236,7 +1248,13 @@ export function moduleNavChildren(
     .filter((e) => !(e.kind === "group" && e.hidden))
     .map((e) =>
       e.kind === "group"
-        ? { href: `${moduleHref}/${e.slug}`, label: e.label }
+        ? {
+            href: `${moduleHref}/${e.slug}`,
+            label: e.label,
+            children: e.children
+              .filter((c) => !c.cardOnly && c.status !== "todo")
+              .map((c) => ({ href: c.href, label: c.label })),
+          }
         : { href: e.href, label: e.label },
     );
 }

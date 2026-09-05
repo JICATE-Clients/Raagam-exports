@@ -1434,7 +1434,15 @@ export function MasterFullScreen({
            * family). If a later instruction reverses this, that reversal
            * governs — the rejections above were not about this band.
            */
-          "bg-primary-soft px-4 py-3",
+          /* `py-2`, down from `py-3` (client 2026-09-05: "that bottom footer
+             bar also too much reduce both bar height and width" — global,
+             confirmed against all ~40 screens sharing this footer, not a
+             one-off for the screen it was reported on). The buttons below
+             dropped from `size="md"` to `size="sm"` in the same change, which
+             is the "width" half: `sm` is `px-3`/`text-xs` against `md`'s
+             `px-4`/`text-sm`, so the bar is shorter AND the button row is
+             narrower, not just visually shorter with the same footprint. */
+          "bg-primary-soft px-4 py-2",
           /**
            * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
            * filling its scrollport rather than a separate decision.
@@ -1488,7 +1496,7 @@ export function MasterFullScreen({
           )}
           <div className="flex-1" />
           {!stepping && footer.extra}
-          <Button variant="outline" size="md" onClick={footer.onCancel}>
+          <Button variant="outline" size="sm" onClick={footer.onCancel}>
             Cancel
           </Button>
           {/*
@@ -1533,7 +1541,7 @@ export function MasterFullScreen({
           */}
           {stepping && (
             <Button
-              size="md"
+              size="sm"
               data-blocked={stepBlockedWhy ? true : undefined}
               className={cn(stepBlockedWhy && "opacity-60")}
               onClick={() => {
@@ -1551,7 +1559,7 @@ export function MasterFullScreen({
           {!stepping && footer.onSaveDraft && (
             <Button
               variant="outline"
-              size="md"
+              size="sm"
               disabled={footer.isPending || !footer.canSave}
               onClick={footer.onSaveDraft}
             >
@@ -1569,7 +1577,7 @@ export function MasterFullScreen({
               disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
           {!stepping && (
             <Button
-              size="md"
+              size="sm"
               disabled={footer.isPending || (!footer.canSave && !blocked)}
               data-blocked={blocked || undefined}
               className={cn(blocked && "opacity-60")}
