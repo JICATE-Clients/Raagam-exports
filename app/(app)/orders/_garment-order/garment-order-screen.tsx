@@ -8235,6 +8235,24 @@ export function GarmentOrderScreen({
   const taColumns: ChildGridColumn<TaRow>[] = [
     {
       header: "Activity",
+      /* A WIDTH, BECAUSE THE HUG IS ALL-OR-NOTHING (client 2026-09-05: the T&A
+         table reads as too large — make it compact).
+
+         `hugsContent` in `child-grid.tsx` is `columns.every((c) => c.width)`,
+         so Activity and Dept going unsized did not merely leave those two
+         columns loose: it dropped the hug for the WHOLE table, `w-full` took
+         the tab's full width, and the two unsized columns split the slack —
+         roughly half the pane each at 1200px, for a picker holding "KNITTING"
+         and a read-only box holding one department word. Days (7rem) and
+         Target Date (9rem) were declared and still looked wrong beside them,
+         which is exactly what makes this read as a per-cell problem when it is
+         a table-level one.
+
+         16rem is the width every other picker column on this screen already
+         takes (`printColumns`, `structureColumns`, the Combos overlay), so the
+         four columns now sum to 42rem and the card stops at the last one
+         instead of trailing grey to the edge of the tab. */
+      width: "16rem",
       /* NOT `required` — TEMPORARY, WITH THE TAB (client 2026-08-31: "make ta
          tab all the field as optional now ... will implement it later as
          required"). It read `required: true`, which drew the star and, through
@@ -8358,6 +8376,11 @@ export function GarmentOrderScreen({
     },
     {
       header: "Dept",
+      /* Declared for the all-or-nothing reason on Activity above as much as for
+         its own sake. 10rem on its own merits: the value is a single department
+         word read off the activity master, never typed, so it needs less room
+         than the picker beside it. */
+      width: "10rem",
       cell: (r) => (
         /* READ THROUGH THE ACTIVITY, never stored on the row — see
            `taActivityById`. Blank when the row has no activity yet, which is the
@@ -17100,51 +17123,98 @@ export function GarmentOrderScreen({
                 coincidence (raagam-screen-layout: a screen composes, it does
                 not draw). */}
             <CardBody>
-              <FieldGrid>
+              <FieldGrid cols={32}>
               {/* Department, Agent and Received (mode) withdrawn 2026-08-10
                   (client). Their columns and stored values remain; they left the
                   Zod input too, which is what stops a save nulling them. */}
-              {/* `size="xs"` (2 of 12), SIX per row, so these fields line up
-                  with the Order Info section rather than agreeing with it by
-                  coincidence. They were `sm` (four per row) until 2026-08-14;
-                  the whole screen moved together, because a density that
-                  changes as you move down the rail is the thing the client was
-                  reading as clutter.
+              {/* TEN FIELDS ON ONE ROW, ON THE 32-COLUMN TRACK (client
+                  2026-09-05: "10 column and row convert in one row, fix compact
+                  size").
 
-                  ONE EXCEPTION, AND IT EXISTS TO KEEP THE ROWS FLUSH (client
-                  2026-08-17; re-solved 2026-08-21 when INR Value arrived).
-                  Eleven fields at `xs` is twenty-two columns — six on the first
-                  row and FIVE on the second, two short. Solve
-                  `2a + 3b + 4c + 6d = 24` over eleven cells and there are two
-                  answers: ten `xs` plus ONE `md`, or nine `xs` plus two `sm`.
-                  The second is rejected on DATA — `sm` is 3 (~200px) and
-                  "TT 30 DAYS FROM BL DATE" was clipped at 202px, which is the
-                  measurement that bought `Pay Terms` its width in the first
-                  place. So `Pay Terms` keeps `md` (4) and everything else is
-                  `xs`, and the section reads 6 + 5 with no hole.
+                  ## Twelve columns could not hold this row, and that is arithmetic
 
-                  `Gross Value` GAVE UP the `md` it held while there were ten
-                  fields, and gave it up on the rule this note already stated:
-                  promote a field because its DATA wants the width, never
-                  whichever one happens to be last. A currency string is ~14
-                  characters and fits `xs`; a payment term is 23 and does not.
-                  The arithmetic only ever said how many.
+                  The smallest span is `xs` (2 of 12), so a 12-col row tops out at
+                  SIX fields — and this section read exactly that until today: six
+                  on the first line, then Pay Terms `lg` plus three figures `xs` on
+                  the second. Eleven fields once made the same arithmetic land on
+                  6 + 5 with a two-column hole, and the fix then was to promote one
+                  field to `md` so the second row summed to 12. Both of those are
+                  arrangements INSIDE twelve, and no arrangement inside twelve puts
+                  ten on a line. The track is what has to widen — the same
+                  conclusion the Quantities row reached from the same place
+                  (`QTY_SPAN` above) and the one `FIELD_TRACK_32`'s own note
+                  records for Material BOM's eleven.
 
-                  The `FieldGrid` above was never the problem: a span comes ONLY
-                  from `<Field size>`, so a child that is not a sized `Field`
-                  takes ONE of the 12 columns. Nine of these were bare pickers and
-                  hand-rolled `<div><Label/><Input/></div>` pairs and rendered
-                  ~90px wide, clipping their own values ("— Sel", "dd-m…"), while
-                  the three real `<Field>`s passed no `size` and fell back to the
-                  retired `md` (4 of 12) and sprawled. Row 1 summed to exactly 12
-                  and row 2 to 9, which is where the trailing gap came from
-                  (client 2026-08-11).
+                  ## And the fields get COMPACT rather than one width each
 
-                  Every picker takes `compact` so the `Field` draws the only
-                  label — and `required` MOVES onto the Field with it, because
-                  `data-picker.tsx` renders the red `*` inside the same
-                  `!compact` branch as the label. Each picker keeps its own
-                  `required` too; `DataPicker` ORs the prop with the
+                  `cols={32}` is not a finer grid for its own sake: it is the
+                  granularity that lets an Incoterm code and a payment term stop
+                  being the same width. Every span below is one of the four sizes
+                  that already exist — xs 2 · sm 3 · md 4 · lg 6 — so nothing here
+                  invents a `FieldSize`, and on this track those are roughly
+                  ~71px · ~112px · ~153px · ~236px at this editor's own width (the
+                  px table in `QTY_SPAN`'s note, measured there rather than
+                  estimated here).
+
+                    Ship Type xs · Ship Mode sm · Country md · Currency xs
+                    Ex-Rate xs · Pay Mode sm · Pay Terms lg · Avg Rate xs
+                    Gross Value md · INR Value md                      = 32
+
+                  EACH WIDTH IS BOUGHT BY DATA, never by whichever field happens
+                  to be last — the rule this section already stated when Gross
+                  Value gave up its `md` on the old track:
+
+                  - **Pay Terms `lg` (~236px).** The one measurement this section
+                    has always been built around: "TT 30 DAYS FROM BL DATE" was
+                    clipped at 202px, which is what bought it `md` on the 12-col
+                    track and what stops `md` (~153px) being enough on this one.
+                  - **Gross Value and INR Value `md` (~153px).** `fmtMoney` is
+                    en-IN, so a crore reads `₹1,03,75,000.00` — fifteen characters,
+                    past `sm`. INR is never the shorter of the two: it is Gross ×
+                    Ex-Rate, so it carries at least as many digits as the figure it
+                    comes from, and an order already in rupees converts at 1 and
+                    matches it. A clipped MONEY figure is also not the
+                    truncate-reveal trade — a number reading short reads as a
+                    smaller number.
+                  - **Country `md`.** A long name truncates and reveals on hover
+                    (`Truncated`, the truncate-reveal rule), which is the trade the
+                    Quantities row already accepts for this same field.
+                  - **Ship Type `xs` (~71px), and it is not a squeeze.** A CHOSEN
+                    ship type renders as the Incoterm ALONE — `FOB`, not `FREE ON
+                    BOARD (FOB)` — through `lookupShortLabel`, which exists because
+                    the gloss clipped this very field at ~90px (client 2026-08-21).
+                    Three characters plus the picker's 36px of chrome (`px-3` +
+                    `AFFORDANCE_PAD_COMPACT`) is 57px. Currency is the same shape:
+                    a three-letter code.
+                  - **Ex-Rate and Avg Rate `xs`.** Short numerics, and Avg Rate is
+                    a price per garment rather than an order total.
+                  - **Ship Mode and Pay Mode `sm`.** A native `<Select>` spends
+                    room on its own arrow, and the longest values are `ROAD` and
+                    `CHEQUE`.
+
+                  ## `items-end` COMES WITH THE TRACK, AND IS LOAD-BEARING
+
+                  `FIELD_TRACK_32` carries it and `FIELD_TRACK` does not. At these
+                  widths "Gross Value" and "Ship Type" can wrap to two lines, and a
+                  two-line label pushes its control below every one-line neighbour
+                  — the fault that dropped "Earlier Shipment Dt" out of the
+                  Quantities row. Bottom-aligning the cell boxes fixes the wrap
+                  instead of forbidding it, which is what keeps every label here
+                  spelled out rather than abbreviated to hold the row straight.
+
+                  THE ROW WRAPS, IT NEVER SCROLLS. `Field` sets `min-w-0` on every
+                  cell and these are `minmax(0,1fr)` tracks, so a long value clips
+                  inside its cell instead of widening the row; the operator had
+                  horizontal scrollbars removed on 2026-08-10 and the layout skill
+                  makes that standing. Below `@lg/section` no span applies at all
+                  and the ten fields stack, which is the phone layout and is
+                  untouched by any of this.
+
+                  WHAT DID NOT CHANGE: every picker still takes `compact` so the
+                  `Field` draws the only label — and `required` still MOVES onto
+                  the Field with it, because `data-picker.tsx` renders the red `*`
+                  inside the same `!compact` branch as the label. Each picker keeps
+                  its own `required` too; `DataPicker` ORs the prop with the
                   `RequiredScope` context, so the cursor hold is unchanged. */}
               {/* Contact, PO Date and Received (date) WITHDRAWN 2026-08-12
                   (client): the Logistic tab is Ship Mode / Ship Type / Pay Mode
@@ -17169,7 +17239,7 @@ export function GarmentOrderScreen({
               {/* `<Field required>` rather than a bare Label: a `<Select>` reads
                   requiredness from context (`select.tsx` → `useRequiredHold`), so
                   the star and the cursor hold both come from this one prop. */}
-              <Field label="Ship Mode" required size="xs" htmlFor="lg-shipmode">
+              <Field label="Ship Mode" required size="sm" htmlFor="lg-shipmode">
                 <Select
                   id="lg-shipmode"
                   value={form.ship_mode}
@@ -17186,7 +17256,7 @@ export function GarmentOrderScreen({
                   `compact` suppresses that label and its star together, which is
                   why the wrapper has to say `required` out loud — leaving it off
                   would quietly unmark a mandatory field (a122adc). */}
-              <Field label="Country" required size="xs">
+              <Field label="Country" required size="md">
                 <CountryPicker
                   compact
                   countries={data.countries}
@@ -17219,7 +17289,7 @@ export function GarmentOrderScreen({
                   onChange={(e) => set({ ex_rate: e.target.value })}
                 />
               </Field>
-              <Field label="Pay Mode" required size="xs" htmlFor="lg-paymode">
+              <Field label="Pay Mode" required size="sm" htmlFor="lg-paymode">
                 <Select
                   id="lg-paymode"
                   value={form.pay_mode}
@@ -17231,14 +17301,16 @@ export function GarmentOrderScreen({
                   ))}
                 </Select>
               </Field>
-              {/* `lg` (6), NOT `md` (4) — IT ABSORBED THE WIDTH "Days" LEFT.
-                  This row is Pay Terms + Avg Rate + Gross Value + INR Value,
-                  and the three figures beside it are `xs` (2) each; without the
-                  extra two columns the row would sum to 10 and sit short of its
-                  track, which is the one thing the 08-17/19 de-clutter pass
-                  settled by hand across the whole screen. Pay Terms is also the
-                  right cell to give them to: it is the only picker on the line
-                  and its values are the longest text on it. */}
+              {/* `lg` — SIX OF THIRTY-TWO NOW, and the number is unchanged only
+                  by coincidence: it was six of TWELVE while this tab ran on two
+                  rows, where the argument for it was that the second row (Pay
+                  Terms + Avg Rate + Gross Value + INR Value) summed to 10 without
+                  the extra columns. That row is gone. What survives is the half
+                  that was always about the DATA rather than the arithmetic — Pay
+                  Terms holds the longest text on the tab, and "TT 30 DAYS FROM BL
+                  DATE" was measured clipping at 202px, so ~236px is the smallest
+                  span on this track that fits it. See the budget above for the
+                  other nine. */}
               <Field label="Pay Terms" required size="lg">
                 <PaymentTermPicker
                   label="Pay Terms"
@@ -17289,7 +17361,7 @@ export function GarmentOrderScreen({
                   value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
                 />
               </Field>
-              <Field label="Gross Value" size="xs" htmlFor="lg-gross">
+              <Field label="Gross Value" size="md" htmlFor="lg-gross">
                 <Input
                   id="lg-gross"
                   readOnly
@@ -17328,7 +17400,7 @@ export function GarmentOrderScreen({
 
                   `npm run check:order-value` carries the vectors, including all
                   five refusals, each verified by breaking the function first. */}
-              <Field label="INR Value" size="xs" htmlFor="lg-inr">
+              <Field label="INR Value" size="md" htmlFor="lg-inr">
                 <Input
                   id="lg-inr"
                   readOnly
