@@ -8,7 +8,7 @@ import { LABEL_METRICS } from "@/components/ui/label";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
-import { atCaretEdge, focusField, isOffTabPath, landOnAddedRow } from "@/lib/focus";
+import { atCaretEdge, enterInGrid, focusField, isOffTabPath, landOnAddedRow } from "@/lib/focus";
 import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +84,70 @@ const ACROSS_COMPACT_TRACK =
  * behaviour change, so it wants its own change with its own verification — not a
  * footnote to a comment fix.
  */
+/**
+ * THE ROW'S CORNER ✕ — ONE DECLARATION, because three rows draw it and only one
+ * of them is this component's.
+ *
+ * `cornerRemove` below renders it for every cards-mode row that has no band. But
+ * a `listRows` grid draws its OWN chrome by contract — the grid never renders a
+ * button for it — so the Garment Order's Styles and Quantities rows hand-rolled
+ * the same control, and the moment the primitive's changed they were left behind.
+ *
+ * That is exactly what happened. "In all section the close option look floating"
+ * (client 2026-09-05) turned this into a chip HERE; the two hand-rolled rows kept
+ * a bare `size="sm"` ghost icon at `right-0 top-0`, and the second half of the
+ * same report — the Quantities ✕ "not in proper alignment" (client 2026-09-05,
+ * Tamil) — is that button. **`size="sm"` is `h-8 px-3`**, so a 16px icon sat
+ * inside a ~40x32px invisible box: its painted centre landed ~12px left and ~8px
+ * down from the corner the class name claims. Nothing was misplaced; the BOX was
+ * bigger than the thing drawn in it, which is the same shape as `p-0` cancelling
+ * `px-3` in the chip below.
+ *
+ * Exported rather than copied, for the reason `matrix-grid.ts` gives about the
+ * two matrices: "two hand-written looks agree on the day they are written and
+ * drift on every day after". The label is the only thing a call site chooses —
+ * it is what a screen reader announces, and "Remove quantity line" is not
+ * "Remove row".
+ */
+export function RowRemoveChip({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      /* Ctrl+Del drives this node (`gridKeyNav`), so the marker travels with the
+         button and can never be forgotten by a call site again. */
+      data-row-remove
+      /* A CHIP, NOT A BARE ICON (client 2026-09-05: "in all section the close
+         option look floating"). `ghost`'s only affordance is
+         `hover:bg-surface-muted` — nothing paints until the pointer is already
+         over it — so at rest this was an X with no boundary, sitting in the
+         corner of whatever background happened to be behind it.
+
+         `p-0` cancels `size="sm"`'s `px-3` and `h-6 w-6` cancels its `h-8`: a
+         24px circle has no room for 12px of horizontal padding beside a 16px
+         icon. Those two cancellations are the whole of the alignment fix — with
+         them the painted circle IS the box, so `right-1.5 top-1.5` puts it 6px
+         from each edge and means it. */
+      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger"
+      onClick={onClick}
+      aria-label={label}
+    >
+      {/* `X`, NOT `Trash2` — one action, one icon. The two hand-rolled rows drew
+          a bin while this one drew a cross, and both of their own comments call
+          it "the ✕", so the code and the prose already disagreed. 3.5 not 4, to
+          sit inside a 24px chip. */}
+      <X className="h-3.5 w-3.5 shrink-0" />
+    </Button>
+  );
+}
+
 const ROW_FIELDS =
   'input:not([type="button"]):not([type="hidden"]):not([type="radio"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [data-field-trigger]:not([disabled]), [data-row-open]:not([disabled])';
 
@@ -743,6 +807,64 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
     }
     return;
   }
+  /**
+   * ENTER WALKS A STACKED ROW'S FIELDS; IT NEVER JUMPS A ROW MID-ROW
+   * (client 2026-09-05 — see `data-grid-axis` on the cards body above).
+   *
+   * ## IT DECLINES RATHER THAN IMPLEMENTING "next field" ITSELF
+   *
+   * "The next field along" already exists and is delivered from one place —
+   * `enterAdvances` in `lib/focus.ts`, which is what every field OUTSIDE a grid
+   * answers Enter with. Standing down WITHOUT `preventDefault` hands the key
+   * there, so a card row advances by exactly the same rule as the form fields
+   * above it. Re-deriving the walk here would be a second contract that agrees
+   * today and drifts tomorrow, which is the failure AGENTS.md records for Tab,
+   * Enter and the arrows reading one definition.
+   *
+   * It is the same decline-and-bubble the `NO BUTTON, NO CLAIM` branch below
+   * already relies on, and it is scoped to Enter alone: ↑/↓ still move a whole
+   * row, because moving BETWEEN records is what an arrow means here and a card
+   * list is still a list.
+   *
+   * ## THE ONE THING IT STILL CLAIMS IS THE "+ Add"
+   *
+   * `enterAdvances` looks for `isFieldLike`, and a grid's "+ Add" is
+   * deliberately NOT that (`isRowAdd`, lib/focus.ts) — so leaving the whole key
+   * to it would walk straight past the button and hand over to the next section.
+   * The test is therefore "is there anywhere left INSIDE this grid to advance
+   * to", not "is this the last cell of the last row": a nested grid's fields are
+   * part of the row for Tab (`tabFieldsIn`) and must be part of it here too, or
+   * Enter would reach for the Add button with a panel of the row still unfilled
+   * beneath the cursor.
+   *
+   * `querySelectorAll`, not `ownDescendants`, for exactly that reason — this is
+   * the one question in this function whose answer must NOT stop at a nested
+   * `data-grid-body`.
+   */
+  if (e.key === "Enter") {
+    const stacked = body.getAttribute("data-grid-axis") === "stack";
+    /* Only asked when it can change the answer — `enterInGrid` ignores both
+       flags unless `stacked`, and a `querySelectorAll` over every field of a
+       paginated grid is not work to do on every Enter in a table. */
+    const all = stacked
+      ? Array.from(body.querySelectorAll<HTMLElement>(ROW_FIELDS))
+      : [];
+    const at = all.indexOf(el);
+    const add = stacked ? ownAddControl(body) : null;
+    const verdict = enterInGrid({
+      stacked,
+      fieldAfter: at !== -1 && all.slice(at + 1).some((f) => !isOffTabPath(f)),
+      hasAdd: !!add,
+    });
+    if (verdict === "advance") return;
+    if (verdict === "add" && add) {
+      e.preventDefault();
+      e.stopPropagation();
+      add.focus();
+      return;
+    }
+  }
+
   // Enter or ArrowDown
   if (idx < rows.length - 1) {
     if (!focusColIn(rows[idx + 1])) return;
@@ -2932,6 +3054,30 @@ export function ChildGrid<T extends { key: string }>({
             keys dead. */
         <div
           data-grid-body
+          /**
+           * A STACKED ROW HAS NO COLUMNS, AND THIS IS HOW ENTER FINDS OUT.
+           *
+           * `gridKeyNav`'s Enter is the Excel key — "same column, one row down"
+           * — and that is right in the three layouts where a row is a LINE: the
+           * table, the inline row and `across`'s one-control records all sit
+           * under a shared header, so the Nth control of the next row really is
+           * the next cell of the same column.
+           *
+           * A CARD IS NOT A LINE. Here a row is a panel of fields on its own
+           * multi-line track, so "column N" names nothing an operator can see —
+           * on the Garment Order's Style(s) tab, Enter in the Style box landed
+           * on the Style box of the NEXT style card and skipped the ten fields
+           * between them (client 2026-09-05, Tamil: Enter should move to the
+           * field beside it and must not jump).
+           *
+           * STAMPED ON THE BODY RATHER THAN PASSED AS A PROP, because
+           * `gridKeyNav` is a bare handler bound to this element and takes its
+           * grid from `e.currentTarget` — the same reason every other structural
+           * fact this file publishes to the keyboard (`data-grid-row`,
+           * `data-row-add`, `data-row-remove`) is a marker and not an argument.
+           * The other three bodies stamp nothing and are unchanged.
+           */
+          data-grid-axis="stack"
           className={cn(
             /* NO `divide-y` HERE — the rule between rows is drawn BY the row
                (`border-t` on every row after the first, below). Tailwind's
@@ -3440,29 +3586,10 @@ export function ChildGrid<T extends { key: string }>({
                    the source, for every `cornerRemove` row in the app, rather
                    than compensating per call site — position:absolute means
                    its DOM position never affects where it paints. */
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  data-row-remove
-                  /* A CHIP, NOT A BARE ICON (client 2026-09-05: "in all
-                     section the close option look floating"). `ghost`'s only
-                     affordance is `hover:bg-surface-muted` — nothing paints
-                     until the pointer is already over it — so at rest this
-                     was an X with no boundary, sitting in the corner of
-                     whatever background happened to be behind it. Every
-                     `cornerRemove` row in the app shares this one button, so
-                     the fix is here rather than per section: a small round
-                     chip that is visibly a CONTROL at rest, not only on
-                     hover. `p-0` cancels `size="sm"`'s `px-3` — a 24px circle
-                     has no room for 12px of horizontal padding beside a 16px
-                     icon — and `h-6 w-6` cancels its `h-8` the same way. */
-                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger"
-                  onClick={() => onRemove(row)}
-                  aria-label="Remove row"
-                >
-                  <X className="h-3.5 w-3.5 shrink-0" />
-                </Button>
+                /* The chip, its markers and its icon are `RowRemoveChip`'s —
+                   see it at the top of this file for why it is a shared
+                   declaration and not a class string written here. */
+                <RowRemoveChip label="Remove row" onClick={() => onRemove(row)} />
               )}
             </div>
             );

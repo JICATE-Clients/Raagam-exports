@@ -85,6 +85,47 @@ export const textColPx = (
 ) => Math.round(Math.min(max, Math.max(min, chars * 6.9 + pad)));
 
 /**
+ * ## THE BANDS ARE WHITE, AND THAT IS WHERE THE "BLUE" WENT (client 2026-09-05,
+ * Tamil, on Prices: remove the blue background in that table)
+ *
+ * Both bands were `bg-surface-muted`. That token is `#f1f3f5` — blue is its
+ * LARGEST channel (241/243/245), so it is a cool grey, and these two grids are
+ * inside the Orders module, which wears `data-skin="raagam"`: a white canvas,
+ * green-grey partitions (`--border: #dde5d3`) and green field edges. A cool grey
+ * is the one surface on that screen with a hue pulling the other way, and on a
+ * three-row matrix the two bands are a third of the box — which is why it read
+ * as "the table's background is blue" here and nowhere else, off a token every
+ * table in the app shares.
+ *
+ * ## IT IS THE CLIENT'S OWN 2026-08-27 RULING, REACHING THE LAST TWO TABLES
+ *
+ * "that inside cell for some sections is grey — make it white too" was answered
+ * in `child-grid.tsx`, whose `<thead>` has been white ever since, with the
+ * reasoning that survives verbatim here: **the header still separates itself.**
+ * `border-border-strong` draws the line — deliberately heavier than the hairline
+ * between rows — and the type does the rest (uppercase semibold 10.5px above,
+ * bold tabular below, against 12.5px cells). The fill was a third signal saying
+ * what those two already said, and under a skin it was saying it in the wrong
+ * hue.
+ *
+ * ## `bg-surface`, NOT `bg-transparent`
+ *
+ * Both bands are `sticky`. A transparent band lets the cells scroll underneath
+ * it and paint through, which is worse than any colour — the fill has to be
+ * opaque, it just has to be the SURFACE. `--surface` is `#ffffff` and the skin
+ * does not override it.
+ *
+ * ## `--surface-muted` ITSELF IS NOT THE LEVER, AND HAS BEEN TRIED TWICE
+ *
+ * app/globals.css records both attempts on the skin's copy of that token —
+ * `#f0f8e5` green, refused 2026-09-03 ("remove that green kind of bg color"),
+ * and white, which was a two-day regression because 75 components draw it (a
+ * DataTable header, two row hovers, three Sheet affordances all went white on
+ * white). Retuning it again would move every table header in the app to fix two
+ * bands. These two bands are what was reported, so these two bands are what
+ * changes.
+ */
+/**
  * The header band. Sticky to the top of its own scroller, never the page.
  *
  * `z-20` clears the cells; the identity and edge columns raise themselves to
@@ -93,13 +134,13 @@ export const textColPx = (
  */
 export const MATRIX_HEAD =
   "sticky top-0 z-20 flex min-h-8 items-center justify-center border-b " +
-  "border-border-strong bg-surface-muted px-1 text-[10.5px] font-semibold " +
+  "border-border-strong bg-surface px-1 text-[10.5px] font-semibold " +
   "uppercase tracking-wide text-muted-foreground";
 
 /** The band underneath — totals on Assort, weights on Prices. */
 export const MATRIX_FOOT =
   "sticky bottom-0 z-20 flex min-h-9 items-center justify-center border-t " +
-  "border-border-strong bg-surface-muted px-1 text-xs font-bold tabular-nums";
+  "border-border-strong bg-surface px-1 text-xs font-bold tabular-nums";
 
 /**
  * One square of the body.
