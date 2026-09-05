@@ -21,6 +21,7 @@ import type {
   AmendmentPackType,
   AmendmentPackTypeLine,
   AmendmentTaActivity,
+  AmendmentTaApproval,
   AmendmentStyleProcess,
   AmendmentStyleSize,
   AmendmentStyleComponent,
@@ -206,6 +207,21 @@ export interface SeededAmendmentChildren {
    * against it.
    */
   taActivities?: Seeded<AmendmentTaActivity>[];
+  /**
+   * Order Entry ▸ T&A ▸ Approvals — the order's approval tracker (0537).
+   * ALWAYS EMPTY FROM AN ORDER, same reasoning as `taActivities` immediately
+   * above: a `sales_order` records no approval list of its own. Seeded on the
+   * SCREEN instead, from `customer_approval_defaults`, at the moment the
+   * order's Customer is picked (or changed) — not here, and not from
+   * `ta_activities`' own seed path, because the seed source is the BUYER's
+   * defaults, not a fixed master order.
+   *
+   * In this type all the same, for the same reason `taActivities` is: without
+   * it, a saved approvals list would have no way back onto the screen, and
+   * its `row_uid` is the one value that MUST round-trip or every save loses
+   * the sent/received records logged against it.
+   */
+  taApprovals?: Seeded<AmendmentTaApproval>[];
   /** Still seeded and still diffed (scripts/check-amendment-diff.mts), but the
    *  Country/Sizewise TAB was withdrawn on 2026-08-10, so the screen no longer
    *  consumes it. Optional rather than deleted: the diff vectors are the only
@@ -275,6 +291,7 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   styleComponents: [],
   styleProcesses: [],
   taActivities: [],
+  taApprovals: [],
   quantities: [],
   countrySizes: [],
 };
