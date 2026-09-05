@@ -22,10 +22,12 @@
 
 import {
   autoFilledField,
+  enterInGrid,
   enterTicks,
   keyFills,
   keyMovesBackward,
   type FillProbe,
+  type GridEnterProbe,
   type TickProbe,
 } from "../lib/focus.ts";
 
@@ -375,6 +377,89 @@ for (const filled of [true, false]) {
     f.offTabPath || f.required,
     true,
   );
+}
+
+// ---------------------------------------------------------------------------
+// `enterInGrid` — what Enter means INSIDE a child grid.
+//
+// WHY THESE EXIST. `gridKeyNav` answered Enter with the Excel key everywhere:
+// "same column, one row down". A CARD row has no column — its fields are a panel
+// on their own multi-line track — so on the Garment Order's Style(s) tab, Enter
+// in the Style box landed on the Style box of the NEXT style card and skipped
+// the ten fields between them (client 2026-09-05). The layout is what decides
+// it, which is why `stacked` is the first question and not the screen's name.
+//
+// Verified by being made to FAIL first: with the old rule (`return "row"`
+// unconditionally) every STACKED vector below reports FAIL, and every LINE
+// vector still passes — which is the shape of the change, stated as a test.
+console.log("\n`enterInGrid` — Enter inside a child grid");
+
+function grid(label: string, actual: string, expected: string) {
+  if (actual === expected) {
+    console.log(`  ok    ${label}`);
+  } else {
+    failures++;
+    console.log(`  FAIL  ${label} — expected ${expected}, got ${actual}`);
+  }
+}
+
+/** A row that is a LINE under a shared header: the table, the inline row,
+ *  `across`'s one-control records. The Excel key is right here and is unchanged
+ *  by any of this — these four vectors are the regression guard for that. */
+const LINE: GridEnterProbe = { stacked: false, fieldAfter: false, hasAdd: false };
+/** A row that is a CARD — a panel of fields on its own track. */
+const CARD: GridEnterProbe = { stacked: true, fieldAfter: false, hasAdd: false };
+
+console.log("\n  a row that is a LINE keeps the Excel key, whatever else is true");
+for (const fieldAfter of [true, false]) {
+  for (const hasAdd of [true, false]) {
+    grid(
+      `line: fieldAfter=${fieldAfter} hasAdd=${hasAdd} — down a row`,
+      enterInGrid({ ...LINE, fieldAfter, hasAdd }),
+      "row",
+    );
+  }
+}
+
+console.log("\n  THE REPORTED BUG — a card row advances along itself");
+grid(
+  "card, fields left in the row: decline, so `enterAdvances` moves ONE field",
+  enterInGrid({ ...CARD, fieldAfter: true }),
+  "advance",
+);
+grid(
+  "…and it declines even when an Add is sitting there",
+  enterInGrid({ ...CARD, fieldAfter: true, hasAdd: true }),
+  "advance",
+);
+
+console.log("\n  and the '+ Add' is the one thing it still claims");
+grid(
+  "card, nothing left in the grid: land on '+ Add'",
+  enterInGrid({ ...CARD, fieldAfter: false, hasAdd: true }),
+  "add",
+);
+// `enterAdvances` looks for `isFieldLike`, and a "+ Add" deliberately is not one
+// (`isRowAdd`) — so leaving this case to it would walk past the button and hand
+// over to the next section. This is why the rule cannot simply be "always
+// decline in a stack".
+grid(
+  "card, nothing left, NO Add: decline — the section hand-off and Save must stay reachable",
+  enterInGrid({ ...CARD, fieldAfter: false, hasAdd: false }),
+  "advance",
+);
+
+// The invariant, stated as the thing actually being asserted rather than as a
+// consequence of the four rows above: a stacked grid NEVER moves a whole row.
+// That is the entire defect, and it is what a future edit has to keep true.
+for (const fieldAfter of [true, false]) {
+  for (const hasAdd of [true, false]) {
+    grid(
+      `card: fieldAfter=${fieldAfter} hasAdd=${hasAdd} — never "row"`,
+      enterInGrid({ stacked: true, fieldAfter, hasAdd }) === "row" ? "row" : "not-row",
+      "not-row",
+    );
+  }
 }
 
 console.log(failures === 0 ? "\nall good\n" : `\n${failures} FAILURE(S)\n`);

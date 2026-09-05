@@ -38,6 +38,7 @@ import {
   ChildGrid,
   GRID_HEADER_TEXT,
   gridKeyNav,
+  RowRemoveChip,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -7729,6 +7730,12 @@ export function GarmentOrderScreen({
   const priceModeCell = (g: PriceGroup, mode: string) => (
     <Select
       required
+      /* `compact` — the cell sits under a column heading that already names it,
+         which is the same reason every picker in a `ChildGrid` cell takes it. It
+         swaps `AFFORDANCE_PAD` (`pr-8`) for `AFFORDANCE_PAD_COMPACT` (`pr-6`),
+         so 8px of the cell goes to the VALUE rather than to the slot beside it —
+         which on a 160px column is 8px of a 112px text budget. */
+      compact
       value={mode}
       onChange={(e) => applyPriceMode(g.rows[0], e.target.value)}
     >
@@ -16010,15 +16017,21 @@ export function GarmentOrderScreen({
           return (
           <div
             className={cn(
-              // `relative pr-10` carries the corner ✕ that replaced the `#N`
+              // `relative pr-8` carries the corner ✕ that replaced the `#N`
               // band: something has to hold it, and the padding is what keeps the
               // last field's label out from under it.
-              "relative space-y-2 pr-10",
+              /* `pr-8` (32px), DOWN FROM `pr-10` — the reservation follows the
+                 control. The old ✕ was a ~40px-wide `size="sm"` button, so 40px
+                 of gutter was the honest number for it; `RowRemoveChip` is a
+                 24px circle sitting 6px in, which is 30px, and 32px clears it
+                 with two to spare. Reserving the old width for the new chip
+                 would leave 10px of dead margin down the right of every row. */
+              "relative space-y-2 pr-8",
               // A folded row reads as one thing you can open, so it says so on
               // hover. The open row gets nothing — there is nothing to click.
               //
               // `pl-2`, NOT `px-2`: `px-*` and `pr-*` are the same twMerge group,
-              // so a `px-2` declared after the `pr-10` above WINS on the right and
+              // so a `px-2` declared after the `pr-8` above WINS on the right and
               // the corner ✕ lands back on top of the summary. Setting only the
               // side this needs is what keeps the two rules from fighting.
               !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
@@ -16069,17 +16082,15 @@ export function GarmentOrderScreen({
                 blocks without it), so deleting the only line was never the way
                 to change it — clearing its fields is. */}
             {styles.length > 1 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                data-row-remove
-                className="absolute right-0 top-0 text-muted-foreground hover:text-danger"
+              /* `RowRemoveChip`, the SAME control `ChildGrid` floats into a
+                 cards-mode row's corner — see its note in `child-grid.tsx`. This
+                 row draws its own chrome (`listRows`), which is why the grid
+                 cannot supply it and why a hand-rolled copy drifted out of step
+                 with the primitive in the first place. */
+              <RowRemoveChip
+                label="Remove style"
                 onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
-                aria-label="Remove style"
-              >
-                <Trash2 className="h-4 w-4 shrink-0" />
-              </Button>
+              />
             )}
             {/* `required={col.required}` is not optional plumbing: with
                 `renderMobileRow` supplied, ChildGrid stops wrapping cells in
@@ -16806,7 +16817,9 @@ export function GarmentOrderScreen({
                     name: z.name,
                   }));
             return (
-              <div key={method} className="space-y-2">
+              /* The same rhythm as the per-style group below — see the note
+                 there. 8px flat was one step looser than the pane it sits in. */
+              <div key={method} className="space-y-2 @2xl/editor:space-y-1.5">
                 {/* THE PACK NAME IS A HEADING ON ITS OWN LINE, and the Price
                     Type field starts beneath it (client 2026-08-28, screenshot
                     2534).
@@ -16895,7 +16908,27 @@ export function GarmentOrderScreen({
                             <Input
                               type="number"
                               inputMode="decimal"
-                              className="h-8 text-right font-mono tabular-nums"
+                              /* NO `h-8` HERE — the primitive already IS 32px
+                                 on this pane, and saying so again breaks the
+                                 half that matters. `Input` is
+                                 `h-9 @2xl/editor:h-8`, a CONTAINER query, so it
+                                 is 32px in a desktop editor and stays a 36px
+                                 touch target in the ~440px picker panel and on a
+                                 phone. A flat `h-8` opts this one cell OUT of
+                                 that query, so anywhere the pane is under 42rem
+                                 it stood 32px beside 36px controls — four pixels
+                                 out, in one row.
+
+                                 That is the defect `quantityColumns` already
+                                 records in as many words (client 2026-08-21,
+                                 "that country one is look something not even
+                                 with other fields, make even look"): five cells
+                                 carried `h-8` while the pickers beside them
+                                 carried the query. Same class, same cause, one
+                                 tab along. `text-right font-mono tabular-nums`
+                                 stays — those say what the VALUE is, which is
+                                 the cell's business; the height is the row's. */
+                              className="text-right font-mono tabular-nums"
                               value={packRateFor(r.method, mode, r.size_id)}
                               onChange={(e) =>
                                 setPackRate(r.method, mode, r.size_id, e.target.value)
@@ -17010,7 +17043,24 @@ export function GarmentOrderScreen({
               const v = priceGroupView(g);
               return (
                 <div
-                  className="space-y-3"
+                  /* THE EDITOR'S OWN RHYTHM, NOT A THIRD NUMBER (client
+                     2026-09-05: "decrease margins/gaps between fields").
+
+                     This was a flat `space-y-3` — 12px between the Style /
+                     Price Type / Unit line and the rate matrix under it, on a
+                     surface whose every other stack runs at 8px and tightens to
+                     6px once the pane is wide enough to be a desktop editor.
+                     `FIELD_TRACK`'s `gap-y-2 @2xl/editor:gap-y-1.5` is that
+                     rhythm, `ChildGrid`'s own card body repeats it, and this one
+                     group was the thing standing outside it.
+
+                     A CONTAINER QUERY, WHICH IS WHY IT IS THIS PAIR AND NOT
+                     `space-y-1.5`. 6px flat would be right on this desk and
+                     wrong in the ~440px picker panel and on a phone, where the
+                     controls themselves go back to 36px — the same reason
+                     `Input` states its height as `h-9 @2xl/editor:h-8` rather
+                     than as one number. Density is a property of the pane. */
+                  className="space-y-2 @2xl/editor:space-y-1.5"
                   /* FOCUS OPENS THE GROUP, which is what keeps the fold
                      keyboard-operable: Tab out of one style's rates lands on the
                      next group's Style field and the group unfolds around the
@@ -17020,42 +17070,165 @@ export function GarmentOrderScreen({
                     if (!v.isOpen) setOpenPriceKey(g.key);
                   }}
                 >
-                  <FieldGrid>
-                    {/* NO `required` — see `priceStyleCell`: the box is readOnly,
-                        `Input` never stamps the hold marker on one, and a star
-                        with no hold behind it is the divergence the
-                        one-declaration rule bans. */}
-                    <Field label="Style" size="md">
-                      {priceStyleCell(g)}
-                    </Field>
-                    {/* A FOLDED GROUP KEEPS A FIELD, AND IT IS NOW THIS ONE.
-                        Tab lands on fields, so a folded row rendering none would
-                        be reachable by mouse only — the requirement the Style(s)
-                        fold also records. Style used to be that field; since
-                        2026-08-31 it is `tabIndex={-1}`, so Price Type has to
-                        render folded or the whole group drops off the keyboard.
-
-                        That is the right field to have promoted: it is where the
-                        cursor is meant to land on this tab anyway, and the
-                        wrapper's `onFocus` unfolds the group around it. Unit and
-                        the rate matrix stay behind the fold — they are the bulk,
-                        and Unit is not a field at all. */}
-                    <Field label="Price Type" required size="md">
-                      {priceModeCell(g, v.mode)}
-                    </Field>
-                    {v.isOpen && (
-                      <Field label="Unit" size="md">
-                        {/* READ-ONLY FACT, not a field: it arrives with the
-                            style line (its Order Unit) and there is nothing to
-                            type. Rendered as text rather than a disabled input
-                            so it neither invites a click nor sits in the Tab
-                            path. */}
-                        <div className="flex min-h-8 items-center text-sm text-muted-foreground">
-                          {g.rows[0]?.unit || "—"}
-                        </div>
-                      </Field>
-                    )}
-                  </FieldGrid>
+                  {/**
+                    * STYLE / PRICE TYPE / UNIT ARE ONE TABLE (client 2026-09-05,
+                    * Tamil: "style price type unit aa oru table aa pannikudu").
+                    *
+                    * ## THE SAME CONVERSION COLOR/PRINT DETAILS HAD THE SAME DAY
+                    *
+                    * That tab's three grids became real tables on this client's
+                    * own instruction ("oru table aa convert pannu"), and this is
+                    * the same request one tab along: labelled fields floating on
+                    * a line become `<th>`-declared columns with a rule under the
+                    * header and a `border-l` between the cells. It reads as a
+                    * record with named columns instead of three controls that
+                    * happen to be adjacent — and it matches the rate matrix
+                    * directly beneath, which has been a headed table all along.
+                    *
+                    * ## `ChildGrid tableAlways`, NEVER A HAND-ROLLED `<table>`
+                    *
+                    * "A screen composes primitives; it does not draw" — and
+                    * "line items are `ChildGrid`, never a hand-rolled `<table>`"
+                    * is the standing rule that makes the keyboard contract free.
+                    * `tableAlways` is exactly how the Color/Print grids were
+                    * converted: it forces the responsive table at EVERY width
+                    * rather than letting it fall back to stacked cards, which is
+                    * what "make it a table" asks for.
+                    *
+                    * ## WHAT THE THREE FLAGS BUY, EACH FOR ITS OWN REASON
+                    *
+                    *  - **`hideIndex`** — a `#` column counts rows, and this
+                    *    table holds exactly one: the group it heads. The ordinal
+                    *    would restate what the band above already names.
+                    *  - **`hideAdd` + a declining `onAdd`** — the groups are
+                    *    seeded FROM the Styles Details lines (`pickStyle`), so
+                    *    there is nothing to add here; the declining handler is
+                    *    what lets Enter off the last cell escalate rather than
+                    *    die on a grid that cannot grow.
+                    *  - **`hideRemove`** — unpricing a style is the ✕ in the
+                    *    band above, which carries `data-row-remove` and takes
+                    *    Ctrl+Del with it. A second ✕ inside the table would be
+                    *    two controls for one action.
+                    *
+                    * ## THE WIDTHS: 10 / 10 / 4.5rem, MEASURED PER CELL
+                    *
+                    * Column widths, not `Field w` — a table column is sized by
+                    * its `<th>`. Every column declares one, so `hugsContent`
+                    * fires and the table stops at Unit instead of running to the
+                    * edge of the tab. 24.5rem (392px) all in, against 31rem when
+                    * these were `term`/`term`/`code` an hour earlier (client
+                    * 2026-09-05: make all three boxes compact).
+                    *
+                    * A TABLE CELL IS NOT A `Field`, WHICH IS WHY THE NUMBERS
+                    * MOVED RATHER THAN BEING TRIMMED. A `<td>` spends `px-1.5`
+                    * of its own before the control does anything, so the same
+                    * declared width buys 12px LESS text here than it did on the
+                    * `FieldRow`. Each column is therefore measured from its own
+                    * chrome, at the repo's own ~6.9px/character (`textColPx`)
+                    * and `GRID_HEADER_TEXT`'s 12.5px bold for the heading:
+                    *
+                    *  - **Style 10rem (160px).** Chrome is 36px (td 12 + the
+                    *    input's `px-3`), leaving ~124px — about 18 characters.
+                    *    `STL/2627/0002` is 13 and `MENS T SHIRT/0034` is 17, so
+                    *    both fit whole. This is the one column that must not be
+                    *    cut further: it is a plain `<Input>`, so it has NO
+                    *    ellipsis and no hover bubble — a clipped value there just
+                    *    stops, which is the failure the truncate-reveal rule
+                    *    exists to forbid. 9rem would give ~15 characters and eat
+                    *    the end of a real style name.
+                    *  - **Price Type 10rem (160px), AND THE EARLIER NOTE HERE WAS
+                    *    WRONG.** It said this could not go below `term` because
+                    *    "a native `<select>` has no ellipsis and no hover bubble".
+                    *    `Select` only renders a native `<select>` on touch and on
+                    *    SSR; **on a real mouse it renders `Combobox`**, which
+                    *    carries `text-ellipsis` AND the `Tooltip` reveal
+                    *    (combobox.tsx) — the same pair `data-picker.tsx` has. So
+                    *    the truncate-reveal trade is available here after all,
+                    *    and the floor is the one the rest of the app uses.
+                    *    Chrome is 48px (td 12 + `px-3` + `AFFORDANCE_PAD_COMPACT`
+                    *    24), leaving ~112px: `Color-wise` and `Pack-wise` show
+                    *    whole, `Color-wise Size-wise` clips to `Color-wise Siz…`
+                    *    — still unmistakably the longer mode, with the full text
+                    *    on hover. The heading needs 82px and fits.
+                    *  - **Unit 4.5rem (72px).** Its chrome is `px-1.5` alone (the
+                    *    value is text, not a control), so `PCS` needs ~33px and
+                    *    the HEADING is what sets the floor: "Unit" at 12.5px bold
+                    *    plus the `<th>`'s `px-2` is ~43px. 9rem was 144px for a
+                    *    three-letter enum — the single most oversized box on the
+                    *    tab.
+                    *
+                    * ## `required` ON THE COLUMN *AND* ON THE CONTROL
+                    *
+                    * `ChildGridColumn.required` draws the header `*` and opens
+                    * the `RequiredScope` that holds the cursor; `priceModeCell`
+                    * passes `required` to the `<Select>` itself, and
+                    * `useRequiredHold` ORs the two. That is the sanctioned double
+                    * declaration, not a duplicate — see AGENTS.md, "A GRID THAT
+                    * RENDERS ITS OWN ROW MUST DECLARE `required` TWICE".
+                    *
+                    * Style declares NEITHER, deliberately: the box is `readOnly`,
+                    * `Input` never stamps the hold marker on one, and a star with
+                    * no hold behind it is the exact divergence the
+                    * one-declaration rule exists to make impossible.
+                    *
+                    * ## UNIT IS A COLUMN ONLY WHILE THE GROUP IS OPEN
+                    *
+                    * The columns are built here rather than beside `comboColumns`
+                    * precisely so `v` is in scope: a folded group shows Style and
+                    * Price Type and nothing else, which is unchanged — it is the
+                    * COLUMN that goes, not a cell left blank under a heading that
+                    * still promises a value.
+                    *
+                    * A FOLDED GROUP STILL KEEPS A FIELD, and it is Price Type.
+                    * Tab lands on fields, so a folded row rendering none would be
+                    * reachable by mouse only (the requirement the Style(s) fold
+                    * also records). Style used to be that field; since 2026-08-31
+                    * it is `tabIndex={-1}`, so Price Type has to render folded or
+                    * the whole group drops off the keyboard.
+                    */}
+                  <ChildGrid<PriceGroup>
+                    columns={[
+                      {
+                        header: "Style",
+                        width: "10rem",
+                        cell: (x) => priceStyleCell(x),
+                      },
+                      {
+                        header: "Price Type",
+                        required: true,
+                        width: "10rem",
+                        cell: (x) => priceModeCell(x, v.mode),
+                      },
+                      ...(v.isOpen
+                        ? [
+                            {
+                              header: "Unit",
+                              width: "4.5rem",
+                              /* READ-ONLY FACT, not a field: it arrives with the
+                                 style line (its Order Unit) and there is nothing
+                                 to type. Rendered as text rather than a disabled
+                                 input so it neither invites a click nor sits in
+                                 the Tab path. */
+                              cell: (x: PriceGroup) => (
+                                <div className="flex min-h-8 items-center text-sm text-muted-foreground">
+                                  {x.rows[0]?.unit || "—"}
+                                </div>
+                              ),
+                            },
+                          ]
+                        : []),
+                    ]}
+                    /* THE GROUP IS THE ROW. `priceGroups` is the OUTER grid's
+                       list; this table heads one of them, so its own list is a
+                       single-element array rather than a slice of anything. */
+                    rows={[g]}
+                    tableAlways
+                    hideIndex
+                    hideAdd
+                    onAdd={() => false}
+                    hideRemove
+                    onRemove={() => {}}
+                  />
                   {v.isOpen && rateGrid(g, v.mode)}
                 </div>
               );
@@ -17218,10 +17391,13 @@ export function GarmentOrderScreen({
                 <div
                   className={cn(
                     // See the Styles row above — the corner ✕ needs a `relative`
-                    // to hang on and the padding to keep clear of the fields.
-                    "relative space-y-2 pr-10",
+                    // to hang on and the padding to keep clear of the fields,
+                    // and `pr-8` is the width `RowRemoveChip` actually takes
+                    // (a 24px chip 6px in). See the Styles row for why the
+                    // reservation had to move with the control.
+                    "relative space-y-2 pr-8",
                     // `pl-2` not `px-2` — see the Styles row: `px-*` would
-                    // outrank the `pr-10` that keeps the ✕ off the summary.
+                    // outrank the `pr-8` that keeps the ✕ off the summary.
                     !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
                   )}
                   title={isOpen ? undefined : "Open this quantity line"}
@@ -17236,18 +17412,18 @@ export function GarmentOrderScreen({
                 >
                   {/* The ✕ alone, out of the flow — see the Styles grid above
                       and `ChildGrid`'s cards band. A quantity line is named by
-                      its Country, which is the field it folds to. */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove
-                    className="absolute right-0 top-0 text-muted-foreground hover:text-danger"
+                      its Country, which is the field it folds to.
+
+                      `RowRemoveChip` since 2026-09-05 (client, Tamil: this icon
+                      "is not in proper alignment"). It was a bare `size="sm"`
+                      ghost icon at `right-0 top-0` — `h-8 px-3`, so the 16px
+                      glyph sat inside a ~40x32px invisible box and painted well
+                      short of the corner its own class named. The chip's `p-0`
+                      and `h-6 w-6` are what make the painted circle the box. */}
+                  <RowRemoveChip
+                    label="Remove quantity line"
                     onClick={() => setQuantities((xs) => xs.filter((x) => x.key !== row.key))}
-                    aria-label="Remove quantity line"
-                  >
-                    <Trash2 className="h-4 w-4 shrink-0" />
-                  </Button>
+                  />
                   <FieldGrid cols={32}>
                     {(isOpen ? [...primary, ...secondary] : primary.slice(0, 1)).map((c) => (
                       /* One line for all eight — see QTY_SPAN for the split
