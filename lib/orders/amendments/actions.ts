@@ -16,7 +16,7 @@ import {
   type SavedTaRow,
   type SavedTaApprovalRow,
 } from "./types";
-import { getCustomerApprovalDefaults } from "./service";
+import { getCustomerApprovalDefaults, getHolidayRows } from "./service";
 import { normalizeFileRows } from "./file-rows";
 import {
   assortBalanceMessage,
@@ -40,6 +40,7 @@ import { componentRowStarted, impliedCoordinateId } from "@/lib/orders/styles/ru
    would be a date no control enforces: BOTH HALVES OR NEITHER, the rule
    `purchase_qty` already follows. */
 import { orderTaLadder, isRefusal } from "@/lib/orders/ta/order-ladder";
+import { holidaySet } from "@/lib/ta/schedule";
 /* The other ~19 approvals' dates (0537) — PP Sample never reaches this, see
    `taApprovalRows`'s own header for why that exclusion happens BEFORE this
    is called, not as an override afterwards. */
@@ -1136,12 +1137,16 @@ function normalizeTaActivities(data: AmendmentInput) {
  * is dated, so a stale payload's save still leaves the ladder dated against the
  * delivery date THIS save wrote, rather than against the one it replaced.
  *
- * HOLIDAYS ARE PASSED BY NEITHER HALF, AND THAT IS WHY THEY AGREE. Nothing in
- * this repo consults the `holidays` master yet (`holidaySet()` has no caller),
- * so both sides run Sunday-only and match by construction. **If either side ever
- * starts passing a holiday set, both must, in the same change** — a screen
- * resolving a ladder over a calendar the server does not know about is a date no
- * control enforces, which is the whole failure this note exists to prevent.
+ * HOLIDAYS ARE NOW PASSED BY BOTH HALVES (2026-09-05), and that is why they
+ * still agree. `getHolidayRows()` (`service.ts`) reads the plain `holidays`
+ * table (0256) — there is no HR master to scope it against, so this is the
+ * whole company calendar — and `holidaySet()` expands the SAME rows on the
+ * SCREEN (`AmendmentFormData.holidays`, expanded once as `taHolidays`) and
+ * HERE. **If a future scoping rule ever needs to narrow this list, it goes
+ * in `getHolidayRows()` and the screen's own fetch in the same change** — a
+ * screen resolving a ladder over a calendar the server does not know about
+ * is a date no control enforces, which is the whole failure this note exists
+ * to prevent.
  *
  * ## A REFUSAL NO LONGER BLOCKS THE SAVE — REVERSED 2026-08-31, AND
  * ## DELIBERATELY, NOT AS A BUGFIX
@@ -1224,6 +1229,14 @@ async function taActivityRows(
        * on a refusal, exactly matching what the ladder itself could say.
        */
       anchorDate: string | null;
+      /**
+       * The SAME expanded holiday set this ladder used — handed to
+       * `taApprovalRows` so the generic engine there rolls dates around the
+       * identical calendar rather than fetching (and expanding) `holidays`
+       * a second time in the same save. "BOTH HALVES OR NEITHER" one level
+       * down: one fetch, two writes, never two opinions about a Sunday.
+       */
+      holidays: Set<string>;
     }
   | { ok: false; error: string }
 > {
@@ -1241,11 +1254,21 @@ async function taActivityRows(
      that said nothing about it. */
   const saved = ((savedRaw ?? []) as SavedTaRow[]).slice().sort((a, b) => a.sno - b.sno);
 
+  /* FETCHED UNCONDITIONALLY, BEFORE THE EMPTY-LADDER RETURN BELOW — an order
+     with no production activities can still carry approval rows, and
+     `taApprovalRows` reads ITS holiday set from what this function returns.
+     Computing it only on the non-empty path would hand that caller an empty
+     Set (Sunday-only) whenever the ladder happens to be blank, which is a
+     narrower calendar than the one this same save would use a moment later
+     for a non-blank ladder — two opinions from one save. */
+  const holidays = holidaySet(await getHolidayRows());
+
   /* WHICH LADDER THIS SAVE IS WRITING. Pure, declared in `types.ts` and
      vectored by `npm run check:ta-merge` — a merge that is merely written is
      not a merge that is known to work. */
   const rows = taRowsToWrite(normalizeTaActivities(data), saved);
-  if (!rows.length) return { ok: true, rows: [], ppApprovalTargetDate: null, anchorDate: null };
+  if (!rows.length)
+    return { ok: true, rows: [], ppApprovalTargetDate: null, anchorDate: null, holidays };
 
   /* THE ACTIVITY'S NAME, SO A REFUSAL CAN NAME THE ROW. `backwardSchedule`
      prints "<label>: enter how many days it needs" and falls back to "A
@@ -1296,7 +1319,7 @@ async function taActivityRows(
     // that is about to be discarded must not anchor the whole factory's plan.
     quantities: quantityRows,
     deliveryDate: data.delivery_date ?? null,
-    // holidays: deliberately absent on BOTH halves. See the header.
+    holidays,
   });
 
   /* A REFUSAL DATES NOTHING AND DOES NOT BLOCK THE SAVE (client 2026-08-31: the
@@ -1327,7 +1350,7 @@ async function taActivityRows(
 
   const anchorDate = isRefusal(plan) ? null : plan.anchor.date;
 
-  return { ok: true, rows: mergedRows, ppApprovalTargetDate, anchorDate };
+  return { ok: true, rows: mergedRows, ppApprovalTargetDate, anchorDate, holidays };
 }
 
 /**
@@ -1375,6 +1398,8 @@ async function taApprovalRows(
   data: AmendmentInput,
   ppApprovalTargetDate: string | null,
   anchorDate: string | null,
+  /** THE SAME expanded set `taActivityRows` fetched — see its own return type's note. */
+  holidays: Set<string>,
 ): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string }> {
   // READ BEFORE ANY DELETE — same reason `taActivityRows` reads first.
   const { data: savedRaw, error: savedErr } = await s
@@ -1452,6 +1477,7 @@ async function taApprovalRows(
     approvals: genericInputs,
     orderDate: data.amend_date,
     exFactoryDate: anchorDate,
+    holidays,
   });
   const byApprovalId = new Map(scheduled.map((sc) => [sc.approvalId, sc.targetDate]));
 
@@ -1560,7 +1586,14 @@ async function writeChildren(
    * `garment_order_amendment_ta_activities`' PPAPPR row, not a second
    * opinion about it.
    */
-  const approvals = await taApprovalRows(s, amendmentId, data, ta.ppApprovalTargetDate, ta.anchorDate);
+  const approvals = await taApprovalRows(
+    s,
+    amendmentId,
+    data,
+    ta.ppApprovalTargetDate,
+    ta.anchorDate,
+    ta.holidays,
+  );
   if (!approvals.ok) return fail(approvals.error);
 
   const inserts: [string, Record<string, unknown>[]][] = [

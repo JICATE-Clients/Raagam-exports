@@ -933,6 +933,13 @@ export type AmendmentFormData = {
    * rather than fetched per Customer change.
    */
   customerApprovalDefaults: CustomerApprovalDefault[];
+  /**
+   * The company calendar (0256), unscoped — see `getHolidayRows`'s own note.
+   * The screen expands this with `holidaySet()` and feeds it to BOTH
+   * `orderTaLadder` and `computeApprovalSchedule`, matching what the server
+   * does at save time with the SAME rows.
+   */
+  holidays: HolidayRow[];
 };
 
 /**
@@ -1086,6 +1093,25 @@ async function getAllCustomerApprovalDefaults(): Promise<CustomerApprovalDefault
     .select("customer_id, approval_id, lead_time_days");
   if (error) throw new Error(`Could not load customer approval defaults: ${error.message}`);
   return (data ?? []) as CustomerApprovalDefault[];
+}
+
+/** One row of `holidays` (0256) — exactly the two columns `holidaySet()` (`lib/ta/schedule.ts`) expands. */
+export type HolidayRow = { holiday_date: string | null; end_date: string | null };
+
+/**
+ * EVERY holiday, unscoped — the company calendar, not an HR concept (there is
+ * no HR master to scope it against yet). Loaded whole into `AmendmentFormData`
+ * for the SCREEN to expand with `holidaySet()`, and called again here for the
+ * SERVER save path (`taActivityRows` / `taApprovalRows` in `actions.ts`) —
+ * two callers, the SAME rows, so `holidaySet()` produces an identical `Set`
+ * on both sides. "BOTH HALVES OR NEITHER": a screen resolving a ladder over a
+ * calendar the server does not know about is a date no control enforces.
+ */
+export async function getHolidayRows(): Promise<HolidayRow[]> {
+  const s = await createClient();
+  const { data, error } = await s.from("holidays").select("holiday_date, end_date");
+  if (error) throw new Error(`Could not load holidays: ${error.message}`);
+  return (data ?? []) as HolidayRow[];
 }
 
 /**
@@ -1490,6 +1516,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     taActivities,
     taApprovals,
     customerApprovalDefaults,
+    holidays,
   ] = await Promise.all([
     getCustomerRows(),
     getMerchandiserRows(),
@@ -1512,6 +1539,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getTaActivityRows(),
     getTaApprovalRows(),
     getAllCustomerApprovalDefaults(),
+    getHolidayRows(),
   ]);
   return {
     /**
@@ -1559,5 +1587,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     taActivities,
     taApprovals,
     customerApprovalDefaults,
+    holidays,
   };
 }

@@ -93,6 +93,7 @@ import { inrValue, isPackWise, orderValue } from "@/lib/orders/amendments/order-
  */
 import { isRefusal, orderTaLadder } from "@/lib/orders/ta/order-ladder";
 import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
+import { holidaySet } from "@/lib/ta/schedule";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Segmented } from "@/components/ui/segmented";
@@ -4341,19 +4342,18 @@ export function GarmentOrderScreen({
    * do not depend on the day they run; a screen passing one would be a screen
    * with its own idea of today.
    *
-   * ## `holidays` IS NOT PASSED EITHER, AND THAT IS A KNOWN GAP
+   * ## `holidays` — WIRED (2026-09-05), using the existing company calendar
    *
-   * `lib/ta/schedule.ts` takes an optional holiday set and `holidaySet()` will
-   * expand the `holidays` master (0256) into one, but nothing on this screen
-   * loads that master and `AmendmentFormData` does not carry it. So the ladder
-   * counts Sundays off and nothing else, exactly as `backwardSchedule` does by
-   * default — and its header is explicit that this is the honest state: "a
-   * default that silently read an empty master would be worse than a hardcoded
-   * Sunday — it would look configured and behave like calendar days." Wiring the
-   * master later is a caller change here and a feeder change in `service.ts`;
-   * it is not a signature change, and it must land on the SERVER side in the
-   * same edit or the two halves stop agreeing.
+   * There is no HR master to scope a holiday list against, so this is the
+   * plain, unscoped `holidays` table (0256) — the one calendar there is.
+   * `taHolidays` below expands `data.holidays` with `holidaySet()`; the SAME
+   * rows are re-fetched and re-expanded on the SERVER in `actions.ts`'s
+   * `taActivityRows()`, so both halves compute over an identical set. Wiring
+   * only one side would be a screen resolving a ladder over a calendar the
+   * server does not know about — a date no control enforces.
    */
+  const taHolidays = useMemo(() => holidaySet(data.holidays), [data.holidays]);
+
   const taLadder = useMemo(
     () =>
       orderTaLadder({
@@ -4372,8 +4372,9 @@ export function GarmentOrderScreen({
           earlier_shipment_date: q.earlier_shipment_date || null,
         })),
         deliveryDate: form.delivery_date || null,
+        holidays: taHolidays,
       }),
-    [taRows, quantities, form.delivery_date, taLabel],
+    [taRows, quantities, form.delivery_date, taLabel, taHolidays],
   );
 
   /**
@@ -4468,6 +4469,7 @@ export function GarmentOrderScreen({
       approvals: genericInputs,
       orderDate: form.amend_date,
       exFactoryDate: anchorDate,
+      holidays: taHolidays,
     });
     const byApprovalId = new Map(scheduled.map((sc) => [sc.approvalId, sc]));
 
@@ -4500,6 +4502,7 @@ export function GarmentOrderScreen({
     taRows,
     taDates,
     taLadder,
+    taHolidays,
   ]);
 
   // ---------------- LIST MODE ----------------
@@ -8705,10 +8708,41 @@ export function GarmentOrderScreen({
       width: "9rem",
       cell: (r) => {
         const d = taApprovalDates.get(r.row_uid);
-        return <Input readOnly value={d?.target_date ? fmtDate(d.target_date) : ""} />;
+        /* SHOW AND FLAG, NEVER CLAMP — the same AGENTS.md rule the production
+           ladder's negative-float status line follows, applied to a buyer
+           approval instead of a physical step. `computeApprovalSchedule`
+           never refuses; a conflicted date still SAVES, so the one thing this
+           cell owes the operator is making an impossible-looking date visibly
+           impossible rather than a plain black box that reads as agreed. */
+        return (
+          <Input
+            readOnly
+            className={d?.isConflicted ? "border-danger text-danger" : undefined}
+            title={d?.isConflicted ? (d.errorMessage ?? undefined) : undefined}
+            value={d?.target_date ? fmtDate(d.target_date) : ""}
+          />
+        );
       },
     },
   ];
+
+  /**
+   * EVERY APPROVAL ROW CURRENTLY CONFLICTED, SAID IN ONE PLACE — the
+   * Approvals-tab equivalent of `taProblems` above, and RED rather than amber
+   * on purpose: `taProblems` covers a row with nothing typed in it yet, which
+   * is an unfinished plan; this covers a row that IS fully answered and whose
+   * answer is a date outside the order's own window (before the order date,
+   * or past the ship date) — a real scheduling conflict, not a gap. Neither
+   * one blocks Save (`computeApprovalSchedule` never refuses), so both stay
+   * advisory text, never wired through `dupFieldProps`.
+   */
+  const taApprovalProblems: { row_uid: string; message: string }[] = [];
+  for (const r of taApprovalRows) {
+    const d = taApprovalDates.get(r.row_uid);
+    if (d?.isConflicted && d.errorMessage) {
+      taApprovalProblems.push({ row_uid: r.row_uid, message: d.errorMessage });
+    }
+  }
 
   /**
    * A pictogram per seeded activity, keyed by `short_name` — purely a wayfinding
@@ -18239,6 +18273,17 @@ export function GarmentOrderScreen({
               onRemove={(r) => setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))}
               addLabel="+ Add approval"
             />
+            {/* SHOW AND FLAG (see `taApprovalProblems`'s own comment) — RED,
+                never a hold: nothing here is wired through `dupFieldProps`, so
+                a conflicted approval still saves and Tab still moves through
+                it freely. */}
+            {taApprovalProblems.length > 0 && (
+              <ul className="space-y-1 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
+                {taApprovalProblems.map((pb) => (
+                  <li key={pb.row_uid}>{pb.message}</li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       ),
