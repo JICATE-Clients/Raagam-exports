@@ -18959,28 +18959,18 @@ export function GarmentOrderScreen({
                 placeholder="No rejection"
               />
             </Field>
-            {/* "Rejection %" — A SEPARATE FLAT FIGURE, BESIDE THE RULE ABOVE,
-                NOT REPLACING IT (backend calc spec, 2026-09-04, Formula 5:
-                "Total Production Target Piece Count = Total Ordered Pieces x
-                (1 + Rejection% / 100)", default 0). Mirrors "Excess %" above
-                (`<Field size="xs">` + a plain `type="number" <Input>`, no
-                picker) because that is the same shape of value: a number the
-                merchandiser types, not a master row to pick.
-
-                FEEDS MATERIAL BOM ONLY — see `rejection_pct`'s own doc on
-                `HeaderForm` for why: the Rejection Rule above already feeds
-                Fabric BOM's target, and adding this flat percentage there too
-                would double-count. Never `required` — 0 is a complete,
-                ordinary answer ("no rejection considered"), unlike the rule
-                picker's own now-required state above. */}
-            <Field label="Rejection %" size="xs" htmlFor="hd-rejection-pct">
-              <Input
-                id="hd-rejection-pct"
-                type="number"
-                value={form.rejection_pct}
-                onChange={(e) => set({ rejection_pct: e.target.value })}
-              />
-            </Field>
+            {/* "Rejection %" INPUT HIDDEN FROM THIS SCREEN (client 2026-09-05):
+                beside "Rejection Rule" it read as a duplicate of the same
+                concept, and the client wants to settle whether Material BOM
+                should keep its own flat figure or move onto the same ladder
+                Fabric BOM already uses (`rejectionFor`/Rejection Rule) before
+                this is shown again. `rejection_pct` itself, the form field,
+                the load/submit wiring and `materialTarget`'s use of it are all
+                UNTOUCHED — it now always computes with 0 for a new order,
+                since nothing on screen can set it. Do not delete the plumbing
+                or re-add the control without asking; see the plan this was
+                built from (backend calc spec, 2026-09-04, Formula 5) for what
+                it was for. */}
             {/* THE "Attachments" CELL STOOD HERE AND IS GONE (client
                 2026-08-31): the Add File control belongs to a STYLE, so it is
                 the Files cell on each Style(s) row, mandatory before that style
