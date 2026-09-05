@@ -927,6 +927,12 @@ export type AmendmentFormData = {
    * Lap Dip, Strike-off, Trims, etc. See `TaApprovalOption`.
    */
   taApprovals: TaApprovalOption[];
+  /**
+   * EVERY customer's approval defaults (0535), unscoped — see
+   * `getAllCustomerApprovalDefaults`'s own note for why this is loaded whole
+   * rather than fetched per Customer change.
+   */
+  customerApprovalDefaults: CustomerApprovalDefault[];
 };
 
 /**
@@ -1030,17 +1036,21 @@ async function getTaApprovalRows(): Promise<TaApprovalOption[]> {
 
 /** One customer's own approval selection + lead-time override (0535). */
 export type CustomerApprovalDefault = {
+  customer_id: string;
   approval_id: string;
   lead_time_days: number;
 };
 
 /**
- * A customer's approval defaults — read ONLY when the order's Customer
- * changes, the same trigger `nominatedVendorOptions` uses. Empty for a
- * customer with no defaults configured yet: the operator adds approvals to
- * the order manually, the same "empty-and-explain" shape as every other
- * nominated/scoped list in this app — never a fallback to "every approval",
- * which would make the buyer's own list advisory.
+ * A SINGLE customer's approval defaults — the SERVER-SIDE lookup
+ * `taApprovalRows` (actions.ts) makes at SAVE time, to resolve this order's
+ * buyer-specific lead-time override. Scoped by `customerId` because a save
+ * only ever needs one buyer's rows.
+ *
+ * NOT what the SCREEN calls to seed the Approvals grid — see
+ * `getAllCustomerApprovalDefaults` below for that. Two different consumers,
+ * two different shapes of the same question, the same way this repo already
+ * has both a scoped and an unscoped reader for other lookups.
  */
 export async function getCustomerApprovalDefaults(
   customerId: string,
@@ -1048,9 +1058,33 @@ export async function getCustomerApprovalDefaults(
   const s = await createClient();
   const { data, error } = await s
     .from("customer_approval_defaults")
-    .select("approval_id, lead_time_days")
+    .select("customer_id, approval_id, lead_time_days")
     .eq("customer_id", customerId);
   if (error) throw new Error(`Could not load this customer's approval defaults: ${error.message}`);
+  return (data ?? []) as CustomerApprovalDefault[];
+}
+
+/**
+ * EVERY customer's approval defaults, unscoped — loaded once into
+ * `AmendmentFormData` and filtered CLIENT-SIDE when the order's Customer
+ * changes, the same shape `nominatedVendorOptions` already uses for
+ * `customer_nominated_vendors` (a pure function over an already-loaded
+ * list, not a fetch triggered by the picker). The table is small — a
+ * handful of approvals per customer — so loading all of it once is cheaper
+ * than a server round trip on every Customer change, and it keeps the
+ * screen's seeding logic pure and testable.
+ *
+ * Empty for a customer with no defaults configured: the operator adds
+ * approvals to the order manually — the same "empty-and-explain" shape
+ * every other nominated/scoped list in this app uses, never a fallback to
+ * "every approval", which would make the buyer's own list advisory.
+ */
+async function getAllCustomerApprovalDefaults(): Promise<CustomerApprovalDefault[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("customer_approval_defaults")
+    .select("customer_id, approval_id, lead_time_days");
+  if (error) throw new Error(`Could not load customer approval defaults: ${error.message}`);
   return (data ?? []) as CustomerApprovalDefault[];
 }
 
@@ -1455,6 +1489,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     rejectionRules,
     taActivities,
     taApprovals,
+    customerApprovalDefaults,
   ] = await Promise.all([
     getCustomerRows(),
     getMerchandiserRows(),
@@ -1476,6 +1511,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getRejectionRuleRows(),
     getTaActivityRows(),
     getTaApprovalRows(),
+    getAllCustomerApprovalDefaults(),
   ]);
   return {
     /**
@@ -1522,5 +1558,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     rejectionRules,
     taActivities,
     taApprovals,
+    customerApprovalDefaults,
   };
 }
