@@ -81,6 +81,7 @@
     "scripts/check-ta-schedule.mts",
     "scripts/check-ta-ladder.mts",
     "scripts/check-ta-merge.mts",
+    "scripts/check-approval-schedule.mts",
     "scripts/check-amendment-files.mts",
     "scripts/check-customer-dedup.mts",
     "scripts/check-qty-balance.mts",
