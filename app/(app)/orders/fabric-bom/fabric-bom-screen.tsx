@@ -201,12 +201,10 @@ import {
 import type { FabricOption } from "@/lib/orders/fabric-bom/fabric-options";
 import { FabricQuickCreateSheet } from "@/components/masters/fabric-quick-create-sheet";
 import {
-  componentsHiddenForLayout,
   declaredPanelsFor,
   fabricFormLabel,
   fabricGroupKey,
   rollUp,
-  type LayoutType,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
 
@@ -3307,22 +3305,11 @@ export function FabricBomScreen({
       })),
       { key: e.key, style_ref_no: e.style_ref_no.trim() || null },
     );
-    /* THE "FAB RAIL" LAYOUT FILTER (0527) — RULE 4, the sibling of rule 3
-       above. A component this style has declared EXCLUSIVELY under the
-       OTHER Layout Type is hidden; everything else (undeclared, or
-       declared with no stated layout) is offered regardless, so an order
-       whose styles have never said which layout a part belongs to sees no
-       change at all — see `componentsHiddenForLayout`'s own doc comment.
-
-       ALREADY-TICKED SURVIVES THE HIDE, not just the taken-by-a-sibling
-       filter above: this entry's own `component_ids` are kept even if a
-       style declaration would now hide them, or narrowing a declaration
-       after the fact would blank an answer already saved. */
-    const hidden = componentsHiddenForLayout(
-      styleDecls,
-      e.style_ref_no.trim() || null,
-      (e.width_form || null) as LayoutType | null,
-    );
+    /* THE "FAB RAIL" LAYOUT FILTER (0527) WAS HERE — RULE 4, retired
+       2026-09-05 along with the per-style Layout Type declaration it read
+       (see `component-map.ts`'s own note where `componentsHiddenForLayout`
+       used to be). This picker now offers everything rules 2/2b/3 below and
+       `takenComponentIds` above allow, unfiltered by Layout Type. */
     const selected = new Set(e.component_ids);
     /* THE BASE LIST IS NOW THE STYLE'S OWN DECLARATION, not the whole
        `components` master (client, screenshot 2709: "need to show the
@@ -3349,7 +3336,6 @@ export function FabricBomScreen({
     return data.components
       .filter((c) => declaredIds.has(c.id) || selected.has(c.id))
       .filter((c) => !taken.has(c.id))
-      .filter((c) => selected.has(c.id) || !hidden.has(c.id))
       /* `{ id, label }`, which is `MultiSelectOption` — not the `{ value, label }`
          a `Combobox` takes. Two option shapes in one file, and the type checker
          is the only thing that tells them apart.

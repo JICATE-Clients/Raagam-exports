@@ -1172,11 +1172,12 @@ export async function getOrderStyleComponents(
   const s = await createClient();
   const { data } = await s
     .from("garment_order_amendment_style_components")
-    // `layout_type` (0527) — the Fab Rail's Layout Type declaration, read by
-    // `componentsHiddenForLayout` (lib/orders/fabric-bom/component-map.ts).
     // An explicit list, not `*`: adding a column here is a one-line edit
     // forever, the same trade every explicit select in this app makes.
-    .select("style_ref_no, coordinate_id, component_id, fabric_category_id, layout_type")
+    // `layout_type` (0527) WAS selected here for `componentsHiddenForLayout`
+    // — retired 2026-09-05 along with the column itself (Order Info's
+    // Layout Type field was removed, and the column went with it).
+    .select("style_ref_no, coordinate_id, component_id, fabric_category_id")
     .eq("amendment_id", garmentOrderId)
     .order("sno");
 

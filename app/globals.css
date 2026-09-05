@@ -171,6 +171,15 @@
   --info: #1d4ed8;
   --info-soft: #dbeafe;
 
+  /* Workspace tab bar chrome — the dark bar behind the open-tabs strip
+   * (components/shell/workspace-tabs-bar.tsx). Deliberately NOT a tinted
+   * surface token: the client has rejected every tinted CONTENT background
+   * (raagam-brand-colours), but nothing sits directly on this bar — the
+   * close button, title tab and pill track are separate light elements
+   * attached to it — so it reads as chrome, like a toolbar shell, not a
+   * tinted page. */
+  --shell-tabbar: #3a3f47;
+
   /* Soft brand tints. PRE-MIXED literals for the same reason as --cell-active
    * above: `bg-primary/10` compiles to a `background-color: var(--primary)`
    * FALLBACK outside `@supports (color-mix)`, so the 10%-tint icon wells on the
@@ -269,6 +278,11 @@
   --info: #60a5fa;
   --info-soft: #122648;
 
+  /* Lighter than --surface-muted, not darker — on a near-black canvas the
+   * bar needs to read as an ELEVATED panel, the same job the light-mode
+   * value does by going darker than its own canvas. */
+  --shell-tabbar: #242832;
+
   /* A tint is a shade in the dark — these are the 950s, not the 50s. */
   --primary-soft: #052c40;
   --accent-soft: #042f2e;
@@ -319,6 +333,7 @@
   --color-danger-soft: var(--danger-soft);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
+  --color-shell-tabbar: var(--shell-tabbar);
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     Arial, sans-serif;
