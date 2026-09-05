@@ -1371,8 +1371,17 @@ const dayBefore = (iso: string): string =>
  * Description (client 2026-08-12, screenshot 2264). Tab from one section to the
  * next then moved the same field sideways. A column width that repeats is a
  * column width that drifts.
+ *
+ * 12rem SINCE 2026-09-05, down from 14 (client: the Combos rows read too large).
+ * A style ref is `MENS T SHIRT/0034` — seventeen characters, ~119px at `text-sm`
+ * — and the table cell spends `px-1.5` on itself and `px-3` inside the control,
+ * so 192px carries it with room rather than the 224px it had. Changed HERE and
+ * not at the call site precisely because this constant is the thing that stops
+ * the three grids drifting: Combos is its only reader today (Prices and Approval
+ * Qty were rebuilt into other shapes), and narrowing it at the call site instead
+ * would be how the next one comes back at a different number.
  */
-const STYLE_COL_W = "14rem";
+const STYLE_COL_W = "12rem";
 
 /**
  * A STYLE FIELD'S WIDTH, KEYED BY ITS HEADER.
@@ -6595,12 +6604,26 @@ export function GarmentOrderScreen({
          the tab declares on all three panes, so this width and that basis are
          one decision stated in two places and must move together.
 
+         6rem SINCE 2026-09-05 (client: "compact size, tighten"), by way of
+         6.5rem earlier the same day, and the arithmetic moved with it — see the
+         pane basis at the call site, which is now DERIVED from these widths
+         rather than a round number standing near them.
+
+         104px, MEASURED NOT GUESSED, and the measurement CHANGED when this grid
+         became a real table (2026-09-05). A `<td>` carries its own `px-2`, so a
+         table column is 16px less generous than the same number was in the
+         `inlineCards` layout this replaces: 104 − 16 cell − 24 control `px-3`
+         leaves 64px of text against "MELANGE" at ~60px in `text-sm`. The
+         chevron OVERLAYS rather than reserving a track (`combobox.tsx` declares
+         `px-3` and no `pr-*`), which is what makes a column this narrow safe
+         here and would not be on a control that padded for it.
+
          The value is unaffected: this cell holds "Melange", "Dyed" or "Y/D".
 
          `structureColumns` further down declares the same 10rem and is NOT
          touched — that grid came off this tab on 2026-08-14 and is not one of
          the three sharing the row. */
-      width: "7rem",
+      width: "6.5rem",
       /**
        * A FIXED LIST PER SECTION (client 2026-08-17) — Y/D or Melange on a yarn
        * dyeing, Dyed or Melange on a fabric one. It was a free `<Input>`, which
@@ -6665,14 +6688,20 @@ export function GarmentOrderScreen({
        * THE WIDTH IS NOT OPTIONAL: `hugsContent` is `columns.every((c) => c.width)`,
        * so dropping it here would stretch all three grids on this tab.
        *
-       * 11rem, DOWN FROM 16 (2026-08-29) — see the note on `Type` above for the
-       * arithmetic. 176px still holds a colour name; the buyer references this
-       * cell also accepts ("0001") were never the long case.
+       * 7.5rem, DOWN FROM 11 and before that 16 — see the note on `Type` above
+       * for the arithmetic. 120px, less the cell's `px-2` and the control's
+       * `px-3`, is 80px of text and still holds "NAVY BLUE"; the buyer references
+       * this cell also accepts ("0001") were never the long case, and a name
+       * longer than the box is not lost — `TypeOrPick` joins `useOverflow` to a
+       * `Tooltip` on its own input, so it clips with an ellipsis and reveals on
+       * hover. That is the truncate-reveal rule satisfied INSIDE the control,
+       * which is what makes trimming this column cheap: the alternative is
+       * sizing every column for the longest value anyone might ever type.
        *
        * Trimmed, never dropped: those are different edits with very different
        * blast radii, and only one of them is safe.
        */
-      width: "11rem",
+      width: "7.5rem",
       /**
        * TYPE **OR** PICK SINCE 2026-08-17 (client: "allow users to manually
        * type/input color names or numbers, e.g. 0001, rather than forcing a
@@ -6712,7 +6741,18 @@ export function GarmentOrderScreen({
           options={colourPickOptions(r.color_id)}
           valueId={r.color_id}
           text={r.color_name}
-          inputClassName="h-8"
+          /* NO `inputClassName="h-8"` — REMOVED 2026-09-05 (client: "keep the
+             input heights and borders consistent with compact styling").
+             `Input` is `h-9 @2xl/editor:h-8`, so the compact height already
+             arrives from the primitive wherever the editor is compact, and
+             this hard-coded `h-8` was overriding the responsive half of it: it
+             pinned the box to 32px on touch and in the nested picker, where
+             the `<Select>` in the Type cell BESIDE IT — which passed no
+             className and so kept `h-9` — stayed 36px. Two controls on one
+             row at two heights is the inconsistency being reported, and the
+             fix is to delete the override, never to copy it onto the Select:
+             a call site patching one property of a control's size is the shape
+             AGENTS.md's "The header row" records as a bug of its own. */
           onChange={({ id, name }) =>
             setDyeings((xs) =>
               xs.map((x) =>
@@ -6821,7 +6861,23 @@ export function GarmentOrderScreen({
   const printColumns: ChildGridColumn<PrintRow>[] = [
     {
       header: "Roll form prints",
-      width: "16rem",
+      /* 8.5rem, DOWN FROM 16 (client 2026-09-05, "compact size, tighten").
+         136px, less the cell's own `px-2` and the control's `px-3`, is 96px of
+         text, which holds "ALL OVER PRINT"; a longer one clips and reveals on
+         hover through `TypeOrPick`'s own tooltip — the same trade the Colour
+         cell records.
+
+         THIS IS THE COLUMN THAT DECIDED THE ROW. Three cards at their old
+         widths measured ~69rem against a ~880px pane on a 1366 screen, so the
+         third wrapped onto a line of its own — which is the "put them in one
+         horizontal row" report. 16rem was never measured against anything; it
+         was simply wide enough that nothing complained while the grid had a
+         line to itself.
+
+         THE WIDTH IS NOT OPTIONAL: `hugsContent` is
+         `columns.every((c) => c.width)`, and the pane basis at the call site is
+         summed from this number. */
+      width: "8.5rem",
       cell: (r) => (
         <TypeOrPick
           label="Roll form print"
@@ -6829,7 +6885,8 @@ export function GarmentOrderScreen({
           options={printPickOptions(r.print_id)}
           valueId={r.print_id}
           text={r.print_name}
-          inputClassName="h-8"
+          /* No `inputClassName` — the height is the primitive's, for the
+             reason the Colour cell above records at length. */
           onChange={({ id, name }) =>
             setPrints((xs) =>
               xs.map((x) =>
@@ -6998,6 +7055,24 @@ export function GarmentOrderScreen({
    * number, a code of fixed length, or a field the operator reads at a glance
    * across rows, so a ragged row was cost with nothing bought. Detail stays
    * narrower because it is a button, not a value.
+   *
+   * ## AND ALL THREE CAME DOWN AGAIN ON 2026-09-05 (client: "compact")
+   *
+   * 12 / 10 / 5.5rem. Equal widths answered "imbalanced"; they did not answer
+   * "too large", and the two are different complaints about the same row — the
+   * first is about the columns AGREEING, the second about each one being bigger
+   * than the value in it. Both hold at once, which is why Style and Combo moved
+   * together and stayed within 2rem of each other rather than being re-sized one
+   * at a time by whatever each happens to hold.
+   *
+   * With the `#` track (2.5rem) and the ✕ track (2rem) the table now measures
+   * 32rem against 40.5, and it HUGS that: every column declares a width, so
+   * `hugsContent` puts `w-fit` on the card and the border stops at the last
+   * column instead of running to the edge of the tab.
+   *
+   * Detail is 5.5rem because it is a `size="sm"` outline button reading
+   * "Detail" — ~66px — inside a cell that spends `px-1.5`, so 88px holds it
+   * centred with a little air and 128px was two thirds empty.
    */
   /**
    * SINGLE STYLE: THE COLUMN GOES, NOT JUST THE CELL (client 2026-09-05: "for
@@ -7159,7 +7234,7 @@ export function GarmentOrderScreen({
       // A combo with no name is not a colourway — it is what the Prices and
       // Quantities tabs count against, and "" counts against nothing.
       required: true,
-      width: "14rem",
+      width: "10rem",
       cell: (r) => (
         <Input
           uppercase
@@ -7186,7 +7261,18 @@ export function GarmentOrderScreen({
          is a button, not a `<Field>`, so there is no cursor to hold) — the
          actual gate stays `comboProblems`, one declaration for both. */
       required: true,
-      width: "8rem",
+      /* 5.5rem, DOWN FROM 8rem in the same 09-05 compact pass that summed every
+         basis on this screen from its own columns. The star above survives the
+         narrowing: 88px less the cell's own `px-2` leaves ~72px against
+         "Detail" plus its mark at ~50px in `text-sm`. */
+      width: "5.5rem",
+      /* CENTRED, HEADER AND CELL BOTH (client 2026-09-05). `align` is read twice
+         by the table layout — once for the `<th>` and once for every `<td>` — so
+         one declaration centres the button under its own heading. It is the right
+         column to centre and the only one: Style and Combo are values read down
+         the column and stay left, where a ragged left edge would make them harder
+         to scan, and the `#` and ✕ tracks are centred by the primitive already. */
+      align: "center",
       /**
        * The legacy [Detail] button (screenshot 2261) — it opens the Structure
        * Details screen for THIS combo.
@@ -16353,53 +16439,97 @@ export function GarmentOrderScreen({
               2026-08-12, screenshot 2273). `fill` suppresses only the hug: the
               fields keep their declared widths and the slack falls to the right
               of them. */}
-          {/* THREE PEERS ON ONE LINE, WRAPPING — `wrap` plus a basis per section,
-              never a column count. The basis is ~23rem because that is what one
-              of these grids MEASURES: index + Type (7rem) + Colour (11rem) + ✕
-              and their gaps. A count would have to guess a container width to
+          {/* THREE PEERS ON ONE LINE — `wrap` plus a basis per section, never a
+              column count. A count would have to guess a container width to
               switch at, and both guesses were wrong — `@7xl` never fired on this
               pane and `@6xl` would have switched at a width narrower than the
-              content. See `SectionGrid.wrap`. */}
+              content. See `SectionGrid.wrap`.
+
+              EVERY BASIS IS SUMMED FROM ITS OWN COLUMNS, and that is the change
+              of 2026-09-05 (client: "display the three sections in one
+              horizontal row ... make each table clean and compact"). All three
+              declared a flat ~23rem before, which was the DYEING measurement
+              copied onto the print grid as well — so the narrowest of the three
+              claimed a line's worth of room it had no columns to fill:
+
+                dyeing  = # 40px + Type 104 + Colour 120 + ✕ 32 = 296px
+                prints  = # 40px + Print 136             + ✕ 32 = 208px
+
+              THESE ARE TABLE WIDTHS, not the flex row's. Each grid is a real
+              `<table>` since 2026-09-05 (client, Tamil: "oru table aa convert
+              pannu" — make it one table): `<th>`-declared columns,
+              `border-collapse`, a rule under the header and a `border-l`
+              between cells. So the `#` column is the table layout's own `w-10`
+              and the ✕ column its `w-8`, and each column carries a `<td>`'s
+              `px-2` INSIDE the width declared for it — which is why every
+              column above went up by 0.5rem in the same change.
+
+              800px of tables + `SectionGrid`'s two gap-4 gutters is 832px, and
+              THAT NUMBER IS THE WHOLE POINT — it is the width below which the
+              operator stops seeing three tables side by side.
+
+              WHAT EATS THE PANE IS CHROME, not this section. The screen is
+              `mount="page"`, so the app's 224px module sidebar stays on screen
+              BESIDE the editor's own 192px section rail; with the content
+              column's `px-4` and the section's own padding that is ~470px gone
+              before a table is drawn. A 1366 display leaves ~890px and the row
+              holds; 1280 leaves ~805px and it holds; below that it wraps.
+
+              THE FLOOR IS REAL AND IS NOT A TUNING PROBLEM. Three tables need
+              two dropdowns, two text boxes, three ordinals and three ✕ side by
+              side, and 832px is close to what that costs — the remaining slack
+              is the `#` column (24px a card) and the frames, both of which were
+              asked for by name. A pane materially narrower than this (a phone,
+              the ~440px nested picker, or a 1366 laptop at Windows' default
+              125% display scaling, which leaves ~1093 CSS px and ~620px of
+              content) cannot show three across at a usable field width, and
+              `wrap` is what it degrades to instead of spilling out of the
+              cards. If it wraps on a desk it should not, the width to find is
+              in the chrome — collapsing the section rail, or the overlay mount
+              AGENTS.md's operator rule 3 prefers for an editor like this.
+
+              `fill` STAYS ON ALL THREE, so the cards remain equal in width and
+              their edges line up (the 2026-08-12 note above). Compacting the
+              COLUMNS is what was asked for; equalising the CARDS is what was
+              asked for in August, and the two do not conflict — the fields are
+              tight and the frames around them agree. */}
           <SectionGrid wrap>
             {/* Yarn dyeing */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- TWO grids share the Color/Print Details section; without captions the operator
                    cannot tell which is which. */
                 label="Yarn Dyeing"
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "yarn")}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add yarn dyeing"
               />
             </div>
             {/* Fabric dyeing */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- the other half of the pair above. */
                 label="Fabric Dyeing"
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "fabric")}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add fabric dyeing"
               />
             </div>
             {/* Roll form prints */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_13rem]">
               <ChildGrid<PrintRow>
                 /* grid-caption: exempt -- the third of three grids in one section; without captions
                    the operator cannot tell which is which. */
                 label="Roll form prints"
                 columns={printColumns}
                 rows={prints}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={addPrint}
                 onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add roll form print"
@@ -16463,6 +16593,58 @@ export function GarmentOrderScreen({
               className="mb-3"
             />
           )}
+          {/**
+            * A REAL TABLE, NOT A STACK OF BOXES (client 2026-09-05: "convert the
+            * floating list into a neat, compact table with borders").
+            *
+            * `inlineCards` STOOD HERE AND IS GONE. It is LAYOUT.md §6's
+            * "<=3 -> inlineCards" band, and the band is not wrong — three columns
+            * is exactly what it is for — but the band picks a layout by how many
+            * fields a row has, not by what a row IS. An inline row is a flex line
+            * inside its own `rounded-md border p-1.5` card, so a tab holding four
+            * combos drew the grid's frame and then four more inside it, with the
+            * column headings floating above unboxed cells. That is the same
+            * complaint the client made about `forceCards` on 2026-08-19 — "a stack
+            * of boxes rather than a table" — arriving through the other card mode.
+            *
+            * Dropping the prop hands the grid to `ChildGrid`'s DEFAULT responsive
+            * table, which is the thing being asked for and already draws every part
+            * of it: `rounded-lg border border-border` around the table,
+            * `overflow-x-auto` on that wrapper, a `<thead>` separated by `border-b`
+            * with `GRID_HEADER_TEXT` labels, `border-l` gridlines between columns, a
+            * centred `#` track at `w-10`, the red `*` on any column declaring
+            * `required` (so "Style *" and "Combo *" are the two `required: true`
+            * flags above, not typed text), and a `w-8` ✕ track carrying
+            * `data-row-remove` for Ctrl+Del. Nothing here draws a `<table>`: the
+            * screen composes, and "line items are `ChildGrid`, never a hand-rolled
+            * table" is the standing rule that makes the keyboard contract free.
+            *
+            * PADDING AND HEIGHTS ARE THE PRIMITIVE'S, AND ARE ALREADY COMPACT.
+            * `<th>` is `px-2 py-2`, `<td>` is `px-1.5 py-1`, and every control
+            * inside is `h-9 @2xl/editor:h-8` — a CONTAINER query, so it is 32px in
+            * a desktop editor pane and stays 36px in a narrow one. A hand-set
+            * `h-8 text-xs` on the cells would look identical on this desk and is
+            * the exact defect recorded on `quantityColumns` (client 2026-08-21,
+            * "make even look"): a flat height opts the input OUT of that query, so
+            * under 42rem the inputs stand 32px beside 36px pickers, four pixels
+            * apart in one row.
+            *
+            * CELLS ARE `align-top`, WHICH IS WHAT KEEPS THE ROW STRAIGHT. Every
+            * control starts at the same edge, so the row reads as one line; the
+            * table default `middle` is what produced the staircase an operator
+            * reported on Fabric Lines (2026-09-04, "some fields look uneven"),
+            * because this grid's Style cell stacks the picked line's Article No
+            * under its picker and a centred tall cell drags its single-line
+            * neighbours down.
+            *
+            * BELOW `@lg` (512px of this grid's own inline size) it still stacks
+            * into cards — that is the phone layout and it is unchanged. And the
+            * card HUGS: all three columns declare a width, so `hugsContent` is
+            * true and the border stops at the ✕ track rather than trailing grey
+            * across the tab. The "+ Add combo" is a sibling below the table, in
+            * the card's own `space-y` rhythm, which is the rhythm every other
+            * grid in this app puts it on.
+            */}
           <ChildGrid<ComboRow>
             columns={comboColumns}
             rows={combos}
@@ -16472,7 +16654,31 @@ export function GarmentOrderScreen({
                withholds the ✕ from the sole survivor, and Ctrl+Del declines
                with it because both read `locked`. */
             keepOne
-            inlineCards
+            /* THE NARROW LAYOUT KEEPS ITS LABELS. Below `@lg` the responsive grid
+               stacks into cards, and its DEFAULT card body renders the cells and
+               nothing else — the column headings live in the `<thead>`, which is
+               the half that is `hidden` down there. `inlineCards` had its own
+               header band, so dropping it took the labels with it on exactly the
+               widths where a bare column of three unnamed boxes is least
+               guessable.
+
+               READ OFF `comboColumns`, NEVER RETYPED BESIDE IT — the shape the
+               layout skill prescribes. A fourth column would otherwise reach the
+               table and not the card, and the two would disagree about what the
+               row is. `required={c.required}` is forwarded for the same reason
+               `--check grid-required-mobile` exists: a row a grid renders itself
+               bypasses the `columns.map()` that wraps each cell in
+               `RequiredScope`, so without it the header draws a `*` with no
+               cursor hold behind it. */
+            renderMobileRow={(row, i) => (
+              <FieldGrid>
+                {comboColumns.map((c, ci) => (
+                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                    {c.cell(row, i)}
+                  </Field>
+                ))}
+              </FieldGrid>
+            )}
             onAdd={addCombo}
             onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add combo"
