@@ -29,6 +29,8 @@ import {
   Droplet,
   Scissors,
   Search,
+  Rocket,
+  Flag,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -4349,6 +4351,105 @@ export function GarmentOrderScreen({
     [taLadder],
   );
 
+  /**
+   * THE ROAD LINE — a decorative connector behind the T&A cards, drawn between
+   * their icon badges (client, after a road-map mockup: "make 3 card per row
+   * and that line"). Hooks, above the early return like every other one on
+   * this screen (AGENTS.md "Hooks above every early return" — this file has
+   * shipped that bug five times, so nothing here is exempt).
+   *
+   * MEASURED, NEVER GUESSED, for the same reason the mockup's own version was:
+   * `taRenderMobileRow` alternates each activity left/right (see `side` in
+   * that function), so a card's real on-screen position depends on the
+   * viewport width, how many activities
+   * exist, and how long an activity's own name wrapped to — none of which this
+   * component can compute in advance. `ResizeObserver` + a plain DOM Map keyed
+   * by React `key` (never `row_uid`, which the operator never sees and which
+   * survives a save the DOM node does not) is what stays correct through an
+   * add, a remove, or the window simply resizing.
+   *
+   * ONLY EVER A DECORATION. Nothing here reads from or writes to `taRows`,
+   * carries a `data-grid-row`/`data-grid-body` marker, or touches
+   * `gridKeyNav`/`tabAlongRow` — the grid underneath is the exact same
+   * `ChildGrid` with the exact same one-TaRow-per-row model Tab and Ctrl+Del
+   * already walk. If this measurement ever came back empty the cards would
+   * simply render with no line behind them; nothing about entering the ladder
+   * depends on it.
+   */
+  const taNodeRefs = useRef(new Map<string, HTMLDivElement>());
+  const taWrapRef = useRef<HTMLDivElement | null>(null);
+  const taRoRef = useRef<ResizeObserver | null>(null);
+  const [taTrack, setTaTrack] = useState({ d: "", w: 0, h: 0 });
+
+  const taDraw = useCallback(() => {
+    const wrap = taWrapRef.current;
+    if (!wrap) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const pts = taRows
+      .map((r) => taNodeRefs.current.get(r.key))
+      .filter((el): el is HTMLDivElement => !!el)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return [
+          rect.left + rect.width / 2 - wrapRect.left,
+          rect.top + rect.height / 2 - wrapRect.top,
+        ] as const;
+      });
+    if (pts.length < 2) {
+      setTaTrack({ d: "", w: wrapRect.width, h: wrapRect.height });
+      return;
+    }
+    /* THE SAME "LEAVE STRAIGHT DOWN, ARRIVE STRAIGHT DOWN" CURVE the mockup
+       settled on, so a hop across three grid columns eases round a bend
+       instead of cutting a diagonal — see that file's own note on why a
+       plain `L` read as "slanting" to the client. */
+    let d = `M ${pts[0][0]} ${pts[0][1]} `;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i];
+      const [x1, y1] = pts[i + 1];
+      const midY = (y0 + y1) / 2;
+      d += `C ${x0} ${midY}, ${x1} ${midY}, ${x1} ${y1} `;
+    }
+    setTaTrack({ d, w: wrapRect.width, h: wrapRect.height });
+  }, [taRows]);
+
+  /**
+   * A CALLBACK REF, NOT A PLAIN ONE — THE SECOND BUG THIS LINE SHIPPED WITH.
+   * The first was the `-z-10` that painted it behind the tab's own opaque
+   * background (fixed, see the svg's own note). This one is why it still did
+   * not show up after that fix: a plain `useRef` + `useEffect([taRows])` only
+   * MEASURES when `taRows` changes — and the T&A pane's wrapper div does not
+   * exist in the DOM until the operator actually clicks into the T&A tab. On
+   * a screen that opens on Order Info, the effect had already run once,
+   * found `taWrapRef.current` null, and given up — nothing about switching
+   * tabs LATER touches `taRows`, so it never ran again. The line was being
+   * computed against a node that was not there yet, for the entire life of
+   * the component.
+   *
+   * A callback ref fires exactly when React attaches or detaches the DOM
+   * node, whichever tab that happens on, so the very act of opening T&A is
+   * what (re)creates the `ResizeObserver` and draws the line for the first
+   * time. `taDraw` changing (new `taRows`) still redraws it thereafter via
+   * the plain `useEffect` below, using whatever wrap is CURRENTLY attached.
+   */
+  const taWrapCallbackRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      taRoRef.current?.disconnect();
+      taRoRef.current = null;
+      taWrapRef.current = node;
+      if (node) {
+        const ro = new ResizeObserver(() => taDraw());
+        ro.observe(node);
+        taRoRef.current = ro;
+        taDraw();
+      }
+    },
+    [taDraw],
+  );
+
+  useEffect(() => {
+    taDraw();
+  }, [taDraw]);
 
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
@@ -8373,7 +8474,15 @@ export function GarmentOrderScreen({
       cell: (r) => (
         <Input
           type="number"
-          className="text-right"
+          /* PILL, NOT A SQUARE BOX — `taRenderMobileRow` sits this inside a
+             rounded `bg-surface-muted` chip beside its own "Days" label, so a
+             bordered rectangular input here would draw a second, competing
+             shape inside that chip. `border-transparent bg-transparent`
+             (never `border-none`, which some Tailwind builds treat as a
+             different utility than the border-color/width pair `cn` here is
+             overriding) lets the chip's own background show through; the
+             focus ring still comes from `Input`'s own base classes, unopposed. */
+          className="w-12 rounded-full border-transparent bg-transparent text-center"
           value={r.days_required}
           onChange={(e) =>
             setTaRows((xs) =>
@@ -8466,12 +8575,24 @@ export function GarmentOrderScreen({
    * rendering of the one `taDates` / `taActivityById` lookup the table cells
    * already make. Neither is on the Tab path either way.
    *
-   * NO CONNECTING LINE BETWEEN CARDS. The mockup drew one; `ChildGrid` owns the
-   * spacing between `data-grid-row` boxes and does not expose it, so a hand-timed
-   * line here would hardcode another component's padding and silently go stale
-   * the next time that padding changes. The sequence still reads top-to-bottom
-   * from the numbered date column and the divider `flatRows` already draws
-   * between records.
+   * ALTERNATING SIDES, STILL ONE `TaRow` PER `ChildGrid` ROW. This went
+   * through a 3-per-row (then 5-per-row) CSS-grid override on `data-grid-body`
+   * for a couple of requests, then back — the client's actual reference the
+   * whole time was the artifact's own "Version 7", the single-card-per-row
+   * road map with each activity alternating left and right, not a multi-
+   * column grid. `ChildGrid` never knew the difference either way: Tab,
+   * Ctrl+Del and Enter-adds-a-row all still walk the same one-activity-per-
+   * row model. What changed, again, is purely how ONE row's own content is
+   * laid out — `side` below, computed from `i % 2`.
+   *
+   * THE CONNECTING LINE IS MEASURED, DRAWN OUTSIDE THIS FUNCTION, AND DID NOT
+   * NEED TO CHANGE ACROSS ANY OF THIS. See the `taNodeRefs` / `taTrack` hooks
+   * above the early return: this function only hands one ref per card
+   * (`taNodeRefs.current.set(r.key, el)`) to the icon badge; the SVG path is
+   * drawn once, behind every row, from wherever those badges actually end up
+   * on screen. A grid of three columns and a single column of alternating
+   * sides are just two different arrangements of the same set of points —
+   * the measurement does not know or care which one it is looking at.
    */
   const taRenderMobileRow = (r: TaRow, i: number) => {
     const d = taDates.get(r.row_uid);
@@ -8496,6 +8617,15 @@ export function GarmentOrderScreen({
       info: "bg-info-soft text-info",
       muted: "bg-surface-muted text-muted-foreground",
     };
+    /* THE RING, NOT THE FILL, CARRIES THE TONE HERE — `toneNode` already sets
+       the badge's own soft fill; this is the OUTER ring the mockup's thicker
+       "road" medallions had, in the same tone rather than a new colour. */
+    const toneRing: Record<typeof tone, string> = {
+      danger: "ring-danger",
+      warning: "ring-warning",
+      info: "ring-info",
+      muted: "ring-border-strong",
+    };
     const toneText: Record<typeof tone, string> = {
       danger: "text-danger",
       warning: "text-warning",
@@ -8513,9 +8643,21 @@ export function GarmentOrderScreen({
               ? `Target in ${d.float} day${d.float === 1 ? "" : "s"}`
               : null;
 
+    /**
+     * ALTERNATING SIDES, NOT A GRID (client, pointing at the artifact's own
+     * "Version 7" — the single-card-per-row road map, not the 3-per-row grid
+     * that was built for a different request in between). Even rows cluster
+     * left, odd rows cluster right, with a flex-1 spacer taking up whatever
+     * side the cluster is NOT on. `flex-row-reverse` is what makes one set of
+     * JSX serve both sides: the spacer is always the LAST element in DOM
+     * order, so reversing the row moves it — and therefore the empty space —
+     * to the opposite edge without touching the cluster's own markup.
+     */
+    const side: "left" | "right" = i % 2 === 0 ? "left" : "right";
+
     return (
-      <div className="flex gap-3">
-        <div className="w-16 flex-none pt-1 text-right">
+      <div className={cn("flex items-start gap-3 py-1", side === "right" && "flex-row-reverse")}>
+        <div className={cn("w-14 flex-none pt-1.5", side === "left" ? "text-right" : "text-left")}>
           <div className="text-[10px] font-medium tracking-wide text-muted-foreground">
             {String(i + 1).padStart(2, "0")}
           </div>
@@ -8523,37 +8665,45 @@ export function GarmentOrderScreen({
             {d ? fmtDate(d.target_date) : "—"}
           </div>
         </div>
+
         <div
+          ref={(el) => {
+            if (el) taNodeRefs.current.set(r.key, el);
+            else taNodeRefs.current.delete(r.key);
+          }}
           className={cn(
-            "mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-full",
+            "mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-surface",
             toneNode[tone],
+            toneRing[tone],
           )}
         >
           <Icon className="h-4 w-4" />
         </div>
-        <div className="min-w-0 flex-1 space-y-2 rounded-lg border border-border bg-surface p-3 transition-shadow hover:shadow-md">
-          <div className="flex flex-wrap items-center gap-2">
-            <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
-              {taColumns[0].cell(r, i)}
-            </RequiredScope>
+
+        <div className="w-full max-w-[280px] flex-none space-y-1.5 rounded-xl border border-border bg-surface p-2.5 text-left transition-shadow hover:shadow-md">
+          <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
+            {taColumns[0].cell(r, i)}
+          </RequiredScope>
+          <div className="flex flex-wrap items-center gap-1.5">
             {activity?.department && (
               <span className="rounded-full border border-border bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {activity.department}
               </span>
             )}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2.5 pr-1">
               <span className="text-[11px] font-medium text-muted-foreground">Days</span>
-              <div className="w-16">
-                <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
-                  {taColumns[1].cell(r, i)}
-                </RequiredScope>
-              </div>
+              <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
+                {taColumns[1].cell(r, i)}
+              </RequiredScope>
             </div>
-            {caption && <span className={cn("text-xs font-medium", toneText[tone])}>{caption}</span>}
           </div>
+          {caption && <div className={cn("text-[11px] font-medium", toneText[tone])}>{caption}</div>}
         </div>
+
+        {/* THE SPACER. See the note above — this is what alternating sides
+           actually is: not two different layouts, one layout and which end
+           this element sits at. */}
+        <div className="flex-1" />
       </div>
     );
   };
@@ -17689,71 +17839,155 @@ export function GarmentOrderScreen({
           )}
 
           {/**
-            * EVERYTHING WRONG WITH THIS TAB, SAID IN ONE PLACE — and said only,
-            * never enforced (client 2026-08-31: "make it optional now will
-            * implement it later as required").
+            * THE ADVISORY LIST IS NO LONGER SHOWN (client 2026-09-05: "no need
+            * this message in T&A totally remove it, can save some space").
             *
-            * These are `taProblems`, the same list that fed `sectionValidity`'s
-            * `extra` until the tab was made optional. Rendering the SAME objects
-            * here rather than writing a second set of sentences is the whole
-            * point: when the gate comes back it is one line in `extra`, and the
-            * operator's messages cannot drift from the record's rules in the
-            * meantime, because there is only one set of them.
-            *
-            * AMBER, NOT RED, AND NOT WIRED TO ANYTHING. Nothing here holds the
-            * cursor, deadens Save or counts on the rail — it is the plain
-            * advisory shape AGENTS.md describes for a rule that does not block
-            * ("an advisory stays plain amber text and is not wired through
-            * `dupFieldProps`"). A red box beside a Save button that works would
-            * teach the operator to ignore red.
-            *
-            * IT COVERS THE LADDER'S REFUSAL TOO, which is why the status line
-            * above renders nothing when the ladder refuses. "KNITTING: enter how
-            * many days it needs" is `backwardSchedule`'s own sentence, passed
-            * through unchanged and never restated.
+            * `taProblems` ITSELF STAYS, UNCHANGED — see the long note at its
+            * `...taProblems` (deliberately absent) spread point, a few hundred
+            * lines up in `sectionValidity`'s `extra`: "DO NOT tidy up by
+            * deleting `taProblems`". This is one render removed, not the rule
+            * withdrawn — the const still computes all four cases (empty
+            * master, emptied grid, unnamed rows, ladder refusal) so restoring
+            * the gate later is still exactly "add `...taProblems` back", with
+            * this block re-added beside it if the operator wants the amber
+            * text back too. Today the tab simply says nothing until Save is
+            * attempted with the gate off, which is consistent with the tab
+            * being optional in the first place.
             */}
-          {taProblems.length > 0 && (
-            <ul className="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
-              {taProblems.map((pb, i) => (
-                <li key={i}>{pb.message}</li>
-              ))}
-            </ul>
-          )}
 
-          <ChildGrid<TaRow>
-            columns={taColumns}
-            rows={taRows}
-            /* THE LADDER READS AS A SCHEDULE, NOT A TABLE (client, after
-               reviewing a timeline mockup): `forceCards` renders every width as
-               the stacked-card layout, and `renderMobileRow` swaps the default
-               "stack every column" body for `taRenderMobileRow`'s status-toned
-               card. Nothing about the DATA changed — same `columns`, same
-               `onAdd`/`onRemove`, same keyboard contract (`data-grid-row`,
-               Ctrl+Del, Tab-lands-on-fields all still come from `ChildGrid`
-               itself); only which JSX draws inside each row. See
-               `taRenderMobileRow`'s own comment for what it deliberately does
-               NOT try to reproduce from the mockup (a hand-timed connecting
-               line, and a done/in-progress status this screen has no data for). */
-            forceCards
-            /* `flatRows` drops `ChildGrid`'s own "rounded-lg border p-2.5" box
-               around each row — `taRenderMobileRow` draws its OWN card, and
-               without this the two would nest (an outer card holding an inner
-               one, both bordered). What `flatRows` leaves behind is exactly what
-               this layout wants: plain vertical rhythm and the app's usual
-               "a new record starts here" divider between activities. */
-            flatRows
-            renderMobileRow={taRenderMobileRow}
-            /* NO `seedRow`. Every other grid on this screen opens on a blank row
-               because the operator is the only one who knows what belongs in it;
-               this one is seeded from the `ta_activities` master (see
-               `seedTaLadder`), and a blank row put back after the last one was
-               deleted would be a row whose Activity picker holds the cursor and
-               whose Days blocks Save — a grid arguing with an operator who has
-               just emptied it on purpose. */
-            onAdd={() => setTaRows((xs) => [...xs, blankTaRow()])}
-            onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add activity"
-          />
+          {/**
+            * THREE CARDS PER ROW, WITH A ROAD LINE BEHIND THEM (client, after a
+            * road-map mockup: "make 3 card per row and that line"). Both are
+            * layered OUTSIDE `ChildGrid` rather than built into it:
+            *
+            * - `taWrapCallbackRef` is the coordinate space `taTrack`'s path was
+            *   measured in (see the hooks above the early return, and that
+            *   callback ref's own note on why a plain `useRef` missed every
+            *   tab switch) — the `<svg>` below is
+            *   an absolutely-positioned sibling of `ChildGrid`, painted first so
+            *   it sits BEHIND the cards, sized to the exact pixel box that was
+            *   measured so the path's raw coordinates need no `viewBox` scaling.
+            * - The arbitrary-descendant classes on the wrapper below turn
+            *   `ChildGrid`'s own row container (`[data-grid-body]`) into a CSS
+            *   grid from the OUTSIDE — no such prop exists on `ChildGrid`, and
+            *   none was added there, because this is purely how ~10 already-
+            *   correct rows are ARRANGED, not a new row shape. `ChildGrid` still
+            *   renders exactly one `TaRow` per `[data-grid-row]`; Tab, Ctrl+Del
+            *   and Enter-adds-a-row all still walk that same one-row-per-
+            *   activity model unchanged.
+            * - `!border-t-0` / `!py-0` cancel `flatRows`'s own single-column
+            *   rhythm (a top divider and asymmetric top/bottom padding meant for
+            *   a stacked list), which would otherwise sit unevenly across a row
+            *   of three cards; the grid's own `gap` supplies the spacing instead.
+            */}
+          {/* THE START CAP (client: "that order entry rock and shipent with
+             track icon need to add"). Same shape as the artifact's own
+             bookends — a small circle in the app's brand-soft tint, a
+             label under it — marking the two ends of the ladder that are
+             not activities: the order itself, and the shipment it is
+             building toward. Purely decorative, matching `road-cap` in the
+             reference artifact; carries no data of its own. */}
+          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-1">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
+              <Rocket className="h-4 w-4" />
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Order entered
+            </span>
+          </div>
+          {/* NARROWER, SO THE TWO SIDES SIT CLOSER TOGETHER (client: "can i
+             think shrick those left and right between gab" — the alternating
+             cluster was spanning the FULL width of a wide content pane,
+             which is not what the artifact's own bounded shell showed. Same
+             `max-w-2xl` as the caps above it, so the line's left/right swing
+             lines up with the rocket and the flag rather than under- or
+             overshooting them. */}
+          <div ref={taWrapCallbackRef} className="relative mx-auto max-w-2xl">
+            <svg
+              /* NO `-z-10` — see the fix note. A negative z-index on an
+                 element whose parent sets no z-index of its own does not
+                 mean "behind its sibling grid"; it means "behind the
+                 nearest ancestor that DOES form a stacking context", which
+                 on this screen is the tab pane's own opaque background. The
+                 svg painted, correctly, entirely out of sight underneath it.
+                 Plain DOM order does the job instead: this element is
+                 written BEFORE the grid below it and neither carries a
+                 z-index, so normal painting order alone puts it behind. */
+              className="pointer-events-none absolute left-0 top-0"
+              width={taTrack.w}
+              height={taTrack.h}
+              aria-hidden="true"
+            >
+              <path
+                d={taTrack.d}
+                fill="none"
+                stroke="var(--border-strong)"
+                strokeWidth={5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <div
+              /* NO GRID OVERRIDE ANY MORE — the 3-per-row and 5-per-row grid
+                 CSS both went with the layout they were built for (client, at
+                 the artifact's own "Version 7": the ALTERNATING single-card
+                 road map, not the grid built for a request in between).
+                 `ChildGrid`'s own row container needs no help here: with
+                 `flatRows` it already stacks one `[data-grid-row]` per line,
+                 which is exactly what an alternating layout wants — each row
+                 decides its OWN left/right via `taRenderMobileRow`'s `side`,
+                 not via how the container arranges cells. `!border-t-0` /
+                 `!py-0` stay: `flatRows`'s single-column divider and padding
+                 were tuned for a plain stacked list, not a row that is now a
+                 flex cluster pinned to one edge, and `taRenderMobileRow`
+                 supplies its own `py-1` instead. */
+              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0"
+            >
+              <ChildGrid<TaRow>
+                columns={taColumns}
+                rows={taRows}
+                /* THE LADDER READS AS A SCHEDULE, NOT A TABLE (client, after
+                   reviewing a timeline mockup): `forceCards` renders every width
+                   as the stacked-card layout, and `renderMobileRow` swaps the
+                   default "stack every column" body for `taRenderMobileRow`'s
+                   status-toned card. Nothing about the DATA changed — same
+                   `columns`, same `onAdd`/`onRemove`, same keyboard contract
+                   (`data-grid-row`, Ctrl+Del, Tab-lands-on-fields all still come
+                   from `ChildGrid` itself); only which JSX draws inside each row,
+                   and how the wrapper above arranges those rows on screen. */
+                forceCards
+                /* `flatRows` drops `ChildGrid`'s own "rounded-lg border p-2.5"
+                   box around each row — `taRenderMobileRow` draws its OWN card,
+                   and without this the two would nest. Its divider and padding
+                   are then cancelled by the wrapper's own override above, since
+                   both assume a single stacked column. */
+                flatRows
+                renderMobileRow={taRenderMobileRow}
+                /* NO `seedRow`. Every other grid on this screen opens on a blank
+                   row because the operator is the only one who knows what
+                   belongs in it; this one is seeded from the `ta_activities`
+                   master (see `seedTaLadder`), and a blank row put back after the
+                   last one was deleted would be a row whose Activity picker
+                   holds the cursor and whose Days blocks Save — a grid arguing
+                   with an operator who has just emptied it on purpose. */
+                onAdd={() => setTaRows((xs) => [...xs, blankTaRow()])}
+                onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add activity"
+              />
+            </div>
+          </div>
+          {/* THE FINISH CAP (client: "order completion wiht flag and track").
+             Same treatment as the start cap, closing the ladder at Shipment
+             rather than naming it a second time — the last card already
+             says "SHIPMENT". */}
+          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
+              <Flag className="h-4 w-4" />
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Ready to ship
+            </span>
+          </div>
         </div>
       ),
     },
@@ -18972,101 +19206,87 @@ export function GarmentOrderScreen({
       onInputCapture={() => setTouched(true)}
       onClickCapture={() => setTouched(true)}
     >
-      <PageHeader
-        title={
-          /* THE RE NO RIDES ON THE TITLE, matching every child sheet this
-             screen opens (Fabric BOM, Material BOM, CAD, …), each of which
-             names itself by the order's RE No rather than a generic label
-             (operator request, 2026-09-04 — this page was the one screen in
-             the chain still saying only "Edit Garment Order"). `previewNo` is
-             already resolved before first paint for a brand-new order (see
-             `initialOrderNo`), so the number is here even before a save
-             mints one — never a placeholder like a bare "auto" would be,
-             because an unresolved preview is simply absent from the string. */
-          (savedOrderNo ?? previewNo
-            ? `${amending ? "Amend Garment Order" : editId ? "Edit Garment Order" : "New Garment Order"} · ${savedOrderNo ?? previewNo}`
-            : amending
-              ? "Amend Garment Order"
-              : editId
-                ? "Edit Garment Order"
-                : "New Garment Order")
-        }
-        /* NO DERIVED BACK LINK ON THE EDITOR — the one case `backTarget` cannot
-           see. `PageHeader` resolves a "← Back to <parent>" off the nav registry
-           by ROUTE, and this route's editor is not a page the operator navigated
-           TO: it is a mode of the same route, entered by clicking a row. The
-           derived link would sit beside the "← Back to list" button below it,
-           two arrows on one row aimed at different places, and the derived one
-           would leave the screen with an unsaved order open.
-
-           THE LIST BRANCH KEEPS THE DEFAULT, deliberately: there the parent IS a
-           real destination, and because the registry answers per route, the one
-           component gives "← Back to Order Management" at /orders/garment-orders and
-           "← Back to Amendments" at /orders/amendments with no `purpose` branch
-           of its own. */
-        back={false}
-        /* NO DESCRIPTION IN THE EDITOR (client 2026-08-14). It said "Fill the
-           header, then work down the tabs. The SC No is minted on save." — read
-           once, then ~22px on every visit thereafter, on the screen being
-           reported as cramped. The title and Back to list stay: those name the
-           record and get the operator out, which a description does not.
-
-           The LIST-mode header keeps its own, deliberately. A list is where
-           someone arrives without context; an editor is not. */
-        actions={
-          <div className="flex items-center gap-3">
-            {/* THE ORDER-LEVEL LEDGER. Here rather than in a pinned card of its
-                own: the operator's standing rule is that a record's header
-                fields are a SECTION, not a band floating above the rail, and a
-                new full-width band is that shape. `PageHeader` is already the
-                one strip that names this record, and `MasterFullScreen` is
-                mounted `page` here precisely so this header stays visible.
-
-                SHOWN ONLY ONCE THERE IS A BREAKUP TO REPORT ON. Before that it
-                would say "0 of 0", which is a claim about an order nobody has
-                started — the same call `assortBalanceOf` makes by answering null
-                rather than a shortfall. */}
-            {orderBalance.rows > 0 && orderBalance.target > 0 && (
-              <span className="hidden items-baseline gap-1.5 text-xs sm:flex">
-                <span className="text-muted-foreground">Order breakup</span>
-                <span className="font-medium tabular-nums text-foreground">
-                  {fmtNumber(orderBalance.allocated)}
-                </span>
-                <span className="text-muted-foreground">of</span>
-                <span className="font-medium tabular-nums text-foreground">
-                  {fmtNumber(orderBalance.target)}
-                </span>
-                {orderBalance.started === 0 ? (
-                  <span className="text-muted-foreground">· not started</span>
-                ) : orderBalance.allocated === orderBalance.target ? (
-                  <span className="text-success">· balanced</span>
-                ) : orderBalance.allocated < orderBalance.target ? (
-                  <span className="text-warning">
-                    · {fmtNumber(orderBalance.target - orderBalance.allocated)} left
-                  </span>
-                ) : (
-                  <span className="text-danger">
-                    · {fmtNumber(orderBalance.allocated - orderBalance.target)} over
-                  </span>
-                )}
+      {/**
+        * A DIVIDER, NOT A PAGE HEADER (client 2026-09-05, reference: the
+        * label/hairline band Fabric BOM's Components tab uses for its own
+        * "Style Ref No · Style No · Article No" strip — `StyleIdentityBand`,
+        * `components/orders/style-identity-band.tsx`. That component takes a
+        * style's own three fields and cannot name an order, so this is the
+        * same VISUAL LANGUAGE (uppercase 10.5px label, bold value, a hairline
+        * filling the rest of the row) rather than a shared component — but
+        * every class below is copied from it rather than re-invented, so a
+        * reader who knows one band recognises the other.
+        *
+        * `<PageHeader>` is gone from THIS branch only — the list branch a few
+        * hundred lines up keeps it untouched, since 224 other screens share
+        * that component and a list page arrives with no context the way an
+        * open editor does not. What made the old header tall was never
+        * `PageHeader`'s own spacing (`mb-4`, already trimmed once this
+        * session): it was an `h1 text-xl` sized to introduce a page the
+        * operator has already opened, plus a full row spent solely on
+        * "← Back to list" — the SAME information this band now carries in
+        * one compact line, the record's own identity and its way out.
+        *
+        * `data-focus-region="header"` IS NOT OPTIONAL — copied from
+        * `PageHeader` itself. Without it, `regionOf` (`lib/focus.ts`) sorts
+        * "← Back to list" as a CONTENT field rather than chrome, and Tab off
+        * the last field of a section lands on it instead of wrapping to the
+        * next section — the exact bug `PageHeader`'s own comment documents
+        * for every OTHER screen's actions row.
+        */}
+      <div data-focus-region="header" className="mb-3 flex w-full flex-wrap items-baseline gap-x-6 gap-y-2">
+        <div className="flex shrink-0 items-baseline gap-2">
+          <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+            {amending ? "Amend Garment Order" : editId ? "Edit Garment Order" : "New Garment Order"}
+          </dt>
+          {/* `previewNo` IS ALREADY RESOLVED BEFORE FIRST PAINT for a brand-new
+             order (see `initialOrderNo`), so the number sits here even before a
+             save mints one — never a placeholder like a bare "auto" would be. */}
+          <dd className="m-0 text-sm font-semibold text-foreground">
+            {savedOrderNo ?? previewNo ?? "—"}
+          </dd>
+        </div>
+        <div aria-hidden className="h-px min-w-[2rem] flex-1 self-center bg-border" />
+        <div className="flex shrink-0 items-center gap-3">
+          {/* THE ORDER-LEVEL LEDGER — unchanged from the old actions slot.
+              Shown only once there is a breakup to report on; see
+              `assortBalanceOf`'s own null-vs-zero distinction. */}
+          {orderBalance.rows > 0 && orderBalance.target > 0 && (
+            <span className="hidden items-baseline gap-1.5 text-xs sm:flex">
+              <span className="text-muted-foreground">Order breakup</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {fmtNumber(orderBalance.allocated)}
               </span>
-            )}
-            {/* THE SKETCH, REACHABLE FROM EVERY SECTION. It is uploaded on Order
-                Info and read while filling Combos and Sizes, which are three and
-                four rail stops away — so without this the operator navigates
-                back, looks, and navigates forward again for every glance.
-
-                Here rather than in a pinned card of its own, for the reason the
-                balance figure beside it is here: a record's header fields are a
-                SECTION, not a band floating above the rail, and `PageHeader` is
-                already the one strip that names this record. */}
-            <SketchThumbnail bucket="garment-order-docs" path={sketchPath} />
-            <Button variant="outline" size="md" onClick={() => setMode("list")}>
-              ← Back to list
-            </Button>
-          </div>
-        }
-      />
+              <span className="text-muted-foreground">of</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {fmtNumber(orderBalance.target)}
+              </span>
+              {orderBalance.started === 0 ? (
+                <span className="text-muted-foreground">· not started</span>
+              ) : orderBalance.allocated === orderBalance.target ? (
+                <span className="text-success">· balanced</span>
+              ) : orderBalance.allocated < orderBalance.target ? (
+                <span className="text-warning">
+                  · {fmtNumber(orderBalance.target - orderBalance.allocated)} left
+                </span>
+              ) : (
+                <span className="text-danger">
+                  · {fmtNumber(orderBalance.allocated - orderBalance.target)} over
+                </span>
+              )}
+            </span>
+          )}
+          <SketchThumbnail bucket="garment-order-docs" path={sketchPath} />
+          {/* `size="sm"`, down from `md` — this is a plain `<Button>`, not the
+             shared `BackLink` AGENTS.md's "header row" rule binds to `md` (that
+             rule is about matching a LIST toolbar's search box; there is no
+             toolbar here), so shrinking it to match this compact band is not
+             the drift that rule exists to prevent. */}
+          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+            ← Back to list
+          </Button>
+        </div>
+      </div>
 
       {/* The header band that used to sit here is now the FIRST RAIL SECTION,
           "Order Info" — see `orderInfoSection` above. It was a flat 13-field

@@ -5,6 +5,7 @@ import { PermissionProvider } from "@/lib/auth/permission-context";
 import { LocationProvider } from "@/lib/auth/location-context";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
+import { WorkspaceTabsBar } from "@/components/shell/workspace-tabs-bar";
 import { MobileNav } from "@/components/shell/mobile-nav";
 import { SearchProvider } from "@/components/search/search-provider";
 import { ShortcutsProvider } from "@/components/shell/shortcuts-provider";
@@ -40,6 +41,7 @@ export default async function AppLayout({
             <Sidebar stores={stores} />
             <div className="flex min-w-0 flex-1 flex-col">
               <Topbar />
+              <WorkspaceTabsBar />
               {/* `pb-20` below md is clearance for MobileNav's floating bar;
                   `md:pb-6` is ordinary page padding. A page-mounted
                   MasterFullScreen CANCELS the md value with `-mb-6` so its

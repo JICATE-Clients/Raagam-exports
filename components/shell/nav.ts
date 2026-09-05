@@ -25,6 +25,9 @@ import { REPORTS, reportHref } from "@/lib/reports/catalog";
 export interface SubNavItem {
   href: string;
   label: string;
+  /** A group's own screens, for the sidebar's third level — see
+   *  `NavChild` in lib/nav/module-groups.ts for why this exists at all. */
+  children?: { href: string; label: string }[];
 }
 
 export interface NavItem {
