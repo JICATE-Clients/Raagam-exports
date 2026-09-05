@@ -2662,6 +2662,85 @@ export function mergeTaCompletions(
   });
 }
 
+/**
+ * THE SAME MERGE, FOR THE APPROVALS TRACKER (0537) — one exported function
+ * pair for the same reason `taRowsToWrite` / `mergeTaCompletions` are: a
+ * server action cannot be vectored, and "a merge that is merely written is
+ * not a merge that is known to work". `scripts/check-ta-approval-merge.mts`
+ * proves these; `npm run check:ta-approval-merge`.
+ *
+ * No `sno` here, unlike the activity ladder's core — approvals carry no
+ * execution order, so there is nothing to renumber.
+ */
+
+/** What identifies an approval row. The Approvals grid owns all of it. */
+export type TaApprovalRowCore = {
+  row_uid: string;
+  approval_id: string | null;
+};
+
+/** What the MERCHANDISER BOARD owns. Never on `amendmentTaApprovalInput`. */
+export type TaApprovalCompletion = {
+  actual_sent_date: string | null;
+  actual_received_date: string | null;
+  proof_path: string | null;
+  status: string | null;
+};
+
+/** A row as it comes back out of the database. */
+export type SavedTaApprovalRow = TaApprovalRowCore & TaApprovalCompletion;
+
+/** A row as it goes in, its date resolved and completion carried across. */
+export type MergedTaApprovalRow = TaApprovalRowCore & { target_date: string | null } & {
+  actual_sent_date: string | null;
+  actual_received_date: string | null;
+  proof_path: string | null;
+  status: string;
+};
+
+/**
+ * WHICH APPROVAL LIST THIS SAVE IS WRITING — the payload's, or the stored
+ * one. Same "empty means unchanged, not deleted" rule `taRowsToWrite` states
+ * at length; not repeated here.
+ */
+export function taApprovalRowsToWrite(
+  typed: readonly TaApprovalRowCore[],
+  saved: readonly SavedTaApprovalRow[],
+): TaApprovalRowCore[] {
+  const winner: readonly TaApprovalRowCore[] = typed.length ? typed : saved;
+  return winner.map((r) => ({ row_uid: r.row_uid, approval_id: r.approval_id }));
+}
+
+/**
+ * CARRY THE MERCHANDISER BOARD'S COLUMNS ACROSS THE SAVE, by `row_uid`. Same
+ * reasoning as `mergeTaCompletions`: a row with no saved counterpart is NEW
+ * and starts `pending`; a saved row absent from the incoming list was
+ * deliberately deleted by the operator, and its completion goes with it.
+ *
+ * `targetDates` is index-for-index with `rows` — the caller resolves PP
+ * Sample's date from the production ladder and every other approval's from
+ * `lib/orders/ta/approval-schedule.ts` BEFORE calling this; this function
+ * only carries dates across, it never computes one.
+ */
+export function mergeTaApprovalCompletions(
+  rows: readonly TaApprovalRowCore[],
+  saved: readonly SavedTaApprovalRow[],
+  targetDates: readonly (string | null)[],
+): MergedTaApprovalRow[] {
+  const prior = new Map(saved.map((r) => [r.row_uid, r]));
+  return rows.map((r, i) => {
+    const was = prior.get(r.row_uid);
+    return {
+      ...r,
+      target_date: targetDates[i] ?? null,
+      actual_sent_date: was?.actual_sent_date ?? null,
+      actual_received_date: was?.actual_received_date ?? null,
+      proof_path: was?.proof_path ?? null,
+      status: was?.status ?? "pending",
+    };
+  });
+}
+
 export function amendmentStatusTone(
   a: Pick<GarmentOrderAmendment, "is_draft">,
 ): "warning" | "success" {
