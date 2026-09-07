@@ -1295,6 +1295,7 @@ export function ChildGrid<T extends { key: string }>({
   lockExisting = false,
   hideRemove = false,
   keepOne = true,
+  lockRow,
   inlineCards = false,
   across = false,
   fill = false,
@@ -1606,6 +1607,15 @@ export function ChildGrid<T extends { key: string }>({
    * that guard is worth doing; until it is, this is a UI rule and no more.
    */
   keepOne?: boolean;
+  /**
+   * Withhold the ✕ (and Ctrl+Del) for whichever rows this returns `true` for —
+   * a per-ROW question `lockExisting` cannot answer, because that one locks by
+   * "existed when the grid mounted", not by anything about the row's own
+   * data. A grid seeded from a master with some rows meant to stay fixed
+   * (T&A's client-named 9-step chain, say) reads that off the row itself
+   * instead.
+   */
+  lockRow?: (row: T) => boolean;
   /** One flex row per record with a single shared header, honouring each
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
@@ -2392,7 +2402,8 @@ export function ChildGrid<T extends { key: string }>({
     // `pageSize` set, page 2 holding one row must not lock it while nine sit on
     // page 1.
     (keepOne && rows.length <= 1) ||
-    (lockExisting && storedKeys.has(row.key));
+    (lockExisting && storedKeys.has(row.key)) ||
+    (lockRow?.(row) ?? false);
   /**
    * DOES THE TABLE DRAW ITS ✕ COLUMN AT ALL?
    *

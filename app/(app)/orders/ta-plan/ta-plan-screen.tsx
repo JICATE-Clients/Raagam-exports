@@ -323,15 +323,29 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
       toastError(plan.refused);
       return;
     }
+    /* `backwardSchedule` itself no longer refuses on a single blank Days box
+       (2026-09-07, for the T&A tab's own progressive display — see that
+       function's header in lib/ta/schedule.ts) — it returns whatever it COULD
+       compute plus `incomplete` naming the first row that stopped it. THIS
+       screen still wants the all-or-nothing behaviour its own header above
+       argues for: a "Schedule Backward" click that only fills SOME rows would
+       leave the grid part-scheduled with nothing on screen saying which rows
+       are which, the exact partial-explosion failure that comment refuses. So
+       `incomplete` is treated exactly as a refusal was — named, and nothing on
+       the grid changes. */
+    if (plan.incomplete) {
+      toastError(plan.incomplete.reason);
+      return;
+    }
 
     const byKey = new Map(plan.steps.map((x) => [x.key, x]));
     setLines((xs) =>
       xs.map((x) => {
         const at = byKey.get(x.key);
-        if (!at) return x;
+        if (!at || at.date == null) return x;
         // Start is the same walk one step further back: the process needs its
         // own days BEFORE the date it must be complete on.
-        const start = subtractWorkingDays(at.date, at.days);
+        const start = subtractWorkingDays(at.date, at.days!);
         return {
           ...x,
           end_date: at.date,
@@ -339,17 +353,17 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
         };
       }),
     );
-    setTargetDate(plan.startDate);
+    setTargetDate(plan.startDate!);
     setNoOfDays(String(ladder.reduce((sum, r) => sum + (Number(r.days_required) || 0), 0)));
     // THE FLOAT IS SAID OUT LOUD when it is negative. A plan whose first task
     // was due before today is not a plan, and a grid full of past dates reads as
     // ordinary work until somebody adds them up.
-    if (plan.float < 0) {
+    if (plan.float! < 0) {
       toastError(
-        `Scheduled, but work had to start ${Math.abs(plan.float)} days ago — this delivery date cannot be met`,
+        `Scheduled, but work had to start ${Math.abs(plan.float!)} days ago — this delivery date cannot be met`,
       );
     } else {
-      success(`Scheduled back to ${plan.startDate}`);
+      success(`Scheduled back to ${plan.startDate!}`);
     }
   }
 
