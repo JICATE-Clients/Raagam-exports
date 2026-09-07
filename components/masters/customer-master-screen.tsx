@@ -22,6 +22,7 @@ import { ApplicantPicker } from "@/components/masters/applicant-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { ChildGrid } from "@/components/masters/child-grid";
+import { Toggle } from "@/components/ui/toggle";
 import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-columns-dialog";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
@@ -1527,67 +1528,70 @@ export function CustomerMasterScreen({
             done: done.approvals,
             content: (
                   <SectionBody title="Approvals">
-                    {/* A FIXED CHECKLIST, NOT A CHILD GRID (doc/approval.md §3).
-                        The 18 rows are the `ta_approvals` master itself — there
-                        is nothing to add or reorder here, only which of those
-                        18 this customer requires and how many days their team
-                        takes to review each one. Ticking a row is the ONLY flag
-                        (`customer_approval_defaults` has no `is_mandatory`
-                        column); un-ticking removes the row entirely on save. */}
-                    <div className="overflow-x-auto rounded-lg border border-border">
-                      <table className="w-full text-sm">
-                        <thead className="bg-surface-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          <tr>
-                            <th className="w-10 px-3 py-2"></th>
-                            <th className="px-3 py-2">Approval</th>
-                            <th className="px-3 py-2">Department</th>
-                            <th className="w-40 px-3 py-2">Review Days</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {approvals.map((a) => {
-                            const checked = a.id in approvalDays;
-                            return (
-                              <tr key={a.id} className="border-t border-border">
-                                <td className="px-3 py-1.5">
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 cursor-pointer accent-primary"
-                                    checked={checked}
-                                    onChange={(e) => {
-                                      setApprovalDays((m) => {
-                                        const next = { ...m };
-                                        if (e.target.checked) next[a.id] = String(a.standard_days || 0);
-                                        else delete next[a.id];
-                                        return next;
-                                      });
-                                      setDirty(true);
-                                    }}
-                                  />
-                                </td>
-                                <td className="px-3 py-1.5 text-foreground">{a.name}</td>
-                                <td className="px-3 py-1.5 text-muted-foreground">{a.department}</td>
-                                <td className="px-3 py-1.5">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    disabled={!checked}
-                                    value={approvalDays[a.id] ?? ""}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      setApprovalDays((m) => ({ ...m, [a.id]: v }));
-                                      setDirty(true);
-                                    }}
-                                    className="h-8"
-                                    aria-label={`${a.name} — customer review days`}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    {/* `hideAdd` + `hideRemove` (doc/approval.md §3, and the
+                        HR sweep's "no hand-rolled boxes" — client 2026-09-07:
+                        "did you see" the primitives replacing bordered panels
+                        elsewhere). The 18 rows are the `ta_approvals` master
+                        itself: nothing here is added or deleted, only ticked.
+                        `ChildGrid` still earns its place over a plain list —
+                        the keyboard contract (Tab lands on fields, arrows move
+                        cell to cell) comes for free instead of being rebuilt
+                        for a table this screen would otherwise hand-roll. */}
+                    <ChildGrid<TaApproval & { key: string }>
+                      rows={approvals.map((a) => ({ ...a, key: a.id }))}
+                      hideAdd
+                      hideRemove
+                      onAdd={() => {}}
+                      onRemove={() => {}}
+                      columns={[
+                        {
+                          header: "",
+                          width: "3rem",
+                          align: "center",
+                          cell: (a) => (
+                            <Toggle
+                              checked={a.id in approvalDays}
+                              ariaLabel={`${a.name} — applies to this customer`}
+                              onChange={(checked) => {
+                                setApprovalDays((m) => {
+                                  const next = { ...m };
+                                  if (checked) next[a.id] = String(a.standard_days || 0);
+                                  else delete next[a.id];
+                                  return next;
+                                });
+                                setDirty(true);
+                              }}
+                            />
+                          ),
+                        },
+                        {
+                          header: "Approval",
+                          cell: (a) => <span className="text-foreground">{a.name}</span>,
+                        },
+                        {
+                          header: "Department",
+                          cell: (a) => <span className="text-muted-foreground">{a.department}</span>,
+                        },
+                        {
+                          header: "Review Days",
+                          width: "8rem",
+                          cell: (a) => (
+                            <Input
+                              type="number"
+                              min="0"
+                              disabled={!(a.id in approvalDays)}
+                              value={approvalDays[a.id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setApprovalDays((m) => ({ ...m, [a.id]: v }));
+                                setDirty(true);
+                              }}
+                              aria-label={`${a.name} — customer review days`}
+                            />
+                          ),
+                        },
+                      ]}
+                    />
                   </SectionBody>
             ),
           },
