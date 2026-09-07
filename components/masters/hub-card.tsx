@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Tag, ArrowUpRight, ChevronRight, LayoutGrid, Unplug } from "lucide-react";
+import { Tag, ArrowUpRight, ChevronRight, LayoutGrid, Unplug, type LucideIcon } from "lucide-react";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +46,37 @@ import { cn } from "@/lib/utils";
  * resolver onto a real placeholder screen. Tying "inert" to `dashed` would
  * silently kill those links. The caller says which of the two it means.
  */
+/**
+ * THE TINT BEHIND A CARD'S ICON.
+ *
+ * Twelve cards drawing twelve different marks in ONE blue still read as a wall
+ * of identical tiles — the shape carries the meaning and the colour carries
+ * none (client 2026-09-04: "ok but make it colourful").
+ *
+ * These are the app's own semantic pairs, NOT raw Tailwind colours, and that is
+ * the whole reason there are six rather than twelve. Every one has a light AND
+ * a dark value in `app/globals.css`, so a card is legible in both themes
+ * without a `dark:` variant here; a hand-picked `bg-emerald-100` would be a
+ * seventh palette nobody maintains and a smear in dark mode.
+ *
+ * Six tones over twelve cards means each appears twice. Assign so no two tiles
+ * ADJACENT in the 3-column grid share one — the point is telling neighbours
+ * apart, not giving every entity a private colour.
+ *
+ * `success`/`danger` keep their ordinary meaning where the subject has one
+ * (Allowance pays, Deduction takes); elsewhere they are simply distinct hues.
+ */
+const ICON_TONES = {
+  primary: "bg-primary/10 text-primary",
+  success: "bg-success-soft text-success",
+  warning: "bg-warning-soft text-warning",
+  danger: "bg-danger-soft text-danger",
+  info: "bg-info-soft text-info",
+  accent: "bg-accent-soft text-accent",
+} as const;
+
+export type HubIconTone = keyof typeof ICON_TONES;
+
 export function HubCard({
   href,
   title,
@@ -55,6 +86,8 @@ export function HubCard({
   dashed = false,
   hub = false,
   unavailable = false,
+  icon,
+  tone,
 }: {
   /** Where the tile goes. `null` renders an inert tile — there is nowhere. */
   href?: string | null;
@@ -68,6 +101,19 @@ export function HubCard({
   hub?: boolean;
   /** Built, but its table is not in this database. Greyed, never dashed. */
   unavailable?: boolean;
+  /**
+   * The tile's mark. Defaults to `Tag`, which is what every Master Data card
+   * drew before — so a hub only gains icons once its registry entries name
+   * them, and no caller has to be edited to keep working.
+   *
+   * `unavailable` and `hub` still WIN over it, deliberately: those say what
+   * kind of tile this is (nothing behind it / a list of more tiles), and that
+   * outranks what the tile is about. A subject icon on an unplugged card would
+   * hide the one fact the operator needs.
+   */
+  icon?: LucideIcon;
+  /** Tint behind the icon. Omitted, the card keeps the house `primary`. */
+  tone?: HubIconTone;
 }) {
   const empty = !dashed && !external && !hub && !unavailable && count === 0;
   const muted = dashed || unavailable;
@@ -77,7 +123,11 @@ export function HubCard({
       <span
         className={cn(
           "grid h-10 w-10 shrink-0 place-items-center rounded-lg",
-          muted ? "bg-surface-muted text-muted-foreground" : "bg-primary/10 text-primary",
+          // A muted card ignores its tone deliberately: "there is nothing here"
+          // has to survive at a glance, and a cheerful tile does not say it.
+          muted
+            ? "bg-surface-muted text-muted-foreground"
+            : ICON_TONES[tone ?? "primary"],
         )}
       >
         {unavailable ? (
@@ -85,7 +135,10 @@ export function HubCard({
         ) : hub ? (
           <LayoutGrid className="h-[18px] w-[18px]" />
         ) : (
-          <Tag className="h-[18px] w-[18px]" />
+          (() => {
+            const Icon = icon ?? Tag;
+            return <Icon className="h-[18px] w-[18px]" />;
+          })()
         )}
       </span>
       <span className="min-w-0 flex-1">

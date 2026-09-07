@@ -18,6 +18,9 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
  */
 const descriptor: SimpleMasterDescriptor<HostelCategory> = {
   entityLabel: "Hostel Category",
+  // Sheet, not inline row edit — the HR sub-module agreed on the Allowance
+  // shape (client 2026-09-04). See `editor` in simple-master-screen.tsx.
+  editor: "sheet",
   status: "active",
   fields: [
     { key: "code", label: "Code", mono: true, widthClass: "w-32" },
