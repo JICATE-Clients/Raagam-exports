@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -207,49 +208,34 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2">
-            <div>
-              <Label htmlFor="lt-code">
-                ID <span className="text-danger">*</span>
-              </Label>
-              <Input
-                uppercase
-                id="lt-code"
-                value={form.code}
-                onChange={(e) => set({ code: e.target.value })}
-                required
-                className="text-base md:text-sm"
-                {...dupFieldProps(dupError, "lt-code")}
-              />
-              <DuplicateError error={dupError} id="lt-code" />
-            </div>
-            <div className="flex items-end gap-4 pb-1">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.loss_of_pay}
-                  onChange={(e) => set({ loss_of_pay: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Loss Of Pay</span>
-              </label>
-              {editId && (
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.inactive}
-                    onChange={(e) => set({ inactive: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              )}
-            </div>
-          </div>
+        {/*
+          Every field `lg` — two to a line at one width — in a capped track. The
+          body this replaces hand-wrote `sm:grid-cols-2`, overrode it per child
+          with `sm:col-span-2`, nested a second grid inside a THIRD, and wrapped
+          the encashment fields in a bordered card. The flags were loose
+          checkboxes bottom-aligned with `pb-1` against no label at all.
 
-          <div>
-            <Label htmlFor="lt-desc">Description</Label>
+          The card had no caption, so it was pure frame — a box drawn inside a
+          dialog to say "these three belong together", which the row already
+          says. Encash Possible, For and No of Days are now three fields like
+          every other (client 2026-09-04: "remove them ... that non coloured
+          boxes and lines").
+        */}
+        <FieldGrid className="max-w-3xl">
+          {/* Row 1 — ID · Description */}
+          <Field label="ID" size="lg" required htmlFor="lt-code">
+            <Input
+              uppercase
+              id="lt-code"
+              value={form.code}
+              onChange={(e) => set({ code: e.target.value })}
+              required
+              {...dupFieldProps(dupError, "lt-code")}
+            />
+            <DuplicateError error={dupError} id="lt-code" />
+          </Field>
+
+          <Field label="Description" size="lg" htmlFor="lt-desc">
             <Input
               id="lt-desc"
               uppercase
@@ -257,7 +243,6 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
               onChange={(e) => set({ description: e.target.value })}
               // ↓ into the suggestion strip, Enter applies, Esc dismisses.
               onKeyDown={nameSuggest.onKeyDown}
-              className="text-base md:text-sm"
             />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
@@ -265,66 +250,79 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
               activeIndex={nameSuggest.activeIndex}
               onApply={(v) => set({ description: v })}
             />
-          </div>
+          </Field>
 
-          {/* Encash Possible + For + No of Days */}
-          <div className="sm:col-span-2 rounded-lg border border-border p-3">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-              <div>
-                <span className="mr-3 text-sm text-foreground">Encash Possible</span>
-                <label className="mr-3 inline-flex cursor-pointer items-center gap-1.5">
-                  <input
-                    type="radio"
-                    name="lt-encash"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.encash_possible}
-                    onChange={() => set({ encash_possible: true })}
-                  />
-                  <span className="text-sm text-foreground">Yes</span>
-                </label>
-                <label className="inline-flex cursor-pointer items-center gap-1.5">
-                  <input
-                    type="radio"
-                    name="lt-encash"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={!form.encash_possible}
-                    onChange={() => set({ encash_possible: false })}
-                  />
-                  <span className="text-sm text-foreground">No</span>
-                </label>
-              </div>
+          {/* Row 2 — For · No of Days */}
+          <Field label="For" size="lg" htmlFor="lt-for">
+            <Select
+              id="lt-for"
+              value={form.applies_to}
+              onChange={(e) => set({ applies_to: e.target.value as LeaveAppliesTo })}
+            >
+              {LEAVE_APPLIES_TO.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="No of Days (Yearly)" size="lg" htmlFor="lt-days">
+            <Input
+              id="lt-days"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.no_of_days}
+              onChange={(e) => set({ no_of_days: e.target.value })}
+            />
+          </Field>
+
+          {/*
+            Row 3 — the three booleans, each a field of its own.
+
+            Encash Possible was a Yes/No RADIO PAIR over a boolean, which is two
+            controls and a legend to say what a switch says with one. Loss Of Pay
+            and Inactive were bare checkboxes with no label above them, so
+            nothing lined up with the fields on either side. All three are now
+            switches, matching every other boolean in this sub-module.
+          */}
+          <Field label="Encash Possible" size="lg">
+            <div className="flex h-8 items-center">
+              <Toggle
+                checked={form.encash_possible}
+                onChange={(v) => set({ encash_possible: v })}
+                label="Encashable"
+              />
             </div>
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="lt-for">For</Label>
-                <Select
-                  id="lt-for"
-                  value={form.applies_to}
-                  onChange={(e) => set({ applies_to: e.target.value as LeaveAppliesTo })}
-                  className="text-base md:text-sm"
-                >
-                  {LEAVE_APPLIES_TO.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="lt-days">No of Days (Yearly)</Label>
-                <Input
-                  id="lt-days"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.no_of_days}
-                  onChange={(e) => set({ no_of_days: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          </Field>
+
+          <Field label="Loss Of Pay" size="lg">
+            <div className="flex h-8 items-center">
+              <Toggle
+                checked={form.loss_of_pay}
+                onChange={(v) => set({ loss_of_pay: v })}
+                label="Unpaid"
+              />
             </div>
-          </div>
-        </div>
+          </Field>
+
+          {/*
+            Status is always on the form, add included — `submit()` sends
+            `inactive` on a create exactly as on an update, so a row could
+            always have been saved inactive and nothing on screen let anyone
+            say so (client 2026-09-04).
+          */}
+          <Field label="Status" size="lg">
+            <div className="flex h-8 items-center">
+              <Toggle
+                checked={form.inactive}
+                onChange={(v) => set({ inactive: v })}
+                label="Inactive"
+              />
+            </div>
+          </Field>
+        </FieldGrid>
       </Sheet>
     </div>
   );

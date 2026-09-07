@@ -5,7 +5,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -186,36 +187,68 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-            <div>
-              <Label htmlFor="hd-entry">Entry No</Label>
-              <Input id="hd-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
-            </div>
-            <div>
-              <Label htmlFor="hd-date">
-                Date <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="hd-date"
-                type="date"
-                // `.min(1)` in `holidayInput`. Name already declared itself; these
-                // two did not, so the screen held on one of its three mandatory
-                // fields and waved the other two through.
-                required
-                value={form.entry_date}
-                onChange={(e) => set({ entry_date: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </div>
+        {/*
+          Same two rules Allowance settled and the client then asked for here:
+          every field `lg` (6 of 12, so a row holds exactly two and no box is
+          wider than its neighbour) inside a capped track, so six-of-twelve
+          resolves to ~378px instead of half the dialog.
 
-          {/* Holiday category radio */}
-          <div className="rounded-lg border border-border p-3 sm:col-span-2">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Holiday
-            </div>
-            <div className="flex flex-wrap gap-4">
+          WHAT WENT WITH THEM WERE THE BANDS. This form drew two bordered,
+          captioned boxes — "HOLIDAY" around the category radios and an unnamed
+          one around the Date Range tick and its dates — plus the outer
+          hand-written `sm:grid-cols-2` that every child then overrode. Four
+          frames inside a dialog that is already a frame (client 2026-09-04:
+          "there are so many extra boxes and lines remove them").
+
+          A radio set is ONE FIELD with several controls, so it needs a `Field`
+          label, not a box and a caption. That is the whole substitution here.
+        */}
+        <FieldGrid className="max-w-3xl">
+          {/* Row 1 — Entry No · Date */}
+          <Field label="Entry No" size="lg" htmlFor="hd-entry" skipTab>
+            {/* `readOnly` + `skipTab`, not `disabled`: the value is reachable by
+                mouse and off the typing path. The old "(auto)" described the box
+                rather than the record, on a field already read-only. */}
+            <Input id="hd-entry" value={editEntryNo ?? ""} readOnly />
+          </Field>
+
+          <Field label="Date" size="lg" required htmlFor="hd-date">
+            <Input
+              id="hd-date"
+              type="date"
+              // `.min(1)` in `holidayInput`. Name already declared itself; these
+              // two did not, so the screen held on one of its three mandatory
+              // fields and waved the other two through.
+              required
+              value={form.entry_date}
+              onChange={(e) => set({ entry_date: e.target.value })}
+            />
+          </Field>
+
+          {/* Row 2 — Holiday · Category */}
+          <Field label="Holiday" size="lg" required htmlFor="hd-name">
+            <Input
+              id="hd-name"
+              uppercase
+              value={form.name}
+              onChange={(e) => set({ name: e.target.value })}
+              required
+            />
+          </Field>
+
+          {/*
+            LABELLED "CATEGORY", NOT "HOLIDAY" — the band it replaced was
+            captioned "HOLIDAY" and sat directly above a text field also called
+            Holiday. Inside a box the two read as heading and content; as two
+            fields on one row they would be the same word twice, naming
+            different things. `category` is what the value is called in the
+            form, the type and the column.
+
+            `h-8` puts the radios on the same baseline as the input beside them,
+            the way `bank-master-screen`'s radio set does.
+          */}
+          <Field label="Category" size="lg">
+            <div className="flex h-8 flex-wrap items-center gap-4">
               {HOLIDAY_CATEGORIES.map((c) => (
                 <label key={c} className="flex cursor-pointer items-center gap-1.5">
                   <input
@@ -229,26 +262,11 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
                 </label>
               ))}
             </div>
-          </div>
+          </Field>
 
-          <div>
-            <Label htmlFor="hd-name">
-              Holiday <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="hd-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-
-          {/* Type radio */}
-          <div>
-            <Label>Type</Label>
-            <div className="mt-1 flex flex-wrap gap-4">
+          {/* Row 3 — Type · Date Range */}
+          <Field label="Type" size="lg">
+            <div className="flex h-8 flex-wrap items-center gap-4">
               {HOLIDAY_PAY_TYPES.map((t) => (
                 <label key={t} className="flex cursor-pointer items-center gap-1.5">
                   <input
@@ -262,52 +280,54 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
                 </label>
               ))}
             </div>
-          </div>
+          </Field>
 
-          {/* Holiday date — single or range */}
-          <div className="rounded-lg border border-border p-3 sm:col-span-2">
-            <label className="mb-2 flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
+          {/*
+            The tick that was the box's heading becomes a field of its own — a
+            switch, matching every other boolean in this module. It governs the
+            two dates below rather than containing them: the row it opens is the
+            next line, not a nested panel.
+          */}
+          <Field label="Date Range" size="lg">
+            <div className="flex h-8 items-center">
+              <Toggle
                 checked={form.is_date_range}
-                onChange={(e) => set({ is_date_range: e.target.checked })}
+                onChange={(v) => set({ is_date_range: v })}
+                label="Spans more than one day"
               />
-              <span className="text-sm font-medium text-foreground">Date Range</span>
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="hd-hdate">
-                  {form.is_date_range ? "From" : "Date"}{" "}
-                  <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="hd-hdate"
-                  type="date"
-                  // `.min(1)` in `holidayInput`, and Save is already gated on it
-                  // — the screen knew, the field did not.
-                  required
-                  value={form.holiday_date}
-                  onChange={(e) => set({ holiday_date: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              {form.is_date_range && (
-                <div>
-                  <Label htmlFor="hd-edate">To</Label>
-                  <Input
-                    id="hd-edate"
-                    type="date"
-                    value={form.end_date}
-                    min={form.holiday_date || undefined}
-                    onChange={(e) => set({ end_date: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-              )}
             </div>
-          </div>
-        </div>
+          </Field>
+
+          {/* Row 4 — the holiday's own date, and its end when it is a range */}
+          <Field
+            label={form.is_date_range ? "From" : "Holiday Date"}
+            size="lg"
+            required
+            htmlFor="hd-hdate"
+          >
+            <Input
+              id="hd-hdate"
+              type="date"
+              // `.min(1)` in `holidayInput`, and Save is already gated on it
+              // — the screen knew, the field did not.
+              required
+              value={form.holiday_date}
+              onChange={(e) => set({ holiday_date: e.target.value })}
+            />
+          </Field>
+
+          {form.is_date_range && (
+            <Field label="To" size="lg" htmlFor="hd-edate">
+              <Input
+                id="hd-edate"
+                type="date"
+                value={form.end_date}
+                min={form.holiday_date || undefined}
+                onChange={(e) => set({ end_date: e.target.value })}
+              />
+            </Field>
+          )}
+        </FieldGrid>
       </Sheet>
     </div>
   );

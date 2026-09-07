@@ -24,6 +24,9 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
  */
 const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
   entityLabel: "Employee Category",
+  // Sheet, not inline row edit — the HR sub-module agreed on the Allowance
+  // shape (client 2026-09-04). See `editor` in simple-master-screen.tsx.
+  editor: "sheet",
   status: "activeDraft",
   fields: [
     { key: "name", label: "Name", required: true },
