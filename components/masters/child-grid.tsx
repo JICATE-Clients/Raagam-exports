@@ -258,7 +258,13 @@ export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2
  * `DataTable` / `SimpleMasterScreen`, moves together — see those files' own
  * header cells.
  */
-export const GRID_HEADER_TEXT = "text-[12.5px] font-bold text-foreground";
+/**
+ * `uppercase tracking-[0.06em]` added 2026-09-07 (Archivo weight spec) — same
+ * change made to `data-table.tsx`'s header cell at the same time, for the
+ * same reason: hierarchy at a small size comes from case and spacing, not
+ * from stacking more weight on an already-bold label.
+ */
+export const GRID_HEADER_TEXT = "text-[12.5px] font-bold uppercase tracking-[0.06em] text-foreground";
 
 /**
  * `openRowKey`'s "nothing is open" value — see the state declaration below.

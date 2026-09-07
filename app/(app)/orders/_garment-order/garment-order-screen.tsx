@@ -4507,8 +4507,12 @@ export function GarmentOrderScreen({
         // and this is the number the whole business tracks an order by, so the
         // list and the record have to call it the same thing.
         header: "RE No",
+        // font-semibold (client 2026-09-07, Archivo weight spec): the ONE
+        // identifying column on this list — every other cell in the row
+        // (Customer, Date, status pills) stays at its existing weight, per
+        // the spec's own example ("ORD-1024 → 600, everything else → 400").
         cell: (r) => (
-          <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>
+          <span className="font-mono text-xs font-semibold">{r.sales_order?.order_number ?? "—"}</span>
         ),
       },
       {
