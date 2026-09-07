@@ -621,6 +621,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // screen leads the group rather than sitting at the end of the setup
           // it depends on.
           { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late" },
+          { href: "/orders/ta-approvals-worklist", label: "Approvals Worklist", description: "Technical approvals awaiting Sent/Approved/Rework, across every order" },
           { href: "/orders/ta-masters", label: "TA Activity", description: "Master list of T&A activities" },
           { href: "/orders/ta-department-assign", label: "TA Department Assign", description: "Assign activities to departments and owners" },
           { href: "/orders/ta-user-rights", label: "TA User Rights", description: "Per-user activity permission matrix" },

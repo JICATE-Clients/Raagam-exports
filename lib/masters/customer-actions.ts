@@ -96,6 +96,19 @@ function normalizeMarkings(data: CustomerInput) {
     .map((m, i) => ({ ...m, sno: i + 1 }));
 }
 
+/**
+ * One row per approval the screen's checklist has TICKED — an unticked
+ * approval writes no row at all (0542/doc/approval.md §3: presence IS the
+ * "mandatory for this customer" flag). No sno: this list is a fixed
+ * checklist against the `ta_approvals` master, never reordered.
+ */
+function normalizeApprovalPolicy(data: CustomerInput) {
+  return data.approval_policy.map((p) => ({
+    approval_id: p.approval_id,
+    lead_time_days: p.lead_time_days,
+  }));
+}
+
 /** Replace every child grid wholesale for a given customer id. */
 async function writeChildren(
   s: Awaited<ReturnType<typeof createClient>>,
@@ -109,6 +122,7 @@ async function writeChildren(
     "customer_supplied_items",
     "customer_nominated_vendors",
     "customer_markings",
+    "customer_approval_defaults",
   ];
   for (const t of tables) {
     const { error } = await s.from(t).delete().eq("customer_id", customerId);
@@ -122,6 +136,7 @@ async function writeChildren(
     ["customer_supplied_items", normalizeSupplied(data)],
     ["customer_nominated_vendors", normalizeVendors(data)],
     ["customer_markings", normalizeMarkings(data)],
+    ["customer_approval_defaults", normalizeApprovalPolicy(data)],
   ];
   for (const [table, rows] of inserts) {
     if (!rows.length) continue;
@@ -140,6 +155,7 @@ function headerOnly(data: CustomerInput) {
     supplied_items: _s,
     nominated_vendors: _v,
     markings: _m,
+    approval_policy: _ap,
     ...header
   } = data;
   void _c;
@@ -148,6 +164,7 @@ function headerOnly(data: CustomerInput) {
   void _s;
   void _v;
   void _m;
+  void _ap;
   return header;
 }
 

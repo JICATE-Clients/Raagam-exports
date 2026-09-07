@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MapPin, Package, SlidersHorizontal, Truck, User, Users, X, type LucideIcon } from "lucide-react";
+import { CheckCircle2, MapPin, Package, SlidersHorizontal, Truck, User, Users, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -52,6 +52,7 @@ import {
   BUSINESS_ENTITIES,
   PAN_BUSINESS_ENTITY,
 } from "@/lib/masters/customer-types";
+import type { TaApproval } from "@/lib/masters/ta-approval-types";
 import type { Applicant } from "@/lib/masters/applicant-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
@@ -60,7 +61,7 @@ import { createdSection } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
-type SectionKey = "identity" | "address" | "agents" | "supplied" | "vendors" | "general";
+type SectionKey = "identity" | "address" | "agents" | "supplied" | "vendors" | "approvals" | "general";
 
 type HeaderForm = {
   code: string;
@@ -321,6 +322,7 @@ export function CustomerMasterScreen({
   destinations,
   couriers,
   packingColumns,
+  approvals,
   companyGstin = null,
   perms,
 }: {
@@ -348,6 +350,9 @@ export function CustomerMasterScreen({
   destinations: PickerItem[];
   couriers: PickerItem[];
   packingColumns: PackingFormatColumn[];
+  /** The 18-milestone Approvals Dictionary (doc/approval.md §2) — every ACTIVE
+   *  `ta_approvals` row, for the Approvals policy checklist. */
+  approvals: TaApproval[];
   /**
    * Our own GSTIN — the reference point that turns a customer's GSTIN into
    * "Within State" / "Other State". Optional because the /masters page does not
@@ -390,6 +395,15 @@ export function CustomerMasterScreen({
   const [nominated, setNominated] = useState<VendorRow[]>([]);
   const [recommended, setRecommended] = useState<VendorRow[]>([]);
   const [markings, setMarkings] = useState<MarkRow[]>([]);
+  /**
+   * The Approvals policy checklist (doc/approval.md §3) — keyed by
+   * `approval_id`, value is the lead-time-days TEXT the operator typed.
+   * PRESENCE OF A KEY is "this approval applies to this customer"; there is
+   * no separate boolean, so un-ticking a row deletes its key rather than
+   * flipping a flag on it (mirrors `customer_approval_defaults` itself,
+   * which has no `is_mandatory` column for the same reason).
+   */
+  const [approvalDays, setApprovalDays] = useState<Record<string, string>>({});
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
@@ -613,6 +627,7 @@ export function CustomerMasterScreen({
     setNominated([]);
     setRecommended([]);
     setMarkings([]);
+    setApprovalDays({});
     setDirty(false);
     setOpen(true);
   }
@@ -705,6 +720,9 @@ export function CustomerMasterScreen({
         .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" })),
     );
     setMarkings(r.markings.map((m) => ({ key: newKey(), marking: m.marking ?? "" })));
+    setApprovalDays(
+      Object.fromEntries(r.approval_policy.map((p) => [p.approval_id, String(p.lead_time_days)])),
+    );
     setDirty(false);
     setOpen(true);
   }
@@ -800,6 +818,10 @@ export function CustomerMasterScreen({
           ...recommended.map((r, i) => ({ list_kind: "recommended" as const, sno: i + 1, vendor_id: r.vendor_id || null })),
         ],
         markings: markings.map((m, i) => ({ sno: i + 1, marking: m.marking || null })),
+        approval_policy: Object.entries(approvalDays).map(([approval_id, days]) => ({
+          approval_id,
+          lead_time_days: Number(days) || 0,
+        })),
       };
       const res = editId ? await updateCustomer(editId, payload) : await createCustomer(payload);
       if (res.ok) {
@@ -870,12 +892,14 @@ export function CustomerMasterScreen({
       form.color_spec_applicable ||
       form.tcs_applicable
     ) || markings.some((m) => m.marking.trim());
+  const hasApprovals = Object.keys(approvalDays).length > 0;
   const done: Record<SectionKey, boolean> = {
     identity: hasIdentity,
     address: hasAddress,
     agents: hasAgents,
     supplied: hasSupplied,
     vendors: hasVendors,
+    approvals: hasApprovals,
     general: hasGeneral,
   };
 
@@ -1492,6 +1516,77 @@ export function CustomerMasterScreen({
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <VendorGrid title="Nominated Vendor" rows={nominated} setRows={setNominated} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                       <VendorGrid title="Recommended Vendor" rows={recommended} setRows={setRecommended} vendors={vendors} newKey={newKey} setDirty={setDirty} />
+                    </div>
+                  </SectionBody>
+            ),
+          },
+          {
+            key: "approvals",
+            label: "Approvals",
+            icon: CheckCircle2,
+            done: done.approvals,
+            content: (
+                  <SectionBody title="Approvals">
+                    {/* A FIXED CHECKLIST, NOT A CHILD GRID (doc/approval.md §3).
+                        The 18 rows are the `ta_approvals` master itself — there
+                        is nothing to add or reorder here, only which of those
+                        18 this customer requires and how many days their team
+                        takes to review each one. Ticking a row is the ONLY flag
+                        (`customer_approval_defaults` has no `is_mandatory`
+                        column); un-ticking removes the row entirely on save. */}
+                    <div className="overflow-x-auto rounded-lg border border-border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-surface-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          <tr>
+                            <th className="w-10 px-3 py-2"></th>
+                            <th className="px-3 py-2">Approval</th>
+                            <th className="px-3 py-2">Department</th>
+                            <th className="w-40 px-3 py-2">Review Days</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {approvals.map((a) => {
+                            const checked = a.id in approvalDays;
+                            return (
+                              <tr key={a.id} className="border-t border-border">
+                                <td className="px-3 py-1.5">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 cursor-pointer accent-primary"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      setApprovalDays((m) => {
+                                        const next = { ...m };
+                                        if (e.target.checked) next[a.id] = String(a.standard_days || 0);
+                                        else delete next[a.id];
+                                        return next;
+                                      });
+                                      setDirty(true);
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-3 py-1.5 text-foreground">{a.name}</td>
+                                <td className="px-3 py-1.5 text-muted-foreground">{a.department}</td>
+                                <td className="px-3 py-1.5">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    disabled={!checked}
+                                    value={approvalDays[a.id] ?? ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setApprovalDays((m) => ({ ...m, [a.id]: v }));
+                                      setDirty(true);
+                                    }}
+                                    className="h-8"
+                                    aria-label={`${a.name} — customer review days`}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </SectionBody>
             ),

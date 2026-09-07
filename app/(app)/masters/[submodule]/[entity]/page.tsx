@@ -78,6 +78,8 @@ import { ZoneMasterScreen } from "@/components/masters/zone-master-screen";
 import { listDocumentNoFormats } from "@/lib/masters/document-no-format-service";
 import { DocumentNoFormatMasterScreen } from "@/components/masters/document-no-format-master-screen";
 import { listPackingFormatColumns } from "@/lib/masters/packing-format-columns-service";
+import { listTaApprovals } from "@/lib/masters/ta-approval-service";
+import { TaApprovalMasterScreen } from "@/components/masters/ta-approval-master-screen";
 /**
  * `departmentsAsLookups` / `designationsAsLookups` ARE DELIBERATELY NOT IMPORTED
  * HERE (2026-08-31). Every `department_id` / `designation_id` column in this
@@ -220,6 +222,7 @@ export default async function SubEntityPage({
         stateRows,
         company,
         catRows,
+        approvalRows,
       ] = await Promise.all([
         listCustomers(),
         listApplicants(),
@@ -247,7 +250,12 @@ export default async function SubEntityPage({
         // categories inside them, which is what both cards used to offer
         // (client 2026-07-29, migration 0356).
         listCategories(),
+        // The Approvals policy checklist (doc/approval.md §3) — every ACTIVE
+        // row of the global dictionary, so the customer tab can offer the
+        // full 18-milestone list to tick against.
+        listTaApprovals(),
       ]);
+      const activeApprovals = approvalRows.filter((a) => a.is_active);
       // Supplied Items has one card per accessory group, so each needs the
       // categories of ITS OWN item class — a category only means anything
       // inside one. Resolved by class CODE rather than by name so a renamed
@@ -311,6 +319,7 @@ export default async function SubEntityPage({
             inactive: isInactive(c),
           }))}
           packingColumns={packingColumns}
+          approvals={activeApprovals}
           perms={perms}
         />
       );
@@ -569,6 +578,9 @@ export default async function SubEntityPage({
     } else if (child.custom === "zone") {
       const rows = await listZones();
       screen = <ZoneMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "ta_approval") {
+      const approvals = await listTaApprovals();
+      screen = <TaApprovalMasterScreen rows={approvals} perms={perms} />;
     } else if (child.custom === "document_no_format") {
       const [formats, all] = await Promise.all([listDocumentNoFormats(), listConfigLookups()]);
       screen = (

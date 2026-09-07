@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { CheckCircle2, Clock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
@@ -12,6 +13,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   completeTaActivity,
+  registerBypass,
   reopenTaActivity,
   startTaActivity,
 } from "@/lib/ta/worklist-actions";
@@ -170,6 +172,15 @@ export function WorklistBoard({
                   {fmtDate(row.targetDate)}
                 </span>
                 <SlipPill row={row} />
+                {/* INDEPENDENT OF `status` (0540) — a row can be `pending` or
+                   `in_progress` and still show pieces already moved past it,
+                   which is the whole point: the floor does not wait for a
+                   formal Done to send work along. */}
+                {row.bypassPercent != null && (
+                  <StatusPill tone="info">
+                    {Math.round(row.bypassPercent * 100)}% bypassed
+                  </StatusPill>
+                )}
                 {showDepartment && row.departmentName && (
                   <StatusPill tone="neutral">{row.departmentName}</StatusPill>
                 )}
@@ -177,11 +188,23 @@ export function WorklistBoard({
 
               {canComplete && (
                 <div className="flex items-center gap-1.5">
+                  <BypassRegister
+                    row={row}
+                    disabled={busyId === row.id}
+                    onRegister={(qty) =>
+                      run(row.id, () => registerBypass(row.id, qty), "Bypass registered")
+                    }
+                  />
                   {row.status !== "in_progress" && (
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={busyId === row.id}
+                      disabled={busyId === row.id || row.cuttingBlocked}
+                      title={
+                        row.cuttingBlocked
+                          ? "Cutting is locked until PP Sample is Approved on the Approvals Worklist"
+                          : undefined
+                      }
                       onClick={() =>
                         run(row.id, () => startTaActivity(row.id), "Marked in progress")
                       }
@@ -221,6 +244,58 @@ export function WorklistBoard({
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The qty box + "Bypass" button that registers pieces routed past this
+ * activity ahead of schedule (0540). Local, uncontrolled-by-the-list state —
+ * every other action on this screen (Start/Undo/Done) is a single click with
+ * no value to type, so this is the one row control that needs its own input,
+ * kept here rather than lifted into `WorklistBoard` because no sibling row
+ * needs to know about it.
+ *
+ * PREFILLED FROM THE ROW'S OWN LAST FIGURE, never blank-by-default — a
+ * bypass is cumulative (`registerBypass`'s own header), so the box should
+ * show what is already on record and let the operator raise it, not make
+ * them re-key a running total from memory.
+ */
+function BypassRegister({
+  row,
+  disabled,
+  onRegister,
+}: {
+  row: WorklistRow;
+  disabled: boolean;
+  onRegister: (qty: number) => void;
+}) {
+  const [value, setValue] = useState(row.bypassedQty != null ? String(row.bypassedQty) : "");
+  const qty = Number(value);
+  const valid = value.trim() !== "" && Number.isFinite(qty) && qty > 0;
+
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        type="number"
+        min={1}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Qty"
+        disabled={disabled}
+        className="h-8 w-16 text-xs"
+        aria-label={`${row.activity} — pieces bypassed`}
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={disabled || !valid}
+        onClick={() => onRegister(qty)}
+        // toolbar-size: exempt -- per-row action inside a card, see the
+        // Start/Undo/Done buttons beside it.
+      >
+        Bypass
+      </Button>
+    </div>
   );
 }
 
