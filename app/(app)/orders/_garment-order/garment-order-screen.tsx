@@ -29,8 +29,6 @@ import {
   Droplet,
   Scissors,
   Search,
-  Rocket,
-  Flag,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -2107,7 +2105,16 @@ export function GarmentOrderScreen({
    */
   const seedTaLadder = (): TaRow[] =>
     [...data.taActivities]
-      .filter((a) => !isInactive(a))
+      /* `default_seed` (0541, client-named 9-step chain: Inspection, Packing,
+         Ironing, Checking, Sewing, Cutting, PP Approval, PP Send, Material
+         Inhouse). Before this flag existed every ACTIVE master row seeded a
+         blank order — Fabric Plan, Accessories BOM, Yarn Purchase, Knitting,
+         Dyeing and Shipment included, none of which are in the client's named
+         chain (client, pointing at a screenshot: "for now nothing is
+         list[ed the way I asked]"). Those six rows are NOT removed from the
+         master — they stay full rows in "+ Add activity" — this only narrows
+         what a BLANK order starts with. */
+      .filter((a) => !isInactive(a) && a.default_seed)
       .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
       .map((a) => ({
         key: newKey(),
@@ -4594,46 +4601,24 @@ export function GarmentOrderScreen({
            */
           menu={(() => {
             const soId = r.sales_order_id;
+            /* ONE ENTRY, NOT THREE (client 2026-09-07: "reports listing
+               separate separate, make it as reports one single value").
+               The three used to be flat items under a "Documents" heading —
+               Order sheet / Material BOM / Fabric BOM, each its own row menu
+               click. `OrderDocumentTabs` (components/orders/order-document-
+               tabs.tsx) already exists as the switcher BETWEEN the three, and
+               every one of the three pages already renders it — so three menu
+               entries and the tab strip were two ways of answering the same
+               "which document" question, and the menu was the redundant one.
+               Reports now opens straight to the order sheet (the one document
+               with no gate — see the note this replaced), and the tab strip on
+               that page reaches the other two in one click each. */
             return [
-              /* THE ORDER SHEET NEEDS NO GATE HERE. It prints an entered garment
-                 order, and every row on this list IS one — so unlike the two
-                 beneath it there is no state in which opening this lands on a
-                 refusal. */
-              /* ONE `section` ON EACH, so the menu prints a DOCUMENTS heading
-                 above the group (client 2026-09-02: the three read as a bare
-                 list). The ⋮ trigger carries no label of its own — Edit and
-                 Delete are icon buttons beside it, not entries in here — so the
-                 heading is the only thing that says what this menu is FOR.
-                 THE LABELS LOSE THE WORD "report" TO THE HEADING. The menu is
-                 176px wide and "Material BOM report" wraps to two lines in it;
-                 the heading supplies the noun once instead of every row paying
-                 for it. */
               {
-                section: "Documents",
-                label: soId ? "Order sheet" : "Order sheet — no order number yet",
+                label: soId ? "Reports" : "Reports — no order number yet",
                 icon: FileText,
                 disabled: !soId,
                 onClick: () => router.push(`/orders/${soId}/gos`),
-              },
-              {
-                section: "Documents",
-                label: soId ? "Material BOM" : "Material BOM — no order number yet",
-                icon: ClipboardList,
-                disabled: !soId,
-                onClick: () => router.push(`/orders/${soId}/requirement`),
-              },
-              /* THE FABRIC BOM REPORT (client 2026-09-02), step 3's document
-                 beside step 2's. It is NOT gated on the Material BOM pill next
-                 to it and must never be: the two BOMs are separate documents on
-                 separate cycles, and an order can have its cloth planned before
-                 its trims. Reading one status for both is how a screen starts
-                 hiding a document that exists. */
-              {
-                section: "Documents",
-                label: soId ? "Fabric BOM" : "Fabric BOM — no order number yet",
-                icon: Layers,
-                disabled: !soId,
-                onClick: () => router.push(`/orders/${soId}/fabric-requirement`),
               },
             ];
           })()}
@@ -8627,24 +8612,22 @@ export function GarmentOrderScreen({
    * rendering of the one `taDates` / `taActivityById` lookup the table cells
    * already make. Neither is on the Tab path either way.
    *
-   * ALTERNATING SIDES, STILL ONE `TaRow` PER `ChildGrid` ROW. This went
-   * through a 3-per-row (then 5-per-row) CSS-grid override on `data-grid-body`
-   * for a couple of requests, then back — the client's actual reference the
-   * whole time was the artifact's own "Version 7", the single-card-per-row
-   * road map with each activity alternating left and right, not a multi-
-   * column grid. `ChildGrid` never knew the difference either way: Tab,
-   * Ctrl+Del and Enter-adds-a-row all still walk the same one-activity-per-
-   * row model. What changed, again, is purely how ONE row's own content is
-   * laid out — `side` below, computed from `i % 2`.
+   * ONE STRAIGHT COLUMN, DATE-LEFT / ICON-CENTRE / CARD-RIGHT — the actual
+   * artifact "Version 3" (client, 2026-09-07: "I told as version three",
+   * against a screenshot of that link's PINNED version — reading the
+   * artifact live gave a LATER, different-looking revision, which is what
+   * the first pass of this got wrong). No alternating side, no 3-per-row
+   * grid: every row lays out the same way, one after another. `ChildGrid`
+   * still renders exactly one `TaRow` per `[data-grid-row]`; Tab, Ctrl+Del
+   * and Enter-adds-a-row all still walk that same one-activity-per-row
+   * model unchanged.
    *
-   * THE CONNECTING LINE IS MEASURED, DRAWN OUTSIDE THIS FUNCTION, AND DID NOT
-   * NEED TO CHANGE ACROSS ANY OF THIS. See the `taNodeRefs` / `taTrack` hooks
-   * above the early return: this function only hands one ref per card
-   * (`taNodeRefs.current.set(r.key, el)`) to the icon badge; the SVG path is
-   * drawn once, behind every row, from wherever those badges actually end up
-   * on screen. A grid of three columns and a single column of alternating
-   * sides are just two different arrangements of the same set of points —
-   * the measurement does not know or care which one it is looking at.
+   * THE CONNECTING LINE IS MEASURED, DRAWN OUTSIDE THIS FUNCTION, AND DOES
+   * NOT NEED TO CHANGE FOR THIS. See the `taNodeRefs` / `taTrack` hooks above
+   * the early return: this function only hands one ref per card
+   * (`taNodeRefs.current.set(r.key, el)`) to the icon badge; with every
+   * badge now stacked at the same x, the same "leave straight down, arrive
+   * straight down" bezier the mockup used just draws a plain vertical line.
    */
   const taRenderMobileRow = (r: TaRow, i: number) => {
     const d = taDates.get(r.row_uid);
@@ -8695,25 +8678,23 @@ export function GarmentOrderScreen({
               ? `Target in ${d.float} day${d.float === 1 ? "" : "s"}`
               : null;
 
-    /**
-     * ALTERNATING SIDES, NOT A GRID (client, pointing at the artifact's own
-     * "Version 7" — the single-card-per-row road map, not the 3-per-row grid
-     * that was built for a different request in between). Even rows cluster
-     * left, odd rows cluster right, with a flex-1 spacer taking up whatever
-     * side the cluster is NOT on. `flex-row-reverse` is what makes one set of
-     * JSX serve both sides: the spacer is always the LAST element in DOM
-     * order, so reversing the row moves it — and therefore the empty space —
-     * to the opposite edge without touching the cluster's own markup.
-     */
-    const side: "left" | "right" = i % 2 === 0 ? "left" : "right";
-
+    /* `inline-flex`, NOT `flex` — client: "add some padding for that close
+       option, see it's appearing above the working days words". A block
+       `flex` here sizes to whatever width `[data-grid-row]`'s own `w-fit`
+       override resolves to, which is one more layer between this content and
+       the row's actual edge than is worth trusting; `inline-flex` makes THIS
+       element shrink-wrap to its own content unconditionally, so the row
+       never reports a width wider than what is actually drawn. `mr-8` then
+       guarantees real clearance from `cornerRemove`'s ✕ (`child-grid.tsx`,
+       floated at the row's own top-right corner) — belt-and-braces alongside
+       that fit, not instead of it. */
     return (
-      <div className={cn("flex items-start gap-3 py-1", side === "right" && "flex-row-reverse")}>
-        <div className={cn("w-14 flex-none pt-1.5", side === "left" ? "text-right" : "text-left")}>
-          <div className="text-[10px] font-medium tracking-wide text-muted-foreground">
+      <div className="inline-flex items-start gap-2 py-0.5 mr-8">
+        <div className="w-11 flex-none pt-0.5 text-right">
+          <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
             {String(i + 1).padStart(2, "0")}
           </div>
-          <div className="text-xs font-semibold tabular-nums text-foreground">
+          <div className="text-[11px] font-semibold tabular-nums text-foreground">
             {d ? fmtDate(d.target_date) : "—"}
           </div>
         </div>
@@ -8724,38 +8705,45 @@ export function GarmentOrderScreen({
             else taNodeRefs.current.delete(r.key);
           }}
           className={cn(
-            "mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-surface",
+            "flex h-7 w-7 flex-none items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-surface",
             toneNode[tone],
             toneRing[tone],
           )}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className="h-3.5 w-3.5" />
         </div>
 
-        <div className="w-full max-w-[280px] flex-none space-y-1.5 rounded-xl border border-border bg-surface p-2.5 text-left transition-shadow hover:shadow-md">
-          <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
-            {taColumns[0].cell(r, i)}
-          </RequiredScope>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {activity?.department && (
-              <span className="rounded-full border border-border bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {activity.department}
-              </span>
-            )}
-            <div className="flex items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2.5 pr-1">
-              <span className="text-[11px] font-medium text-muted-foreground">Days</span>
-              <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
-                {taColumns[1].cell(r, i)}
-              </RequiredScope>
-            </div>
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface p-2 text-left transition-shadow hover:shadow-md">
+          {/* NEITHER THIS CARD NOR THE ACTIVITY FIELD IS `flex-1` ANY MORE
+             (client: "field size needs to be fix" on the Activity box, then
+             "the field between [it] and [Close] this much gab cut it" on
+             the CARD — `flex-1` here was stretching the whole bordered box
+             out to the row's far edge, which is what left a wide strip of
+             empty card between "working days" and the row's own ✕. Dropping
+             it lets the card size to its own content instead; the `pr-9`
+             this used to carry is also gone; `cornerRemove`'s own `pr-10` on
+             the ROW is already what keeps the ✕ off the content, and
+             stacking a second reservation here was the other half of the
+             gap. `w-52` fits the longest seeded name ("ACCESSORIES BOM")
+             with room to spare; `flex-none` keeps it that width. */}
+          <div className="w-52 flex-none">
+            <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
+              {taColumns[0].cell(r, i)}
+            </RequiredScope>
           </div>
-          {caption && <div className={cn("text-[11px] font-medium", toneText[tone])}>{caption}</div>}
+          {activity?.department && (
+            <span className="rounded-full border border-border bg-surface-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {activity.department}
+            </span>
+          )}
+          <div className="flex flex-none items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2 pr-1">
+            <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
+              {taColumns[1].cell(r, i)}
+            </RequiredScope>
+            <span className="text-[10px] font-medium text-muted-foreground">working days</span>
+          </div>
+          {caption && <span className={cn("text-[10px] font-medium", toneText[tone])}>{caption}</span>}
         </div>
-
-        {/* THE SPACER. See the note above — this is what alternating sides
-           actually is: not two different layouts, one layout and which end
-           this element sits at. */}
-        <div className="flex-1" />
       </div>
     );
   };
@@ -18059,6 +18047,38 @@ export function GarmentOrderScreen({
           )}
 
           {/**
+            * FEASIBILITY WARNING — VISIBLE ONLY, NEVER BLOCKS SAVE (external
+            * spec, 2026-09-07: "the calculated Material Inhouse Date cannot
+            * be earlier than the style's Order Received Date … block the
+            * save"). The spec's own wording asks for a hard block; this app
+            * does not add one, because the client made every T&A field
+            * optional on 2026-08-31 and nothing in this tab has gated Save
+            * since — adding the tab's FIRST-EVER blocking rule here would
+            * silently reverse that decision. So this is the same shape as
+            * the status line above it: a fact stated in the danger tone,
+            * never wired into anything that refuses the click.
+            *
+            * `amend_date` (Order Info's "Date") IS THE ORDER'S OWN DATE —
+            * there is no separate "Order Received Date" live on this screen.
+            * `received_date` exists as a column but was explicitly withdrawn
+            * from the Logistic tab 2026-08-12 ("Ship Mode / Ship Type / Pay
+            * Mode / Payment Terms / Days / Currency / Country, and nothing
+            * else"); resurrecting it here to answer a spec nobody asked this
+            * screen to implement literally would undo that client decision
+            * for a different reason than the one that undid it.
+            */}
+          {!isRefusal(taLadder) && taLadder.startDate < form.amend_date && (
+            <p className="rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
+              <span className="font-medium">
+                This schedule needs to start on {fmtDate(taLadder.startDate)}
+              </span>{" "}
+              — before {fmtDate(form.amend_date)}, the order's own Date. The
+              production days entered add up to more time than is actually
+              available; this does not block Save.
+            </p>
+          )}
+
+          {/**
             * THE ADVISORY LIST IS NO LONGER SHOWN (client 2026-09-05: "no need
             * this message in T&A totally remove it, can save some space").
             *
@@ -18076,53 +18096,60 @@ export function GarmentOrderScreen({
             */}
 
           {/**
-            * THREE CARDS PER ROW, WITH A ROAD LINE BEHIND THEM (client, after a
-            * road-map mockup: "make 3 card per row and that line"). Both are
-            * layered OUTSIDE `ChildGrid` rather than built into it:
+            * ONE COLUMN, WITH A ROAD LINE BEHIND THE ICONS (client, pointing at
+            * the actual pinned "Version 3" of the road-map artifact — an
+            * earlier read of that same link had returned its LIVE content
+            * instead, which is a different, later revision; the screenshot of
+            * the pinned page is what this now matches). Both the line and the
+            * stacking are layered OUTSIDE `ChildGrid` rather than built into
+            * it:
             *
             * - `taWrapCallbackRef` is the coordinate space `taTrack`'s path was
             *   measured in (see the hooks above the early return, and that
             *   callback ref's own note on why a plain `useRef` missed every
-            *   tab switch) — the `<svg>` below is
-            *   an absolutely-positioned sibling of `ChildGrid`, painted first so
-            *   it sits BEHIND the cards, sized to the exact pixel box that was
-            *   measured so the path's raw coordinates need no `viewBox` scaling.
-            * - The arbitrary-descendant classes on the wrapper below turn
-            *   `ChildGrid`'s own row container (`[data-grid-body]`) into a CSS
-            *   grid from the OUTSIDE — no such prop exists on `ChildGrid`, and
-            *   none was added there, because this is purely how ~10 already-
-            *   correct rows are ARRANGED, not a new row shape. `ChildGrid` still
-            *   renders exactly one `TaRow` per `[data-grid-row]`; Tab, Ctrl+Del
-            *   and Enter-adds-a-row all still walk that same one-row-per-
-            *   activity model unchanged.
+            *   tab switch) — the `<svg>` below is an absolutely-positioned
+            *   sibling of `ChildGrid`, painted first so it sits BEHIND the
+            *   cards, sized to the exact pixel box that was measured so the
+            *   path's raw coordinates need no `viewBox` scaling.
+            * - `ChildGrid` needs no CSS-grid override for this: with
+            *   `flatRows` it already stacks one `[data-grid-row]` per line,
+            *   which is exactly what a single column wants. `ChildGrid` still
+            *   renders exactly one `TaRow` per `[data-grid-row]`; Tab,
+            *   Ctrl+Del and Enter-adds-a-row all still walk that same
+            *   one-row-per-activity model unchanged.
             * - `!border-t-0` / `!py-0` cancel `flatRows`'s own single-column
-            *   rhythm (a top divider and asymmetric top/bottom padding meant for
-            *   a stacked list), which would otherwise sit unevenly across a row
-            *   of three cards; the grid's own `gap` supplies the spacing instead.
+            *   rhythm (a top divider and asymmetric top/bottom padding meant
+            *   for a plain stacked list), since `taRenderMobileRow` draws its
+            *   own card with its own `py-1` instead.
             */}
-          {/* THE START CAP (client: "that order entry rock and shipent with
-             track icon need to add"). Same shape as the artifact's own
-             bookends — a small circle in the app's brand-soft tint, a
-             label under it — marking the two ends of the ladder that are
-             not activities: the order itself, and the shipment it is
-             building toward. Purely decorative, matching `road-cap` in the
-             reference artifact; carries no data of its own. */}
-          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-1">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
-              <Rocket className="h-4 w-4" />
+          {/* NO START/FINISH CAP (client 2026-09-07: "remove those order
+             enter and ship icon and wordings"). The rocket/"Order entered"
+             and flag/"Ready to ship" bookends the artifact mockup drew
+             around the ladder are gone; the ladder is now just its own
+             activities, top to bottom. THE DATE ITSELF IS BACK, though — a
+             plain label in the SAME column the rows' own date sits in
+             (client, same day: "that earlier ship date field also list near
+             [the row] number"), never an icon or a word like "Order entered".
+             `w-11` matches `taRenderMobileRow`'s own date-column width
+             exactly, so this reads as one continuous column with "01"
+             beneath it rather than a second, disconnected label. */}
+          {!isRefusal(taLadder) ? (
+            <div className="w-11 pb-1 text-right">
+              <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
+                SHIP
+              </div>
+              <div className="text-[11px] font-semibold tabular-nums text-foreground">
+                {fmtDate(taLadder.anchor.date)}
+              </div>
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Order entered
-            </span>
-          </div>
-          {/* NARROWER, SO THE TWO SIDES SIT CLOSER TOGETHER (client: "can i
-             think shrick those left and right between gab" — the alternating
-             cluster was spanning the FULL width of a wide content pane,
-             which is not what the artifact's own bounded shell showed. Same
-             `max-w-2xl` as the caps above it, so the line's left/right swing
-             lines up with the rocket and the flag rather than under- or
-             overshooting them. */}
-          <div ref={taWrapCallbackRef} className="relative mx-auto max-w-2xl">
+          ) : (
+            <p className="pb-1 text-[11px] font-medium text-warning">{taLadder.refused}</p>
+          )}
+          {/* `max-w-2xl`, LEFT-ALIGNED (client: "left align it and compact it
+             more") — no `mx-auto`, so the column hugs the pane's own left
+             edge instead of centring in whatever width the pane happens to
+             be. */}
+          <div ref={taWrapCallbackRef} className="relative max-w-2xl">
             <svg
               /* NO `-z-10` — see the fix note. A negative z-index on an
                  element whose parent sets no z-index of its own does not
@@ -18148,20 +18175,19 @@ export function GarmentOrderScreen({
               />
             </svg>
             <div
-              /* NO GRID OVERRIDE ANY MORE — the 3-per-row and 5-per-row grid
-                 CSS both went with the layout they were built for (client, at
-                 the artifact's own "Version 7": the ALTERNATING single-card
-                 road map, not the grid built for a request in between).
-                 `ChildGrid`'s own row container needs no help here: with
-                 `flatRows` it already stacks one `[data-grid-row]` per line,
-                 which is exactly what an alternating layout wants — each row
-                 decides its OWN left/right via `taRenderMobileRow`'s `side`,
-                 not via how the container arranges cells. `!border-t-0` /
-                 `!py-0` stay: `flatRows`'s single-column divider and padding
-                 were tuned for a plain stacked list, not a row that is now a
-                 flex cluster pinned to one edge, and `taRenderMobileRow`
-                 supplies its own `py-1` instead. */
-              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0"
+              /* NO GRID OVERRIDE — a single stacked column is `flatRows`'s own
+                 default shape, so nothing needs turning into a CSS grid from
+                 the outside here. `!border-t-0` / `!py-0` stay: they cancel
+                 `flatRows`'s own divider/padding rhythm, which
+                 `taRenderMobileRow` supplies its own version of instead.
+                 `w-fit`, added on top (client: the ✕ "still appearing
+                 orphaned" once the card itself stopped stretching — a
+                 `[data-grid-row]` is a plain block, and a block's own width
+                 is auto/100% of `[data-grid-body]` regardless of how wide
+                 the CARD inside it draws itself. Shrinking the row to its
+                 own content is what pulls `cornerRemove`'s `✕` — positioned
+                 off THIS element's corner, not the card's — back next to it. */
+              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0 [&_[data-grid-row]]:w-fit"
             >
               <ChildGrid<TaRow>
                 columns={taColumns}
@@ -18195,18 +18221,6 @@ export function GarmentOrderScreen({
                 addLabel="+ Add activity"
               />
             </div>
-          </div>
-          {/* THE FINISH CAP (client: "order completion wiht flag and track").
-             Same treatment as the start cap, closing the ladder at Shipment
-             rather than naming it a second time — the last card already
-             says "SHIPMENT". */}
-          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
-              <Flag className="h-4 w-4" />
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Ready to ship
-            </span>
           </div>
         </div>
       ),

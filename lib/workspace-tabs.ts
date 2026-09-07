@@ -152,6 +152,18 @@ function removeTab(id: string): { nextActiveHref: string | null } {
   return { nextActiveHref: wasActive ? (fallback?.href ?? null) : null };
 }
 
+/** Keep one tab, drop the rest. The kept tab is already wherever the operator
+ *  is looking at, so this never navigates. */
+function pruneToOne(keepId: string): void {
+  const keep = state.tabs.find((t) => t.id === keepId);
+  if (!keep) return;
+  setState({ tabs: [keep], activeId: keep.id });
+}
+
+function clearAll(): void {
+  setState(EMPTY_STATE);
+}
+
 /**
  * The bar's own hook: read the open tabs and act on them.
  */
@@ -171,6 +183,17 @@ export function useWorkspaceTabs() {
     close(id: string) {
       const { nextActiveHref } = removeTab(id);
       if (nextActiveHref) router.push(nextActiveHref);
+    },
+    /** Overflow menu's "Close others" — keeps `id` (normally the active tab)
+     *  open and drops every other tab. */
+    closeOthers(id: string) {
+      pruneToOne(id);
+    },
+    /** Overflow menu's "Close all" — nothing is left open, so this is the one
+     *  action here that always sends the operator back to Home. */
+    closeAll() {
+      clearAll();
+      router.push("/");
     },
   };
 }
@@ -217,11 +240,18 @@ export function useRegisterWorkspaceTab(opts: {
  * Never call this from a screen — a screen that wants to assert its own
  * title uses `useRegisterWorkspaceTab`, which DOES refresh the title, on
  * purpose: it is the authoritative caller for that route.
+ *
+ * `skip` is for a route the bar has decided is not tab-worthy (a hub page —
+ * see `isHubRoute` in lib/nav/module-groups.ts) — it leaves the store
+ * completely alone, rather than registering a tab and hiding it in the UI,
+ * so drilling through Orders → Order Management → Order Entry ends with
+ * exactly one tab (Order Entry), not three.
  */
-export function useEnsureWorkspaceTab(opts: { href: string; title: string }): void {
-  const { href, title } = opts;
+export function useEnsureWorkspaceTab(opts: { href: string; title: string; skip?: boolean }): void {
+  const { href, title, skip } = opts;
 
   useEffect(() => {
+    if (skip) return;
     const existing = findByHref(href);
     if (existing) {
       if (state.activeId !== existing.id) setState({ ...state, activeId: existing.id });
@@ -229,7 +259,7 @@ export function useEnsureWorkspaceTab(opts: { href: string; title: string }): vo
     }
     const tab: WorkspaceTab = { id: newId(), href, title };
     setState({ tabs: [...state.tabs, tab], activeId: tab.id });
-  }, [href, title]);
+  }, [href, title, skip]);
 }
 
 /**

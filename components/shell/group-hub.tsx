@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { HubCard } from "@/components/masters/hub-card";
 import { findGroup, groupAtRoute } from "@/lib/nav/module-groups";
 import { hubCounts } from "@/lib/nav/hub-counts";
+import { groupHubMark } from "@/lib/nav/group-hub-icons";
 
 /**
  * href → record count, exactly the map `lib/nav/hub-counts.ts` returns.
@@ -174,6 +175,7 @@ export async function GroupHub({
     const unavailable = c.status === "unavailable";
     const idle = todo || unavailable;
     const hub = groupAtRoute(moduleHref, c.href);
+    const mark = idle ? undefined : groupHubMark(c.href);
     return {
       key: c.href,
       // Neither state is a link, for DIFFERENT reasons. A `todo` child's route
@@ -206,6 +208,13 @@ export async function GroupHub({
       // gets `undefined` (not `0`) when it has no answer — absent is not zero,
       // and `HubCard` renders the two differently on purpose.
       count: idle ? undefined : hub ? hub.children.length : resolved.get(c.href),
+      // Omitted (never `undefined` explicitly assigned over a real value) for
+      // a `todo`/`unavailable` card and for any href `group-hub-icons.ts`
+      // hasn't been filled in for yet — `HubCard` draws its generic `Tag`
+      // default either way, same as the Master Data hub does for an unlisted
+      // slug.
+      icon: mark?.icon,
+      tone: mark?.tone,
     };
   });
 

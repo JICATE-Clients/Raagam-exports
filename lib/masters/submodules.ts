@@ -225,6 +225,7 @@ export const SUBMODULES: SubmoduleDef[] = [
     note: "Legacy Configure ▸ System, restored 2026-08-12. Document No Format moved here from Administration (its old URL still redirects). More legacy System screens land here as each is captured.",
     children: [
       { slug: "document-no-format", label: "Document No Format", singular: "Document Format", description: "Numbering series per menu — track, segments and sample", type: "custom", custom: "document_no_format" },
+      { slug: "ta-approvals", label: "TA Approvals", singular: "Approval", description: "Global technical approval milestones (Fit Sample, PP Sample, …) used by Orders' T&A engine", type: "custom", custom: "ta_approval", icon: "ta-approvals" },
     ],
   },
 ];

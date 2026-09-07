@@ -81,6 +81,10 @@ export type TaActivityOption = PickerRow & {
   sequence: number | null;
   /** The master's planned offset. Seeds "Days" when positive; see the screen. */
   default_offset_days: number;
+  /** Seeded onto a BRAND-NEW order's ladder (0541). Every other active row is
+   *  still reachable via "+ Add activity" — this narrows what a blank order
+   *  starts with, never the master itself. */
+  default_seed: boolean;
 };
 
 /**
@@ -950,7 +954,7 @@ async function getTaActivityRows(): Promise<TaActivityOption[]> {
   const s = await createClient();
   const { data, error } = await s
     .from("ta_activities")
-    .select("id, short_name, name, department, sequence, default_offset_days, is_active")
+    .select("id, short_name, name, department, sequence, default_offset_days, is_active, default_seed")
     .order("sequence");
   if (error) throw new Error(`Could not load the T&A activity master: ${error.message}`);
   return ((data ?? []) as {
@@ -961,6 +965,7 @@ async function getTaActivityRows(): Promise<TaActivityOption[]> {
     sequence: number | null;
     default_offset_days: number | null;
     is_active: boolean | null;
+    default_seed: boolean | null;
   }[]).map((r) => ({
     id: r.id,
     // See `TaActivityOption`: legacy's Short Name is what an operator types.
@@ -975,6 +980,7 @@ async function getTaActivityRows(): Promise<TaActivityOption[]> {
        keeps the two ends saying the same thing. */
     default_offset_days: r.default_offset_days ?? 0,
     is_active: r.is_active,
+    default_seed: r.default_seed ?? false,
   }));
 }
 
