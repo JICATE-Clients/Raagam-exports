@@ -28,6 +28,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { isHubRoute } from "@/lib/nav/module-groups";
 
 export interface WorkspaceTab {
   id: string;
@@ -55,7 +56,18 @@ function readStorage(): WorkspaceTabsState {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_STATE;
     const parsed = JSON.parse(raw) as WorkspaceTabsState;
-    return Array.isArray(parsed.tabs) ? parsed : EMPTY_STATE;
+    if (!Array.isArray(parsed.tabs)) return EMPTY_STATE;
+    // One-time cleanup for a tab list saved before hub routes (a module root,
+    // a group's own hub page — see `isHubRoute`) stopped being tab-worthy.
+    // Without this, a "Order Management" tab opened in an earlier session
+    // keeps showing up forever — closing it by hand is the only way out, and
+    // nothing here does that automatically otherwise.
+    const tabs = parsed.tabs.filter((t) => !isHubRoute(t.href));
+    if (tabs.length === parsed.tabs.length) return parsed;
+    const activeId = tabs.some((t) => t.id === parsed.activeId)
+      ? parsed.activeId
+      : (tabs[tabs.length - 1]?.id ?? null);
+    return { tabs, activeId };
   } catch {
     return EMPTY_STATE;
   }
@@ -266,10 +278,23 @@ export function useEnsureWorkspaceTab(opts: { href: string; title: string; skip?
  * Open (or focus) a tab from OUTSIDE the screen it points to — a sidebar
  * link, a "+" launcher, a picker's "open in workspace" action. Unlike
  * `useRegisterWorkspaceTab`, this also navigates there.
+ *
+ * THIS IS WHERE A MODULE/SUB-MODULE TAB ACTUALLY CAME FROM. The two-level
+ * sidebar (`GlobalSidebar`, `ContextSidebar`) calls this for every row,
+ * including a group's own hub row ("Order Management") — and until this
+ * check existed it registered a tab for that hub exactly like it would for a
+ * real screen. `useEnsureWorkspaceTab`'s `skip` only ever covered the bar's
+ * OWN fallback registration; a sidebar click went through this function
+ * instead and skipped that guard entirely. So a hub route here just
+ * navigates — no tab, same as standing on it directly.
  */
 export function useOpenWorkspaceTab() {
   const router = useRouter();
   return (opts: { href: string; title: string; icon?: string }) => {
+    if (opts.href !== "/" && isHubRoute(opts.href)) {
+      router.push(opts.href);
+      return;
+    }
     registerTab(opts);
     router.push(opts.href);
   };
