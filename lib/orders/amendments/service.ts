@@ -928,6 +928,13 @@ export type AmendmentFormData = {
    * `TaActivityOption`.
    */
   taActivities: TaActivityOption[];
+  /**
+   * PP Sample review lead time by `customer_id` (doc/approval.md §5.1), for
+   * the T&A tab's PP Send date. See `getCustomerPpReviewDays`. A customer
+   * with no PP Sample row on their Approvals tab is absent from this map,
+   * never defaulted to a guessed number of days.
+   */
+  ppReviewDaysByCustomer: Record<string, number>;
 };
 
 /**
@@ -982,6 +989,44 @@ async function getTaActivityRows(): Promise<TaActivityOption[]> {
     is_active: r.is_active,
     default_seed: r.default_seed ?? false,
   }));
+}
+
+/**
+ * Customer-specific PP Sample review lead time, keyed by `customer_id`
+ * (doc/approval.md §5.1: "PP Send Date = PP Approval Date - Customer Master
+ * Approval Days"). Sourced from `customer_approval_defaults`, resolved
+ * against the PP SAMPLE milestone the same way `lib/ta/worklist.ts`'s Cutting
+ * Room Safety Lock already does — `ta_approvals.short_name ILIKE 'PPSAMPLE'`
+ * — so a rename of that master row breaks both bridges together rather than
+ * only one silently.
+ *
+ * A customer absent from the map has no row on the Customer Master's
+ * Approvals tab for PP Sample — nothing was ticked, so there is no "days" to
+ * subtract. The T&A tab reads that as "cannot compute PP Send yet" and lets
+ * the operator answer it, never a guessed number.
+ */
+async function getCustomerPpReviewDays(): Promise<Record<string, number>> {
+  const s = await createClient();
+  const { data: ppSample, error: ppErr } = await s
+    .from("ta_approvals")
+    .select("id")
+    .ilike("short_name", "PPSAMPLE")
+    .maybeSingle();
+  if (ppErr) throw new Error(`Could not resolve the PP Sample approval milestone: ${ppErr.message}`);
+  if (!ppSample) return {};
+
+  const { data, error } = await s
+    .from("customer_approval_defaults")
+    .select("customer_id, lead_time_days")
+    .eq("approval_id", ppSample.id);
+  if (error) throw new Error(`Could not load customer PP Sample review days: ${error.message}`);
+
+  return Object.fromEntries(
+    ((data ?? []) as { customer_id: string; lead_time_days: number }[]).map((r) => [
+      r.customer_id,
+      r.lead_time_days,
+    ]),
+  );
 }
 
 /**
@@ -1385,6 +1430,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     processes,
     rejectionRules,
     taActivities,
+    ppReviewDaysByCustomer,
   ] = await Promise.all([
     getCustomerRows(),
     getMerchandiserRows(),
@@ -1406,6 +1452,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getProcessRows(),
     getRejectionRuleRows(),
     getTaActivityRows(),
+    getCustomerPpReviewDays(),
   ]);
   return {
     /**
@@ -1452,5 +1499,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     processes,
     rejectionRules,
     taActivities,
+    ppReviewDaysByCustomer,
   };
 }

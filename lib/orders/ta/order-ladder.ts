@@ -77,14 +77,19 @@
  *
  * The convention `requirement.ts`, `chain.ts` and `schedule.ts` all record, and
  * it matters more here than anywhere: a wrong date is a delivery that misses,
- * and a plan is read as a promise. Every branch that cannot answer returns a
- * `Refusal` carrying the sentence the screen prints — never `0`, never a silent
- * skip, and never a row quietly left undated.
+ * and a plan is read as a promise. A branch that genuinely cannot answer
+ * ANYTHING (no anchor, no rows at all) still returns a `Refusal` carrying the
+ * sentence the screen prints — never `0`, never a silent skip.
  *
- * `days_required: null` is a row nobody filled in, and `backwardSchedule`
- * already refuses it BY NAME (*"Knitting: enter how many days it needs"*). That
- * refusal is let through unchanged rather than restated: two sentences for one
- * fact is how they drift apart.
+ * `days_required: null` is a row nobody filled in, and it no longer refuses
+ * the WHOLE ladder (client, 2026-09-07 — see `Schedule`'s header in
+ * `lib/ta/schedule.ts` for the full reasoning). It stops the walk AT that row:
+ * every row nearer delivery keeps the `target_date` it already earned, and
+ * that row plus every row further from delivery gets `target_date: null`.
+ * `TaLadderResult.incomplete` carries the same sentence a total refusal used
+ * to name the row with (*"Knitting: enter how many days it needs"*), passed
+ * through unchanged rather than restated — two sentences for one fact is how
+ * they drift apart.
  */
 
 import { isCalendarDate } from "@/lib/calendar";
@@ -120,18 +125,28 @@ export type TaLadderAnchor = {
 };
 
 export type TaLadderResult = {
-  /** EXECUTION order — Fabric Plan first, Shipment last. What the grid renders. */
-  rows: (TaLadderRow & { target_date: string; float: number })[];
-  anchor: TaLadderAnchor;
-  /** Work must begin here. */
-  startDate: string;
   /**
-   * Calendar days from `now` to `startDate`. NEGATIVE IS REPORTED, NEVER
-   * CLAMPED — `backwardSchedule`'s rule, and this is the surface it reaches:
-   * a start date pulled forward to today is a plan claiming to be achievable
-   * when the order cannot be made on time.
+   * EXECUTION order — Fabric Plan first, Shipment last. What the grid
+   * renders. `target_date`/`float` are `null` on a row whose OWN Days is
+   * blank, or whose neighbour nearer delivery hasn't answered its Days yet —
+   * see `Schedule.incomplete` in `lib/ta/schedule.ts` for why that is a
+   * partial result, not a refusal.
    */
-  float: number;
+  rows: (TaLadderRow & { target_date: string | null; float: number | null })[];
+  anchor: TaLadderAnchor;
+  /** Work must begin here — `null` while `incomplete` is set. */
+  startDate: string | null;
+  /**
+   * Calendar days from `now` to `startDate`, or `null` alongside it.
+   * NEGATIVE IS REPORTED, NEVER CLAMPED — `backwardSchedule`'s rule, and this
+   * is the surface it reaches: a start date pulled forward to today is a plan
+   * claiming to be achievable when the order cannot be made on time.
+   */
+  float: number | null;
+  /** The first row (nearest delivery) with no Days yet, passed straight
+   *  through from `Schedule.incomplete` — present exactly when `startDate`
+   *  is `null`. */
+  incomplete?: { label: string; reason: string };
 };
 
 /**
@@ -226,5 +241,11 @@ export function orderTaLadder(input: {
     float: scheduled[i].float,
   }));
 
-  return { rows, anchor, startDate: plan.startDate, float: plan.float };
+  return {
+    rows,
+    anchor,
+    startDate: plan.startDate,
+    float: plan.float,
+    ...(plan.incomplete && { incomplete: plan.incomplete }),
+  };
 }

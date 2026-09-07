@@ -149,7 +149,13 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
   }
 
   const columns: Column<TaApproval>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.short_name}</span> },
+    {
+      // font-semibold (client 2026-09-07, Archivo weight spec) — this
+      // master's identifying column; Name/Department/etc. beside it stay at
+      // their existing weight.
+      header: "Short Name",
+      cell: (r) => <span className="font-mono text-xs font-semibold">{r.short_name}</span>,
+    },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Department", cell: (r) => <span className="text-sm text-muted-foreground">{r.department}</span> },
     {

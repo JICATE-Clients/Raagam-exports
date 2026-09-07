@@ -251,15 +251,36 @@ check(
   refusalOf(backwardSchedule({ deliveryDate: "2026-08-24", steps: [] })),
   "No activities to schedule — add them to the plan first",
 );
+// ---------------------------------------------------------------------------
+// 5b. A blank Days box STOPS THE WALK, IT DOES NOT REFUSE THE LADDER
+//     (client, 2026-09-07 — the T&A tab's Inspection date was hidden behind a
+//     blank Packing box nine rows later, even though Inspection's own Days
+//     was answered). This is the vector that separates "one blank field
+//     refuses everything" from "one blank field withholds only what depends
+//     on it" — two plausible implementations that disagree on every field
+//     below.
+// ---------------------------------------------------------------------------
+
 check(
-  "a blank lead time refuses and NAMES the process",
-  refusalOf(
+  "a lone blank lead time is no longer a REFUSAL",
+  isRefusal(
     backwardSchedule({
       deliveryDate: "2026-08-24",
       steps: [{ key: "a", label: "Sewing", days: null }],
     }),
   ),
-  "Sewing: enter how many days it needs",
+  false,
+);
+check(
+  "…it is reported as `incomplete`, naming the process",
+  (() => {
+    const r = backwardSchedule({
+      deliveryDate: "2026-08-24",
+      steps: [{ key: "a", label: "Sewing", days: null }],
+    });
+    return isRefusal(r) ? null : r.incomplete;
+  })(),
+  { label: "Sewing", reason: "Sewing: enter how many days it needs" },
 );
 refute(
   "…a blank lead time is not treated as 0",
@@ -271,6 +292,50 @@ refute(
     return isRefusal(r) ? null : r.startDate;
   })(),
   "2026-08-24",
+);
+check(
+  "…and with nothing computable, startDate is null rather than a guess",
+  (() => {
+    const r = backwardSchedule({
+      deliveryDate: "2026-08-24",
+      steps: [{ key: "a", label: "Sewing", days: null }],
+    });
+    return isRefusal(r) ? null : r.startDate;
+  })(),
+  null,
+);
+
+/* THE ROW BEFORE THE BLANK ONE KEEPS ITS DATE — this is the actual client
+   complaint, isolated to one vector: Final Inspection (1 day, first in this
+   downstream-first list) must still be dated even though Packing right after
+   it is blank and Ironing after THAT never even gets asked. */
+const stopsShort = backwardSchedule({
+  deliveryDate: "2026-08-24",
+  steps: [
+    { key: "insp", label: "Final Inspection", days: 1 },
+    { key: "pack", label: "Packing", days: null },
+    { key: "iron", label: "Ironing", days: 2 },
+  ],
+});
+check(
+  "the row nearer delivery than the blank one is still dated",
+  isRefusal(stopsShort) ? null : stopsShort.steps[0].date,
+  "2026-08-22",
+);
+check(
+  "the blank row itself, and everything after it, is undated",
+  isRefusal(stopsShort) ? null : stopsShort.steps.map((s) => s.date),
+  ["2026-08-22", null, null],
+);
+check(
+  "`incomplete` names the FIRST blocking row, not the ladder in general",
+  isRefusal(stopsShort) ? null : stopsShort.incomplete?.label,
+  "Packing",
+);
+refute(
+  "…Ironing is not blamed even though it never got a date either",
+  isRefusal(stopsShort) ? null : stopsShort.incomplete?.label,
+  "Ironing",
 );
 
 // ---------------------------------------------------------------------------

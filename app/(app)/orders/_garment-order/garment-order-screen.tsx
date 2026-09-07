@@ -2057,6 +2057,42 @@ export function GarmentOrderScreen({
   });
 
   /**
+   * FOUR T&A ROWS ARE SYSTEM-COMPUTED, NEVER OPERATOR-TYPED (external T&A
+   * spec, `doc/approval.md` §5.1, and client 2026-09-07 confirming all four
+   * read-only):
+   *
+   *   - Inspection, PP Approval, Material In-house — PINNED TO EXACTLY 1 DAY.
+   *     Each sits immediately after a different anchor in the downstream-
+   *     first walk (the delivery/shipment anchor, Cutting, and PP Send), so
+   *     `backwardSchedule`'s own chaining already produces "1 day before the
+   *     step before it" the moment `days_required` is fixed at `"1"` — no new
+   *     date arithmetic anywhere.
+   *   - PP Send — the one row that is NOT a fixed offset. Its Days comes from
+   *     `data.ppReviewDaysByCustomer`, this order's OWN customer's PP Sample
+   *     review lead time (Customer Master ▸ Approvals — Josten 5 days, Ocean
+   *     America 2, and so on). A customer with no row there is absent from
+   *     the map, and PP Send falls back to ordinary operator entry rather
+   *     than a guessed number — "NULL IS AN ANSWER. A GUESSED DATE IS NOT."
+   *
+   * `computedTaDays` is the ONE function every call site below reads (the
+   * seed, the Activity picker's `onChange`, the Days cell's `readOnly` +
+   * display, and the save payload) — so the four rows can never disagree
+   * about their own value between what the operator sees and what gets
+   * saved. Keyed by `short_name`, the same field `default_seed` filters by —
+   * never a label string, which capitalisation or a client rename could
+   * silently stop matching.
+   */
+  const FIXED_ONE_DAY_ACTIVITIES = new Set(["INSP", "PPAPPR", "MATIH"]);
+  const computedTaDays = (shortName: string | null | undefined): string | null => {
+    if (shortName && FIXED_ONE_DAY_ACTIVITIES.has(shortName)) return "1";
+    if (shortName === "PPSEND") {
+      const days = form.customer_id ? data.ppReviewDaysByCustomer[form.customer_id] : undefined;
+      return days != null ? String(days) : null;
+    }
+    return null;
+  };
+
+  /**
    * THE LADDER, SEEDED FROM THE `ta_activities` MASTER — one row per activity,
    * in `sequence` order, which is EXECUTION order (Fabric Plan first, Shipment
    * last).
@@ -2120,7 +2156,10 @@ export function GarmentOrderScreen({
         key: newKey(),
         row_uid: crypto.randomUUID(),
         activity_id: a.id,
-        days_required: a.default_offset_days > 0 ? String(a.default_offset_days) : "",
+        // FIXED_ONE_DAY_ACTIVITIES wins over the master's own default —
+        // see that constant's own comment for why these three are pinned
+        // rather than merely defaulted.
+        days_required: computedTaDays(a.short_name) ?? (a.default_offset_days > 0 ? String(a.default_offset_days) : ""),
       }));
 
   /**
@@ -4165,12 +4204,20 @@ export function GarmentOrderScreen({
        * filter here would be a second answer to one question — and it is the
        * copy `lib/data-io` would bypass if orders ever gained an import path.
        */
-      ta_activities: taRows.map((r) => ({
-        sno: 0,
-        row_uid: r.row_uid,
-        activity_id: r.activity_id,
-        days_required: numOrNull(r.days_required),
-      })),
+      ta_activities: taRows.map((r) => {
+        // computedTaDays wins here too — a saved order from before these
+        // four went read-only may still carry an operator-typed value, and
+        // this is the one place both the seed path and the reopened-
+        // document path are guaranteed to pass through, so it is where the
+        // correction actually lands rather than only appearing to.
+        const computed = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+        return {
+          sno: 0,
+          row_uid: r.row_uid,
+          activity_id: r.activity_id,
+          days_required: computed != null ? Number(computed) : numOrNull(r.days_required),
+        };
+      }),
     };
     start(async () => {
       const res = editId
@@ -4377,18 +4424,20 @@ export function GarmentOrderScreen({
    * ever reaches this Map the ladder is still right and only the display of the
    * earlier row would be lost.
    */
-  const taDates = useMemo(
-    () =>
-      isRefusal(taLadder)
-        ? new Map<string, { target_date: string; float: number }>()
-        : new Map(
-            taLadder.rows.map((r) => [
-              r.row_uid,
-              { target_date: r.target_date, float: r.float },
-            ]),
-          ),
-    [taLadder],
-  );
+  const taDates = useMemo(() => {
+    if (isRefusal(taLadder)) return new Map<string, { target_date: string; float: number }>();
+    const m = new Map<string, { target_date: string; float: number }>();
+    for (const r of taLadder.rows) {
+      // A row whose own Days is blank, or that sits behind one that is
+      // (`Schedule.incomplete`), carries no date yet — left out of the Map
+      // entirely rather than stored as null, so `.get()` already answers
+      // "nothing to show" the same way it does while the whole ladder
+      // refuses, and every reader keeps its one `d ? … : "—"` check.
+      if (r.target_date == null || r.float == null) continue;
+      m.set(r.row_uid, { target_date: r.target_date, float: r.float });
+    }
+    return m;
+  }, [taLadder]);
 
   /**
    * THE ROAD LINE — a decorative connector behind the T&A cards, drawn between
@@ -4420,11 +4469,29 @@ export function GarmentOrderScreen({
   const taRoRef = useRef<ResizeObserver | null>(null);
   const [taTrack, setTaTrack] = useState({ d: "", w: 0, h: 0 });
 
+  /**
+   * THE TAB READS BACK TO FRONT — DISPLAY ONLY (client, 2026-09-07: "Inspection,
+   * Packing, Ironing, Checking, Sewing, Cutting, PP Approval, PP Send, Material
+   * Inhouse" as the on-screen order, i.e. nearest-to-shipment first). `taRows`
+   * itself is untouched and stays execution order (Material Inhouse first) —
+   * see the enormous warning on `taLadder` above: that array is what
+   * `orderTaLadder` chains `backwardSchedule` from, and reversing THAT array
+   * would compute a complete, plausible ladder of WRONG dates, which is the
+   * exact failure that comment exists to prevent. This is a second, derived
+   * array that only `ChildGrid`'s `rows` prop and the road-line ever see.
+   *
+   * `onAdd` prepends to the REAL `taRows` for the same reason: prepending the
+   * real array is what lands the new row at the END of THIS reversed one,
+   * next to the "+ Add activity" button it was clicked from — appending would
+   * have put it at the top of the screen, nowhere near the click.
+   */
+  const taRowsDisplay = useMemo(() => [...taRows].reverse(), [taRows]);
+
   const taDraw = useCallback(() => {
     const wrap = taWrapRef.current;
     if (!wrap) return;
     const wrapRect = wrap.getBoundingClientRect();
-    const pts = taRows
+    const pts = taRowsDisplay
       .map((r) => taNodeRefs.current.get(r.key))
       .filter((el): el is HTMLDivElement => !!el)
       .map((el) => {
@@ -4450,7 +4517,7 @@ export function GarmentOrderScreen({
       d += `C ${x0} ${midY}, ${x1} ${midY}, ${x1} ${y1} `;
     }
     setTaTrack({ d, w: wrapRect.width, h: wrapRect.height });
-  }, [taRows]);
+  }, [taRowsDisplay]);
 
   /**
    * A CALLBACK REF, NOT A PLAIN ONE — THE SECOND BUG THIS LINE SHIPPED WITH.
@@ -4507,8 +4574,12 @@ export function GarmentOrderScreen({
         // and this is the number the whole business tracks an order by, so the
         // list and the record have to call it the same thing.
         header: "RE No",
+        // font-semibold (client 2026-09-07, Archivo weight spec): the ONE
+        // identifying column on this list — every other cell in the row
+        // (Customer, Date, status pills) stays at its existing weight, per
+        // the spec's own example ("ORD-1024 → 600, everything else → 400").
         cell: (r) => (
-          <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>
+          <span className="font-mono text-xs font-semibold">{r.sales_order?.order_number ?? "—"}</span>
         ),
       },
       {
@@ -8457,15 +8528,22 @@ export function GarmentOrderScreen({
          * leave it. Both flags come from the one `filled` boolean, so "off the
          * Tab path AND holding" is unrepresentable: filled → Tab steps over it,
          * blank → it comes straight back onto the Tab path with the hold that
-         * makes the operator answer it. ← → and the mouse always reach it, so
-         * changing a seeded activity deliberately still works.
+         * makes the operator answer it.
+         *
+         * ← → and the mouse used to always reach it regardless — NO LONGER
+         * TRUE for the client-named 9-step chain (2026-09-07: "make it read
+         * only"), which is now `disabled` below, same flag `lockRow` reads
+         * on the grid itself to withhold its ✕. A row added by hand through
+         * "+ Add activity" is not `default_seed` and stays fully editable.
          */
         const auto = autoFilledField(!!r.activity_id);
+        const fixed = !!taActivityById.get(r.activity_id ?? "")?.default_seed;
         return (
           <div data-focus-optional={auto.offTabPath ? "" : undefined}>
             <RecordPicker
               label="Activity"
               compact
+              disabled={fixed}
               /* EVERY activity, including switched-off ones — the other half of
                  the "Disabled rows" rule. `seedTaLadder` filters `isInactive`
                  so a retired activity is never seeded onto a NEW ladder; the
@@ -8480,11 +8558,21 @@ export function GarmentOrderScreen({
                  double-counts its own lead time. `usedIds` is every OTHER row's
                  activity, so the row's own value is never hidden from itself. */
               usedIds={taRows.filter((x) => x.key !== r.key).map((x) => x.activity_id).filter(Boolean) as string[]}
-              onChange={(id) =>
+              onChange={(id) => {
+                // A row reached "+ Add activity" (not `default_seed`, so the
+                // picker above is live) that happens to name one of the four
+                // computed activities still gets the right Days — the Days
+                // cell's own `readOnly` check reads the same `computedTaDays`,
+                // so the two can never disagree about which rows are locked.
+                const days = computedTaDays(id ? taActivityById.get(id)?.short_name : null);
                 setTaRows((xs) =>
-                  xs.map((x) => (x.key === r.key ? { ...x, activity_id: id } : x)),
-                )
-              }
+                  xs.map((x) =>
+                    x.key === r.key
+                      ? { ...x, activity_id: id, ...(days != null && { days_required: days }) }
+                      : x,
+                  ),
+                );
+              }}
             />
           </div>
         );
@@ -8508,9 +8596,17 @@ export function GarmentOrderScreen({
          forgotten half is always the one nobody notices until an operator is
          stuck in a cell. See the Activity column above for why the hold could
          not simply be left in place. */
-      cell: (r) => (
+      cell: (r) => {
+        // See `computedTaDays` above `seedTaLadder` — the display wins over
+        // whatever is stored so a legacy saved row (typed before this rule
+        // existed), or a PP Send row whose customer lookup only just
+        // resolved, never SHOWS a value different from what the save payload
+        // now sends for it.
+        const fixedDays = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+        return (
         <Input
           type="number"
+          readOnly={!!fixedDays}
           /* PILL, NOT A SQUARE BOX — `taRenderMobileRow` sits this inside a
              rounded `bg-surface-muted` chip beside its own "Days" label, so a
              bordered rectangular input here would draw a second, competing
@@ -8520,7 +8616,7 @@ export function GarmentOrderScreen({
              overriding) lets the chip's own background show through; the
              focus ring still comes from `Input`'s own base classes, unopposed. */
           className="w-12 rounded-full border-transparent bg-transparent text-center"
-          value={r.days_required}
+          value={fixedDays ?? r.days_required}
           onChange={(e) =>
             setTaRows((xs) =>
               xs.map((x) =>
@@ -8529,7 +8625,8 @@ export function GarmentOrderScreen({
             )
           }
         />
-      ),
+        );
+      },
     },
     {
       header: "Target Date",
@@ -8689,8 +8786,23 @@ export function GarmentOrderScreen({
        floated at the row's own top-right corner) — belt-and-braces alongside
        that fit, not instead of it. */
     return (
-      <div className="inline-flex items-start gap-2 py-0.5 mr-8">
-        <div className="w-11 flex-none pt-0.5 text-right">
+      /* `gap-3` (was `gap-2`) and the date column at `w-16` (was `w-11`) —
+         client: "add gap between that icon and date". `w-11` (44px) was
+         narrower than a full DD/MM/YYYY at this font size (~60px, tabular
+         digits), so the date OVERFLOWED past its own right-aligned box with
+         nothing clipping it — invisible while the icon beside it was still
+         far enough away, and NOT invisible once "compact it more" pulled
+         that icon in close: the overflowing tail of the date (the last
+         digit or two) painted UNDER the icon's own solid circle, which is
+         drawn after it in DOM order and so covers it. Same failure the
+         user's "move the line backward" describes from the other side — the
+         connecting line's endpoint is this icon's own measured centre, so an
+         icon sitting hard against clipped text reads as the line running
+         into the date instead of stopping cleanly short of it. Widening the
+         box removes the overflow outright; the wider gap is the second, more
+         visible half of the same fix. */
+      <div className="inline-flex items-start gap-3 py-0.5 mr-8">
+        <div className="w-16 flex-none pt-0.5 text-right">
           <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
             {String(i + 1).padStart(2, "0")}
           </div>
@@ -8705,7 +8817,7 @@ export function GarmentOrderScreen({
             else taNodeRefs.current.delete(r.key);
           }}
           className={cn(
-            "flex h-7 w-7 flex-none items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-surface",
+            "flex h-7 w-7 flex-none items-center justify-center rounded-full ring-1 ring-offset-1 ring-offset-surface",
             toneNode[tone],
             toneRing[tone],
           )}
@@ -8713,7 +8825,13 @@ export function GarmentOrderScreen({
           <Icon className="h-3.5 w-3.5" />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface p-2 text-left transition-shadow hover:shadow-md">
+        {/* ONE OUTLINE PER ROW, NOT TWO (client: "two border per one
+           progress, make as single and compact") — the icon badge's own
+           ring already carries the status tone, so the card beside it drops
+           its border rather than drawing a second, redundant one; `bg-surface`
+           + a resting `shadow-sm` still separate it from the page without a
+           visible line. */}
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-surface p-1.5 text-left shadow-sm">
           {/* NEITHER THIS CARD NOR THE ACTIVITY FIELD IS `flex-1` ANY MORE
              (client: "field size needs to be fix" on the Activity box, then
              "the field between [it] and [Close] this much gab cut it" on
@@ -18018,8 +18136,18 @@ export function GarmentOrderScreen({
             * said here and the other three rules somewhere else. When the ladder
             * refuses there is no anchor, no start date and no float — so this
             * status line has nothing to say and correctly renders nothing.
+            *
+            * NOW ALSO TRUE WHILE THE LADDER IS MERELY INCOMPLETE (2026-09-07):
+            * `taLadder.startDate` is `null` the moment ANY row's Days is still
+            * blank, not only on a total refusal (see `Schedule.incomplete` in
+            * lib/ta/schedule.ts) — a "Work starts…" claim built on a chain
+            * that stops partway through is exactly the guessed date this
+            * module's own header refuses to print. `taLadder.incomplete`
+            * carries the same sentence the notices block already prints for
+            * this row, so nothing here restates it — it just stands down
+            * until there is a real start date to report.
             */}
-          {!isRefusal(taLadder) && (
+          {!isRefusal(taLadder) && taLadder.startDate != null && (
             <p className="rounded-md border border-border bg-surface-muted/40 px-3 py-2 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">
                 Scheduled back from {fmtDate(taLadder.anchor.date)}
@@ -18032,10 +18160,10 @@ export function GarmentOrderScreen({
               <span className="font-medium text-foreground">
                 {fmtDate(taLadder.startDate)}
               </span>
-              {taLadder.float < 0 ? (
+              {taLadder.float! < 0 ? (
                 <span className="font-medium text-danger">
                   {" "}
-                  — {Math.abs(taLadder.float)} days late already
+                  — {Math.abs(taLadder.float!)} days late already
                 </span>
               ) : taLadder.float === 0 ? (
                 <span className="font-medium text-warning"> — starting today</span>
@@ -18066,8 +18194,14 @@ export function GarmentOrderScreen({
             * else"); resurrecting it here to answer a spec nobody asked this
             * screen to implement literally would undo that client decision
             * for a different reason than the one that undid it.
+            *
+            * NEEDS A REAL `startDate` — same as the status line above (2026-
+            * 09-07): while any row's Days is still blank there is no "this
+            * schedule needs to start on…" to compare against `amend_date` at
+            * all, so the warning waits rather than comparing against a date
+            * that has not been derived yet.
             */}
-          {!isRefusal(taLadder) && taLadder.startDate < form.amend_date && (
+          {!isRefusal(taLadder) && taLadder.startDate != null && taLadder.startDate < form.amend_date && (
             <p className="rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
               <span className="font-medium">
                 This schedule needs to start on {fmtDate(taLadder.startDate)}
@@ -18130,11 +18264,13 @@ export function GarmentOrderScreen({
              plain label in the SAME column the rows' own date sits in
              (client, same day: "that earlier ship date field also list near
              [the row] number"), never an icon or a word like "Order entered".
-             `w-11` matches `taRenderMobileRow`'s own date-column width
-             exactly, so this reads as one continuous column with "01"
-             beneath it rather than a second, disconnected label. */}
+             `w-16` matches `taRenderMobileRow`'s own date-column width
+             exactly (widened from `w-11` the same day — that width let a full
+             DD/MM/YYYY overflow into the icon beside it), so this reads as
+             one continuous column with "01" beneath it rather than a second,
+             disconnected label. */}
           {!isRefusal(taLadder) ? (
-            <div className="w-11 pb-1 text-right">
+            <div className="w-16 pb-1 text-right">
               <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
                 SHIP
               </div>
@@ -18149,27 +18285,48 @@ export function GarmentOrderScreen({
              more") — no `mx-auto`, so the column hugs the pane's own left
              edge instead of centring in whatever width the pane happens to
              be. */}
-          <div ref={taWrapCallbackRef} className="relative max-w-2xl">
+          <div ref={taWrapCallbackRef} className="relative isolate max-w-2xl">
             <svg
-              /* NO `-z-10` — see the fix note. A negative z-index on an
-                 element whose parent sets no z-index of its own does not
-                 mean "behind its sibling grid"; it means "behind the
-                 nearest ancestor that DOES form a stacking context", which
-                 on this screen is the tab pane's own opaque background. The
-                 svg painted, correctly, entirely out of sight underneath it.
-                 Plain DOM order does the job instead: this element is
-                 written BEFORE the grid below it and neither carries a
-                 z-index, so normal painting order alone puts it behind. */
-              className="pointer-events-none absolute left-0 top-0"
+              /* `-z-10`, AND `isolate` ON THE WRAPPER ABOVE — the DOM-order
+                 claim this comment used to make here was wrong, which is why
+                 the line kept drawing through the icons no matter how thin or
+                 pale it was made (client, twice: "that green line hiding the
+                 icons", then "still that line is above the icon").
+                 `position: absolute` takes an element OUT of normal flow, and
+                 the CSS paint order for a stacking context always paints its
+                 POSITIONED descendants (even at the default z-index:auto)
+                 AFTER its plain in-flow ones — the icon badges below are
+                 ordinary flex children with no position of their own, so this
+                 absolutely-positioned `<svg>` painted on top of them
+                 regardless of appearing earlier in the JSX. DOM order only
+                 breaks ties WITHIN one paint step, never between "positioned"
+                 and "static".
+                 A literal negative z-index is the fix for THAT — but tried
+                 alone (as a much earlier pass here found) it escapes to
+                 whichever ANCESTOR happens to establish the nearest stacking
+                 context, which on this screen is the tab pane's own opaque
+                 background, and the line vanishes completely behind it.
+                 `isolate` on the wrapper is what contains the escape: it
+                 forces THIS div to be that nearest context, so `-z-10` only
+                 has to outrank this wrapper's own children (the line and the
+                 grid), never the app chrome around it. */
+              className="pointer-events-none absolute left-0 top-0 -z-10"
               width={taTrack.w}
               height={taTrack.h}
               aria-hidden="true"
             >
+              {/* THIN, AND `--border` NOT `--border-strong` (client: "that
+                 green line hiding the icons") — the Orders skin tints
+                 `--border-strong` olive (`#b9c9a6`), and at the old 5px width,
+                 drawn straight through each icon's own centre, it read as a
+                 thick green bar cutting the glyph in half rather than a line
+                 behind it. `--border` is the same skin's much paler tint
+                 (`#dde5d3`) and 2px leaves the icon plainly on top. */}
               <path
                 d={taTrack.d}
                 fill="none"
-                stroke="var(--border-strong)"
-                strokeWidth={5}
+                stroke="var(--border)"
+                strokeWidth={2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -18191,7 +18348,7 @@ export function GarmentOrderScreen({
             >
               <ChildGrid<TaRow>
                 columns={taColumns}
-                rows={taRows}
+                rows={taRowsDisplay}
                 /* THE LADDER READS AS A SCHEDULE, NOT A TABLE (client, after
                    reviewing a timeline mockup): `forceCards` renders every width
                    as the stacked-card layout, and `renderMobileRow` swaps the
@@ -18209,6 +18366,15 @@ export function GarmentOrderScreen({
                    both assume a single stacked column. */
                 flatRows
                 renderMobileRow={taRenderMobileRow}
+                /* THE CLIENT-NAMED 9-STEP CHAIN IS FIXED, NOT JUST DEFAULT
+                   (client, 2026-09-07 — the same day 0541 seeded it: "make it
+                   read only"). Read off the master's own `default_seed` flag,
+                   never a hardcoded name list — the same reasoning
+                   `isInactive` already uses everywhere in this app. A row an
+                   operator adds by hand through "+ Add activity" (Fabric
+                   Plan, Accessories BOM, …) stays fully editable and
+                   removable; only the standard chain locks. */
+                lockRow={(r) => !!taActivityById.get(r.activity_id ?? "")?.default_seed}
                 /* NO `seedRow`. Every other grid on this screen opens on a blank
                    row because the operator is the only one who knows what
                    belongs in it; this one is seeded from the `ta_activities`
@@ -18216,7 +18382,10 @@ export function GarmentOrderScreen({
                    last one was deleted would be a row whose Activity picker
                    holds the cursor and whose Days blocks Save — a grid arguing
                    with an operator who has just emptied it on purpose. */
-                onAdd={() => setTaRows((xs) => [...xs, blankTaRow()])}
+                /* PREPENDS the real (execution-order) array — see
+                   `taRowsDisplay` above for why that lands the new row next
+                   to this button rather than at the top of the screen. */
+                onAdd={() => setTaRows((xs) => [blankTaRow(), ...xs])}
                 onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add activity"
               />

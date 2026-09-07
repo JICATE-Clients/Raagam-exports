@@ -209,27 +209,43 @@ export type ScheduleStep = {
 
 /** A step with the date the plan puts it on. */
 export type ScheduledStep = ScheduleStep & {
-  days: number;
-  /** The date this process must be COMPLETE by, as `YYYY-MM-DD`. */
-  date: string;
   /**
-   * Calendar days from today. Negative means the date is already past — the plan
-   * is late before it starts.
+   * The date this process must be COMPLETE by, as `YYYY-MM-DD` — or `null`
+   * when THIS step or one nearer delivery (earlier in this downstream-first
+   * list) has no `days` yet. A blocked step still carries its own `days`
+   * unchanged (see `ScheduleStep`); only the derived date is withheld.
    */
-  float: number;
+  date: string | null;
+  /** Calendar days from today, or `null` alongside a `null` date. Negative
+   *  means the date is already past — the plan is late before it starts. */
+  float: number | null;
 };
 
 export type Schedule = {
+  /** Always one entry per input step, in the same (downstream-first) order —
+   *  a blocked step is never dropped, only left with a `null` date. */
   steps: ScheduledStep[];
-  /** The earliest date in the ladder — when work has to begin. */
-  startDate: string;
+  /** The earliest date in the ladder — `null` until every step has answered
+   *  its Days, because a start date walked off a broken chain is a guess
+   *  wearing a real date's clothes, not "when work begins". */
+  startDate: string | null;
   /**
-   * Calendar days between today and `startDate`. NEGATIVE IS REPORTED, NEVER
-   * CLAMPED: a chain that reaches past today means the order cannot be made on
-   * time, and a date silently pulled forward to today is a plan claiming to be
-   * achievable. The screen shows the shortfall; it does not hide it.
+   * Calendar days between today and `startDate`, or `null` alongside it.
+   * NEGATIVE IS REPORTED, NEVER CLAMPED: a chain that reaches past today
+   * means the order cannot be made on time, and a date silently pulled
+   * forward to today is a plan claiming to be achievable. The screen shows
+   * the shortfall; it does not hide it.
    */
-  float: number;
+  float: number | null;
+  /**
+   * The first step (nearest delivery) with no `days` yet — present exactly
+   * when `startDate` is `null`. Every step at or after it in this list has a
+   * `null` date; every step BEFORE it (closer to delivery) is dated normally.
+   * Carries the same sentence a total refusal would have named the row with,
+   * so a caller that used to read `Refusal.refused` for this case reads
+   * `incomplete.reason` instead.
+   */
+  incomplete?: { label: string; reason: string };
 };
 
 /**
@@ -243,12 +259,27 @@ export type Schedule = {
  * Each step's date is `previous step's date − this step's days`, so the days are
  * cumulative down the chain, which is what "2 days before Packing" means.
  *
- * ## A MISSING LEAD TIME REFUSES AND NAMES THE PROCESS
+ * ## A MISSING LEAD TIME STOPS THE CHAIN THERE, NOT THE WHOLE LADDER
  *
  * `days: null` is a row the operator has not filled in. Treating it as 0 would
  * silently collapse two processes onto one date and the plan would still look
  * complete — the same "0 is not an answer" call the BOM engines make about a
  * quantity, on a figure that is a delivery promise instead of money.
+ *
+ * THIS USED TO REFUSE THE WHOLE LADDER — one blank Days box anywhere hid every
+ * date, including ones nearer delivery that a filled-in row had already earned
+ * (client, 2026-09-07: the Inspection date should show the moment Inspection's
+ * own Days is answered, not wait on Material In-House nine rows later). So a
+ * missing `days` now stops the WALK at that step — everything from it onward
+ * (further from delivery) carries a `null` date, because their dates chain
+ * through the date this step never got — while every step already processed
+ * (nearer delivery) keeps the date it earned. `incomplete` carries the same
+ * sentence a total refusal used to, so nothing that read `Refusal.refused` for
+ * this case loses the message; it now reads `incomplete.reason` for it instead.
+ *
+ * A missing DELIVERY DATE or an EMPTY ladder are unchanged and still refuse
+ * outright — there is no anchor to hang even one date off, so there is nothing
+ * partial to report.
  */
 export function backwardSchedule(input: {
   deliveryDate: string | null | undefined;
@@ -266,25 +297,44 @@ export function backwardSchedule(input: {
 
   const now = input.now ?? today();
   const out: ScheduledStep[] = [];
-  let at = delivery;
+  let at: string | null = delivery;
+  let incomplete: { label: string; reason: string } | undefined;
 
   for (const s of input.steps) {
+    // Already blocked by a step nearer delivery — carry the row through
+    // undated rather than dropping it, so the output always has one entry
+    // per input step (see `Schedule.steps`).
+    if (at === null) {
+      out.push({ ...s, date: null, float: null });
+      continue;
+    }
     const days = s.days;
     if (days == null || !Number.isFinite(days)) {
-      return { refused: `${s.label || "A process"}: enter how many days it needs` };
+      incomplete = { label: s.label || "A process", reason: `${s.label || "A process"}: enter how many days it needs` };
+      at = null;
+      out.push({ ...s, date: null, float: null });
+      continue;
     }
     const next = subtractWorkingDays(at, days, input.holidays);
     if (isRefusal(next)) {
       // The walk's own refusals do not know which process they are about, and a
       // sentence naming neither the row nor the reason sends the operator
-      // hunting through the whole ladder.
+      // hunting through the whole ladder. Unlike a blank Days box this is an
+      // arithmetic failure (e.g. no working day found at all), not an answer
+      // the operator can still supply for a LATER row — so it stays a hard
+      // refusal rather than a partial result.
       return { refused: `${s.label || "A process"}: ${next.refused}` };
     }
     at = next;
-    out.push({ ...s, days, date: at, float: daysBetween(now, at) });
+    out.push({ ...s, date: at, float: daysBetween(now, at) });
   }
 
-  return { steps: out, startDate: at, float: daysBetween(now, at) };
+  return {
+    steps: out,
+    startDate: at,
+    float: at === null ? null : daysBetween(now, at),
+    ...(incomplete && { incomplete }),
+  };
 }
 
 /**

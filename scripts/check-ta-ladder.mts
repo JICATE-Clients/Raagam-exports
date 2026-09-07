@@ -357,30 +357,43 @@ check(
   "Enter the Earlier Shipment Date on the Quantities tab before scheduling",
 );
 
-/* A MISSING LEAD TIME REFUSES BY NAME, and the sentence is `backwardSchedule`'s
-   own, passed through rather than restated. Two sentences for one fact is how
-   they drift apart. */
+/* A MISSING LEAD TIME NO LONGER REFUSES THE WHOLE LADDER (2026-09-07 — see
+   `Schedule`'s header in lib/ta/schedule.ts). It stops the downstream walk at
+   that row, named in `incomplete` with `backwardSchedule`'s own sentence,
+   passed through rather than restated. Two sentences for one fact is how they
+   drift apart. */
+const blocked = orderTaLadder({
+  rows: [row("r-sew", "Sewing", 4), row("r-knit", "Knitting", null), row("r-insp", "Final Inspection", 1)],
+  quantities: QTY_10,
+  deliveryDate: null,
+});
+check("a blank Days is no longer a REFUSAL", isRefusal(blocked), false);
 check(
-  "a blank Days refuses and NAMES the activity",
-  refusalOf(
-    orderTaLadder({
-      rows: [row("r-sew", "Sewing", 4), row("r-knit", "Knitting", null), row("r-insp", "Final Inspection", 1)],
-      quantities: QTY_10,
-      deliveryDate: null,
-    }),
-  ),
-  "Knitting: enter how many days it needs",
+  "…`incomplete` NAMES the activity",
+  isRefusal(blocked) ? null : blocked.incomplete,
+  { label: "Knitting", reason: "Knitting: enter how many days it needs" },
 );
 refute(
   "…it does not name whichever row happens to be first",
-  refusalOf(
-    orderTaLadder({
-      rows: [row("r-sew", "Sewing", 4), row("r-knit", "Knitting", null), row("r-insp", "Final Inspection", 1)],
-      quantities: QTY_10,
-      deliveryDate: null,
-    }),
-  ),
-  "Sewing: enter how many days it needs",
+  isRefusal(blocked) ? null : blocked.incomplete?.label,
+  "Sewing",
+);
+/* THE CLIENT'S ACTUAL COMPLAINT, ISOLATED: Final Inspection is nearer
+   delivery than the blank Knitting row (downstream-first: Inspection,
+   Knitting, Sewing), so its own Days (1) is enough to date it — it must not
+   wait on Knitting or Sewing ever being answered. Sewing, further from
+   delivery than the blank row, stays undated. */
+check(
+  "the row nearer delivery than the blank one is still dated",
+  isRefusal(blocked) ? null : blocked.rows.find((r) => r.label === "Final Inspection")?.target_date,
+  "2026-10-09",
+);
+check(
+  "the blank row and everything past it are not",
+  isRefusal(blocked)
+    ? null
+    : [blocked.rows.find((r) => r.label === "Knitting")?.target_date, blocked.rows.find((r) => r.label === "Sewing")?.target_date],
+  [null, null],
 );
 refute(
   "…and a blank Days is never treated as 0",
@@ -393,6 +406,18 @@ refute(
     return isRefusal(r) ? null : r.startDate;
   })(),
   "2026-10-10",
+);
+check(
+  "…a ladder that is ENTIRELY blocked has no start date at all",
+  (() => {
+    const r = orderTaLadder({
+      rows: [row("r-knit", "Knitting", null)],
+      quantities: QTY_10,
+      deliveryDate: null,
+    });
+    return isRefusal(r) ? null : r.startDate;
+  })(),
+  null,
 );
 
 check(
