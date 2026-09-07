@@ -8853,7 +8853,19 @@ export function FabricBomScreen({
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full table-fixed border-collapse text-sm">
                     <thead>
-                      <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                      {/* `bg-surface`, NOT `bg-muted/40`. This repo declares
+                          `--surface` / `--surface-muted` and has no `--muted`,
+                          so the shadcn-habitual name compiled to NOTHING —
+                          the band has been rendering unpainted all along, and
+                          `cn()` being twMerge means it would also have stripped
+                          any real fill written beside it. Named `bg-surface`
+                          rather than `bg-surface-muted` deliberately: white is
+                          what this band already showed, it is what the client
+                          asked the matrix bands to become (2026-09-05,
+                          `MATRIX_HEAD` in `matrix-grid.ts`), and it is what the
+                          sibling table in this same file uses. `bg-surface-muted`
+                          is the declared token if a tint is ever wanted. */}
+                      <tr className="border-b bg-surface text-left text-xs text-muted-foreground">
                         {/* `py-1.5`, TRIMMED FROM `py-2` (client 2026-09-04:
                             "excess padding between every line ... whole
                             fabric bom have this issue"). This checklist was

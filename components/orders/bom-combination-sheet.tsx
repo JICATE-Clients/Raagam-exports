@@ -229,7 +229,10 @@ export function BomCombinationSheet({
           /* NOT `uppercase`-flagged: `Input` capitalises by default since
              2026-08-18, and `combinationKey` depends on that being true. */
           onChange={(e) => patch(r.key, { combination: e.target.value })}
-          placeholder="e.g. TOP"
+          /* NO `placeholder`. LAYOUT.md §3 keeps one only when it names a STATE
+             of the record; "e.g. TOP" described the box, and the column header
+             above already says Combination. The `aria-label` is what a screen
+             reader reads, so nothing is lost by the box being empty. */
           className="h-8"
         />
       ),
@@ -309,7 +312,11 @@ export function BomCombinationSheet({
           a list in front of them, and the whole job of the message is to say
           which line to look at. */}
       {duplicate && (
-        <div className="mt-3 text-sm text-destructive">
+        /* `text-danger`, NOT `text-destructive` — this repo declares `--danger`
+           and has no `--destructive`, so the shadcn-habitual name compiles to
+           NOTHING and this message rendered in plain body text: an error that
+           did not look like one. Same trap `topbar.tsx` already records. */
+        <div className="mt-3 text-sm text-danger">
           {duplicate} is listed twice — each combination can appear once on a line.
         </div>
       )}
