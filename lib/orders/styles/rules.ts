@@ -265,45 +265,64 @@ export function styleCoordinateIds(rows: readonly CoordinateLike[]): Set<string>
 }
 
 /**
- * NO MASTER ROW IS SPECIAL — "Pcs" MEANS ONE COORDINATE, NOT ONE NAMED "PIECES".
+ * THE ONE MASTER ROW THAT IS SPECIAL — "PIECES" BY CODE.
  *
- * This is where `PIECE_COORDINATE_CODE` and `pieceCoordinateId` were, and they
- * are gone rather than deprecated (client 2026-08-29: "no need to choose PIECES
- * also, which is just one coordinate … whatever it is").
+ * This is `pieceCoordinateId`, restored 2026-09-05 by client instruction after
+ * being deleted outright on 2026-08-29 ("no need to choose PIECES also, which
+ * is just one coordinate … whatever it is"). Read the history before touching
+ * this function again — it explains a real failure mode this reintroduces on
+ * purpose, with the client's eyes open to it the second time.
  *
- * ## WHAT THEY DID, AND WHY IT LOOKED RIGHT
+ * ## WHAT WAS WRONG WITH IT THE FIRST TIME, AND IS STILL TRUE
  *
- * A coordinate is a garment (0396), so the master holds BOTTOM, INNER, OUTER,
- * PIECES and TOP. Four are parts of a set and PIECES names a garment sold on its
- * own — so Order Unit = Piece was read as "therefore the coordinate is PIECES",
- * and answering the dropdown seeded that master row into the grid by matching
- * its code.
+ * The cap is a COUNT, not a name: `coordinateCap` says a Piece garment has one
+ * coordinate, never which one, and nothing stops a customer's Pcs order being
+ * filed under TOP. Matching on the string "PIECES" turns a rule about arity
+ * into a rule about vocabulary — the same trap AGENTS.md's "Near misses"
+ * section records a seeded word list falling into elsewhere — and it silently
+ * couples the screen to a row nobody promised: rename PIECES to PIECE on the
+ * GAR master and this goes back to returning null, with no error to read.
  *
- * ## WHY IT WAS WRONG
+ * ## WHY IT IS BACK ANYWAY
  *
- * The cap is a COUNT, not a name. `coordinateCap` says a Piece garment has one
- * coordinate; it says nothing about which, and nothing stops a customer's Pcs
- * order being filed under TOP, or under a coordinate this master has not been
- * taught yet. Matching on the string "PIECES" turned a rule about arity into a
- * rule about vocabulary, and a vocabulary rule is the one thing this repo has
- * already paid for inventing (AGENTS.md, Near misses: a seeded word list
- * "corrected" a Packing Accessories name to COTTON and the client had the
- * feature removed two days later).
+ * The client asked for the DEFAULT specifically, not merely the arity cap: an
+ * Order Unit of PCS should hand the operator a filled Coordinate cell, not a
+ * blank one they still have to open. `impliedCoordinateId` below cannot do
+ * this — it only ever reads a coordinate ALREADY on the line, by design, so
+ * that it stays name-blind (`scripts/check-style-rules.mts` asserts exactly
+ * that and is untouched by this restoration). Something has to write the
+ * FIRST coordinate onto an empty Pcs line, and there is no arity-only way to
+ * decide WHICH master row that should be.
  *
- * It also silently coupled the screen to a row nobody promised: rename PIECES to
- * PIECE in the master and the seeding stops, with no error and no clue — the
- * grid just goes back to asking. That failure mode is invisible in exactly the
- * database where it happens.
+ * ## THE SCOPE IS NARROWED FROM THE ORIGINAL, DELIBERATELY
  *
- * ## WHAT REPLACED IT
+ * This function only ANSWERS "which row is PIECES, if any" — it does not
+ * decide when to write it, and it is never wired into `impliedCoordinateId`,
+ * `coordinatesLocked` or `coordinatesFull`. The screen (`answerUnitKind` in
+ * `garment-order-screen.tsx`) calls it once, only when Order Unit is answered
+ * "piece" on a line whose coordinate is still blank, and writes a normal,
+ * fully editable value — never `disabled`, for the same reason the 2026-08-29
+ * history gives: a default the operator cannot overrule is a constraint, not
+ * a default, and a Pcs order that turns out to need a different coordinate
+ * must stay one click away from correcting it.
  *
- * Nothing, on the seeding side: a Pcs line opens on the blank row `seedRow`
- * gives every grid and the operator picks whichever coordinate it is. The
- * PRE-FILL survives untouched, because `impliedCoordinateId` below never read
- * the code — it reads the line's own grid and answers "there is exactly one, so
- * a component's coordinate is not a question". That distinction is the whole
- * reason only one of the two functions had to go.
+ * NULL IS A SILENT NO-OP, on purpose. A master with no row coded PIECES, or a
+ * renamed one, leaves the cell exactly as blank as it always was rather than
+ * throwing — the same "leave the cell alone" contract `componentTypeForCategory`
+ * documents above. The operator loses a convenience, never a save.
  */
+export const PIECE_COORDINATE_CODE = "PIECES";
+
+export type CoordinateMasterRow = { id: string; code?: string | null };
+
+export function pieceCoordinateId(
+  coordinates: readonly CoordinateMasterRow[],
+): string | null {
+  return (
+    coordinates.find((c) => (c.code ?? "").trim().toUpperCase() === PIECE_COORDINATE_CODE)?.id ??
+    null
+  );
+}
 
 /**
  * THE COORDINATE EVERY COMPONENT OF THIS LINE BELONGS TO, when there is only
@@ -934,13 +953,15 @@ export function duplicateRefCounts(
  * so the operator can ANSWER it — a hold refuses movement and never refuses
  * choosing. The cage it feared cannot happen, and Ctrl+Del still removes the row.
  *
- * COORDINATES ARE REQUIRED, THE "Pcs" DEFAULT IS NOT RESTORED. The client's
- * sentence pairs the two ("must be defined. If the Order Unit is Pcs, it defaults
- * to Pcs automatically"), and the second half was built and then withdrawn by the
- * client on 2026-08-29 — see the long note on `impliedCoordinateId` above for
- * why matching a master row named PIECES turned a rule about arity into a rule
- * about vocabulary. The requirement stands on its own; the seeding does not come
- * back with it.
+ * COORDINATES ARE REQUIRED, AND THE "Pcs" DEFAULT IS BACK (2026-09-05). The
+ * client's original sentence pairs the two ("must be defined. If the Order Unit
+ * is Pcs, it defaults to Pcs automatically"); the second half was built, then
+ * withdrawn on 2026-08-29, then asked for again on 2026-09-05 — see
+ * `pieceCoordinateId`'s own note for the seeding itself and why this rule does
+ * not need to change to carry it: a defaulted coordinate is a normal, editable
+ * value by the time `styleLineProblems` ever sees the row, so "at least one
+ * coordinate" is satisfied the same way whether the operator typed it or the
+ * default did.
  */
 export function styleLineProblems(r: StyleLineLike): StyleLineProblem[] {
   const out: StyleLineProblem[] = [];

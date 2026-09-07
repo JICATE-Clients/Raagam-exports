@@ -292,6 +292,38 @@ check(
   true,
 );
 
+/*
+ * DEFECT 4 (2026-09-05). THE SAME DRIFT RECURRED ONE AXIS FURTHER: `combination`
+ * (0463) and `style_ref_no` (0464) were both added to the live index and never
+ * added to `mbaItemInput`'s guard, which stayed at the three axes 0449 fixed it
+ * to. Two rows differing only by Combination, or only by Style Ref, could not be
+ * saved at all — the identical "form refuses a pair the database allows" failure,
+ * one migration later. Verified by making these FAIL first, against the
+ * three-axis key.
+ */
+const twoCombinations = mbaItemInput.safeParse(lineWith([
+  sliceOf({ combination: "TOP" }),
+  sliceOf({ combination: "BOTTOM" }),
+]));
+check("two combinations at one combo+size SAVE", twoCombinations.success, true);
+
+const twoStyleRefs = mbaItemInput.safeParse(lineWith([
+  sliceOf({ style_ref_no: "STL/26-27/0001" }),
+  sliceOf({ style_ref_no: "STL/26-27/0002" }),
+]));
+check("two style refs at one combo+size SAVE", twoStyleRefs.success, true);
+
+const sameCombinationTwice = mbaItemInput.safeParse(lineWith([
+  sliceOf({ combination: "TOP" }),
+  sliceOf({ combination: "TOP" }),
+]));
+check("the same combination twice is still refused", sameCombinationTwice.success, false);
+check(
+  "...and it says so in words",
+  dupMsg(sameCombinationTwice).includes("This slice already has an override on the line"),
+  true,
+);
+
 console.log("\n§1  No override — the line's figures reach every slice");
 
 check("both come from the line", consumptionFor(LINE, [], at(null, S)), LINE);

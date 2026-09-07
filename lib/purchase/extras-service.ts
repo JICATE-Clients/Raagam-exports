@@ -45,7 +45,7 @@ export async function getPoOptions(): Promise<PoOption[]> {
   const s = await createClient();
   const { data } = await s
     .from("purchase_orders")
-    .select("id, code, vendors(name)")
+    .select("id, code, vendors!vendor_id(name)")
     .order("created_at", { ascending: false });
   return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: r.id as string,
@@ -59,7 +59,7 @@ export async function getPosWithLines(): Promise<PoWithLines[]> {
   const s = await createClient();
   const { data } = await s
     .from("purchase_orders")
-    .select("id, code, vendors(name), po_line_items(id, description, unit_price, sort_order)")
+    .select("id, code, vendors!vendor_id(name), po_line_items(id, description, unit_price, sort_order)")
     .neq("status", "cancelled")
     .order("created_at", { ascending: false });
   return ((data ?? []) as Record<string, unknown>[]).map((r) => {
@@ -86,7 +86,7 @@ export async function getCancellablePos(): Promise<PoOption[]> {
   const s = await createClient();
   const { data } = await s
     .from("purchase_orders")
-    .select("id, code, vendors(name)")
+    .select("id, code, vendors!vendor_id(name)")
     .in("status", ["draft", "pending_approval", "approved", "partially_received"])
     .order("created_at", { ascending: false });
   return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -175,7 +175,7 @@ export async function listPoCancellations(): Promise<PoCancellationWithRefs[]> {
   const s = await createClient();
   const { data } = await s
     .from("po_cancellations")
-    .select("*, purchase_orders(code, vendors(name))")
+    .select("*, purchase_orders(code, vendors!vendor_id(name))")
     .order("created_at", { ascending: false });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => {
     const po = r.purchase_orders as Record<string, unknown> | null;

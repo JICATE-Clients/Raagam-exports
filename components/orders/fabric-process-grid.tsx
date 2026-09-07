@@ -15,30 +15,43 @@
  * twice: it was a 430-line `Sheet` until the grid was lifted out of it, and
  * lifting it out is what made "put the button back" cost ~120 lines instead of
  * 430. The caller supplies the box. Today's caller is the Fabric Process
- * section of `fabric-bom-screen.tsx`, which draws one bordered card per fabric.
+ * section of `fabric-bom-screen.tsx`, which unfolds one of these under the
+ * fabric row that was clicked (`ProcessFoldList`).
  *
- * ## WHY A CARD PER FABRIC AND NOT A [Click] → SHEET
+ * ## IT WAS A CARD PER FABRIC UNTIL 2026-09-03
  *
- * The obvious model was the Garment Order's Style ▸ Process, which IS a button
- * opening a sheet, and it was the wrong one here for a structural reason rather
- * than a taste: there the outer row is EDITABLE, so the button is one cell of a
- * row full of fields. Here the outer row is the BOM's own fabric line, READ —
- * the description, the type and the colour are all already stated on the Fabric
- * Lines section and re-typing them would be the second copy 0490 refused for
- * the palette panels. A read-only outer row also rules out `ChildGrid`'s
- * `foldRows`, whose own note requires a folded row to keep at least one real
- * field or Tab cannot reach it.
+ * Every fabric drew its own heading and its own always-open route, which is six
+ * grids stacked on an ordinary BOM. Legacy lists the fabrics and unfolds ONE
+ * (client screenshot 2653), and the client asked for that.
  *
- * What is left is exactly the shape Fabric Plan ▸ Routes already uses one step
- * later on the identical data (a heading naming the fabric, a route grid under
- * it), which is the strongest argument of all: the two screens ask the same
- * question about the same fabrics and should not look like different features.
+ * The reasoning the card rested on is unchanged and is what the fold works
+ * around rather than waives. The obvious model was the Garment Order's Style ▸
+ * Process, which IS a button opening a sheet, and it was wrong here for a
+ * structural reason rather than a taste: there the outer row is EDITABLE, so the
+ * button is one cell of a row full of fields. Here the outer row is the BOM's
+ * own fabric, READ — description, both types, colourways and panels are all
+ * already stated on Fabric Lines, and re-typing them would be the second copy
+ * 0490 refused for the palette panels. `ChildGrid`'s `foldRows` needs a folded
+ * row to keep at least one real field or Tab cannot reach it, and a row of plain
+ * text has none. What `ProcessFoldList` adds is exactly that one field: a
+ * `data-row-open` chevron, which `ROW_FIELDS` counts.
  *
  * ## Edits apply live; there is no Apply button
  *
  * The rows are the screen's state, patched through `onChange` as they are
  * typed, like every other child grid in this module. The BOM's own footer Save
  * is what persists them.
+ *
+ * ## ONE GRID PER GROUP SINCE 2026-09-04 (0528)
+ *
+ * A fabric's route may now be split "Assort Color Wise" and/or
+ * "Component Wise" — legacy's `[Assort Color]` / `[Components]` on the outer
+ * row, read as CONTROLS rather than a second copy of Fabric Lines. This file
+ * still renders exactly ONE route; the caller (`ProcessFoldList`'s panel in
+ * `fabric-bom-screen.tsx`) is what now renders one instance of it per group
+ * `processGroupsFor` returns, instead of always one. `combo` / `componentId`
+ * are what stamp a group's identity onto every row this grid adds — see
+ * `lib/orders/fabric-bom/processes.ts` for the grouping rule itself.
  */
 
 import { Input } from "@/components/ui/input";
@@ -50,6 +63,7 @@ import {
   MAX_ROUTE_STAGES,
   blankFabricProcess,
   fabricProcessRowStarted,
+  printBlocked,
   processesForFabric,
   type FabricProcessLookups,
   type FabricProcessOption,
@@ -58,18 +72,27 @@ import {
 
 export function FabricProcessGrid({
   itemId,
+  combo = null,
+  componentId = null,
   rows,
   onChange,
   processes,
   lookups,
   newKey,
+  printDeclared,
   canCreate = false,
   canEdit = false,
   readOnly = false,
+  hideHeader = false,
 }: {
   /** The fabric these steps belong to — stamped onto every row added. */
   itemId: string;
-  /** THIS fabric's steps only. The screen filters; this grid never does. */
+  /** WHICH GROUP this grid is one fabric's route split into (0528) — both
+   *  null is the unified route, the caller's own `processGroupsFor` decides.
+   *  Stamped onto every row this grid adds, the same way `itemId` already is. */
+  combo?: string | null;
+  componentId?: string | null;
+  /** THIS group's steps only. The screen filters; this grid never does. */
   rows: FabricProcessRow[];
   onChange: (next: FabricProcessRow[]) => void;
   /** The whole master list, unfiltered — the `for_fabric` narrowing is
@@ -87,9 +110,16 @@ export function FabricProcessGrid({
    * `StyleProcessGrid`.
    */
   newKey: () => string;
+  /** Has the order declared an AOP / Roll form print? (0528) — withheld from
+   *  "Print" processes in the Process picker until it is. */
+  printDeclared: boolean;
   canCreate?: boolean;
   canEdit?: boolean;
   readOnly?: boolean;
+  /** Drop this instance's column header — the caller's job when a fabric's
+   *  route is split into several of these grids stacked in a row; see
+   *  `ChildGrid`'s own `hideHeader` note for why. */
+  hideHeader?: boolean;
 }) {
   const patch = (key: string, next: Partial<FabricProcessRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
@@ -120,7 +150,7 @@ export function FabricProcessGrid({
        * the defaulted-vocabulary mistake AGENTS.md records under "Near misses".
        */
       header: "Stage",
-      width: "8rem",
+      width: "7rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
         <LookupDialogPicker
@@ -148,23 +178,56 @@ export function FabricProcessGrid({
        * see the long note on `style-process-grid.tsx`'s Details column, which
        * records the round trip.
        */
+      /**
+       * SIZED SINCE 2026-09-03, and it is what makes this grid hug.
+       *
+       * Same change, same reasoning as `yarn-process-grid.tsx`: `hugsContent` is
+       * `columns.every(c => c.width)`, so one unsized column handed this picker
+       * every spare pixel of a fold panel that spans the whole section — a
+       * Process box many times the width of the Loss % beside it (client
+       * screenshot 2660, on the sibling tab; this one had the identical defect
+       * from the identical commit).
+       *
+       * IT ONLY FITS BECAUSE `Rate` WENT. The declared widths now total
+       * 7 + 12 + 7.5 + 10 + 4.5 + 7 = 48rem = 768px, plus `ChildGrid`'s 88px of
+       * `#` and remove-column chrome, so the table measures ~856px against
+       * `tableFrom`'s 1024px threshold. With Rate's 5rem still in it that was
+       * ~936px — inside the threshold but with little room to tune. Add a
+       * column here and check that sum again.
+       */
       header: "Process",
+      width: "12rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
-        <RecordPicker
-          label=""
-          compact
-          items={processesForFabric(processes, { currentValue: r.process_id })}
-          value={r.process_id}
-          onChange={(id) => patch(r.key, { process_id: id })}
-          disabled={readOnly}
-          required={fabricProcessRowStarted(r)}
-          /* Empty-and-explain. An empty list here means the Process master has
-             nothing flagged "Fabric", which is fixed on a DIFFERENT screen — a
-             bare "— Select —" over nothing reads as a broken dropdown and
-             teaches the operator nothing (AGENTS.md, nominated vendors). */
-          emptyHint="No process is flagged for Fabric — tick it on Master Data ▸ Materials ▸ Processes"
-        />
+        <div className="min-w-0">
+          <RecordPicker
+            label=""
+            compact
+            items={processesForFabric(processes, { currentValue: r.process_id, printDeclared })}
+            value={r.process_id}
+            onChange={(id) => patch(r.key, { process_id: id })}
+            disabled={readOnly}
+            required={fabricProcessRowStarted(r)}
+            /* Empty-and-explain. An empty list here means the Process master has
+               nothing flagged "Fabric", which is fixed on a DIFFERENT screen — a
+               bare "— Select —" over nothing reads as a broken dropdown and
+               teaches the operator nothing (AGENTS.md, nominated vendors). */
+            emptyHint="No process is flagged for Fabric — tick it on Master Data ▸ Materials ▸ Processes"
+          />
+          {/* 0528 — "block the dyer/planner from selecting Print … Print
+              details are not available for this style". `printDeclared`
+              withholds every Print-flagged process from the list ABOVE, so
+              this only fires on a row that already holds one from before the
+              print was removed (or from before this gate existed) — the
+              same "held value survives, tagged" idiom `printBlocked` shares
+              with every disabled-row rule in this app. */}
+          {printBlocked(r, processes, printDeclared) && (
+            <div className="mt-0.5 text-xs text-warning">
+              Print details are not available — add a Roll form print on
+              Color/Print Details first.
+            </div>
+          )}
+        </div>
       ),
     },
     {
@@ -172,7 +235,7 @@ export function FabricProcessGrid({
        *  measured. The rest of the vocabulary is unknown, so it is a lookup the
        *  operator extends rather than a guess (0492). */
       header: "Loss for",
-      width: "9rem",
+      width: "7.5rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="process_loss_for"
@@ -183,21 +246,6 @@ export function FabricProcessGrid({
           onChange={(id) => patch(r.key, { loss_for_id: id || null })}
           canCreate={canCreate && !readOnly}
           canEdit={canEdit && !readOnly}
-        />
-      ),
-    },
-    {
-      /* Legacy's [Click]-into-a-sub-list, as free text — the same call the
-         Garment Order's Style ▸ Process grid made on the same evidence. Not
-         `required`: a step with no note is a complete answer. */
-      header: "Description",
-      width: "12rem",
-      cell: (r) => (
-        <Input
-          value={r.description}
-          disabled={readOnly}
-          className="h-8"
-          onChange={(e) => patch(r.key, { description: e.target.value })}
         />
       ),
     },
@@ -221,7 +269,7 @@ export function FabricProcessGrid({
        */
       header: "Loss %",
       align: "right",
-      width: "5rem",
+      width: "4.5rem",
       cell: (r) => (
         <Input
           className="h-8 text-right"
@@ -232,40 +280,27 @@ export function FabricProcessGrid({
         />
       ),
     },
-    {
-      /**
-       * THE FABRIC-WISE PROCESSING RATE (client spec 2026-09-01: "users must be
-       * able to input rates based on the fabric structure — e.g. Knitting Rib =
-       * ₹10, Single Jersey = ₹9").
-       *
-       * IT NEEDS NO SECOND KEY, because the route is already keyed to one
-       * fabric (0492). "Fabric-wise" is what this cell IS, not a mode it has to
-       * be put into — which is the whole payoff of grouping by `item_id`
-       * rather than by BOM line.
-       *
-       * NOT `required`, like Loss % beside it: a route being planned before its
-       * rates are negotiated is the ordinary case, and this document is not the
-       * one that gets approved (the Budget is, 0428).
-       *
-       * COLOUR-WISE RATES ARE NOT HERE. The spec also asks for a rate that
-       * differs by colour combo on finishing stages ("dark colours might
-       * require a higher dyeing rate like ₹40"). That is a (stage x colour)
-       * grain with its own child table, deliberately left out of 0492 rather
-       * than guessed at — see that migration's header.
-       */
-      header: "Rate",
-      align: "right",
-      width: "6rem",
-      cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          value={r.rate}
-          disabled={readOnly}
-          onChange={(e) => patch(r.key, { rate: e.target.value })}
-        />
-      ),
-    },
+    /*
+     * `Rate` WAS HERE AND THE CLIENT REMOVED IT (2026-09-03, screenshot 2663:
+     * "remove the rate field from fabric process, that second row").
+     *
+     * It came from the spec of 2026-09-01 — "users must be able to input rates
+     * based on the fabric structure, e.g. Knitting Rib = ₹10, Single Jersey =
+     * ₹9" — and the COLOUR-WISE half of that spec was already deliberately not
+     * built (a stage x colour grain with its own child table, left out of 0492
+     * rather than guessed at). Both halves are now out, so the route carries no
+     * price at all.
+     *
+     * THAT MAKES IT AGREE WITH WHAT THE REST OF THE MODULE ALREADY SAID. The
+     * Budget's own note reads "the Yarn Process tab stores no rate — it is a
+     * quantity document, not a priced one — so the planner types it here"; this
+     * column was the single place that contradicted it. A price is entered
+     * once, on the document that gets approved (0428).
+     *
+     * Column, row field, payload schema and DB column all went together (0521).
+     * Leaving any one of them would be the "stated vs enforced" split — a field
+     * the screen has closed that an import can still write.
+     */
     {
       /**
        * The legacy tab's trailing ▾, BLANK on both rows of the screenshot with
@@ -278,7 +313,7 @@ export function FabricProcessGrid({
        * invented to fill a column.
        */
       header: "Type",
-      width: "8rem",
+      width: "7rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="fabric_process_type"
@@ -311,15 +346,31 @@ export function FabricProcessGrid({
          leave a blank step standing on every such fabric with no way to clear
          it — and nothing on this screen requires a route. */
       keepOne={false}
-      /* THE WIDTHS SUM TO ~848px INCLUDING THE `#`/remove chrome, so the table
-         needs ~1050 before the flexible Process column is readable — hence @6xl
-         (1152) and not the @5xl this took before the Rate column was added.
-         A threshold is a function of the DECLARED widths; it moves when they do,
-         and the symptom of forgetting is not an error but a table that overflows
-         its card. `@lg` is 512px of CONTAINER, not 1024 — see `tableFrom`.
-         Below the threshold the grid stacks; it never scrolls sideways. */
-      tableFrom="6xl"
+      /* @5xl (1024). Declared widths (Stage 7 + Process 12 + Loss for 7.5 +
+         Loss % 4.5 + Type 7 = 38rem = 608px) plus ~170px of `#`/remove/cell
+         chrome leaves the flexible Process column comfortable room at 1024 —
+         MORE than before Descriptions (10rem) went (0528, "this description
+         column is not needed"), so the threshold this comment used to defend
+         is no longer close to the edge. Left at `5xl` rather than lowered:
+         nothing asked for the route to switch into stacked-card mode any
+         sooner, and this grid now also renders once PER GROUP when a fabric's
+         route is split — dropping the threshold would flip a two-colourway
+         fabric between table and card mode depending on how many groups fit
+         beside it, which is a worse inconsistency than leaving headroom.
+
+         THE THRESHOLD IS NOT COSMETIC HERE — IT DECIDES WHETHER THIS IS A TABLE.
+         Below it `ChildGrid` stacks into one labelled field per column, which on
+         a seven-column route is seven full-width boxes per step: the "field
+         size" complaint exactly. And this grid now renders inside a fold PANEL
+         (`ProcessFoldList`), which costs ~80px of container against the section
+         it used to fill — on a 1536px screen with the rail that left ~1216
+         against a @6xl threshold of 1152, i.e. 64px of margin before a route
+         turned into a wall of boxes. A threshold is a function of the DECLARED
+         widths AND of the box the grid sits in; it moves when either does.
+         `@lg` is 512px of CONTAINER, not 1024 — see `tableFrom`. */
+      tableFrom="5xl"
       centerHeaders
+      hideHeader={hideHeader}
       /* `renderMobileRow` STAYS. The DEFAULT stacked cell is a bare <div> around
          a RequiredScope with NO VISIBLE LABEL, so dropping this as redundant
          turns the sub-@5xl fallback into six unlabelled boxes — the mistake
@@ -345,7 +396,12 @@ export function FabricProcessGrid({
          the NEXT one. Silently dropping a fifth stage because a rule changed is
          data loss dressed up as validation. */
       hideAdd={readOnly || rows.length >= MAX_ROUTE_STAGES}
-      onAdd={() => onChange([...rows, blankFabricProcess(newKey(), itemId)])}
+      onAdd={() =>
+        onChange([
+          ...rows,
+          blankFabricProcess(newKey(), itemId, { combo, component_id: componentId }),
+        ])
+      }
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
       addLabel="+ Add process"
     />

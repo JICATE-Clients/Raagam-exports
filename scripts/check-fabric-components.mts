@@ -60,9 +60,11 @@ import {
   declaredPanelsFor,
   fabricFormLabel,
   fabricGroupKey,
+  layoutTypeLabel,
   panelsTakenInStyle,
   solePanel,
   FABRIC_FORM_OPTIONS,
+  LAYOUT_TYPE_OPTIONS,
   type MappedLineLike,
   type StyleComponentDecl,
 } from "../lib/orders/fabric-bom/component-map.ts";
@@ -529,12 +531,41 @@ check(
 // 10. Open / Tubular — the client's Point 5 vocabulary.
 // ---------------------------------------------------------------------------
 check("10a exactly two forms", FABRIC_FORM_OPTIONS.map((o) => o.value), ["open", "tubular"]);
-check("10b labels are legacy's own words", FABRIC_FORM_OPTIONS.map((o) => o.label), ["Open", "Tubular"]);
+/* "Open" -> "Open Width" (client cleanup spec, 2026-09-04): the LABEL only —
+   10a above still holds the value at "open", unrenamed. See FABRIC_FORM_OPTIONS'
+   own note for why this now reads the same as LAYOUT_TYPE_OPTIONS' label
+   without being the same column. */
+check("10b labels are the 2026-09-04 spec's words", FABRIC_FORM_OPTIONS.map((o) => o.label), ["Open Width", "Tubular"]);
 check("10c the label resolves", fabricFormLabel("tubular"), "Tubular");
 /* AN UNANSWERED CELL PRINTS NOTHING, not "Open". A default here would report a
    roll form nobody chose, on a field the client called mandatory. */
 check("10d an unanswered form has no label", fabricFormLabel(null), "");
 check("10e an unknown value has no label", fabricFormLabel("circular"), "");
+
+// ---------------------------------------------------------------------------
+// 11. Open Width / Tubular — the "Fab Rail" Layout Type vocabulary (0527).
+//
+// RULE 4 (`componentsHiddenForLayout`, the picker filter this vocabulary once
+// drove) was retired 2026-09-05 along with the per-style Layout Type
+// declaration it read — Order Info ▸ Style(s) ▸ Components dropped the field
+// by client instruction. Its vectors went with it, the same way
+// `pieceCoordinateId`'s did in `check-style-rules.mts` when ITS feature was
+// withdrawn: a green check against a function nothing calls asserts nothing.
+// The vocabulary itself (`LAYOUT_TYPE_OPTIONS`/`layoutTypeLabel`) is still
+// live — `component-map-sheet.tsx` (0530) reuses it for its own, separate
+// `layout_type` column — so those vectors stay.
+// ---------------------------------------------------------------------------
+check("11a exactly two Layout Types", LAYOUT_TYPE_OPTIONS.map((o) => o.value), [
+  "open_width",
+  "tubular",
+]);
+check("11b labels are the spec's own words", LAYOUT_TYPE_OPTIONS.map((o) => o.label), [
+  "Open Width",
+  "Tubular",
+]);
+check("11c the label resolves", layoutTypeLabel("open_width"), "Open Width");
+check("11d an unanswered Layout Type has no label", layoutTypeLabel(null), "");
+check("11e an unknown value has no label", layoutTypeLabel("open"), "");
 
 // ---------------------------------------------------------------------------
 console.log(failed === 0 ? "\nall vectors pass" : `\n${failed} vector(s) FAILED`);

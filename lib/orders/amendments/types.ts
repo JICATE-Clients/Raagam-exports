@@ -577,27 +577,40 @@ export const SIZE_WISE_PRICE: PriceType = "Size-wise";
 export const STYLE_WISE_PRICE: PriceType = "Style-wise";
 
 /**
- * WHAT THE PRICES TAB OFFERS WITH NO PACK TYPE LIVE (client 2026-08-29).
+ * WHAT THE PRICES TAB OFFERS WITH NO PACK TYPE LIVE.
  *
- * ## THIS NARROWS; IT DOES NOT REVERSE 2026-08-28
+ * ## THE PER-GARMENT MODES ARE BACK (client 2026-09-02)
  *
- * The pack branch above is untouched — an order WITH a pack type still offers
- * Pack-wise, Pack-wise Size-wise and Size-wise exactly as that ruling set out.
- * What changed is the other side of the same `if`, which until now fell through
- * to the whole six-mode tuple: an order with no pack type could be priced
- * Color-wise, Size-wise or Color-wise Size-wise, and the client has ruled that
- * without a pack type there is one rate for the style and nothing else.
+ * This was `[STYLE_WISE_PRICE]` from 2026-08-29 to 2026-09-02 — one option, on
+ * the ruling "when Pack Type is No the system completely disables the Pack Wise
+ * and Pack Size grids and locks the grid to standard Style Price only". The
+ * client has reversed the second half of that sentence: the pack grids stay
+ * disabled, and the per-garment grids come back. Reported as the Price Type
+ * dropdown having lost its other entries, which is exactly what a one-item
+ * `<Select>` looks like from the operator's side.
  *
- * So the two halves are now BOTH narrow, and neither is the full tuple. That is
- * worth stating because `PRICE_TYPE_OPTIONS` is no longer offered anywhere in
- * full — it remains the vocabulary (and what `price_type` may hold), not a menu.
+ * **The first half of 08-29 still stands and is what this list still says.**
+ * Pack-wise and Pack-wise Size-wise are the two modes an order with no declared
+ * pack method must not be able to choose — a rate per BOX with no box to
+ * multiply is `priceBasisOf`'s fork pointing at nothing, and `orderValue` would
+ * value the style at `rate x packs_ordered` where `packs_ordered` is zero. So
+ * this is a REVERSAL of the narrowing, not of the gate.
+ *
+ * DERIVED BY SUBTRACTION, not listed by hand, for the reason
+ * `PACK_BRANCH_PRICE_MODES` gives on the other side of the same `if`: the tuple
+ * is the reading order and the dropdown order, so a mode re-worded there cannot
+ * leave a dangling literal here, and a SEVENTH per-garment mode joins this list
+ * without an edit. What it names explicitly is the exclusion — the two pack
+ * modes — because that is the rule, and "everything else" is its consequence.
  *
  * A STORED ROW OUTSIDE THE LIVE LIST IS STILL SHOWN, tagged, by
  * `priceModeOptions` — the same courtesy the pack branch already extends. A
- * Color-wise order entered before today reads back as Color-wise rather than
- * blank, which is the trap the tuple's own note describes.
+ * Pack-wise order whose pack method was later emptied reads back as Pack-wise
+ * rather than blank, which is the trap the tuple's own note describes.
  */
-export const NO_PACK_PRICE_MODES: readonly PriceType[] = [STYLE_WISE_PRICE];
+export const NO_PACK_PRICE_MODES: readonly PriceType[] = PRICE_TYPE_OPTIONS.filter(
+  (o) => o !== PACK_WISE_PRICE && o !== PACK_WISE_SIZE_PRICE,
+);
 
 /**
  * WHICH MODES THE PRICES TAB OFFERS ONCE A PACK TYPE IS LIVE (client
@@ -909,10 +922,13 @@ export interface AmendmentStyleSize {
  * are, and read back by the same pass: `writeChildren` reinserts `..._styles`
  * wholesale, so an id would dangle.
  *
- * `pickStyle` SEEDS these from `garment_style_components` — so the order starts
- * from what the style declares and can then differ from it, which is the whole
- * point of the order holding its own rows. Editing the master instead would
- * rewrite every other order already pointing at that style.
+ * `pickStyle` USED TO SEED THESE FROM `garment_style_components` — WITHDRAWN
+ * 2026-08-25 (client: "Style — allow it manual entry now, unwire that style
+ * mapping … field in orderinfo"). The Style master's own Components tab is
+ * retired; Coordinate/Component/Structure are typed straight onto this row
+ * now, and this table (`garment_order_amendment_style_components`, 0457) is
+ * the only place any of them is declared. A reader finding `pickStyle` cited
+ * elsewhere in this codebase is holding pre-08-25 history.
  */
 export interface AmendmentStyleComponent {
   id: string;
@@ -1554,6 +1570,10 @@ export interface GarmentOrderAmendment {
   pay_terms_id: string | null;
   /** Which Garment Rejection Rule supplies Approval Qty's Projection (0413). */
   rejection_rule_id: string | null;
+  /** The flat rejection percentage feeding Material BOM only, alongside (not
+   *  instead of) `rejection_rule_id` above — see the field's own note on
+   *  `HeaderForm` in `garment-order-screen.tsx`. Defaults to 0. */
+  rejection_pct: number;
   /** The Style Quotation this order was raised from (0511) — provenance, and
    *  the handle "Copy From SQ No" reaches the fabric estimation through. NULL
    *  for an order booked straight off a customer PO, which is the usual case. */
@@ -2319,6 +2339,11 @@ export const amendmentInput = z.object({
   /* NULL is a real state, not a missing answer: an order with no rule chosen
      has no Projection, and every row predating 0413 is in exactly that state. */
   rejection_rule_id: uuidN,
+  /* THE FLAT COMPANION, DEFAULTING TO 0 (backend calc spec, 2026-09-04) —
+     `num` already defaults an absent/blank value the same way `excess_pct`
+     does two lines up; see the row type for why this is a second field
+     rather than a second meaning for `rejection_rule_id`. */
+  rejection_pct: num,
   /* THE QUOTATION THIS ORDER CAME FROM (0511). `uuidN`, so NULL is a real
      answer rather than a missing one — most orders are booked straight off a
      customer PO and never had a quotation. `headerOnly` spreads whatever is not

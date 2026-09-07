@@ -291,9 +291,23 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       //          fields, its components child and its coordinates onto the order
       //          line, and sizes had been there since 0407. A step that is now
       //          the first section of step 1 is not a step of its own.
+      //   09-03  FABRIC PLAN comes out of the MENU, and CAD MARKERS with it
+      //          ("hide the fabric plan and cad markers from Order Management").
+      //          Both are children of `retired` — off the menu, still on the
+      //          URL, still in the palette. This is the 08-25 shape, not the
+      //          08-17b one: Garment Process Plan LEFT the flow and kept a row
+      //          under Order Execution, whereas these two keep no row at all.
       //
-      // SO IT IS SIX STEPS: Order Entry · Material BOM · Fabric BOM · Fabric
-      // Plan · Budgeting · Approval.
+      // SO IT IS FIVE STEPS: Order Entry · Material BOM · Fabric BOM ·
+      // Budgeting · Approval.
+      //
+      // AND THE `description` HAS TO MOVE WITH THE COUNT. It is rendered — the
+      // sidebar row's tooltip and the hub's own subtitle both print it — so
+      // "the six steps a bulk order passes through" over five cards is the
+      // stated-vs-shown failure this repo keeps paying for, in the one sentence
+      // an operator reads before choosing where to click. The count is never
+      // the claim (see below); the sequence is. When the sequence changes,
+      // change the number to match the sequence — never the reverse.
       //
       // THE SCREEN IS NOT GONE, and this is the same distinction the 08-14
       // menu change already drew: it is a child of `retired` at the bottom of
@@ -365,7 +379,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "setup",
         label: "Order Management",
         description:
-          "Order entry to approved budget — the six steps a bulk order passes through",
+          "Order entry to approved budget — the five steps a bulk order passes through",
         // Colour Cards was the other half of this group and was removed with its
         // routes and service (client, 2026-08-11): the screen had no rows, its
         // only consumer was the Garment Order colour picker, and that picker is
@@ -494,33 +508,16 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // holds `status: "todo"` and a missing route as the SAME fact and
           // fails either way round — a `todo` whose page.tsx exists is an error,
           // which is what stops the label outliving the work.
-          // CAD MARKERS — a DEPARTMENT'S WORK QUEUE, which is why it earns a row
-          // rather than a button on one order (0460, doc/file.md §2).
-          //
-          // The two other screens built alongside it — the Order Sheet and the
-          // RE-Community stream — are PageHeader actions on the order, because
-          // each is a view OF one order and has no list to land on. This is the
-          // opposite shape: a CAD technician opens it in the morning to see which
-          // orders across the whole book are Pending / Draft / Panels unweighed /
-          // Submitted. Reaching that through an order picker would mean choosing
-          // an order before you can see which orders need you.
-          //
-          // Placed immediately BEFORE Fabric BOM because it feeds it: the gram
-          // weights this screen captures are what step 3's consumption is seeded
-          // from. `page.tsx` renders a PageHeader + DataTable and imports no
-          // HubCard, so assertion 8 of check-module-groups.mts is satisfied.
-          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
+          // CAD MARKERS AND FABRIC PLAN CAME OFF THIS LIST ON 2026-09-03
+          // (client: "hide the fabric plan and cad markers from Order
+          // Management"). Both are children of `retired` now — off the menu,
+          // still on the URL, still in the command palette — and the note there
+          // carries what each of them was doing here. Nothing was deleted, and
+          // the reasoning for their PLACEMENT (CAD before the Fabric BOM it
+          // feeds; Fabric Plan as step 4) is kept there too, because a
+          // restoration needs it and a `git log` is a worse place to keep it.
           { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
-          // 4 · FABRIC PLAN — the sourcing and processing path for what step 3
-          // requires: yarn purchase, knitting, dyeing, stentering, compacting,
-          // and which of those are in-house against out-processed.
-          // BUILT 2026-08-17 (`0427`). The description is narrower than the
-          // `todo` placeholder's was, and deliberately: the client's answer to
-          // what this step covers is the PROCESS ROUTE, not sourcing in general.
-          // Fabric BOM is finished fabric; this walks backwards from it to the
-          // yarn, applying each stage's loss.
-          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
-          // 5 · BUDGETING — and 6 · APPROVAL — are two STEPS over ONE document.
+          // 4 · BUDGETING — and 5 · APPROVAL — are two STEPS over ONE document.
           //
           // Approval is a transition on the budget's own `status`, never a
           // second record: two records would let the approved figures drift from
@@ -555,69 +552,45 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // that is not rendered. Moving the entry into the group that already means
       // "off the menu, still on the URL" needs none of that and is the shape
       // three screens have been in since 08-14.
-      // Sits directly under Order Entry by request (operator, 2026-08-08), not
-      // in 14-step flow position — amending an order is what the operator does
-      // next after raising one, so the two rows belong side by side. Row ORDER
-      // in this array is the sidebar's order; nothing else reads it, so moving a
-      // group here is safe and is the only way to move a row.
-      {
-        kind: "group",
-        slug: "changes",
-        label: "Amendments",
-        description: "Raise and approve changes to a confirmed order",
-        children: [
-          // A ROW AGAIN, AND A REAL ONE (client 2026-08-13).
-          //
-          // It was `cardOnly` here, pointing at the same route as Order Entry ▸
-          // Garment Order — one screen, two labels, one URL, so the two cards
-          // opened the identical list and the labels had no choice but to
-          // contradict each other. The screen has an amend DOOR of its own now:
-          // the entry route above raises an order, `/orders/amendments` amends
-          // a saved one, and the same component answers both from a `mode` prop.
-          //
-          // Dropping `cardOnly` is the point, not tidying. `owningNavHref` now
-          // resolves this route to Amendments rather than to Order Entry, so
-          // the sidebar lights the group the operator is actually in; and
-          // `moduleLeafItems` gives "Order Amendment" a nav-search entry, which
-          // a `cardOnly` child never had.
-          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a saved garment order across styles, prices, packing and logistics" },
-          { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
-          { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },
-        ],
-      },
-      {
-        kind: "group",
-        slug: "confirmations",
-        label: "Confirmations & Review",
-        description: "Sign off dates, prices and contract terms before production",
-        children: [
-          { href: "/orders/due-date-confirmations", label: "Due Date Confirmations", description: "Confirm delivery dates with the buyer" },
-          { href: "/orders/contract-review", label: "Contract Review", description: "Review order terms before acceptance" },
-          { href: "/orders/price-confirmation", label: "Price Confirmation", description: "Confirm agreed order prices" },
-        ],
-      },
+      // THE "AMENDMENTS" ROW IS GONE (request, 2026-09-04: "remove the
+      // amendment child from order module"). It sat here as its own
+      // sub-module row from 2026-08-13 — see the history above this point —
+      // with three real children (Order Amendment, Process Amendment,
+      // Approve Amendment).
+      //
+      // ALL THREE ROUTES STAY LIVE. The standing rule is "a screen that loses
+      // its sidebar row keeps its URL" (see `retired` below), and these are
+      // working screens over live tables (`sales_order_amendments` and
+      // friends) — deleting them would strand in-flight amendment data, not
+      // tidy a menu. They are re-declared as plain children of `retired`,
+      // the same "off the menu, still on the URL" group Order Booking, Style
+      // and Fabric Plan already sit in — reachable from `/orders/retired`
+      // and from nav search (`moduleLeafItems` does not filter `hidden`),
+      // just no longer a row of their own under Orders.
+      // THE "CONFIRMATIONS & REVIEW" ROW IS GONE (request, 2026-09-04: first
+      // "remove this child" against Contract Review alone, corrected to
+      // "meaned remove this sub module" — the whole group, not one of its
+      // three). Same shape as the Amendments removal just above it: a
+      // dissolved GROUP, so its own hub route (`/orders/confirmations`)
+      // becomes a `redirect()` — declared in `REDIRECTED`,
+      // `scripts/check-module-groups.mts` — while all three children keep
+      // their own working pages over live tables (`sales_order_amendments`
+      // and friends) and are re-declared as plain children of `retired`.
+      // GARMENT PROCESS PLAN CAME OFF THIS LIST (request, 2026-09-04: "remove
+      // the garment process plan"). It had already left once (08-17b, "only 7
+      // are needed") and come back as a plain row here on 08-17 when the
+      // `cardOnly` flag was dropped from Order Setup — see the row's own
+      // history above this point. This time it goes the way Fabric Plan and
+      // CAD Markers went the day before: a plain child of `retired`, not a
+      // second dissolved-hub redirect, because the screen is a working
+      // document over `order_garment_processes` and friends, not a superseded
+      // menu.
       {
         kind: "group",
         slug: "execution",
         label: "Order Execution",
-        description: "Process plans, work orders, advised items and packing advice",
+        description: "Work orders, advised items and packing advice",
         children: [
-          // ITS ROW IS HERE AGAIN — the `cardOnly` flag came off on 2026-08-17
-          // when the client cut Order Setup to seven steps and this screen was
-          // the one removed.
-          //
-          // THE FLAG HAD TO GO IN THE SAME EDIT. `cardOnly` means "the row lives
-          // elsewhere", and the elsewhere was Order Setup ▸ step 4: leaving it on
-          // would have made `owningNavHref` and `moduleLeafItems` both skip the
-          // only listing left, so the screen would have had no sidebar row and no
-          // command-palette entry while its route carried on working — reachable
-          // by URL and by nothing else. That is the shape the 14-step Garment
-          // Orders hub died of, and check:nav asserts against it.
-          //
-          // Which is also why this is where the row belongs rather than a new
-          // group: the screen was ALREADY listed here, because running a process
-          // plan is execution work. Only the flag moved.
-          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
           { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders" },
           { href: "/orders/advised-items", label: "Advised Items", description: "Select an accepted order and prepare its advised items" },
           { href: "/orders/packing-advice", label: "Packing List Advice", description: "Prepare packing list advice for an order" },
@@ -722,7 +695,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens are off the Orders menu — the first three because Order Management replaces them, and All Orders and Style by request. They all still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — Order Booking, Pack Ratios and Excess Orders because Order Management replaces them, All Orders, Style, Fabric Plan and CAD Markers by request, Order Amendment, Process Amendment and Approve Amendment because the Amendments row itself was removed, Due Date Confirmations, Contract Review and Price Confirmation because the Confirmations & Review row itself was removed, and Garment Process Plan by request. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
@@ -755,6 +728,81 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // for that: the map is keyed by href, and `GroupHub` reads it for a
           // child exactly as `ModuleHub` did for the standalone row.
           { href: "/orders/all", label: "All Orders", description: "Every order raised, with its RE No, buyer, value and status" },
+          // FABRIC PLAN AND CAD MARKERS JOINED ON 2026-09-03 (client: "hide the
+          // fabric plan and cad markers from Order Management"). They are the
+          // FOURTH kind of screen in this group and the newest: not a superseded
+          // menu, not a live register taken off by request, not a master folded
+          // into the screen below it — two BUILT steps of the order flow, hidden
+          // while the flow settles.
+          //
+          // WHY HERE AND NOT `REDIRECTED`. The standing rule is "a screen that
+          // loses its sidebar row keeps its URL", and a `redirect()` is only for
+          // a DISSOLVED hub — it would mean deleting two working screens over
+          // live tables (`order_fabric_plan_stages` 0427, `order_cad_markers`
+          // 0460) and guessing at a successor for each. `hidden` removes exactly
+          // what was asked to go: the two cards on /orders/setup. Nothing else
+          // about either screen changes.
+          //
+          // WHAT EACH WAS DOING IN ORDER MANAGEMENT, kept because a restoration
+          // needs it and `git log` is a worse place for it:
+          //
+          // · FABRIC PLAN was step 4 — the sourcing and processing path for what
+          //   step 3 requires: yarn purchase, knitting, dyeing, stentering,
+          //   compacting, and which of those are in-house against
+          //   out-processed. Built 2026-08-17 (0427). Fabric BOM is finished
+          //   fabric; this walks backwards from it to the yarn, applying each
+          //   stage's loss. It is still the ONLY consumer of the Loss % the
+          //   Fabric BOM's Fabric Process tab declares (0426: "declare here,
+          //   plan there"), so hiding the row does not make that column dead —
+          //   it makes its reader reachable by search alone.
+          //
+          // · CAD MARKERS was never a step. It is a DEPARTMENT'S WORK QUEUE
+          //   (0460, doc/file.md §2), which is why it earned a card rather than
+          //   a button on one order: a CAD technician opens it in the morning to
+          //   see which orders across the whole book are Pending / Draft /
+          //   Panels unweighed / Submitted, and reaching that through an order
+          //   picker would mean choosing an order before you can see which
+          //   orders need you. It sat immediately BEFORE Fabric BOM because it
+          //   FEEDS it — the gram weights it captures are what step 3's
+          //   consumption is seeded from. That dependency is unchanged and is
+          //   the one visible cost of hiding it: the screen that supplies the
+          //   seed now has no menu route, so the seeding still works and the
+          //   capturing is search-only.
+          //
+          // Both `page.tsx` files render a PageHeader + DataTable and import no
+          // HubCard, so assertion 8 is satisfied here exactly as it was there.
+          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
+          { href: "/orders/cad", label: "CAD Markers", description: "Marker layouts by fabric dia, panel gram weights, and the handoff to the Fabric BOM" },
+          // AMENDMENTS JOINED ON 2026-09-04 (request: "remove the amendment
+          // child from order module"), and it is the FIFTH kind of screen in
+          // this group — not a superseded menu, not a live register, not a
+          // folded-in master, not a hidden step of the flow, but a whole
+          // sub-module row whose children each keep their own working page.
+          //
+          // The row was Order Entry ▸ Amendments from 2026-08-13 (see the
+          // history above this group), with a real amend door of its own —
+          // `garment-order-screen.tsx` answers both `mode="create"` and
+          // `mode="amend"` off the same component, and `createAmendment`
+          // still mints nothing; it amends the `sales_orders` row already on
+          // file. None of that changed here — only the sidebar row did.
+          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a saved garment order across styles, prices, packing and logistics" },
+          { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
+          { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },
+          // DUE DATE CONFIRMATIONS, CONTRACT REVIEW AND PRICE CONFIRMATION
+          // JOINED ON 2026-09-04, off the dissolved Confirmations & Review
+          // group — same reasoning as the three amendment screens just above:
+          // three working screens over `sales_order_amendments` and friends,
+          // not a superseded menu, so `hidden` rather than `redirect()`. The
+          // GROUP's own hub route (`/orders/confirmations`) is the one that
+          // redirects, in `REDIRECTED` beside `/orders/changes`.
+          { href: "/orders/due-date-confirmations", label: "Due Date Confirmations", description: "Confirm delivery dates with the buyer" },
+          { href: "/orders/contract-review", label: "Contract Review", description: "Review order terms before acceptance" },
+          { href: "/orders/price-confirmation", label: "Price Confirmation", description: "Confirm agreed order prices" },
+          // GARMENT PROCESS PLAN JOINED ON 2026-09-04 (request: "remove the
+          // garment process plan"), off Order Execution — see that group's own
+          // note, just above this table, for the full history. A working
+          // screen over `order_garment_processes`, not a superseded menu.
+          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
         ],
       },
     ],
@@ -1177,9 +1225,21 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
 };
 
 /** The sidebar `children` for a module — groups become one row each. */
-export function moduleNavChildren(
-  moduleHref: string,
-): { href: string; label: string }[] | undefined {
+export interface NavChild {
+  href: string;
+  label: string;
+  /**
+   * A group's OWN children, one level further in — the sidebar's THIRD
+   * level (client override, 2026-09-05: Sidebar normally stops at two, per
+   * this file's own "one rule" above). Present only for a `kind: "group"`
+   * entry, and only when it has children worth listing; `cardOnly` ones are
+   * excluded (their row lives in another group) and so are `todo` ones
+   * (no route exists yet to link to).
+   */
+  children?: { href: string; label: string }[];
+}
+
+export function moduleNavChildren(moduleHref: string): NavChild[] | undefined {
   const grouping = MODULE_GROUPS[moduleHref];
   if (!grouping) return undefined;
   return grouping.entries
@@ -1188,7 +1248,13 @@ export function moduleNavChildren(
     .filter((e) => !(e.kind === "group" && e.hidden))
     .map((e) =>
       e.kind === "group"
-        ? { href: `${moduleHref}/${e.slug}`, label: e.label }
+        ? {
+            href: `${moduleHref}/${e.slug}`,
+            label: e.label,
+            children: e.children
+              .filter((c) => !c.cardOnly && c.status !== "todo")
+              .map((c) => ({ href: c.href, label: c.label })),
+          }
         : { href: e.href, label: e.label },
     );
 }

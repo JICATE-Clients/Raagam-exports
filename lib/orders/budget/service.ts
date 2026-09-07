@@ -305,12 +305,19 @@ export async function pullCostLines(
         "item_id, purchase_qty, uom_id, refusal_reason, " +
           "bom:order_fabric_boms(garment_order_id, is_draft)",
       ),
-    /* THE YARN TREATMENTS (0504) — the tab's SECOND budget section. One line per
-       step that names a process, quantified by what that step handles rather
-       than by the yarn's total: a stage marked For = PURPLE is quoted on the
-       purple lot alone. Read from the stage rather than recomputed, for the
-       reason every pulled source here is read: the quantity is a figure the
-       Fabric BOM computed and re-deriving it would be a second answer. */
+    /* THE YARN PROCESSES (0504 · 0520 · 0529) — the tab's SECOND budget
+       section. One line per step that names a process, quantified by what that
+       step handles. Read from the stage rather than recomputed, for the reason
+       every pulled source here is read: the quantity is a figure the Fabric BOM
+       computed and re-deriving it would be a second answer.
+
+       `combo` IS SELECTED AGAIN (0529) — a step quantified "the purple lot
+       alone" is back, and the description below names it. 0520 had dropped the
+       column; its own comment here warned that leaving a dropped column in a
+       `.select()` string fails the WHOLE query silently (this file reads
+       `yarnStageRes.data ?? []`), the failure AGENTS.md records under "A
+       SECOND FK BREAKS EVERY EXISTING EMBED" — restoring the column here
+       without 0529 re-adding it to the table would be exactly that trap. */
     s
       .from("order_fabric_bom_yarn_stages")
       .select(
@@ -445,10 +452,10 @@ export async function pullCostLines(
       source: "yarn_process",
       garment_order_id: bom.garment_order_id,
       item_id: r.yarn?.item_id ?? null,
-      /* THE TREATMENT, AND THE COLOURWAY WHEN IT NAMES ONE. A blank For covers
-         every colourway, so saying so would be noise on the ordinary line; a
-         named one is what distinguishes two dyeing lines on one yarn, and
-         without it they read as a duplicate. */
+      /* THE COLOURWAY APPENDS AGAIN (0529) — what distinguishes two dyeing
+         lines on one yarn, restored with `combo`. A step naming no colourway
+         still reads as just the process name, `filter(Boolean)` dropping the
+         empty second part rather than a stray " · ". */
       description: [r.process.name, r.combo].filter(Boolean).join(" · "),
       qty: Number(r.process_qty),
       uom_id: r.uom_id,

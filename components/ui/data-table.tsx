@@ -75,7 +75,12 @@ export function DataTable<T>({
               <th
                 key={i}
                 className={cn(
-                  "px-3 py-2 text-xs font-semibold text-muted-foreground",
+                  // BOLD, NOT SEMIBOLD (operator request, 2026-09-04: "globally
+                  // make the each table title label as bold") — the same move
+                  // `child-grid.tsx`'s `GRID_HEADER_TEXT` makes, so a
+                  // `ChildGrid` row and a `DataTable` header read the same
+                  // weight.
+                  "px-3 py-2 text-xs font-bold text-muted-foreground",
                   align[c.align ?? "left"],
                   c.className,
                 )}

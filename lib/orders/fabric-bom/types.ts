@@ -4,7 +4,7 @@ import { capsTextNullable } from "@/lib/validation/formats";
 /* The route rows' own schema lives beside their narrowing rule, in
    `./processes.ts`, which is client-safe and is imported by the grid as well —
    see that file's header for why the rule is not in SQL. */
-import { fabricBomProcessInput } from "./processes";
+import { fabricBomProcessInput, fabricBomProcessScopeInput } from "./processes";
 import { fabricBomYarnInput } from "./yarn-process";
 
 // ============================================================================
@@ -70,6 +70,11 @@ export interface FabricBomLine {
   /** Legacy Components ▸ "Type" — 'open' | 'tubular' (0495). How the roll
    *  reaches cutting, not how the cloth is knitted (`FabricBomDia.knit_type`). */
   fabric_form: string | null;
+  /** 'open_width' | 'tubular' (0530) — the PANEL's Layout Type, chosen BEFORE
+   *  its Component and gating that picker (`componentsHiddenForLayout`).
+   *  NOT `fabric_form` above — see the 0530 migration header for why this
+   *  module has three Open/Tubular-shaped columns and none of them merge. */
+  layout_type: string | null;
   /** Legacy Components ▸ "Required Print" — text, matching the order's own
    *  `prints.print_name`, which 0477 made manual entry (0495). */
   required_print: string | null;
@@ -119,14 +124,33 @@ export interface FabricBomManualEntry {
   /** 'open_width' | 'tubular' — the physical state of the cloth. A property of
    *  the entry, not of a size. */
   width_form: string | null;
+  /**
+   * THE CLOTH THIS WEIGHT IS FOR — `items.id`, and the entry's key since 0522.
+   *
+   * Legacy's Manual row leads with a Fabric column and carries no Structure
+   * column (client 2026-09-03, screenshots 2666 · 2667). Everything the row
+   * shows beside it — the knit type, the GSM, the measurement unit — is read
+   * off this cloth rather than typed.
+   */
+  item_id: string | null;
   /** A `categories` row — the same vocabulary `order_fabric_bom_lines.structure_id`
-   *  and the order's own combo structures use. */
+   *  and the order's own combo structures use. DERIVED SINCE 0522: the save
+   *  writes it as `item_id`'s `items.category_id`, because the requirement
+   *  engine keys the order's GSM by a structure. Never offered as a field. */
   structure_id: string | null;
   /** 'direct' | 'calculated'. See `calcModeOf` in ./manual.ts. */
   calc_mode: string;
-  /** The planned loss allowance. Net x (1 + this/100) = Gross. NOT the knitting
-   *  or dyeing losses, which are step 4's (0427). */
+  /** The planned loss allowance — legacy's "Component Proc. Loss %".
+   *  Net x (1 + this/100) = Gross. NOT the knitting or dyeing losses, which are
+   *  step 4's (0427). */
   wastage_pct: number | null;
+  /** Legacy's "EndBit Loss %" on the same row (0522) — a second allowance,
+   *  beside `wastage_pct` rather than replacing it. */
+  endbit_loss_pct: number | null;
+  /** Legacy's "Assort Color wise" checkbox on the same row (0522). */
+  assort_color_wise: boolean;
+  /** Legacy's "Size Wise" toggle (0523) — TRUE gives every size its own row. */
+  size_wise: boolean;
   components: FabricBomManualComponent[];
   sizes: FabricBomManualSize[];
 }
@@ -142,8 +166,9 @@ export interface FabricBomManualComponent {
  * One size of one entry.
  *
  * `grams` IS STORED IN BOTH MODES — typed in direct, derived in calculated — so
- * no downstream reader has to know which produced it. `width` / `length` /
- * `length_tolerance` are the calculated mode's INPUTS, not second answers.
+ * no downstream reader has to know which produced it. `table_width` /
+ * `length_tolerance` / `length` are the calculated mode's INPUTS, not second
+ * answers; `cons_qty` is typed in both.
  */
 export interface FabricBomManualSize {
   id: string;
@@ -162,7 +187,24 @@ export interface FabricBomManualSize {
    *  two words could not both be "width". */
   table_width: number | null;
   length: number | null;
+  /** The cutting allowance ADDED TO THE LENGTH (0524). It was briefly
+   *  `width_tolerance`, applied to the width, for a few hours on 2026-09-03
+   *  (0523) — see `effectiveLength`. */
   length_tolerance: number | null;
+  /** "Cons Qty" — units of cloth per garment (0523). NULL means 1; read it
+   *  through `consQtyOf`, never with `?? 0`. */
+  cons_qty: number | null;
+  /**
+   * THE "Widths" [Click] POPUP'S OWN FIELD (0526) — legacy's "Width Details"
+   * sub-form shows eight columns (S No | Width | Width Tolerance | Width |
+   * Calculated Width | Final Width | Width For Calc | Finished Width |
+   * Purchase Width), but the operator's own correction is that only TWO of
+   * them are real: this and `purchase_width` above. 0525 first read the
+   * first pair (Width / Width Tolerance) as the real fields and shipped
+   * `roll_width` / `roll_width_tolerance` for it — wrong, reverted the same
+   * day. The other six columns are not stored anywhere.
+   */
+  finished_width: number | null;
 }
 
 /**
@@ -222,21 +264,21 @@ export interface FabricBomYarn {
    *  case. Most often a fabric whose several yarns declare no blend
    *  percentages, where any split would be invented. */
   refusal_reason: string | null;
-  /** The treatments, in order. Embedded by `listFabricBoms`; absent on a query
+  /** The processes, in order. Embedded by `listFabricBoms`; absent on a query
    *  that does not ask for them, exactly like `FabricBomLine.sizes`. */
   stages?: FabricBomYarnStage[];
 }
 
 /**
- * One treatment one yarn runs — the child grid (0504).
+ * One process one yarn runs — the child grid (0504 · 0520 · 0529).
  *
  * NO `bom_id`: a grandchild, reached only through its yarn, which is 0491's
  * shape for a line's sizes and for its reason.
  *
- * `process_qty` IS WHAT THIS STEP HANDLES, not what the yarn costs in total —
- * the purchase weight of the colourways it treats. The Budget pulls it as a Yarn
- * Process line, and a step naming no process produces neither a figure nor a
- * line.
+ * `process_qty` IS WHAT THIS STEP HANDLES — the purchase weight of the
+ * colourways `combo` names (0529, restoring 0504's reading after 0520's
+ * "whole yarn" interlude). The Budget pulls it as a Yarn Process line, and a
+ * step naming no process produces neither a figure nor a line.
  */
 export interface FabricBomYarnStage {
   id: string;
@@ -247,8 +289,13 @@ export interface FabricBomYarnStage {
   stage_id: string | null;
   /** A `processes` master row (0227), narrowed by `for_yarn` on the client. */
   process_id: string | null;
-  /** The `For` column. NULL means EVERY colourway, which is the ordinary case —
-   *  never "no colourway". By VALUE, matching the requirement rows' own combo. */
+  /** The `For` column's LABEL — `config_lookups` kind `process_loss_for`,
+   *  PROCESS WISE or COLOR WISE, the same list the fabric route's `Loss for`
+   *  reads. COLOR WISE is what the screen keys `combo`'s visibility off; the
+   *  arithmetic reads `combo` alone (0529). */
+  loss_for_id: string | null;
+  /** The `For` column's ARITHMETIC — which colourway this step applies to.
+   *  NULL means every one, the ordinary case (0504, restored 0529). */
   combo: string | null;
   description: string | null;
   loss_pct: number | null;
@@ -314,6 +361,10 @@ export interface FabricBom {
   requirements: FabricBomRequirement[];
   dias: FabricBomDia[];
   processes: FabricBomProcess[];
+  /** One row per fabric that has EVER had its route split (0528) — see
+   *  `FabricBomProcessScope`. A fabric absent from this array reads as both
+   *  toggles off, the unified route. */
+  processScopes: FabricBomProcessScope[];
   /** Yarn Process (0493 · 0504) — one row per yarn the BOM's fabrics are made
    *  of, each carrying its treatments and its computed purchase weight. */
   yarns: FabricBomYarn[];
@@ -378,19 +429,41 @@ export interface FabricBomProcess {
   /** The FABRIC this route belongs to — one route per fabric per BOM, however
    *  many lines name it. An `items` row, never a BOM line (0492). */
   item_id: string;
+  /** WHICH GROUP this step belongs to, when the fabric's route is split
+   *  (0528) — both null is the unified route. See `FabricProcessRow`. */
+  combo: string | null;
+  component_id: string | null;
   sno: number;
   /** `config_lookups` kind 'fabric_stage' — GREY, DYED. */
   stage_id: string | null;
   process_id: string | null;
   /** `config_lookups` kind 'process_loss_for' — "Process wise". */
   loss_for_id: string | null;
-  description: string | null;
+  /* NO `description`. It held legacy's [Click]→sub-list text and the client
+     removed the column on 2026-09-04 ("this description column is not
+     needed") — the same shape `rate` left in 0521. */
   loss_pct: number | null;
-  /** The fabric-wise processing rate for this stage. Colour-wise rates are a
-   *  (stage x colour) grain and are deliberately not in 0492. */
-  rate: number | null;
+  /* NO `rate`. It held the fabric-wise processing rate and the client removed
+     the column on 2026-09-03 (0521). The route is a quantity document; a price
+     is entered once, on the Budget. Do not confuse this with
+     `FabricBomLine.rate` above, which is a different figure on a different row
+     and is untouched. */
   /** `config_lookups` kind 'fabric_process_type' — deliberately unseeded. */
   type_id: string | null;
+}
+
+/**
+ * One fabric's two split toggles (0528) — legacy's "[Assort Color]" /
+ * "[Components]" on the Fabric Process outer row, read as CONTROLS. See
+ * `processGroupsFor` in `./processes.ts` for how these turn into the groups a
+ * screen renders.
+ */
+export interface FabricBomProcessScope {
+  id: string;
+  bom_id: string;
+  item_id: string;
+  assort_color_wise: boolean;
+  component_wise: boolean;
 }
 
 const nullableText = z.string().optional().nullable();
@@ -419,7 +492,17 @@ export const fabricBomManualSizeInput = z.object({
   grams: numN,
   table_width: numN,
   length: numN,
+  /* THE ALLOWANCE IS ON THE LENGTH (0524, reverting 0523's few hours on the
+     width) — `effectiveLength` in ./manual.ts records why. */
   length_tolerance: numN,
+  /* "Cons Qty" — units of cloth per garment. NULLABLE and NULL MEANS 1: a
+     column default would make an untouched row indistinguishable from a
+     deliberate 1. `consQtyOf` is the one place that reading lives. */
+  cons_qty: numN,
+  /* THE "Widths" POPUP'S ONE OTHER REAL FIELD (0526, replacing 0525's
+     roll_width/roll_width_tolerance — see `FabricBomManualSize.finished_width`
+     above). `purchase_width` above is the popup's second field. */
+  finished_width: numN,
 });
 
 /**
@@ -444,9 +527,31 @@ export const fabricBomManualEntryInput = z.object({
      order and is what every entry stored before 0495 already means. */
   style_ref_no: nullableText,
   width_form: z.enum(["open_width", "tubular"]).nullable().default(null),
+  /* THE CLOTH, NAMED DIRECTLY (0522) — legacy's Manual row leads with a Fabric
+     column and carries no Structure column at all (client 2026-09-03,
+     screenshots 2666 · 2667). Optional here and demanded by `manualProblem`:
+     a draft entry that has not chosen yet is a real state, and refusing it in
+     the schema would make a half-filled row unsaveable as a DRAFT. */
+  item_id: uuidN,
+  /* DERIVED FROM `item_id` AND STILL WRITTEN — the action sets it to the
+     fabric's `items.category_id` (0405 · 0415 · 0426: a Structure on this screen
+     IS a fabric category), because the requirement engine keys its GSM lookup on
+     a structure. Accepted here so an import can round-trip a stored row; it is
+     overwritten from the fabric whenever one is named, so a disagreeing value
+     cannot survive a save. */
   structure_id: uuidN,
   calc_mode: z.enum(["direct", "calculated"]).default("direct"),
   wastage_pct: z.coerce.number().min(0).max(100).nullable().default(0),
+  /* Legacy's "EndBit Loss %", beside the process loss above rather than
+     replacing it: the fabric row carries BOTH allowances (0522). */
+  endbit_loss_pct: z.coerce.number().min(0).max(100).nullable().default(0),
+  /* Legacy's "Assort Color wise" checkbox on the same row (0522). */
+  assort_color_wise: z.coerce.boolean().default(false),
+  /* Legacy's "Size Wise" toggle (0523). TRUE — the default and the existing
+     behaviour — gives every size its own row; FALSE lets the planner type one
+     figure that the screen writes to every size, so it changes what is ASKED
+     and never what is stored. */
+  size_wise: z.coerce.boolean().default(true),
   component_ids: z.array(z.string().uuid()).default([]),
   sizes: z.array(fabricBomManualSizeInput).default([]),
 });
@@ -473,6 +578,12 @@ export const fabricBomLineInput = z
        text, so a value the CHECK would reject is refused here first, in words,
        rather than as a constraint violation at insert. */
     fabric_form: z.enum(["open", "tubular"]).nullable().default(null),
+    /* THE PANEL'S Layout Type (0530) — chosen before Component, gating that
+       picker. OPTIONAL, unlike `fabric_form` above: the client's spec asks
+       the operator to choose it, not that a BOM be unsaveable without it,
+       and `componentsHiddenForLayout` already treats "not chosen" as "hide
+       nothing" rather than as an error state. */
+    layout_type: z.enum(["open_width", "tubular"]).nullable().default(null),
     /* Legacy Components ▸ "Required Print" (0495). TEXT because 0477 made the
        order's prints manual entry — there is no id to point at. CAPS in the
        SCHEMA for the reason stated on `color_name` above. */
@@ -668,6 +779,8 @@ export const fabricBomInput = z.object({
    * shape was correct under the constraint it was written for.
    */
   processes: z.array(fabricBomProcessInput).default([]),
+  /** One fabric's two split toggles (0528) — see `FabricBomProcessScope`. */
+  processScopes: z.array(fabricBomProcessScopeInput).default([]),
   /**
    * Yarn Process ▸ one row per yarn the fabrics are made of (0493).
    *
@@ -798,6 +911,22 @@ export type OrderFabricSeedRow = {
   component_name: string | null;
   fabric_type: string | null;
   color_name: string | null;
+  /**
+   * THE PART'S "ROLL FORM PRINT" AS A NAME (client 2026-09-02, screenshot 2637).
+   *
+   * `garment_order_amendment_combo_components.print_id` — the last cell of the
+   * Structure Details parts grid — resolved here, and it lands on the seeded
+   * line's `required_print`. The client chose that mapping over a column of its
+   * own: Components already has a Required Print cell, and two cells carrying
+   * one fact is how they come to disagree.
+   *
+   * A NAME AND NOT AN ID, because `required_print` is TEXT on the BOM line, fed
+   * by a `<Combobox>` over the order's declared print palette. Resolving it here
+   * is the same call `component_name` and `structure_name` already make, for
+   * their reason: the screen holds the master lists, and a print the order names
+   * that the master has since deactivated would resolve to nothing there.
+   */
+  print_name: string | null;
   /**
    * SOLID / MELANGE / YARN DYED, and the GSM band — legacy FabricAllocation's
    * own `Type` and `GSM Range` columns (client screenshot 2581, 2026-09-01).

@@ -9,6 +9,38 @@
  *     Yarn Dyed           knit from pre-dyed    → both become live, and
  *                         yarns                   Mixing UOM is MANDATORY
  *
+ * ## THE VISIBILITY HALF IS WITHDRAWN (client 2026-09-03) — ONLY THE SECOND
+ * ## COLUMN OF THAT TABLE SURVIVES
+ *
+ * Nothing on this screen is disabled or hidden by the Type any more. `Mixing
+ * Uom` and `No Of Colors` are always live, `[Detail]` opens on any named
+ * fabric, and the ONE thing the type still decides is whether Mixing Uom is
+ * MANDATORY — which is `missingFabricLineFields` below, and which disables
+ * nothing.
+ *
+ * IT WAS REPORTED THREE TIMES IN ONE DAY, and the shape of the reports is the
+ * lesson. Screenshot 2646: a Melange row with live cells, asking why [Detail]
+ * was grey. 2649: the gate applied, and every blank row went dead — "allow
+ * manual entry too … why is only in read only mode". 2651: the gate made
+ * three-state, a fabric picked, and the cells went dead the moment it was —
+ * "after choosing the fabric its only went disabled i mean enable now also".
+ * The button had literally said *"Choose the fabric first"*, the operator did,
+ * and it stayed grey.
+ *
+ * **A CONTROL THAT WITHDRAWS ON A VALUE THE OPERATOR JUST ENTERED READS AS A
+ * FAULT, NOT AS A RULE**, however well the rule is reasoned. The spec sentence
+ * was about the fields being *meaningless* for a whole-roll dye — and the
+ * honest expression of "meaningless" is an empty optional field, not a removed
+ * one. Nothing is lost: a mixing ratio typed against a Solid cloth is unused by
+ * the requirement engine either way, and it is visible, so it can be corrected.
+ *
+ * DO NOT RE-DERIVE THE GATE FROM THE TABLE ABOVE. The table is kept because the
+ * mandatory column is still live and because the next reader will otherwise
+ * find the spec quoted somewhere else and implement all of it; this paragraph
+ * is the part that is current. That is exactly how the 2651 regression
+ * happened — the code was rewritten from prose that stated the rule and not its
+ * exceptions.
+ *
  * ## WHY THIS IS A FUNCTION AND NOT A ZOD RULE
  *
  * AGENTS.md states the shape and the reason: "Requiredness is often a property of
@@ -22,16 +54,24 @@
  * server actions. Four enforcers, one declaration. Adding a second rule beside it
  * is how a star and a hold come to disagree.
  *
- * ## THE VOCABULARY IS THE CATALOG'S, AND IT IS CLOSED
+ * ## THE VOCABULARY IS THE CATALOG'S, AND IT IS NOT CLOSED
  *
- * Counted 2026-09-02: `config_lookups` where `kind = 'fabric_type'` holds exactly
- * three values — Solid (11 fabrics), Yarn Dyed (2), Melange (1). Nothing had to
- * be seeded and there is no fourth value, so `isYarnDyed` is a test for one name
- * rather than a list of the other two: a type this function has never heard of
- * reads as NOT yarn dyed, which hides the mixing cells rather than demanding
- * them. That is the safe direction — the alternative makes a new master row
- * block Save on a screen with nothing to say why.
+ * This paragraph said "closed" for a day. Counted on the morning of 2026-09-02,
+ * `config_lookups` where `kind = 'fabric_type'` held exactly three values — Solid
+ * (11 fabrics), Yarn Dyed (2), Melange (1) — and a FOURTH arrived the same
+ * evening: 0515 seeds `Printed` on the client's own list, "solid, yarn dyed,
+ * printed, melange".
+ *
+ * IT COST THIS FILE NOTHING, which is the point worth keeping. `isYarnDyed` is a
+ * test for ONE name rather than a list of the other two, so a type it has never
+ * heard of reads as NOT yarn dyed — and since the visibility half was withdrawn
+ * that costs exactly one thing: Mixing Uom is offered rather than demanded. That
+ * is the safe direction; the alternative makes a new master row block Save on a
+ * screen with nothing to say why. Written the other way round, the client's
+ * four-word sentence would have been a bug report instead.
  */
+
+import { isYarnDyedFabricType } from "@/lib/masters/fabric-name";
 
 /** One fabric line, as much of it as these rules read. */
 export type FabricLineFacts = {
@@ -62,15 +102,59 @@ export const MIXING_UOM_CODES = ["%", "CM"] as const;
 /**
  * IS THIS CLOTH KNIT FROM PRE-DYED YARN?
  *
- * COMPARED CASE-FOLDED AND TRIMMED, never `===`. The value arrives as a
- * `config_lookups` NAME typed by whoever created the master row, and AGENTS.md
- * records the cost of an exact compare on a human-entered enum under "Nominated
- * vendors": the filter "compiles, runs, and quietly matches nothing". A silent
- * miss here hides two mandatory fields rather than showing them, which is the
- * failure that ships.
+ * ONE TEST, SHARED WITH THE MATERIALS MASTER — `isYarnDyedFabricType` in
+ * `lib/masters/fabric-name.ts`, which is the same question asked where the value
+ * is CREATED rather than where it is read. Two spellings of one test is how the
+ * master hides the Mixing % column for a cloth the BOM then treats as ordinary.
+ *
+ * IT WAS `=== "yarn dyed"` AND THAT WAS ONE RENAME FROM SILENT. The value is a
+ * `config_lookups` NAME, editable in place from any `LookupDialogPicker`, and
+ * 0279 SEEDED IT AS "Yarn-dyed" — a hyphen that the exact compare answers `false`
+ * to. Something renamed it to "Yarn Dyed" before this rule was written, so the
+ * gate has only ever been correct by luck. The shared test matches the two words
+ * in any spacing or case, which is AGENTS.md's rule for a human-entered enum
+ * under *Nominated vendors*: an exact compare "compiles, runs, and quietly
+ * matches nothing".
+ *
+ * A silent miss here hides two mandatory fields rather than showing them, and
+ * closes [Detail] on the one kind of cloth it exists for.
  */
 export const isYarnDyed = (fabricType: string | null | undefined): boolean =>
-  (fabricType ?? "").trim().toLowerCase() === "yarn dyed";
+  isYarnDyedFabricType(fabricType);
+
+/*
+ * `mixingCellsApply()` STOOD HERE FOR ABOUT AN HOUR and is deliberately not
+ * replaced. It answered a three-state version of "do the mixing cells apply to
+ * this row" — live while no fabric is named, withdrawn on a whole-roll cloth —
+ * and it was the right answer to the wrong question. The client withdrew the
+ * visibility rule outright the same afternoon (see this file's header), so the
+ * cells are unconditional and there is nothing left to ask.
+ *
+ * WHAT IT KNEW IS STILL WORTH KEEPING, because it is general: a fact with THREE
+ * states — yes, no, and not yet asked — must not be collapsed into a boolean,
+ * or "we have not asked" is drawn exactly like "no". That is what killed the
+ * blank row on screenshot 2649. `isYarnDyed` below is still read as a boolean
+ * by everything that survives, and safely, because every one of those callers
+ * asks about MANDATORY rather than about visibility: a demand that abstains on
+ * an unknown is correct, while a control that vanishes on one is not.
+ */
+
+/** Case- and spacing-folded, never `===`, for `isYarnDyedFabricType`'s reason:
+ *  both sides are a `config_lookups` NAME that anyone with the master open can
+ *  re-type. Used to narrow the Fabric picker by a declared Type. */
+const foldType = (name: string | null | undefined) =>
+  (name ?? "").trim().toLowerCase().replace(/[\s_-]+/g, " ");
+
+/** Do these two `fabric_type` names mean the same thing? Blank matches nothing
+ *  — "not stated" is not a type, and a filter that matched everything on blank
+ *  would silently widen rather than narrow. */
+export const sameFabricType = (
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean => {
+  const x = foldType(a);
+  return !!x && x === foldType(b);
+};
 
 /**
  * Does this line still owe an answer, given the type of the fabric it names?

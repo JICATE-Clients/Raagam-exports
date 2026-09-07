@@ -214,7 +214,7 @@ function PacksTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add pack" : "Edit pack"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -515,7 +515,7 @@ function FabricsTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add fabric" : "Edit fabric"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -791,7 +791,7 @@ function ProcessingTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add process" : "Edit process"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -1036,7 +1036,7 @@ function AccessoriesTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add accessory" : "Edit accessory"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">

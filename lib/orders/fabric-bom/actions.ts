@@ -108,6 +108,7 @@ function normalizeLines(data: FabricBomInput) {
       fabric_type: clean(c.fabric_type),
       color_name: clean(c.color_name),
       fabric_form: c.fabric_form ?? null,
+      layout_type: c.layout_type ?? null,
       required_print: clean(c.required_print),
       specification: clean(c.specification),
       /* THE TWO YARN-DYED CELLS (0513). THIS MAP IS FIELD BY FIELD, so a column
@@ -151,9 +152,15 @@ function normalizeManualEntries(data: FabricBomInput) {
     .map((e) => ({
       style_ref_no: clean(e.style_ref_no),
       width_form: e.width_form ?? null,
+      /* THE CLOTH, NAMED (0522). `structure_id` rides along but is OVERWRITTEN
+         from this fabric before the insert — see `withDerivedStructure`. It is
+         kept on the shape because `requirementRows` keys the order's GSM by it. */
+      item_id: e.item_id ?? null,
       structure_id: e.structure_id ?? null,
       calc_mode: e.calc_mode ?? "direct",
       wastage_pct: e.wastage_pct ?? 0,
+      endbit_loss_pct: e.endbit_loss_pct ?? 0,
+      assort_color_wise: e.assort_color_wise ?? false,
       sno: 0,
       /* DEDUPED, because `uq_ofbmc_entry_component` would reject the second copy
          and take the whole save with it. The multi-select cannot produce one
@@ -161,7 +168,11 @@ function normalizeManualEntries(data: FabricBomInput) {
       component_ids: [...new Set(e.component_ids ?? [])],
       sizes: normalizeManualSizes(e.sizes ?? []),
     }))
-    .filter((e) => e.structure_id !== null || e.component_ids.length > 0)
+    /* A ROW SAYS SOMETHING WHEN IT NAMES A CLOTH OR A PANEL. `item_id` replaced
+       `structure_id` here in 0522 for the reason the whole entry changed grain:
+       the structure is no longer typed, so a row carrying one and nothing else
+       is a row the planner never started. */
+    .filter((e) => e.item_id !== null || e.component_ids.length > 0)
     .map((e, i) => ({ ...e, sno: i + 1 }));
 }
 
@@ -194,6 +205,8 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
       table_width: r.table_width ?? null,
       length: r.length ?? null,
       length_tolerance: r.length_tolerance ?? null,
+      cons_qty: r.cons_qty ?? null,
+      finished_width: r.finished_width ?? null,
       sno: 0,
     }))
     .filter(
@@ -204,7 +217,16 @@ function normalizeManualSizes(rows: FabricBomInput["manualEntries"][number]["siz
           r.grams != null ||
           r.table_width != null ||
           r.length != null ||
-          r.length_tolerance != null),
+          r.length_tolerance != null ||
+          /* `cons_qty` COUNTS AS SAYING SOMETHING (0523). It is the spec's own
+             multiplier and a row carrying only it is a row the planner typed
+             into — dropping it here would silently discard the figure the CAD
+             report gave them. */
+          r.cons_qty != null ||
+          /* THE "Widths" POPUP'S OTHER FIELD COUNTS TOO (0526) — a row touched
+             only through that button and never through the main grid is still
+             a row the planner answered. */
+          r.finished_width != null),
     )
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
@@ -249,13 +271,14 @@ function normalizeDias(data: FabricBomInput) {
  * A LOSS OR A RATE WITH NO PROCESS GOES TOO, for that reason and one more: both
  * are figures about a step that does not exist.
  *
- * ## RENUMBERED PER FABRIC, WHICH `uq_ofbp_item_sno` REQUIRES
+ * ## RENUMBERED PER GROUP, WHICH `uq_ofbp_item_sno` REQUIRES
  *
- * 0492's unique index is (bom_id, item_id, sno), so the counter restarts on each
- * fabric. One running counter across the document would not collide — it would
- * just number the second fabric's first step 5 — but the ordinal is what the
- * screen renders as `#`, and a route reading "#5 #6" under a fabric with two
- * steps is a document explaining itself wrongly.
+ * 0492's unique index was (bom_id, item_id, sno); 0528 widened it to
+ * (bom_id, item_id, combo, component_id, sno) for the split routes, so the
+ * counter now restarts per (fabric, combo, component) GROUP rather than per
+ * fabric alone. A colour-wise route's WHITE steps and BLACK steps are two
+ * routes that happen to share a fabric, so each counts its own steps 1, 2, 3 —
+ * exactly as two different fabrics already did before this migration.
  *
  * ## ORPHANS GO SILENTLY, AND THAT IS THE INTENDED READING
  *
@@ -264,29 +287,66 @@ function normalizeDias(data: FabricBomInput) {
  * no longer plans would leave the Budget costing a process nobody ordered. The
  * screen keeps such a card VISIBLE while its rows exist, so this is never the
  * first the operator hears of it.
+ *
+ * A step whose GROUP no longer matches the fabric's current toggles is
+ * dropped the same way — a colour-wise step left over from before "Assort
+ * Color Wise" was switched off (it carries a `combo` a now-unified route has
+ * nowhere to put), or a unified step left over from before it was switched ON
+ * (it carries no `combo` for a route that now requires one). Checked against
+ * the SCOPE, not against which colourway/component values still exist on the
+ * fabric's lines — the same trust level `stage_id` / `process_id` already get
+ * here (the database's own FK is what refuses a value naming nothing real).
+ * The screen's own `orphanedProcessCount` warns before Save from the identical
+ * rule, so the two can never disagree about which rows survive.
  */
-function normalizeProcesses(data: FabricBomInput, fabricIds: Set<string>) {
+function normalizeProcesses(
+  data: FabricBomInput,
+  fabricIds: Set<string>,
+  scopeByItem: Map<string, { assort_color_wise: boolean; component_wise: boolean }>,
+) {
   const nextSno = new Map<string, number>();
   const out: Record<string, unknown>[] = [];
 
   for (const p of data.processes) {
     if (!p.process_id) continue;
     if (!fabricIds.has(p.item_id)) continue;
-    const sno = (nextSno.get(p.item_id) ?? 0) + 1;
-    nextSno.set(p.item_id, sno);
+    const scope = scopeByItem.get(p.item_id) ?? { assort_color_wise: false, component_wise: false };
+    if (scope.assort_color_wise !== !!p.combo) continue;
+    if (scope.component_wise !== !!p.component_id) continue;
+    const groupKey = `${p.combo ?? ""}::${p.component_id ?? ""}`;
+    const snoKey = `${p.item_id}::${groupKey}`;
+    const sno = (nextSno.get(snoKey) ?? 0) + 1;
+    nextSno.set(snoKey, sno);
     out.push({
       item_id: p.item_id,
+      combo: p.combo ?? null,
+      component_id: p.component_id ?? null,
       sno,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
       loss_for_id: p.loss_for_id ?? null,
-      description: clean(p.description),
       loss_pct: p.loss_pct ?? null,
-      rate: p.rate ?? null,
       type_id: p.type_id ?? null,
     });
   }
   return out;
+}
+
+/**
+ * The two split toggles worth storing (0528) — one row per fabric that still
+ * exists on the BOM AND has at least one toggle on. A fabric with neither
+ * toggle needs no row: absence already reads as "both off", 0492's original
+ * unified shape, so persisting a false/false row would only be a second way
+ * to say nothing.
+ */
+function normalizeProcessScopes(data: FabricBomInput, fabricIds: Set<string>) {
+  return data.processScopes
+    .filter((s) => fabricIds.has(s.item_id) && (s.assort_color_wise || s.component_wise))
+    .map((s) => ({
+      item_id: s.item_id,
+      assort_color_wise: s.assort_color_wise,
+      component_wise: s.component_wise,
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -333,91 +393,71 @@ function normalizeProcesses(data: FabricBomInput, fabricIds: Set<string>) {
 type EntryRowWithId = ReturnType<typeof normalizeManualEntries>[number] & { id: string };
 
 /**
- * The fabric an entry is for, resolved off the Fabric Lines.
+ * The fabric an entry is for — READ OFF THE ENTRY SINCE 0522.
  *
- * AN ENTRY NAMES A STRUCTURE, NOT AN ITEM. The item, its unit and its colour are
- * the Fabric Lines tab's job — 0494 left that tab its whole identity role and
- * took only its claim on the arithmetic — so the entry looks its fabric up
- * rather than storing a second copy of it. Same argument `descriptorFor` makes
- * on the screen for GSM, and the one 0426 makes for not copying GSM at all.
+ * AN ENTRY NAMES THE CLOTH DIRECTLY. Legacy's Manual row leads with a Fabric
+ * column and carries no Structure column (client 2026-09-03, screenshots
+ * 2666 · 2667), so the planner states which cloth this weight is for and there
+ * is nothing left to infer.
  *
- * IT ABSTAINS RATHER THAN GUESSES, and both refusals name what to go and fix. A
- * structure carrying two different fabrics across its lines is a real state on a
- * multi-style order, and picking either would plan the order's largest line off
- * the wrong cloth with nothing on screen to say so.
+ * ## WHAT THIS DELETED, AND WHY THAT IS THE POINT
  *
- * THE COMPONENT NARROWS BUT NEVER FILTERS TO NOTHING. A line with no component
- * covers every panel (0426), so it always matches; an entry whose panels are all
- * on component-scoped lines matches those. Preferring rather than filtering is
- * the shape `seedConsumptionFor` (0460) already uses for the same ambiguity.
+ * 0494 keyed the entry on a STRUCTURE and resolved the cloth by matching the
+ * entry's structure and style against the saved Fabric Lines, narrowing by
+ * component and abstaining when more than one fabric survived. That abstention
+ * was not a rare edge — its own comment named the case, "a structure carrying
+ * two different fabrics across its lines is a real state on a multi-style
+ * order" — and its consequence was a requirement row with `required_qty` NULL
+ * and a refusal the planner could clear only by restructuring their own BOM.
+ *
+ * Naming the cloth removes the question instead of answering it better. Two
+ * refusals, a component-narrowing pass and a style-matching pass go with it.
+ *
+ * ## THE UNIT COMES OFF THE CLOTH, NOT OFF THE LINES
+ *
+ * `items.base_uom_id` — the same fact `FabricOption.base_uom_id` already feeds
+ * into a line's `consumption_uom_id` (0513), so this reads it one hop earlier
+ * and the two cannot disagree. It also removes the second reason this function
+ * needed the lines: two lines of one fabric measured differently used to make
+ * the requirement's own unit a coin toss.
+ *
+ * NULL is a real answer (a master row created without a base unit) and falls
+ * through to `uomPrecision`, which floors at 2 decimals.
  */
 type EntryFabric = { item_id: string; uom_id: string | null };
 
-/** Styles are keyed by VALUE throughout orders. Trimmed and case-folded, with
- *  NULL kept as NULL because "every style" is a value and not a missing one —
- *  the same normalisation `styleKeyOf` in ./manual.ts applies for the duplicate
- *  rule, and `styleKey` in amendments applies for the order's own tree. */
-function styleKeyOf(v: string | null | undefined): string | null {
-  const t = (v ?? "").trim().toUpperCase();
-  return t === "" ? null : t;
-}
+/**
+ * What the entries' cloths say about themselves — `items.category_id` (which IS
+ * the structure, 0405 · 0415 · 0426) and `items.base_uom_id` (the unit), by item
+ * id.
+ *
+ * READ ONCE PER SAVE rather than joined per entry: a BOM has a handful of
+ * entries and they routinely name the same cloth.
+ */
+type FabricFacts = Map<string, { category_id: string | null; base_uom_id: string | null }>;
 
 function entryFabric(
-  entry: { style_ref_no: string | null; structure_id: string | null; component_ids: string[] },
-  lines: LineRowWithId[],
+  entry: { item_id: string | null },
+  fabrics: FabricFacts,
 ): EntryFabric | Refusal {
-  if (!entry.structure_id) {
-    return { refused: "Choose the fabric structure this weight is for" };
+  if (!entry.item_id) {
+    /* THE SAME SENTENCE `manualProblem` USES for the same state, deliberately:
+       "two spellings of one refusal is how an operator comes to believe there
+       are two different problems" (./manual.ts). */
+    return { refused: "Choose the fabric this weight is for" };
   }
-  /* THE STYLE NARROWS BEFORE THE STRUCTURE DOES (0495). Two styles on one order
-     legitimately cut the same structure in different cloth — a tee in a 30s
-     jersey and a polo in a 24s — and without this the entry for one would see
-     both and refuse as ambiguous, or worse resolve to the other style's fabric.
-
-     BOTH NULLS MEAN "EVERY", on the entry and on the line, and the match is
-     symmetric: an unscoped entry sees every line, and an unscoped LINE (0426's
-     "NULL = every style") is seen by every entry. */
-  const wantStyle = styleKeyOf(entry.style_ref_no);
-  const forStyle = lines.filter(
-    (l) => wantStyle === null || styleKeyOf(l.style_ref_no) === null || styleKeyOf(l.style_ref_no) === wantStyle,
-  );
-  const forStructure = forStyle.filter(
-    (l) => l.structure_id === entry.structure_id && l.item_id,
-  );
-  if (forStructure.length === 0) {
-    return {
-      refused: entry.style_ref_no
-        ? `No fabric on the Fabric Lines tab uses this structure for ${entry.style_ref_no} — name the fabric there first`
-        : "No fabric on the Fabric Lines tab uses this structure — name the fabric there first",
-    };
-  }
-  const wanted = new Set(entry.component_ids);
-  const scoped = forStructure.filter(
-    (l) => l.component_id === null || wanted.has(l.component_id),
-  );
-  const matches = scoped.length > 0 ? scoped : forStructure;
-
-  const items = [...new Set(matches.map((l) => l.item_id as string))];
-  if (items.length > 1) {
-    return {
-      refused:
-        "This structure names more than one fabric on the Fabric Lines tab, so this weight cannot say which — scope the entry's components, or use one fabric per structure",
-    };
-  }
-  const uoms = [...new Set(matches.map((l) => l.consumption_uom_id).filter(Boolean))];
   return {
-    item_id: items[0],
-    /* ONE UNIT OR NONE. Two lines of one fabric measured differently is a
-       disagreement the planner has to settle, and storing either would make the
-       requirement's own unit a coin toss. NULL falls through to `uomPrecision`,
-       which floors at 2 decimals. */
-    uom_id: uoms.length === 1 ? (uoms[0] as string) : null,
+    item_id: entry.item_id,
+    uom_id: fabrics.get(entry.item_id)?.base_uom_id ?? null,
   };
 }
 
 function requirementRows(
   entries: EntryRowWithId[],
-  lines: LineRowWithId[],
+  /* THE CLOTHS, NOT THE LINES (0522). This used to take `LineRowWithId[]` so
+     `entryFabric` could search them for the entry's fabric; the entry names it
+     now, and all this needs is what that cloth's own master row says. */
+  fabrics: FabricFacts,
   order: OrderProductionInput,
   uomDecimals: Map<string, number | null>,
   gsmByStructure: Map<string, number>,
@@ -426,7 +466,7 @@ function requirementRows(
   let sno = 0;
 
   for (const entry of entries) {
-    const fabric = entryFabric(entry, lines);
+    const fabric = entryFabric(entry, fabrics);
 
     /* A REFUSAL STILL PRODUCES A ROW, and it still has to satisfy the table's
        own constraints: `basis` is NOT NULL with a CHECK, `consumption` and
@@ -493,6 +533,13 @@ function requirementRows(
            refuses it slice by slice and names the size. */
         consumption: null,
         wastage_pct: entry.wastage_pct,
+        /* THE SECOND ALLOWANCE, COMPOUNDED WITH THE FIRST (0523). Legacy's
+           Manual row carries both — "EndBit Loss %" and "Component Proc.
+           Loss %" — and the client's spec states the sequential form. Passed
+           through so the stored requirement and the figure the screen prints
+           come from ONE formula (`requiredKg`), differing only by this route's
+           ceiling. */
+        endbit_loss_pct: entry.endbit_loss_pct,
         decimals: fabric.uom_id ? (uomDecimals.get(fabric.uom_id) ?? null) : null,
         bySize,
       },
@@ -645,6 +692,7 @@ function normalizeYarns(
       yarnStageStarted({
         stage_id: st.stage_id,
         process_id: st.process_id,
+        loss_for_id: st.loss_for_id ?? null,
         combo: st.combo ?? "",
         description: st.description ?? "",
         /* THE PAYLOAD HAS ALREADY COERCED THIS TO A NUMBER and the shared
@@ -663,6 +711,9 @@ function normalizeYarns(
       y.item_id,
       fabrics,
       compositions,
+      /* `combo` SCOPES THE LOSS AGAIN (0504, restored 0529) — the same call the
+         screen's `weightFor` makes, deliberately, so the preview and the stored
+         figure stay one computation. */
       kept.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
     );
@@ -681,7 +732,12 @@ function normalizeYarns(
       stages: kept.map((st, i) => {
         /* A STEP WITH NO PROCESS CARRIES NEITHER FIGURE — see the header, and
            `chk_ofbys_not_both`, which is deliberately weaker than the parent's
-           exclusive-or so that this state is representable. */
+           exclusive-or so that this state is representable.
+
+           TWO REASONS A STEP CAN CARRY NO FIGURE (0529, restoring 0520's
+           second): the yarn's own refusal, or `stageProblem` — this STEP names a
+           colourway the requirement does not have (a combo removed from the
+           order, or renamed, after the treatment was recorded). */
         const problem = refused
           ? weight.refused
           : st.process_id
@@ -691,6 +747,7 @@ function normalizeYarns(
           sno: i + 1,
           stage_id: st.stage_id ?? null,
           process_id: st.process_id ?? null,
+          loss_for_id: st.loss_for_id ?? null,
           combo: st.combo ?? null,
           description: st.description ?? null,
           loss_pct: st.loss_pct ?? null,
@@ -800,6 +857,10 @@ async function writeLines(
   for (const t of [
     "order_fabric_bom_requirements",
     "order_fabric_bom_processes",
+    /* THE SPLIT TOGGLES (0528). Same position as the routes above and for the
+       same reason: keyed on `bom_id` + `item_id`, references no line, so
+       nothing forces it before or after any other delete in this list. */
+    "order_fabric_bom_process_scope",
     "order_fabric_bom_lines",
     "order_fabric_bom_dias",
     /* THE YARNS, AND THEIR ROUTES BY CASCADE (0493).
@@ -876,7 +937,15 @@ async function writeLines(
   const fabricIds = new Set(
     lines.map((l) => l.item_id).filter((v): v is string => !!v),
   );
-  const processRows = normalizeProcesses(data, fabricIds);
+  const scopeRows = normalizeProcessScopes(data, fabricIds);
+  if (scopeRows.length) {
+    const { error } = await s
+      .from("order_fabric_bom_process_scope")
+      .insert(scopeRows.map((r) => ({ ...r, bom_id: bomId })));
+    if (error) return fail(error.message);
+  }
+  const scopeByItem = new Map(scopeRows.map((r) => [r.item_id, r]));
+  const processRows = normalizeProcesses(data, fabricIds, scopeByItem);
   if (processRows.length) {
     const { error } = await s
       .from("order_fabric_bom_processes")
@@ -907,7 +976,57 @@ async function writeLines(
      and their own components and sizes travel inside them for the reason
      `normalizeManualEntries` records: `entry_id` is NOT NULL and an entry's id
      does not exist until this insert has run. */
-  const entries = normalizeManualEntries(data);
+  const rawEntries = normalizeManualEntries(data);
+
+  /**
+   * WHAT EACH ENTRY'S CLOTH SAYS ABOUT ITSELF, read once (0522).
+   *
+   * `items.category_id` IS the structure (0405 · 0415 · 0426) and
+   * `items.base_uom_id` is the unit the requirement is measured in. Both are
+   * facts of the MASTER, so they are read from it rather than trusted from the
+   * form — the same call this action already makes for the GSM one block down,
+   * and for the same reason: a figure the browser could set is a figure a client
+   * could set, and both of these reach a purchase weight.
+   *
+   * A FAILED QUERY IS AN ERROR, NOT AN EMPTY MAP. Swallowing it would silently
+   * derive every structure as NULL and store a BOM whose requirement rows cannot
+   * find their GSM — an empty result that reads exactly like a legitimate one
+   * (AGENTS.md, "A SECOND FK BREAKS EVERY EXISTING EMBED").
+   */
+  /* `entryFabricIds`, NOT `fabricIds` — that name is taken one block up by the
+     LINES' cloths, which feed the process routes. Two different sets of fabrics
+     on one save: the ones the allocation names and the ones the weights name. */
+  const entryFabricIds = [
+    ...new Set(rawEntries.map((e) => e.item_id).filter(Boolean)),
+  ] as string[];
+  const fabricFacts: FabricFacts = new Map();
+  if (entryFabricIds.length) {
+    const { data: fRows, error: fErr } = await s
+      .from("items")
+      .select("id, category_id, base_uom_id")
+      .in("id", entryFabricIds);
+    if (fErr) return fail(fErr.message);
+    for (const r of (fRows ?? []) as {
+      id: string;
+      category_id: string | null;
+      base_uom_id: string | null;
+    }[]) {
+      fabricFacts.set(r.id, { category_id: r.category_id, base_uom_id: r.base_uom_id });
+    }
+  }
+
+  /* THE STRUCTURE IS WRITTEN FROM THE CLOTH, NEVER FROM THE FORM (0522). It is
+     still stored because the requirement engine keys the order's GSM by it, and
+     deriving it here is what keeps "one fact, one place it is typed" true — the
+     screen shows it as a read-only cell beside the Fabric and sends whatever it
+     last held, which this overwrites. A cloth the master cannot resolve leaves
+     the entry's own value alone rather than blanking it. */
+  const entries = rawEntries.map((e) =>
+    e.item_id
+      ? { ...e, structure_id: fabricFacts.get(e.item_id)?.category_id ?? e.structure_id }
+      : e,
+  );
+
   let savedEntries: EntryRowWithId[] = [];
   if (entries.length) {
     const { data: inserted, error } = await s
@@ -973,7 +1092,7 @@ async function writeLines(
     decimals = dp;
     requirement = requirementRows(
       savedEntries,
-      saved,
+      fabricFacts,
       order,
       decimals,
       gsmByStructureOf(seed),
@@ -1064,6 +1183,12 @@ function fabricGrossOf(
       combo,
       gross: qty == null ? null : (held?.gross ?? 0) + Number(qty),
       uom_id: (r.consumption_uom_id as string | null) ?? null,
+      /* THE STORED REASON, so the saved yarn row refuses in the SAME words the
+         screen previewed — the header's rule that this figure is computed once
+         and read twice applies to the refusal as much as to the weight. The row
+         already carries it (`refuse()` above writes `refusal_reason` beside the
+         null `required_qty`); it was simply not being read. */
+      refusal: (r.refusal_reason as string | null) ?? null,
     });
   }
 

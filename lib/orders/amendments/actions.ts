@@ -2026,13 +2026,40 @@ export async function loadOrderSeed(salesOrderId: string): Promise<SeedResult> {
   }
 }
 
+/**
+ * DELETE A GARMENT ORDER — BOTH OF ITS ROWS (0517).
+ *
+ * A garment order is two rows: `garment_order_amendments` is the document, and
+ * `sales_orders` is what HOLDS THE SC NO (`createAmendment` above mints it
+ * there). This used to delete the document alone —
+ *
+ *     await s.from("garment_order_amendments").delete().eq("id", id);
+ *
+ * — so every order the operator removed left its numbered `sales_orders` row
+ * behind, pointed at by nothing and shown on no screen. All eight Head Office
+ * orders were in that state on 2026-09-03: the list was empty and New Garment
+ * Order offered HO/RE/26-27/0013 (client: "i have deleted all order so it
+ * should start from 1 know?"). The husks were the only thing left holding the
+ * number.
+ *
+ * THE WORK IS IN ONE RPC, and that is not tidiness. Doing it here would be two
+ * PostgREST calls with no transaction, and the failure mode of THAT is the
+ * exact bug being fixed: document gone, order not, another orphan. The function
+ * deletes both or neither.
+ *
+ * IT ALSO ANSWERS THE SECOND SILENT FAILURE IN THIS FUNCTION. PostgREST returns
+ * no error when RLS filters every row out of a DELETE — it succeeds and removes
+ * nothing — so the old body returned `{ ok: true }` for a delete that did not
+ * happen. The RPC raises instead, and the message arrives here as `error`.
+ *
+ * AN AMENDMENT LEAVES THE ORDER ALONE. It is another document on the same
+ * `sales_order_id`, and the RPC drops the order only when no document names it
+ * any more — so the last one takes the number with it and the others do not.
+ */
 export async function deleteAmendment(id: string): Promise<Result> {
   if (!(await can("orders", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s
-    .from("garment_order_amendments")
-    .delete()
-    .eq("id", id); // children cascade
+  const { error } = await s.rpc("delete_garment_order_document", { p_id: id });
   if (error) return fail(error.message);
   rev();
   return { ok: true };

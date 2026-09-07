@@ -7,6 +7,7 @@ import { dropdownPanelStyle, type PanelAnchor } from "@/components/ui/dropdown-p
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
+import { matchesSearch, searchTokens } from "@/lib/ui/search-match";
 import {
   AFFORDANCE_PAD,
   AFFORDANCE_PAD_COMPACT,
@@ -131,12 +132,12 @@ export function Combobox({
   // Same split as components/ui/data-picker.tsx, for the same reason.
   const matching = useCallback(
     (q: string) => {
-      const needle = q.trim().toLowerCase();
-      if (!needle) return options;
+      // EVERY WORD TYPED, IN ANY ORDER — one rule in lib/ui/search-match.ts,
+      // read by this control, DataPicker and MultiSelect. See that file.
+      const tokens = searchTokens(q);
+      if (tokens.length === 0) return options;
       return options.filter((o) =>
-        `${o.label} ${o.sublabel ?? ""} ${o.search ?? ""}`
-          .toLowerCase()
-          .includes(needle),
+        matchesSearch(`${o.label} ${o.sublabel ?? ""} ${o.search ?? ""}`, tokens),
       );
     },
     [options],

@@ -339,6 +339,7 @@ const assort = (
  */
 const ORDER: OrderProductionInput = {
   excessPct: 0,
+  rejectionPct: 0,
   rejectionRuleChosen: false,
   tiers: null,
   approvals: [

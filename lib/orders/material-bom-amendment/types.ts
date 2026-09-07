@@ -964,11 +964,23 @@ export const mbaItemInput = z
        against the second produced "This slice already has an override on the
        line" and blocked Save with no way forward.
 
+       THE SAME DRIFT RECURRED (2026-09-05): `combination` (0463) and
+       `style_ref_no` (0464) were both added to the live index afterwards and
+       never added here, so a line split by Combination or by Style Ref hit the
+       identical failure — a pair the database allows, refused by this mirror.
+       All FIVE axes now, matching `uq_mba_slice_line_combo_size` exactly.
+
        Kept in step with `sliceKey` in `slice-consumption.ts`, which reads the
-       same three axes: a mirror that names fewer is a mirror that is wrong. */
+       same axes: a mirror that names fewer is a mirror that is wrong. */
     const seenSlice = new Set<string>();
     for (const [i, sl] of (v.slices ?? []).entries()) {
-      const key = `${sl.combo ?? ""}:${sl.size_id ?? ""}:${sl.country_id ?? ""}`;
+      const key = [
+        sl.combo ?? "",
+        sl.size_id ?? "",
+        sl.country_id ?? "",
+        sl.combination ?? "",
+        sl.style_ref_no ?? "",
+      ].join(":");
       if (seenSlice.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

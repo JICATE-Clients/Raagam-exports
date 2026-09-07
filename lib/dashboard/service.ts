@@ -879,7 +879,7 @@ export async function getApprovals(caps: DashboardCaps): Promise<ApprovalsResult
       table: "purchase_orders",
       enabled: caps.materials,
       type: "Purchase Order",
-      select: "id, code, total_amount, currency_code, created_at, vendors(name)",
+      select: "id, code, total_amount, currency_code, created_at, vendors!vendor_id(name)",
       status: "pending_approval",
       party: (r: Row) => s(embed(r, "vendors")?.name) || null,
       value: (r: Row) => n(r.total_amount),
@@ -1110,7 +1110,7 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
       rows(
         await sb
           .from("purchase_orders")
-          .select("id, code, expected_date, vendors(name)")
+          .select("id, code, expected_date, vendors!vendor_id(name)")
           .in("status", ["approved", "partially_received"])
           .lt("expected_date", t)
           .order("expected_date", { ascending: true })
@@ -1264,7 +1264,7 @@ export async function getLeaderboards(
     cell(caps.materials, async () => {
       const { data } = await sb
         .from("purchase_orders")
-        .select("total_amount, vendors(name)")
+        .select("total_amount, vendors!vendor_id(name)")
         .neq("status", "cancelled")
         .gte("order_date", w.from)
         .lte("order_date", w.to);

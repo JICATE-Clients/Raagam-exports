@@ -54,6 +54,13 @@ stranding the footer above a strip of dead page.
 Read `references/shells.md` before the first page mount. It is the material that
 exists in no other document.
 
+**Picked "Sheet" for a nested `[Click]` sub-detail? Its SIZE is a separate decision** —
+AGENTS.md's "A sub-detail Sheet's size" (STANDING): `size="sm"` by default, `"md"` only
+when the sheet's own content is a `ChildGrid`, plus `alignToPane` / `origin` / a
+`SubSheetFooter` when the sheet has nothing of its own to save. Read it before wiring a
+new `[Click]` popup — `Sheet`'s own default (`"lg"`) is wrong for this shape and nothing
+catches it yet.
+
 ## The operator's five (STANDING, 2026-08-10)
 
 Five rules the operator gave directly, working through Material BOM Amendment. They

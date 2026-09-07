@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { Check, Clock3, HelpCircle, Pencil, RotateCcw } from "lucide-react";
 import { today as todayAtFactory } from "@/lib/calendar";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { Label } from "@/components/ui/label";
@@ -127,6 +128,31 @@ export function bomCardStats(t: BomTaskRow, middle: CardStat): CardStat[] {
       ),
     },
   ];
+}
+
+/**
+ * ONE GLYPH PER STATUS, FOR THE CARD'S BADGE — a verb, not a category (client
+ * 2026-09-04, from a reference card whose badge held an app icon: "design for
+ * us"). `bomStatusTone` already says the COLOUR; this says what the row is
+ * waiting on, the same five states `bom-status.ts` names and nothing more:
+ * a clock before anything is planned, a pencil mid-draft, a check once the
+ * plan matches the order, a re-plan arrow once it no longer does, and a
+ * question mark when the order itself cannot be read. Not exported — the
+ * badge is `BomQueue`'s own decoration, not a fact another screen reads.
+ */
+function bomStatusIcon(s: BomStatus) {
+  switch (s) {
+    case "pending":
+      return <Clock3 className="h-4 w-4" />;
+    case "draft":
+      return <Pencil className="h-4 w-4" />;
+    case "updated":
+      return <Check className="h-4 w-4" />;
+    case "recalculate":
+      return <RotateCcw className="h-4 w-4" />;
+    default:
+      return <HelpCircle className="h-4 w-4" />;
+  }
 }
 
 export function BomQueue({
@@ -321,12 +347,12 @@ export function BomQueue({
           it would nest one inside the other — the exact invalid markup that
           shaped this component. */}
       <MobileCardList<BomTaskRow>
-        /* SIX ACROSS (client 2026-08-19) — as a card WIDTH rather than a count:
-           `6` means 15rem tracks, and 6 × 15rem + 5 gaps = 1500px still fits the
-           operator's 1560px pane, so a full queue lays out exactly as it did.
-           What changes is a SHORT queue: three confirmed orders used to leave
-           three of six tracks empty, and now take the width instead. The card
-           sizes its own density from there — see `columns`. */
+        /* SIX ACROSS, NOW A FIXED COUNT (client 2026-08-19, then reversed
+           2026-09-04: "make it static as 6 card per row"). `columns={6}` used
+           to mean "auto-fit down to a 15rem floor", which stretched a short
+           Fabric BOM queue's two cards past 30rem apiece — the opposite
+           complaint from the one `auto-fit` was written to fix. `TRACK[6]` is
+           the one place that changed; see its own note on `mobile-card-list.tsx`. */
         columns={6}
         rows={filtered}
         getKey={(t) => t.id}
@@ -351,12 +377,20 @@ export function BomQueue({
         )}
         stats={(t) => bomCardStats(t, stat(t))}
         hint={cardHint}
-        /* THE SAME TONE AS THE PILL, AS A STRIPE DOWN THE CARD'S EDGE. The pill
-           is read one card at a time; the stripe is read down the whole grid at
-           once, and this list is already SORTED by `BOM_STATUS_RANK` — a sort
-           nothing on screen could show. Redundant by design: colour locates the
-           work, the word names it. */
+        /* THE SAME TONE AS THE PILL — this list is already SORTED by
+           `BOM_STATUS_RANK` ("what needs doing, first") and nothing on screen
+           showed it, colour locates the work and the word names it. Still
+           passed even though `badge` below now carries the same tone more
+           visibly: `MobileCardList` suppresses the stripe automatically once a
+           badge is present (see its own note), so this is the fallback for
+           the day a badge is dropped rather than a second thing to keep in
+           sync by hand. */
         tone={(t) => bomStatusTone(t.status)}
+        /* THE BADGE (client 2026-09-04, from a reference project-tracker
+           card): the row's tone, painted, and an icon naming what it is
+           WAITING ON rather than what kind of thing it is — see
+           `bomStatusIcon`'s own note. */
+        badge={(t) => ({ tone: bomStatusTone(t.status), icon: bomStatusIcon(t.status) })}
         /* THE CREATED PAIR SHARES THE FOOTER WITH THE ✕ instead of adding a
            second bordered row — AGENTS.md wants it APPENDED to the screen's own
            meta, not substituted for it, and the customer and the figures above

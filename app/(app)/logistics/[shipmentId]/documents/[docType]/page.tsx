@@ -180,19 +180,19 @@ function CommercialInvoice({ snap, docNo }: { snap: DocSnapshot; docNo: string |
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-surface-muted">
-            <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
               Description
             </th>
-            <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
               HSN
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Qty
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Unit price
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Amount
             </th>
           </tr>
@@ -263,19 +263,19 @@ function PackingList({ snap, docNo }: { snap: DocSnapshot; docNo: string | null 
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-surface-muted">
-            <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
               Description
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Qty
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Cartons
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Net wt (kg)
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Gross wt (kg)
             </th>
           </tr>
@@ -351,13 +351,13 @@ function GenericDoc({
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-surface-muted">
-            <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
               Description
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Qty
             </th>
-            <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
               Amount
             </th>
           </tr>

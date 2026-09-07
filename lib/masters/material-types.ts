@@ -69,7 +69,9 @@ export interface Material {
   count_id: string | null;
   purity_id: string | null;
   shade: string | null;
-  /** Fabric type (Melange/Yarn-dyed/Grey, kind `fabric_type`) — Fabric only. */
+  /** Fabric type — kind `fabric_type`, Fabric only. Solid · Yarn Dyed · Melange
+   *  · Printed (0515), but READ THE LOOKUP: this list has grown twice and the
+   *  "Grey" once named here was renamed to Solid by 0312. */
   fabric_type_id: string | null;
   /** Fabric "Type" in the legacy sense — Circular Knit/Flat Knit/Woven, kind
    *  `fabric_structure` — Fabric only. A direct field on the material; drives

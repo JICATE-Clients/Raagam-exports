@@ -225,7 +225,7 @@ export async function listPurchaseOrders(): Promise<PoWithVendor[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("purchase_orders")
-    .select("*, vendors(name)")
+    .select("*, vendors!vendor_id(name)")
     .order("created_at", { ascending: false });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
@@ -246,7 +246,7 @@ export async function getPurchaseOrder(
 
   const { data: po } = await supabase
     .from("purchase_orders")
-    .select("*, vendors(name)")
+    .select("*, vendors!vendor_id(name)")
     .eq("id", id)
     .maybeSingle();
   if (!po) return null;

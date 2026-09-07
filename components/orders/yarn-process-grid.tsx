@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Fabric BOM ▸ Yarn Process — ONE YARN'S TREATMENTS.
+ * Fabric BOM ▸ Yarn Process — ONE YARN'S PROCESSES.
  *
  * Client screenshot 2587 and the spec of 2026-09-01: a yarn and, beneath it, the
  * steps it runs before knitting — GREY ▸ YARN DYEING ▸ For PURPLE ▸ 3%. The
  * rules and both formulas live in `lib/orders/fabric-bom/yarn-process.ts`;
- * storage is 0504.
+ * storage is 0504 · 0529.
  *
  * ## THE SIBLING OF `fabric-process-grid.tsx`, AND NOT A COPY OF IT
  *
@@ -15,21 +15,32 @@
  * not restate it. What differs is three things, and each is why a shared
  * component with a `variant` prop would have been the worse trade:
  *
- *  1. **`For` is a COLOURWAY here, and it does arithmetic.** On the fabric route
- *     the same-named column is `process_loss_for` — how a loss is measured. Here
- *     it names the combo the treatment applies to, and a stage marked PURPLE
- *     grosses up the purple share alone. Two columns, one label, no relation.
- *  2. **A different Stage list** — `yarn_stage`, not `fabric_stage`: the fabric
+ *  1. **A different Stage list** — `yarn_stage`, not `fabric_stage`: the fabric
  *     vocabulary also holds WASH and PRINT, which no yarn can be in (0504).
- *  3. **A different applicability flag** — `for_yarn`, not `for_fabric`.
+ *  2. **A different applicability flag** — `for_yarn`, not `for_fabric`.
+ *  3. **A derived, un-addable outer row** — see below.
+ *
+ * `For` NAMES A COLOURWAY AND DOES ARITHMETIC AGAIN (0504, restored 0529 after
+ * 0520 removed it). A step marked PURPLE grosses up the purple share alone. The
+ * fabric route's identically-named `process_loss_for` column is unrelated
+ * arithmetic — it describes how a loss is measured, never what it is measured
+ * against — and this tab's `loss_for_id` cell keeps reading that same shared
+ * list as its LABEL (PROCESS WISE / COLOR WISE), one column along from the new
+ * `Colour` cell that does the dividing. COLOR WISE is what reveals `Colour`; see
+ * `isColorWise` below and `yarn-process.ts`'s file header for why the arithmetic
+ * itself never branches on it.
  *
  * ## THE OUTER ROW IS DERIVED, WHICH IS THE OTHER REAL DIFFERENCE
  *
- * `FabricProcessGrid`'s caller draws a read-only heading per fabric because the
- * fabric is already stated on Fabric Lines. Here the outer row is a YARN the
- * planner cannot add or edit at all — so the whole thing is a `ChildGrid` inside
- * a `ChildGrid` cell, the shape Order Entry ▸ Pack type(s) uses and the one the
- * keyboard contract covers by name ("A ROW'S NESTED GRID IS PART OF THE ROW").
+ * `FabricProcessGrid`'s caller lists fabrics; this one lists YARNS, which the
+ * planner cannot add or edit at all. Both are now `ProcessFoldList` rows, and
+ * this grid is the panel one of them unfolds onto — legacy's `[+]`, and the tab
+ * no longer draws eight routes at once (client 2026-09-03, screenshot 2652).
+ *
+ * IT USED TO SIT IN A `ChildGrid` CELL. That worked and the keyboard contract
+ * covered it by name ("A ROW'S NESTED GRID IS PART OF THE ROW") — what it could
+ * not do is fold, because a `<tr>` cannot carry a panel beneath its cells. The
+ * panel is still inside `data-grid-row`, so the same sentence still applies.
  *
  * ## Edits apply live; there is no Apply button
  *
@@ -53,11 +64,25 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 
+/**
+ * Does this row's `For` LABEL say "Color Wise"? Purely a UI question — it
+ * decides whether the `Colour` cell is shown, never whether the arithmetic
+ * scopes by it (that reads `combo` alone; see `yarn-process.ts`'s header).
+ *
+ * BOTH SPELLINGS, because this business writes both (AGENTS.md, Near misses) —
+ * a lookup renamed COLOUR WISE must not silently hide the field it names.
+ */
+function isColorWise(lossForId: string | null, lossFor: readonly ConfigLookup[]): boolean {
+  const opt = lossFor.find((l) => l.id === lossForId);
+  return !!opt && /colou?r/i.test(opt.name);
+}
+
 export function YarnProcessGrid({
   rows,
   onChange,
   processes,
   stages,
+  lossFor,
   combos,
   newKey,
   canCreate = false,
@@ -75,7 +100,17 @@ export function YarnProcessGrid({
   /** `config_lookups` kind `yarn_stage` — GREY, DYED. */
   stages: ConfigLookup[];
   /**
-   * The colourways THIS YARN is actually needed in.
+   * `config_lookups` kind `process_loss_for` — PROCESS WISE, COLOR WISE.
+   *
+   * THE FABRIC ROUTE'S OWN LIST, passed from the same `processLookups.lossFor`
+   * that feeds `FabricProcessGrid`'s `Loss for`. One list behind both `For`
+   * columns, so a value the operator adds through "+ Add" on either tab is on
+   * both — the alternative was a second lookup kind that would drift the first
+   * time someone extended one of them. Also what `isColorWise` reads.
+   */
+  lossFor: ConfigLookup[];
+  /**
+   * The colourways THIS YARN is actually needed in (0504, restored 0529).
    *
    * NOT the order's whole combo list, which is the cascading-filter rule
    * (AGENTS.md) applied to a facet that would otherwise offer answers that
@@ -120,7 +155,7 @@ export function YarnProcessGrid({
        * the defaulted-vocabulary mistake AGENTS.md records under "Near misses".
        */
       header: "Stage",
-      width: "8rem",
+      width: "7rem",
       required: rows.some(yarnStageStarted),
       cell: (r) => (
         <LookupDialogPicker
@@ -138,14 +173,31 @@ export function YarnProcessGrid({
     },
     {
       /**
-       * THE ONE FLEXIBLE COLUMN, so the slack lands on the longest value rather
-       * than on a percentage box. `hugsContent` is `columns.every(c => c.width)`,
-       * so leaving this one unsized is what flips the grid from hugging its
-       * declarations to filling the cell it sits in — and this one sits inside
-       * another grid's row, where hugging would leave the outer row's slack
-       * empty to the right of a cramped picker.
+       * SIZED, LIKE EVERY OTHER COLUMN — and that is what makes the grid hug.
+       *
+       * IT WAS THE ONE FLEXIBLE COLUMN, deliberately, and the reasoning expired
+       * under it. The argument was that this grid "sits inside another grid's
+       * row, where hugging would leave the outer row's slack empty to the right
+       * of a cramped picker" — true while it was a `ChildGrid` CELL. It is now
+       * the panel a `ProcessFoldList` row unfolds onto (2026-09-03), which
+       * spans the whole section: the slack stopped being a cell's and became a
+       * page's, and `hugsContent` being off meant all ~880px of it landed on one
+       * picker. A Process box eight times the width of the Loss % beside it is
+       * the "field size" complaint (client screenshot 2660), and it is a layout
+       * fault rather than a preference — `child-grid.tsx` records the same
+       * failure for a Size grid that rendered "S" in a 490px control.
+       *
+       * `width` HERE IS WHAT FLIPS THE WHOLE GRID: `hugsContent` is
+       * `columns.every(c => c.width)`, all-or-nothing on purpose (see it), so
+       * this declaration is not a local cap — it is the switch that makes the
+       * card stop at the last column instead of trailing grey.
+       *
+       * 12rem HOLDS A PROCESS NAME (YARN DYEING, SOFT WINDING, MERCERISING) and
+       * the picker truncates-and-reveals past that, which is the contract for
+       * every stored value in this app.
        */
       header: "Process",
+      width: "12rem",
       required: rows.some(yarnStageStarted),
       cell: (r) => (
         <RecordPicker
@@ -166,45 +218,97 @@ export function YarnProcessGrid({
     },
     {
       /**
-       * WHICH COLOURWAY THIS TREATMENT IS FOR — and it divides the weight.
+       * HOW THE LOSS % BESIDE IT IS MEASURED — PROCESS WISE or COLOR WISE.
+       *
+       * "for field is dropdown field values are Process Wise, Color Wise"
+       * (client 2026-09-03). It is the fabric route's `Loss for` column, one
+       * label along, reading the same `process_loss_for` lookup.
+       *
+       * THIS CELL IS A LABEL, NOT ARITHMETIC (0520 · 0529). It used to BE the
+       * colourway and divide the weight; the client replaced its values with two
+       * fixed words on 2026-09-03, which cannot name PURPLE, and confirmed that
+       * knowing it removed the split. 0529 restores the split as its own cell
+       * — `Colour`, next — rather than reversing this one back into double duty:
+       * the client's later instruction about THIS column stands, and what
+       * changed is that the arithmetic gained a place to live beside it.
+       *
+       * PICKING COLOR WISE HERE REVEALS `Colour`. Switching away clears it
+       * (`isColorWise` below), so the two cells cannot disagree — a row reading
+       * "Process Wise" with a colourway still attached underneath would gross up
+       * a lot the label denies scoping to.
+       */
+      header: "For",
+      width: "8rem",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="process_loss_for"
+          label="For"
+          compact
+          options={lossFor}
+          value={r.loss_for_id}
+          onChange={(id) =>
+            patch(r.key, {
+              loss_for_id: id || null,
+              combo: isColorWise(id || null, lossFor) ? r.combo : "",
+            })
+          }
+          canCreate={canCreate && !readOnly}
+          canEdit={canEdit && !readOnly}
+        />
+      ),
+    },
+    {
+      /**
+       * WHICH COLOURWAY THIS TREATMENT IS FOR — and it divides the weight
+       * (0504, restored 0529).
        *
        * "It only applies the dyeing process to the exact weight percentage of
        * yarn destined for that specific colour combo" (client, confirmed as
        * arithmetic rather than a label, 2026-09-01). So a stage marked PURPLE
        * grosses up the purple share alone and leaves green at its net weight.
        *
-       * BLANK MEANS EVERY COLOURWAY, which is the ordinary case — a yarn dyed
-       * for the whole order names no combo. The option is labelled rather than
-       * left as a bare empty row, because "" and "all" look identical in a
-       * `<select>` and only one of them is what this means.
+       * SHOWN ONLY WHEN `For` IS COLOR WISE. Process Wise treats the whole
+       * yarn — the ordinary case since 0520 — so a colourway box beside it would
+       * offer a choice the arithmetic would ignore, which is worse than not
+       * offering one. A row not yet answering `For` at all shows the dash too:
+       * "empty and explain", not a control the planner cannot yet use.
+       *
+       * BLANK MEANS EVERY COLOURWAY once shown, which is the ordinary case even
+       * under Color Wise — a yarn dyed for the whole order still names no combo.
+       * The option is labelled rather than left as a bare empty row, because ""
+       * and "all" look identical in a `<select>` and only one of them is what
+       * this means.
        *
        * A `<Select>` over the yarn's OWN colourways, not a free text box and not
        * the order's whole list: see the `combos` prop.
        */
-      header: "For",
-      width: "10rem",
-      cell: (r) => (
-        <Select
-          compact
-          className="h-8"
-          aria-label="For colourway"
-          value={r.combo}
-          disabled={readOnly}
-          onChange={(e) => patch(r.key, { combo: e.target.value })}
-        >
-          <option value="">All colourways</option>
-          {/* THE HELD VALUE SURVIVES A LIST THAT NO LONGER OFFERS IT — the
-              "Disabled rows" rule. A combo removed from the order after the
-              treatment was recorded would otherwise render as blank, which reads
-              as "applies to everything" and silently widens the loss to every
-              colourway. `stageProblem` is what says so out loud. */}
-          {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-      ),
+      header: "Colour",
+      width: "8rem",
+      cell: (r) =>
+        isColorWise(r.loss_for_id, lossFor) ? (
+          <Select
+            compact
+            className="h-8"
+            aria-label="For colourway"
+            value={r.combo}
+            disabled={readOnly}
+            onChange={(e) => patch(r.key, { combo: e.target.value })}
+          >
+            <option value="">All colourways</option>
+            {/* THE HELD VALUE SURVIVES A LIST THAT NO LONGER OFFERS IT — the
+                "Disabled rows" rule. A combo removed from the order after the
+                treatment was recorded would otherwise render as blank, which
+                reads as "applies to everything" and silently widens the loss to
+                every colourway. */}
+            {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        ),
     },
     {
       /* Legacy's greyed "Descriptions" cell, as free text — the same call the
@@ -212,8 +316,13 @@ export function YarnProcessGrid({
          the same evidence: the Process cell beside it carries the ⓘ glyph every
          master-backed field in this app carries, and this one carries none. Not
          `required`: a step with no note is a complete answer. */
-      header: "Description",
-      width: "11rem",
+      /* LEGACY'S OWN WORD, PLURAL (client 2026-09-03, who enumerated this
+         tab's columns and wrote "Descriptions"). Same call `Dia / Size / Width`
+         makes on the Fabric BOM section — a legacy header is copied, not
+         improved, so an operator reading the two screens side by side is
+         matching columns rather than translating them. */
+      header: "Descriptions",
+      width: "10rem",
       cell: (r) => (
         <Input
           value={r.description}
@@ -240,7 +349,7 @@ export function YarnProcessGrid({
        */
       header: "Loss %",
       align: "right",
-      width: "5rem",
+      width: "4.5rem",
       cell: (r) => (
         <Input
           className="h-8 text-right"
@@ -263,16 +372,27 @@ export function YarnProcessGrid({
          (AGENTS.md, `enterNestedGrid`). It matters more here than on the fabric
          route: this grid is NESTED inside a yarn row, and Tab walks the row's own
          cells and then this panel — an empty panel is a yarn the planner tabs
-         straight past without seeing that it could be treated. */
+         straight past without seeing that it could be processed. */
       seedRow
-      /* `keepOne={false}` — ZERO TREATMENTS IS AN ANSWER, and the commonest one:
+      /* `keepOne={false}` — ZERO PROCESSES IS AN ANSWER, and the commonest one:
          "if the garment uses solid fabric, the raw yarn does not undergo
          yarn-stage dyeing" (client). The default would leave a blank step
          standing on every solid order's yarn with no way to clear it. */
       keepOne={false}
-      /* The declared widths sum to ~544px plus ~80 of `#`/remove chrome, leaving
-         the flexible Process column room at 1024 — so the table may appear from
-         @5xl. Below it the grid stacks; it never scrolls sideways (rule 4). */
+      /* @5xl (1024), AND THE GRID NOW FITS INSIDE IT WHOLE. Every column
+         declares a width — 7 + 12 + 8 + 8 + 10 + 4.5 = 49.5rem = 792px since
+         `Colour` joined `For` (0529) — and `ChildGrid`'s own chrome is 88px
+         exactly (`#` is `w-10` plus `px-2`, the remove column `w-8`), so the
+         table measures ~880px against a 1024px threshold. That margin is the
+         point: the widths can be tuned without anyone having to re-derive
+         whether the grid still renders as a table.
+
+         THE THRESHOLD MATTERS MORE SINCE THIS GRID MOVED INTO A FOLD PANEL: the
+         panel costs ~80px of container against the section it used to sit in,
+         and below the threshold `ChildGrid` stacks into one labelled full-width
+         box per column — five of them per process, which is the "field size"
+         complaint rather than a graceful fallback. Below it the grid stacks; it
+         never scrolls sideways (rule 4). */
       tableFrom="5xl"
       centerHeaders
       /* `renderMobileRow` STAYS. The DEFAULT stacked cell is a bare <div> around
@@ -291,7 +411,13 @@ export function YarnProcessGrid({
       hideAdd={readOnly}
       onAdd={() => onChange([...rows, blankYarnStage(newKey())])}
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
-      addLabel="+ Add treatment"
+      /* "+ Add process", NOT "+ Add treatment" (client 2026-09-03: "rename the
+         label for both fabric and yarn process as add process"). The fabric
+         route already said it, so this tab was the outlier — and a tab whose
+         button, column header and fold summary each used a different word for
+         one thing is the drift AGENTS.md keeps recording. The whole vocabulary
+         moved with the button, not just the button. */
+      addLabel="+ Add process"
     />
   );
 }

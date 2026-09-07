@@ -7,6 +7,7 @@ import { useRequiredHold } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { GRID_FRAME } from "@/components/masters/child-grid";
 import { cn } from "@/lib/utils";
+import { matchesSearch, searchTokens } from "@/lib/ui/search-match";
 
 /**
  * PICK SEVERAL FROM ONE LIST — the app's first multi-select.
@@ -121,6 +122,7 @@ export function MultiSelect({
   groupBy,
   gridded,
   framed,
+  hideChips = false,
   onCreate,
 }: {
   id?: string;
@@ -212,6 +214,28 @@ export function MultiSelect({
    */
   framed?: boolean;
   /**
+   * WITHHOLD THE CHIP LINE, BECAUSE THE CALLER IS DRAWING IT SOMEWHERE WIDER.
+   *
+   * NOT "hide the selection" — that is not a thing this control may do, and the
+   * chip line's own note below says why: the trigger only ever says HOW MANY, so
+   * a selection with no chips is unreadable without opening the list. This says
+   * the chips are being rendered ELSEWHERE, and the only supported elsewhere is
+   * `<MultiSelectChips>` — the same component, exported, so there is one chip
+   * and one ✕ in the codebase rather than a copy that drifts.
+   *
+   * IT EXISTS BECAUSE THE CHIPS BELONG TO THE ROW, NOT TO THE CELL. On a dense
+   * single row (`FieldGrid cols={14}`) a cell is ~155px, and the chip line is
+   * `flex-wrap` INSIDE that cell — so eight components stacked eight lines deep
+   * and pushed the grid below them off the screen (client 2026-09-03, screenshot
+   * 2662: "if i choose components its listing like this… its ui mistake, fix
+   * better alignment"). Nothing is wrong with the chips; they were being asked
+   * to wrap into a twelfth of the width they had before the row was condensed.
+   *
+   * The caller renders `<MultiSelectChips>` in a `<Field size="full">` under the
+   * same `FieldGrid`, where the same eight fit on one line.
+   */
+  hideChips?: boolean;
+  /**
    * TYPE A VALUE THAT DOES NOT EXIST YET AND STORE IT IN THE MASTER.
    *
    * Omit and the control is select-only. Supplied, a typed name that matches
@@ -266,8 +290,16 @@ export function MultiSelect({
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? selectable.filter((o) => o.label.toLowerCase().includes(q)) : selectable;
+    /* EVERY WORD TYPED, IN ANY ORDER — one rule in lib/ui/search-match.ts, read
+       by this control, `DataPicker` and `Combobox`.
+
+       THE HAYSTACK IS THE LABEL AND NOTHING ELSE, unlike the other two, and that
+       is not an omission: a `MultiSelectOption` is `{ id, label, inactive }`,
+       with no `sublabel` and no hidden `search`. If one is ever added, add it
+       here — the sibling controls concatenate all three. */
+    const tokens = searchTokens(query);
+    if (tokens.length === 0) return selectable;
+    return selectable.filter((o) => matchesSearch(o.label, tokens));
   }, [selectable, query]);
 
   /** The chips, in the caller's stored order, resolved to their labels. */
@@ -941,35 +973,73 @@ export function MultiSelect({
         </p>
       )}
 
-      {/* THE CHOSEN VALUES, ON ONE LINE. This is the control's display half, not
-          decoration: the trigger only ever says how many, so removing this would
-          leave the selection unreadable without opening the list. The ✕ is the
-          only way to drop one, and it is a real button so the mouse and a screen
-          reader both reach it — but `tabIndex={-1}` keeps it off the typing path,
-          the same treatment a ChildGrid row's Remove gets. */}
-      {picked.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {picked.map((o) => (
-            <span
-              key={o.id}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-muted px-2 py-0.5 text-sm font-medium"
-            >
-              {o.label}
-              {!disabled && (
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={`Remove ${o.label}`}
-                  onClick={() => toggle(o.id)}
-                  className="text-muted-foreground hover:text-danger"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
+      {/* THE CHOSEN VALUES. This is the control's display half, not decoration:
+          the trigger only ever says how many, so removing this would leave the
+          selection unreadable without opening the list. `hideChips` does not
+          remove it — it says the caller is drawing the same component in a wider
+          place; see that prop. */}
+      {!hideChips && (
+        <MultiSelectChips
+          className="mt-2"
+          picked={picked}
+          disabled={disabled}
+          onRemove={toggle}
+        />
       )}
+    </div>
+  );
+}
+
+/**
+ * THE CHIP LINE, ON ITS OWN, so a caller with more width than the field cell can
+ * render it there instead — see `MultiSelect`'s `hideChips`.
+ *
+ * ONE COMPONENT, TWO CALLERS, and that is the whole reason it is exported rather
+ * than copied into the one screen that needed it. The ✕ is the only way to drop
+ * a value with the mouse, and it is a real button so a screen reader reaches it
+ * too — `tabIndex={-1}` keeps it off the typing path, the same treatment a
+ * `ChildGrid` row's Remove gets (AGENTS.md, "Tab lands on fields"). A second
+ * hand-rolled chip would be a second answer about all of that.
+ *
+ * IT TAKES RESOLVED OPTIONS, NOT IDS. Resolving an id to a label needs the
+ * option list, and a caller that already holds one would otherwise have to
+ * re-derive the same map the control built — two places to disagree about what
+ * an unknown id renders as. `MultiSelect.picked` is exactly this array.
+ */
+export function MultiSelectChips({
+  picked,
+  onRemove,
+  disabled = false,
+  className,
+}: {
+  /** The chosen options in the caller's stored order, already resolved. */
+  picked: MultiSelectOption[];
+  onRemove: (id: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  if (picked.length === 0) return null;
+  return (
+    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+      {picked.map((o) => (
+        <span
+          key={o.id}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-muted px-2 py-0.5 text-sm font-medium"
+        >
+          {o.label}
+          {!disabled && (
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={`Remove ${o.label}`}
+              onClick={() => onRemove(o.id)}
+              className="text-muted-foreground hover:text-danger"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </span>
+      ))}
     </div>
   );
 }

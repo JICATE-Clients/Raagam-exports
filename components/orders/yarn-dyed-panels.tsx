@@ -40,13 +40,15 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
 import { RecordPicker } from "@/components/masters/record-picker";
-import { Sheet } from "@/components/ui/sheet";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Tabs } from "@/components/ui/tabs";
 import { fmtNumber } from "@/lib/format";
 import { colourCountNote } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import {
+  colorNetWeight,
   mixingDetailRows,
-  type MixingDetailRow,
+  type MixingDetailWithNet,
   type YdRepeatRow,
 } from "@/lib/orders/fabric-bom/yarn-dyed";
 import type { FabricComposition } from "@/lib/orders/fabric-bom/yarn-process";
@@ -267,7 +269,7 @@ export function RepeatsPanel({
         /* 46.5rem + 72px of chrome = 816px, under `tableFrom`'s 1152, so this
            renders as a table and falls back to stacked cards below the
            breakpoint rather than growing a sideways scrollbar. */
-        tableFrom="6xl"
+        tableFrom="5xl"
         centerHeaders
         renderMobileRow={(row) => (
           <FieldGrid>
@@ -308,19 +310,38 @@ export function MixingDetailsPanel({
   declaredColourCount,
   yarnName,
   uomName,
+  uomCode,
+  fabricTotalGross,
+  fabricUomName,
 }: {
   repeats: readonly YdRepeatRow[];
   declaredColourCount: number | null;
   composition: FabricComposition | null;
   yarnName: (id: string | null) => string;
   uomName: (id: string | null) => string;
+  /** The stripe cm/inch conversion's own resolver — `uoms.code`, never the
+   *  display `name` `uomName` gives. See `mixingDetailRows`'s own doc. */
+  uomCode: (id: string | null) => string;
+  /**
+   * THIS FABRIC'S OWN CALCULATED REQUIREMENT — Backend calc spec, Formula 3
+   * ("Net Color Yarn Weight_i = Total Fabric Consumption Weight x P_i/100").
+   * Summed across whatever colourways (order combos) this cloth serves, off
+   * the SAME `FabricGross[]` `./yarn-process.ts`'s `yarnNetByCombo` reads —
+   * never a second requirement figure for one fabric. `null` when this
+   * fabric has no calculated requirement yet, which `colorNetWeight` reads
+   * as "unanswerable", not zero.
+   */
+  fabricTotalGross: number | null;
+  /** The requirement's own unit — printed beside Net Wt so a kg figure is
+   *  never read as a metre one. */
+  fabricUomName: string;
 }) {
   const rows = useMemo(
-    () => mixingDetailRows(repeats, composition, yarnName),
-    [repeats, composition, yarnName],
+    () => colorNetWeight(mixingDetailRows(repeats, composition, yarnName, uomCode), fabricTotalGross),
+    [repeats, composition, yarnName, uomCode, fabricTotalGross],
   );
 
-  const columns: ChildGridColumn<MixingDetailRow>[] = [
+  const columns: ChildGridColumn<MixingDetailWithNet>[] = [
     { header: "Yarn", width: "13rem", cell: (r) => <Truncated>{r.yarn_name || "—"}</Truncated> },
     {
       header: "Type",
@@ -354,6 +375,21 @@ export function MixingDetailsPanel({
         ),
     },
     {
+      /* Formula 3's own figure — `fabricGross x mixing_pct/100`, computed in
+         `colorNetWeight`. Never printed over a refusal: a Mixing % the
+         operator cannot see the reason for should not be followed by a
+         number that looks trustworthy. */
+      header: "Net Wt",
+      align: "right",
+      width: "6.5rem",
+      cell: (r) =>
+        r.refusal ? (
+          <span className="text-sm text-muted-foreground">—</span>
+        ) : (
+          <NumCell value={r.net_weight} suffix={r.net_weight != null ? ` ${fabricUomName}` : ""} />
+        ),
+    },
+    {
       header: "Twisted Yarn",
       width: "7rem",
       cell: (r) => <Truncated>{r.twisted_yarn || "—"}</Truncated>,
@@ -372,7 +408,7 @@ export function MixingDetailsPanel({
         share of its own yarn, Mixing % is its share of the whole cloth. Nothing
         here is typed.
       </p>
-      <ChildGrid<MixingDetailRow>
+      <ChildGrid<MixingDetailWithNet>
         columns={columns}
         rows={rows}
         /* TABLE MODE, NOT `inlineCards` — every cell here is plain text, and
@@ -380,7 +416,7 @@ export function MixingDetailsPanel({
            cell holding a bordered control. On a read-only panel that comes out
            as floating words; the client reported exactly that on the Color/Print
            tab of this same module ("the table borders is missing"). */
-        tableFrom="6xl"
+        tableFrom="5xl"
         centerHeaders
         hideAdd
         hideRemove
@@ -466,7 +502,7 @@ export function CombinationsPanel({
       columns={columns}
       rows={rows as YdCombinationRow[]}
       seedRow
-      tableFrom="6xl"
+      tableFrom="5xl"
       centerHeaders
       renderMobileRow={(row) => (
         <FieldGrid>
@@ -531,16 +567,23 @@ export function YarnDyedSheet({
   declaredColourCount,
   yarnName,
   uomName,
+  uomCode,
+  fabricTotalGross,
+  fabricUomName,
   onPatchYdRepeat,
   onAddYdRepeat,
   onRemoveYdRepeat,
   onPatchYdCombination,
   onAddYdCombination,
   onRemoveYdCombination,
+  origin,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  /** The [Detail] button's own rect, so the sheet grows out of it — see
+   *  AGENTS.md's "A sub-detail Sheet's size". */
+  origin?: SheetOrigin | null;
   ydRepeats: readonly YdRepeatRow[];
   ydCombinations: readonly YdCombinationRow[];
   /** Every yarn the BOM's fabrics name. `RepeatsPanel` narrows it to this
@@ -556,6 +599,12 @@ export function YarnDyedSheet({
   declaredColourCount: number | null;
   yarnName: (id: string | null) => string;
   uomName: (id: string | null) => string;
+  /** See `MixingDetailsPanel`'s own note — `uoms.code`, for the stripe
+   *  cm/inch conversion. */
+  uomCode: (id: string | null) => string;
+  /** See `MixingDetailsPanel`'s own note — Formula 3's net-weight column. */
+  fabricTotalGross: number | null;
+  fabricUomName: string;
   onPatchYdRepeat: (key: string, patch: Partial<YdRepeatRow>) => void;
   onAddYdRepeat: () => void;
   onRemoveYdRepeat: (row: YdRepeatRow) => void;
@@ -571,6 +620,23 @@ export function YarnDyedSheet({
       /* CLEARS THE FULL-SCREEN EDITOR BENEATH IT, the same base the Structure
          Details overlay uses one module along. */
       zIndexBase={120}
+      /* `md`, NOT `lg` (2026-09-04, AGENTS.md "A sub-detail Sheet's size").
+         THE FIRST PASS ON THIS FILE KEPT IT `lg`, REASONING FROM THE WRONG
+         COUNT: "four tabs, three of them a ChildGrid" counts everything the
+         sheet CONTAINS, not what it SHOWS — `Tabs` renders one panel at a
+         time (the client's own "if we click the tab, the actual screen of
+         that field will display in that single screen"), so the operator
+         is never looking at more than ONE `ChildGrid` at once. That is
+         exactly Combination's and Pack Composition's shape, not a bigger
+         one, and the operator confirmed it reads as oversized in the app
+         the same way those two did. `md` is right for the same reason it
+         was right there: enough width for `ChildGrid`'s responsive table to
+         stay a table (below ~512px it drops to stacked cards with no column
+         headers — Style ▸ Process's own note, 2026-08-12), nothing wider. */
+      size="md"
+      alignToPane
+      origin={origin}
+      footer={<SubSheetFooter onDone={onClose} parent="fabric BOM" />}
     >
       <Tabs
         /* THE CLIENT'S "TOP BAR" (2026-09-02, screenshot 114300 —
@@ -616,6 +682,9 @@ export function YarnDyedSheet({
                 declaredColourCount={declaredColourCount}
                 yarnName={yarnName}
                 uomName={uomName}
+                uomCode={uomCode}
+                fabricTotalGross={fabricTotalGross}
+                fabricUomName={fabricUomName}
               />
             ),
           },

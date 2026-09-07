@@ -318,7 +318,7 @@ function ProcessTab({
           .map((proc) => (
             <div key={`child-${proc.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Components for: Process {proc.sno}
                 </p>
                 {canMutate && addCompFor !== proc.id && (
@@ -344,7 +344,7 @@ function ProcessTab({
               {/* Add component form */}
               {addCompFor === proc.id && (
                 <div className="rounded-md border border-border bg-surface-muted p-4">
-                  <p className="mb-3 text-xs font-semibold text-muted-foreground">Add component</p>
+                  <p className="mb-3 text-xs font-bold text-muted-foreground">Add component</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
                     <div>
                       <Label>Coordinate</Label>
@@ -406,7 +406,7 @@ function ProcessTab({
                 .map((comp) => (
                   <div key={`grandchild-${comp.id}`} className="ml-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-muted-foreground">
+                      <p className="text-xs font-bold text-muted-foreground">
                         Placements for: Component {comp.sno}
                       </p>
                       {canMutate && addPlaceFor !== comp.id && (
@@ -431,7 +431,7 @@ function ProcessTab({
 
                     {addPlaceFor === comp.id && (
                       <div className="rounded-md border border-border bg-surface-muted p-4">
-                        <p className="mb-3 text-xs font-semibold text-muted-foreground">Add placement</p>
+                        <p className="mb-3 text-xs font-bold text-muted-foreground">Add placement</p>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
                           <div>
                             <Label>Position</Label>

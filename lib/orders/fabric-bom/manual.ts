@@ -104,21 +104,26 @@ export type ManualSizeInput = {
   table_width: number | null;
   /** The pattern length, in centimetres. */
   length: number | null;
+  /** The cutting allowance ADDED TO THE LENGTH (0524) — see `effectiveLength`,
+   *  which records the same-day 0523→0524 reversal on this field. */
   length_tolerance: number | null;
+  /** "Cons Qty" — units of cloth per garment, typed. NULL means 1; read it
+   *  through `consQtyOf` and never with `?? 0`. */
+  cons_qty: number | null;
 };
 
 /**
  * The metric conversion in the calculated-mode weight, isolated on purpose.
  *
- * PROVISIONAL, AND THE CLIENT SAID SO: "the exact conversion constants for this
- * formula will be adjusted and verified in a later discussion". It sits here, as
- * one named constant read by exactly one expression, so that adjustment is a
- * one-line change with a vector beside it rather than a hunt through the screen,
- * the action and the sheet.
+ * CONFIRMED BY THE CLIENT ON 2026-09-03 and no longer provisional. 0494 wrote it
+ * as a named constant because the client had said "the exact conversion
+ * constants for this formula will be adjusted and verified in a later
+ * discussion"; that discussion happened, and the written spec states the formula
+ * as `Calculated Width (cm) x Length (cm) x GSM / 10,000`. It stays a named
+ * constant read by one expression, because a number that has been confirmed once
+ * can be revised again.
  *
- * cm x cm is cm²; /10,000 makes it m²; x gsm (g/m²) makes it grams. 10,000 is
- * what the client states as typical, and the arithmetic agrees with it — which
- * is why it is a named default and not a question left open in the code.
+ * cm x cm is cm²; /10,000 makes it m²; x gsm (g/m²) makes it grams.
  */
 export const GRAMS_CONVERSION = 10_000;
 
@@ -127,19 +132,42 @@ export const GRAMS_CONVERSION = 10_000;
 // ---------------------------------------------------------------------------
 
 /**
- * Length after the cutting tolerance.
+ * Length after the cutting allowance.
  *
- *     effective = length + tolerance
+ *     effective length = length + tolerance
  *
- * ADDED, NOT SCALED. Legacy's grid puts Length, Length Tolerance and a second
- * Length side by side in one row of the same units, and a tolerance beside a
- * measurement in the same unit is an allowance in that unit — a sewing allowance
- * is "2 cm", never "2%". The percentage reading compiles and is wrong by a
- * factor of the length, which is largest on exactly the sizes that cost most.
+ * ## THE TOLERANCE IS ON THE LENGTH — REVERSED BACK 2026-09-03 (0524), HOURS
+ * ## AFTER 0523 MOVED IT TO THE WIDTH
+ *
+ * This function was `calculatedWidth(width, tolerance)` for a few hours on
+ * 2026-09-03. 0523 read a *written* spec — *"Tolerance (cm): extra safety
+ * margin added to the width"*, *"Calculated Width (cm) = Width + Tolerance"* —
+ * and moved the allowance from `length_tolerance` onto a new `width_tolerance`,
+ * naming legacy's own `Length | Length Tolerance | Length` band as the earlier
+ * (0491) misreading it was correcting.
+ *
+ * 0524 puts it back on the length, on the operator's explicit instruction
+ * after being shown that written spec side by side with a fresh legacy
+ * screenshot (2026-09-03 19:58) of this exact band, and confirming twice that
+ * the length reading is what is wanted here. The column is `length_tolerance`
+ * again rather than reinterpreted in place, for the same reason 0523 renamed
+ * it the other way: a column holding one measurement's allowance under the
+ * other measurement's name is the "one word for two measurements" fault 0495
+ * fixed once already for `table_width`.
+ *
+ * BOTH READINGS PRODUCE A PLAUSIBLE WEIGHT, which is what let this flip twice
+ * in one day without either number looking wrong on screen: a 2 cm allowance
+ * is +2.9% on a 70 cm length and +3.8% on a 52 cm width. If this is ever
+ * revisited again, that is why a glance at the total will not settle it — go
+ * back to whichever written spec is current.
+ *
+ * ADDED, NOT SCALED. A tolerance beside a measurement in the same unit is an
+ * allowance in that unit — a cutting allowance is "2 cm", never "2%". The
+ * percentage reading compiles and is wrong by a factor of the length.
  *
  * NULL WHEN THERE IS NO LENGTH. A tolerance on its own is not a length, and
- * returning the tolerance would print a plausible small number in the column the
- * operator reads as the panel.
+ * returning the tolerance would print a plausible small number in the column
+ * the operator reads as the panel.
  */
 export function effectiveLength(
   length: number | null | undefined,
@@ -151,22 +179,20 @@ export function effectiveLength(
 }
 
 /**
- * The panel weight this size implies, in GRAMS per garment.
+ * The panel weight this size implies, in GRAMS per garment — the spec's
+ * "Piece Weight".
  *
- *     g = tableWidth(cm) x effectiveLength(cm) x gsm(g/m2) / GRAMS_CONVERSION
+ *     g = table_width(cm) x effectiveLength(cm) x gsm(g/m2) / GRAMS_CONVERSION
  *
  * ## THERE IS NO x2, AND THERE USED TO BE
  *
  * The first cut doubled this for "front and back panel", on the standard
- * knitwear body calculation. The client's field-by-field spec states the formula
- * without it — `TableWidth` is the panel width the planner types, and the
- * planner types one row per panel group rather than one per garment half. The
- * doubling was also wrong on its own terms for anything that is not a body: a
- * neck rib is ONE panel, and its weight came out twice what it should be.
- *
- * So the multiplicity now lives where the planner controls it — in which
- * components an entry covers and what width they type for them — rather than in
- * a constant this module assumed on their behalf.
+ * knitwear body calculation. The client's spec states the formula without it —
+ * the planner types one row per panel group rather than one per garment half —
+ * and the doubling was wrong on its own terms for anything that is not a body: a
+ * neck rib is ONE panel, and its weight came out twice what it should be. The
+ * multiplicity now lives where the planner controls it: in `cons_qty`, and in
+ * which components an entry covers.
  *
  * ## GRAMS, NOT KILOGRAMS, AND THAT IS THE UNIT THE WHOLE TAB WORKS IN
  *
@@ -194,20 +220,28 @@ export function calculatedGrams(
   gsm: number | null | undefined,
 ): number | null {
   const w = num(row.table_width);
-  const g = num(gsm);
   const l = effectiveLength(row.length, row.length_tolerance);
+  const g = num(gsm);
   if (w == null || l == null || g == null) return null;
   if (w <= 0 || l <= 0 || g <= 0) return null;
   return (w * l * g) / GRAMS_CONVERSION;
 }
 
 /**
- * The gram weight this size row states, whichever mode produced it.
+ * The gram weight this size row states — the spec's "Cons Wt" — whichever mode
+ * produced it.
  *
  * ONE FUNCTION, READ BY EVERYTHING. The screen prints it, `consumptionMap` feeds
  * it to the engine, and the save writes it — so a direct entry and a calculated
  * entry are indistinguishable to every reader downstream, which is the whole
  * reason `grams` is a stored column rather than a mode-dependent derivation.
+ *
+ * DIRECT IS THE MODE THAT MATTERS, and the client is explicit about why: *"in
+ * garment factories, Direct (Manual) mode is used 99.9% of the time"*, because a
+ * CAD or pattern-nesting department computes the panel consumption on marker
+ * software and hands the merchandiser the figures. So the typed value is not a
+ * fallback for when the formula cannot run — it is the answer, and the formula
+ * is the estimate offered when nobody has one.
  */
 export function gramsFor(
   mode: string | null | undefined,
@@ -222,30 +256,84 @@ export function gramsFor(
 // ---------------------------------------------------------------------------
 
 /**
- * Formula 1 — Net Fabric Required (Kg) = Order Quantity x grams / 1000.
+ * How many units of cloth one garment takes — the spec's "Cons Qty".
  *
- * The client's worked example: 10,510 pcs x 50 g = 525.5 Kg.
+ * NULL MEANS ONE, in one place, so nothing downstream has to know. A blank is
+ * the ordinary case (one panel set per garment) and the column is deliberately
+ * nullable rather than defaulting to 1: a stored default would make a row the
+ * planner never touched indistinguishable from one they deliberately set to 1.
  *
- * FOR DISPLAY. The stored requirement goes through `fabricRequirementRows`,
- * which multiplies `slice.qty x (grams/1000) x (1 + wastage/100)` and rounds UP
- * at the consumption UOM's own precision. This is the same arithmetic without
- * the ceiling, so the screen and the database agree to within that rounding and
- * never by a second formula. See the module header.
+ * ZERO AND NEGATIVES ARE REFUSED BY THE COLUMN (`check (cons_qty > 0)`), so this
+ * never has to decide what "no cloth per garment" would mean.
  */
-export function netKg(orderQty: number | null, grams: number | null): number | null {
-  const q = num(orderQty);
-  const g = num(grams);
-  if (q == null || g == null) return null;
-  return (q * g) / 1000;
+export function consQtyOf(row: Pick<ManualSizeInput, "cons_qty">): number {
+  return num(row.cons_qty) ?? 1;
 }
 
-/** Formula 2 — Gross Fabric Required (Kg) = Net x (1 + wastage% / 100). */
-export function grossKg(net: number | null, wastagePct: number | null): number | null {
+/**
+ * Step 1 — Net Weight (Kg) = Order Quantity x Cons Qty x Cons Wt(g) / 1000.
+ *
+ * The client's worked example: 500 pcs x 1 x 120 g = 60,000 g = 60 kg.
+ *
+ * `consQty` JOINED THE FORMULA ON 2026-09-03 and its absence was a real gap
+ * rather than a simplification: the screen had a `Cons Qty` COLUMN that printed
+ * this function's own output, so the multiplier the client's formula names had
+ * nowhere to be entered and the column that appeared to hold it held a weight in
+ * kilograms instead.
+ *
+ * FOR DISPLAY. The stored requirement goes through `fabricRequirementRows`,
+ * which multiplies the same three figures and rounds UP at the consumption UOM's
+ * own precision. This is that arithmetic without the ceiling, so the screen and
+ * the database agree to within that rounding and never by a second formula.
+ */
+export function netKg(
+  orderQty: number | null,
+  consQty: number | null,
+  grams: number | null,
+): number | null {
+  const q = num(orderQty);
+  const c = num(consQty) ?? 1;
+  const g = num(grams);
+  if (q == null || g == null) return null;
+  return (q * c * g) / 1000;
+}
+
+/**
+ * Step 2 — Required Weight = Net x (1 + Loss₁) x (1 + Loss₂) x …
+ *
+ * ## THEY COMPOUND, AND ONE OF THEM USED TO BE ALL OF THEM
+ *
+ * This was `grossKg(net, wastagePct)`, a single allowance. The client's spec
+ * states the sequential form, and legacy's own Manual row carries TWO on one
+ * line — "EndBit Loss %" and "Component Proc. Loss %" — so a single percentage
+ * could not have expressed the row it was reading from.
+ *
+ * COMPOUNDING IS NOT THE SAME AS ADDING, and the difference is the reason this
+ * takes a list rather than a sum. 1% then 5% is x1.0605, not x1.06 — small on
+ * two losses, and not small once the Fabric Process route's steps are applied to
+ * the same figure. Summing would also make the losses commute with each other in
+ * a way the process route's does not.
+ *
+ * EACH ONE IS VALIDATED, and an out-of-range loss REFUSES rather than clamping:
+ * a 150% allowance is a typo, and silently treating it as 100 would triple a
+ * purchase without saying so.
+ *
+ * AN EMPTY LIST IS THE IDENTITY, so a row with no allowances at all returns the
+ * net unchanged rather than null.
+ */
+export function requiredKg(
+  net: number | null,
+  losses: readonly (number | null | undefined)[],
+): number | null {
   const n = num(net);
   if (n == null) return null;
-  const w = num(wastagePct) ?? 0;
-  if (w < 0 || w > 100) return null;
-  return n * (1 + w / 100);
+  let factor = 1;
+  for (const l of losses) {
+    const p = num(l) ?? 0;
+    if (p < 0 || p > 100) return null;
+    factor *= 1 + p / 100;
+  }
+  return n * factor;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +364,12 @@ export function consumptionMap(
   for (const r of rows) {
     const g = gramsFor(mode, r, gsm);
     if (!r.size_id || g == null || g <= 0) continue;
-    out[r.size_id] = g / 1000;
+    /* `consQtyOf` MULTIPLIES HERE, so the engine keeps taking ONE consumption
+       per size and knows nothing about the spec's second factor. Net Weight is
+       `qty x consQty x grams/1000` (0523) and the engine already applies the
+       `qty`; folding `consQty` into the per-garment figure is what keeps that
+       true without a second parameter threaded through every caller. */
+    out[r.size_id] = (consQtyOf(r) * g) / 1000;
   }
   return out;
 }
@@ -289,6 +382,18 @@ export function consumptionMap(
 export type ManualEntryLike = {
   /** NULL = every style on the order (0495). */
   style_ref_no: string | null;
+  /**
+   * THE CLOTH THIS WEIGHT IS FOR — `items.id`, named directly since 0522.
+   *
+   * It replaced `structure_id` as the thing the planner chooses: legacy's Manual
+   * row has a Fabric column and no Structure column (client 2026-09-03,
+   * screenshots 2666 · 2667). The structure is still derived from it on save,
+   * because the requirement engine keys its GSM lookup on one — but it is no
+   * longer typed, so it is not something these rules may ask for.
+   */
+  item_id: string | null;
+  /** DERIVED from `item_id` (the fabric's `items.category_id`), never typed.
+   *  Kept on the shape because `consumptionMap`'s callers still key GSM by it. */
   structure_id: string | null;
   calc_mode: string | null;
   component_ids: readonly string[];
@@ -370,8 +475,8 @@ function styleKeyOf(v: string | null | undefined): string | null {
  * states for the duplicate check: "two spellings of one refusal is how an
  * operator comes to believe there are two different problems."
  *
- * ORDERED BY WHAT THE PLANNER FILLS FIRST — structure, then panels, then
- * weights. A message naming the last blank on a row where the first is also
+ * ORDERED BY WHAT THE PLANNER FILLS FIRST — the fabric, then panels, then
+ * weights (the fabric replaced the structure in 0522). A message naming the last blank on a row where the first is also
  * blank sends them to the wrong cell.
  *
  * `needed` is the set of sizes the ORDER states, which the caller derives from
@@ -384,14 +489,18 @@ export function manualProblem(
   needed: readonly { size_id: string | null; label: string }[],
   gsm: number | null | undefined,
 ): Refusal | null {
-  if (!entry.structure_id) {
-    return { refused: "Choose the fabric structure this weight is for" };
+  /* THE FABRIC IS THE FIRST THING ASKED FOR SINCE 0522, because it is the first
+     cell of legacy's row and because everything to its right — the knit type,
+     the GSM, the measurement unit — is read off it. This used to ask for the
+     STRUCTURE, which the planner no longer types. */
+  if (!entry.item_id) {
+    return { refused: "Choose the fabric this weight is for" };
   }
   if (entry.component_ids.length === 0) {
     return { refused: "Choose which components this weight covers" };
   }
   if (needed.length === 0) {
-    return { refused: "This order states no sizes for this structure" };
+    return { refused: "This order states no sizes for this fabric" };
   }
   /* THE CALCULATED MODE'S OWN PRECONDITION, and it is named separately because
      the fix is on a different screen. Without a GSM the formula cannot produce a
@@ -400,7 +509,7 @@ export function manualProblem(
   if (calcModeOf(entry.calc_mode) === "calculated" && num(gsm) == null) {
     return {
       refused:
-        "This structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
+        "This fabric's structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
     };
   }
 

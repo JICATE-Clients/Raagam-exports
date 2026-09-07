@@ -47,10 +47,10 @@ surface that needs a keyboard-reachable save registers `"save"` through
 | Key | In a field | In an open list | In a child grid |
 |---|---|---|---|
 | Tab / Shift+Tab | next / previous **field**, and only ever a field or a grid's **"+ Add"** (2026-08-19) — never a ✕, a Save, a Cancel or a row's Remove; **never opens anything**; it does not leave the surface (it wraps, or on a section rail opens the **next section**); **the two refusals**: a field showing a live "already exists" error (both directions), and a MANDATORY field left blank (forward only — Shift+Tab out of it is allowed) | close without choosing, then move | next / previous cell, then **into the row's nested grid** (opening its first row when it has none), then the next row, then **the grid's "+ Add" button** |
-| ↓ | **open this field's list**; with no list, the field **below**, spatially | move the highlight down (clamped) | **open a picker cell's list**; on any other cell, next row |
-| ↑ | the field **above**, spatially | move the highlight up (clamped) | previous row, same column |
+| ↓ | **open this field's list**; with no list, the field **below**, spatially | move the highlight down (clamped), and off the last row **onto the "+ Add" button** | **open a picker cell's list**; on any other cell, next row |
+| ↑ | the field **above**, spatially | move the highlight up (clamped); off the **"+ Add" button** back into the list | previous row, same column |
 | ← / → | field **left / right**, once the caret is at the edge | — | previous / next column |
-| Enter | the **next field**; off the last one, **save the record** (blocked while that field is invalid); on a **tick box / radio**, toggles it instead | **pick the highlight, close, stay on the field** | next row; **on the last row, move to the "+ Add" button** — a second Enter, on the button, is what adds |
+| Enter | the **next field**; off the last one, **save the record** (blocked while that field is invalid); on a **tick box / radio**, toggles it instead | **pick the highlight, close, stay on the field**; **on the "+ Add" button, add** | next row; **on the last row, move to the "+ Add" button** — a second Enter, on the button, is what adds |
 | Esc | close the list → close the surface (**confirm if dirty**) → **leave the page** | close the list only | cancel the editor |
 | Space / Alt+↓ | — | — | open a picker cell's list (aliases for ↓) |
 | Ins · F2 · Ctrl+Del | — | **add · modify · delete the highlight** | Ctrl+Del **removes this row** |
@@ -60,6 +60,16 @@ component since 2026-07-29). Its list is a **dropdown, not a modal**, so Tab mus
 straight through it — which leaves no way for a keyboard to reach the per-row edit and
 delete icons. These three keys are that way, and they are what the operators already
 press in legacy RP.
+
+**A picker's "+ Add" is reached the same way a grid's is** (client 2026-09-02, on
+Material BOM ▸ Item Color): ↓ off the last row lands on it, a second Enter adds. `Ins`
+still adds from anywhere in the list and is the faster key — but it has to be TAUGHT,
+and the panel prints "Ins add · F2 edit · Ctrl+Del delete" only at `@lg`, which a
+`compact` picker in a grid cell never reaches. So the button was mouse-only on exactly
+the screens whose hint was off screen. Two consequences the implementation has to keep:
+while the button holds the highlight **no row does** (one highlight is one promise about
+what Enter commits, so F2 and Ctrl+Del decline there), and the button keeps
+`tabIndex={-1}` — Tab through an open list still closes it and moves to the next FIELD.
 
 Read `references/contract.md` for the reasoning behind each row, the marker
 attributes that make it work, and the exact call order in the provider.

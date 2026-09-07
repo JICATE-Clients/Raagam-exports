@@ -5,6 +5,14 @@ import { ChevronDown } from "lucide-react";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Truncated } from "@/components/ui/truncated";
+import {
+  MATRIX_FOOT,
+  MATRIX_HEAD,
+  MATRIX_SIZE_TOKEN,
+  matrixCell,
+  sizeColPx,
+  textColPx,
+} from "@/components/orders/matrix-grid";
 import { uniformApproval } from "@/lib/orders/amendments/approval-tree";
 import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -156,22 +164,79 @@ const BOX = "h-[26px] @2xl/editor:h-[26px] text-[12.5px] md:text-[12.5px] text-r
  * page), and the row label stays put while it does, or the operator is reading
  * digits with nothing to say which figure they are.
  */
-const MX_WRAP = "w-fit max-w-full overflow-x-auto rounded-md border border-border bg-surface";
+const MX_WRAP = "w-fit max-w-full overflow-x-auto rounded-lg border border-border bg-surface";
+/** 26px rows, the compaction `price-matrix` runs at. */
+const MX_ROW_H = "min-h-[26px]";
+const MX_HEAD = cn(MATRIX_HEAD, MX_ROW_H);
+const MX_FOOT = cn(MATRIX_FOOT, MX_ROW_H);
+const MX_CELL = matrixCell(MX_ROW_H);
+/**
+ * A FIGURE CELL IS RIGHT-ALIGNED HERE AND CENTRED ON THE PRICES MATRIX, AND
+ * THAT IS NOT AN INCONSISTENCY.
+ *
+ * There, a column holds ONE rate with a size token over it and a piece count
+ * under it, nothing stacks, and centring is what made the three agree (client
+ * 2026-09-02, screenshot 2641). Here a column holds FIVE figures that add up
+ * DOWN it — Ordered + Excess + Approval + Rejection = To make — so the digits
+ * have to stack on their right edge or the arithmetic the table exists to show
+ * cannot be read. The header and the Total column are right-aligned with them,
+ * which is the same rule both grids obey: the column decides, and all its bands
+ * agree.
+ */
+const MX_NUM = cn(MX_CELL, "justify-end px-2 text-[12.5px] tabular-nums");
 /** The row-name column. Sticky for the reason `price-matrix` gives. */
-const MX_HEAD =
-  "sticky left-0 z-[2] whitespace-nowrap border-r border-border-strong bg-surface px-2 py-[3px] text-left";
-const MX_CELL = "border-l border-border px-2 py-[3px] text-right tabular-nums text-[12.5px]";
+const MX_NAME = cn(
+  MX_CELL,
+  "sticky left-0 z-10 justify-start whitespace-nowrap border-r border-border-strong bg-surface px-2",
+);
 /** The roll-up column. `border-l-2` so it reads as a rule rather than a cell edge. */
-const MX_TOTAL = "border-l-2 border-border-strong px-2 py-[3px] text-right tabular-nums font-semibold";
-/** A cell that IS a field: the grid rule is the border, so the input draws none. */
+const MX_TOTAL = "border-l-2 border-border-strong font-semibold";
+/** A cell that IS a field, and it KEEPS `Input`'s own border.
+ *
+ *  It read `rounded-none border-0 bg-transparent` on the same "the grid rule is
+ *  the field edge" reasoning `price-matrix` used, and the RAAGAM SKIN reverses
+ *  it: `[data-skin="raagam"] input { border-color: #79b023 }` is what lifts
+ *  every typed box in the Orders module to the logo green, while `--border`
+ *  stays pale so the seams keep quiet. A borderless field opts out of the one
+ *  rule that colours it, which is why this tab's boxes were invisible beside
+ *  green ones everywhere else (client 2026-09-02). 22px inside a 26px cell, so
+ *  no row grows; 6px of radius because the token's 12px is a lozenge at this
+ *  height, by the skin's own measure.
+ *
+ *  `w-full min-w-0` IS THE WHOLE REASON THIS TABLE WAS 1,175px WIDE. An
+ *  `<input>` has an intrinsic width of ~180px (the HTML `size` default of 20
+ *  characters), and in an AUTO-LAYOUT `<table>` that intrinsic width is what the
+ *  column is sized from — `w-full` cannot shrink it, and `min-w-[44px]` was a
+ *  floor where a ceiling was needed. Five sizes therefore came out at ~205px
+ *  each (client 2026-09-02, screenshot 2642). An explicit grid track ignores
+ *  intrinsic widths entirely, which is why the fix is the track and not a
+ *  narrower box. */
 const MX_BOX =
-  "h-[24px] @2xl/editor:h-[24px] w-full min-w-[44px] rounded-none border-0 bg-transparent px-1 text-right text-[12.5px] md:text-[12.5px] font-semibold tabular-nums";
+  "h-[22px] @2xl/editor:h-[22px] w-full min-w-0 rounded-[6px] px-1 text-right text-[12.5px] md:text-[12.5px] font-semibold tabular-nums";
 
 /** The row grid, declared ONCE so the header and every line cannot drift. */
+/**
+ * The row grid, declared ONCE so the header and every line cannot drift.
+ *
+ * ## IT QUERIES `/editor`, BECAUSE `/section` IS NOT A CONTAINER HERE
+ *
+ * These were `@lg/section:` and therefore DEAD (client 2026-09-02, screenshot
+ * 2642): `@container/section` is declared by `DetailSection`, the Garment
+ * Order's Approval Qty tab renders a bare `<div>`, and a container query with no
+ * named ancestor never matches. So the three wide columns below were not
+ * "hidden until the pane is wide enough" — they were hidden at every width, on
+ * a 1,600px pane, while the 3-column track stretched across it. **This is the
+ * `bg-muted` trap in a different costume**: a class that compiles, ships, and
+ * silently does nothing.
+ *
+ * `@container/editor` is real — `MasterFullScreen` puts it on the content pane
+ * every section renders into — so querying it works wherever this component is
+ * mounted, without depending on a wrapper the caller may not use.
+ */
 const COLS =
-  "grid grid-cols-[minmax(7rem,1.5fr)_5.5rem_1.75rem] items-center gap-x-2.5 @lg/section:grid-cols-[minmax(8rem,1.5fr)_6rem_7.5rem_5rem_6.5rem_1.75rem]";
+  "grid grid-cols-[minmax(7rem,1.5fr)_5.5rem_1.75rem] items-center gap-x-2.5 @lg/editor:grid-cols-[minmax(8rem,1.5fr)_6rem_7.5rem_5rem_6.5rem_1.75rem]";
 /** Columns that only appear once the pane is wide enough to hold them. */
-const WIDE = "hidden @lg/section:block";
+const WIDE = "hidden @lg/editor:block";
 
 function num(v: string) {
   const n = Number(v);
@@ -325,6 +390,34 @@ export function ApprovalQtyLines({
           const cells = c.sizes.map((z) => ({ z, d: derive(z.qty, num(z.approval)) }));
           /* Whether the Rejection row has anything to say — see its comment. */
           const anyRejection = cells.some((x) => x.d.rejection !== null);
+          /**
+           * THE BREAKUP'S COLUMN TRACK, measured from the figures actually in
+           * each column — the same rule the Prices matrix and the Assortments
+           * grid size their size runs by (`sizeColPx` / `textColPx`).
+           *
+           * A size column has to hold FIVE stacked figures plus its own token,
+           * so all five are measured; the widest is what the column is for. The
+           * row-name column is a fixed vocabulary whose longest word is
+           * "Rejection", and the Total column holds a colour's roll-up.
+           */
+          const colChars = (x: (typeof cells)[number]) =>
+            Math.max(
+              fmtNumber(x.z.qty).length,
+              fmtNumber(x.d.excess).length,
+              x.z.approval.trim().length,
+              x.d.rejection === null ? 1 : fmtNumber(x.d.rejection).length,
+              fmtNumber(x.d.total).length,
+            );
+          const track = [
+            textColPx("Rejection".length, 16, 76, 120) + "px",
+            ...cells.map((x) => sizeColPx(x.z.label, colChars(x)) + "px"),
+            textColPx(
+              Math.max(fmtNumber(r.total).length, fmtNumber(r.qty).length),
+              16,
+              56,
+              96,
+            ) + "px",
+          ].join(" ");
           /* MIXED CANNOT BE CLOSED, AND THAT OUTRANKS THE ACCORDION. A single
              box cannot honestly show one figure for six that disagree, so the
              breakup is the only place the value can be read — shutting it would
@@ -347,7 +440,49 @@ export function ApprovalQtyLines({
                 isOpen ? "border-primary" : "border-border hover:border-border-strong",
               )}
             >
-              <div className={cn(COLS, "min-h-9")}>
+              {/**
+               * THE WHOLE LINE OPENS THE COLOUR, not just the chevron (client
+               * 2026-09-02: "if i click the colors the tab is why not ist
+               * exploting").
+               *
+               * The chevron was a 24px target at the far right of a ~1,600px
+               * row, and the thing an operator actually points at is the colour
+               * name — so the row read as inert everywhere except one corner.
+               * `bom-slice-grid` answers the same question by putting the NAME
+               * inside the `data-row-open` button; that shape is not available
+               * here because this row also holds an `<Input>` (the each-box)
+               * and a control cannot nest inside a button.
+               *
+               * SO THE MOUSE GETS THE ROW AND THE KEYBOARD KEEPS THE CHEVRON.
+               * A second `data-row-open` — or a `role="button"` on this div —
+               * would be a SECOND Tab stop for one action, which is the
+               * regression AGENTS.md's "Tab lands on fields" rule exists to
+               * prevent; the chevron already carries `aria-expanded` and a real
+               * accessible name, so nothing is lost by leaving it the only
+               * focusable control.
+               *
+               * TWO GUARDS, both load-bearing. `closest(...)` lets a click on
+               * the each-box, or on the chevron itself, reach its own control —
+               * without it the chevron would toggle twice (its handler, then
+               * this one on the way up) and land back where it started. And a
+               * colour with no sizes does not toggle at all: `isOpen` requires
+               * sizes, so opening one would show nothing WHILE shutting the
+               * colour the operator was reading.
+               */}
+              <div
+                className={cn(COLS, "min-h-9", c.sizes.length > 0 && "cursor-pointer")}
+                onClick={(e) => {
+                  if (c.sizes.length === 0) return;
+                  if (
+                    (e.target as HTMLElement).closest(
+                      "input,button,select,textarea,a,[role='button']",
+                    )
+                  ) {
+                    return;
+                  }
+                  toggle(c.combo);
+                }}
+              >
                 <Truncated text={c.combo} className={T_NAME} />
                 <div className={cn(WIDE, "text-right text-[11px] leading-tight text-muted-foreground")}>
                   <b className={cn("block text-foreground tabular-nums", T_NAME)}>
@@ -410,107 +545,126 @@ export function ApprovalQtyLines({
               {isOpen && c.sizes.length > 0 && (
                 <div className="mt-0.5 border-t border-dashed border-border pt-2 pb-2.5">
                   <div className={MX_WRAP}>
-                    <table className="border-collapse">
-                      <thead>
-                        <tr className="border-b border-border-strong bg-surface-muted">
-                          {/* THE CORNER IS EMPTY, not labelled "Figure". The row
-                              names below say what they are, and a word here would
-                              be a heading for a column of headings. */}
-                          <th className={cn(MX_HEAD, T_LABEL, "bg-surface-muted")} />
-                          {c.sizes.map((z) => (
-                            <th
-                              key={z.sizeId}
-                              scope="col"
-                              className={cn(MX_CELL, T_LABEL, "font-semibold")}
-                            >
-                              {z.label}
-                            </th>
-                          ))}
-                          <th scope="col" className={cn(MX_TOTAL, T_LABEL)}>
-                            Total
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {/* ORDERED is what every other row is judged against, so
-                            it leads — "2 of 100" and "2 of 300" are different
-                            decisions, which is why the strip used to print it
-                            above each box. */}
-                        <tr className="border-t border-border">
-                          <th scope="row" className={cn(MX_HEAD, T_LABEL)}>Ordered</th>
+                    {/* NO `data-grid-body` AND NO `data-grid-row` IN HERE.
+                        A "row" for the keyboard is the COLOUR and its open
+                        breakup together — `gridKeyNav` walks the each-box then
+                        S, M, L along the colour's own `data-grid-row` above, in
+                        the order the operator fills them. Marking these five
+                        display rows would split that one row into five and put
+                        the four read-only ones on the ↑/↓ axis with nothing to
+                        type in them.
+
+                        THE TRACK IS EXPLICIT, WHICH IS THE FIX. This was a
+                        `<table>` with auto layout, so each column was sized from
+                        its widest content — and the Approval row's `<input>`
+                        contributes its ~180px intrinsic width whatever CSS width
+                        it is given. Five sizes came out at ~205px each and the
+                        breakup filled the pane (client 2026-09-02, screenshot
+                        2642) while its wrapper was, correctly, hugging. */}
+                    <div
+                      className="grid w-fit"
+                      style={{ gridTemplateColumns: track }}
+                    >
+                      {/* ---- header ---- THE CORNER IS EMPTY, not labelled
+                          "Figure": the row names below say what they are, and a
+                          word here would be a heading for a column of headings. */}
+                      <div className={cn(MX_HEAD, "sticky left-0 z-30 justify-start pl-2")} />
+                      {cells.map((x) => (
+                        <div key={x.z.sizeId} className={MX_HEAD}>
+                          <span className={MATRIX_SIZE_TOKEN}>{x.z.label}</span>
+                        </div>
+                      ))}
+                      <div className={cn(MX_HEAD, MX_TOTAL, "justify-end pr-2")}>
+                        Total
+                      </div>
+
+                      {/* ORDERED is what every other row is judged against, so
+                          it leads — "2 of 100" and "2 of 300" are different
+                          decisions, which is why the strip used to print it
+                          above each box. */}
+                      <div className={cn(MX_NAME, T_LABEL)}>Ordered</div>
+                      {cells.map((x) => (
+                        <div key={x.z.sizeId} className={MX_NUM}>{fmtNumber(x.z.qty)}</div>
+                      ))}
+                      <div className={cn(MX_NUM, MX_TOTAL)}>{fmtNumber(r.qty)}</div>
+
+                      <div className={cn(MX_NAME, T_LABEL)}>Excess</div>
+                      {cells.map((x) => (
+                        <div key={x.z.sizeId} className={MX_NUM}>{fmtNumber(x.d.excess)}</div>
+                      ))}
+                      <div className={cn(MX_NUM, MX_TOTAL)}>{fmtNumber(r.excess)}</div>
+
+                      {/* THE ONE ROW THAT IS TYPED. It sits where the strip's
+                          boxes sat and holds the same `onSet`, so the keyboard
+                          is unchanged: these are the only fields in the row, in
+                          size order, and `gridKeyNav` still walks the each-box
+                          then S, M, L along the SAME `data-grid-row`. */}
+                      <div className={cn(MX_NAME, T_LABEL, "bg-surface-muted/40 text-foreground")}>
+                        Approval
+                      </div>
+                      {cells.map((x) => (
+                        <div
+                          key={x.z.sizeId}
+                          className={cn(MX_CELL, "justify-end bg-surface-muted/40 px-0")}
+                        >
+                          <Input
+                            type="number"
+                            value={x.z.approval}
+                            onChange={(e) => onSet(c.combo, x.z.sizeId, e.target.value)}
+                            aria-label={`Approval quantity, ${c.combo} ${x.z.label}, of ${x.z.qty} ordered`}
+                            className={MX_BOX}
+                          />
+                        </div>
+                      ))}
+                      <div className={cn(MX_NUM, MX_TOTAL, "bg-surface-muted/40")}>
+                        {fmtNumber(r.approval)}
+                      </div>
+
+                      {/* REJECTION IS DRAWN ONLY WHEN IT HAS AN ANSWER. It is
+                          null with no Rejection Rule on the order and null in a
+                          gap between tiers, and a row of zeroes would read as
+                          "none needed" — the `0`-versus-refusal distinction the
+                          requirement engine is built around. A null BESIDE real
+                          answers still prints, as a dash, because there the gap
+                          is the finding. */}
+                      {anyRejection && (
+                        <>
+                          <div className={cn(MX_NAME, T_LABEL)}>Rejection</div>
                           {cells.map((x) => (
-                            <td key={x.z.sizeId} className={MX_CELL}>{fmtNumber(x.z.qty)}</td>
+                            <div key={x.z.sizeId} className={MX_NUM}>
+                              {x.d.rejection === null ? (
+                                <span className="text-muted-foreground">—</span>
+                              ) : (
+                                fmtNumber(x.d.rejection)
+                              )}
+                            </div>
                           ))}
-                          <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.qty)}</td>
-                        </tr>
-                        <tr className="border-t border-border">
-                          <th scope="row" className={cn(MX_HEAD, T_LABEL)}>Excess</th>
-                          {cells.map((x) => (
-                            <td key={x.z.sizeId} className={MX_CELL}>{fmtNumber(x.d.excess)}</td>
-                          ))}
-                          <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.excess)}</td>
-                        </tr>
-                        {/* THE ONE ROW THAT IS TYPED. It sits where the strip's
-                            boxes sat and holds the same `onSet`, so the keyboard
-                            is unchanged: these are the only fields in the row, in
-                            size order, and `gridKeyNav` still walks the each-box
-                            then S, M, L along the SAME `data-grid-row`. */}
-                        <tr className="border-t border-border bg-surface-muted/40">
-                          <th scope="row" className={cn(MX_HEAD, T_LABEL, "text-foreground")}>
-                            Approval
-                          </th>
-                          {cells.map((x) => (
-                            <td key={x.z.sizeId} className={cn(MX_CELL, "p-0")}>
-                              <Input
-                                type="number"
-                                value={x.z.approval}
-                                onChange={(e) => onSet(c.combo, x.z.sizeId, e.target.value)}
-                                aria-label={`Approval quantity, ${c.combo} ${x.z.label}, of ${x.z.qty} ordered`}
-                                className={MX_BOX}
-                              />
-                            </td>
-                          ))}
-                          <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.approval)}</td>
-                        </tr>
-                        {/* REJECTION IS DRAWN ONLY WHEN IT HAS AN ANSWER. It is
-                            null with no Rejection Rule on the order and null in a
-                            gap between tiers, and a row of zeroes would read as
-                            "none needed" — the `0`-versus-refusal distinction the
-                            requirement engine is built around. A null BESIDE real
-                            answers still prints, as a dash, because there the gap
-                            is the finding. */}
-                        {anyRejection && (
-                          <tr className="border-t border-border">
-                            <th scope="row" className={cn(MX_HEAD, T_LABEL)}>Rejection</th>
-                            {cells.map((x) => (
-                              <td key={x.z.sizeId} className={MX_CELL}>
-                                {x.d.rejection === null ? (
-                                  <span className="text-muted-foreground">—</span>
-                                ) : (
-                                  fmtNumber(x.d.rejection)
-                                )}
-                              </td>
-                            ))}
-                            <td className={cn(MX_TOTAL, "text-[12.5px]")}>{fmtNumber(r.rejection)}</td>
-                          </tr>
+                          <div className={cn(MX_NUM, MX_TOTAL)}>{fmtNumber(r.rejection)}</div>
+                        </>
+                      )}
+
+                      {/* THE ANSWER, in the accent the colour row's own "To
+                          make" already uses, so the eye pairs the two. It takes
+                          the FOOT band for the same reason Prices' weights do:
+                          the last line of one of these grids is a conclusion,
+                          not another row. */}
+                      <div
+                        className={cn(
+                          MX_FOOT,
+                          "sticky left-0 z-30 justify-start pl-2 text-[10.5px] uppercase tracking-wide text-foreground",
                         )}
-                        {/* THE ANSWER, in the accent the colour row's own "To
-                            make" already uses, so the eye pairs the two. */}
-                        <tr className="border-t border-border-strong">
-                          <th scope="row" className={cn(MX_HEAD, T_LABEL, "text-foreground")}>
-                            To make
-                          </th>
-                          {cells.map((x) => (
-                            <td key={x.z.sizeId} className={cn(MX_CELL, "font-semibold text-primary")}>
-                              {fmtNumber(x.d.total)}
-                            </td>
-                          ))}
-                          <td className={cn(MX_TOTAL, "text-[12.5px] text-primary")}>
-                            {fmtNumber(r.total)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                      >
+                        To make
+                      </div>
+                      {cells.map((x) => (
+                        <div key={x.z.sizeId} className={cn(MX_FOOT, "justify-end px-2 text-primary")}>
+                          {fmtNumber(x.d.total)}
+                        </div>
+                      ))}
+                      <div className={cn(MX_FOOT, MX_TOTAL, "justify-end px-2 text-primary")}>
+                        {fmtNumber(r.total)}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

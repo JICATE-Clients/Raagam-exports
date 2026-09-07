@@ -149,7 +149,7 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
 
           {/* Lines */}
           <div>
-            <p className="mb-2 text-xs font-semibold text-muted-foreground">
+            <p className="mb-2 text-xs font-bold text-muted-foreground">
               Line items
             </p>
             {/* ↓/↑ walk a column across RFQ lines — gridKeyNav, see

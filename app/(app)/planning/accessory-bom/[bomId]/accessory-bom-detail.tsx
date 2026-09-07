@@ -243,7 +243,7 @@ function ItemsTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
-            <p className="mb-3 text-xs font-semibold text-muted-foreground">
+            <p className="mb-3 text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add item" : "Edit item"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -552,7 +552,7 @@ function ConsumptionsTab({
 
         {addConsFor !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4">
-            <p className="mb-3 text-xs font-semibold text-muted-foreground">Add consumption</p>
+            <p className="mb-3 text-xs font-bold text-muted-foreground">Add consumption</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <div>
                 <Label>Nos/Pcs</Label>
@@ -652,7 +652,7 @@ function ConsumptionsTab({
           .map((cons) => (
             <div key={`child-${cons.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Sizes for: Consumption {cons.sno}
                 </p>
                 {canMutate && addSizeFor !== cons.id && (
@@ -677,7 +677,7 @@ function ConsumptionsTab({
 
               {addSizeFor === cons.id && (
                 <div className="rounded-md border border-border bg-surface-muted p-4">
-                  <p className="mb-3 text-xs font-semibold text-muted-foreground">Add size</p>
+                  <p className="mb-3 text-xs font-bold text-muted-foreground">Add size</p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                     <div>
                       <Label>Garment Size</Label>
@@ -927,7 +927,7 @@ function ProcessesTab({
 
   const stageFormUI = (procId: string, proc: AccessoryBomProcess, isAdd: boolean) => (
     <div className="rounded-md border border-border bg-surface-muted p-4">
-      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         {isAdd ? "Add stage" : "Edit stage"}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
@@ -1041,7 +1041,7 @@ function ProcessesTab({
           .map((proc) => (
             <div key={`child-${proc.id}`} className="ml-4 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-xs font-bold text-muted-foreground">
                   Stages for: Process {proc.sno}
                 </p>
                 {canMutate && addStageFor !== proc.id && (

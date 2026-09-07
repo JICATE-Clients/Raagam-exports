@@ -231,7 +231,7 @@ function StylesTab({
         {/* Inline form panel */}
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {isAdd ? "Add style" : "Edit style"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
@@ -324,7 +324,7 @@ function StylesTab({
           .filter((s) => expandedStyles.has(s.id))
           .map((style) => (
             <div key={`detail-${style.id}`} className="ml-4 space-y-3 rounded-md border border-border p-3">
-              <p className="text-xs font-semibold text-muted-foreground">
+              <p className="text-xs font-bold text-muted-foreground">
                 Style #{style.sno} — {style.style_no ?? style.style_ref_no ?? ""}
               </p>
               {style.coordinates.length > 0 && (

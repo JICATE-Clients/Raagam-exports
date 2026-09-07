@@ -115,7 +115,7 @@ export async function getOpenPoLines(vendorId?: string): Promise<OpenPoLine[]> {
 
   let poQuery = supabase
     .from("purchase_orders")
-    .select("id, code, vendor_id, vendors(id, name)")
+    .select("id, code, vendor_id, vendors!vendor_id(id, name)")
     .in("status", ["approved", "partially_received"]);
 
   if (vendorId) {

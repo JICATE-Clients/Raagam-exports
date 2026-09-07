@@ -187,16 +187,16 @@ export function PnlDetailClient({ shipmentId, costs }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-surface-muted">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                     Type
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                     Description
                   </th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
                     Amount (INR)
                   </th>
-                  <th className="w-20 px-3 py-2 text-xs font-semibold text-muted-foreground" />
+                  <th className="w-20 px-3 py-2 text-xs font-bold text-muted-foreground" />
                 </tr>
               </thead>
               <tbody>

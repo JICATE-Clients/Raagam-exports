@@ -57,6 +57,7 @@
     "scripts/check-pack-type-explosion.mts",
     "scripts/check-process-return.mts",
     "scripts/check-fabric-bom.mts",
+    "scripts/check-search-match.mts",
     "scripts/check-fabric-plan.mts",
     "scripts/check-yarn-process.mts",
     "scripts/check-fabric-components.mts",

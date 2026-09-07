@@ -58,7 +58,10 @@ export function PageHeader({
        * reads this and native Tab order is unchanged.
        */
       data-focus-region="header"
-      className="mb-4 flex flex-wrap items-start justify-between gap-3"
+      /* `mb-3`, down from `mb-4` (client 2026-09-05: "compact it" — this
+         component sits above every page in the app, so a smaller step than
+         the footer's, applied here rather than per screen. */
+      className="mb-3 flex flex-wrap items-start justify-between gap-3"
     >
       <div>
         <h1 className="text-xl font-semibold text-foreground">{title}</h1>

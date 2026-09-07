@@ -154,28 +154,28 @@ export default function AttendanceClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-surface-muted">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                     Worker
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                     Type
                   </th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground w-16">
+                  <th className="px-3 py-2 text-center text-xs font-bold text-muted-foreground w-16">
                     Present
                   </th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground w-24">
+                  <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground w-24">
                     Hrs
                   </th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground w-24">
+                  <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground w-24">
                     OT Hrs
                   </th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground w-24">
+                  <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground w-24">
                     Extra Hrs
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground w-24">
+                  <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground w-24">
                     Source
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                     Note
                   </th>
                 </tr>

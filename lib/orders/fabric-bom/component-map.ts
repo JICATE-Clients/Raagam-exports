@@ -85,14 +85,27 @@ import { styleKey } from "@/lib/orders/amendments/style-key";
  * ("a specific, mandatory field on this tab").
  *
  * LOWERCASE VALUES, matching 0495's CHECK and every other text vocabulary on
- * this table. The labels are legacy's own words.
+ * this table. `open` is UNCHANGED — the label below is the only thing the
+ * 2026-09-04 cleanup spec asked to rename ("rename the column selector 'Open'
+ * to 'Open Width'"), and the CHECK constraint, every save payload and every
+ * comparison against `l.fabric_form === "open"` all read the value, never the
+ * label. Renaming the stored word too would be a migration, not a wording fix.
+ *
+ * STILL NOT `LAYOUT_TYPE_OPTIONS` BELOW, even though the two labels now read
+ * identically ("Open Width" / "Tubular"). This is `fabric_form`
+ * ('open'/'tubular'), the Components tab's own colourway-row field, entered
+ * AFTER the panel's Component is already chosen; `LAYOUT_TYPE_OPTIONS` is
+ * `layout_type`/`width_form` ('open_width'/'tubular'), the declared-per-style
+ * fact 0527 built to GATE a Component picker on the Manual tab. Matching
+ * words on screen does not make them one column — see 0527's own header for
+ * why the two were kept spelled apart at the data layer.
  *
  * NOT `knit_type` (0490), which is Circular / Flat / Woven. That says how the
  * cloth is MADE; this says how the roll reaches cutting. A circular knit is the
  * one that can be either, which is exactly why both columns exist.
  */
 export const FABRIC_FORM_OPTIONS = [
-  { value: "open", label: "Open" },
+  { value: "open", label: "Open Width" },
   { value: "tubular", label: "Tubular" },
 ] as const;
 
@@ -100,6 +113,47 @@ export type FabricForm = (typeof FABRIC_FORM_OPTIONS)[number]["value"];
 
 export const fabricFormLabel = (v: string | null | undefined): string =>
   FABRIC_FORM_OPTIONS.find((o) => o.value === v)?.label ?? "";
+
+/**
+ * The single distinct value among a group of lines, or "(mixed)".
+ *
+ * ABSTAINS RATHER THAN PICKING THE FIRST. A summary row stands for N lines, and
+ * showing one line's fabric as though it were the group's would be a confident
+ * lie on exactly the rows where the operator needs to look. Blank values are
+ * ignored, so a half-filled group reads as its filled half rather than as
+ * "(mixed)" against nothing.
+ *
+ * IT LIVES HERE BECAUSE IT HAS TWO READERS (2026-09-03). It was written for the
+ * Components tab's panel row, which rolls up its colourways; the Fabric Process
+ * tab's fabric row rolls up its lines' structure type and roll form the same
+ * way. Two copies of a rule about abstaining is how two surfaces come to abstain
+ * differently — and the difference would only ever show on the rows that
+ * disagree, which are the rows the rule exists for.
+ */
+export function rollUp(values: readonly string[]): string {
+  const seen = [...new Set(values.map((v) => v.trim()).filter(Boolean))];
+  if (seen.length === 0) return "";
+  return seen.length === 1 ? seen[0] : "(mixed)";
+}
+
+/**
+ * Open Width or Tubular — the "Fab Rail" Layout Type (0527), the same two
+ * words `order_fabric_bom_manual_entries.width_form` already uses. NOT
+ * `FabricForm` above: that is `fabric_form` ('open'/'tubular'), the
+ * Components tab's own colourway-row field, spelled differently on purpose —
+ * see 0527's header. Comparing a Manual entry's `width_form` against a
+ * declaration's `layout_type` needs no translation because both use this
+ * spelling.
+ */
+export const LAYOUT_TYPE_OPTIONS = [
+  { value: "open_width", label: "Open Width" },
+  { value: "tubular", label: "Tubular" },
+] as const;
+
+export type LayoutType = (typeof LAYOUT_TYPE_OPTIONS)[number]["value"];
+
+export const layoutTypeLabel = (v: string | null | undefined): string =>
+  LAYOUT_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "";
 
 /**
  * One row of the order's own panel-to-fabric declaration
@@ -300,6 +354,27 @@ export function availablePanels(input: {
 
   return out;
 }
+
+/**
+ * RULE 4 — RETIRED 2026-09-05, along with the per-style Layout Type
+ * declaration it read (`garment_order_amendment_style_components.layout_type`,
+ * 0527's "Fab Rail" field, removed from Order Info ▸ Style(s) ▸ Components by
+ * client instruction). This is where `componentsHiddenForLayout` was.
+ *
+ * IT WAS ALREADY A NO-OP ON ITS OTHER CALLER before this removal:
+ * `component-map-sheet.tsx`'s own comment records that the Components tab's
+ * Layout Type CELL (0530) was pulled the same day it was added ("remove the
+ * # 1 column cell and layout type", 2026-09-04), so `p.layout_type` had been
+ * null on every new panel since — the rule never fired there again. Removing
+ * the STYLE declaration this function read completes the same retirement on
+ * its other caller, Fabric BOM ▸ Manual: both pickers are back to offering
+ * everything rules 2/2b/3 (and Manual's own `takenComponentIds`) allow,
+ * unfiltered by Layout Type, which is what every order has actually seen
+ * since 09-04 in practice.
+ *
+ * Bringing it back needs a place to declare a per-style Layout Type again —
+ * there is none today — before this function has anything to read.
+ */
 
 /**
  * RULE 2b — the panel to fill in by itself, or null.

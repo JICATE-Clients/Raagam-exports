@@ -38,7 +38,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { BomQueue } from "@/components/orders/bom-queue";
 import type { CardStat } from "@/components/masters/mobile-card-list";
 import { useToast } from "@/components/ui/toast";
-import { fmtNumber } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -1303,6 +1303,10 @@ export function MbaMasterScreen({
    * construction with nothing on screen saying so.
    */
   const [comboLineKey, setComboLineKey] = useState<string | null>(null);
+  /** The Combinations button's own rect, so its sheet grows out of that
+   *  button — same mechanism as `garment-order-screen.tsx`'s `processOrigin` /
+   *  `packOrigin` (AGENTS.md, "A sub-detail Sheet's size"). */
+  const [comboOrigin, setComboOrigin] = useState<DOMRect | null>(null);
 
   const [copyOpen, setCopyOpen] = useState(false);
   const [pendingCopy, setPendingCopy] = useState<{
@@ -5032,7 +5036,13 @@ export function MbaMasterScreen({
                   ? `Combinations — ${itemName(r.item_id)} (${blocked})`
                   : `Combinations — ${itemName(r.item_id)}`
               }
-              onClick={() => setComboLineKey(r.key)}
+              /* Captures the button's own rect so the sheet scales out of
+                 THIS button — `currentTarget`, not `target`: the click can
+                 land on the icon/text node inside it. See `comboOrigin`. */
+              onClick={(ev) => {
+                setComboOrigin(ev.currentTarget.getBoundingClientRect());
+                setComboLineKey(r.key);
+              }}
             >
               {r.combinations.length ? (
                 <span className="tabular-nums text-xs">{r.combinations.length}</span>
@@ -6665,20 +6675,33 @@ export function MbaMasterScreen({
         }
         header={{
           initials: "MB",
-          title: selectedOrder?.sc_no ?? (editId ? "Material BOM" : "New material BOM"),
+          /* FALLS BACK TO THE INTERNAL CODE, matching `code: o.sc_no ?? o.code`
+             two hundred lines up (the same order feeding this screen's OWN
+             picker rows) and every sibling BOM screen (Fabric BOM, CAD, Fabric
+             Plan all read `sales_order.order_number ?? code`). `sc_no` alone
+             is `o.sales_order?.order_number ?? null` at the service — an order
+             whose `sales_order` embed is missing or not yet linked left this
+             title blank ("Material BOM"/"Editing…") while the order picker two
+             clicks away named it correctly (operator report, 2026-09-04). */
+          title:
+            selectedOrder?.sc_no ??
+            selectedOrder?.code ??
+            (editId ? "Material BOM" : "New material BOM"),
           badges: dirty ? (
             <span className="text-[11px] font-medium text-warning">● Unsaved</span>
           ) : null,
-          /* NO META LINE (client 2026-08-28: "remove this wordings", pointing at
-             "A. No auto · 28/08/2026").
-             It carried the amendment number, the customer and the date under the
-             title. All three are still on the record and two of them are on the
-             screen already — the date is the Date field two rows down, and the
-             customer follows from the Garment Order beside it. `amendmentNo` is
-             the one that only lived here, and "A. No auto" is what it says until
-             a save assigns one, which is a placeholder rather than information.
-             `MasterFullScreen` renders the band without it when `meta` is
-             omitted, so nothing else changes. */
+          /* THE META LINE IS BACK (operator request, 2026-09-04: this header
+             should match Fabric BOM / CAD / Fabric Plan's). Client 2026-08-28
+             asked to remove "A. No auto · 28/08/2026" — the amendment number's
+             pre-save placeholder was the complaint, not the concept of a meta
+             line, so it is not reinstated here: only customer and date, the two
+             pieces every sibling screen's meta line already shows. */
+          meta: (
+            <>
+              {selectedOrder?.customer_name && <span>{selectedOrder.customer_name}</span>}
+              {form.amend_date && <span>· {fmtDate(form.amend_date)}</span>}
+            </>
+          ),
           right: (
             <Button
               type="button"
@@ -6718,6 +6741,8 @@ export function MbaMasterScreen({
         <BomCombinationSheet
           open
           onClose={() => setComboLineKey(null)}
+          /* The Combinations cell that opened this — see `comboOrigin`. */
+          origin={comboOrigin}
           /* LEGACY'S OWN HEADER, read-only — Category, Type, Item, Attribute and
              the line's figure. Blank rather than a dash wherever the line has
              not answered yet: a form field is not a table cell, and the

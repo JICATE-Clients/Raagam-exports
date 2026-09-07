@@ -795,7 +795,7 @@ function CostSheetsTab({
               {/* Line items */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
                     Line Items
                   </span>
                   <Button
@@ -811,19 +811,19 @@ function CostSheetsTab({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-surface-muted">
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                        <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                           Category
                         </th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
+                        <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
                           Description
                         </th>
-                        <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground w-24">
+                        <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground w-24">
                           Qty
                         </th>
-                        <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground w-28">
+                        <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground w-28">
                           Unit Cost
                         </th>
-                        <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground w-28">
+                        <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground w-28">
                           Amount
                         </th>
                         <th className="px-3 py-2 w-10" />
@@ -908,7 +908,7 @@ function CostSheetsTab({
                       <tr className="bg-surface-muted border-t border-border">
                         <td
                           colSpan={4}
-                          className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground"
+                          className="px-3 py-2 text-right text-xs font-bold text-muted-foreground"
                         >
                           Total FOB
                         </td>

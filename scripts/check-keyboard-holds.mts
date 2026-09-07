@@ -22,20 +22,29 @@
 
 import {
   autoFilledField,
+  enterInGrid,
   enterTicks,
   keyFills,
   keyMovesBackward,
   type FillProbe,
+  type GridEnterProbe,
   type TickProbe,
 } from "../lib/focus.ts";
 
 /** The controls a held field can actually be. */
-const TEXT: FillProbe = { tag: "INPUT", role: null, ariaExpanded: null, fieldTrigger: false };
-const PICKER_SHUT: FillProbe = { tag: "INPUT", role: "combobox", ariaExpanded: "false", fieldTrigger: false };
-const PICKER_OPEN: FillProbe = { tag: "INPUT", role: "combobox", ariaExpanded: "true", fieldTrigger: false };
-const TRIGGER: FillProbe = { tag: "BUTTON", role: null, ariaExpanded: null, fieldTrigger: true };
-const NATIVE_SELECT: FillProbe = { tag: "SELECT", role: null, ariaExpanded: null, fieldTrigger: false };
-const TEXTAREA: FillProbe = { tag: "TEXTAREA", role: null, ariaExpanded: null, fieldTrigger: false };
+const TEXT: FillProbe = { tag: "INPUT", role: null, ariaExpanded: null, fieldTrigger: false, inputType: "text", inGrid: false };
+const PICKER_SHUT: FillProbe = { tag: "INPUT", role: "combobox", ariaExpanded: "false", fieldTrigger: false, inputType: "text", inGrid: false };
+const PICKER_OPEN: FillProbe = { tag: "INPUT", role: "combobox", ariaExpanded: "true", fieldTrigger: false, inputType: "text", inGrid: false };
+const TRIGGER: FillProbe = { tag: "BUTTON", role: null, ariaExpanded: null, fieldTrigger: true, inputType: null, inGrid: false };
+const NATIVE_SELECT: FillProbe = { tag: "SELECT", role: null, ariaExpanded: null, fieldTrigger: false, inputType: null, inGrid: false };
+const TEXTAREA: FillProbe = { tag: "TEXTAREA", role: null, ariaExpanded: null, fieldTrigger: false, inputType: null, inGrid: false };
+/** The two `<input>` families that have no popup and no caret — and that answer
+ *  the arrows in OPPOSITE ways. See the block further down. */
+const DATE: FillProbe = { tag: "INPUT", role: null, ariaExpanded: null, fieldTrigger: false, inputType: "date", inGrid: false };
+const NUMBER: FillProbe = { tag: "INPUT", role: null, ariaExpanded: null, fieldTrigger: false, inputType: "number", inGrid: false };
+/** The same date box, in a ChildGrid cell — where the arrows mean something
+ *  else entirely. See the block below. */
+const DATE_IN_GRID: FillProbe = { ...DATE, inGrid: true };
 
 let failures = 0;
 function check(label: string, actual: boolean, expected: boolean) {
@@ -71,7 +80,7 @@ check("textarea: ↓ (no list to open)", keyFills(TEXTAREA, "ArrowDown"), false)
 
 console.log("\nTab is in NO branch — an open list is not an escape hatch");
 for (const [name, probe] of Object.entries({
-  TEXT, PICKER_SHUT, PICKER_OPEN, TRIGGER, NATIVE_SELECT, TEXTAREA,
+  TEXT, PICKER_SHUT, PICKER_OPEN, TRIGGER, NATIVE_SELECT, TEXTAREA, DATE, DATE_IN_GRID, NUMBER,
 })) {
   check(`${name}: Tab refused`, keyFills(probe, "Tab"), false);
 }
@@ -94,13 +103,69 @@ for (const [name, probe] of Object.entries({
 // from the keyboard. `TRIGGER` above already covers that direction; what was
 // missing is the NEGATIVE — that the same shape without the marker is dead.
 const BARE_BUTTON: FillProbe = {
-  tag: "BUTTON", role: null, ariaExpanded: null, fieldTrigger: false,
+  tag: "BUTTON", role: null, ariaExpanded: null, fieldTrigger: false, inputType: null, inGrid: false,
 };
 console.log("\nA BARE <button> CAN NEVER HOLD — it has no key that fills");
 for (const key of ["Enter", "ArrowDown", "ArrowUp", " ", "Tab"]) {
   check(`bare button: ${key === " " ? "Space" : key} fills nothing`, keyFills(BARE_BUTTON, key), false);
 }
 check("marked trigger: ↓ DOES fill — the marker is the whole difference", keyFills(TRIGGER, "ArrowDown"), true);
+
+// ---------------------------------------------------------------------------
+// A DATE BOX'S ARROWS ARE ITS VALUE
+// (Orders ▸ Order Management ▸ Order Entry ▸ Order Info, client 2026-09-03).
+//
+// `<input type="date">` has no popup and no caret. Its entire keyboard
+// interface is the four arrows: ↑/↓ step the focused segment, ←/→ move
+// between dd, mm and yyyy. `keyFills` knew nothing about the type, so a blank
+// MANDATORY date refused ↓ and → while ↑ and ← went through (those two are
+// `keyMovesBackward`, allowed out of a required hold). The operator was left
+// with a box where ↑ counted up and ↓ would not count down, which is how it
+// was reported: "the up down arrow and enter key are not working".
+//
+// Order Info is where it bites because that section has TWO required dates
+// (Date, and Deli.Dt since 2026-08-31) and on a new order both start blank.
+//
+// THE HOLD LOSES NOTHING BY ALLOWING THEM, which is why this is not a
+// softening of the rule. `ownsArrowKeys` already claims the date family, so
+// `arrowNavigate` stands down and no arrow moves focus off one of these fields
+// in the first place — refusing them protected no departure, it only removed
+// the keys that FILL the box. Tab and Enter are the keys that really do leave,
+// and they are still refused, so Save stays out of reach until a date is there.
+//
+// Same argument as the `<select>` branch above, one control along: no popup, so
+// the arrows are the value.
+console.log("\nA DATE BOX IS FILLED WITH ITS ARROWS — Order Info ▸ Date / Deli.Dt");
+for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
+  check(`date field: ${key} fills the segment`, keyFills(DATE, key), true);
+}
+check("date field: Enter still MOVES (refused while blank)", keyFills(DATE, "Enter"), false);
+check("date field: Tab still MOVES (refused while blank)", keyFills(DATE, "Tab"), false);
+
+// … AND THE SAME BOX IN A GRID CELL IS BACK TO REFUSING ALL FOUR.
+//
+// The argument that makes the branch above safe is "no arrow moves focus off
+// this field", and inside a `data-grid-row` that is simply untrue: `gridKeyNav`
+// (components/masters/child-grid.tsx) claims ↑/↓ for the ROW and ←/→ for the
+// COLUMN, so the browser never sees the key and no segment is ever stepped.
+// Allowing them there would buy the operator nothing and would let ↑/↓ walk
+// straight out of a held cell — the hole `keyFills`'s own note warns about for
+// `ownsArrowKeys`, arriving by a different door. A mandatory date cell in a grid
+// is filled by typing, and abandoned with Ctrl+Del, exactly as before.
+console.log("\nBUT NOT IN A GRID CELL — there the arrows are the row and the column");
+for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Tab"]) {
+  check(`date cell in a grid: ${key} is movement, not a fill`, keyFills(DATE_IN_GRID, key), false);
+}
+
+// `type="number"` IS NOT IN THAT FAMILY, and the contrast is the point. Its
+// arrows DO move focus — `ownsArrowKeys` deliberately does not claim it, and
+// `atCaretEdge` treats an unreadable caret there as the edge — so refusing them
+// refuses a real departure. The native step buttons are not how an operator
+// fills a quantity; typing is. Order Info's Excess % is the field in question.
+console.log("\nA NUMBER BOX IS NOT — its arrows are movement");
+for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Tab"]) {
+  check(`number field: ${key} is movement, not a fill`, keyFills(NUMBER, key), false);
+}
 
 console.log("\n←/→ are never a FILL — the hold handles them by caret position");
 for (const [name, probe] of Object.entries({ TEXT, PICKER_OPEN, NATIVE_SELECT })) {
@@ -312,6 +377,89 @@ for (const filled of [true, false]) {
     f.offTabPath || f.required,
     true,
   );
+}
+
+// ---------------------------------------------------------------------------
+// `enterInGrid` — what Enter means INSIDE a child grid.
+//
+// WHY THESE EXIST. `gridKeyNav` answered Enter with the Excel key everywhere:
+// "same column, one row down". A CARD row has no column — its fields are a panel
+// on their own multi-line track — so on the Garment Order's Style(s) tab, Enter
+// in the Style box landed on the Style box of the NEXT style card and skipped
+// the ten fields between them (client 2026-09-05). The layout is what decides
+// it, which is why `stacked` is the first question and not the screen's name.
+//
+// Verified by being made to FAIL first: with the old rule (`return "row"`
+// unconditionally) every STACKED vector below reports FAIL, and every LINE
+// vector still passes — which is the shape of the change, stated as a test.
+console.log("\n`enterInGrid` — Enter inside a child grid");
+
+function grid(label: string, actual: string, expected: string) {
+  if (actual === expected) {
+    console.log(`  ok    ${label}`);
+  } else {
+    failures++;
+    console.log(`  FAIL  ${label} — expected ${expected}, got ${actual}`);
+  }
+}
+
+/** A row that is a LINE under a shared header: the table, the inline row,
+ *  `across`'s one-control records. The Excel key is right here and is unchanged
+ *  by any of this — these four vectors are the regression guard for that. */
+const LINE: GridEnterProbe = { stacked: false, fieldAfter: false, hasAdd: false };
+/** A row that is a CARD — a panel of fields on its own track. */
+const CARD: GridEnterProbe = { stacked: true, fieldAfter: false, hasAdd: false };
+
+console.log("\n  a row that is a LINE keeps the Excel key, whatever else is true");
+for (const fieldAfter of [true, false]) {
+  for (const hasAdd of [true, false]) {
+    grid(
+      `line: fieldAfter=${fieldAfter} hasAdd=${hasAdd} — down a row`,
+      enterInGrid({ ...LINE, fieldAfter, hasAdd }),
+      "row",
+    );
+  }
+}
+
+console.log("\n  THE REPORTED BUG — a card row advances along itself");
+grid(
+  "card, fields left in the row: decline, so `enterAdvances` moves ONE field",
+  enterInGrid({ ...CARD, fieldAfter: true }),
+  "advance",
+);
+grid(
+  "…and it declines even when an Add is sitting there",
+  enterInGrid({ ...CARD, fieldAfter: true, hasAdd: true }),
+  "advance",
+);
+
+console.log("\n  and the '+ Add' is the one thing it still claims");
+grid(
+  "card, nothing left in the grid: land on '+ Add'",
+  enterInGrid({ ...CARD, fieldAfter: false, hasAdd: true }),
+  "add",
+);
+// `enterAdvances` looks for `isFieldLike`, and a "+ Add" deliberately is not one
+// (`isRowAdd`) — so leaving this case to it would walk past the button and hand
+// over to the next section. This is why the rule cannot simply be "always
+// decline in a stack".
+grid(
+  "card, nothing left, NO Add: decline — the section hand-off and Save must stay reachable",
+  enterInGrid({ ...CARD, fieldAfter: false, hasAdd: false }),
+  "advance",
+);
+
+// The invariant, stated as the thing actually being asserted rather than as a
+// consequence of the four rows above: a stacked grid NEVER moves a whole row.
+// That is the entire defect, and it is what a future edit has to keep true.
+for (const fieldAfter of [true, false]) {
+  for (const hasAdd of [true, false]) {
+    grid(
+      `card: fieldAfter=${fieldAfter} hasAdd=${hasAdd} — never "row"`,
+      enterInGrid({ stacked: true, fieldAfter, hasAdd }) === "row" ? "row" : "not-row",
+      "not-row",
+    );
+  }
 }
 
 console.log(failures === 0 ? "\nall good\n" : `\n${failures} FAILURE(S)\n`);

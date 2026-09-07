@@ -172,7 +172,7 @@ export function NewJournalForm({
 
           {/* Lines */}
           <div>
-            <div className="mb-1 grid grid-cols-[1fr_6rem_6rem_1fr_auto] gap-2 px-1 text-xs font-semibold text-muted-foreground">
+            <div className="mb-1 grid grid-cols-[1fr_6rem_6rem_1fr_auto] gap-2 px-1 text-xs font-bold text-muted-foreground">
               <span>Account</span>
               <span className="text-right">Debit</span>
               <span className="text-right">Credit</span>

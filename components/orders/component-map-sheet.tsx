@@ -86,22 +86,49 @@
  * So the sheet is now scoped to the STYLE (`detailLines` on the screen), and it
  * draws legacy's three levels:
  *
- *   1. STYLE     — Style Ref No · Style No · Article No, read-only.
- *   2. PANEL     — Coordinate · Component · Structure · Fabric Type · Fabric ·
- *                  GSM · Open/Tubular. Folds.
- *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric · GSM · Type ·
- *                  Required Colour · Required Print · Specification.
+ *   1. STYLE     — Style No, read-only. Style Ref No and Article No were
+ *                  dropped from THIS band on 2026-09-04 (client cleanup
+ *                  spec). Manual's own copy of `StyleIdentityBand` kept all
+ *                  three at first, then lost them the same way but in two
+ *                  separate messages hours later — Article No first, then
+ *                  Style Ref No — landing on the SAME `omit={["ref",
+ *                  "article"]}` this band passes. Both bands now show Style
+ *                  No alone; read each call site's own `omit` rather than
+ *                  assuming a shared component means they always agree —
+ *                  they were allowed to diverge and just happened not to.
+ *   2. PANEL     — Coordinate · Layout Type (0530, gates Component) ·
+ *                  Component · Fabric Type (read-only). Folds.
+ *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric (GSM as a read-only
+ *                  reference beneath it) · Type · Required Colour ·
+ *                  Required Print.
  *
- * ## TWO OF LEGACY'S COLUMNS ARE DELIBERATELY ABSENT
+ * ## FIVE OF LEGACY'S COLUMNS ARE DELIBERATELY ABSENT, AND ONE FIELD IS NEW
  *
- * **Structure Type** (legacy prints "Circular" on every row) has no per-structure
- * source here. A structure is a `categories` row; the knit family is stored on
- * `order_fabric_bom_dias.knit_type`, which is a property of a DIA and not of the
- * structure. Deriving one from the other would be a guess printed as a fact.
- * Rendering the column empty is worse than leaving it out — that is the same
- * call the `Mixing Uom` cell got on 2026-09-02, in as many words: a column of
- * dashes in every row of every BOM. Say where it should come from and it is one
- * cell to add.
+ * All five went the same day (2026-09-04, client cleanup spec: "purge
+ * redundant columns" to fit the pane's width ceiling), in two passes.
+ *
+ * The first pass dropped **Structure** (the panel row's rolled-up
+ * fabric-category name, e.g. "THREE-THREAD FLEECE") and **Specification**
+ * (the colour row's free-text cell). Neither carried a write path this file
+ * owned that the other columns did not already cover — Structure was a pure
+ * `rollUp` of `factsFor(l).structure`, and Specification had no reader
+ * anywhere in `lib/orders/fabric-bom` beyond its own Zod field
+ * (`lib/orders/fabric-bom/types.ts`), which is untouched, so a value saved
+ * before this change is not lost — it is simply no longer editable here.
+ * The standalone `Gsm` column on both rows went the same pass, folded into a
+ * read-only reference under each row's own `Fabric` cell instead.
+ *
+ * A second, same-day instruction dropped **Structure Type** (legacy prints
+ * "Circular" on every row — this paragraph once argued at length for
+ * restoring it, on 2026-09-02; the client has since asked for it gone again)
+ * and the PANEL-LEVEL **Fabric** picker (which used to bulk-write every
+ * colourway's cloth at once) outright. The per-colourway Fabric picker in
+ * Level 3 is unchanged and is now the only place a panel's cloth is set from
+ * this tab.
+ *
+ * **Layout Type is the one field this tab GAINED** (0530, section 4 of the
+ * same spec): a new panel-row Select, gating the Component picker beside it
+ * — see the panel column itself for the mechanism.
  *
  * **Conv. Item** stays the stub 0495 agreed with the client — a [Click] into a
  * screen no transcript describes. A button that opens nothing is a dead
@@ -118,18 +145,33 @@
  * than a fold that is long".
  */
 
-import { Fragment, useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
+import { useMemo, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { Truncated } from "@/components/ui/truncated";
-import { Button } from "@/components/ui/button";
-import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
+import { StyleIdentityBand } from "@/components/orders/style-identity-band";
+import { cn } from "@/lib/utils";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   FABRIC_FORM_OPTIONS,
+  /* `LAYOUT_TYPE_OPTIONS` LEFT WITH THE COLUMN (2026-09-04) — it fed that
+     Select's `<option>` list and had no second reader here. It is still
+     exported and still the one vocabulary, so restoring the column restores
+     this import. RULE 4 (`componentsHiddenForLayout`) is gone as of
+     2026-09-05 — it read a per-style Layout Type declaration that no longer
+     exists (Order Info ▸ Style(s) ▸ Components dropped the field), so the
+     Component cell below no longer filters by this panel's own `layout_type`
+     either. `layout_type` ITSELF IS UNTOUCHED: the column, `MapLine.layout_type`
+     and `onPatchPanel` still carry it exactly as before — only the narrowing
+     it used to drive is gone. */
   availablePanels,
+  /* MOVED OUT OF THIS FILE (2026-09-03), unchanged. The Fabric Process tab's
+     fabric row summarises N lines the same way — one structure type, one roll
+     form, or "(mixed)" — and a second copy of a rule about abstaining is how two
+     surfaces come to abstain differently. */
+  rollUp,
   solePanel,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
@@ -148,11 +190,26 @@ export type MapLine = {
   item_id: string | null;
   color_name: string;
   fabric_form: string;
+  /** 'open_width' | 'tubular' (0530) — the PANEL's Layout Type, chosen before
+   *  its Component. NOT `fabric_form` above — see the migration header. */
+  layout_type: string | null;
   required_print: string;
   specification: string;
 };
 
-export type PickerRow = { id: string; code: string | null; name: string; inactive?: boolean };
+export type PickerRow = {
+  id: string;
+  code: string | null;
+  name: string;
+  /**
+   * NULLABLE, because the masters are. `FabricOption.inactive` is
+   * `boolean | null | undefined` — a `boolean` here forced a coercion at the call
+   * site, and coercing a flag is how a row's real state stops being the one the
+   * picker reads. `RecordPicker` takes `Deactivatable`, which already understands
+   * all three spellings the schema uses (AGENTS.md, "Disabled rows").
+   */
+  inactive?: boolean | null;
+};
 
 /**
  * What a line's cloth is CALLED — resolved by the screen, never here.
@@ -166,6 +223,10 @@ export type PickerRow = { id: string; code: string | null; name: string; inactiv
  */
 export type LineFacts = {
   structure: string;
+  /** Legacy's `Structure Type` — "Circular Knit". A property of the STRUCTURE
+   *  master (`categories.fabric_structure_id`), which is also where Order Entry
+   *  ▸ Combos ▸ [Detail] derives its knit family from, so the two agree. */
+  structureType: string;
   /** Solid · Melange · Yarn Dyed — the ORDER's `item_sub_type`, not the fabric
    *  master's `fabric_type`. Those are two columns and one of them was printed
    *  under the other's header once already (screenshot 2581). */
@@ -175,23 +236,10 @@ export type LineFacts = {
   gsm: string;
 };
 
-/**
- * The single distinct value among a panel's colourways, or "(mixed)".
- *
- * ABSTAINS RATHER THAN PICKING THE FIRST. A panel row is a summary of N lines,
- * and showing one colourway's fabric as though it were the panel's would be a
- * confident lie on exactly the panels where the operator needs to look. Blank
- * values are ignored, so a half-filled panel reads as its filled half rather
- * than as "(mixed)" against nothing.
- */
-function rollUp(values: readonly string[]): string {
-  const seen = [...new Set(values.map((v) => v.trim()).filter(Boolean))];
-  if (seen.length === 0) return "";
-  return seen.length === 1 ? seen[0] : "(mixed)";
-}
 
 /**
- * A READ-ONLY CELL OF THE CLOTH — Structure, Fabric Type, Fabric, Gsm, Type.
+ * A READ-ONLY CELL OF THE CLOTH — Structure, Fabric Type, Fabric, Gsm, Type,
+ * Coordinate.
  *
  * NO `<Field>` WRAPPER SINCE BOTH LEVELS BECAME TABLES (client 2026-09-02). It
  * was `ClothCell`, which drew its own `Field` label — right inside a `FieldGrid`,
@@ -199,20 +247,49 @@ function rollUp(values: readonly string[]): string {
  * column header is the heading and a second one inside the cell would print the
  * name twice per row.
  *
- * PLAIN TEXT, NEVER A DISABLED `<Input>`. A greyed box says "you may edit this
- * once something else is true"; these are edited on Fabric Lines and never here,
- * and a box the operator can click into and not change is the affordance that
- * makes them try. It also keeps them off the Tab path with no `tabIndex` to set
- * — a read-only value is not a field (AGENTS.md, "Tab lands on fields").
+ * A MUTED BOX, NOT A DISABLED `<Input>` — REVISED 2026-09-03 (client, on the
+ * open-panel row specifically: "Coordinate, Structure, Structure Type, Gsm ...
+ * looking orphaned, no layout, table border for this").
+ *
+ * THIS WAS BARE TEXT UNTIL THAT REPORT, ON A REAL ARGUMENT THAT STILL HOLDS
+ * HALF OF ITSELF: "a greyed box says you may edit this once something else is
+ * true ... a box the operator can click into and not change is the affordance
+ * that makes them try." That is an argument against looking EDITABLE — it was
+ * never an argument against having no border at all, and bare text in a row
+ * otherwise full of bordered pickers is what read as "orphaned": four cells
+ * with no visual weight, sitting beside three that have plenty.
+ *
+ * SO THE BOX IS BACK, TINTED RATHER THAN WHITE. `bg-surface-muted` is what
+ * every EDITABLE control in this app is NOT — `Input`, `Select` and
+ * `RecordPicker` all paint `bg-surface`, so a muted fill reads as "this one is
+ * different" rather than as one more white box inviting a click. The original
+ * worry is answered by the colour, not by the absence of a border.
  *
  * `<Truncated>` because a fabric name is legacy's longest cell by far
  * (`SOLID 1X1 LYCRA RIB (30'S COTTON COMBED 95%, 20'S ELASTANE 5%) 100%`), and
  * an ellipsis with no way to read the rest is a dead end (AGENTS.md,
- * "Truncated values").
+ * "Truncated values"). NO `tabIndex` — a read-only value is still not a field
+ * (AGENTS.md, "Tab lands on fields"); the box says "this is a value", not
+ * "this is a stop on the way through the row".
  */
-function ClothText({ value }: { value: string }) {
+/* EXPORTED FOR THE FABRIC PROCESS TAB (2026-09-03). Its fabric row is five
+   read-only cells of exactly this shape — one control's height, muted, an em
+   dash where there is no value, `Truncated` so a clipped composition bracket is
+   still reachable. A second definition of "a read cell" is how two tabs of one
+   screen come to render the same absence two different ways. */
+export function ClothText({ value }: { value: string }) {
   return (
-    <div className="flex min-h-8 items-center">
+    /* `border-border-strong`, NOT `border-border` — REVISED AGAIN 2026-09-04
+       (client, Manual's compact rail row: "no border in some of fields").
+       `--border` (#cfd5dd) against this box's own `bg-surface-muted`
+       (#f1f3f5) is a real but faint edge — legible at a table cell's normal
+       width, and this box is now often squeezed to `xs` (~60px) beside a
+       picker or Select whose OWN border carries a bright required-empty
+       ring, which is exactly the comparison that made the fainter line
+       disappear. `--border-strong` (#9aa4b2) is the same token
+       `child-grid.tsx` already reaches for whenever a rule needs to be seen
+       rather than merely present. */
+    <div className="flex h-9 min-h-8 w-full items-center rounded-md border border-border-strong bg-surface-muted px-3 @2xl/editor:h-8">
       <Truncated className="text-sm text-muted-foreground">{value || "—"}</Truncated>
     </div>
   );
@@ -222,9 +299,37 @@ function ClothText({ value }: { value: string }) {
 type PanelGroup = {
   /** The panel's own key — its component id, or a placeholder for an unmapped row. */
   key: string;
+  /**
+   * THE PANEL'S IDENTITY FOR ANYTHING THAT OUTLIVES AN EDIT — which is the
+   * accordion, and nothing else so far.
+   *
+   * `key` above is `component_id ?? panel_uid`, so it MUTATES the moment the row's
+   * Component picker is filled in: the group's key jumps from the uid to the new
+   * component id, and any state still holding the old one is pointing at a panel
+   * that no longer answers to it. The split simply vanished, with nothing on
+   * screen to say why.
+   *
+   * `panel_uid` cannot do that. It is minted once per panel and shared by every
+   * colourway of it, in all three paths that create a line — the loader
+   * (`component_id ?? p<id>`), `applySeed` (one uid per style/structure/panel) and
+   * `addPanel` (one `newKey()` taken before the fan-out). Nothing patches it.
+   *
+   * `key` stays exactly as it was, because it is an ADDRESS rather than an
+   * identity: `patchPanel` and `removePanel` resolve it through `inScope`
+   * (fabric-bom-screen.tsx), which recomputes `component_id ?? panel_uid` per line.
+   * The two are different jobs and must not be folded.
+   */
+  panel_uid: string;
   component_id: string | null;
   coordinate_id: string | null;
   fabric_form: string;
+  /** THE PANEL'S OWN LAYOUT TYPE (0530) — 'open_width' | 'tubular'. No longer
+   *  gates the Component picker (rule 4 retired 2026-09-05, see
+   *  `component-map.ts`); this value round-trips with no cell reading it back.
+   *  Same rollup rule as `fabric_form`: every colourway of one panel is knit
+   *  the same way, so there is nothing to roll up — the first line's value
+   *  is the panel's. */
+  layout_type: string | null;
   /** THE PANEL'S OWN STRUCTURE (2026-09-02). It was the sheet's, when the sheet
    *  covered one fabric; now that it covers a style, `availablePanels` has to be
    *  asked per panel or a rib neck would be offered the jersey's panel list. */
@@ -262,6 +367,14 @@ export function ComponentMapBody({
   styleIdentity,
   /** What a line's cloth is called. Resolved by the screen — see `LineFacts`. */
   factsFor,
+  /** The cloths this BOM plans — see the prop's type for why it is not the
+   *  master. */
+  fabricOptions,
+  /** One fabric's Solid / Melange / Yarn Dyed, from the MASTER. See the type. */
+  fabricTypeOfId,
+  fabricStructureOfId,
+  fabricTypeOptions,
+  onAddFabric,
   /** Every line of the BOM, so rule 3 can see panels taken on OTHER fabrics. */
   allLines,
   onPatchPanel,
@@ -280,6 +393,93 @@ export function ComponentMapBody({
   styleRefNo: string;
   styleIdentity: { ref: string; style: string; article: string } | null;
   factsFor: (line: MapLine) => LineFacts;
+  /**
+   * THE FABRIC PICKER'S OPTIONS — THE FABRIC MASTER, narrowed per row by
+   * `fabricStructureOfId` below (client 2026-09-02, said three times, last as
+   * "Structure — that structure based on fabrics will list fabric field").
+   *
+   * ## IT WAS THIS BOM'S OWN FABRIC LINES, AND THAT IS REVERSED
+   *
+   * The earlier instruction was "Fabric from previous tab fabric line", and the
+   * reasoning held while Components mapped panels onto lines a planner had
+   * already created on Fabric Lines: a panel naming cloth with no fabric line
+   * behind it would carry no consumption, no route and no requirement.
+   *
+   * Since the order SEEDS the lines, Components rows ARE fabric lines. There is
+   * no earlier tab that has named a cloth first, so the derived list was empty on
+   * every seeded BOM and this picker offered nothing (screenshot 2643) — and it
+   * was self-referential besides: the only way a cloth entered that list was
+   * being picked, and the only control that picked it was fed by that list.
+   *
+   * The old rule is not lost, it is satisfied differently. Picking here IS
+   * naming the cloth on this line, and the line is a fabric line — so a panel
+   * still cannot point at cloth the BOM does not plan.
+   *
+   * A HELD FABRIC THE MASTER NO LONGER LISTS IS STILL OFFERED, tagged inactive:
+   * the same "Disabled rows" rule the Component picker beside it follows, or a
+   * fabric deleted from the master would render a filled cell empty and blank
+   * the FK on the next save.
+   */
+  fabricOptions: readonly PickerRow[];
+  /**
+   * "+ Add" on a Fabric cell, handed the row's STRUCTURE and the picker's own
+   * `commit`. Optional: with no permission to create, or no FABRIC item class to
+   * create under, there is no Add affordance at all rather than one whose Save
+   * the server will refuse.
+   *
+   * The screen owns the sheet, not this file — it is mounted at the editor root
+   * so `ChildGrid`'s `RequiredScope` cannot leak "required" into every optional
+   * field inside it (the New Yarn / Purity defect, 2026-08-06).
+   */
+  onAddFabric?: (structureId: string, commit: (id: string) => void) => void;
+  /**
+   * A FABRIC'S STRUCTURE — `items.category_id`, which is what a Structure IS on
+   * this screen (0405 · 0415) — so a panel offers only cloth of its own
+   * structure (client 2026-09-02, "the first structure field based fabric only
+   * need to list in that fabric field").
+   *
+   * NARROWS `fabricOptions`, NEVER REPLACES IT. The list is still this BOM's own
+   * fabric lines, which is the client's own earlier instruction ("Fabric from
+   * previous tab fabric line") and is unchanged — this only removes the rows
+   * that could never be right, the same narrowing `fabricItemsFor` applies on
+   * the Fabric Lines grid one tab over.
+   *
+   * A FUNCTION AND NOT A COLUMN ON THE ROW, exactly like `fabricTypeOfId` beside
+   * it: the answer lives on the fabric MASTER, and a copy carried on the option
+   * row would be a second place for it to disagree with `items`.
+   */
+  fabricStructureOfId: (itemId: string | null) => string | null;
+  /**
+   * THE FABRIC TYPE VOCABULARY — `config_lookups` kind `fabric_type`, as NAMES.
+   *
+   * Names and not ids, because that is what `fabricTypeOfId` returns and what
+   * the cell compares against: an id here would need a second resolution on
+   * every row to answer "is this the type the operator narrowed to". The screen
+   * already loads this list for the Fabric picker's own quick-create sheet, so
+   * it costs no query.
+   */
+  fabricTypeOptions: readonly string[];
+  /**
+   * A FABRIC'S TYPE — Solid | Melange | Yarn Dyed — READ FROM THE MASTER, never
+   * stored per line (client 2026-09-02, asked before wiring).
+   *
+   * ## THE DROPDOWN FILTERS; IT DOES NOT WRITE
+   *
+   * Since 0513 this word is not a label. It decides whether Mixing UOM and No Of
+   * Colors are mandatory on a line, and whether [Detail] opens Yarn Dyed Details
+   * — and `missingFabricLineFields` and BOTH server actions resolve it from
+   * `items` themselves. A cell that stored its own answer would give a Save gate
+   * two sources: a line claiming Solid over a YARN DYED cloth would drop the
+   * mandatory rule with nothing on screen to say why, and the screen and the
+   * action would disagree about whether the document can be saved. That failure
+   * is silent, which is what rules it out.
+   *
+   * So the cell narrows the Fabric picker beside it and the fabric still decides
+   * the type — picking a cloth IS how the type changes. `fabricTypeOf` on the
+   * screen is the one derivation, shared with `factsFor` and with the Fabric
+   * Lines grid, so all three cannot disagree.
+   */
+  fabricTypeOfId: (itemId: string | null) => string;
   allLines: readonly MapLine[];
   /** Patch every line of one panel — Component / Coordinate / Open-Tubular. */
   onPatchPanel: (panelKey: string, patch: Partial<MapLine>) => void;
@@ -314,12 +514,31 @@ export function ComponentMapBody({
    * Open/Tubular select are ordinary Tab stops, and arriving at either opens the
    * split beneath before the operator reaches it.
    *
-   * ## `null` IS "EVERYTHING SHUT", AND THAT IS THE MOUNT STATE
+   * ## `null` IS "EVERYTHING SHUT" — AND IT IS NOT WHAT THE OPERATOR SEES
    *
-   * The client's module-wide rule from 2026-08-19: "instead of open one section
-   * the sections should be in closed state, because it's making confusion for the
-   * user". A four-panel style opening with one expanded cannot say whether that
-   * is a selection, a default, or the only one there is.
+   * This block used to claim the mount state was everything shut, citing the
+   * client's module-wide rule from 2026-08-19 ("instead of open one section the
+   * sections should be in closed state, because it's making confusion for the
+   * user"). The initial value really is `null`; the SCREEN never shows it.
+   *
+   * `MasterFullScreen` lands the cursor on the section's first field ~60ms after
+   * the section opens (`land()` / the effect beside it in
+   * components/masters/master-full-screen.tsx). That first field is row 1's
+   * Component picker, the focus bubbles to its `<tr>`, and row 1 unfolds before
+   * the operator has done anything. Every panel row is a field, so there is no
+   * arrangement of this tree in which the landing lands on nothing.
+   *
+   * ACCEPTED RATHER THAN SUPPRESSED (2026-09-03). It is consistent with the rule
+   * directly above — the open row is the row the cursor is in — and the landing
+   * is app-wide behaviour that is correct for every other section, so bending it
+   * here would mean teaching one screen to tell the section landing's focus apart
+   * from an operator's. What is written down is the behaviour, because a comment
+   * asserting the opposite of what the screen does is the kind of claim a reader
+   * falsifies in a minute and then stops trusting the rest of the file.
+   *
+   * The 08-19 rule is not thereby waived: what it forbids is a fold whose open
+   * row was CHOSEN for the operator while the cursor sits somewhere else. Revisit
+   * if the client reports the auto-open itself.
    *
    * ## ANY ROW CLAIMS IT, NOT JUST A SHUT ONE
    *
@@ -333,8 +552,13 @@ export function ComponentMapBody({
    * The functional update is what keeps it free: re-focusing inside the row
    * already open returns the same key, so React bails out instead of re-rendering
    * on every Tab within a row.
+   *
+   * ## IT HOLDS A `panel_uid`, NOT A `PanelGroup.key`
+   *
+   * See the note on `PanelGroup.panel_uid`. `key` changes when the row's Component
+   * is picked, and state keyed on a value the row itself edits is state that can
+   * be orphaned by an ordinary edit.
    */
-  const [openPanel, setOpenPanel] = useState<string | null>(null);
 
   const panels: PanelGroup[] = useMemo(() => {
     const out: PanelGroup[] = [];
@@ -348,9 +572,16 @@ export function ComponentMapBody({
       if (!g) {
         g = {
           key,
+          /* THE FIRST LINE'S UID IS THE PANEL'S — every colourway of one panel
+             carries the same one by construction, so there is nothing to roll up
+             here for the same reason `structure_id` below has nothing to roll up. */
+          panel_uid: l.panel_uid,
           component_id: l.component_id,
           coordinate_id: l.coordinate_id,
           fabric_form: l.fabric_form,
+          /* THE FIRST LINE'S LAYOUT TYPE IS THE PANEL'S, same reasoning as
+             `fabric_form` above. */
+          layout_type: l.layout_type,
           /* THE FIRST LINE'S STRUCTURE IS THE PANEL'S. Every colourway of one
              panel is cut from one cloth — that is what makes a panel a panel —
              so there is nothing to roll up here, unlike `item_id` below. */
@@ -364,6 +595,29 @@ export function ComponentMapBody({
     }
     return out;
   }, [lines]);
+
+  /**
+   * THE OPEN PANEL IS `ChildGrid`'s NOW (2026-09-03), and the two hazards this
+   * screen had to handle itself are worth recording, because whoever changes
+   * `gridPanels` below inherits both.
+   *
+   * A KEY NAMING NO PANEL reads on screen as "everything is shut" — every row
+   * closed, every click looking like it did nothing, and no way out by trying
+   * harder. The grid reconciles `openRowKey` against the rows it is given, so
+   * this no longer needs a derived `openKey` beside the raw state.
+   *
+   * A KEY THAT MOVES UNDER THE OPEN ROW is the other one, and it is the reason
+   * `gridPanels` exists: `PanelGroup.key` is `component_id ?? panel_uid`, so it
+   * changes the moment the Component picker is filled in. The grid is handed
+   * `key: panel_uid` precisely so the fold survives that edit — see the note
+   * there.
+   *
+   * NEITHER IS FIXED WITH AN EFFECT THAT CLEARS STATE. A panel can leave the
+   * array for a render and come back — a patch in flight, a style re-grouped —
+   * and an effect resetting the open key on the way through would shut a split
+   * the operator is typing in. Reading past a momentarily unresolvable key
+   * costs nothing; writing over it loses their place.
+   */
 
   /* NO `declaredCount` ANY MORE (client 2026-09-02: "remove it also no need
      this sentence"). It counted `declaredPanelsFor` for one reader — the warning
@@ -408,6 +662,121 @@ export function ComponentMapBody({
      `YarnDyedSheet` in yarn-dyed-panels.tsx. Before putting a feature in a shared
      body, count its mounts. */
   /**
+   * THE FABRIC PICKER'S ROWS, with the held value guaranteed to survive.
+   *
+   * `fabricOptions` is this BOM's own fabric lines, so a cloth removed from
+   * Fabric Lines leaves the list while a Components panel may still hold it.
+   * Dropping it would render a filled cell empty and blank the FK on the next
+   * save — the data loss AGENTS.md's "Disabled rows" rule exists to prevent,
+   * arriving through a missing row rather than a switched-off one. So a held id
+   * the list no longer carries is appended, tagged, and cannot be re-picked.
+   */
+  /**
+   * WHICH FABRIC TYPE EACH ROW'S PICKER IS NARROWED TO — a view, not a value.
+   *
+   * Keyed by panel key or line key, and deliberately NOT stored: nothing here
+   * reaches the payload. An empty entry means "no narrowing", which is also what
+   * a row starts at.
+   */
+  const [typeFilter, setTypeFilter] = useState<Record<string, string>>({});
+
+  /**
+   * THE FABRIC TYPE MASTER, NOT THE TYPES ALREADY ON THIS BOM (client
+   * 2026-09-02, screenshot 2643: "Fabric Type — solid, yarn dyed, printed,
+   * melange", pointing at a dropdown that read **"No matches."**).
+   *
+   * It was `new Set(fabricOptions.map(fabricTypeOfId))` — the types the cloths on
+   * this BOM come in — reasoned as "never the whole vocabulary, so the list
+   * cannot offer a narrowing that matches nothing". The reasoning is sound about
+   * a filter and wrong about this screen, because `fabricOptions` is this BOM's
+   * own fabric LINES: on a BOM where no line names a cloth yet, which is every
+   * BOM the moment it is seeded from the order, the set is EMPTY and the cell
+   * offers nothing at all.
+   *
+   * So it traded a narrowing that returns nothing — visible, and undone by
+   * clearing the cell — for a control that is dead on arrival. The client read
+   * the dead one as the list being wrong, which is exactly what it looks like.
+   *
+   * `fabricTypeOptions` comes from `config_lookups` kind `fabric_type` and so
+   * follows the master: 0515's `Printed` appeared here without this file
+   * changing, and a fifth value will too.
+   */
+  const fabricTypes = fabricTypeOptions;
+
+  /** The Fabric Type cell: shows the CLOTH's type until the operator narrows. */
+  const typeCell = (key: string, heldItemId: string | null) => (
+    <Select
+      compact
+      className="h-8"
+      value={typeFilter[key] ?? fabricTypeOfId(heldItemId)}
+      onChange={(e) => setTypeFilter((f) => ({ ...f, [key]: e.target.value }))}
+    >
+      <option value="" />
+      {fabricTypes.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /** Clearing the narrowing when a fabric is chosen is what keeps the cell
+   *  TRUTHFUL: the type shown then falls back to the cloth's own. */
+  const clearFilter = (key: string) =>
+    setTypeFilter((f) => {
+      if (!(key in f)) return f;
+      const next = { ...f };
+      delete next[key];
+      return next;
+    });
+
+  const fabricItems = (held: string | null): PickerRow[] => {
+    const rows = [...fabricOptions];
+    if (held && !rows.some((r) => r.id === held)) {
+      /* THE TAG NAMES THE NEW SOURCE. It read "(no longer a fabric line on this
+         BOM)" while the options were the BOM's own lines; against the master,
+         an id the list does not carry is a fabric that has been deleted, and a
+         label describing the old source would send the operator to look for it
+         on the wrong screen. */
+      rows.push({
+        id: held,
+        code: null,
+        name: "(fabric no longer in the master)",
+        inactive: true,
+      });
+    }
+    return rows;
+  };
+
+  /**
+   * The picker's rows, narrowed TWICE — by the panel's own structure, and then
+   * by the row's Fabric Type cell.
+   *
+   * THE STRUCTURE NARROWING IS THE ROW'S OWN AND IS NOT A FILTER THE OPERATOR
+   * SET (client 2026-09-02). A panel of 1X1 LYCRA RIB cannot be cut from a
+   * single jersey, so offering one is offering a mapping that can never be
+   * right — the same narrowing the Fabric Lines grid applies one tab over.
+   * Skipped where the row names no structure, because there is then nothing to
+   * scope BY and a mandatory cell narrowed to nothing has no way out.
+   *
+   * A HELD VALUE ALWAYS SURVIVES BOTH — same rule as the inactive tag above and
+   * for the same reason: a filter must never blank a cell that is already
+   * filled, or the next save writes that emptiness over a real FK.
+   */
+  const fabricItemsFor = (
+    key: string,
+    held: string | null,
+    structureId: string | null,
+  ): PickerRow[] => {
+    const want = typeFilter[key];
+    let rows = fabricItems(held);
+    if (structureId) {
+      rows = rows.filter((r) => r.id === held || fabricStructureOfId(r.id) === structureId);
+    }
+    return want ? rows.filter((r) => r.id === held || fabricTypeOfId(r.id) === want) : rows;
+  };
+
+  /**
    * LEVEL 2's COLUMNS — legacy's order exactly (client 2026-09-02, screenshot
    * 2613), minus the two the client answered "leave it out" for.
    *
@@ -418,7 +787,52 @@ export function ComponentMapBody({
    * COORDINATE BEFORE COMPONENT, which reverses what this sheet shipped with.
    * Legacy scans that way and the operators are migrating from it.
    */
-  const panelColumns: ChildGridColumn<PanelGroup>[] = [
+  /**
+   * A PANEL AS THE GRID SEES IT, and the two fields are master's own
+   * distinction made literal rather than a second copy of it.
+   *
+   * `PanelGroup.key` is `component_id ?? panel_uid` and MUTATES the moment the
+   * Component picker is filled in — its note calls it an ADDRESS, resolved
+   * through `inScope` on the screen, and names `panel_uid` as the IDENTITY for
+   * "anything that outlives an edit, which is the accordion".
+   *
+   * `ChildGrid` keys its rows, and tracks `openRowKey`, on `row.key`. Its fold
+   * IS that accordion. So the grid is handed rows whose `key` is the uid, and
+   * the address moves to `addr` for the cells that patch and remove. Keying the
+   * grid on `key` instead would lose the open pane and the rail's selection the
+   * instant an operator picked a Component — the exact defect master fixed
+   * for the hand-rolled table this replaces.
+   */
+  type PanelRow = PanelGroup & { addr: string };
+
+  const gridPanels: PanelRow[] = useMemo(
+    () => panels.map((g) => ({ ...g, key: g.panel_uid, addr: g.key })),
+    [panels],
+  );
+
+  /**
+   * PER-FIELD WIDTH FOR THE OPEN-PANEL ROW, keyed by header rather than added
+   * to `ChildGridColumn` — that type is shared across every grid in the app,
+   * and a span belongs to how ONE screen lays its fields out, not to the
+   * column's own definition. Looked up by header for the same reason
+   * `FIELD_GROUPS` in Material BOM's own file is: this array is read in more
+   * than one order-sensitive place, so an index would drift the day a column
+   * moved.
+   */
+  /* THE PANEL ROW'S SPAN LIST IS GONE WITH THE ROW ITSELF (client 2026-09-04:
+     "merge the top fields ... directly into the table as columns").
+     `FIELD_SIZES` mapped each panel field to a `FieldSize` — a `col-span-*` on
+     the 32-column track — because the three fields were laid out as a
+     `FieldGrid` above the table. They are `<td>`s now, so their width comes
+     from `ChildGridColumn.width` on `panelColumns` below (7rem, 8rem, 10rem),
+     which those columns already declared for the table they now live in. Two
+     vocabularies for one row was the thing to remove; the spans were the half
+     with no reader left.
+     THE SIZING REASONING IT CARRIED IS NOT LOST — it was a restatement of the
+     same catalog check the `width` on each column records ("PIECES" / "TOP" at
+     3-6 chars, "Open Width" / "Tubular" at 6-10, "SIDE PANELS" at 8-11). Read
+     it there. */
+  const panelColumns: ChildGridColumn<PanelRow>[] = [
     {
       /* COORDINATE IS SHOWN AND NOT EDITED. Legacy prints it and it is real
          information — PIECES vs TOP tells two identically-named panels apart —
@@ -428,12 +842,34 @@ export function ComponentMapBody({
          stop. */
       header: "Coordinate",
       width: "7rem",
-      cell: (p) => (
-        <Truncated className="text-sm text-muted-foreground">
-          {coordinateName(p.coordinate_id) ?? "—"}
-        </Truncated>
-      ),
+      /* `ClothText`, NOT A BARE `<Truncated>` (client 2026-09-03, screenshots
+         2673-2674, "took reference ui from material bom" — comparing against
+         Material BOM's own field band). Structure Type beside it also goes
+         through `ClothText`, whose `min-h-8 items-center`
+         wrapper centres the text against an h-8 control's height; this cell
+         did not, so its line sat at its own natural baseline instead of level
+         with the pickers and Selects either side of it — the one field in the
+         row that read as sunk. Same value, same muted style; only the box it
+         sits in changed. */
+      cell: (p) => <ClothText value={coordinateName(p.coordinate_id) ?? ""} />,
     },
+    /* THE `Layout Type` COLUMN STOOD HERE AND IS GONE (client 2026-09-04:
+       "remove the # 1 column cell and layout type"), one day after 0530 added
+       it. Recorded rather than silently deleted, because the SCHEMA half is
+       untouched and a reader will find it: `fabric_bom_lines.layout_type` still
+       exists, `PanelRow.layout_type` still carries it, and `onPatchPanel` still
+       writes it — only the cell that let an operator choose one is gone.
+
+       RULE 4 ITSELF IS ALSO GONE NOW (2026-09-05) — `componentsHiddenForLayout`
+       was retired along with the per-style Layout Type declaration it read
+       (Order Info ▸ Style(s) ▸ Components dropped the field). The Component
+       cell below no longer filters by this panel's own `layout_type` either;
+       see `component-map.ts`'s own note where the function used to be.
+
+       PUTTING THE COLUMN BACK IS THIS COLUMN OBJECT PLUS ONE IMPORT —
+       `LAYOUT_TYPE_OPTIONS` fed only the removed Select and went with it (see
+       the import block) — but a picker filter needs rule 4 rebuilt first,
+       against whatever declares a per-style Layout Type next. */
     {
       header: "Component",
       required: true,
@@ -481,7 +917,7 @@ export function ComponentMapBody({
             items={items}
             value={p.component_id}
             onChange={(id) =>
-              onPatchPanel(p.key, {
+              onPatchPanel(p.addr, {
                 component_id: id,
                 /* THE COORDINATE COMES WITH THE PANEL and is never picked
                    separately. The order's declaration pairs them, so asking twice
@@ -495,80 +931,85 @@ export function ComponentMapBody({
         );
       },
     },
-    /* THE CLOTH, READ-ONLY — legacy's `Structure | Fabric Type | Fabric | Gsm`.
-       SHOWN HERE, EDITED ON FABRIC LINES: those are cells of that grid, which is
-       legacy's FabricAllocation tab, and a second editor for them would be two
-       places for one line to be changed from. `(mixed)` is a real answer, not a
-       placeholder — see `rollUp`. */
-    {
-      header: "Structure",
-      width: "9rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).structure))} />,
-    },
-    {
-      header: "Fabric Type",
-      width: "6rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).fabricType))} />,
-    },
-    {
-      header: "Fabric",
-      width: "16rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).fabric))} />,
-    },
-    {
-      header: "Gsm",
-      align: "right",
-      width: "5rem",
-      cell: (p) => <ClothText value={rollUp(p.lines.map((l) => factsFor(l).gsm))} />,
-    },
-    {
-      /* OPEN/TUBULAR STAYS ON THE PANEL ROW, and legacy draws it on the colour
-         row. Confirmed with the client on 2026-09-02 while matching everything
-         else to legacy: it is mandatory, and a cell repeated identically down
-         four colourways invites three of them to be left blank while it holds the
-         cursor — four holds for one answer that cannot differ by colour. The
-         colour row ECHOES it read-only, so the layout still reads like legacy's.
+    /* THE CLOTH SUMMARY IS GONE FROM THIS ROW ENTIRELY (client cleanup spec,
+       2026-09-04) — legacy's `Structure Type | Fabric Type | Fabric` went in
+       three passes on the same day, this being the third and last:
 
-         MANDATORY, AND THE STAR COMES FROM THE SAME DECLARATION THE SAVE GATE
-         DOES — `fabricBomLineInput` refuses a line with a fabric and no form,
-         `required` draws the `*` and stamps `data-required-empty`, and the cursor
-         holds. One declaration, four enforcers (AGENTS.md). */
-      header: "Open / Tubular",
-      required: true,
-      width: "7rem",
-      cell: (p) => (
-        <Select
-          compact
-          className="h-8"
-          required
-          value={p.fabric_form}
-          onChange={(e) => onPatchPanel(p.key, { fabric_form: e.target.value })}
-        >
-          <option value="" />
-          {FABRIC_FORM_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
+         1. Structure Type and the panel-level Fabric picker (which
+            bulk-wrote every colourway at once) — removed together, "purge
+            redundant columns".
+         2. A standalone `Structure` cell was never added back for the same
+            reason: it printed the same fabric-category name the panel's own
+            Component picker was already filtered and scoped by
+            (`structureId`), repeating a fact the operator supplied by
+            choosing the panel rather than stating a new one.
+         3. `Fabric Type` itself, THIS instruction ("before Fabric Type …
+            near the Component … remove this one only") — by the time it
+            reached this point it had already been made read-only (the
+            panel-level Fabric picker it used to narrow was gone), so it was
+            a pure echo of `fabricTypeOfId` with nothing left to do. Removed
+            outright rather than left as dead chrome.
+
+       NAMED "this one only" DELIBERATELY: the colourway row's own `Fabric
+       Type` cell below is UNCHANGED — it still narrows that row's own
+       per-colourway Fabric picker and stays live. Two cells shared a label
+       and only one of them had a job left; only that one left the row.
+       The per-colourway Fabric picker is now the only place a panel's cloth
+       is set or summarised on this tab. */
+    /* NO `Open / Tubular` HERE ANY MORE (client 2026-09-02: "no more
+       Open / Tubular tab — to colourways panel"). It has moved to the colour
+       row's `Type`, which is where legacy draws it and which the colour row was
+       already echoing read-only.
+
+       THIS REVERSES 2026-09-02's OWN EARLIER ANSWER, deliberately. When the field
+       order was matched to legacy the client was asked about this exact cell and
+       chose to keep it here, on the argument that a mandatory cell repeated down
+       four colourways is four holds for one answer. They have now seen it and
+       decided the other way; the later instruction wins. What that argument
+       predicted is real and is the thing to watch — see the `Type` column. */
   ];
 
   /**
-   * LEVEL 3's COLUMNS — legacy's order (screenshot 2613), minus `Conv. Item`.
+   * LEVEL 3's COLUMNS — legacy's order (screenshot 2613), minus `Conv. Item`,
+   * minus `Gsm` (2026-09-04 — GSM is "already declared and locked" on the
+   * fabric master; kept only as a read-only reference under the Fabric cell,
+   * not a column of its own), and minus `Specification` (same date, same
+   * cleanup spec — "purge redundant columns"; the field itself is untouched,
+   * see the note where the column used to sit).
    *
-   *   S No · Assort Color · Fabric Type · Fabric · Gsm · Type ·
-   *   Required Color · Required Print · Specification
+   *   S No · Assort Color · Fabric Type · Fabric · Type ·
+   *   Required Color · Required Print
    *
-   * FABRIC TYPE / FABRIC / GSM ARE REPEATED FROM THE PANEL ROW AND ARE NOT
+   * FABRIC TYPE / FABRIC ARE REPEATED FROM THE PANEL ROW AND ARE NOT
    * REDUNDANT. `item_id` is a column of the LINE, and a line is per colourway, so
    * a white body and a navy body may name two different fabric items — the panel
    * row rolls them up and says "(mixed)", and these are where the values are.
    *
-   * Widths: 8 + 6 + 12 + 5 + 6 + 9 + 9 + 10 = 65rem ≈ 1040px, inside the wide
-   * section's row even after the 1rem indent.
+   * `Fabric Type` AND `Type` WIDENED, 5→7 AND 6→8rem (operator report,
+   * 2026-09-04: the values were "hidden because the field width is small").
+   * Both render through `<Select>`, which is a `Combobox` on desktop the
+   * moment its own blank `<option>` makes it `clearable` (see `select.tsx`) —
+   * so both cells carry a clear ✕ beside the value, not just a chevron. "YARN
+   * DYED" (9 chars) and "Open Width" (10 chars) plus that ✕ do not fit 5/6rem;
+   * `Type` in `fabric-bom-screen.tsx`'s `lineColumns` gets away with 6rem for
+   * "Yarn Dyed" only because that cell prints plain `ClothText`, with no ✕ to
+   * share the box with.
+   *
+   * Widths: 6 + 7 + 10 + 8 + 6 + 6 = 43rem = 688px, well inside this
+   * nested grid's own (rail-reduced) pane.
    */
+  /* `panelInRowColumns` STOOD HERE FOR ONE ITERATION AND IS GONE (client
+     2026-09-04). It prepended `panelColumns` to `colourColumns` so the panel's
+     own fields could be the table's first columns, and it worked — but it
+     denormalised a one-to-many: Coordinate and Component belong to the PANEL,
+     so a panel with three colourways drew each value three times, and only the
+     fact that the cell was handed the PanelRow (so the write went through
+     `onPatchPanel`) kept the copies from drifting.
+     THE SIDE-BY-SIDE SPLIT REPLACES IT and needs no adapter at all: the two
+     lists go back to describing their own grains, and the layout — not a
+     mapped column list — is what puts them on one row. That is why this is a
+     deletion rather than a second helper beside it. */
+
   const colourColumns: ChildGridColumn<MapLine>[] = [
     {
       /* A `Select`, not a Combobox: the order's colourways are a closed list and a
@@ -579,7 +1020,7 @@ export function ComponentMapBody({
          on the CHANGE and never in an effect — an effect would rewrite every
          stored line's style when a saved BOM is opened. */
       header: "Assort Color",
-      width: "8rem",
+      width: "6rem",
       cell: (l) => (
         <Select
           compact
@@ -598,27 +1039,86 @@ export function ComponentMapBody({
     },
     {
       header: "Fabric Type",
-      width: "6rem",
-      cell: (l) => <ClothText value={factsFor(l).fabricType} />,
-    },
-    { header: "Fabric", width: "12rem", cell: (l) => <ClothText value={factsFor(l).fabric} /> },
-    {
-      header: "Gsm",
-      align: "right",
-      width: "5rem",
-      cell: (l) => <ClothText value={factsFor(l).gsm} />,
+      width: "7rem",
+      cell: (l) => typeCell(l.key, l.item_id),
     },
     {
-      /* `Type` IS THE PANEL'S Open/Tubular, ECHOED. Legacy draws it on this row;
-         it is answered once above and shown here so the row still reads like
-         legacy's. Read from the LINE rather than from the open panel, so it stays
-         right regardless of which panel is expanded. */
-      header: "Type",
-      width: "6rem",
+      /* THE PER-COLOURWAY OVERRIDE. `item_id` is a column of the LINE, so a white
+         body and a navy body may legitimately name two cloths; the panel row
+         above writes every colourway at once and this changes one. */
+      header: "Fabric",
+      /* 10rem, up from 8rem now the standalone `Gsm` column is gone (client
+         cleanup spec, 2026-09-04 — same instruction as the panel row above
+         and Fabric Allocation's own Fabric cell). */
+      width: "10rem",
       cell: (l) => (
-        <ClothText
-          value={FABRIC_FORM_OPTIONS.find((o) => o.value === l.fabric_form)?.label ?? ""}
+        <div className="flex min-w-0 flex-col gap-0.5">
+        <RecordPicker
+          label="Fabric"
+          compact
+          items={fabricItemsFor(l.key, l.item_id, l.structure_id)}
+          emptyHint={
+            l.structure_id
+              ? "No fabric is filed under this structure yet — use + Add to create one."
+              : null
+          }
+          onAddOverride={
+            onAddFabric && l.structure_id
+              ? (commit) => onAddFabric(l.structure_id as string, commit)
+              : undefined
+          }
+          value={l.item_id}
+          onChange={(id) => {
+            onPatchLine(l.key, { item_id: id });
+            clearFilter(l.key);
+          }}
         />
+        {/* THE READ-ONLY GSM REFERENCE — see the panel row's own note above;
+            this is the per-colourway line's own value, not a roll-up. */}
+        {factsFor(l).gsm && (
+          <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+            {factsFor(l).gsm} GSM
+          </Truncated>
+        )}
+        </div>
+      ),
+    },
+    {
+      /* `Type` IS OPEN/TUBULAR, AND IT IS ANSWERED HERE NOW (client 2026-09-02).
+         It was an editable cell on the panel row and a read-only echo here;
+         legacy draws it on this row and the client asked for legacy's placement.
+
+         MANDATORY, AND THE STAR COMES FROM THE SAME DECLARATION THE SAVE GATE
+         DOES — `fabricBomLineInput` refuses a line that names a fabric with no
+         form, `required` draws the `*` and stamps `data-required-empty`, and the
+         cursor holds. One declaration, four enforcers (AGENTS.md).
+
+         IT IS NOW ASKED ONCE PER COLOURWAY, which is the cost the earlier
+         placement avoided: four colourways of one panel are four mandatory cells
+         holding for one answer that cannot differ by colour. The panel row's
+         Fabric picker writes through to every colourway, so if this becomes the
+         complaint, the same write-through is the fix — not moving the cell back. */
+      header: "Type",
+      required: true,
+      /* 8rem — "Open Width" (10 chars) plus the clear ✕ this cell carries
+         (see the array's own note above) needed more than the 6rem it opened
+         at. */
+      width: "8rem",
+      cell: (l) => (
+        <Select
+          compact
+          className="h-8"
+          required
+          value={l.fabric_form}
+          onChange={(e) => onPatchLine(l.key, { fabric_form: e.target.value })}
+        >
+          <option value="" />
+          {FABRIC_FORM_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
       ),
     },
     {
@@ -628,7 +1128,7 @@ export function ComponentMapBody({
          Typed text in a Combobox is a search and is never committed — see
          `commit` in combobox.tsx. */
       header: "Required Color",
-      width: "9rem",
+      width: "6rem",
       cell: (l) => (
         <Combobox
           compact
@@ -642,7 +1142,7 @@ export function ComponentMapBody({
     },
     {
       header: "Required Print",
-      width: "9rem",
+      width: "6rem",
       cell: (l) => (
         <Combobox
           compact
@@ -654,300 +1154,556 @@ export function ComponentMapBody({
         />
       ),
     },
-    {
-      header: "Specification",
-      width: "10rem",
-      cell: (l) => (
-        <Input
-          className="h-8"
-          value={l.specification}
-          onChange={(e) => onPatchLine(l.key, { specification: e.target.value })}
-        />
-      ),
-    },
+    /* NO `Specification` CELL (client cleanup spec, 2026-09-04 — "purge
+       redundant columns"). `specification` stays on `MapLine` and on the
+       line's own Zod schema (`lib/orders/fabric-bom/types.ts`), untouched —
+       only the editable cell is gone, so a value saved before this change is
+       not lost, just no longer reachable from this screen. */
   ];
 
   return (
-      <div className="space-y-4">
-          {/* LEVEL 1 — THE STYLE (client 2026-09-02, legacy screenshot 2613:
-              `S No | StyleRefNo | StyleNo | ArticleNo`).
+    <div className="space-y-4">
+      {/* LEVEL 1 — THE STYLE (client 2026-09-02, legacy screenshot 2613:
+          `S No | StyleRefNo | StyleNo | ArticleNo`).
 
-              READ-ONLY AND NOT A GRID. Legacy draws it as the outer band of a
-              three-level tree and it is genuinely one row here — the tree is
-              scoped to one style — so a grid around it would be chrome with a
-              header, an ordinal and an "+ Add" for something nobody adds from
-              this screen. Plain text also keeps it off the Tab path, the same
-              call the Coordinate column makes: nothing is typed, so nothing
-              should be a tab stop.
+          READ-ONLY AND NOT A GRID. Legacy draws it as the outer band of a
+          three-level tree and it is genuinely one row here — the tree is
+          scoped to one style — so a grid around it would be chrome with a
+          header, an ordinal and an "+ Add" for something nobody adds from
+          this screen. Plain text also keeps it off the Tab path, the same
+          call the Coordinate column makes: nothing is typed, so nothing
+          should be a tab stop.
 
-              IT PRINTS THE REF EVEN WHEN THE ORDER CANNOT NAME THE STYLE. A line
-              carries `style_ref_no` by value, so the ref is always known; Style
-              No and Article No come from the order's combo tree and dash when it
-              has nothing to say. */}
-          <dl className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-4 gap-y-1 rounded-md border border-border bg-surface-muted px-3 py-2">
-            {[
-              { label: "Style Ref No", value: styleIdentity?.ref || styleRefNo },
-              { label: "Style No", value: styleIdentity?.style ?? "" },
-              { label: "Article No", value: styleIdentity?.article ?? "" },
-            ].map((f) => (
-              <div key={f.label}>
-                <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-                  {f.label}
-                </dt>
-                <dd className="m-0 text-sm font-medium">
-                  <Truncated>{f.value || "—"}</Truncated>
-                </dd>
-              </div>
-            ))}
-          </dl>
+          IT PRINTS THE REF EVEN WHEN THE ORDER CANNOT NAME THE STYLE. A line
+          carries `style_ref_no` by value, so the ref is always known; Style
+          No and Article No come from the order's combo tree and dash when it
+          has nothing to say. */}
+      {/* WHITE, NOT FILLED — see the note on the header row below, which is
+          the same rule and the same client instruction. The border already
+          says this is a band. */}
+      {/* ONE COMPONENT, TWO TABS — `StyleIdentityBand`, RE-APPLIED ACROSS THIS
+          MERGE (2026-09-03). This branch was cut before the band was extracted,
+          so its own copy of the markup came back with the master-detail
+          redesign. The Manual tab draws the shared component, and the client's
+          instruction was that Manual look "like same components tab" — two
+          copies is how that stops being true without anyone editing either.
 
-          {/* LEVEL 2 + LEVEL 3 — THE PANELS, EACH WITH ITS OWN SPLIT DIRECTLY
-              BENEATH IT (client 2026-09-02, artifact approved: "need to split it
-              below of that actual coordinate, not like this manner").
+          `omit={["ref", "article"]}` HERE ONLY (client cleanup spec,
+          2026-09-04: delete Style Ref No and Article No from this tab).
+          Manual's own call site is untouched, so it keeps all three — the
+          spec names "the Structure Details and Component sub-panels", not
+          Manual's identity band. */}
+      <StyleIdentityBand
+        styleRefNo={styleRefNo}
+        identity={styleIdentity}
+        omit={["ref", "article"]}
+      />
 
-              ## WHY THIS IS A HAND-WRITTEN `<table>` AND NOT A `ChildGrid`
+      {/* LEVEL 2 + LEVEL 3 — A MASTER-DETAIL PANE (client 2026-09-03,
+          approved from the artifact: panels on the left, the open one on the
+          right).
 
-              `ChildGrid` has no row-detail slot in table mode — its own note says
-              a nested grid is "markup the caller emits" — and that limit is
-              exactly what produced the layout the client rejected: with nowhere
-              to put a detail row, every panel's split stacked underneath the
-              whole table. Both splits then read "PANEL — COLOURWAYS", because a
-              split names its panel by Component and neither had been picked, so
-              nothing on screen tied either one to a row.
+          ## IT IS `ChildGrid`'s `masterDetail`, TAKEN FROM MATERIAL BOM
 
-              A full-width row BETWEEN records is the only shape that cannot come
-              adrift, and it is one only the caller can write. So the outer grid
-              is ours; the colourway grids inside it stay `ChildGrid`s.
+          The rail, its 3px active border, its scroll cap and its keyboard
+          (↑↓ carry the selection, Enter drops the cursor into the form,
+          roving tabindex so the whole pane costs ONE Tab stop) are the
+          primitive's — see `mdListKeyNav` in child-grid.tsx. Material BOM is
+          the screen that had this first, and its prop set is copied rather than
+          rediscovered: `forceCards flatRows foldRows masterDetail` plus a
+          `renderListItem`.
 
-              ## THE CONTRACT MARKERS ARE CARRIED DELIBERATELY
+          ## WHY THE HAND-WRITTEN TABLE COULD GO
 
-              AGENTS.md is explicit that a hand-rolled grid is how ~22 screens
-              drifted off the keyboard contract, and that the fix is never
-              per-screen. This grid is hand-rolled for a layout reason, so it pays
-              the contract in full rather than opting out of it:
+          Its own note explained itself: "`ChildGrid` has no row-detail slot in
+          table mode". True of TABLE mode only. In cards mode the row body is
+          `renderMobileRow`, so a nested grid is simply part of it — which is
+          why this needs no `<thead>`/`<tbody>`, no `openPanel` state and no
+          hand-rolled `RequiredScope`, and gets the fold, the ordinal, the ✕,
+          `data-row-remove`, Ctrl+Del and the required-star contract back.
 
-                · `data-grid-body` + `gridKeyNav` on the SAME element — the
-                  handler reads `e.currentTarget`, so they cannot be split;
-                · `data-grid-row` per record, which is the axis ↑↓←→ walk and what
-                  scopes `ownDescendants`;
-                · `data-row-remove` on each ✕, so Ctrl+Del still deletes a panel
-                  now that Tab lands on fields only;
-                · `data-row-add` on "+ Add part", which is what Enter steers by.
+          ## THE `panel_uid` FIX IS KEPT, JUST MOVED
 
-              Nothing here sets `tabIndex` — `cycleTab` already skips non-fields
-              on every surface, and a local override is the per-component patch
-              the rule bans (it would also drop the ✕ out of screen-reader order).
+          The table tracked its open panel in `openPanel`/`openKey` because
+          `PanelGroup.key` mutates when the Component is picked. That state is
+          gone, and the same protection now lives in `gridPanels`, which hands
+          the grid `key: panel_uid`. See the note there.
 
-              ## WHAT IS LOST, STATED RATHER THAN DISCOVERED
+          ## THE RAIL IS ALWAYS THERE — SEE `railAlways` ON THE GRID BELOW
 
-              The `#` ordinal, the header band and the row chrome came free from
-              `ChildGrid` and are now written here. That is the one place this can
-              drift from the Fabric Lines grid beside it — so the columns stay
-              declared in `panelColumns`, and the header row and the body read the
-              SAME array. A column added there appears in both or in neither.
+          It used to appear only at two panels ("a list of one is not a list",
+          the shape Material BOM still has), which meant a style with one part
+          drew a flat full-width card and grew the split when the second part
+          arrived. That is the layout branch the client reported on 2026-09-04;
+          the reasoning for opting out of it is on the prop. */}
+      {/* THE RAIL NOW MATCHES MATERIAL BOM'S OWN, FULL STOP (client
+          2026-09-03, screenshots 2676-2678, repeated: "same like material bom
+          tab layout, size, color everything ... just customizing for this
+          screen"). `data-md-plain` stood here for one afternoon opting OUT of
+          the skin's blue ring ("remove blue bg colour for carts"); that
+          instruction is reversed by this one, which asks for the opposite —
+          the same ring, the same fill, the same everything Material BOM's
+          rail already has. Nothing to write here any more: the grid gets the
+          skin's default treatment by not opting out of it. */}
+      <ChildGrid<PanelRow>
+        /* grid-caption: exempt -- the style band above names this grid, and it
+           is the only grid at this level. */
+        columns={panelColumns}
+        rows={gridPanels}
+        /* CARDS, NOT A TABLE, and `masterDetail` requires it: a `<tr>` cannot
+           be a pane. `flatRows` keeps the section in ONE frame rather than a
+           box per panel, which is the operator's standing rule. */
+        forceCards
+        flatRows
+        /* BACK TO MATERIAL BOM'S OWN WIDTH, PADDING AND TINT — `railWidthPx`,
+           `railCompact` and `railBg={false}` all REMOVED (client 2026-09-04,
+           later the same day as the narrowing below: "the size of the rail
+           menu and color etc I need same" — i.e. as Material BOM's).
+           This is a second reversal on the same afternoon, not a new
+           decision: 2026-09-03 asked for "same like material bom tab layout,
+           size, color everything", 2026-09-04 morning narrowed it three times
+           (180px, then compact padding, then the tint dropped — each kept in
+           git history and formerly recorded here), and this instruction puts
+           it back to that first "full stop" state. Falling through to
+           `child-grid.tsx`'s defaults (268px, `px-3 py-2`, `bg-surface-muted/60`)
+           IS "same as Material BOM" — that screen sets none of the three
+           either. If a future ask narrows this again, narrow it explicitly
+           rather than re-adding these three as a set: the width, the padding
+           and the tint are independent props for exactly this reason. */
+        /**
+         * `fill` IS LOAD-BEARING HERE, AND ITS ABSENCE IS WHAT BROKE THE PANE
+         * (reported 2026-09-03 with a screenshot: every field stacked in a
+         * ~185px column, the row's ✕ sitting beside "Coordinate").
+         *
+         * `hugsContent` is `!fill && columns.every((c) => c.width)`. All seven
+         * `panelColumns` declare a width — they were written for a table — so
+         * the hug switched itself on and the grid card took `w-fit`. Inside a
+         * shrink-wrapped parent the master-detail track
+         * (`md:grid-cols-[268px_minmax(0,1fr)]`) resolves its `1fr` against
+         * min-content, so the detail pane collapsed to about the width of one
+         * field. Everything else followed from that: under `@lg/section`
+         * (512px) `FIELD_TRACK` declares no `grid-cols` at all, so every
+         * `Field` stacked one per row, and the card's `absolute right-1 top-1`
+         * remove button landed next to the first label.
+         *
+         * MATERIAL BOM NEVER HIT THIS, which is why copying its prop set was
+         * not enough: its eleven columns declare NO widths, so `hugsContent` is
+         * false there by accident of the data rather than by decision.
+         *
+         * THE COUPLING IS THE THING TO REMEMBER: a column `width` is a TABLE
+         * concern, and declaring one silently changes how the CARD lays out.
+         * `fill` suppresses only the hug — the columns keep their widths, and
+         * the slack falls to the right of them.
+         */
+        fill
+        /* ONE PANEL OPEN AT A TIME, the row itself being the affordance —
+           focus or click opens it, exactly as the table did and as Order
+           Entry's Structure Details does. There is no toggle control. */
+        foldRows
+        masterDetail
+        /* THE SPLIT IS PERMANENT (client 2026-09-04). `mdActive` is
+           `masterDetail && (railAlways || rows.length > 1)`, so without this
+           the rail — and with it the whole two-pane shape — appeared only from
+           the SECOND part onwards: a new BOM, or one whose style has a single
+           panel, rendered the old flat full-width card instead, and adding the
+           second part snapped the layout over. That switch is what reads as the
+           screen "flashing the old UI", and it is a branch, not a transition.
 
-              THE STACKED-CARD FALLBACK IS ALSO GONE, and this is the real cost.
-              `ChildGrid` swaps to cards below `tableFrom`; this table scrolls
-              sideways instead. On a phone that is worse, and this app ships as an
-              installed PWA — but a full-width detail row is a TABLE construct, so
-              a card layout would have to re-invent the nesting the client asked
-              for rather than degrade to it. The colourway grids inside keep their
-              own card fallback. If the panel level needs one, it is a second
-              renderer here, not a change to the shape. */}
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className="w-9 whitespace-nowrap border-b border-border bg-surface-muted px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[.07em] text-muted-foreground">
-                    #
-                  </th>
-                  {panelColumns.map((c) => (
-                    <th
-                      key={c.header}
-                      style={c.width ? { width: c.width } : undefined}
-                      className={`whitespace-nowrap border-b border-border bg-surface-muted px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-[.07em] text-muted-foreground ${
-                        c.align === "right" ? "text-right" : "text-left"
-                      }`}
-                    >
-                      {c.header}
-                      {/* required-star: exempt -- DERIVED FROM `ChildGridColumn.required`,
-                          not typed. This is the star `ChildGrid` draws from the same
-                          prop; it is written out here only because the outer grid is
-                          hand-rolled for the split row below, and the check reads a
-                          literal `*` in source without seeing what produced it.
+           "A LIST OF ONE IS NOT A LIST" IS THE RULE THIS OPTS OUT OF, and the
+           opt-out is the one Fabric BOM ▸ Manual already took on 2026-09-04 for
+           the same reason: that rule was written for a DOCUMENT's own single
+           blank line (Material BOM, client 2026-08-20 — 268px holding the words
+           "Not filled in"), where the rail costs width and says nothing. A part
+           is not that. It is named, it is one of a set the order declares, and
+           the operator wants the rail's shape from the first one — which is
+           also where "+ Add part" now lives, so an empty rail is the thing that
+           says how the next part gets made rather than an empty column.
 
-                          BOTH HALVES ARE PRESENT, which is what the rule actually
-                          asks for and what AGENTS.md calls declaring `required`
-                          TWICE on a grid that renders its own row: `required: true`
-                          on the column draws this star, and the CONTROL inside the
-                          cell carries `required` too (RecordPicker on Component,
-                          Select on Open/Tubular) — so the field stamps
-                          `data-required-empty` and the cursor holds. A star with
-                          nothing behind it is the exact divergence being guarded
-                          against, and it is not what this is. */}
-                      {c.required && <span className="text-danger">*</span> /* required-star: exempt -- derived from `ChildGridColumn.required`, and the cell's control carries `required` too, so the cursor genuinely holds. Full reasoning directly above; the marker sits on THIS line because a JSX comment block closes with a brace that `exempt_above` reads as code, so its walk upward stops before reaching it. */}
-                    </th>
-                  ))}
-                  <th className="w-9 border-b border-border bg-surface-muted" />
-                </tr>
-              </thead>
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
-                {panels.map((p, i) => (
-                  <Fragment key={p.key}>
-                    <tr
-                      data-grid-row
-                      /* FOCUS OPENS IT — the keyboard's whole route in, and the
-                         auto-close in one handler: arriving anywhere in a row
-                         makes that row the open one, so moving to the next panel
-                         shuts the previous. `onFocus` bubbles, so this catches
-                         the mouse and the keyboard alike. */
-                      onFocus={() => setOpenPanel((k) => (k === p.key ? k : p.key))}
-                      /* AND A CLICK ANYWHERE, MINUS BUTTONS. The row's ✕ is
-                         inside this handler's reach, and unfolding a panel on the
-                         way to deleting it is a flicker with no purpose. */
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest("button")) return;
-                        setOpenPanel(p.key);
-                      }}
-                      className={
-                        openPanel === p.key ? "bg-surface-muted/60" : "cursor-pointer"
-                      }
-                    >
-                      <td className="border-b border-border/50 px-2 py-1.5 text-xs tabular-nums text-muted-foreground">
-                        {i + 1}
-                      </td>
-                      {panelColumns.map((c, ci) => (
-                        <td
-                          key={c.header}
-                          className={`border-b border-border/50 px-2 py-1.5 align-middle ${
-                            c.align === "right" ? "text-right" : ""
-                          }`}
-                        >
-                          {c.cell(p, ci)}
-                        </td>
-                      ))}
-                      <td className="border-b border-border/50 px-1 py-1.5 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          data-row-remove
-                          aria-label={`Remove ${componentName(p.component_id) ?? "panel"}`}
-                          className="text-danger hover:text-danger"
-                          onClick={() => onRemovePanel(p.key)}
-                        >
-                          ✕
-                        </Button>
-                      </td>
-                    </tr>
+           `folded` STILL CARRIES `rows.length > 1` ON ITS OWN, so this changes
+           only whether the split renders, never whether a single part's body is
+           suppressed: one part shows its full body, in the detail column. */
+        railAlways
+        /* AND THE "+ Add part" GOES IN THE RAIL WITH THEM (client 2026-09-04:
+           the rail must contain the button). It used to sit under BOTH panes at
+           the foot of the grid, so on a wide screen the control that adds a rail
+           entry stood a pane's width away from the rail. See `railAdd` on
+           `child-grid.tsx` for why it cannot simply be nested inside the list
+           (`data-focus-optional` would take it off the Tab path). */
+        railAdd
+        /* NO `railBorder` HERE — the borderless rail is `child-grid.tsx`'s
+           OWN DEFAULT now (client 2026-09-04: raised here first as "remove
+           that rail border", then made "global … Material BOM and Manual tab"
+           the same day). `gap-x-8` still keeps the rail and the pane apart;
+           only the seam lines are gone, app-wide. */
+        /* OPENS ON THE FIRST PART RATHER THAN NOTHING (2026-09-04, operator:
+           "why the bottom looks so flying … default open first component
+           with that table panel"). Opt-in on `child-grid.tsx`'s own prop —
+           see its note for why this is not the same question as "a grid
+           opens with everything folded" (Structure Details, 2026-08-19):
+           that rule is about a document's sections re-expanding as noise;
+           this is a navigation rail with nothing to navigate TO, which reads
+           as broken rather than calm. */
+        defaultOpenKey={gridPanels[0]?.key ?? null}
+        /* INERT BY CONTRACT (see the prop): text and chips, nothing focusable.
+           The fields live in the pane next door, and anything tabbable here
+           would be a second Tab stop per panel on a surface whose whole point
+           is that it has one. */
+        /* THE NAME AND NOTHING ELSE (client 2026-09-03, screenshot 154846:
+           "this text only and remove pieces and 1 colourway").
 
-                    {/* THE SPLIT — a full-width row of THIS table, so it can
-                        never come adrift from the record above it. Indented past
-                        the ordinal and rail-marked, which is what says
-                        "subordinate" without a second frame; the caption names
-                        the panel, because the whole failure of the stacked
-                        version was two splits that could not say whose they
-                        were.
+           IT CARRIED A COORDINATE CHIP AND A COLOURWAY COUNT, and both were
+           saying something the pane already says: Coordinate is the first field
+           on the right, and the count is the caption over the Colourways grid
+           under it. In a rail the operator reads to FIND a part, a second line
+           per entry doubles the height and halves how many parts are on screen
+           — eight of them is a scroll where it need not be one.
 
-                        RENDERED ONLY WHILE OPEN, never hidden with CSS. A
-                        display-hidden row keeps its fields in the DOM, and
-                        `focusablesIn` tests `offsetParent` — so Tab would skip
-                        them correctly, but `landOnAddedRow` diffs the grid body
-                        to find what APPEARED, and fields that were always there
-                        are not new. Unmounting is what makes the open land
-                        somewhere. */}
-                    {openPanel === p.key && (
-                    <tr>
-                      <td colSpan={panelColumns.length + 2} className="bg-surface-muted p-0 pl-9">
-                        <div className="border-l-[3px] border-primary bg-surface px-3 pb-3 pt-2.5">
-                          <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[.09em] text-primary">
-                            Colourways{" "}
-                            <span className="font-normal tracking-[.04em] text-muted-foreground">
-                              of {componentName(p.component_id) || "this panel"}
-                            </span>
-                          </div>
-                          <ChildGrid<MapLine>
-                            /* grid-caption: exempt -- the line above names this
-                               grid AND the panel it belongs to, which a caption
-                               cannot say. */
-                            columns={colourColumns}
-                            rows={p.lines}
-                            tableFrom="6xl"
-                            /* NO "+ Add" AND NO ✕. A panel is N lines, one per
-                               colourway, and `onAddPanel` writes all N — an Add
-                               here would invent a colourway the order does not
-                               declare and a ✕ would delete one it does.
-                               `hideRemove` rather than `lockExisting`, because
-                               these rows are re-derived on every render and
-                               `lockExisting` guards only the set present at
-                               mount. */
-                            hideAdd
-                            hideRemove
-                            onAdd={() => false}
-                            onRemove={() => {}}
-                            renderMobileRow={(row, ri) => (
-                              <FieldGrid>
-                                {colourColumns.map((c, ci) => (
-                                  <Field key={ci} label={c.header} size="sm">
-                                    {c.cell(row, ri)}
-                                  </Field>
-                                ))}
-                              </FieldGrid>
-                            )}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                    )}
-                  </Fragment>
+           ONE LINE IS ALSO WHAT MAKES THE ENTRY COMPACT. The padding is
+           `ChildGrid`'s own — `railCompact`'s `px-2.5 py-1`, not the default
+           `px-3 py-2` this note named before the flag existed; dropping the
+           meta row is what takes each card from two lines to one, so nothing
+           here sets a height. */
+        /**
+         * MATERIAL BOM'S SHAPE, MINUS THE FIGURE (client 2026-09-03, three
+         * rounds on this one row: "same ... size, color everything" brought
+         * the dot, name and subtitle back after "this text only" had cut them;
+         * "remove that colourway1 wording, use compact" now drops the fourth
+         * piece — the count Material BOM prints on its own rail.
+         *
+         * A material's rail figure is the one number Material BOM has nowhere
+         * else to put — it is the LINE's own total, read nowhere else on that
+         * screen. A panel's colourway count is not that: it is printed once
+         * already, in the caption over the Colourways grid the moment the
+         * panel is open, so on THIS rail the count was the one part of
+         * Material BOM's shape that was saying something twice rather than
+         * once. Dropping it is what "customized for this screen" turns out to
+         * mean here — three of Material BOM's four things, not a fourth
+         * invented to fill the slot.
+         *
+         * SHORTER FOR FREE, ALSO THE COMPACTNESS ASKED FOR: the row was two
+         * lines fighting a right-aligned column for the same width; without
+         * the count the subtitle line runs the full row and the entry reads
+         * lighter without a padding number to tune.
+         */
+        renderListItem={(p) => {
+          const name = componentName(p.component_id);
+          const structure = rollUp(p.lines.map((l) => factsFor(l).structure));
+          const n = p.lines.length;
+          const answered = p.lines.filter((l) => l.fabric_form.trim()).length;
+          /* THREE STATES, THE SAME READING `manualEntryColumns`' rail uses one
+             tab along: idle before a component is named (nothing to answer
+             yet), warn once it is named and something on it is not, ok once
+             every colourway states its Type. */
+          const state = !name ? "idle" : n > 0 && answered === n ? "ok" : "warn";
+          return (
+            /* `gap-2.5`, MATERIAL BOM'S OWN GUTTER — `gap-1.5` was tuned for a
+               180px rail (see the width/padding/tint note above); back at
+               268px there is no width pressure buying anything by tightening
+               it, so this reverts with the width rather than staying an
+               orphaned narrowing. The dot keeps `shrink-0`. */
+            /* `min-h-7` INSTEAD OF A BLANK RESERVED LINE — kept in step with
+               the Manual rail, whose call site carries the full reasoning
+               (client 2026-09-04). Short version: reserving the second line
+               with a non-breaking space made every card the same HEIGHT and
+               pushed the visible line to the top of it, so `items-center`
+               centred the dot below the title. A minimum height on the row
+               gives the same uniform box AND lets the centring work, because
+               there is no blank line inside the block being centred. This one
+               is NOT tied to the width narrowing — it stays. */
+            <div className="flex min-h-7 items-center gap-2.5">
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                  state === "ok" && "bg-success",
+                  state === "warn" && "bg-warning",
+                  state === "idle" && "bg-border-strong opacity-50",
+                )}
+              />
+              <span className="min-w-0 flex-1">
+                {/* `text-[12.5px] font-medium` — MATERIAL BOM'S OWN SCALE.
+                    `text-xs font-semibold` was the 180px-rail compensation
+                    (a heavier, half-pixel-smaller name to stay findable in a
+                    tighter column); at Material BOM's own width that trade
+                    buys nothing, so this reverts along with the gap above.
+
+                    NO `truncate` CLASS HERE. `Truncated` writes that span
+                    itself (AGENTS.md, "Truncated values": the class comes off
+                    the call site), and it is what makes a clipped part name
+                    readable on hover or press-and-hold. Adding `truncate`
+                    beside it would clip the value with nothing revealing it. */}
+                <Truncated className="block text-[12.5px] font-medium leading-tight text-foreground">
+                  {name || "New part"}
+                </Truncated>
+                {structure && (
+                  <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                    {structure}
+                  </Truncated>
+                )}
+              </span>
+
+            </div>
+          );
+        }}
+        /* SAME CONTENT, THE FOLDED SHAPE — what a single-panel style shows (no
+           rail to carry a dot or a count) and what `foldRows` requires to
+           exist at all. */
+        renderFoldedRow={(p) => (
+          <span className="text-sm font-medium">
+            {componentName(p.component_id) || "New part"}
+          </span>
+        )}
+        /* THE DETAIL PANE. `renderMobileRow` is the row body in cards mode, so
+           this is the open pane AND the narrow-screen fallback — one
+           definition, which is what stops the two drifting.
+
+           `required={c.required}` IS NOT OPTIONAL HERE. A grid that renders its
+           own row does not get `ChildGridColumn.required` routed into the
+           control, so the star would draw with nothing behind it — the exact
+           divergence AGENTS.md's "declare `required` twice" rule exists to
+           prevent, and what `--check grid-required-mobile` looks for. */
+        renderMobileRow={(p) => (
+          <div className="space-y-3">
+            {/* NO NAME HERE ANY MORE (client 2026-09-03: "the first tile of
+                the section front body already the side rail showing so no
+                need show again in that page screen ... remove it").
+
+                THIS UNDOES THE HEADING ADDED EARLIER THE SAME DAY, and the
+                reason is not a change of mind about whether the open panel
+                needs naming — it is that a SECOND fix made the first one
+                redundant. The heading was built when the rail said only a
+                bare part name; once the rail became Material BOM's own shape
+                (a dot, the name, the structure, the colourway count), the
+                name and the count were both being said twice, one column
+                apart, and the client is right that the second saying earns
+                nothing the first did not.
+
+                THE SPACER THAT USED TO STAND HERE IS GONE (operator report,
+                2026-09-04, on the Manual tab's identical rail: "rail start
+                and the fab table start is uneven … make it equal" — the same
+                pane shape, so the same fix). It bought the ✕ "something to
+                belong to", but nothing it protected actually sits under it:
+                `cornerRemove` floats `right-1` against this FULL-width row
+                wrapper, while the Coordinate/Component fields and the table
+                below are both left-aligned and narrower than the pane — nor
+                does the ✕ need flow content above it to read as attached to
+                the panel; it is already inside the same bordered row as
+                everything else. Keeping an empty div here only cost the pane
+                the same 16px the Manual tab's own spacer cost it, which is
+                exactly the gap the operator was pointing at. */}
+            {/* THE PANEL'S OWN FIELDS, BESIDE THE TABLE RATHER THAN ABOVE OR
+                INSIDE IT (client 2026-09-04: "keep the controls and the table on
+                the same horizontal row side-by-side, but separate them").
+
+                THIS IS THE THIRD ARRANGEMENT OF THESE TWO FIELDS IN ONE DAY, and
+                the middle one is why the split reads as an improvement rather
+                than a revert. They began ABOVE the table as a `FieldGrid` row;
+                they were then merged INTO it as its first columns, which fixed
+                the wasted band but denormalised them — Coordinate and Component
+                belong to the PANEL, so a panel with three colourways drew each
+                value three times and only `onPatchPanel` kept the copies
+                honest. Side by side gives back the single control per value
+                without giving back the band: one row of screen, two grains,
+                each stated once.
+
+                `items-start`, NOT `items-center`: the table grows with the
+                colourway count and the two fields do not, so centring would
+                float them against a tall grid. They belong at its top edge,
+                level with its header row. */}
+            <div className="flex items-start gap-4">
+              {/* `w-48` AND `shrink-0`. The table is the part that has to
+                  breathe — six columns against two — so the fields take a fixed
+                  column and the grid takes the rest through `flex-1`. Without
+                  `shrink-0` a wide table would squeeze the picker instead, which
+                  is the opposite of the trade this layout is making. */}
+              <div className="w-48 shrink-0 space-y-2">
+                {panelColumns.map((c, ci) => (
+                  /* `required={c.required}` REACHES THE CONTROL HERE, and it has
+                     to: `Field` is what draws the star AND opens the
+                     `RequiredScope` the cursor hold reads (AGENTS.md, "Mandatory
+                     fields"). Rendering `c.cell` bare would keep the column's
+                     declaration and lose both halves it buys. */
+                  <Field key={c.header} label={c.header} required={c.required} className="w-full">
+                    {c.cell(p, ci)}
+                  </Field>
                 ))}
-              </tbody>
-            </table>
+              </div>
+              <div className="min-w-0 flex-1">
+              {/* NO "COLOURWAYS OF <PANEL>" CAPTION (client 2026-09-03).
+
+                  IT EARNED ITS PLACE UNDER THE OLD LAYOUT AND DOES NOT UNDER
+                  THIS ONE, which is the whole reason it can go. The stacked
+                  table drew every panel's split one under another, so a caption
+                  was the only thing saying WHOSE colourways these were — drop it
+                  there and two splits become indistinguishable. A master-detail
+                  pane shows exactly ONE panel at a time and names it twice
+                  before this line is reached: the selected entry in the rail,
+                  and the Component field at the top of the pane. A third naming
+                  is what the client is looking at when they call it noise. */}
+            <ChildGrid<MapLine>
+              /* grid-caption: exempt -- the pane holds ONE panel at a
+                 time and names it twice before this grid is reached
+                 (the selected rail entry, and the Component field
+                 above), so a caption would be a third naming. This
+                 reason REPLACES "the line above names it": that line
+                 was removed on 2026-09-03 -- see the note there. */
+              columns={colourColumns}
+              rows={p.lines}
+              /* NO `#` COLUMN (client 2026-09-04: "remove the # 1 column
+                 cell").
+
+                 THE ORDINAL HAD NOTHING LEFT TO NUMBER once the panel fields
+                 became this table's first columns. A row here is one COLOURWAY
+                 of one panel, named by its own Assort Color cell, and the panel
+                 above it is named by the rail and by the Component column — so
+                 "3" was counting a thing nobody refers to by number. That is the
+                 same test `hideIndex`'s own note applies ("in a one-column list
+                 of sizes the VALUE is the identity"), and it is why this is the
+                 prop rather than a `[&_td:first-child]:hidden` at the call site:
+                 the header cell, the row cell and the totals `colSpan` are three
+                 tracks that must leave together.
+
+                 `hideIndex` REACHED CARDS ONLY UNTIL TODAY — the table branch
+                 drew the ordinal unconditionally. Extending it was safe to do
+                 rather than work around: the prop had ZERO call sites in the
+                 app, so no existing grid could change appearance. */
+              hideIndex
+              /* NO `tableFrom` OVERRIDE — the default `@lg` (512px) switch,
+                 and this is the second correction to this ONE line in one day.
+
+                 `5xl` (1024) replaced `6xl` (1152) on the earlier merge, reasoned
+                 against the FULL 1155px pane `check:grid-budget` measures — and
+                 that reasoning does not apply here, because this grid is nested
+                 INSIDE the master-detail split, not laid out across the whole
+                 pane. With the rail at Material BOM's own 268px (re-applied the
+                 same day this line last changed), the detail side gets at most
+                 ~867px on that same 1366x768 laptop — under `5xl` outright, so
+                 the "fix" was still wrong, just not wrong enough to show on a
+                 wider screen.
+
+                 `check:grid-budget`'S OWN HEADER SAYS SO: "a grid nested inside a
+                 master-detail pane has far less width than MIN_PANE ... passing
+                 here is necessary and not sufficient for one of those." This is
+                 that grid. Leaving `tableFrom` unset is what makes the primitive
+                 responsible for the number instead of a second guess at it here:
+                 `@lg` is well inside 867px for `colourColumns`' own ~66rem, so
+                 the table shows on the narrowest screen this app supports
+                 without this file re-deriving what fits. */
+              /* NO "+ Add" AND NO ✕. A panel is N lines, one per
+                 colourway, and `onAddPanel` writes all N — an Add
+                 here would invent a colourway the order does not
+                 declare and a ✕ would delete one it does.
+                 `hideRemove` rather than `lockExisting`, because
+                 these rows are re-derived on every render and
+                 `lockExisting` guards only the set present at
+                 mount. */
+              hideAdd
+              hideRemove
+              onAdd={() => false}
+              onRemove={() => {}}
+              renderMobileRow={(row, ri) => (
+                /* SIX ON ONE ROW (originally eight, client 2026-09-03; `Gsm`
+                   and `Specification` both dropped 2026-09-04): Assort
+                   Color, Fabric Type, Fabric, Type, Required Color, Required
+                   Print.
+
+                   STILL `cols={32}`, NOT RE-TUNED DOWN. 12 or 14 would fit six
+                   `md` (4) fields with less left over, but `colourColumns`
+                   above is shared with the DESKTOP table's own widths, keyed to
+                   the 32-track's numbers ("275 - 285" reasoning etc.) — a second
+                   track here would need those re-derived for no visible gain,
+                   since 6 × `md` (4) = 24 of 32 simply leaves the row's own
+                   trailing quarter blank rather than misaligning anything.
+
+                   THIS IS THE CARD PATH, NOT THE TABLE, and that is why the
+                   fix belongs here. The grid still declares `tableFrom="6xl"`,
+                   and its own column widths total ~1128px including the ordinal
+                   — more than this detail pane gets — so the table would only
+                   appear by scrolling sideways, which the operator's rule 4
+                   bans. Below that breakpoint `renderMobileRow` IS the row, and
+                   this is it.
+
+                   At 4/32 a field is ~137px, comfortable for the three
+                   Selects, the derived Fabric name and the colour combos.
+                   Nothing is lost — the controls clip with an ellipsis and
+                   `<Truncated>` reveals the rest. */
+                <FieldGrid cols={32}>
+                  {colourColumns.map((c, ci) => (
+                    /* `required={c.required}` IS NOT OPTIONAL HERE.
+                       A grid that renders its own row calls this
+                       INSTEAD of the `columns.map()` that wraps
+                       each cell in `RequiredScope`, so
+                       `ChildGridColumn.required` never reaches the
+                       control — and the trap is that it still does
+                       HALF its job: the header `*` draws, and
+                       nothing holds. A star with nothing behind it
+                       is the exact divergence the one-declaration
+                       rule exists to make impossible, arriving
+                       through the prop that is meant to guarantee
+                       it (AGENTS.md, "Mandatory fields"). Four
+                       screens rediscovered this independently;
+                       `--check grid-required-mobile` is why this
+                       one did not have to. */
+                    <Field key={ci} label={c.header} required={c.required} size="md">
+                      {c.cell(row, ri)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              )}
+            />
+              </div>
+            </div>
           </div>
+        )}
+        /* RULE 2b, UNCHANGED FROM THE BUTTON THIS REPLACES — "when a
+           structured fabric like Rib is selected, its component should
+           automatically default to Neck".
 
-          {/* `data-row-add` IS WHAT Tab STEERS BY. Enter or Tab off the last field
-              LANDS on this button and a second Enter is what adds — the client's
-              2026-08-19 reversal — and it needs no key handler: `enterAdvances`
-              stands down on anything that is not an input/select/trigger, so the
-              browser's native click fires. */}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-row-add
-            className="w-32"
-            onClick={() => {
-              /* RULE 2b — "when a structured fabric like Rib is selected, its
-                 component should automatically default to Neck".
+           IT IS NOT A RULE ABOUT RIBS. `solePanel` fills the cell only when the
+           style leaves exactly ONE panel available against this fabric, which
+           on the client's own tee is NECK under 1X1 LYCRA RIB and nothing under
+           Single Jersey (three panels, so nothing to default to). A style that
+           ribs a cuff as well gets two options and no guess — and a guessed
+           FK reads on screen exactly like a chosen one.
 
-                 IT IS NOT A RULE ABOUT RIBS. `solePanel` fills the cell only when
-                 the style leaves exactly ONE panel available against this fabric,
-                 which on the client's own tee is NECK under 1X1 LYCRA RIB and
-                 nothing under Single Jersey (three panels, so nothing to default
-                 to). A style that ribs a cuff as well gets two options and no
-                 guess — and a guessed FK reads on screen exactly like a chosen
-                 one.
+           COMPUTED AT THE MOMENT OF ADDING, over the panels already mapped, so
+           the third Add on a Single Jersey with two panels taken DOES default
+           to the one left — the client's rule 4, for free. */
+        onAdd={() => {
+          const seed = solePanel(
+            availablePanels({
+              decls,
+              siblings: allLines,
+              styleRefNo,
+              structureId,
+              held: null,
+            }),
+          );
+          onAddPanel({
+            component_id: seed?.component_id ?? null,
+            coordinate_id: seed?.coordinate_id ?? null,
+          });
+        }}
+        /* THE ADDRESS, NOT THE GRID'S KEY — `removePanel` resolves
+           `component_id ?? panel_uid` through `inScope`. See `gridPanels`. */
+        onRemove={(p) => onRemovePanel(p.addr)}
+        /* THE BUTTON MATCHES THE ENTRIES. `ChildGrid`'s add is
+           `variant="outline" size="sm"`, already `text-xs` and already `px-3` —
+           which is what the entries now use too, since `railCompact` (and its
+           `px-2.5`) came off this rail (see the width/padding/tint note above).
+           `px-3` here keeps one left edge from the first part down to the
+           button rather than reintroducing the mismatch the two were tuned
+           together to avoid.
 
-                 COMPUTED AT THE MOMENT OF ADDING, over the panels already mapped,
-                 so the third Add on a Single Jersey with two panels taken DOES
-                 default to the one that is left — the client's rule 4, for free. */
-              const seed = solePanel(
-                availablePanels({
-                  decls,
-                  siblings: allLines,
-                  styleRefNo,
-                  structureId,
-                  held: null,
-                }),
-              );
-              onAddPanel({
-                component_id: seed?.component_id ?? null,
-                coordinate_id: seed?.coordinate_id ?? null,
-              });
-            }}
-          >
-            + Add part
-          </Button>
-        </div>
+           `w-full` ARRIVED WITH `railAdd` (2026-09-04). Under the grid the
+           button was one control on an empty row and sized to its own text; at
+           the foot of a narrow rail that left it floating in a column it does
+           not fill, reading as a stray pill rather than as the pane's own
+           footer. Filling the width is what makes it the bottom of the list —
+           and the rail's own `p-1.5` is the only inset, so its edges line up
+           with the entries above it. */
+        addClassName="w-full justify-start px-3"
+        addLabel="+ Add part"
+      />
+    </div>
   );
 }

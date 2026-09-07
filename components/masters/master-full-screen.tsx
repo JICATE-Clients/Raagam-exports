@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -1017,7 +1019,15 @@ export function MasterFullScreen({
           means what it says: the label for a surface that has no other name. */}
       {overlay && !header && (
         <div
-          className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5"
+          /* `bg-primary-soft`, matching the footer band below (client
+             2026-09-04: "can we apply this fro header bar also ... i mean
+             this header same globally use same footer color") — see the note
+             on the footer's background in `raagam-brand-colours` for why the
+             soft tint is the one that stuck. Same token, same reasoning, this
+             is just the OTHER identity band (the `header` prop's sibling
+             below is the one usually on screen; this strip only renders when
+             nothing else names the record). */
+          className="flex items-center justify-between gap-3 border-b border-border bg-primary-soft px-4 py-2.5"
           // Tab order is fields → footer → ✕: the close button stays reachable by
           // keyboard but lands last, out of the typing path. See orderedFocusables.
           data-focus-region="header"
@@ -1030,7 +1040,16 @@ export function MasterFullScreen({
       {/* record header (sticky identity band) — omitted entirely when the host
           route already names the record. See the `header` prop. */}
       {header && (
-        <div className="grid gap-3 border-b border-border bg-surface px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6">
+        <div
+          /* `bg-primary-soft`, SAME TOKEN AS THE FOOTER (client 2026-09-04,
+             screenshot 094248: "apply this fro header bar also ... this
+             header same globally use same footer color"). This is the band
+             the screenshot pointed at — avatar, title, status dot, meta line,
+             the ✕. Same reasoning as the footer's own note: a light tint on
+             an ACTION/IDENTITY band, not a content ground, so it does not
+             reopen the five-times-rejected tinted-surface history. */
+          className="grid gap-3 border-b border-border bg-primary-soft px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6"
+        >
           <div className="flex min-w-0 items-center gap-3">
             {header.avatar ?? (
               <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-primary/10 text-base font-bold text-primary">
@@ -1326,7 +1345,13 @@ export function MasterFullScreen({
                 Sections
               </button>
             )}
-            {active?.content}
+            {/* THE RAIL NAMES THE SECTION, SO THE SECTION DOES NOT NAME
+                ITSELF — see `SectionNamedByRail`. It is false exactly when the
+                rail has folded away, which is the one state where the heading
+                is the only thing left saying where the operator is. */}
+            <SectionNamedByRail.Provider value={!railCollapsed}>
+              {active?.content}
+            </SectionNamedByRail.Provider>
           </div>
         </div>
       </div>
@@ -1363,7 +1388,9 @@ export function MasterFullScreen({
            * NO TOP BORDER (client 2026-08-27, screenshot 2513) — the "fine white
            * line" is this rule, and dropping it is what turns a bar back into the
            * bottom of a card. Same surface as the pane above, so the two read as
-           * one sheet with the buttons resting on it.
+           * one sheet with the buttons resting on it. That reasoning survives the
+           * next paragraph unchanged — the footer still needs no border of its
+           * own, because its ground is no longer the same colour as the pane.
            *
            * THE SEPARATION IS NOW SPACE, WHICH IS THE HOUSE ANSWER. `--border-strong`
            * records it in globals.css for the row-divider case — "if it ever looks
@@ -1379,7 +1406,43 @@ export function MasterFullScreen({
            * that appears only while the pane is scrolled — not the border back,
            * which is exactly the bar that was objected to.
            */
-          "bg-surface px-4 py-3",
+          /**
+           * `bg-primary-soft`, NOT `bg-surface` (client 2026-09-04, screenshot
+           * 2700: "this footer bar also have the same white color so the
+           * border of the rail looks floating ... use the brand color the bar
+           * globally").
+           *
+           * A SOLID `bg-primary` WAS TRIED FIRST AND REJECTED, same session
+           * (screenshot 093253 — the rail's own selected pill, a LIGHT blue
+           * fill with blue border and blue text — "i can see some blue in
+           * that ... see this button inside color i told"). That pill's fill
+           * is `--cell-active`/`--primary-soft`-family, not `--primary`
+           * itself, so the ask was always the soft tint, not a solid bar —
+           * which also means Save/Next need no colour inversion: a solid
+           * blue button already reads fine on a 4%-blue ground, the same way
+           * it always read on white.
+           *
+           * THIS IS STILL BRAND ON A SURFACE, so the `raagam-brand-colours`
+           * history applies — five rejections of a tinted ground, most
+           * recently the day before (2026-09-03, "remove that green kind of
+           * bg color from the ui screen"). What makes this one different
+           * (and is why it is called out here rather than silently matching
+           * the pattern that keeps failing): every prior rejection was a
+           * tint on CONTENT — sidebar, page background, a card. This is the
+           * ACTION BAR, and `--primary-soft` is the exact tint already
+           * accepted on a CONTROL (the rail's own selected pill uses the same
+           * family). If a later instruction reverses this, that reversal
+           * governs — the rejections above were not about this band.
+           */
+          /* `py-2`, down from `py-3` (client 2026-09-05: "that bottom footer
+             bar also too much reduce both bar height and width" — global,
+             confirmed against all ~40 screens sharing this footer, not a
+             one-off for the screen it was reported on). The buttons below
+             dropped from `size="md"` to `size="sm"` in the same change, which
+             is the "width" half: `sm` is `px-3`/`text-xs` against `md`'s
+             `px-4`/`text-sm`, so the bar is shorter AND the button row is
+             narrower, not just visually shorter with the same footprint. */
+          "bg-primary-soft px-4 py-2",
           /**
            * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
            * filling its scrollport rather than a separate decision.
@@ -1423,10 +1486,17 @@ export function MasterFullScreen({
             active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
           )}
         >
-          {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
+          {/* PLAIN `text-muted-foreground` AGAIN. The soft 4%-blue ground
+              (`bg-primary-soft`) is close enough to white that the grey tuned
+              for `bg-surface` still reads the same — no inversion needed, only
+              on a SOLID `bg-primary` bar would this go illegible (tried and
+              reverted, see the note on the bar above). */}
+          {footer.status && (
+            <span className="text-xs text-muted-foreground">{footer.status}</span>
+          )}
           <div className="flex-1" />
           {!stepping && footer.extra}
-          <Button variant="outline" size="md" onClick={footer.onCancel}>
+          <Button variant="outline" size="sm" onClick={footer.onCancel}>
             Cancel
           </Button>
           {/*
@@ -1471,7 +1541,7 @@ export function MasterFullScreen({
           */}
           {stepping && (
             <Button
-              size="md"
+              size="sm"
               data-blocked={stepBlockedWhy ? true : undefined}
               className={cn(stepBlockedWhy && "opacity-60")}
               onClick={() => {
@@ -1489,7 +1559,7 @@ export function MasterFullScreen({
           {!stepping && footer.onSaveDraft && (
             <Button
               variant="outline"
-              size="md"
+              size="sm"
               disabled={footer.isPending || !footer.canSave}
               onClick={footer.onSaveDraft}
             >
@@ -1507,7 +1577,7 @@ export function MasterFullScreen({
               disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
           {!stepping && (
             <Button
-              size="md"
+              size="sm"
               disabled={footer.isPending || (!footer.canSave && !blocked)}
               data-blocked={blocked || undefined}
               className={cn(blocked && "opacity-60")}
@@ -1522,6 +1592,26 @@ export function MasterFullScreen({
     </div>
   );
 }
+
+/**
+ * IS THE ACTIVE SECTION ALREADY NAMED BY THE NAVIGATION?
+ *
+ * True inside a `MasterFullScreen` whose rail is up — which is every screen but
+ * one — and it is what lets `SectionBody` stop drawing a heading the operator
+ * can already read two inches to the left.
+ *
+ * FALSE IS THE DEFAULT, so a `SectionBody` rendered anywhere else keeps its
+ * visible title. Nothing does that today (all 64 call sites across 17 files are
+ * rail editors), and the default is still this way round deliberately: a
+ * heading that fails to appear is a section with no name at all, and the safe
+ * direction for a context nobody provided is the one that shows it.
+ *
+ * REACT CONTEXT, SO IT FOLLOWS THE RENDER TREE — the same mechanism, and the
+ * same caveat, as `RequiredScope`. `active.content` is BUILT by the screen but
+ * RENDERED by this component, inside the provider, which is why a value set
+ * here reaches a `SectionBody` the screen wrote.
+ */
+const SectionNamedByRail = createContext(false);
 
 /**
  * A titled content block inside the editor's content pane.
@@ -1551,6 +1641,35 @@ export function MasterFullScreen({
  * one edit instead of fifteen, and it is exactly the "dead config that reads as
  * live" this repo warns about elsewhere: 51 strings that look maintained, that
  * a future reader would keep writing, and that render nothing.
+ *
+ * ## AND ON 2026-09-03 THE TITLE FOLLOWED THE HINT — VISUALLY
+ *
+ * Client, on the Fabric BOM: "I can see each tab inside the page title like
+ * that tab name — no need, it's showing the tab same look duplicated, so remove
+ * it from page."
+ *
+ * THE 08-17 NOTE ABOVE HAD ALREADY CONCEDED THE POINT. It records the title as
+ * "the most redundant thing on screen — the rail already names the active
+ * section two inches to the left", and says it survived only because dropping
+ * it would have taken `hint` with it, "the only place a section explains
+ * itself". `hint` went; nothing was left holding the title up but that spent
+ * argument.
+ *
+ * IT IS `sr-only`, NOT DELETED, and the difference is not a hedge:
+ *
+ *  - **A screen reader still gets the heading.** The content pane would
+ *    otherwise have none at all, and "the rail says which one is current" is an
+ *    answer about a `<nav>`, not about the region it controls.
+ *  - **It comes BACK, VISIBLY, when the rail folds away.** `railCollapsed`
+ *    (Material BOM, and only Material BOM) removes the desktop rail column, so
+ *    on that screen there is nothing left naming the section but a "Sections"
+ *    back-button. `md:not-sr-only` is scoped to desktop for the matching
+ *    reason: the mobile chip strip is untouched by the fold, so below `md` the
+ *    section IS still named and the heading would duplicate again.
+ *
+ * So `title` is a live prop with a narrow trigger, not dead config: every call
+ * site keeps passing it, one screen keeps showing it, and every screen keeps
+ * announcing it.
  */
 export function SectionBody({
   title,
@@ -1559,9 +1678,22 @@ export function SectionBody({
   title: string;
   children: ReactNode;
 }) {
+  const namedByRail = useContext(SectionNamedByRail);
   return (
     <div>
-      <h2 className="mb-4 text-[15px] font-bold tracking-tight text-foreground @2xl/editor:mb-3">
+      <h2
+        className={cn(
+          "text-[15px] font-bold tracking-tight text-foreground",
+          namedByRail
+            ? "sr-only"
+            /* `md:mb-4` ALONE, not the old `@2xl/editor:mb-3` density tweak
+               stacked under a media variant. A container query and a media
+               query on one utility is a class this repo has been bitten by
+               before — `bg-muted` and friends compiled to nothing here — and a
+               1px margin is not worth a rule that fails silently. */
+            : "sr-only md:not-sr-only md:mb-4",
+        )}
+      >
         {title}
       </h2>
       {/* Space the section's cards apart. A section often holds more than one

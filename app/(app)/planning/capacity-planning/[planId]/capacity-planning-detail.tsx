@@ -251,7 +251,7 @@ function OrdersTab({
         {/* Nested split details (read-only) */}
         {plan.orders.filter((o) => o.is_split && o.details.length > 0).map((o) => (
           <div key={o.id} className="rounded-md border border-border bg-surface-muted p-3 space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               Split details — Order {o.plan_no} ({o.customer_name ?? o.sc_no ?? o.id})
             </p>
             <DataTable
@@ -272,7 +272,7 @@ function OrdersTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {formMode === "add" ? "Add order" : "Edit order"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">

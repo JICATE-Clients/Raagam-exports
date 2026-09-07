@@ -197,7 +197,7 @@ function ItemsTab({
 
         {formMode !== null && (
           <div className="rounded-md border border-border bg-surface-muted p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="text-xs font-bold text-muted-foreground">
               {isAdd ? "Add item" : "Edit item"}
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">

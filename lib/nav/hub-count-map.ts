@@ -94,8 +94,6 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // different label. The number worth showing is "how many are awaiting you",
   // which is a filtered count this batched RPC deliberately cannot express.
   "/orders/approve-amendments": null,
-  // A hub that opens another hub (Amendments). It has no records of its own.
-  "/orders/changes": null,
 
   // -------------------------------------------------------------- planning
   // NONE of these tables exist. Migration 0332 dropped the planning schema

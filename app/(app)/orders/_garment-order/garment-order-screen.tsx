@@ -23,6 +23,14 @@ import {
   Truck,
   FileText,
   ClipboardList,
+  Puzzle,
+  Disc3,
+  WavesHorizontal,
+  Droplet,
+  Scissors,
+  Search,
+  Rocket,
+  Flag,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +38,7 @@ import {
   ChildGrid,
   GRID_HEADER_TEXT,
   gridKeyNav,
+  RowRemoveChip,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -66,6 +75,7 @@ import {
  * came back.
  */
 import { StyleProcessSheet } from "@/components/orders/style-process-sheet";
+import { StyleIdentityBand } from "@/components/orders/style-identity-band";
 import {
   excessQty,
   projectionQty,
@@ -124,6 +134,17 @@ import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
 import { capsName } from "@/lib/validation/formats";
 import { Truncated } from "@/components/ui/truncated";
 import { PriceMatrix } from "@/components/orders/price-matrix";
+/* THE SIZE-ACROSS GRIDS SHARE ONE LOOK, DECLARED ONCE. Assort (below) and
+   the Prices rate matrix draw the same frame since 2026-09-02, so the bands
+   and the column rule live in `matrix-grid.ts` rather than being written out
+   twice — two hand-written looks agree on the day they are written. */
+import {
+  MATRIX_FOOT,
+  MATRIX_HEAD,
+  MATRIX_SIZE_TOKEN,
+  matrixCell,
+  sizeColPx,
+} from "@/components/orders/matrix-grid";
 import { adoptedPrice, reshapeRates } from "@/lib/orders/amendments/price-modes";
 import { ApprovalQtyLines } from "@/components/orders/approval-qty-lines";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -153,6 +174,7 @@ import {
   componentTypeForCategory,
   filledCoordinates,
   impliedCoordinateId,
+  pieceCoordinateId,
   isUnitKind,
   unitKindFromCoordinates,
   UNIT_KIND_OPTIONS,
@@ -160,6 +182,7 @@ import {
 import { componentsForCoordinate } from "@/lib/masters/component-coordinates";
 import { previewOrderNumber } from "@/lib/orders/actions";
 import { RecordPicker } from "@/components/masters/record-picker";
+import { CategoryPicker } from "@/components/masters/lookup-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -255,20 +278,23 @@ import {
   type PackComponentRow,
 } from "@/lib/orders/amendments/pack-composition";
 import {
-  /* `PRICE_TYPE_OPTIONS` WENT THE SAME WAY ON 2026-08-29, and for a reason
-     worth keeping: it was the `else` of `priceModeOptions` — "no pack type, so
-     offer everything" — and the client has replaced that with Style-wise alone
-     (`NO_PACK_PRICE_MODES`). Both branches are now narrow, so the full tuple is
-     no longer a MENU anywhere; it is the vocabulary `price_type` may hold. A
-     file importing it again is a file about to re-open a list the client closed. */
+  /* `PRICE_TYPE_OPTIONS` IS STILL NOT IMPORTED HERE, and the reason survived
+     2026-09-02's widening. The `else` of `priceModeOptions` is `NO_PACK_PRICE_MODES`
+     again — the four per-garment modes, not Style-wise alone — but it is still not
+     the full tuple: the two PACK modes stay off a non-pack order, because a rate
+     per BOX with no declared method has nothing to multiply. So the tuple remains
+     the vocabulary `price_type` may hold rather than a menu, and a file reaching
+     for it here is a file about to offer a box rate on an order with no box. */
   /* `PACK_WISE_PRICE` WENT WITH THE MODE-NAME TESTS (2026-08-28). The grid's
      shape is `priceAxes(mode).size` and its unit is `isPackWise(mode)`, so the
      one literal this file compared against has no reader left — which is the
      point: a third mode arriving needed no edit at either site. */
   PACK_WISE_SIZE_PRICE,
   PACK_BRANCH_PRICE_MODES,
-  /* What the Prices tab offers with NO pack type — Style-wise alone since
-     2026-08-29. The pack branch above is unchanged. */
+  /* What the Prices tab offers with NO pack type — the four per-garment modes
+     (Style-wise, Color-wise, Size-wise, Color-wise Size-wise) since 2026-09-02,
+     when the client reversed 08-29's "Style Price only". The pack branch above
+     is unchanged, and the two pack modes are still excluded here. */
   NO_PACK_PRICE_MODES,
   isPackBranchMode,
   SEASON_OPTIONS,
@@ -1210,6 +1236,24 @@ type HeaderForm = {
   pay_terms_id: string | null;
   /** Supplies Approval Qty's Projection buffer (0413). Null = no projection. */
   rejection_rule_id: string | null;
+  /**
+   * A SECOND, FLAT REJECTION FIGURE — deliberately alongside
+   * `rejection_rule_id`, not instead of it (backend calc spec, 2026-09-04:
+   * "Total Production Target Piece Count = Total Ordered Pieces x
+   * (1 + Rejection% / 100)", rounded up).
+   *
+   * `rejection_rule_id`'s tiered Projection already feeds Fabric BOM
+   * (`fullTarget` → `productionTarget` → `rejectionFor`) and REFUSES a line
+   * rather than defaulting to 0 when no tier covers the order's quantity —
+   * a deliberate, tested 0413 behaviour this field does not touch. This one
+   * is the spec's own simple flat percentage, defaulting to 0, and it feeds
+   * Material BOM ONLY (`materialTarget`, `lib/orders/material-bom/requirement.ts`)
+   * — the one BOM that has never had a rejection term at all. Reusing the
+   * Rejection Rule's own Fabric BOM wiring for this too would double-count
+   * rejection on Fabric BOM the moment both are set; see the plan this was
+   * built from for the full reasoning.
+   */
+  rejection_pct: string;
   /** The Style Quotation this order was raised from (0511). */
   sq_detail_id: string | null;
   ex_rate: string;
@@ -1250,6 +1294,7 @@ const BLANK: HeaderForm = {
   pay_mode: "",
   pay_terms_id: null,
   rejection_rule_id: null,
+  rejection_pct: "",
   sq_detail_id: null,
   ex_rate: "",
   avg_rate: "",
@@ -2385,10 +2430,11 @@ export function GarmentOrderScreen({
    *
    * The three rows are not orphaned by this: `categories.fabric_structure_id`
    * still points at them, and the Category master, the Material master and
-   * `lib/orders/styles/rules.ts` all read that column. What it no longer drives
-   * is GSM — the "Circular Knit → compulsory" carve-out was withdrawn on
-   * 2026-09-01 and `familyCodeOf` went with it, so this screen derives no knit
-   * family at all any more. See `structureRequiredCells` in combo-rules.ts.
+   * `lib/orders/styles/rules.ts` all read that column. It also drives GSM
+   * again — the "Circular Knit → compulsory" carve-out was withdrawn on
+   * 2026-09-01 and reinstated on 2026-09-05, and `familyCodeOf` (below,
+   * beside `fabricStructureOpts`) is what this screen resolves the family
+   * through. See `structureRequiredCells` in combo-rules.ts.
    */
 
   const printOpts = useMemo(
@@ -2515,25 +2561,44 @@ export function GarmentOrderScreen({
   /**
    * The `fabric_structure` lookup rows — Circular Knit / Flat Knit / Woven.
    *
-   * NOT A PICKER (0415 took the last one off this screen, and nothing here asks
-   * the operator the knit family directly). It is the second hop of a
-   * DERIVATION: a component names a fabric CATEGORY, the category names its
-   * family, and `compTypeFor` turns that into the `comp_type` this screen now
-   * stores alongside the Style master. This memo is that same fact shaped as
-   * `{id, name}` because that is what the shared rule takes.
+   * NOT A PICKER OF ITS OWN (0415 took the last one off this screen, and
+   * nothing here asks the operator the knit family directly). It serves two
+   * readers now: `componentTypeForCategory` takes the second hop of a
+   * DERIVATION (a component names a fabric CATEGORY, the category names its
+   * family, and that turns into the `comp_type` this screen stores alongside
+   * the Style master); `CategoryPicker`'s Style Category cell (2026-09-05)
+   * hands the whole list to its "+ Add" sheet, which is why this is now the
+   * full `ConfigLookup` shape rather than the `{id, name}` reshape it used to
+   * be — `componentTypeForCategory` only ever read those two fields, so
+   * widening it costs that reader nothing.
    *
-   * `familyCodeOf` USED TO SIT BELOW and make the same two hops for the GSM
-   * rule. It went on 2026-09-01 with the rule it served — GSM is required on
-   * every fabric now — so `compTypeFor` is the only reader of the family left
-   * on this screen.
+   * `familyCodeOf` below makes the same two hops for the GSM rule
+   * (`structureRequiredCells` in combo-rules.ts) — withdrawn 2026-09-01,
+   * reinstated 2026-09-05 when the client asked for the case rule back.
    */
   const fabricStructureOpts = useMemo(
-    () =>
-      lookups
-        .filter((l) => l.kind === "fabric_structure")
-        .map((l) => ({ id: l.id, name: l.name })),
+    () => lookups.filter((l) => l.kind === "fabric_structure"),
     [lookups],
   );
+  /**
+   * The knit family a picked Structure belongs to — `structureRequiredCells`'s
+   * only input (combo-rules.ts). Two hops, same ones `componentTypeForCategory`
+   * makes above: Structure → category → `fabric_structure_id` → this lookup's
+   * `code` ("circular" / "flat_knit" / "woven"). Matched on `code`, not name,
+   * for `isCircularKnit`'s own reason — a lookup row can be renamed from the
+   * picker's pencil and a code survives that.
+   *
+   * NULL for a blank Structure or a category with no family declared, and the
+   * caller (`structureRequiredCells`) treats null exactly like "not circular" —
+   * GSM stays optional until the fabric names a category that says otherwise.
+   */
+  const familyCodeOf = (structureId: string | null): string | null => {
+    const catFamilyId = structureId
+      ? categoryById.get(structureId)?.fabric_structure_id
+      : null;
+    if (!catFamilyId) return null;
+    return fabricStructureOpts.find((o) => o.id === catFamilyId)?.code ?? null;
+  };
   /**
    * Style Category offers GARMENT categories (0394/0461) — the same list the
    * Style master's own cell does.
@@ -2548,25 +2613,35 @@ export function GarmentOrderScreen({
    * beside `styleColumns` is a hook called conditionally. eslint caught it;
    * every other option list on this screen is up here for the same reason.
    */
+  /** Every Item Class row (0394) — only here to hand `CategoryPicker`'s "+ Add"
+   *  the class list, exactly as the Style master's own copy of this field does.
+   *  It is what makes the sheet ASK which class a new category belongs to,
+   *  rather than silently creating under GARMENTS (see `styleCategoriesFor`). */
+  const itemClassOpts = useMemo(() => lookups.filter((l) => l.kind === "item_class"), [lookups]);
   const garmentClassId = useMemo(
-    () =>
-      lookups.find(
-        (l) => l.kind === "item_class" && (l.code ?? "").toUpperCase() === "GAR",
-      )?.id ?? null,
-    [lookups],
+    () => itemClassOpts.find((l) => (l.code ?? "").toUpperCase() === "GAR")?.id ?? null,
+    [itemClassOpts],
   );
-  const styleCategoryItems = useMemo(
-    () =>
-      data.categories
-        .filter((c) => !garmentClassId || c.item_class_id === garmentClassId)
-        .map((c) => ({
-          id: c.id,
-          code: c.short_name,
-          name: c.name ?? c.short_name ?? "(unnamed category)",
-          inactive: isInactive(c),
-        })),
-    [data.categories, garmentClassId],
-  );
+  /**
+   * Style Category's option list (0394/0461) — the same GARMENT categories the
+   * Style master's own cell offers, and now the raw `Category[]` shape
+   * `CategoryPicker` takes rather than a picker-row reshape, exactly as the
+   * Style master's `scopedCategories` does (2026-09-05: bring that screen's
+   * inline Add here too, rather than sending the operator to Master Data to
+   * create a missing category first).
+   *
+   * A PLAIN FUNCTION, NOT A MEMO, because the held value is PER ROW: this grid
+   * has many style lines, each with its own `style_category_id`, so there is no
+   * single id to close over the way the Style master's one `form.style_category_id`
+   * does. Same shape as `samplesForCustomer` below, called fresh per cell. The
+   * held value always survives the filter — "Disabled rows": a category
+   * created outside GARMENTS via the quick-create sheet's own class picker
+   * must not vanish from its own row on the next refresh and blank the FK.
+   */
+  const styleCategoriesFor = (held: string | null) =>
+    data.categories.filter(
+      (c) => !garmentClassId || c.item_class_id === garmentClassId || c.id === held,
+    );
   const structureItems = useMemo(
     () =>
       data.categories
@@ -2989,6 +3064,9 @@ export function GarmentOrderScreen({
   /* The Pack Composition sheet's opener, keyed the same way (0467). */
   const [packForKey, setPackForKey] = useState<string | null>(null);
   const packStyle = styles.find((r) => r.key === packForKey) ?? null;
+  /* The Pack Composition button's own rect, same mechanism as `processOrigin`
+   *  above (AGENTS.md, "A sub-detail Sheet's size", 2026-09-03). */
+  const [packOrigin, setPackOrigin] = useState<DOMRect | null>(null);
 
   /**
    * THIS STYLE'S OWN PARTS, for the Process sheet's Component cell (0421).
@@ -3554,6 +3632,7 @@ export function GarmentOrderScreen({
       pay_mode: r.pay_mode ?? "",
       pay_terms_id: r.pay_terms_id,
       rejection_rule_id: r.rejection_rule_id,
+      rejection_pct: r.rejection_pct ? String(r.rejection_pct) : "",
       sq_detail_id: r.sq_detail_id,
       ex_rate: r.ex_rate ? String(r.ex_rate) : "",
       avg_rate: r.avg_rate ? String(r.avg_rate) : "",
@@ -3675,6 +3754,7 @@ export function GarmentOrderScreen({
       delivery_date: form.delivery_date || null,
       excess_pct: numOrNull(form.excess_pct) ?? 0,
       rejection_rule_id: form.rejection_rule_id,
+      rejection_pct: numOrNull(form.rejection_pct) ?? 0,
       sq_detail_id: form.sq_detail_id,
       pack: form.pack,
       is_set_pack: form.is_set_pack,
@@ -4303,6 +4383,105 @@ export function GarmentOrderScreen({
     [taLadder],
   );
 
+  /**
+   * THE ROAD LINE — a decorative connector behind the T&A cards, drawn between
+   * their icon badges (client, after a road-map mockup: "make 3 card per row
+   * and that line"). Hooks, above the early return like every other one on
+   * this screen (AGENTS.md "Hooks above every early return" — this file has
+   * shipped that bug five times, so nothing here is exempt).
+   *
+   * MEASURED, NEVER GUESSED, for the same reason the mockup's own version was:
+   * `taRenderMobileRow` alternates each activity left/right (see `side` in
+   * that function), so a card's real on-screen position depends on the
+   * viewport width, how many activities
+   * exist, and how long an activity's own name wrapped to — none of which this
+   * component can compute in advance. `ResizeObserver` + a plain DOM Map keyed
+   * by React `key` (never `row_uid`, which the operator never sees and which
+   * survives a save the DOM node does not) is what stays correct through an
+   * add, a remove, or the window simply resizing.
+   *
+   * ONLY EVER A DECORATION. Nothing here reads from or writes to `taRows`,
+   * carries a `data-grid-row`/`data-grid-body` marker, or touches
+   * `gridKeyNav`/`tabAlongRow` — the grid underneath is the exact same
+   * `ChildGrid` with the exact same one-TaRow-per-row model Tab and Ctrl+Del
+   * already walk. If this measurement ever came back empty the cards would
+   * simply render with no line behind them; nothing about entering the ladder
+   * depends on it.
+   */
+  const taNodeRefs = useRef(new Map<string, HTMLDivElement>());
+  const taWrapRef = useRef<HTMLDivElement | null>(null);
+  const taRoRef = useRef<ResizeObserver | null>(null);
+  const [taTrack, setTaTrack] = useState({ d: "", w: 0, h: 0 });
+
+  const taDraw = useCallback(() => {
+    const wrap = taWrapRef.current;
+    if (!wrap) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const pts = taRows
+      .map((r) => taNodeRefs.current.get(r.key))
+      .filter((el): el is HTMLDivElement => !!el)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return [
+          rect.left + rect.width / 2 - wrapRect.left,
+          rect.top + rect.height / 2 - wrapRect.top,
+        ] as const;
+      });
+    if (pts.length < 2) {
+      setTaTrack({ d: "", w: wrapRect.width, h: wrapRect.height });
+      return;
+    }
+    /* THE SAME "LEAVE STRAIGHT DOWN, ARRIVE STRAIGHT DOWN" CURVE the mockup
+       settled on, so a hop across three grid columns eases round a bend
+       instead of cutting a diagonal — see that file's own note on why a
+       plain `L` read as "slanting" to the client. */
+    let d = `M ${pts[0][0]} ${pts[0][1]} `;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i];
+      const [x1, y1] = pts[i + 1];
+      const midY = (y0 + y1) / 2;
+      d += `C ${x0} ${midY}, ${x1} ${midY}, ${x1} ${y1} `;
+    }
+    setTaTrack({ d, w: wrapRect.width, h: wrapRect.height });
+  }, [taRows]);
+
+  /**
+   * A CALLBACK REF, NOT A PLAIN ONE — THE SECOND BUG THIS LINE SHIPPED WITH.
+   * The first was the `-z-10` that painted it behind the tab's own opaque
+   * background (fixed, see the svg's own note). This one is why it still did
+   * not show up after that fix: a plain `useRef` + `useEffect([taRows])` only
+   * MEASURES when `taRows` changes — and the T&A pane's wrapper div does not
+   * exist in the DOM until the operator actually clicks into the T&A tab. On
+   * a screen that opens on Order Info, the effect had already run once,
+   * found `taWrapRef.current` null, and given up — nothing about switching
+   * tabs LATER touches `taRows`, so it never ran again. The line was being
+   * computed against a node that was not there yet, for the entire life of
+   * the component.
+   *
+   * A callback ref fires exactly when React attaches or detaches the DOM
+   * node, whichever tab that happens on, so the very act of opening T&A is
+   * what (re)creates the `ResizeObserver` and draws the line for the first
+   * time. `taDraw` changing (new `taRows`) still redraws it thereafter via
+   * the plain `useEffect` below, using whatever wrap is CURRENTLY attached.
+   */
+  const taWrapCallbackRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      taRoRef.current?.disconnect();
+      taRoRef.current = null;
+      taWrapRef.current = node;
+      if (node) {
+        const ro = new ResizeObserver(() => taDraw());
+        ro.observe(node);
+        taRoRef.current = ro;
+        taDraw();
+      }
+    },
+    [taDraw],
+  );
+
+  useEffect(() => {
+    taDraw();
+  }, [taDraw]);
 
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
@@ -4875,46 +5054,65 @@ export function GarmentOrderScreen({
   };
 
   /**
-   * ORDER UNIT, ANSWERED — AND IT NO LONGER SEEDS A COORDINATE.
+   * ORDER UNIT, ANSWERED — AND IT SEEDS A COORDINATE AGAIN (2026-09-05).
    *
-   * ## IT DID, FOR ONE AFTERNOON, AND THAT WAS A RULE ABOUT THE WRONG THING
+   * ## THE THIRD REVERSAL ON THIS ONE HANDLER
    *
-   * The spec read: "when the Order Unit is Pcs the system automatically sets the
-   * coordinate to Pcs and the coordinate count to 1". So this handler looked up
-   * the GAR master row whose code was PIECES and wrote it into the grid. The
-   * client corrected it the same day: **"no need to choose PIECES also, which is
-   * just one coordinate … whatever it is."**
+   * 0392 built it, 08-29 removed it ("no need to choose PIECES also, which is
+   * just one coordinate … whatever it is"), and the client asked for the
+   * default back on 2026-09-05. `pieceCoordinateId` in `lib/orders/styles/rules.ts`
+   * carries the full argument for why the middle state existed and why this one
+   * is not simply undoing it — read that note before changing this again.
    *
-   * "Pcs" is a COUNT. `coordinateCap` has said since 0392 that a Piece garment
-   * has one coordinate and a Set has several — it has never said WHICH, and a
-   * customer's Pcs order can perfectly well be filed under TOP. Seeding by name
-   * turned a rule about arity into a rule about vocabulary, and coupled the
-   * screen to a master row nobody promised: rename PIECES to PIECE and the
-   * seeding stops, with no error to read. The note where `pieceCoordinateId`
-   * used to live carries the argument in full.
+   * ONLY WHEN THE LINE HAS NOTHING YET. A line already holding a coordinate — a
+   * hand-picked TOP, or Piece switched back from Set — keeps exactly what it
+   * has; this never overwrites an answer, the same "Disabled rows" argument
+   * every default in this screen already follows. `filledCoordinates` is the
+   * same test `styleLineProblems` and the grid's own cap use, so "has nothing
+   * yet" cannot disagree between this handler and the rest of the line.
    *
-   * ## SO THIS IS A PLAIN `updateStyle` AGAIN
+   * WRITES A NORMAL VALUE, NOT A LOCK. The cell stays exactly as editable as
+   * every other coordinate cell — `coordinatesLocked` / `coordinatesFull` are
+   * untouched by this — so a Pcs order that turns out to need a different
+   * coordinate is one click away from correcting it, never a dead end.
    *
-   * A Pcs line opens on the blank row `seedRow` gives every grid, and the
-   * operator picks whichever coordinate it is — one dropdown, once per line.
+   * SILENT IF THE MASTER HAS NO "PIECES" ROW. `pieceCoordinateId` returns null
+   * rather than throwing, and this handler then falls back to the plain
+   * `updateStyle` it used to be — a blank cell, exactly as before this change.
    *
-   * **The keystroke saving the client asked for is NOT lost**, and this is the
-   * half worth being clear about: it moves to `setStyleCoordinate` below, which
-   * back-fills every component the moment that one coordinate is known. That is
-   * where it always belonged — the components can only be filled once there is
-   * something to fill them WITH, and answering Order Unit is not that moment.
-   * The pre-fill also survives on the components grid itself, through
-   * `impliedCoordinateId`, which reads the line's own grid and never a name.
-   *
-   * ## WHAT THIS HANDLER STILL EARNS ITS NAME FOR
-   *
-   * Nothing, today — it is `updateStyle` with one field. It is kept as a named
-   * handler rather than inlined back into the `onChange` because the Order Unit
-   * cell has acquired and shed side effects twice now (0461, then this), and a
-   * named seam is what made the second removal a one-function change.
+   * The keystroke saving from 08-29 is untouched: `setStyleCoordinate` still
+   * back-fills every component the moment a coordinate is known, and now that
+   * moment can be THIS one instead of the operator's own click.
    */
-  const answerUnitKind = (styleKeyId: string, next: string | null) =>
-    updateStyle(styleKeyId, { unit_kind: next });
+  const answerUnitKind = (styleKeyId: string, next: string | null) => {
+    if (next !== "piece") {
+      updateStyle(styleKeyId, { unit_kind: next });
+      return;
+    }
+    const row = styles.find((x) => x.key === styleKeyId);
+    const already = row ? filledCoordinates(row.coordinates) > 0 : true;
+    const seeded = already ? null : pieceCoordinateId(data.coordinates);
+    setStyles((xs) =>
+      xs.map((x) => {
+        if (x.key !== styleKeyId) return x;
+        const coordinates =
+          seeded == null
+            ? x.coordinates
+            : x.coordinates.length === 0
+              ? [{ key: newKey(), coordinate_id: seeded }]
+              : x.coordinates.map((c, i) => (i === 0 ? { ...c, coordinate_id: seeded } : c));
+        const implied = impliedCoordinateId(next, coordinates);
+        return {
+          ...x,
+          unit_kind: next,
+          coordinates,
+          components: implied
+            ? x.components.map((c) => (c.coordinate_id ? c : { ...c, coordinate_id: implied }))
+            : x.components,
+        };
+      }),
+    );
+  };
 
   /**
    * ORDER INFO ▸ STYLES DETAILS ▸ COORDINATES (0461) — the same three mutators
@@ -6197,22 +6395,36 @@ export function GarmentOrderScreen({
            wholesale, so dropping it would NULL it on the next save rather than
            freeze it.
 
-           A `RecordPicker` and not the master's `CategoryPicker`: that control's
-           inline "+ Add" opens the class-aware quick-create sheet, which is a
-           masters affordance every other picker on this screen withholds. */
-        <RecordPicker
+           NOW `CategoryPicker`, NOT `RecordPicker` (client 2026-09-05: bring
+           the master's own inline Add here rather than sending the operator
+           to Master Data to create a missing category first). Handing over
+           `levies` + `fabricStructures` + `itemClasses` is what makes "+ Add"
+           open the full class-aware `CategoryQuickCreateSheet` — the same
+           sheet, the same `createCategory()`, the Style master's own "Style
+           Category" cell already opens — instead of a name-only inline form;
+           omitting any one of the three silently downgrades it with no error
+           anywhere (`useFullQc`, lookup-picker.tsx). */
+        <CategoryPicker
           label="Style Category"
           compact
           required
-          items={styleCategoryItems}
-          value={r.style_category_id}
+          categories={styleCategoriesFor(r.style_category_id)}
+          value={r.style_category_id ?? ""}
           onChange={(id) =>
             updateStyle(r.key, {
-              style_category_id: id,
+              style_category_id: id || null,
               style_category:
-                styleCategoryItems.find((o) => o.id === id)?.name ?? "",
+                data.categories.find((c) => c.id === id)?.name ?? "",
             })
           }
+          itemClassId={garmentClassId ?? undefined}
+          selectedClassCode="GAR"
+          levies={data.levies}
+          fabricStructures={fabricStructureOpts}
+          itemClasses={itemClassOpts}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          canDelete={masterPerms.canEdit}
         />
       ),
     },
@@ -6311,13 +6523,12 @@ export function GarmentOrderScreen({
        * stored value and the fallback stay in one function rather than this
        * cell learning the rule a second time.
        */
-      /* PICKING "Piece" CAPS THE COORDINATES GRID AT ONE ROW AND WRITES NOTHING
-         INTO IT (client 2026-08-29: "no need to choose PIECES also, which is
-         just one coordinate … whatever it is"). It seeded a PIECES row for one
-         afternoon; `answerUnitKind` carries why that was a rule about the wrong
-         thing. The back-fill it used to do lives on `setStyleCoordinate`, which
-         runs when the operator picks whichever coordinate it is. A plain
-         two-option `Select`, and now with no side effect at all. */
+      /* PICKING "Piece" CAPS THE COORDINATES GRID AT ONE ROW AND SEEDS IT WITH
+         "PIECES" WHEN THE LINE HAS NOTHING YET (client 2026-08-29 removed the
+         seed, client 2026-09-05 asked for it back). `answerUnitKind` carries
+         the full history and why this is not simply undoing 08-29. The value
+         it writes is a normal, editable one — never locked — so an operator
+         who disagrees corrects it the same way they always could. */
       /* MANDATORY SINCE 2026-08-31 (client): "users must select either Pcs or
          Set ... this is critical because this selection triggers different
          coordinate and component mapping rules".
@@ -6458,7 +6669,14 @@ export function GarmentOrderScreen({
                   /* NAMES THE FIELD THAT TURNS IT ON rather than greying out in
                      silence — the rule the Assort gate states. */
                   title={named ? undefined : "Name a style on this row first"}
-                  onClick={() => setPackForKey(r.key)}
+                  /* Captures the button's own rect so the sheet scales out of
+                     THIS row rather than the middle of the screen — see
+                     `packOrigin`. `currentTarget`, not `target`: the click
+                     can land on the text node inside the button. */
+                  onClick={(e) => {
+                    setPackOrigin(e.currentTarget.getBoundingClientRect());
+                    setPackForKey(r.key);
+                  }}
                 >
                   {members
                     ? `${members} member${members === 1 ? "" : "s"} · ${fmtNumber(per)} pcs`
@@ -6928,15 +7146,40 @@ export function GarmentOrderScreen({
    * across rows, so a ragged row was cost with nothing bought. Detail stays
    * narrower because it is a button, not a value.
    */
-  const comboColumns: ChildGridColumn<ComboRow>[] = [
-    {
-      header: "Style",
-      /* THE STAR STAYS UNCONDITIONAL — a combo with no style is not a colourway,
-         whatever the order carries. What varies is the CONTROL's `required`,
-         below, which stands down only on a row the app has already filled in. */
-      required: true,
-      width: STYLE_COL_W,
-      cell: (r) => {
+  /**
+   * SINGLE STYLE: THE COLUMN GOES, NOT JUST THE CELL (client 2026-09-05: "for
+   * single style we are going to give the combo name only ... every time
+   * creating style name").
+   *
+   * The cell already read-only'd itself here on 2026-08-31 (`auto` below) —
+   * this is the other half, dropping the column so the SAME value is not
+   * printed once per row when there is only one thing it could ever be. The
+   * order's style is said once instead, above the grid (`combos` tab content,
+   * `soleStyleRef`), the same fact the Quantities tab's Pack Composition sheet
+   * already prints once per destination for the identical reason.
+   *
+   * ONLY WHEN THE COLUMN WOULD BE PURE REPETITION. `auto.offTabPath` collapses
+   * a ROW to read-only exactly when the order has one style AND that row
+   * already holds it; this collapses the whole COLUMN only when EVERY row is
+   * in that state. A row whose `style_ref_no` is blank — legacy data, or a
+   * `lib/data-io` import older than the auto-fill — still needs the picker to
+   * repair it (the same "only when the row really holds it" guard the cell
+   * below already states), so the column stays for the WHOLE grid until that
+   * one row is fixed, rather than vanishing under five rows and reappearing
+   * under the sixth.
+   */
+  const singleStyleCombos = !!AssortStyle.soleStyleRef(styles);
+  const comboStyleColumnNeeded =
+    !singleStyleCombos || combos.some((r) => !r.style_ref_no.trim());
+
+  const comboStyleColumn: ChildGridColumn<ComboRow> = {
+    header: "Style",
+    /* THE STAR STAYS UNCONDITIONAL — a combo with no style is not a colourway,
+       whatever the order carries. What varies is the CONTROL's `required`,
+       below, which stands down only on a row the app has already filled in. */
+    required: true,
+    width: STYLE_COL_W,
+    cell: (r) => {
         /**
          * PRE-FETCHED AND STEPPED OVER (client 2026-08-31: "the Style Name on the
          * Composition tab must be automatically pre-fetched and populated in a
@@ -7054,7 +7297,10 @@ export function GarmentOrderScreen({
         </div>
         );
       },
-    },
+    };
+
+  const comboColumns: ChildGridColumn<ComboRow>[] = [
+    ...(comboStyleColumnNeeded ? [comboStyleColumn] : []),
     {
       header: "Combo",
       // A combo with no name is not a colourway — it is what the Prices and
@@ -7077,6 +7323,16 @@ export function GarmentOrderScreen({
     },
     {
       header: "Detail",
+      /* THE STAR IS NEW (2026-09-05); THE RULE BEHIND IT IS NOT. `comboProblems`
+         has refused Save/Next on an incomplete Structure Details tree
+         (Composition, Tolerance, Fabric Type, every part's own cells) since
+         2026-09-01 — `revealFirstProblem` already jumps back here and names
+         the missing cells. What was missing was the STAR: a rule enforced with
+         nothing on screen to say so is the "Stated vs enforced" trap this
+         column was in. `required` here only draws the header mark (this cell
+         is a button, not a `<Field>`, so there is no cursor to hold) — the
+         actual gate stays `comboProblems`, one declaration for both. */
+      required: true,
       width: "8rem",
       /**
        * The legacy [Detail] button (screenshot 2261) — it opens the Structure
@@ -7477,15 +7733,22 @@ export function GarmentOrderScreen({
      * 0467 set pack still narrows if that switch is ever flipped back on.
      */
     /**
-     * AND THE OTHER SIDE IS NARROW TOO, SINCE 2026-08-29 (client: "when Pack
-     * Type is No the system completely disables the Pack Wise and Pack Size
-     * grids and locks the grid to standard Style Price only").
+     * AND THE OTHER SIDE OFFERS THE FOUR PER-GARMENT MODES AGAIN (client
+     * 2026-09-02, reversing the second half of 08-29).
      *
-     * This fell through to the whole six-mode tuple, so an order with no pack
-     * type could be priced Color-wise or Size-wise. It now offers Style-wise
-     * alone. THE PACK BRANCH IS UNCHANGED â€” 08-28's three modes stand exactly as
-     * they were; this is the `else`, and confusing the two would make Pack-wise
-     * pricing unreachable on the only orders it exists for.
+     * 08-29 read "when Pack Type is No the system completely disables the Pack
+     * Wise and Pack Size grids and locks the grid to standard Style Price only",
+     * and both halves were built. The client has kept the first and dropped the
+     * second: the pack grids stay unreachable without a pack type, and
+     * Color-wise / Size-wise / Color-wise Size-wise come back beside Style-wise.
+     * It was reported as the dropdown having lost its other entries, which is
+     * what a one-item `<Select>` is from the operator's side.
+     *
+     * THE PACK BRANCH IS UNCHANGED - 08-28's three modes stand exactly as they
+     * were; this is the `else`, and confusing the two would make Pack-wise
+     * pricing unreachable on the only orders it exists for. What both branches
+     * still agree on is that the two PACK modes need a declared method. That is
+     * the GATE, and 09-02 widened the narrowing, not the gate.
      */
     const live: readonly string[] = packPricingActive
       ? PACK_BRANCH_PRICE_MODES
@@ -7512,6 +7775,12 @@ export function GarmentOrderScreen({
   const priceModeCell = (g: PriceGroup, mode: string) => (
     <Select
       required
+      /* `compact` — the cell sits under a column heading that already names it,
+         which is the same reason every picker in a `ChildGrid` cell takes it. It
+         swaps `AFFORDANCE_PAD` (`pr-8`) for `AFFORDANCE_PAD_COMPACT` (`pr-6`),
+         so 8px of the cell goes to the VALUE rather than to the slot beside it —
+         which on a 160px column is 8px of a 112px text budget. */
+      compact
       value={mode}
       onChange={(e) => applyPriceMode(g.rows[0], e.target.value)}
     >
@@ -8257,7 +8526,15 @@ export function GarmentOrderScreen({
       cell: (r) => (
         <Input
           type="number"
-          className="text-right"
+          /* PILL, NOT A SQUARE BOX — `taRenderMobileRow` sits this inside a
+             rounded `bg-surface-muted` chip beside its own "Days" label, so a
+             bordered rectangular input here would draw a second, competing
+             shape inside that chip. `border-transparent bg-transparent`
+             (never `border-none`, which some Tailwind builds treat as a
+             different utility than the border-color/width pair `cn` here is
+             overriding) lets the chip's own background show through; the
+             focus ring still comes from `Input`'s own base classes, unopposed. */
+          className="w-12 rounded-full border-transparent bg-transparent text-center"
           value={r.days_required}
           onChange={(e) =>
             setTaRows((xs) =>
@@ -8299,6 +8576,189 @@ export function GarmentOrderScreen({
       ),
     },
   ];
+
+  /**
+   * A pictogram per seeded activity, keyed by `short_name` — purely a wayfinding
+   * aid for the timeline card below, never a source of truth. `ta_activities` is
+   * an editable master (0266), so an operator can add an eleventh activity with
+   * no entry here; `ClipboardList` is what every unmapped `short_name` gets,
+   * exactly the same "seed maps what it knows, everything else falls through"
+   * shape `categoryNameSeed` uses for a vocabulary keyed by class code.
+   */
+  const TA_ICONS: Record<string, LucideIcon> = {
+    FABPLAN: Layers,
+    ACCBOM: Puzzle,
+    YRNPUR: Disc3,
+    KNIT: WavesHorizontal,
+    DYE: Droplet,
+    CUT: Scissors,
+    SEW: Shirt,
+    PACK: Package,
+    INSP: Search,
+    SHIP: Truck,
+  };
+
+  /**
+   * THE T&A GRID AS A SCHEDULE, NOT A TABLE (client request, after reviewing a
+   * timeline mockup). `forceCards` + this function replace the four-column table
+   * with one card per activity — a status-toned icon, the row's own Target Date
+   * pulled forward beside it, and the Activity / Days controls stacked below.
+   *
+   * REUSES `taColumns[0].cell` AND `taColumns[1].cell` VERBATIM — this is not a
+   * second Activity picker or a second Days box, it is the SAME closures the
+   * table row would have called, just placed somewhere else. `renderMobileRow`
+   * bypasses `columns.map()` (see `ChildGridColumn.required`'s own warning), so
+   * calling anything other than the real cell here would fork the Activity
+   * picker's `usedIds` / `data-focus-optional` wiring and the Days input's
+   * `onChange` into a second copy that WILL drift from the table's.
+   *
+   * `RequiredScope` IS STILL HERE, WITH NOTHING TO GUARD TODAY. Neither column
+   * declares `required` right now (withdrawn 2026-08-31, "make it optional …
+   * will implement it later as required") — but the day it comes back, this is
+   * the exact trap the column's own doc comment names: a `renderMobileRow` that
+   * skips `RequiredScope` draws the header's `*` from nowhere (there is no
+   * header here) while silently dropping the hold. Wrapping now means that day
+   * costs nothing here.
+   *
+   * TARGET DATE AND DEPT ARE NOT `taColumns[2]`/`taColumns[3]` CALLED AGAIN —
+   * both are derived, read-only text with no control behind them (a `readOnly`
+   * `<Input>` whose only job on the table is to line up under a `<th>`), so
+   * showing them as plain text here is not a second answer, only a different
+   * rendering of the one `taDates` / `taActivityById` lookup the table cells
+   * already make. Neither is on the Tab path either way.
+   *
+   * ALTERNATING SIDES, STILL ONE `TaRow` PER `ChildGrid` ROW. This went
+   * through a 3-per-row (then 5-per-row) CSS-grid override on `data-grid-body`
+   * for a couple of requests, then back — the client's actual reference the
+   * whole time was the artifact's own "Version 7", the single-card-per-row
+   * road map with each activity alternating left and right, not a multi-
+   * column grid. `ChildGrid` never knew the difference either way: Tab,
+   * Ctrl+Del and Enter-adds-a-row all still walk the same one-activity-per-
+   * row model. What changed, again, is purely how ONE row's own content is
+   * laid out — `side` below, computed from `i % 2`.
+   *
+   * THE CONNECTING LINE IS MEASURED, DRAWN OUTSIDE THIS FUNCTION, AND DID NOT
+   * NEED TO CHANGE ACROSS ANY OF THIS. See the `taNodeRefs` / `taTrack` hooks
+   * above the early return: this function only hands one ref per card
+   * (`taNodeRefs.current.set(r.key, el)`) to the icon badge; the SVG path is
+   * drawn once, behind every row, from wherever those badges actually end up
+   * on screen. A grid of three columns and a single column of alternating
+   * sides are just two different arrangements of the same set of points —
+   * the measurement does not know or care which one it is looking at.
+   */
+  const taRenderMobileRow = (r: TaRow, i: number) => {
+    const d = taDates.get(r.row_uid);
+    const activity = taActivityById.get(r.activity_id ?? "");
+    const Icon = TA_ICONS[activity?.short_name ?? ""] ?? ClipboardList;
+
+    /**
+     * TONE IS SCHEDULE PROXIMITY, NEVER COMPLETION. This screen has no idea
+     * whether a step is done — `status` / `actual_date` are entered on the
+     * dashboard and never loaded here (see `TaRow`'s own note on why they are
+     * not in this shape). `d.float` is the one honest signal available: calendar
+     * days from today to this step's OWN target date, negative once it has
+     * passed (`lib/ta/schedule.ts`). So the colour says "this date has gone by"
+     * or "this date is close", never "nobody has finished this" — a claim the
+     * data cannot back up from this screen.
+     */
+    const tone: "danger" | "warning" | "info" | "muted" =
+      !d ? "muted" : d.float < 0 ? "danger" : d.float === 0 ? "warning" : d.float <= 3 ? "info" : "muted";
+    const toneNode: Record<typeof tone, string> = {
+      danger: "bg-danger-soft text-danger",
+      warning: "bg-warning-soft text-warning",
+      info: "bg-info-soft text-info",
+      muted: "bg-surface-muted text-muted-foreground",
+    };
+    /* THE RING, NOT THE FILL, CARRIES THE TONE HERE — `toneNode` already sets
+       the badge's own soft fill; this is the OUTER ring the mockup's thicker
+       "road" medallions had, in the same tone rather than a new colour. */
+    const toneRing: Record<typeof tone, string> = {
+      danger: "ring-danger",
+      warning: "ring-warning",
+      info: "ring-info",
+      muted: "ring-border-strong",
+    };
+    const toneText: Record<typeof tone, string> = {
+      danger: "text-danger",
+      warning: "text-warning",
+      info: "text-info",
+      muted: "text-muted-foreground",
+    };
+    const caption =
+      !d
+        ? null
+        : d.float < 0
+          ? `${Math.abs(d.float)} day${Math.abs(d.float) === 1 ? "" : "s"} past target`
+          : d.float === 0
+            ? "Target date is today"
+            : d.float <= 3
+              ? `Target in ${d.float} day${d.float === 1 ? "" : "s"}`
+              : null;
+
+    /**
+     * ALTERNATING SIDES, NOT A GRID (client, pointing at the artifact's own
+     * "Version 7" — the single-card-per-row road map, not the 3-per-row grid
+     * that was built for a different request in between). Even rows cluster
+     * left, odd rows cluster right, with a flex-1 spacer taking up whatever
+     * side the cluster is NOT on. `flex-row-reverse` is what makes one set of
+     * JSX serve both sides: the spacer is always the LAST element in DOM
+     * order, so reversing the row moves it — and therefore the empty space —
+     * to the opposite edge without touching the cluster's own markup.
+     */
+    const side: "left" | "right" = i % 2 === 0 ? "left" : "right";
+
+    return (
+      <div className={cn("flex items-start gap-3 py-1", side === "right" && "flex-row-reverse")}>
+        <div className={cn("w-14 flex-none pt-1.5", side === "left" ? "text-right" : "text-left")}>
+          <div className="text-[10px] font-medium tracking-wide text-muted-foreground">
+            {String(i + 1).padStart(2, "0")}
+          </div>
+          <div className="text-xs font-semibold tabular-nums text-foreground">
+            {d ? fmtDate(d.target_date) : "—"}
+          </div>
+        </div>
+
+        <div
+          ref={(el) => {
+            if (el) taNodeRefs.current.set(r.key, el);
+            else taNodeRefs.current.delete(r.key);
+          }}
+          className={cn(
+            "mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-surface",
+            toneNode[tone],
+            toneRing[tone],
+          )}
+        >
+          <Icon className="h-4 w-4" />
+        </div>
+
+        <div className="w-full max-w-[280px] flex-none space-y-1.5 rounded-xl border border-border bg-surface p-2.5 text-left transition-shadow hover:shadow-md">
+          <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
+            {taColumns[0].cell(r, i)}
+          </RequiredScope>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {activity?.department && (
+              <span className="rounded-full border border-border bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {activity.department}
+              </span>
+            )}
+            <div className="flex items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2.5 pr-1">
+              <span className="text-[11px] font-medium text-muted-foreground">Days</span>
+              <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
+                {taColumns[1].cell(r, i)}
+              </RequiredScope>
+            </div>
+          </div>
+          {caption && <div className={cn("text-[11px] font-medium", toneText[tone])}>{caption}</div>}
+        </div>
+
+        {/* THE SPACER. See the note above — this is what alternating sides
+           actually is: not two different layouts, one layout and which end
+           this element sits at. */}
+        <div className="flex-1" />
+      </div>
+    );
+  };
 
   // ---------------- Quantities (0398) ----------------
 
@@ -10252,7 +10712,7 @@ export function GarmentOrderScreen({
          versus what is cut from it), the reveal lands in the same place either
          way, and merging them would produce "missing Composition · Colour" —
          a sentence that reads as one row owing both. */
-      const own = structureProblems(st);
+      const own = structureProblems(st, familyCodeOf(st.structure_id));
       const bad = st.components
         .map((c) => componentProblems(c, st.item_sub_type))
         .filter((m) => m.length);
@@ -12215,13 +12675,10 @@ export function GarmentOrderScreen({
    * 26px of chrome, not 18.4: that figure was calibrated when the cell was a
    * bare figure. An `<Input>` is a different container and needs its own.
    */
-  const sizeColPx = (label: string, digits: number) =>
-    Math.round(
-      Math.max(
-        Math.min(6, Math.max(2, label.length)),
-        Math.min(7, Math.max(2, digits)),
-      ) * 7.8 + 26,
-    );
+  /* `sizeColPx` MOVED TO `components/orders/matrix-grid.ts` on 2026-09-02, so
+     the Prices matrix sizes its columns by the same rule this one does. The
+     reasoning above is that module's now; it is repeated there rather than
+     summarised, because the rule is the comment. */
 
   /** Identity (ref + combo, with the style name under them) and the row total. */
   const ASSORT_ID_W = 340;
@@ -12336,16 +12793,14 @@ export function GarmentOrderScreen({
     ].join(" ");
 
     /* One shared class per band, so a cell added to the header and forgotten in
-       the body cannot drift: both read the same string. */
-    const HEAD =
-      "sticky top-0 z-20 flex min-h-8 items-center justify-center border-b " +
-      "border-border-strong bg-surface-muted px-1 text-[10.5px] font-semibold " +
-      "uppercase tracking-wide text-muted-foreground";
-    const CELL =
-      "flex min-h-9 items-center justify-center border-b border-border px-0.5";
-    const FOOT =
-      "sticky bottom-0 z-20 flex min-h-9 items-center justify-center border-t " +
-      "border-border-strong bg-surface-muted px-1 text-xs font-bold tabular-nums";
+       the body cannot drift: both read the same string. SHARED WITH THE PRICES
+       MATRIX since 2026-09-02 (`components/orders/matrix-grid.ts`) — the two
+       tabs draw one frame, and a second copy of these strings is how they would
+       stop. `min-h-9` is passed rather than baked in because the rate grid runs
+       at 26px, a compaction the client bought separately. */
+    const HEAD = MATRIX_HEAD;
+    const CELL = matrixCell("min-h-9");
+    const FOOT = MATRIX_FOOT;
 
     /* PIECES ONLY (0473) — the boxes row shares this column and its figure is
        a different unit. Summed in, a size ordering 100 boxes of a 4-piece pack
@@ -12377,7 +12832,7 @@ export function GarmentOrderScreen({
                  The size the operator ticked over there is visibly the size they
                  are filling in here. */
               <div key={z.size_id} className={HEAD}>
-                <span className="rounded border border-border bg-surface px-1.5 py-px font-mono text-[13px] font-medium normal-case tracking-normal tabular-nums text-foreground">
+                <span className={MATRIX_SIZE_TOKEN}>
                   {sizeLabel(z.size_id) || "-"}
                 </span>
               </div>
@@ -13559,7 +14014,7 @@ export function GarmentOrderScreen({
         ]
           .filter(Boolean)
           .join("  ·  ");
-        const foldedProblems = structureProblems(st);
+        const foldedProblems = structureProblems(st, familyCodeOf(st.structure_id));
         return (
           /* THE OPEN CARD'S RAIL, TRANSPARENT — see the long note in
              `renderMobileRow`. Same width, same padding, no colour: the two
@@ -13612,21 +14067,19 @@ export function GarmentOrderScreen({
       /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
       addClassName={STRUCTURE_ADD_W}
       renderMobileRow={(st) => {
-        const problems = structureProblems(st);
-        /* THE STARS AND THE HOLDS COME FROM THE RULE, NEVER FROM A LITERAL
-           (client 2026-09-01). `structureRequiredCells` is the same declaration
-           `problems` above is derived from and the same one `comboProblems`
-           gates Save on, so a cell cannot show a `*` the Save button disagrees
-           with — the star/hold divergence AGENTS.md's "one declaration, four
-           enforcers" exists to prevent.
+        const family = familyCodeOf(st.structure_id);
+        const problems = structureProblems(st, family);
+        /* THE STARS AND THE HOLDS COME FROM THE RULE, NEVER FROM A LITERAL.
+           `structureRequiredCells` is the same declaration `problems` above is
+           derived from and the same one `comboProblems` gates Save on, so a
+           cell cannot show a `*` the Save button disagrees with — the
+           star/hold divergence AGENTS.md's "one declaration, four enforcers"
+           exists to prevent.
 
-           IT TAKES NO ARGUMENT, and that is the 2026-09-01 change: all five
-           cells are unconditional, so every fabric on every combo answers the
-           same. It stays a CALL rather than a module constant because the
-           question "what does a fabric owe" belongs to the rule module, and an
-           inlined object here would be the second statement this indirection
-           exists to prevent. */
-        const need = structureRequiredCells();
+           TAKES `family`, REINSTATED 2026-09-05: GSM alone is conditional on
+           the picked Structure's knit family (Circular Knit only), the other
+           four cells are unconditional regardless of what is passed. */
+        const need = structureRequiredCells(family);
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
@@ -13946,25 +14399,26 @@ export function GarmentOrderScreen({
                   place rather than being half-expressed as a condition on the
                   JSX. (Until 2026-09-01 the gate was "unless this is the first
                   FABRIC" — the axis moved, the placement did not.) */}
-              {/* GSM IS REQUIRED ON EVERY FABRIC (client 2026-09-01: "gsm also
-                  need required for all fabric type").
+              {/* GSM IS REQUIRED ONLY ON A CIRCULAR KNIT (client 2026-09-05:
+                  "circular knit type fabric type only gsm … flat and woven
+                  fabric gsm field are optional") — the 2026-08-10 case rule,
+                  BACK after a two-week detour.
 
-                  IT SHIPPED CONDITIONAL EARLIER THE SAME DAY and this comment
-                  said so — "Circular Knit → GSM compulsory; Woven or Flat Knit →
-                  optional" (client 2026-08-10) was read as the narrower and
-                  older statement and left standing. The client was shown that
-                  reading and overruled it in one line, so the 08-10 carve-out is
-                  WITHDRAWN, not overlooked: a later instruction wins, and
-                  restoring it needs a new decision rather than someone noticing
-                  `isCircularKnit` still exists (it does, uncalled, and its own
-                  doc explains why).
+                  IT WAS MADE UNCONDITIONAL ON 2026-09-01 ("gsm also need
+                  required for all fabric type") and this comment said so — the
+                  client was shown the 08-10 carve-out and overruled it in one
+                  line. That withdrawal is itself now withdrawn: a later
+                  instruction wins, and the client's 09-05 ask is that later
+                  instruction. `isCircularKnit` (combo-rules.ts) is called
+                  again, through `familyCodeOf` above resolving the picked
+                  Structure's category → `fabric_structure_id` → this lookup's
+                  `code`.
 
-                  SO THE STAR NO LONGER FLICKERS. It used to appear when you
-                  picked a knit Structure and vanish on a woven one — the one
-                  case-driven star on this card. Nothing here is conditional now,
-                  which is why `need.gsm` reads as a constant: it is still routed
-                  through the rule so the star, the hold and the Save gate cannot
-                  drift apart. */}
+                  SO THE STAR FLICKERS AGAIN, deliberately. It appears on a
+                  Circular Knit Structure and vanishes on a Woven or Flat Knit
+                  one — `need.gsm` is `isCircularKnit(family)`, not a constant,
+                  and it is routed through the one rule so the star, the hold
+                  and the Save gate cannot drift apart from each other. */}
               <Field label="GSM" required={need.gsm} w="num">
                 <Input
                   type="number"
@@ -15607,15 +16061,21 @@ export function GarmentOrderScreen({
           return (
           <div
             className={cn(
-              // `relative pr-10` carries the corner ✕ that replaced the `#N`
+              // `relative pr-8` carries the corner ✕ that replaced the `#N`
               // band: something has to hold it, and the padding is what keeps the
               // last field's label out from under it.
-              "relative space-y-2 pr-10",
+              /* `pr-8` (32px), DOWN FROM `pr-10` — the reservation follows the
+                 control. The old ✕ was a ~40px-wide `size="sm"` button, so 40px
+                 of gutter was the honest number for it; `RowRemoveChip` is a
+                 24px circle sitting 6px in, which is 30px, and 32px clears it
+                 with two to spare. Reserving the old width for the new chip
+                 would leave 10px of dead margin down the right of every row. */
+              "relative space-y-2 pr-8",
               // A folded row reads as one thing you can open, so it says so on
               // hover. The open row gets nothing — there is nothing to click.
               //
               // `pl-2`, NOT `px-2`: `px-*` and `pr-*` are the same twMerge group,
-              // so a `px-2` declared after the `pr-10` above WINS on the right and
+              // so a `px-2` declared after the `pr-8` above WINS on the right and
               // the corner ✕ lands back on top of the summary. Setting only the
               // side this needs is what keeps the two rules from fighting.
               !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
@@ -15666,17 +16126,15 @@ export function GarmentOrderScreen({
                 blocks without it), so deleting the only line was never the way
                 to change it — clearing its fields is. */}
             {styles.length > 1 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                data-row-remove
-                className="absolute right-0 top-0 text-muted-foreground hover:text-danger"
+              /* `RowRemoveChip`, the SAME control `ChildGrid` floats into a
+                 cards-mode row's corner — see its note in `child-grid.tsx`. This
+                 row draws its own chrome (`listRows`), which is why the grid
+                 cannot supply it and why a hand-rolled copy drifted out of step
+                 with the primitive in the first place. */
+              <RowRemoveChip
+                label="Remove style"
                 onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
-                aria-label="Remove style"
-              >
-                <Trash2 className="h-4 w-4 shrink-0" />
-              </Button>
+              />
             )}
             {/* `required={col.required}` is not optional plumbing: with
                 `renderMobileRow` supplied, ChildGrid stops wrapping cells in
@@ -15952,6 +16410,9 @@ export function GarmentOrderScreen({
    * reason the prop's own note gives — the flag has to sit on the same object as
    * the fieldless content, or the two eventually disagree.
    */
+  /* `disabled` is `TabItem`'s own and is NOT restated here — it type-checked
+     all along, which is exactly why the rail never receiving it was invisible.
+     See the spread in `sections` below. */
   type OrderTab = TabItem & { skipTab?: boolean; wide?: boolean };
   const tabs: OrderTab[] = [
     /**
@@ -16162,6 +16623,28 @@ export function GarmentOrderScreen({
       label: "Combos",
       content: (
         <>
+          {/* THE STYLE, SAID ONCE — only when `comboStyleColumnNeeded` has
+             already dropped the grid's own Style column (see the note beside
+             it). `StyleIdentityBand` is the shared band Fabric BOM's Manual
+             and Components tabs already draw for the identical reason,
+             reused rather than hand-rolled — the failure `created-columns.tsx`
+             exists to prevent is six screens growing their own version of one
+             band. `omit={["style"]}`: a Combo row has no separate "Style No",
+             only `style_ref_no` and `article_no`. */}
+          {!comboStyleColumnNeeded && (
+            <StyleIdentityBand
+              styleRefNo={soleStyleRef}
+              identity={{
+                ref: soleStyleRef,
+                style: "",
+                article:
+                  styles.find((s) => styleKey(s.style_ref_no) === styleKey(soleStyleRef))
+                    ?.article_no ?? "",
+              }}
+              omit={["style"]}
+              className="mb-3"
+            />
+          )}
           <ChildGrid<ComboRow>
             columns={comboColumns}
             rows={combos}
@@ -16378,7 +16861,9 @@ export function GarmentOrderScreen({
                     name: z.name,
                   }));
             return (
-              <div key={method} className="space-y-2">
+              /* The same rhythm as the per-style group below — see the note
+                 there. 8px flat was one step looser than the pane it sits in. */
+              <div key={method} className="space-y-2 @2xl/editor:space-y-1.5">
                 {/* THE PACK NAME IS A HEADING ON ITS OWN LINE, and the Price
                     Type field starts beneath it (client 2026-08-28, screenshot
                     2534).
@@ -16467,7 +16952,27 @@ export function GarmentOrderScreen({
                             <Input
                               type="number"
                               inputMode="decimal"
-                              className="h-8 text-right font-mono tabular-nums"
+                              /* NO `h-8` HERE — the primitive already IS 32px
+                                 on this pane, and saying so again breaks the
+                                 half that matters. `Input` is
+                                 `h-9 @2xl/editor:h-8`, a CONTAINER query, so it
+                                 is 32px in a desktop editor and stays a 36px
+                                 touch target in the ~440px picker panel and on a
+                                 phone. A flat `h-8` opts this one cell OUT of
+                                 that query, so anywhere the pane is under 42rem
+                                 it stood 32px beside 36px controls — four pixels
+                                 out, in one row.
+
+                                 That is the defect `quantityColumns` already
+                                 records in as many words (client 2026-08-21,
+                                 "that country one is look something not even
+                                 with other fields, make even look"): five cells
+                                 carried `h-8` while the pickers beside them
+                                 carried the query. Same class, same cause, one
+                                 tab along. `text-right font-mono tabular-nums`
+                                 stays — those say what the VALUE is, which is
+                                 the cell's business; the height is the row's. */
+                              className="text-right font-mono tabular-nums"
                               value={packRateFor(r.method, mode, r.size_id)}
                               onChange={(e) =>
                                 setPackRate(r.method, mode, r.size_id, e.target.value)
@@ -16582,7 +17087,24 @@ export function GarmentOrderScreen({
               const v = priceGroupView(g);
               return (
                 <div
-                  className="space-y-3"
+                  /* THE EDITOR'S OWN RHYTHM, NOT A THIRD NUMBER (client
+                     2026-09-05: "decrease margins/gaps between fields").
+
+                     This was a flat `space-y-3` — 12px between the Style /
+                     Price Type / Unit line and the rate matrix under it, on a
+                     surface whose every other stack runs at 8px and tightens to
+                     6px once the pane is wide enough to be a desktop editor.
+                     `FIELD_TRACK`'s `gap-y-2 @2xl/editor:gap-y-1.5` is that
+                     rhythm, `ChildGrid`'s own card body repeats it, and this one
+                     group was the thing standing outside it.
+
+                     A CONTAINER QUERY, WHICH IS WHY IT IS THIS PAIR AND NOT
+                     `space-y-1.5`. 6px flat would be right on this desk and
+                     wrong in the ~440px picker panel and on a phone, where the
+                     controls themselves go back to 36px — the same reason
+                     `Input` states its height as `h-9 @2xl/editor:h-8` rather
+                     than as one number. Density is a property of the pane. */
+                  className="space-y-2 @2xl/editor:space-y-1.5"
                   /* FOCUS OPENS THE GROUP, which is what keeps the fold
                      keyboard-operable: Tab out of one style's rates lands on the
                      next group's Style field and the group unfolds around the
@@ -16592,42 +17114,165 @@ export function GarmentOrderScreen({
                     if (!v.isOpen) setOpenPriceKey(g.key);
                   }}
                 >
-                  <FieldGrid>
-                    {/* NO `required` — see `priceStyleCell`: the box is readOnly,
-                        `Input` never stamps the hold marker on one, and a star
-                        with no hold behind it is the divergence the
-                        one-declaration rule bans. */}
-                    <Field label="Style" size="md">
-                      {priceStyleCell(g)}
-                    </Field>
-                    {/* A FOLDED GROUP KEEPS A FIELD, AND IT IS NOW THIS ONE.
-                        Tab lands on fields, so a folded row rendering none would
-                        be reachable by mouse only — the requirement the Style(s)
-                        fold also records. Style used to be that field; since
-                        2026-08-31 it is `tabIndex={-1}`, so Price Type has to
-                        render folded or the whole group drops off the keyboard.
-
-                        That is the right field to have promoted: it is where the
-                        cursor is meant to land on this tab anyway, and the
-                        wrapper's `onFocus` unfolds the group around it. Unit and
-                        the rate matrix stay behind the fold — they are the bulk,
-                        and Unit is not a field at all. */}
-                    <Field label="Price Type" required size="md">
-                      {priceModeCell(g, v.mode)}
-                    </Field>
-                    {v.isOpen && (
-                      <Field label="Unit" size="md">
-                        {/* READ-ONLY FACT, not a field: it arrives with the
-                            style line (its Order Unit) and there is nothing to
-                            type. Rendered as text rather than a disabled input
-                            so it neither invites a click nor sits in the Tab
-                            path. */}
-                        <div className="flex min-h-8 items-center text-sm text-muted-foreground">
-                          {g.rows[0]?.unit || "—"}
-                        </div>
-                      </Field>
-                    )}
-                  </FieldGrid>
+                  {/**
+                    * STYLE / PRICE TYPE / UNIT ARE ONE TABLE (client 2026-09-05,
+                    * Tamil: "style price type unit aa oru table aa pannikudu").
+                    *
+                    * ## THE SAME CONVERSION COLOR/PRINT DETAILS HAD THE SAME DAY
+                    *
+                    * That tab's three grids became real tables on this client's
+                    * own instruction ("oru table aa convert pannu"), and this is
+                    * the same request one tab along: labelled fields floating on
+                    * a line become `<th>`-declared columns with a rule under the
+                    * header and a `border-l` between the cells. It reads as a
+                    * record with named columns instead of three controls that
+                    * happen to be adjacent — and it matches the rate matrix
+                    * directly beneath, which has been a headed table all along.
+                    *
+                    * ## `ChildGrid tableAlways`, NEVER A HAND-ROLLED `<table>`
+                    *
+                    * "A screen composes primitives; it does not draw" — and
+                    * "line items are `ChildGrid`, never a hand-rolled `<table>`"
+                    * is the standing rule that makes the keyboard contract free.
+                    * `tableAlways` is exactly how the Color/Print grids were
+                    * converted: it forces the responsive table at EVERY width
+                    * rather than letting it fall back to stacked cards, which is
+                    * what "make it a table" asks for.
+                    *
+                    * ## WHAT THE THREE FLAGS BUY, EACH FOR ITS OWN REASON
+                    *
+                    *  - **`hideIndex`** — a `#` column counts rows, and this
+                    *    table holds exactly one: the group it heads. The ordinal
+                    *    would restate what the band above already names.
+                    *  - **`hideAdd` + a declining `onAdd`** — the groups are
+                    *    seeded FROM the Styles Details lines (`pickStyle`), so
+                    *    there is nothing to add here; the declining handler is
+                    *    what lets Enter off the last cell escalate rather than
+                    *    die on a grid that cannot grow.
+                    *  - **`hideRemove`** — unpricing a style is the ✕ in the
+                    *    band above, which carries `data-row-remove` and takes
+                    *    Ctrl+Del with it. A second ✕ inside the table would be
+                    *    two controls for one action.
+                    *
+                    * ## THE WIDTHS: 10 / 10 / 4.5rem, MEASURED PER CELL
+                    *
+                    * Column widths, not `Field w` — a table column is sized by
+                    * its `<th>`. Every column declares one, so `hugsContent`
+                    * fires and the table stops at Unit instead of running to the
+                    * edge of the tab. 24.5rem (392px) all in, against 31rem when
+                    * these were `term`/`term`/`code` an hour earlier (client
+                    * 2026-09-05: make all three boxes compact).
+                    *
+                    * A TABLE CELL IS NOT A `Field`, WHICH IS WHY THE NUMBERS
+                    * MOVED RATHER THAN BEING TRIMMED. A `<td>` spends `px-1.5`
+                    * of its own before the control does anything, so the same
+                    * declared width buys 12px LESS text here than it did on the
+                    * `FieldRow`. Each column is therefore measured from its own
+                    * chrome, at the repo's own ~6.9px/character (`textColPx`)
+                    * and `GRID_HEADER_TEXT`'s 12.5px bold for the heading:
+                    *
+                    *  - **Style 10rem (160px).** Chrome is 36px (td 12 + the
+                    *    input's `px-3`), leaving ~124px — about 18 characters.
+                    *    `STL/2627/0002` is 13 and `MENS T SHIRT/0034` is 17, so
+                    *    both fit whole. This is the one column that must not be
+                    *    cut further: it is a plain `<Input>`, so it has NO
+                    *    ellipsis and no hover bubble — a clipped value there just
+                    *    stops, which is the failure the truncate-reveal rule
+                    *    exists to forbid. 9rem would give ~15 characters and eat
+                    *    the end of a real style name.
+                    *  - **Price Type 10rem (160px), AND THE EARLIER NOTE HERE WAS
+                    *    WRONG.** It said this could not go below `term` because
+                    *    "a native `<select>` has no ellipsis and no hover bubble".
+                    *    `Select` only renders a native `<select>` on touch and on
+                    *    SSR; **on a real mouse it renders `Combobox`**, which
+                    *    carries `text-ellipsis` AND the `Tooltip` reveal
+                    *    (combobox.tsx) — the same pair `data-picker.tsx` has. So
+                    *    the truncate-reveal trade is available here after all,
+                    *    and the floor is the one the rest of the app uses.
+                    *    Chrome is 48px (td 12 + `px-3` + `AFFORDANCE_PAD_COMPACT`
+                    *    24), leaving ~112px: `Color-wise` and `Pack-wise` show
+                    *    whole, `Color-wise Size-wise` clips to `Color-wise Siz…`
+                    *    — still unmistakably the longer mode, with the full text
+                    *    on hover. The heading needs 82px and fits.
+                    *  - **Unit 4.5rem (72px).** Its chrome is `px-1.5` alone (the
+                    *    value is text, not a control), so `PCS` needs ~33px and
+                    *    the HEADING is what sets the floor: "Unit" at 12.5px bold
+                    *    plus the `<th>`'s `px-2` is ~43px. 9rem was 144px for a
+                    *    three-letter enum — the single most oversized box on the
+                    *    tab.
+                    *
+                    * ## `required` ON THE COLUMN *AND* ON THE CONTROL
+                    *
+                    * `ChildGridColumn.required` draws the header `*` and opens
+                    * the `RequiredScope` that holds the cursor; `priceModeCell`
+                    * passes `required` to the `<Select>` itself, and
+                    * `useRequiredHold` ORs the two. That is the sanctioned double
+                    * declaration, not a duplicate — see AGENTS.md, "A GRID THAT
+                    * RENDERS ITS OWN ROW MUST DECLARE `required` TWICE".
+                    *
+                    * Style declares NEITHER, deliberately: the box is `readOnly`,
+                    * `Input` never stamps the hold marker on one, and a star with
+                    * no hold behind it is the exact divergence the
+                    * one-declaration rule exists to make impossible.
+                    *
+                    * ## UNIT IS A COLUMN ONLY WHILE THE GROUP IS OPEN
+                    *
+                    * The columns are built here rather than beside `comboColumns`
+                    * precisely so `v` is in scope: a folded group shows Style and
+                    * Price Type and nothing else, which is unchanged — it is the
+                    * COLUMN that goes, not a cell left blank under a heading that
+                    * still promises a value.
+                    *
+                    * A FOLDED GROUP STILL KEEPS A FIELD, and it is Price Type.
+                    * Tab lands on fields, so a folded row rendering none would be
+                    * reachable by mouse only (the requirement the Style(s) fold
+                    * also records). Style used to be that field; since 2026-08-31
+                    * it is `tabIndex={-1}`, so Price Type has to render folded or
+                    * the whole group drops off the keyboard.
+                    */}
+                  <ChildGrid<PriceGroup>
+                    columns={[
+                      {
+                        header: "Style",
+                        width: "10rem",
+                        cell: (x) => priceStyleCell(x),
+                      },
+                      {
+                        header: "Price Type",
+                        required: true,
+                        width: "10rem",
+                        cell: (x) => priceModeCell(x, v.mode),
+                      },
+                      ...(v.isOpen
+                        ? [
+                            {
+                              header: "Unit",
+                              width: "4.5rem",
+                              /* READ-ONLY FACT, not a field: it arrives with the
+                                 style line (its Order Unit) and there is nothing
+                                 to type. Rendered as text rather than a disabled
+                                 input so it neither invites a click nor sits in
+                                 the Tab path. */
+                              cell: (x: PriceGroup) => (
+                                <div className="flex min-h-8 items-center text-sm text-muted-foreground">
+                                  {x.rows[0]?.unit || "—"}
+                                </div>
+                              ),
+                            },
+                          ]
+                        : []),
+                    ]}
+                    /* THE GROUP IS THE ROW. `priceGroups` is the OUTER grid's
+                       list; this table heads one of them, so its own list is a
+                       single-element array rather than a slice of anything. */
+                    rows={[g]}
+                    tableAlways
+                    hideIndex
+                    hideAdd
+                    onAdd={() => false}
+                    hideRemove
+                    onRemove={() => {}}
+                  />
                   {v.isOpen && rateGrid(g, v.mode)}
                 </div>
               );
@@ -16790,10 +17435,13 @@ export function GarmentOrderScreen({
                 <div
                   className={cn(
                     // See the Styles row above — the corner ✕ needs a `relative`
-                    // to hang on and the padding to keep clear of the fields.
-                    "relative space-y-2 pr-10",
+                    // to hang on and the padding to keep clear of the fields,
+                    // and `pr-8` is the width `RowRemoveChip` actually takes
+                    // (a 24px chip 6px in). See the Styles row for why the
+                    // reservation had to move with the control.
+                    "relative space-y-2 pr-8",
                     // `pl-2` not `px-2` — see the Styles row: `px-*` would
-                    // outrank the `pr-10` that keeps the ✕ off the summary.
+                    // outrank the `pr-8` that keeps the ✕ off the summary.
                     !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
                   )}
                   title={isOpen ? undefined : "Open this quantity line"}
@@ -16808,18 +17456,18 @@ export function GarmentOrderScreen({
                 >
                   {/* The ✕ alone, out of the flow — see the Styles grid above
                       and `ChildGrid`'s cards band. A quantity line is named by
-                      its Country, which is the field it folds to. */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove
-                    className="absolute right-0 top-0 text-muted-foreground hover:text-danger"
+                      its Country, which is the field it folds to.
+
+                      `RowRemoveChip` since 2026-09-05 (client, Tamil: this icon
+                      "is not in proper alignment"). It was a bare `size="sm"`
+                      ghost icon at `right-0 top-0` — `h-8 px-3`, so the 16px
+                      glyph sat inside a ~40x32px invisible box and painted well
+                      short of the corner its own class named. The chip's `p-0`
+                      and `h-6 w-6` are what make the painted circle the box. */}
+                  <RowRemoveChip
+                    label="Remove quantity line"
                     onClick={() => setQuantities((xs) => xs.filter((x) => x.key !== row.key))}
-                    aria-label="Remove quantity line"
-                  >
-                    <Trash2 className="h-4 w-4 shrink-0" />
-                  </Button>
+                  />
                   <FieldGrid cols={32}>
                     {(isOpen ? [...primary, ...secondary] : primary.slice(0, 1)).map((c) => (
                       /* One line for all eight — see QTY_SPAN for the split
@@ -16909,7 +17557,15 @@ export function GarmentOrderScreen({
                   <span className="text-sm font-medium text-foreground">
                     {st.style_ref_no}
                   </span>
-                  {st.style && (
+                  {/* ONLY WHEN IT SAYS SOMETHING THE REF DOES NOT. "THE REF IS
+                      THE NAME NOW" (2026-08-25) — `pickStyle` writes the ref
+                      into `style` — so on every order entered since, this
+                      printed the same string twice: "MENS T SHIRT/0034 MENS T
+                      SHIRT/0034" (client 2026-09-02, screenshot 2642). Kept
+                      rather than deleted because a document SAVED before that
+                      date can still carry a real, different style name, and
+                      dropping the span would hide it. */}
+                  {st.style && st.style.trim() !== st.style_ref_no.trim() && (
                     <span className="text-sm text-muted-foreground">{st.style}</span>
                   )}
                   {st.article_no && (
@@ -17403,51 +18059,155 @@ export function GarmentOrderScreen({
           )}
 
           {/**
-            * EVERYTHING WRONG WITH THIS TAB, SAID IN ONE PLACE — and said only,
-            * never enforced (client 2026-08-31: "make it optional now will
-            * implement it later as required").
+            * THE ADVISORY LIST IS NO LONGER SHOWN (client 2026-09-05: "no need
+            * this message in T&A totally remove it, can save some space").
             *
-            * These are `taProblems`, the same list that fed `sectionValidity`'s
-            * `extra` until the tab was made optional. Rendering the SAME objects
-            * here rather than writing a second set of sentences is the whole
-            * point: when the gate comes back it is one line in `extra`, and the
-            * operator's messages cannot drift from the record's rules in the
-            * meantime, because there is only one set of them.
-            *
-            * AMBER, NOT RED, AND NOT WIRED TO ANYTHING. Nothing here holds the
-            * cursor, deadens Save or counts on the rail — it is the plain
-            * advisory shape AGENTS.md describes for a rule that does not block
-            * ("an advisory stays plain amber text and is not wired through
-            * `dupFieldProps`"). A red box beside a Save button that works would
-            * teach the operator to ignore red.
-            *
-            * IT COVERS THE LADDER'S REFUSAL TOO, which is why the status line
-            * above renders nothing when the ladder refuses. "KNITTING: enter how
-            * many days it needs" is `backwardSchedule`'s own sentence, passed
-            * through unchanged and never restated.
+            * `taProblems` ITSELF STAYS, UNCHANGED — see the long note at its
+            * `...taProblems` (deliberately absent) spread point, a few hundred
+            * lines up in `sectionValidity`'s `extra`: "DO NOT tidy up by
+            * deleting `taProblems`". This is one render removed, not the rule
+            * withdrawn — the const still computes all four cases (empty
+            * master, emptied grid, unnamed rows, ladder refusal) so restoring
+            * the gate later is still exactly "add `...taProblems` back", with
+            * this block re-added beside it if the operator wants the amber
+            * text back too. Today the tab simply says nothing until Save is
+            * attempted with the gate off, which is consistent with the tab
+            * being optional in the first place.
             */}
-          {taProblems.length > 0 && (
-            <ul className="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
-              {taProblems.map((pb, i) => (
-                <li key={i}>{pb.message}</li>
-              ))}
-            </ul>
-          )}
 
-          <ChildGrid<TaRow>
-            columns={taColumns}
-            rows={taRows}
-            /* NO `seedRow`. Every other grid on this screen opens on a blank row
-               because the operator is the only one who knows what belongs in it;
-               this one is seeded from the `ta_activities` master (see
-               `seedTaLadder`), and a blank row put back after the last one was
-               deleted would be a row whose Activity picker holds the cursor and
-               whose Days blocks Save — a grid arguing with an operator who has
-               just emptied it on purpose. */
-            onAdd={() => setTaRows((xs) => [...xs, blankTaRow()])}
-            onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add activity"
-          />
+          {/**
+            * THREE CARDS PER ROW, WITH A ROAD LINE BEHIND THEM (client, after a
+            * road-map mockup: "make 3 card per row and that line"). Both are
+            * layered OUTSIDE `ChildGrid` rather than built into it:
+            *
+            * - `taWrapCallbackRef` is the coordinate space `taTrack`'s path was
+            *   measured in (see the hooks above the early return, and that
+            *   callback ref's own note on why a plain `useRef` missed every
+            *   tab switch) — the `<svg>` below is
+            *   an absolutely-positioned sibling of `ChildGrid`, painted first so
+            *   it sits BEHIND the cards, sized to the exact pixel box that was
+            *   measured so the path's raw coordinates need no `viewBox` scaling.
+            * - The arbitrary-descendant classes on the wrapper below turn
+            *   `ChildGrid`'s own row container (`[data-grid-body]`) into a CSS
+            *   grid from the OUTSIDE — no such prop exists on `ChildGrid`, and
+            *   none was added there, because this is purely how ~10 already-
+            *   correct rows are ARRANGED, not a new row shape. `ChildGrid` still
+            *   renders exactly one `TaRow` per `[data-grid-row]`; Tab, Ctrl+Del
+            *   and Enter-adds-a-row all still walk that same one-row-per-
+            *   activity model unchanged.
+            * - `!border-t-0` / `!py-0` cancel `flatRows`'s own single-column
+            *   rhythm (a top divider and asymmetric top/bottom padding meant for
+            *   a stacked list), which would otherwise sit unevenly across a row
+            *   of three cards; the grid's own `gap` supplies the spacing instead.
+            */}
+          {/* THE START CAP (client: "that order entry rock and shipent with
+             track icon need to add"). Same shape as the artifact's own
+             bookends — a small circle in the app's brand-soft tint, a
+             label under it — marking the two ends of the ladder that are
+             not activities: the order itself, and the shipment it is
+             building toward. Purely decorative, matching `road-cap` in the
+             reference artifact; carries no data of its own. */}
+          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-1">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
+              <Rocket className="h-4 w-4" />
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Order entered
+            </span>
+          </div>
+          {/* NARROWER, SO THE TWO SIDES SIT CLOSER TOGETHER (client: "can i
+             think shrick those left and right between gab" — the alternating
+             cluster was spanning the FULL width of a wide content pane,
+             which is not what the artifact's own bounded shell showed. Same
+             `max-w-2xl` as the caps above it, so the line's left/right swing
+             lines up with the rocket and the flag rather than under- or
+             overshooting them. */}
+          <div ref={taWrapCallbackRef} className="relative mx-auto max-w-2xl">
+            <svg
+              /* NO `-z-10` — see the fix note. A negative z-index on an
+                 element whose parent sets no z-index of its own does not
+                 mean "behind its sibling grid"; it means "behind the
+                 nearest ancestor that DOES form a stacking context", which
+                 on this screen is the tab pane's own opaque background. The
+                 svg painted, correctly, entirely out of sight underneath it.
+                 Plain DOM order does the job instead: this element is
+                 written BEFORE the grid below it and neither carries a
+                 z-index, so normal painting order alone puts it behind. */
+              className="pointer-events-none absolute left-0 top-0"
+              width={taTrack.w}
+              height={taTrack.h}
+              aria-hidden="true"
+            >
+              <path
+                d={taTrack.d}
+                fill="none"
+                stroke="var(--border-strong)"
+                strokeWidth={5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <div
+              /* NO GRID OVERRIDE ANY MORE — the 3-per-row and 5-per-row grid
+                 CSS both went with the layout they were built for (client, at
+                 the artifact's own "Version 7": the ALTERNATING single-card
+                 road map, not the grid built for a request in between).
+                 `ChildGrid`'s own row container needs no help here: with
+                 `flatRows` it already stacks one `[data-grid-row]` per line,
+                 which is exactly what an alternating layout wants — each row
+                 decides its OWN left/right via `taRenderMobileRow`'s `side`,
+                 not via how the container arranges cells. `!border-t-0` /
+                 `!py-0` stay: `flatRows`'s single-column divider and padding
+                 were tuned for a plain stacked list, not a row that is now a
+                 flex cluster pinned to one edge, and `taRenderMobileRow`
+                 supplies its own `py-1` instead. */
+              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0"
+            >
+              <ChildGrid<TaRow>
+                columns={taColumns}
+                rows={taRows}
+                /* THE LADDER READS AS A SCHEDULE, NOT A TABLE (client, after
+                   reviewing a timeline mockup): `forceCards` renders every width
+                   as the stacked-card layout, and `renderMobileRow` swaps the
+                   default "stack every column" body for `taRenderMobileRow`'s
+                   status-toned card. Nothing about the DATA changed — same
+                   `columns`, same `onAdd`/`onRemove`, same keyboard contract
+                   (`data-grid-row`, Ctrl+Del, Tab-lands-on-fields all still come
+                   from `ChildGrid` itself); only which JSX draws inside each row,
+                   and how the wrapper above arranges those rows on screen. */
+                forceCards
+                /* `flatRows` drops `ChildGrid`'s own "rounded-lg border p-2.5"
+                   box around each row — `taRenderMobileRow` draws its OWN card,
+                   and without this the two would nest. Its divider and padding
+                   are then cancelled by the wrapper's own override above, since
+                   both assume a single stacked column. */
+                flatRows
+                renderMobileRow={taRenderMobileRow}
+                /* NO `seedRow`. Every other grid on this screen opens on a blank
+                   row because the operator is the only one who knows what
+                   belongs in it; this one is seeded from the `ta_activities`
+                   master (see `seedTaLadder`), and a blank row put back after the
+                   last one was deleted would be a row whose Activity picker
+                   holds the cursor and whose Days blocks Save — a grid arguing
+                   with an operator who has just emptied it on purpose. */
+                onAdd={() => setTaRows((xs) => [...xs, blankTaRow()])}
+                onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add activity"
+              />
+            </div>
+          </div>
+          {/* THE FINISH CAP (client: "order completion wiht flag and track").
+             Same treatment as the start cap, closing the ladder at Shipment
+             rather than naming it a second time — the last card already
+             says "SHIPMENT". */}
+          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
+              <Flag className="h-4 w-4" />
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Ready to ship
+            </span>
+          </div>
         </div>
       ),
     },
@@ -18419,6 +19179,18 @@ export function GarmentOrderScreen({
                 placeholder="No rejection"
               />
             </Field>
+            {/* "Rejection %" INPUT HIDDEN FROM THIS SCREEN (client 2026-09-05):
+                beside "Rejection Rule" it read as a duplicate of the same
+                concept, and the client wants to settle whether Material BOM
+                should keep its own flat figure or move onto the same ladder
+                Fabric BOM already uses (`rejectionFor`/Rejection Rule) before
+                this is shown again. `rejection_pct` itself, the form field,
+                the load/submit wiring and `materialTarget`'s use of it are all
+                UNTOUCHED — it now always computes with 0 for a new order,
+                since nothing on screen can set it. Do not delete the plumbing
+                or re-add the control without asking; see the plan this was
+                built from (backend calc spec, 2026-09-04, Formula 5) for what
+                it was for. */}
             {/* THE "Attachments" CELL STOOD HERE AND IS GONE (client
                 2026-08-31): the Add File control belongs to a STYLE, so it is
                 the Files cell on each Style(s) row, mandatory before that style
@@ -18594,23 +19366,38 @@ export function GarmentOrderScreen({
      */
     ...tabs
       .filter((t) => t.key !== "reason" || amending)
+      /**
+       * SPREAD, NEVER A WHITELIST — THIS MAP SILENTLY ATE `disabled` FOR TWO
+       * DAYS (client 2026-09-02: "i told you know if the pack type is no
+       * disable the tab do it").
+       *
+       * It listed the seven keys it forwarded, so a flag a tab declared and
+       * this line did not name was DROPPED ON THE WAY TO THE RAIL. Pack type(s)
+       * has set `disabled: true` in its Pack-off branch since 2026-08-31 and
+       * the section stayed fully clickable, because only `skipTab` was on the
+       * list — half of one ruling arriving and half not.
+       *
+       * NOTHING COULD CATCH IT. `disabled` is a real optional field of
+       * `TabItem`, so the declaration type-checks; the map's result is a
+       * different object, so the omission type-checks too; and the two halves
+       * disagree only at RUNTIME, on an order with Pack switched off. This is
+       * the shape [[raagam-stated-vs-enforced]] names — a rule written down in
+       * one place with nothing carrying it to the place that enforces it — and
+       * the whitelist is what made it possible.
+       *
+       * So the spread is the fix rather than an eighth line: the NEXT flag a
+       * section declares arrives without anyone remembering this map exists.
+       * The three keys below are overrides and must stay after it — they are
+       * derived per key and outrank whatever a tab happens to carry.
+       */
       .map((t) => ({
-        key: t.key,
-        label: t.label,
+        ...t,
         icon: SECTION_ICONS[t.key] ?? FileText,
         done: sectionDone[t.key],
         // Only `logistic` can carry one today; the lookup is keyed rather than
         // hard-coded so a field declared against another tab tomorrow shows up
         // on the rail without this line being remembered.
         problems: validity.bySection[t.key],
-        // Forwarded, never re-derived — see `OrderTab`.
-        skipTab: t.skipTab,
-        /* Style(s) is the only section that sets it today. Forwarded by key
-           rather than hard-coded here for the reason `problems` above is: a
-           second section that needs the wider pane declares it on itself and
-           appears correctly without this line being remembered. */
-        wide: t.wide,
-        content: t.content,
       })),
   ];
 
@@ -18629,90 +19416,87 @@ export function GarmentOrderScreen({
       onInputCapture={() => setTouched(true)}
       onClickCapture={() => setTouched(true)}
     >
-      <PageHeader
-        title={
-          amending
-            ? "Amend Garment Order"
-            : editId
-              ? "Edit Garment Order"
-              : "New Garment Order"
-        }
-        /* NO DERIVED BACK LINK ON THE EDITOR — the one case `backTarget` cannot
-           see. `PageHeader` resolves a "← Back to <parent>" off the nav registry
-           by ROUTE, and this route's editor is not a page the operator navigated
-           TO: it is a mode of the same route, entered by clicking a row. The
-           derived link would sit beside the "← Back to list" button below it,
-           two arrows on one row aimed at different places, and the derived one
-           would leave the screen with an unsaved order open.
-
-           THE LIST BRANCH KEEPS THE DEFAULT, deliberately: there the parent IS a
-           real destination, and because the registry answers per route, the one
-           component gives "← Back to Order Management" at /orders/garment-orders and
-           "← Back to Amendments" at /orders/amendments with no `purpose` branch
-           of its own. */
-        back={false}
-        /* NO DESCRIPTION IN THE EDITOR (client 2026-08-14). It said "Fill the
-           header, then work down the tabs. The SC No is minted on save." — read
-           once, then ~22px on every visit thereafter, on the screen being
-           reported as cramped. The title and Back to list stay: those name the
-           record and get the operator out, which a description does not.
-
-           The LIST-mode header keeps its own, deliberately. A list is where
-           someone arrives without context; an editor is not. */
-        actions={
-          <div className="flex items-center gap-3">
-            {/* THE ORDER-LEVEL LEDGER. Here rather than in a pinned card of its
-                own: the operator's standing rule is that a record's header
-                fields are a SECTION, not a band floating above the rail, and a
-                new full-width band is that shape. `PageHeader` is already the
-                one strip that names this record, and `MasterFullScreen` is
-                mounted `page` here precisely so this header stays visible.
-
-                SHOWN ONLY ONCE THERE IS A BREAKUP TO REPORT ON. Before that it
-                would say "0 of 0", which is a claim about an order nobody has
-                started — the same call `assortBalanceOf` makes by answering null
-                rather than a shortfall. */}
-            {orderBalance.rows > 0 && orderBalance.target > 0 && (
-              <span className="hidden items-baseline gap-1.5 text-xs sm:flex">
-                <span className="text-muted-foreground">Order breakup</span>
-                <span className="font-medium tabular-nums text-foreground">
-                  {fmtNumber(orderBalance.allocated)}
-                </span>
-                <span className="text-muted-foreground">of</span>
-                <span className="font-medium tabular-nums text-foreground">
-                  {fmtNumber(orderBalance.target)}
-                </span>
-                {orderBalance.started === 0 ? (
-                  <span className="text-muted-foreground">· not started</span>
-                ) : orderBalance.allocated === orderBalance.target ? (
-                  <span className="text-success">· balanced</span>
-                ) : orderBalance.allocated < orderBalance.target ? (
-                  <span className="text-warning">
-                    · {fmtNumber(orderBalance.target - orderBalance.allocated)} left
-                  </span>
-                ) : (
-                  <span className="text-danger">
-                    · {fmtNumber(orderBalance.allocated - orderBalance.target)} over
-                  </span>
-                )}
+      {/**
+        * A DIVIDER, NOT A PAGE HEADER (client 2026-09-05, reference: the
+        * label/hairline band Fabric BOM's Components tab uses for its own
+        * "Style Ref No · Style No · Article No" strip — `StyleIdentityBand`,
+        * `components/orders/style-identity-band.tsx`. That component takes a
+        * style's own three fields and cannot name an order, so this is the
+        * same VISUAL LANGUAGE (uppercase 10.5px label, bold value, a hairline
+        * filling the rest of the row) rather than a shared component — but
+        * every class below is copied from it rather than re-invented, so a
+        * reader who knows one band recognises the other.
+        *
+        * `<PageHeader>` is gone from THIS branch only — the list branch a few
+        * hundred lines up keeps it untouched, since 224 other screens share
+        * that component and a list page arrives with no context the way an
+        * open editor does not. What made the old header tall was never
+        * `PageHeader`'s own spacing (`mb-4`, already trimmed once this
+        * session): it was an `h1 text-xl` sized to introduce a page the
+        * operator has already opened, plus a full row spent solely on
+        * "← Back to list" — the SAME information this band now carries in
+        * one compact line, the record's own identity and its way out.
+        *
+        * `data-focus-region="header"` IS NOT OPTIONAL — copied from
+        * `PageHeader` itself. Without it, `regionOf` (`lib/focus.ts`) sorts
+        * "← Back to list" as a CONTENT field rather than chrome, and Tab off
+        * the last field of a section lands on it instead of wrapping to the
+        * next section — the exact bug `PageHeader`'s own comment documents
+        * for every OTHER screen's actions row.
+        */}
+      <div data-focus-region="header" className="mb-3 flex w-full flex-wrap items-baseline gap-x-6 gap-y-2">
+        <div className="flex shrink-0 items-baseline gap-2">
+          <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+            {amending ? "Amend Garment Order" : editId ? "Edit Garment Order" : "New Garment Order"}
+          </dt>
+          {/* `previewNo` IS ALREADY RESOLVED BEFORE FIRST PAINT for a brand-new
+             order (see `initialOrderNo`), so the number sits here even before a
+             save mints one — never a placeholder like a bare "auto" would be. */}
+          <dd className="m-0 text-sm font-semibold text-foreground">
+            {savedOrderNo ?? previewNo ?? "—"}
+          </dd>
+        </div>
+        <div aria-hidden className="h-px min-w-[2rem] flex-1 self-center bg-border" />
+        <div className="flex shrink-0 items-center gap-3">
+          {/* THE ORDER-LEVEL LEDGER — unchanged from the old actions slot.
+              Shown only once there is a breakup to report on; see
+              `assortBalanceOf`'s own null-vs-zero distinction. */}
+          {orderBalance.rows > 0 && orderBalance.target > 0 && (
+            <span className="hidden items-baseline gap-1.5 text-xs sm:flex">
+              <span className="text-muted-foreground">Order breakup</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {fmtNumber(orderBalance.allocated)}
               </span>
-            )}
-            {/* THE SKETCH, REACHABLE FROM EVERY SECTION. It is uploaded on Order
-                Info and read while filling Combos and Sizes, which are three and
-                four rail stops away — so without this the operator navigates
-                back, looks, and navigates forward again for every glance.
-
-                Here rather than in a pinned card of its own, for the reason the
-                balance figure beside it is here: a record's header fields are a
-                SECTION, not a band floating above the rail, and `PageHeader` is
-                already the one strip that names this record. */}
-            <SketchThumbnail bucket="garment-order-docs" path={sketchPath} />
-            <Button variant="outline" size="md" onClick={() => setMode("list")}>
-              ← Back to list
-            </Button>
-          </div>
-        }
-      />
+              <span className="text-muted-foreground">of</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {fmtNumber(orderBalance.target)}
+              </span>
+              {orderBalance.started === 0 ? (
+                <span className="text-muted-foreground">· not started</span>
+              ) : orderBalance.allocated === orderBalance.target ? (
+                <span className="text-success">· balanced</span>
+              ) : orderBalance.allocated < orderBalance.target ? (
+                <span className="text-warning">
+                  · {fmtNumber(orderBalance.target - orderBalance.allocated)} left
+                </span>
+              ) : (
+                <span className="text-danger">
+                  · {fmtNumber(orderBalance.allocated - orderBalance.target)} over
+                </span>
+              )}
+            </span>
+          )}
+          <SketchThumbnail bucket="garment-order-docs" path={sketchPath} />
+          {/* `size="sm"`, down from `md` — this is a plain `<Button>`, not the
+             shared `BackLink` AGENTS.md's "header row" rule binds to `md` (that
+             rule is about matching a LIST toolbar's search box; there is no
+             toolbar here), so shrinking it to match this compact band is not
+             the drift that rule exists to prevent. */}
+          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+            ← Back to list
+          </Button>
+        </div>
+      </div>
 
       {/* The header band that used to sit here is now the FIRST RAIL SECTION,
           "Order Info" — see `orderInfoSection` above. It was a flat 13-field
@@ -19262,6 +20046,8 @@ export function GarmentOrderScreen({
         <PackCompositionSheet
           open
           onClose={() => setPackForKey(null)}
+          /* The Pack Composition cell that opened this — see `packOrigin`. */
+          origin={packOrigin}
           styleLabel={packStyle.style_ref_no.trim() || "this style"}
           rows={packStyle.pack_components}
           onChange={(next) => updateStyle(packStyle.key, { pack_components: next })}

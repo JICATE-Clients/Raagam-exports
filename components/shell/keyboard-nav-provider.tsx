@@ -129,7 +129,9 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
    * nor leave it. Three things stay live:
    *
    *   Every key that produces a VALUE — ↓ to open a list, ↑/↓ to move its
-   *     highlight, Enter to pick, ↑/↓ on a native <select>. See `keyFillsField`;
+   *     highlight, Enter to pick, ↑/↓ on a native <select>, and all four arrows
+   *     on an <input type="date"> (no popup and no caret: ↑↓ step a segment,
+   *     ←→ move between them). See `keyFillsField`;
    *     the first cut of this rule exempted only ↓-opens-a-list and the operator
    *     could open Item Class, walk down it, and not pick anything (client
    *     2026-08-04). Tab is in none of those branches: leaving an open list

@@ -110,7 +110,7 @@ function SizeDeliveryRow({
       {expanded && (
         <div className="mt-2 ml-4 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground">Delivery Sizes (Band 3)</span>
+            <span className="text-xs font-bold text-muted-foreground">Delivery Sizes (Band 3)</span>
             {canEdit && (
               <Button size="sm" variant="outline" disabled={isPending} onClick={handleAddSize}>+ Add Size</Button>
             )}
@@ -211,7 +211,7 @@ function ItemSizeDeliveriesPanel({
   return (
     <div className="mt-2 space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-muted-foreground">Item Size Deliveries (Band 4)</span>
+        <span className="text-xs font-bold text-muted-foreground">Item Size Deliveries (Band 4)</span>
         {canEdit && (
           <Button size="sm" variant="outline" disabled={isPending} onClick={handleAdd}>+ Add</Button>
         )}
@@ -310,7 +310,7 @@ export function PoDeliveryEditor({
       {isSizeWise && (
         <>
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground">Size-wise Deliveries (Band 2)</span>
+            <span className="text-xs font-bold text-muted-foreground">Size-wise Deliveries (Band 2)</span>
             {canEdit && (
               <Button size="sm" variant="outline" disabled={isPending} onClick={handleAddSizeDelivery}>+ Add Delivery</Button>
             )}
