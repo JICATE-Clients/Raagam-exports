@@ -1424,3 +1424,24 @@ export function allGroupRoutes(): string[] {
       .map((e) => `${moduleHref}/${e.slug}`),
   );
 }
+
+/**
+ * A route that renders a card index (`ModuleHub` for a module root,
+ * `GroupHub` for a group's own hub page) rather than a real screen — a
+ * grouped module's root, or any `${moduleHref}/${slug}` from its registry.
+ *
+ * Nothing else qualifies: a `kind: "link"` entry (e.g. `/purchase/vendors`)
+ * IS the destination, never a hub in front of one, and a module absent from
+ * `MODULE_GROUPS` (Sales, Reports, Analytics, Masters, …) is left alone —
+ * this only ever answers from data the registry actually states, never a
+ * guess about a module's shape.
+ *
+ * The workspace tab bar reads this to skip auto-registering a tab while the
+ * operator is only drilling through the hierarchy on the way to a screen —
+ * the sidebar is what shows that hierarchy; the tab bar shows where they
+ * landed.
+ */
+export function isHubRoute(pathname: string): boolean {
+  if (pathname in MODULE_GROUPS) return true;
+  return allGroupRoutes().includes(pathname);
+}
