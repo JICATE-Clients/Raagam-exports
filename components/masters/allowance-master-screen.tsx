@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { MasterListShell } from "@/components/masters/master-list-shell";
@@ -216,27 +217,56 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-            <div>
-              <Label htmlFor="al-id">ID</Label>
-              <Input id="al-id" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
-            </div>
-            {editId && (
-              <label className="flex items-end gap-2 pb-2.5">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
-            )}
-          </div>
+        {/*
+          TWO FIELDS A LINE, EVERY BOX THE SAME WIDTH. Client 2026-09-04:
+          "i want every box in a 1st box size and only 2 boxes for a line".
 
-          <div>
-            <Label htmlFor="al-name">Name *</Label>
+          Two rules, and the second is what makes the first look right:
+
+          1. EVERY field is `lg` (6 of 12), so a row holds exactly two and no
+             box is wider than its neighbour. The house default is `size="sm"`
+             — 3 of 12, FOUR to a row — which is what produced the ragged
+             3 + 6 + 3 / 4 line the client rejected: correct by the contract,
+             and three different box widths stacked down the form.
+
+          2. The track is CAPPED, because six of twelve is a FRACTION. Against
+             the sheet's full width two `lg` boxes come out ~590px each — half
+             the dialog per field, which is not "the first box's size", it is
+             the same raggedness scaled up. `max-w-3xl` puts each column at
+             ~378px, i.e. the width the ID box already had, and the form reads
+             as one compact block the way the legacy screen does.
+
+          This is a WIDTH on the container, not a grid: the screen still writes
+          no `grid-cols-*`, no `col-span-*` and no `gap-*` — `FieldGrid` takes a
+          `className` precisely so a caller can bound the track it lays out in.
+
+          The body it replaced drew its own `grid-cols-1 … sm:grid-cols-2` and
+          then overrode it on every child with `sm:col-span-2`, so the track
+          never applied at all. That also cost the screen every primitive
+          behaviour: a `div > Label + Input` pair is structurally invisible to
+          `useRequiredHold`, so "Name *" was a star typed into label text with
+          nothing behind it.
+
+          `FieldGrid` rather than `DetailSection` because the Sheet's own title
+          already names the record — a bordered card captioned "Details" inside
+          a sheet captioned "New Allowance" is the second frame this module was
+          just told to stop drawing.
+        */}
+        <FieldGrid className="max-w-3xl">
+          {/* Row 1 — ID · Name */}
+          <Field label="ID" size="lg" htmlFor="al-id" skipTab>
+            {/*
+              `readOnly`, not `disabled`: a disabled input cannot be reached at
+              all, while `skipTab` is this repo's way to keep a derived value
+              off the typing path with the mouse still able to reach it. The box
+              is blank until the row exists — the old "(auto)" described the
+              box rather than any state of the record, on a field already marked
+              read-only, which is exactly what the de-clutter rule removes.
+            */}
+            <Input id="al-id" value={editEntryNo ?? ""} readOnly />
+          </Field>
+
+          <Field label="Name" size="lg" required htmlFor="al-name">
             <Input
               id="al-name"
               uppercase
@@ -247,7 +277,6 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
               required
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
-              className="text-base md:text-sm"
               // ↓ into the suggestion strip, Enter applies, Esc dismisses.
               onKeyDown={nameSuggest.onKeyDown}
               {...dupFieldProps(dupError, "al-name")}
@@ -260,43 +289,117 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
               duplicate={!!dupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
-          </div>
+          </Field>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-            <div>
-              <Label htmlFor="al-seq">Sequence</Label>
-              <Input
-                id="al-seq"
-                type="number"
-                min="0"
-                value={form.sequence}
-                onChange={(e) => set({ sequence: e.target.value })}
-                className="text-base md:text-sm"
+
+          {/* Row 2 — Sequence · Type */}
+          <Field label="Sequence" size="lg" htmlFor="al-seq">
+            <Input
+              id="al-seq"
+              type="number"
+              min="0"
+              value={form.sequence}
+              onChange={(e) => set({ sequence: e.target.value })}
+            />
+          </Field>
+
+          <Field label="Type" size="lg" htmlFor="al-type">
+            <Select
+              id="al-type"
+              value={form.allowance_type}
+              onChange={(e) => set({ allowance_type: e.target.value as AllowanceType })}
+            >
+              {ALLOWANCE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          {/*
+            THE CALCULATION PAIR JOINS ROW 2 — it does not open a band of its
+            own. Legacy reveals Fixed/Variable and a basis only for "Other
+            Allowance", and that conditional half used to be a second bordered
+            box with its own "TYPE" caption stacked beneath the form. As a pair
+            at the same width as everything else they simply become the next
+            line, so nothing above shifts as the operator changes Type.
+          */}
+          {isOther && (
+            <>
+              <Field label="Calculation" size="lg">
+                {/* A radio set is one field with several controls; the inline
+                    gap is intra-control spacing, not page layout. */}
+                <div className="flex h-8 items-center gap-4">
+                  {(["Fixed", "Variable"] as const).map((t) => (
+                    <label key={t} className="flex cursor-pointer items-center gap-1.5">
+                      <input
+                        type="radio"
+                        name="al_calc_type"
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                        checked={form.calc_type === t}
+                        onChange={() => set({ calc_type: t })}
+                      />
+                      <span className="text-sm text-foreground">{t}</span>
+                    </label>
+                  ))}
+                </div>
+              </Field>
+
+              <Field label="Basis" size="lg" htmlFor="al-basis">
+                {/* The placeholder here was "Basis…", which restated the label
+                    the field now carries — blanked per the de-clutter rule. */}
+                <Input
+                  id="al-basis"
+                  uppercase
+                  value={form.calc_basis}
+                  onChange={(e) => set({ calc_basis: e.target.value })}
+                />
+              </Field>
+            </>
+          )}
+
+          {/*
+            STATUS IS ALWAYS ON THE FORM, ADD INCLUDED (client 2026-09-04: "like
+            a toggle so that if i wann make it active or inactive i can do
+            that"). It used to render only for an existing row, on the reasoning
+            that a record cannot be born switched off — but that was a UI choice
+            rather than a constraint: `submit()` sends `inactive: form.inactive`
+            on a create exactly as it does on an update, so the row could always
+            have been saved inactive and nothing on screen let anyone say so.
+
+            Being unconditional also settles the layout question that used to
+            justify hiding it. While it was edit-only it had to sit LAST, or the
+            cell it occupies would be missing on the New form and every pair
+            after it would swap sides between the two. Now it is present in
+            both, so the rows are identical either way and last is simply where
+            a record-level flag belongs — after the fields it describes.
+
+            `h-8` puts the switch on the same baseline as the inputs beside it,
+            the way `bank-master-screen`'s radio set does.
+          */}
+          <Field label="Status" size="lg">
+            <div className="flex h-8 items-center">
+              <Toggle
+                checked={form.inactive}
+                onChange={(v) => set({ inactive: v })}
+                label="Inactive"
               />
             </div>
-            <div>
-              <Label htmlFor="al-type">Type</Label>
-              <Select
-                id="al-type"
-                value={form.allowance_type}
-                onChange={(e) => set({ allowance_type: e.target.value as AllowanceType })}
-                className="text-base md:text-sm"
-              >
-                {ALLOWANCE_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
+          </Field>
 
-          {/* eligibility band */}
-          <div className="rounded-lg border border-border p-3 sm:col-span-2">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Eligibility
-            </div>
-            <div className="flex flex-wrap gap-x-6 gap-y-2">
+          {/*
+            THREE FLAGS AS ONE FIELD, NOT A BOXED BAND.
+
+            This was a `rounded-lg border` card captioned "ELIGIBILITY": a frame
+            drawn around three checkboxes, and a caption naming the box rather
+            than any state of the record. Both go — the `Field` label names the
+            group and the row it occupies is the grouping. Switches rather than
+            bare checkboxes because that is what Orders uses (`Toggle`, in
+            Material BOM and Garment Order), and matching Orders is the ask.
+          */}
+          <Field label="Eligibility" size="full">
+            <div className="flex h-8 flex-wrap items-center gap-x-8 gap-y-2">
               {(
                 [
                   ["base_head", "Base Head"],
@@ -304,60 +407,16 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
                   ["esi_eligible", "ESI Eligible"],
                 ] as const
               ).map(([key, label]) => (
-                <label key={key} className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form[key]}
-                    onChange={(e) => set({ [key]: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">{label}</span>
-                </label>
+                <Toggle
+                  key={key}
+                  checked={form[key]}
+                  onChange={(v) => set({ [key]: v })}
+                  label={label}
+                />
               ))}
             </div>
-          </div>
-
-          {/* Fixed/Variable band — legacy shows this only for "Other Allowance" */}
-          {isOther && (
-            <div className="rounded-lg border border-border p-3 sm:col-span-2">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Type
-              </div>
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="flex cursor-pointer items-center gap-1.5">
-                  <input
-                    type="radio"
-                    name="al_calc_type"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.calc_type === "Fixed"}
-                    onChange={() => set({ calc_type: "Fixed" })}
-                  />
-                  <span className="text-sm text-foreground">Fixed</span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-1.5">
-                  <input
-                    type="radio"
-                    name="al_calc_type"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.calc_type === "Variable"}
-                    onChange={() => set({ calc_type: "Variable" })}
-                  />
-                  <span className="text-sm text-foreground">Variable</span>
-                </label>
-                <div className="min-w-[160px] flex-1">
-                  <Input
-                    uppercase
-                    value={form.calc_basis}
-                    onChange={(e) => set({ calc_basis: e.target.value })}
-                    placeholder="Basis…"
-                    aria-label="Calculation basis"
-                    className="text-base md:text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          </Field>
+        </FieldGrid>
       </Sheet>
     </div>
   );

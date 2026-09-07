@@ -20,6 +20,9 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
  */
 const descriptor: SimpleMasterDescriptor<Deduction> = {
   entityLabel: "Deduction",
+  // Sheet, not inline row edit — the HR sub-module agreed on the Allowance
+  // shape (client 2026-09-04). See `editor` in simple-master-screen.tsx.
+  editor: "sheet",
   status: "active",
   fields: [
     { key: "name", label: "Name", required: true },
@@ -34,6 +37,10 @@ const descriptor: SimpleMasterDescriptor<Deduction> = {
     { key: "base_head", label: "Base Head", kind: "checkbox" },
   ],
   extraColumns: [{ header: "ID", cell: (r) => r.entry_no }],
+  // The same number the list column shows, at the head of the sheet — legacy
+  // Deduction leads with it, and without it an operator editing row 4 has
+  // nothing on screen saying which record they are in.
+  autoId: { value: (r) => r.entry_no },
   fromRow: (r) => ({
     name: r.name,
     sequence: String(r.sequence),

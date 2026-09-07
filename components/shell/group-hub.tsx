@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
+import type { HubIconTone } from "@/components/masters/hub-card";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
@@ -31,6 +33,10 @@ export interface HubCardSpec {
   hub?: boolean;
   /** Built, but its table is not in this database. Greyed, never dashed. */
   unavailable?: boolean;
+  /** The tile's mark. Omitted, `HubCard` draws its default `Tag`. */
+  icon?: LucideIcon;
+  /** Tint behind that mark. Omitted, the card keeps the house `primary`. */
+  tone?: HubIconTone;
 }
 
 /**
@@ -105,6 +111,8 @@ export function HubPage({
             dashed={c.dashed}
             hub={c.hub}
             unavailable={c.unavailable}
+            icon={c.icon}
+            tone={c.tone}
           />
         ))}
       </div>

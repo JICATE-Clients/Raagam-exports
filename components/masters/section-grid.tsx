@@ -86,7 +86,33 @@ export function SectionGrid({
       <div
         className={
           wrap
-            ? "flex flex-wrap items-start gap-3"
+            ? // `flex-row` IS the flex default and is written out because the
+              // ask named it (client 2026-09-05, the Color/Print tab: "display
+              // the three sections in one horizontal flex/grid row, flex
+              // flex-row gap-6 items-start"). `flex-wrap` STAYS ALONGSIDE IT,
+              // and that is the one place this differs from the ask: nowrap on
+              // a pane too narrow for the row does not keep the sections side
+              // by side, it shrinks each below the width its own columns
+              // declare and spills them out of their cards. Wrapping is what
+              // "side by side" degrades TO, so the row survives on a phone and
+              // inside the nested picker this app opens at ~440px. Sizing the
+              // children to fit is what makes the row hold at the widths that
+              // matter — see the call site.
+              //
+              // gap-4 (16px), NOT the gap-3 the two-column branch below keeps
+              // and no longer the gap-6 first written here. A gutter BETWEEN
+              // two peer tables is doing different work from the one between
+              // stacked sections of one record: these three each carry their
+              // own caption, frame and "+ Add", so 12px read as one wide table
+              // with odd internal rules rather than as three.
+              //
+              // 24px was the first answer and 16px is the second, on the
+              // client's "tighten" (2026-09-05). The gutter is the cheapest
+              // 16px on the row to give back — the frames and captions are
+              // already doing the separating, so the extra 8px each side was
+              // buying separation that was not in doubt while costing width
+              // the third table needed to stay on the line at all.
+              "flex flex-row flex-wrap items-start gap-4"
             : "grid items-start gap-3 @4xl/sections:grid-cols-2"
         }
       >

@@ -142,7 +142,10 @@ export function SizeGroupQuickCreateSheet({
       }
     >
       <div className="space-y-3">
-        <Field label="Name" required size="lg" htmlFor="sgq-name">
+        {/* NO `size` — see the note in `fabric-quick-create-sheet.tsx`: a
+            `FieldSize` is a `col-span`, this sheet has no `FieldGrid` track,
+            and `size="lg"` asked for half a row while rendering full width. */}
+        <Field label="Name" required htmlFor="sgq-name">
           <Input
             id="sgq-name"
             uppercase

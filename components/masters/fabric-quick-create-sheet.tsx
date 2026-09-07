@@ -465,7 +465,12 @@ export function FabricQuickCreateSheet({
         </div>
         {compositionApplies && (
           <>
-            <Field label="Using" size="full" required>
+            {/* NO `size`. A `FieldSize` is a `col-span` on a `FieldGrid`
+                track, and this sheet stacks its fields in a `space-y`
+                block — there is no grid for a span to land on, so the prop
+                stated a width it could never get. The other quick-create
+                sheets (Category, Garment) pass none for the same reason. */}
+            <Field label="Using" required>
               <Select value={using} onChange={(e) => handleUsingChange(e.target.value)}>
                 <option value=""></option>
                 {FABRIC_USING.map((u) => (

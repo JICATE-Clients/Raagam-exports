@@ -15,6 +15,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import type { Column } from "@/components/ui/data-table";
 import {
   createSizeGroup,
@@ -81,6 +83,35 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
     rowId: (r) => r.id,
     rowValue: (r) => r.size_group_name ?? "",
     label: "name",
+  });
+
+  /**
+   * The near miss the guard above cannot see.
+   *
+   * `useDuplicateName` fires on an EXACT match, so "MENS TOP S-XL" typed beside
+   * an existing "MENS TOP S-XXL" saves silently and the two groups mean the
+   * same thing forever after. Scoped exactly as the duplicate check is scoped —
+   * same rows, same exclusion of the row being edited — which is what makes
+   * "already a row" mean "the guard is about to reject this".
+   *
+   * `seed: []`, deliberately. There is no real-world vocabulary of size-group
+   * names; they are this factory's own labels for its own size runs. So the
+   * strip here is a pure warning — every candidate is a row, nothing reaches
+   * the chips — and that is the honest behaviour of a screen with no
+   * vocabulary, not a gap to fill by inventing one (LAYOUT.md §"Near misses").
+   *
+   * `enabled: open`, not `!dupError`: a duplicate is exactly when the operator
+   * most needs to be told which existing name they are near.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.size_group_name,
+    names: rows
+      .filter((r) => r.id !== editId)
+      .map((r) => r.size_group_name ?? "")
+      .filter(Boolean),
+    seed: [],
+    enabled: open,
+    onApply: (v) => setForm((f) => ({ ...f, size_group_name: v })),
   });
 
   const columns: Column<SizeGroup>[] = [
@@ -295,9 +326,18 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
                 value={form.size_group_name}
                 onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
                 placeholder="MENS TOP S-XXL"
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
                 {...dupFieldProps(dupError, "sg-name")}
               />
               <DuplicateError error={dupError} id="sg-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
+                activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
+                onApply={(v) => setForm((f) => ({ ...f, size_group_name: v }))}
+              />
             </Field>
             {/* Inactive is edit-only: a group being created is not one being
                 switched off. */}
