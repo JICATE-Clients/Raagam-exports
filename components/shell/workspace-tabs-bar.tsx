@@ -154,7 +154,14 @@ export function WorkspaceTabsBar() {
   ];
 
   return (
-    <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-1.5">
+    // Brand gradient chrome (client-approved, matches the original bar) — see
+    // the file header. A thin, continuous strip on purpose: an INACTIVE tab
+    // carries no fill or border of its own, just white/90 text at Archivo
+    // 500 directly on the gradient, so the row reads as one toolbar rather
+    // than a shelf of separate buttons. Only the ACTIVE tab breaks that —
+    // solid `bg-surface`, Archivo 700, a 1px `shadow-sm` — which is also why
+    // it's the one place a label sits on a fill rather than the raw gradient.
+    <div className="flex h-9 flex-none items-center gap-1.5 bg-gradient-to-r from-brand-green to-brand-blue px-2">
       {showHome && (
         <button
           type="button"
@@ -163,20 +170,20 @@ export function WorkspaceTabsBar() {
             openTab({ href: "/", title: "Home" });
           }}
           className={cn(
-            "flex h-11 flex-none items-center gap-2 rounded-[8px] px-4 text-sm transition-colors duration-150",
+            "flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
             isHomeActive
-              ? "bg-primary/10 font-medium text-primary"
-              : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+              ? "bg-surface font-bold text-foreground shadow-sm"
+              : "font-medium text-white/90 hover:bg-white/10",
           )}
         >
-          <LayoutDashboard className="h-4 w-4 flex-none" />
+          <LayoutDashboard className={cn("h-3.5 w-3.5 flex-none", isHomeActive && "text-primary")} />
           Home
         </button>
       )}
 
-      {openTabs.length > 0 && <span aria-hidden className="h-7 w-px flex-none bg-border" />}
+      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-white/30" />}
 
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {openTabs.map((tab) => {
           const active = tab.href === pathname;
           const Icon = iconForPath(tab.href, modules);
@@ -186,14 +193,14 @@ export function WorkspaceTabsBar() {
               type="button"
               onClick={() => activate(tab.id)}
               className={cn(
-                "group flex h-11 min-w-[150px] flex-none items-center gap-2.5 whitespace-nowrap rounded-[8px] border-b-2 pl-4 pr-2.5 text-sm transition-colors duration-150",
+                "group flex h-8 min-w-[130px] flex-none items-center gap-2 whitespace-nowrap rounded-md pl-3 pr-1.5 text-[13px] transition-colors duration-150",
                 active
-                  ? "border-primary bg-primary/10 font-medium text-primary"
-                  : "border-transparent text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+                  ? "bg-surface font-bold text-foreground shadow-sm"
+                  : "font-medium text-white/90 hover:bg-white/10",
               )}
             >
-              {Icon && <Icon className="h-4 w-4 flex-none" />}
-              <span className="max-w-[180px] flex-1 truncate text-left">{tab.title}</span>
+              {Icon && <Icon className={cn("h-3.5 w-3.5 flex-none", active && "text-primary")} />}
+              <span className="max-w-[160px] flex-1 truncate text-left">{tab.title}</span>
               {tab.dirty && (
                 <span
                   aria-label="Unsaved changes"
@@ -209,7 +216,7 @@ export function WorkspaceTabsBar() {
                   close(tab.id);
                 }}
                 className={cn(
-                  "flex h-6 w-6 flex-none items-center justify-center rounded-full opacity-0 transition-opacity duration-150 hover:bg-foreground/10 group-hover:opacity-100 group-focus-visible:opacity-100",
+                  "flex h-5 w-5 flex-none items-center justify-center rounded-full opacity-0 transition-opacity duration-150 hover:bg-foreground/10 group-hover:opacity-100 group-focus-visible:opacity-100",
                   active && "opacity-60",
                 )}
               >
@@ -225,16 +232,17 @@ export function WorkspaceTabsBar() {
         onClick={search.open}
         aria-label="Open a screen"
         title="Open a screen (⌘K)"
-        className="flex h-9 w-9 flex-none items-center justify-center rounded-[8px] text-muted-foreground transition-colors duration-150 hover:bg-surface-muted hover:text-foreground"
+        className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-white/15 text-white transition-colors duration-150 hover:bg-white/25"
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-3.5 w-3.5" />
       </button>
 
       {openTabs.length > 0 && (
         <DropdownMenu
           items={overflowItems}
           label="More open screens"
-          trigger={<MoreHorizontal className="h-4 w-4" />}
+          trigger={<MoreHorizontal className="h-3.5 w-3.5" />}
+          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-white transition-colors duration-150 hover:bg-white/25"
           align="right"
         />
       )}
