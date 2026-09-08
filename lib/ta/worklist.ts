@@ -113,6 +113,24 @@ export interface WorklistRow {
   /** Total pieces ordered across the amendment's styles. */
   orderQty: number;
   orderUom: string | null;
+  /**
+   * Cumulative pieces already routed past this activity ahead of its own
+   * `targetDate` (0540) — independent of `status`: a row can be `in_progress`
+   * (or `pending`) and still carry a nonzero bypass. NULL = nothing
+   * registered.
+   */
+  bypassedQty: number | null;
+  bypassedAt: string | null;
+  /** `bypassedQty / orderQty`, 0-1. Null when either side is missing/zero. */
+  bypassPercent: number | null;
+  /**
+   * True only for a CUTTING row whose order tracks a PP Sample approval that
+   * is not yet Approved (doc/approval.md §5.2, "Cutting Room Safety Lock").
+   * Always false for every other activity — this is a belt-and-braces UI
+   * disable; `startTaActivity`'s own guard (`lib/ta/worklist-actions.ts`) is
+   * the actual lock.
+   */
+  cuttingBlocked: boolean;
   activityId: string | null;
   activity: string;
   departmentName: string | null;
@@ -502,6 +520,7 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     .from("garment_order_amendment_ta_activities")
     .select(
       "id, row_uid, amendment_id, activity_id, target_date, actual_date, status, notes, " +
+        "bypassed_qty, bypassed_at, " +
         "activity:ta_activities(id, short_name, name, department, sequence), " +
         "amendment:garment_order_amendments!inner(" +
         "id, code, is_draft, amend_date, created_at, sales_order_id, " +
@@ -745,6 +764,11 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     const st = stylesByAmendment.get(String(a.id));
     const all = (orderId && materials.get(orderId)) || [];
 
+    const orderQty = st?.pieces ?? 0;
+    const bypassedQty = r.bypassed_qty == null ? null : num(r.bypassed_qty);
+    const bypassPercent =
+      bypassedQty != null && orderQty > 0 ? bypassedQty / orderQty : null;
+
     return {
       id: String(r.id),
       rowUid: str(r.row_uid),
@@ -753,8 +777,11 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
       orderRef: str(one(a, "sales_order")?.order_number),
       buyer: str(one(a, "customer")?.name),
       styleRefs: st?.refs ?? [],
-      orderQty: st?.pieces ?? 0,
+      orderQty,
       orderUom: st?.uom ?? null,
+      bypassedQty,
+      bypassedAt: str(r.bypassed_at),
+      bypassPercent,
       activityId: str(r.activity_id),
       activity: str(act?.name) ?? str(act?.short_name) ?? "—",
       departmentName: deptName,
@@ -767,8 +794,37 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
       materials: all.slice(0, MATERIALS_SHOWN),
       materialsOmitted: Math.max(0, all.length - MATERIALS_SHOWN),
       notes: str(r.notes),
+      cuttingBlocked: false,
     };
   });
+
+  /* ---- 8b. The Cutting Room Safety Lock, UI half (doc/approval.md §5.2). ---
+   * Belt-and-braces only — `startTaActivity` (`lib/ta/worklist-actions.ts`)
+   * is the actual guard. One extra query, run only when a CUT row is even on
+   * screen, never for a worklist that has none. */
+  const cutRows = rows.filter((r) => r.activity.toUpperCase() === "CUTTING");
+  if (cutRows.length > 0) {
+    const { data: ppSample } = await sb
+      .from("ta_approvals")
+      .select("id")
+      .ilike("short_name", "PPSAMPLE")
+      .maybeSingle();
+    if (ppSample) {
+      const amendmentIds = [...new Set(cutRows.map((r) => r.amendmentId))];
+      const { data: trackers } = await sb
+        .from("garment_order_amendment_ta_approvals")
+        .select("amendment_id, status")
+        .eq("approval_id", ppSample.id)
+        .in("amendment_id", amendmentIds);
+      const statusByAmendment = new Map((trackers ?? []).map((t) => [String(t.amendment_id), t.status]));
+      for (const row of cutRows) {
+        const status = statusByAmendment.get(row.amendmentId);
+        // No tracker row = this order's policy never asked for PP Sample —
+        // not blocked, same "IF the order tracks one" rule the action uses.
+        if (status && status !== "approved") row.cuttingBlocked = true;
+      }
+    }
+  }
 
   // Overdue first, then by date; within a date, the older slip leads.
   rows.sort((x, y) => y.daysLate - x.daysLate || x.activity.localeCompare(y.activity));

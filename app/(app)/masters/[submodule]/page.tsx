@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { findSubmodule } from "@/lib/masters/submodules";
 import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
+import { hubMark } from "@/components/masters/hub-icons";
 
 export default async function SubmodulePage({
   params,
@@ -25,6 +26,11 @@ export default async function SubmodulePage({
     description: c.type === "todo" ? "Not set up yet" : c.description,
     external: c.type === "link" && c.external,
     dashed: c.type === "todo",
+    // The registry names a mark; this is the only place the name becomes a
+    // component and a tone. Unknown or absent, `hubMark` returns undefined and
+    // the card keeps its default `Tag` in `primary`.
+    icon: hubMark(c.icon)?.icon,
+    tone: hubMark(c.icon)?.tone,
   }));
 
   return (

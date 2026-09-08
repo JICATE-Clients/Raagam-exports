@@ -1,10 +1,28 @@
 import type { Metadata, Viewport } from "next";
+import { Archivo } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { SilentUpdater } from "@/components/pwa/silent-updater";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+
+/**
+ * Archivo, self-hosted by `next/font/google` (no runtime request to Google,
+ * no layout-shift flash — the font file ships with the build).
+ *
+ * ONLY THE FIVE WEIGHTS THE TYPOGRAPHY SYSTEM USES (400/500/600/700/800), per
+ * the standing rule against introducing arbitrary weights the design system
+ * doesn't call for. `variable` feeds `--font-archivo`, which `globals.css`
+ * points `--font-sans` at — so this is the ONE place the app's typeface is
+ * named; nothing else hardcodes "Archivo".
+ */
+const archivo = Archivo({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-archivo",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Raagam ERP",
@@ -33,7 +51,11 @@ export default function RootLayout({
     // suppressHydrationWarning is required, not defensive: THEME_INIT_SCRIPT
     // mutates <html>'s className before React hydrates, so the server markup
     // and the live DOM legitimately differ on this one element.
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`h-full antialiased ${archivo.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/*
          * Applies the stored theme before first paint. A raw inline <script> —

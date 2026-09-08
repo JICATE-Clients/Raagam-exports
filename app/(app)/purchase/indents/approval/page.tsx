@@ -69,10 +69,15 @@ export default async function IndentApprovalPage() {
   const columns: Column<IndentRow>[] = [
     {
       header: "Indent No",
+      // font-semibold (client 2026-09-07, Archivo weight spec) — this list's
+      // identifying column; the link colour/underline already carries the
+      // "clickable" cue, so weight here is free to say "this is the row's
+      // identity" instead of "this is navigation" (that reading is font-medium
+      // in the spec, and would be redundant with the link styling anyway).
       cell: (r) => (
         <Link
           href={`/purchase/indents/${r.id}`}
-          className="font-medium text-primary hover:underline"
+          className="font-semibold text-primary hover:underline"
         >
           {r.code ?? "--"}
         </Link>

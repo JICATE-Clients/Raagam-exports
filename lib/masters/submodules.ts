@@ -11,31 +11,40 @@ import { MATERIALS_CHILDREN } from "./registry";
  *     module, and simply redirect.
  *   - `todo` children aren't built yet and show a placeholder.
  */
+/**
+ * What every child carries, whatever kind it is. Factored out when `icon` was
+ * added: the four identity fields were written three times over, so a fifth
+ * would have been a fourth place to forget one.
+ */
+type SubChildBase = {
+  slug: string;
+  label: string;
+  singular: string;
+  description: string;
+  /**
+   * NAME of the hub-card icon — resolved by `components/masters/hub-icons.ts`,
+   * never a component. This file is data: it is imported by server components
+   * and read by tooling, and a React element here would drag `lucide-react`
+   * into every consumer that only wanted a slug.
+   *
+   * Optional, and an unknown name is not an error — the card falls back to the
+   * generic `Tag` it drew before. So icons can be filled in one sub-module at a
+   * time rather than all at once.
+   */
+  icon?: string;
+};
+
 export type SubChild =
-  | {
-      slug: string;
-      label: string;
-      singular: string;
-      description: string;
+  | (SubChildBase & {
       type: "link";
       href: string;
       external?: boolean; // owned by another module (shown with ↗)
-    }
-  | {
-      slug: string;
-      label: string;
-      singular: string;
-      description: string;
-      type: "todo";
-    }
-  | {
-      slug: string;
-      label: string;
-      singular: string;
-      description: string;
+    })
+  | (SubChildBase & { type: "todo" })
+  | (SubChildBase & {
       type: "custom"; // rich master with its own table + dedicated screen
       custom: string; // dispatch key for /masters/[submodule]/[entity]
-    };
+    });
 
 export type SubmoduleDef = {
   slug: string;
@@ -136,20 +145,27 @@ export const SUBMODULES: SubmoduleDef[] = [
     label: "HR",
     description: "Designations, departments & classifications",
     status: "ready",
-    note: "Legacy Configure ▸ HR — the 12 children in legacy order. Each is a placeholder until its form is built from the legacy screenshot.",
+    // NO `note`. It read "the 12 children in legacy order. Each is a placeholder
+    // until its form is built from the legacy screenshot" — true when the shells
+    // were scaffolded, and false since: all twelve carry their real legacy form,
+    // their own table and rows. It was drawn as a full-width stripe above the
+    // cards, so a stale sentence sat at the top of the module telling the
+    // operator none of it was finished (client 2026-09-04: "remove this stripe").
+    // A `note` is for something the cards cannot say themselves; when the thing
+    // it describes is done, the note goes with it.
     children: [
-      { slug: "allowance", label: "Allowance", singular: "Allowance", description: "Salary allowance types", type: "custom", custom: "allowance" },
-      { slug: "deduction", label: "Deduction", singular: "Deduction", description: "Salary deduction types", type: "custom", custom: "deduction" },
-      { slug: "hostel-category", label: "Hostel Category", singular: "Hostel Category", description: "Hostel categories", type: "custom", custom: "hostel_category" },
-      { slug: "holiday", label: "Holiday", singular: "Holiday", description: "Holiday calendar", type: "custom", custom: "holiday" },
-      { slug: "work-timing", label: "Work Timing", singular: "Work Timing", description: "Work timing definitions", type: "custom", custom: "work_timing" },
-      { slug: "working-hour", label: "Working Hour", singular: "Working Hour", description: "Working-hour rules", type: "custom", custom: "working_hour" },
-      { slug: "leave-type", label: "Leave Type", singular: "Leave Type", description: "Leave types", type: "custom", custom: "leave_type" },
-      { slug: "advance-loan-type", label: "Advance and Loan Type", singular: "Advance / Loan Type", description: "Advance & loan types", type: "custom", custom: "advance_loan_type" },
-      { slug: "department", label: "Department", singular: "Department", description: "Org departments", type: "custom", custom: "department" },
-      { slug: "designation", label: "Designation", singular: "Designation", description: "Job titles / designations", type: "custom", custom: "designation" },
-      { slug: "employee-category", label: "Employee Category", singular: "Employee Category", description: "Employee categories", type: "custom", custom: "employee_category" },
-      { slug: "pf-esi-control", label: "PF ESI Control", singular: "PF / ESI Control", description: "PF & ESI configuration", type: "custom", custom: "pf_esi_control" },
+      { slug: "allowance", label: "Allowance", singular: "Allowance", description: "Salary allowance types", type: "custom", custom: "allowance", icon: "allowance" },
+      { slug: "deduction", label: "Deduction", singular: "Deduction", description: "Salary deduction types", type: "custom", custom: "deduction", icon: "deduction" },
+      { slug: "hostel-category", label: "Hostel Category", singular: "Hostel Category", description: "Hostel categories", type: "custom", custom: "hostel_category", icon: "hostel-category" },
+      { slug: "holiday", label: "Holiday", singular: "Holiday", description: "Holiday calendar", type: "custom", custom: "holiday", icon: "holiday" },
+      { slug: "work-timing", label: "Work Timing", singular: "Work Timing", description: "Work timing definitions", type: "custom", custom: "work_timing", icon: "work-timing" },
+      { slug: "working-hour", label: "Working Hour", singular: "Working Hour", description: "Working-hour rules", type: "custom", custom: "working_hour", icon: "working-hour" },
+      { slug: "leave-type", label: "Leave Type", singular: "Leave Type", description: "Leave types", type: "custom", custom: "leave_type", icon: "leave-type" },
+      { slug: "advance-loan-type", label: "Advance and Loan Type", singular: "Advance / Loan Type", description: "Advance & loan types", type: "custom", custom: "advance_loan_type", icon: "advance-loan-type" },
+      { slug: "department", label: "Department", singular: "Department", description: "Org departments", type: "custom", custom: "department", icon: "department" },
+      { slug: "designation", label: "Designation", singular: "Designation", description: "Job titles / designations", type: "custom", custom: "designation", icon: "designation" },
+      { slug: "employee-category", label: "Employee Category", singular: "Employee Category", description: "Employee categories", type: "custom", custom: "employee_category", icon: "employee-category" },
+      { slug: "pf-esi-control", label: "PF ESI Control", singular: "PF / ESI Control", description: "PF & ESI configuration", type: "custom", custom: "pf_esi_control", icon: "pf-esi-control" },
     ],
   },
   {
@@ -209,6 +225,7 @@ export const SUBMODULES: SubmoduleDef[] = [
     note: "Legacy Configure ▸ System, restored 2026-08-12. Document No Format moved here from Administration (its old URL still redirects). More legacy System screens land here as each is captured.",
     children: [
       { slug: "document-no-format", label: "Document No Format", singular: "Document Format", description: "Numbering series per menu — track, segments and sample", type: "custom", custom: "document_no_format" },
+      { slug: "ta-approvals", label: "TA Approvals", singular: "Approval", description: "Global technical approval milestones (Fit Sample, PP Sample, …) used by Orders' T&A engine", type: "custom", custom: "ta_approval", icon: "ta-approvals" },
     ],
   },
 ];

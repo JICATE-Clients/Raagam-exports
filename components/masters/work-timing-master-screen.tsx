@@ -2,11 +2,11 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { type Column } from "@/components/ui/data-table";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -164,6 +164,64 @@ export function WorkTimingMasterScreen({
     );
   }
 
+  /**
+   * ONE DECLARATION for the shift lines. `ChildGrid` renders the table header
+   * and each cell from this array, so a column cannot be added to the header
+   * and forgotten in the row — which is exactly what the hand-rolled markup
+   * this replaces made possible, since it wrote both by hand in two places.
+   *
+   * `width` is the card-mode track and the table's column hint: the picker
+   * column omits it and flexes, the count is fixed, the switch hugs.
+   *
+   * `ariaLabel` on the switch is NOT optional here. `Toggle`'s `label` is
+   * omitted because the column header already says it on screen — but a header
+   * is not associated with the control programmatically, so without this the
+   * grid would ship an unnamed checkbox.
+   */
+  const lineColumns: ChildGridColumn<LineRow>[] = [
+    {
+      header: "Shift Category",
+      cell: (l) => (
+        <LookupDialogPicker
+          kind="shift_category"
+          label="Shift Category"
+          options={shiftCategories}
+          value={l.shift_category_id || null}
+          onChange={(id) => setLineAt(l.key, { shift_category_id: id })}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+          compact
+        />
+      ),
+    },
+    {
+      header: "No Of Shifts",
+      width: "9rem",
+      align: "right",
+      cell: (l) => (
+        <Input
+          type="number"
+          min={0}
+          value={l.no_of_shifts}
+          onChange={(e) => setLineAt(l.key, { no_of_shifts: e.target.value })}
+          aria-label="No of shifts"
+        />
+      ),
+    },
+    {
+      header: "All Categories",
+      width: "auto",
+      align: "center",
+      cell: (l) => (
+        <Toggle
+          checked={l.applicable_for_all_categories}
+          onChange={(v) => setLineAt(l.key, { applicable_for_all_categories: v })}
+          ariaLabel="Applies to every employee category"
+        />
+      ),
+    },
+  ];
+
   const columns: Column<WorkTiming>[] = [
     { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
     { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
@@ -235,23 +293,22 @@ export function WorkTimingMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-          {/* LEFT: header fields */}
-          <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Entry No</Label>
-              <Input
-                value={editNo != null ? `#${editNo}` : "(auto)"}
-                readOnly
-                disabled
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="wt-date">
-                Date <span className="text-danger">*</span>
-              </Label>
+        <div className="space-y-4">
+          {/*
+            Header first, lines under it — the two-column split this replaces put
+            the shift grid BESIDE the header fields, which is what forced the
+            grid into a narrow right-hand pane and the pane into a card with a
+            title band of its own.
+          */}
+          <FieldGrid className="max-w-3xl">
+            {/* Row 1 — Entry No · Date */}
+            <Field label="Entry No" size="lg" skipTab>
+              {/* `readOnly` + `skipTab`, not `disabled`: reachable by mouse, off
+                  the typing path. The old "(auto)" described the box. */}
+              <Input value={editNo != null ? `#${editNo}` : ""} readOnly />
+            </Field>
+
+            <Field label="Date" size="lg" required htmlFor="wt-date">
               <Input
                 id="wt-date"
                 type="date"
@@ -259,23 +316,33 @@ export function WorkTimingMasterScreen({
                 required
                 value={form.date}
                 onChange={(e) => set({ date: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Location</Label>
+            </Field>
+
+            {/* Row 2 — Location · Effective From */}
+            <Field label="Location" size="lg">
+              {/*
+                `compact` DROPS THE PICKER'S OWN LABEL. `LocationPicker` defaults
+                to drawing one, so inside a `<Field>` the word appeared twice —
+                and the inner label also pushed the control a row lower than the
+                date beside it, so the pair no longer lined up (client
+                2026-09-07: "there is 2 locations here").
+
+                The `Field`'s label is the one that stays: it is what the other
+                fields draw, so keeping it is what keeps this control on the same
+                baseline as Effective From. Dropping the outer one instead would
+                have left a single label — sitting lower than every other label
+                on the form.
+              */}
               <LocationPicker
+                compact
                 locations={locations}
                 value={form.location_id || null}
                 onChange={(id) => set({ location_id: id ?? "" })}
               />
-            </div>
-            <div>
-              <Label htmlFor="wt-eff">
-                Effective From <span className="text-danger">*</span>
-              </Label>
+            </Field>
+
+            <Field label="Effective From" size="lg" required htmlFor="wt-eff">
               <Input
                 id="wt-eff"
                 type="date"
@@ -283,83 +350,47 @@ export function WorkTimingMasterScreen({
                 required
                 value={form.effective_from}
                 onChange={(e) => set({ effective_from: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-          </div>
+            </Field>
+          </FieldGrid>
 
-          </div>
+          {/*
+            THE SHIFT LINES ARE A `ChildGrid` NOW, and the frames are what that
+            buys. The hand-rolled version drew three: a bordered panel, a grey
+            title band inside it, and `rounded-md border` around EVERY shift — so
+            a work timing with four shifts showed six boxes (client 2026-09-04:
+            "there are so many extra boxes and lines remove them"). A grid draws
+            one frame; rows are divided by a hairline inside it.
 
-          {/* RIGHT: shift line grid */}
-          <div className="space-y-4">
-          <div className="overflow-hidden rounded-lg border border-border">
-            <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3.5 py-2.5">
-              <h3 className="text-[13px] font-bold text-foreground">Shifts</h3>
-              <Button type="button" variant="outline" size="sm" data-row-add onClick={addLine}>
-                + Add shift
-              </Button>
-            </div>
-            <div className="space-y-3 p-3">
-              {lines.length === 0 && <p className="text-xs text-muted-foreground">No shifts yet.</p>}
-              {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
-                  no longer exists; the pager replaced it.) */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e)} className="space-y-3">
-              {lines.map((l, i) => (
-                <div data-grid-row data-row-box key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Shift #{i + 1}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeLine(l.key)}
-                      className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                      aria-label="Remove shift"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div>
-                    <Label>Shift Category</Label>
-                    <LookupDialogPicker
-                      kind="shift_category"
-                      label="Shift Category"
-                      options={shiftCategories}
-                      value={l.shift_category_id || null}
-                      onChange={(id) => setLineAt(l.key, { shift_category_id: id })}
-                      canCreate={perms.canCreate}
-                      canEdit={perms.canEdit}
-                      compact
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 items-end gap-3">
-                    <div>
-                      <Label htmlFor={`wt-nos-${l.key}`}>No Of Shifts</Label>
-                      <Input
-                        id={`wt-nos-${l.key}`}
-                        type="number"
-                        min={0}
-                        value={l.no_of_shifts}
-                        onChange={(e) => setLineAt(l.key, { no_of_shifts: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                    </div>
-                    <label className="flex h-9 cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={l.applicable_for_all_categories}
-                        onChange={(e) =>
-                          setLineAt(l.key, { applicable_for_all_categories: e.target.checked })
-                        }
-                      />
-                      <span className="text-sm text-foreground">Applicable for all categories</span>
-                    </label>
-                  </div>
-                </div>
-              ))}
-              </div>
-            </div>
-          </div>
-          </div>
+            NO `forceCards`, DELIBERATELY. That prop answers "this row cannot fit
+            without scrolling sideways", which is true above about six columns
+            and false at three — the layout contract is explicit that below that
+            a table still fits and still reads better. `forceCards` here would
+            re-introduce a card per row, which is the thing being removed.
+
+            NO `label` either: the de-clutter rule drops a grid's caption band
+            where something already names it, and the columns do — "Shift
+            Category" heads the first one.
+
+            What the conversion adds beyond the look is the keyboard contract,
+            which a hand-rolled grid cannot inherit: Ctrl+Del removes a row from
+            any cell (it drives the row's own ✕ via `data-row-remove`), Tab off
+            the last cell lands on "+ Add shift" rather than escaping the
+            section, and the cursor lands in the row that button opens. The old
+            markup called `gridKeyNav` by hand and had none of the rest.
+
+            `seedRow` opens with one blank line so entering the first shift costs
+            no click — and it is what gives the keyboard a way in at all, since
+            Tab lands on fields and an empty grid has none.
+          */}
+          <ChildGrid<LineRow>
+            columns={lineColumns}
+            rows={lines}
+            onAdd={addLine}
+            onRemove={(l) => removeLine(l.key)}
+            addLabel="+ Add shift"
+            seedRow
+          />
         </div>
       </Sheet>
     </div>

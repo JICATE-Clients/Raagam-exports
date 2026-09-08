@@ -380,7 +380,13 @@ export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2
  * `DataTable` / `SimpleMasterScreen`, moves together — see those files' own
  * header cells.
  */
-export const GRID_HEADER_TEXT = "text-[12.5px] font-bold text-foreground";
+/**
+ * `uppercase tracking-[0.06em]` added 2026-09-07 (Archivo weight spec) — same
+ * change made to `data-table.tsx`'s header cell at the same time, for the
+ * same reason: hierarchy at a small size comes from case and spacing, not
+ * from stacking more weight on an already-bold label.
+ */
+export const GRID_HEADER_TEXT = "text-[12.5px] font-bold uppercase tracking-[0.06em] text-foreground";
 
 /**
  * `openRowKey`'s "nothing is open" value — see the state declaration below.
@@ -1412,6 +1418,7 @@ export function ChildGrid<T extends { key: string }>({
   lockExisting = false,
   hideRemove = false,
   keepOne = true,
+  lockRow,
   inlineCards = false,
   across = false,
   fill = false,
@@ -1733,6 +1740,15 @@ export function ChildGrid<T extends { key: string }>({
    * that guard is worth doing; until it is, this is a UI rule and no more.
    */
   keepOne?: boolean;
+  /**
+   * Withhold the ✕ (and Ctrl+Del) for whichever rows this returns `true` for —
+   * a per-ROW question `lockExisting` cannot answer, because that one locks by
+   * "existed when the grid mounted", not by anything about the row's own
+   * data. A grid seeded from a master with some rows meant to stay fixed
+   * (T&A's client-named 9-step chain, say) reads that off the row itself
+   * instead.
+   */
+  lockRow?: (row: T) => boolean;
   /** One flex row per record with a single shared header, honouring each
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
@@ -2519,7 +2535,8 @@ export function ChildGrid<T extends { key: string }>({
     // `pageSize` set, page 2 holding one row must not lock it while nine sit on
     // page 1.
     (keepOne && rows.length <= 1) ||
-    (lockExisting && storedKeys.has(row.key));
+    (lockExisting && storedKeys.has(row.key)) ||
+    (lockRow?.(row) ?? false);
   /**
    * DOES THE TABLE DRAW ITS ✕ COLUMN AT ALL?
    *

@@ -15,7 +15,8 @@ export async function listCustomers(): Promise<Customer[]> {
         "agents:customer_agents(*), " +
         "supplied_items:customer_supplied_items(*), " +
         "nominated_vendors:customer_nominated_vendors(*), " +
-        "markings:customer_markings(*)",
+        "markings:customer_markings(*), " +
+        "approval_policy:customer_approval_defaults(*)",
     )
     .order("name");
   return withCreators(((data ?? []) as unknown as Customer[]).map((c) => ({
@@ -26,5 +27,6 @@ export async function listCustomers(): Promise<Customer[]> {
     supplied_items: [...(c.supplied_items ?? [])].sort((x, y) => x.sno - y.sno),
     nominated_vendors: [...(c.nominated_vendors ?? [])].sort((x, y) => x.sno - y.sno),
     markings: [...(c.markings ?? [])].sort((x, y) => x.sno - y.sno),
+    approval_policy: c.approval_policy ?? [],
   })));
 }

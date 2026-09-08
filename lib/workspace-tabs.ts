@@ -28,6 +28,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { isHubRoute } from "@/lib/nav/module-groups";
 
 export interface WorkspaceTab {
   id: string;
@@ -55,7 +56,18 @@ function readStorage(): WorkspaceTabsState {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_STATE;
     const parsed = JSON.parse(raw) as WorkspaceTabsState;
-    return Array.isArray(parsed.tabs) ? parsed : EMPTY_STATE;
+    if (!Array.isArray(parsed.tabs)) return EMPTY_STATE;
+    // One-time cleanup for a tab list saved before hub routes (a module root,
+    // a group's own hub page — see `isHubRoute`) stopped being tab-worthy.
+    // Without this, a "Order Management" tab opened in an earlier session
+    // keeps showing up forever — closing it by hand is the only way out, and
+    // nothing here does that automatically otherwise.
+    const tabs = parsed.tabs.filter((t) => !isHubRoute(t.href));
+    if (tabs.length === parsed.tabs.length) return parsed;
+    const activeId = tabs.some((t) => t.id === parsed.activeId)
+      ? parsed.activeId
+      : (tabs[tabs.length - 1]?.id ?? null);
+    return { tabs, activeId };
   } catch {
     return EMPTY_STATE;
   }
@@ -152,6 +164,18 @@ function removeTab(id: string): { nextActiveHref: string | null } {
   return { nextActiveHref: wasActive ? (fallback?.href ?? null) : null };
 }
 
+/** Keep one tab, drop the rest. The kept tab is already wherever the operator
+ *  is looking at, so this never navigates. */
+function pruneToOne(keepId: string): void {
+  const keep = state.tabs.find((t) => t.id === keepId);
+  if (!keep) return;
+  setState({ tabs: [keep], activeId: keep.id });
+}
+
+function clearAll(): void {
+  setState(EMPTY_STATE);
+}
+
 /**
  * The bar's own hook: read the open tabs and act on them.
  */
@@ -171,6 +195,17 @@ export function useWorkspaceTabs() {
     close(id: string) {
       const { nextActiveHref } = removeTab(id);
       if (nextActiveHref) router.push(nextActiveHref);
+    },
+    /** Overflow menu's "Close others" — keeps `id` (normally the active tab)
+     *  open and drops every other tab. */
+    closeOthers(id: string) {
+      pruneToOne(id);
+    },
+    /** Overflow menu's "Close all" — nothing is left open, so this is the one
+     *  action here that always sends the operator back to Home. */
+    closeAll() {
+      clearAll();
+      router.push("/");
     },
   };
 }
@@ -217,11 +252,18 @@ export function useRegisterWorkspaceTab(opts: {
  * Never call this from a screen — a screen that wants to assert its own
  * title uses `useRegisterWorkspaceTab`, which DOES refresh the title, on
  * purpose: it is the authoritative caller for that route.
+ *
+ * `skip` is for a route the bar has decided is not tab-worthy (a hub page —
+ * see `isHubRoute` in lib/nav/module-groups.ts) — it leaves the store
+ * completely alone, rather than registering a tab and hiding it in the UI,
+ * so drilling through Orders → Order Management → Order Entry ends with
+ * exactly one tab (Order Entry), not three.
  */
-export function useEnsureWorkspaceTab(opts: { href: string; title: string }): void {
-  const { href, title } = opts;
+export function useEnsureWorkspaceTab(opts: { href: string; title: string; skip?: boolean }): void {
+  const { href, title, skip } = opts;
 
   useEffect(() => {
+    if (skip) return;
     const existing = findByHref(href);
     if (existing) {
       if (state.activeId !== existing.id) setState({ ...state, activeId: existing.id });
@@ -229,17 +271,30 @@ export function useEnsureWorkspaceTab(opts: { href: string; title: string }): vo
     }
     const tab: WorkspaceTab = { id: newId(), href, title };
     setState({ tabs: [...state.tabs, tab], activeId: tab.id });
-  }, [href, title]);
+  }, [href, title, skip]);
 }
 
 /**
  * Open (or focus) a tab from OUTSIDE the screen it points to — a sidebar
  * link, a "+" launcher, a picker's "open in workspace" action. Unlike
  * `useRegisterWorkspaceTab`, this also navigates there.
+ *
+ * THIS IS WHERE A MODULE/SUB-MODULE TAB ACTUALLY CAME FROM. The two-level
+ * sidebar (`GlobalSidebar`, `ContextSidebar`) calls this for every row,
+ * including a group's own hub row ("Order Management") — and until this
+ * check existed it registered a tab for that hub exactly like it would for a
+ * real screen. `useEnsureWorkspaceTab`'s `skip` only ever covered the bar's
+ * OWN fallback registration; a sidebar click went through this function
+ * instead and skipped that guard entirely. So a hub route here just
+ * navigates — no tab, same as standing on it directly.
  */
 export function useOpenWorkspaceTab() {
   const router = useRouter();
   return (opts: { href: string; title: string; icon?: string }) => {
+    if (opts.href !== "/" && isHubRoute(opts.href)) {
+      router.push(opts.href);
+      return;
+    }
     registerTab(opts);
     router.push(opts.href);
   };

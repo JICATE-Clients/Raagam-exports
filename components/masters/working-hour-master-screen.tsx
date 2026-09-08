@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -212,55 +212,58 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-            <div>
-              <Label>Entry No</Label>
-              <Input value={editNo != null ? `#${editNo}` : "(auto)"} readOnly disabled className="text-base md:text-sm" />
-            </div>
-            <div>
-              <Label htmlFor="wh-date">
-                Date <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="wh-date"
-                type="date"
-                // `workingHourInput.date` is `.min(1)`. The label carried no `*`
-                // either, so this field was mandatory in the schema and said
-                // nothing about it in the UI — `required` supplies both halves.
-                required
-                value={form.date}
-                onChange={(e) => set({ date: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </div>
+        {/*
+          Every field `lg` — two to a line at one width — inside a capped track,
+          the rule Allowance settled and the client asked for across this
+          sub-module. The body it replaces hand-wrote `sm:grid-cols-2` and then
+          overrode it on every child with `sm:col-span-2`, so the track never
+          applied; the pairs below came from a SECOND nested grid per row.
+
+          `SLOTS` already pairs the times two at a time, and two `lg` fields are
+          exactly one row — so the nested grid is not replaced by anything. The
+          pairing is the data's, and the track renders it.
+        */}
+        <FieldGrid className="max-w-3xl">
+          <Field label="Entry No" size="lg" skipTab>
+            {/* The old value was the string "(auto)" on a read-only box — a
+                placeholder describing the field rather than the record. */}
+            <Input value={editNo != null ? `#${editNo}` : ""} readOnly />
+          </Field>
+
+          <Field label="Date" size="lg" required htmlFor="wh-date">
+            <Input
+              id="wh-date"
+              type="date"
+              // `workingHourInput.date` is `.min(1)`. The label carried no `*`
+              // either, so this field was mandatory in the schema and said
+              // nothing about it in the UI — `required` supplies both halves.
+              required
+              value={form.date}
+              onChange={(e) => set({ date: e.target.value })}
+            />
+          </Field>
 
           {SLOTS.map(([kA, lA, kB, lB]) => (
-            <div key={kA} className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-              <div>
-                <Label htmlFor={`wh-${kA}`}>{lA}</Label>
+            <Fragment key={kA}>
+              <Field label={lA} size="lg" htmlFor={`wh-${kA}`}>
                 <Input
                   id={`wh-${kA}`}
                   type="time"
                   value={form[kA]}
                   onChange={(e) => set({ [kA]: e.target.value } as Partial<HeaderForm>)}
-                  className="text-base md:text-sm"
                 />
-              </div>
-              <div>
-                <Label htmlFor={`wh-${kB}`}>{lB}</Label>
+              </Field>
+              <Field label={lB} size="lg" htmlFor={`wh-${kB}`}>
                 <Input
                   id={`wh-${kB}`}
                   type="time"
                   value={form[kB]}
                   onChange={(e) => set({ [kB]: e.target.value } as Partial<HeaderForm>)}
-                  className="text-base md:text-sm"
                 />
-              </div>
-            </div>
+              </Field>
+            </Fragment>
           ))}
-        </div>
+        </FieldGrid>
       </Sheet>
     </div>
   );

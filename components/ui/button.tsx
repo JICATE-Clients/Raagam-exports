@@ -4,13 +4,24 @@ import { cn } from "@/lib/utils";
 type Variant = "primary" | "outline" | "ghost" | "danger" | "subtle";
 type Size = "sm" | "md" | "lg" | "icon";
 
+/**
+ * WEIGHT IS PART OF THE VARIANT, NOT A SHARED BASE (client 2026-09-07,
+ * Archivo weight spec: "Primary button → 700", "Secondary button → 600").
+ * `primary` and `danger` are the screen's decisive actions (Save, Delete) and
+ * take the system's emphasis tier; `outline` is this app's actual secondary
+ * button shape (see e.g. every Sheet's "Cancel") and takes the identification
+ * tier one step down. `ghost`/`subtle` stay at the base `font-medium` below —
+ * neither is "primary" or "secondary" in the spec's sense, both are low-
+ * emphasis actions (a row's own icon button, a filter toggle), and bumping
+ * them too would be the "excessive bold" the spec explicitly warns against.
+ */
 const variants: Record<Variant, string> = {
   primary:
-    "bg-primary text-primary-foreground hover:bg-primary-hover shadow-sm",
+    "bg-primary text-primary-foreground hover:bg-primary-hover shadow-sm font-bold",
   outline:
-    "border border-border bg-surface text-foreground hover:bg-surface-muted",
+    "border border-border bg-surface text-foreground hover:bg-surface-muted font-semibold",
   ghost: "text-foreground hover:bg-surface-muted",
-  danger: "bg-danger text-white hover:opacity-90 shadow-sm",
+  danger: "bg-danger text-white hover:opacity-90 shadow-sm font-bold",
   subtle: "bg-surface-muted text-foreground hover:bg-border",
 };
 

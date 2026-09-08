@@ -43,7 +43,11 @@ export const Label = forwardRef<
   <label
     ref={ref}
     className={cn(
-      "text-xs font-medium text-muted-foreground block",
+      // 600/semibold (client 2026-09-07, Archivo weight spec: "Field label" is
+      // the system's identification tier, not its navigation tier — was
+      // font-medium/500, which the spec reserves for nav/secondary-interactive
+      // elements this is neither).
+      "text-xs font-semibold text-muted-foreground block",
       LABEL_METRICS,
       className,
     )}

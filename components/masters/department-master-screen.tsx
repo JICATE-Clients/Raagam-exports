@@ -1,17 +1,18 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { LocationPicker } from "@/components/masters/location-picker";
 import {
   createDepartment,
@@ -118,12 +119,6 @@ export function DepartmentMasterScreen({
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
-  const locationLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const l of locations) m.set(l.id, l.name);
-    return m;
-  }, [locations]);
-
   function openAdd() {
     setEditId(null);
     setForm(blankHeader());
@@ -179,12 +174,17 @@ export function DepartmentMasterScreen({
   function toggleLocAllDivisions(key: string, all_divisions: boolean) {
     setLocs((ls) => ls.map((l) => (l.key === key ? { ...l, all_divisions, division_ids: all_divisions ? [] : l.division_ids } : l)));
   }
-  function toggleLocDivision(key: string, divId: string) {
-    setLocs((ls) => ls.map((l) => {
-      if (l.key !== key) return l;
-      const has = l.division_ids.includes(divId);
-      return { ...l, division_ids: has ? l.division_ids.filter((d) => d !== divId) : [...l.division_ids, divId] };
-    }));
+
+  /**
+   * `MultiSelect` hands back the WHOLE next selection, where the bordered
+   * checkbox chips it replaced flipped one id at a time — so the old
+   * `toggleLocDivision` went with them rather than being kept "just in case".
+   * The picker owns its own keyboard and reports the finished list; a
+   * single-id toggle beside it would be a second way to write one field, with
+   * nothing calling it.
+   */
+  function setLocDivisions(key: string, division_ids: string[]) {
+    setLocs((ls) => ls.map((l) => (l.key === key ? { ...l, division_ids } : l)));
   }
   function removeLoc(key: string) {
     setLocs((ls) => ls.filter((l) => l.key !== key));
@@ -241,6 +241,60 @@ export function DepartmentMasterScreen({
       }
     });
   }
+
+  /**
+   * ONE DECLARATION for the location lines — `ChildGrid` renders the header and
+   * every cell from this array, so a column cannot be added to one and
+   * forgotten in the other. The markup this replaces wrote both by hand.
+   *
+   * `ariaLabel` on the switch is required, not optional: `Toggle`'s `label` is
+   * omitted because the column header says it on screen, but a header is not
+   * associated with the control programmatically — without it the grid ships an
+   * unnamed checkbox.
+   */
+  const locColumns: ChildGridColumn<LocRow>[] = [
+    {
+      header: "Location",
+      cell: (l) => (
+        <LocationPicker
+          locations={locations}
+          value={l.location_id}
+          onChange={(id) => setLocPicker(l.key, id)}
+          compact
+        />
+      ),
+    },
+    {
+      header: "All Divisions",
+      width: "auto",
+      align: "center",
+      cell: (l) => (
+        <Toggle
+          checked={l.all_divisions}
+          onChange={(v) => toggleLocAllDivisions(l.key, v)}
+          ariaLabel="Applies to every division at this location"
+        />
+      ),
+    },
+    {
+      header: "Divisions",
+      width: "20rem",
+      cell: (l) =>
+        l.all_divisions ? (
+          /* NOT an empty cell. With the switch on, the picker would be a live
+             control whose value is ignored — so say what is stored instead. */
+          <span className="text-sm text-muted-foreground">All</span>
+        ) : (
+          <MultiSelect
+            label="Divisions"
+            compact
+            options={divisions.map((d) => ({ id: d.id, label: d.division_name }))}
+            values={l.division_ids}
+            onChange={(next) => setLocDivisions(l.key, next)}
+          />
+        ),
+    },
+  ];
 
   const columns: Column<Department>[] = [
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
@@ -310,197 +364,168 @@ export function DepartmentMasterScreen({
         }
       >
         <div className="space-y-4">
-          {/* Two-column body — header fields LEFT, Location grid RIGHT. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-            {/* LEFT: header fields + item-class applicability */}
-            <div className="space-y-4">
-          <div>
-            <Label htmlFor="dep-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="dep-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              className="text-base md:text-sm"
-              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-              onKeyDown={nameSuggest.onKeyDown}
-              {...dupFieldProps(dupError, "dep-name")}
-            />
-            <DuplicateError error={dupError} id="dep-name" />
-            <SpellSuggestHint
-              suggestions={nameSuggest.suggestions}
-              existing={nameSuggest.existing}
-              activeIndex={nameSuggest.activeIndex}
-              duplicate={!!dupError}
-              onApply={(v) => setForm((f) => ({ ...f, name: v }))}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="dep-prefix">Doc Prefix</Label>
-              <Input
-                uppercase
-                id="dep-prefix"
-                value={form.doc_prefix}
-                onChange={(e) => set({ doc_prefix: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div className="flex items-end gap-4 pb-1.5">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.warehouse}
-                  onChange={(e) => set({ warehouse: e.target.checked })}
+            {/*
+              Header first, locations under it. What this replaces put the
+              location grid BESIDE the header in a hand-written two-column
+              split, which squeezed the grid into a narrow pane and the pane
+              into a card with a title band of its own.
+
+              THE TWO `DetailSection`s WENT WITH IT. "Sequence & Outsourcing"
+              and "Item Classes" were bordered cards captioned with what their
+              fields already said — Sequence No and Staff Sequence No name
+              themselves, and the class list is one field. That is a frame and a
+              caption describing the box rather than the record, inside a dialog
+              that is already a frame (client 2026-09-04: "there are so many
+              extra boxes and lines remove them").
+            */}
+            <FieldGrid className="max-w-3xl">
+              {/* Row 1 — Name · Doc Prefix */}
+              <Field label="Name" size="lg" required htmlFor="dep-name">
+                <Input
+                  id="dep-name"
+                  uppercase
+                  value={form.name}
+                  onChange={(e) => set({ name: e.target.value })}
+                  // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                  onKeyDown={nameSuggest.onKeyDown}
+                  {...dupFieldProps(dupError, "dep-name")}
                 />
-                <span className="text-sm text-foreground">Warehouse</span>
-              </label>
-              {editId && (
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.inactive}
-                    onChange={(e) => set({ inactive: e.target.checked })}
+                <DuplicateError error={dupError} id="dep-name" />
+                <SpellSuggestHint
+                  suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
+                  activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
+                  onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+                />
+              </Field>
+
+              <Field label="Doc Prefix" size="lg" htmlFor="dep-prefix">
+                <Input
+                  uppercase
+                  id="dep-prefix"
+                  value={form.doc_prefix}
+                  onChange={(e) => set({ doc_prefix: e.target.value })}
+                />
+              </Field>
+
+              {/* Row 2 — the two sequence numbers */}
+              <Field label="Sequence No" size="lg" htmlFor="dep-seq">
+                <Input
+                  id="dep-seq"
+                  type="number"
+                  value={form.sequence_no}
+                  onChange={(e) =>
+                    set({ sequence_no: e.target.value === "" ? "" : Number(e.target.value) })
+                  }
+                />
+              </Field>
+
+              <Field label="Staff Sequence No" size="lg" htmlFor="dep-staff-seq">
+                <Input
+                  id="dep-staff-seq"
+                  type="number"
+                  value={form.staff_sequence_no}
+                  onChange={(e) =>
+                    set({ staff_sequence_no: e.target.value === "" ? "" : Number(e.target.value) })
+                  }
+                />
+              </Field>
+
+              {/*
+                Row 3 — the two flags that were bare checkboxes bottom-aligned
+                with `pb-1.5` against no label, so nothing lined up with the
+                fields beside them. Switches now, like every other boolean here.
+              */}
+              <Field label="Warehouse" size="lg">
+                <div className="flex h-8 items-center">
+                  <Toggle
+                    checked={form.warehouse}
+                    onChange={(v) => set({ warehouse: v })}
+                    label="Stocks materials"
                   />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              )}
-            </div>
-          </div>
-
-          {/* Sequence numbers + outsourcing — dense 2-per-row grid */}
-          <DetailSection label="Sequence & Outsourcing" cols={2}>
-            <div>
-              <Label htmlFor="dep-seq">Sequence No</Label>
-              <Input
-                id="dep-seq"
-                type="number"
-                value={form.sequence_no}
-                onChange={(e) => set({ sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="dep-staff-seq">Staff Sequence No</Label>
-              <Input
-                id="dep-staff-seq"
-                type="number"
-                value={form.staff_sequence_no}
-                onChange={(e) => set({ staff_sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.is_outsourcing}
-                onChange={(e) => set({ is_outsourcing: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Outsourcing</span>
-            </label>
-          </DetailSection>
-
-          {/* Item-Class applicability */}
-          <DetailSection label="Item Classes">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {DEPARTMENT_ITEM_CLASSES.map((c) => (
-                <label key={c} className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={itemClasses.includes(c)}
-                    onChange={() => toggleItemClass(c)}
-                  />
-                  <span className="text-sm text-foreground">{c}</span>
-                </label>
-              ))}
-            </div>
-          </DetailSection>
-            </div>
-
-            {/* RIGHT: location grid */}
-            <div className="space-y-4">
-          {/* Location grid */}
-          <div className="rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-              Locations
-            </div>
-            <div className="space-y-3 p-3">
-              {locs.length === 0 && <p className="text-xs text-muted-foreground">No locations yet.</p>}
-              {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
-                  no longer exists; the pager replaced it.) */}
-              <div className="space-y-3">
-              {locs.map((l, i) => (
-                <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
-                  <div className="flex items-center justify-between">
-                    {/* THE LOCATION NAMES THE ROW, not its position (client
-                        2026-08-17, screenshot 2332 — the same `#N` sweep as
-                        `ChildGrid`'s cards band). A row whose location is not
-                        picked yet says so, because an empty span beside a ✕
-                        reads as a broken header rather than an unanswered one. */}
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {(l.location_id && locationLabel.get(l.location_id)) || "New location"}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground hover:text-danger"
-                      onClick={() => removeLoc(l.key)}
-                      aria-label="Remove location"
-                    >
-                      <X className="h-4 w-4 shrink-0" />
-                    </Button>
-                  </div>
-                  <div>
-                    <Label>Location</Label>
-                    <LocationPicker
-                      locations={locations}
-                      value={l.location_id}
-                      onChange={(id) => setLocPicker(l.key, id)}
-                      compact
-                    />
-                  </div>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={l.all_divisions}
-                      onChange={(e) => toggleLocAllDivisions(l.key, e.target.checked)}
-                    />
-                    <span className="text-sm text-foreground">All Divisions</span>
-                  </label>
-                  {!l.all_divisions && divisions.length > 0 && (
-                    <div className="ml-6 flex flex-wrap gap-2">
-                      {divisions.map((d) => (
-                        <label key={d.id} className="flex cursor-pointer items-center gap-1.5 rounded border border-border px-2 py-1">
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                            checked={l.division_ids.includes(d.id)}
-                            onChange={() => toggleLocDivision(l.key, d.id)}
-                          />
-                          <span className="text-xs text-foreground">{d.division_name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              ))}
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={addLoc}>
-                + Add location
-              </Button>
-            </div>
+              </Field>
+
+              <Field label="Outsourcing" size="lg">
+                <div className="flex h-8 items-center">
+                  <Toggle
+                    checked={form.is_outsourcing}
+                    onChange={(v) => set({ is_outsourcing: v })}
+                    label="Work goes outside"
+                  />
+                </div>
+              </Field>
+
+              {/*
+                Row 4 — Status, always on the form including add: `submit()`
+                sends `inactive` on a create exactly as on an update, so a row
+                could always have been saved inactive and nothing on screen let
+                anyone say so (client 2026-09-04).
+              */}
+              <Field label="Status" size="lg">
+                <div className="flex h-8 items-center">
+                  <Toggle
+                    checked={form.inactive}
+                    onChange={(v) => set({ inactive: v })}
+                    label="Inactive"
+                  />
+                </div>
+              </Field>
+
+              {/*
+                Row 5 — the item classes, one field holding six switches rather
+                than a captioned card holding a 3-column checkbox grid of its
+                own. `full` so it takes the row: six labels do not fit in half.
+              */}
+              <Field label="Item Classes" size="full">
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 py-1">
+                  {DEPARTMENT_ITEM_CLASSES.map((c) => (
+                    <Toggle
+                      key={c}
+                      checked={itemClasses.includes(c)}
+                      onChange={() => toggleItemClass(c)}
+                      label={c}
+                    />
+                  ))}
+                </div>
+              </Field>
+            </FieldGrid>
+
+            {/*
+              THE LOCATIONS ARE A `ChildGrid` NOW. The hand-rolled version drew
+              a bordered panel, a title band inside it, `rounded-md border`
+              around EVERY location, and then a bordered CHIP per division
+              inside that — four levels of frame, so a department with three
+              locations and four divisions each showed more boxes than values.
+
+              No `forceCards`: that prop answers "this row cannot fit without
+              scrolling sideways", true above ~6 columns and false at three. It
+              would put a card back around each row, which is what is being
+              removed. No `label` either — the columns name the grid.
+
+              The division picker is `MultiSelect`, the primitive that already
+              exists for this, instead of a hand-rolled row of bordered
+              checkbox chips. `compact` drops its label because the column
+              header carries it — and note that `compact` drops the required
+              star with it, which is fine here because divisions are optional.
+
+              What the conversion adds beyond the look is the keyboard contract
+              a hand-rolled grid cannot inherit: Ctrl+Del removes a row from any
+              cell, Tab off the last cell lands on "+ Add location", and the
+              cursor lands in the row that button opens. `seedRow` opens with
+              one blank line, which is also the keyboard's only way in — Tab
+              lands on fields and an empty grid has none.
+            */}
+            <ChildGrid<LocRow>
+              columns={locColumns}
+              rows={locs}
+              onAdd={addLoc}
+              onRemove={(l) => removeLoc(l.key)}
+              addLabel="+ Add location"
+              seedRow
+            />
           </div>
-            </div>
-          </div>
-        </div>
       </Sheet>
     </div>
   );

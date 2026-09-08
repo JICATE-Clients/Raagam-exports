@@ -64,7 +64,13 @@ export function PageHeader({
       className="mb-3 flex flex-wrap items-start justify-between gap-3"
     >
       <div>
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+        {/* 800/24px, slight negative tracking — the typography system's one
+           "major page title" tier (client 2026-09-07, Archivo weight spec).
+           Every page in the app renders its title through this component, so
+           this is the single place that tier is stated. */}
+        <h1 className="text-2xl font-extrabold tracking-[-0.01em] text-foreground">
+          {title}
+        </h1>
         {description && (
           <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
         )}

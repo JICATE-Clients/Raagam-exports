@@ -32,6 +32,9 @@ import { RowActions } from "@/components/ui/row-actions";
 import { ROW_ACTIONS_WIDTH } from "@/components/ui/row-actions-column";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
+import { Sheet } from "@/components/ui/sheet";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
 import { pairsFromRow } from "@/lib/record-pairs";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
@@ -82,8 +85,49 @@ export type SimpleMasterDescriptor<Row> = {
   ioEntityKey?: string;
   /** Fields WITHOUT status — status is handled by `status` below. */
   fields: SimpleField[];
+
+  /**
+   * THE RECORD'S OWN AUTO NUMBER, shown read-only at the head of the sheet.
+   *
+   * It is not a `SimpleField`, and it cannot be one: `fields` are keys into the
+   * editable `SimpleValues` record, and this value is on the ROW — the database
+   * assigns it, the form never sends it back. Declaring it as a field would
+   * have put a key in the payload that no action accepts.
+   *
+   * Deduction is why this exists. Its legacy screen leads with `ID`, ours
+   * showed the number in the list and nowhere in the form, so an operator
+   * editing row 4 had nothing on screen saying which record they were in
+   * (client 2026-09-07: "there is id in deduction why didn't u build it").
+   *
+   * Omit it where the master has no auto number — four of the five sheet
+   * descriptors have no such column, and inventing one would be a field with
+   * nothing behind it. Sheet mode only; the inline table shows the same value
+   * through `extraColumns`.
+   */
+  autoId?: { label?: string; value: (r: Row) => ReactNode };
   /** "active" = Active/Inactive select; "activeDraft" adds Draft; "none" = no status column. */
   status: "active" | "activeDraft" | "none";
+
+  /**
+   * WHICH SURFACE THE ROW IS EDITED ON. Defaults to `"inline"` — the row itself
+   * becomes editable, which is this engine's whole premise for the trivial tier.
+   *
+   * `"sheet"` opens the same descriptor's fields in a `Sheet` instead, two to a
+   * line at one width, exactly as a bespoke screen like
+   * `allowance-master-screen.tsx` lays them out. It exists because the two
+   * shapes sat side by side in one sub-module and read as two different
+   * products: Allowance opened a dialog, Deduction grew an editable row inside
+   * the table (client 2026-09-04, "i want the filds like this like allowance").
+   *
+   * It is OPT-IN per descriptor and not the default, deliberately. Inline edit
+   * is faster for a genuinely two-column master and 17 screens rely on it; the
+   * flag lets a sub-module agree with itself without changing the other twelve.
+   *
+   * Nothing else about the descriptor changes — the same `fields` render, and
+   * the duplicate check, spell suggestions, required holds, status and save
+   * wiring are the ones already declared here.
+   */
+  editor?: "inline" | "sheet";
   /** Read-only computed columns (e.g. Created Date/User), rendered after the fields. */
   extraColumns?: { header: string; cell: (r: Row) => ReactNode }[];
   /** Optional extra muted line on the mobile read card. */
@@ -222,6 +266,26 @@ export function SimpleMasterScreen<Row>({
 
   const getId = d.getId ?? ((r: Row) => (r as { id: string }).id);
   const hasStatus = d.status !== "none";
+  /**
+   * Sheet mode suppresses BOTH inline editors — the desktop add/edit row and
+   * the mobile edit card — because `editing` is the single piece of state all
+   * three read. Leave either in place and adding a row paints the form twice,
+   * once in the table and once in the dialog over it, both bound to the same
+   * values.
+   */
+  const sheetEditor = d.editor === "sheet";
+
+  /**
+   * The ROW the sheet is editing, or null while adding. `editing` carries the
+   * form values and the row's uuid, never the row itself — so anything derived
+   * from the record rather than typed into it (its auto number) has to be
+   * looked up here.
+   */
+  const editingRow = useMemo(
+    () => (editing?.id ? (rows.find((r) => getId(r) === editing.id) ?? null) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editing?.id, rows],
+  );
   const statusOf = useMemo(
     () =>
       d.statusOf ??
@@ -445,7 +509,7 @@ export function SimpleMasterScreen<Row>({
     // Format-constrained fields must be valid (empty passes — required-ness handled above).
     d.fields.every((f) => !f.format || !validateFormat(f.format, String(editing.values[f.key] ?? "")));
 
-  function save() {
+  function save(asDraft = false) {
     if (!editing || !canSave || isPending) return;
     const trimmed: SimpleValues = {};
     for (const f of d.fields) {
@@ -457,9 +521,29 @@ export function SimpleMasterScreen<Row>({
       error(invalid); // row stays editable
       return;
     }
+    /**
+     * DRAFT COMES FROM THE BUTTON, ACTIVE/INACTIVE FROM THE SWITCH.
+     *
+     * It used to read both off one `<Select>` offering Active / Inactive /
+     * Draft, which conflated two different questions: whether the record is
+     * switched on, and whether it is finished. "Draft" is not a third kind of
+     * active — it is how the record was SAVED, which is why the legacy screen
+     * puts it on the Save control and not in a status list (client 2026-09-05).
+     *
+     * Saving a draft as Active is not a contradiction: `toPayload` reads
+     * `inactive: !active && !draft`, so a draft row is never inactive.
+     */
     const payload = d.toPayload(trimmed, {
       active: editing.status === "active",
-      draft: editing.status === "draft",
+      /**
+       * EITHER SOURCE, because only the SHEET moved Draft to a button. Inline
+       * edit still shows `statusEditCell`'s three-option select, and no
+       * descriptor uses that combination today — both `activeDraft` masters are
+       * `editor: "sheet"` — but reading only the button would mean a future
+       * inline draft master silently saved every row as final, with a Draft
+       * option on screen that did nothing.
+       */
+      draft: asDraft || editing.status === "draft",
     }) as never;
     const isNew = editing.id === null;
     startTransition(async () => {
@@ -533,7 +617,15 @@ export function SimpleMasterScreen<Row>({
     return <span className={cn(f.mono ? "font-mono text-xs" : "text-sm")}>{v}</span>;
   }
 
-  function editCell(f: SimpleField) {
+  /**
+   * `dense` is the TABLE CELL's sizing, and it is the default because that is
+   * where this engine renders. A `Sheet` field wants the standard control
+   * height and the width of its grid cell, so the sheet branch passes false —
+   * `h-8` there would draw a control shorter than every other form in the app,
+   * and `widthClass` (`w-20`, `w-32`) is a column width that has no meaning
+   * once the field owns half a row.
+   */
+  function editCell(f: SimpleField, dense = true) {
     if (!editing) return null;
     const v = editing.values[f.key];
     if (f.lockedOnEdit && editing.id !== null) {
@@ -558,7 +650,7 @@ export function SimpleMasterScreen<Row>({
         <Select
           value={String(v ?? "")}
           onChange={(e) => setV(e.target.value)}
-          className={cn("h-8 text-sm", f.widthClass)}
+          className={cn(dense && "h-8 text-sm", dense && f.widthClass)}
           aria-label={f.label}
         >
           <option value=""></option>
@@ -577,7 +669,7 @@ export function SimpleMasterScreen<Row>({
     const common = {
       value: String(v ?? ""),
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value),
-      className: cn("h-8 text-sm", f.widthClass),
+      className: cn(dense && "h-8 text-sm", dense && f.widthClass),
       placeholder,
       // Auto/derived fields drop out of Tab order but stay clickable/editable.
       tabIndex: f.skipTab ? -1 : undefined,
@@ -640,7 +732,7 @@ export function SimpleMasterScreen<Row>({
     return input;
   }
 
-  function statusEditCell() {
+  function statusEditCell(dense = true) {
     if (!editing) return null;
     // Inactive is an edit-time state — new records are always created Active.
     // Draft-capable masters keep the full select on add (Draft is a valid start).
@@ -653,7 +745,7 @@ export function SimpleMasterScreen<Row>({
         onChange={(e) =>
           setEditing((ed) => (ed ? { ...ed, status: e.target.value as Editing["status"] } : ed))
         }
-        className="h-8 w-28 text-sm"
+        className={cn(dense && "h-8 w-28 text-sm")}
         aria-label="Status"
       >
         <option value="active">Active</option>
@@ -688,7 +780,7 @@ export function SimpleMasterScreen<Row>({
   function saveCancelButtons(compact = true) {
     return (
       <div className={cn("flex items-center gap-1", compact && "justify-end")}>
-        <Button size="sm" disabled={isPending || !canSave} onClick={save} aria-label="Save">
+        <Button size="sm" disabled={isPending || !canSave} onClick={() => save(false)} aria-label="Save">
           <Check className="h-4 w-4" />
           {isPending ? "…" : "Save"}
         </Button>
@@ -829,7 +921,7 @@ export function SimpleMasterScreen<Row>({
           </thead>
           <tbody>
             {/* add row — outside pagination, always on top */}
-            {editing?.id === null && (
+            {!sheetEditor && editing?.id === null && (
               <tr ref={editRowRef as React.Ref<HTMLTableRowElement>} className="border-b border-border bg-primary/5" data-focus-scope onKeyDown={onRowKeyDown}>
                 {d.fields.map((f) => (
                   <td key={f.key} className="px-3 py-1.5 align-middle">
@@ -845,7 +937,7 @@ export function SimpleMasterScreen<Row>({
                 <td className="px-3 py-1.5 align-middle">{saveCancelButtons()}</td>
               </tr>
             )}
-            {pg.paged.length === 0 && editing?.id !== null ? (
+            {pg.paged.length === 0 && (sheetEditor || editing?.id !== null) ? (
               <tr>
                 <td
                   colSpan={d.fields.length + extraColumns.length + (hasStatus ? 1 : 0) + 1}
@@ -856,7 +948,7 @@ export function SimpleMasterScreen<Row>({
               </tr>
             ) : (
               pg.paged.map((r) => {
-                const isEditing = editing?.id === getId(r);
+                const isEditing = !sheetEditor && editing?.id === getId(r);
                 if (isEditing) {
                   return (
                     <tr key={getId(r)} ref={editRowRef as React.Ref<HTMLTableRowElement>} className="border-b border-border bg-primary/5 last:border-0" data-focus-scope onKeyDown={onRowKeyDown}>
@@ -913,7 +1005,7 @@ export function SimpleMasterScreen<Row>({
 
       {/* ---------------- mobile cards with in-place edit ---------------- */}
       <div className={cn("space-y-2.5 transition-opacity md:hidden", isStale && "opacity-60")}>
-        {editing?.id === null && (
+        {!sheetEditor && editing?.id === null && (
           <MobileEditCard
                   cardRef={editRowRef as React.Ref<HTMLDivElement>}
             fields={d.fields}
@@ -923,13 +1015,13 @@ export function SimpleMasterScreen<Row>({
             onKeyDown={onRowKeyDown}
           />
         )}
-        {pg.paged.length === 0 && editing?.id !== null ? (
+        {pg.paged.length === 0 && (sheetEditor || editing?.id !== null) ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             {empty}
           </div>
         ) : (
           pg.paged.map((r) => {
-            if (editing?.id === getId(r)) {
+            if (!sheetEditor && editing?.id === getId(r)) {
               return (
                 <MobileEditCard
                   cardRef={editRowRef as React.Ref<HTMLDivElement>}
@@ -1001,6 +1093,142 @@ export function SimpleMasterScreen<Row>({
         onPageChange={pg.setPage}
         onPageSizeChange={pg.setPageSize}
       />
+
+      {/*
+        THE OPT-IN SHEET EDITOR (`descriptor.editor === "sheet"`).
+
+        It renders the SAME `d.fields` the table does, through the same
+        `editCell` — so the duplicate check, the "did you mean" chips, the
+        required hold, CAPS and the format validators are the ones already
+        declared on the descriptor. Nothing here re-implements a control, which
+        is the only reason a second surface is affordable at all.
+
+        LAYOUT IS THE SAME RULE `allowance-master-screen.tsx` STATES, and the two
+        must not drift: every field is `lg` (6 of 12, so a row holds exactly
+        two and no box is wider than its neighbour), and the track is capped so
+        six-of-twelve resolves to ~378px rather than half the dialog. The client
+        settled that shape on Allowance and then asked for it here by name.
+
+        Status is last for the reason Allowance documents: it only exists on an
+        already-saved row, so anywhere earlier it would take a cell that is
+        absent on the New form and swap every pair after it between the two.
+      */}
+      {sheetEditor && editing && (
+        <Sheet
+          open
+          onClose={cancelEdit}
+          title={editing.id === null ? `New ${d.entityLabel}` : `Edit ${d.entityLabel}`}
+          footer={
+            <>
+              <Button variant="outline" size="md" onClick={cancelEdit}>
+                Cancel
+              </Button>
+              {/*
+                CANCEL / [SAVE AS DRAFT] / SAVE — the footer the layout contract
+                specifies, and the shape `work-timing-master-screen.tsx` and
+                `working-hour-master-screen.tsx` already use, so all four
+                draft-capable masters in this sub-module now agree.
+
+                It appears only for `activeDraft` descriptors. A master with no
+                draft state would gain a button that saves the same record twice
+                under two names.
+
+                The legacy ERP puts these on ONE control — a `Save ▾` split
+                button whose menu offers "Save" and "Save As Drafts". Two plain
+                buttons are the same two actions with nothing hidden behind a
+                click, and they are what this app already draws elsewhere; a
+                split button here would be a third footer shape for the same
+                decision.
+              */}
+              {d.status === "activeDraft" && (
+                <Button
+                  variant="outline"
+                  size="md"
+                  disabled={isPending || !canSave}
+                  onClick={() => save(true)}
+                >
+                  Save as Draft
+                </Button>
+              )}
+              <Button size="md" disabled={isPending || !canSave} onClick={() => save(false)}>
+                {isPending ? "Saving…" : "Save"}
+              </Button>
+            </>
+          }
+        >
+          <FieldGrid className="max-w-3xl">
+            {/*
+              FIRST, and blank while adding — the number does not exist until
+              the row does, and an "(auto)" placeholder there would describe the
+              box rather than the record. `readOnly` + `skipTab` keep it off the
+              typing path while the mouse can still reach it, the same treatment
+              `allowance-master-screen.tsx` gives its own ID.
+            */}
+            {d.autoId && (
+              <Field label={d.autoId.label ?? "ID"} size="lg" skipTab>
+                <Input
+                  value={editingRow ? String(d.autoId.value(editingRow) ?? "") : ""}
+                  readOnly
+                />
+              </Field>
+            )}
+            {d.fields.map((f) => (
+              <Field
+                key={f.key}
+                label={f.label}
+                size="lg"
+                /* One declaration: the star and the cursor hold both come from
+                   here, and `editCell` forwards the same flag to the control. */
+                required={f.required}
+              >
+                {editCell(f, false)}
+              </Field>
+            ))}
+            {/*
+              STATUS IS A SWITCH, AND IT IS ALWAYS ON THE FORM — including when
+              adding (client 2026-09-04: "i want them but like this ... like a
+              toggle so that if i wann make it active or inactive i can do that").
+
+              `statusEditCell` answers for a TABLE CELL and both of its branches
+              are wrong in a dialog. On add it returns a STATIC `Active` pill —
+              honest in a row, where it fills the Status column and states what
+              the record will be, but in a form it reads as a field the operator
+              can set and then refuses to do anything. On edit it returns a
+              `<Select>`, spending a whole form row on a two-state value.
+
+              An earlier cut of this hid the field entirely while adding, on the
+              engine's own rule that "new records are always created Active".
+              THAT RULE WAS A UI CHOICE, NOT A CONSTRAINT: `save()` already
+              passes `editing.status` through `toPayload` for a create exactly as
+              it does for an update, so a row could always have been born
+              inactive — nothing on screen let anyone say so.
+
+              `activeDraft` masters GET THE SAME SWITCH. They used to keep a
+              three-option `<Select>` here on the reasoning that a two-position
+              control cannot express Draft — true, and the wrong conclusion.
+              Draft is not a third value of "is this switched on"; it is how the
+              record was SAVED, so it moved to the footer as "Save as Draft"
+              (client 2026-09-05), where the legacy ERP has always had it and
+              where two other masters in this sub-module already put it.
+            */}
+            {hasStatus && (
+              <Field label="Status" size="lg">
+                <div className="flex h-8 items-center">
+                  <Toggle
+                    checked={editing.status === "inactive"}
+                    onChange={(v) =>
+                      setEditing((ed) =>
+                        ed ? { ...ed, status: v ? "inactive" : "active" } : ed,
+                      )
+                    }
+                    label="Inactive"
+                  />
+                </div>
+              </Field>
+            )}
+          </FieldGrid>
+        </Sheet>
+      )}
 
       {/* Read-only view, owned by the engine so all 31 simple masters get one
           from a single `view` function on their descriptor. No Edit in the

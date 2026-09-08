@@ -29,7 +29,15 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+        // 600/semibold (client 2026-09-07, Archivo weight spec) — a status
+        // pill IDENTIFIES a record's state, which is the system's 600 tier;
+        // was font-medium/500, the navigation tier. A genuinely "important"
+        // chip (the spec's 700 example) still reaches `className` for that —
+        // this default is deliberately one step short of it, since most
+        // status pills in this app are routine labels (Active/Inactive,
+        // Pending), not alarms, and bolding every one of them everywhere is
+        // the "excessive bold" the spec warns against.
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
         tones[tone],
         className,
       )}
