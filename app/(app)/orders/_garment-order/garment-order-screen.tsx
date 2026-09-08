@@ -14182,17 +14182,74 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           .join("  ·  ");
         const foldedProblems = structureProblems(st, familyCodeOf(st.structure_id));
         return (
-          /* THE OPEN CARD'S RAIL, TRANSPARENT — see the long note in
-             `renderMobileRow`. Same width, same padding, no colour: the two
-             states must differ in NOTHING but the ink, or the rail reads as the
-             open row having shifted right rather than as it being the active
-             one.
+          /* NO RAIL — the transparent twin came off with the open row's coloured
+             one (client 2026-09-08); the long note is in `renderMobileRow`. It
+             held the closed state at the open one's inset and had no other job,
+             so it could not outlive it: kept alone it would indent every folded
+             fabric 18px past the open one it sits between.
 
-             `cursor-pointer` because the whole folded card already opens on
-             click (`ChildGrid` puts the handler on the row) and nothing said so.
-             A closed record that responds to a click it never advertised is the
-             other half of "now it's confusing". */
-          <div className="cursor-pointer space-y-2 border-l-2 border-transparent pl-4">
+             `cursor-pointer` MOVED ONTO THE CARD rather than going with the
+             wrapper. The whole folded row opens on click (`ChildGrid` puts the
+             handler on the row) and nothing else says so — a closed record that
+             responds to a click it never advertised is the other half of "now
+             it's confusing". */
+          /*
+            * A CLOSED FABRIC IS A CARD (client 2026-09-08: "wrap the collapsed
+            * structure row (1X1 LYCRA RIB ...) inside its own full-width
+            * bordered container ... so it appears as a distinct, unified row").
+            *
+            * `flatRows` above is why it had none, and the two instructions do
+            * not conflict. The client removed the per-structure frame on
+            * 2026-08-18 ("one frame is enough"), which was right for a row being
+            * EDITED — an open fabric is already fenced, first by the spec card
+            * on its left half and then by the parts table on its right. A CLOSED
+            * one has neither, so what was left was a line of controls between
+            * two horizontal rules, which is the floating this asks to stop. The
+            * two are about two STATES of one row, and `renderFoldedRow` is where
+            * a state-only frame can live without reopening the one `flatRows`
+            * closed.
+            *
+            * ## `border-border` / `bg-surface`, NOT `border-gray-200` /
+            * `bg-white`
+            *
+            * Those two were named literally and are the one part of the request
+            * not taken as written: this repo paints from declared tokens, and a
+            * hard `bg-white` stays white when the dark theme inverts everything
+            * around it. Same substitution the spec card one state over already
+            * made, for the same reason.
+            *
+            * ## NO `flex items-center justify-between`
+            *
+            * Also asked for by name, and it would undo what it is for. The
+            * children here are a `FieldGrid` and the advisory line under it, so
+            * `justify-between` would set the warning BESIDE the fields and
+            * centre it against them — and with no warning showing it does
+            * nothing at all. The "unified row" the flex was reaching for is what
+            * the `FieldGrid` already delivers: Structure at `md`, the summary at
+            * `xl`, on the grid's own track. The container is the change; the
+            * arrangement inside it is untouched.
+            *
+            * ## THE HOVER HAD TO MOVE WITH THE FILL
+            *
+            * `ChildGrid` puts `hover:bg-surface-muted` on the ROW to say a
+            * folded row opens on click (`cursor-pointer`, now on this card, is
+            * the other half of that sentence). An opaque card painted over that
+            * row hides it, so the card takes the same hover itself — the
+            * affordance is unchanged and the surface it plays on is the one now
+            * on top. The 40px `pr-10` gutter the ✕ hangs in is still the row's
+            * own and still tints.
+            *
+            * THE RAIL IS GONE, later the same day (client 2026-09-08, "remove the
+            * left-side border/outline"), and this card is half of why that was
+            * safe: with a closed fabric drawn as its own container and an open one
+            * drawn as a spec card beside its parts, the two states differ in shape
+            * rather than in the ink on a line beside them. The card starts on the
+            * overlay's own margin, exactly where the open row's spec card starts,
+            * so opening a fabric still moves nothing sideways. `space-y-2` sits on
+            * the card because the wrapper that used to carry it has gone; the 8px
+            * it sets is the same 8px.
+            */
+          <div className="cursor-pointer space-y-2 rounded-lg border border-border bg-surface p-3 transition-colors hover:bg-surface-muted">
           <FieldGrid>
             {/* THE STRUCTURE STAYS A REAL FIELD — Tab lands on fields, so a
                 folded row rendering none is mouse-only, and focusing it is what
@@ -14249,35 +14306,36 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
-           * THE RAIL SAYS WHICH FABRIC YOU ARE WORKING ON (client 2026-08-20:
-           * "the table divide[r] need much clear[er] indicated for user they are
-           * working [on a] new one, now its confusing").
+           * NO RAIL DOWN THE LEFT EDGE (client 2026-09-08: "remove the left-side
+           * border/outline from the structure blocks … no vertical line
+           * indicators running down the left side"). The fields start on the
+           * overlay's own margin.
            *
-           * The divider between fabrics already says "a new record starts here"
-           * and was strengthened twice for this same complaint (to
-           * `border-strong`, then to 2px). It was never the missing signal: a
-           * boundary says where a record BEGINS, and the operator was asking
-           * which one is OPEN. A closed fabric still renders a real Structure
-           * picker — deliberately, so Tab can reach it — so a folded card reads
-           * as a short open one, and no amount of line weight between them fixes
-           * that.
+           * WHAT IT USED TO DO, so a later reader knows what was given up: a 2px
+           * `border-primary` with `pl-4` said WHICH FABRIC IS OPEN (client
+           * 2026-08-20, "the table divide[r] need much clear[er] indicated for
+           * user they are working [on a] new one, now its confusing"). A closed
+           * fabric renders a real Structure picker — deliberately, so Tab can
+           * reach it — so a folded row read as a short open one, and the rail was
+           * the one state marker that added no container: a row FILL was removed
+           * app-wide on 2026-08-18, a BOX per row is what `flatRows` exists to
+           * prevent ("one frame"), NUMBERING went on 2026-08-17 ("remove that #1,
+           * #2 … making huge UI gap"), and the DIVIDER had already failed twice.
            *
-           * WHY A RAIL AND NOT THE OBVIOUS THINGS. Every other candidate here is
-           * already a rejected one: a row FILL was removed app-wide on
-           * 2026-08-18, a BOX per row is what `flatRows` exists to prevent
-           * (client: "one frame"), NUMBERING went on 2026-08-17 ("remove that
-           * #1, #2 … making huge UI gap"), and the DIVIDER is the thing that has
-           * failed twice. The rail is the one signal none of those used, and it
-           * marks a STATE rather than adding a container.
+           * WHY REMOVING IT DOES NOT REOPEN THAT COMPLAINT. The two states stopped
+           * looking alike earlier the same day: an open fabric is a bordered spec
+           * card beside its parts table, a closed one is the single full-width
+           * card `renderFoldedRow` gained on 2026-09-08. They differ in SHAPE now,
+           * so the line beside them had nothing left of its own to say.
            *
-           * ITS TWIN IS IN `renderFoldedRow`, transparent and at the same
-           * padding. That matters more than it looks: without the matching
-           * inset, an open card would sit 18px right of a closed one and the
-           * rail would read as the row having MOVED rather than as the row being
-           * active. Presence or absence of colour is the whole message; nothing
-           * else may change between the two states.
+           * BOTH RAILS CAME OFF IN ONE CHANGE, and that is not tidiness. The twin
+           * in `renderFoldedRow` was transparent and existed ONLY to hold the two
+           * states at one inset, so removing either alone would shift the other
+           * 18px sideways on every fold — exactly the "the row MOVED rather than
+           * the row is active" failure the twin was built to prevent. If a state
+           * marker is ever wanted again it comes back as a pair, at the same width
+           * and the same padding.
            */
-          <div className="border-l-2 border-primary pl-4">
           <div
             /*
              * THE PARTS SIT BESIDE THE SPEC (client 2026-08-20: "why can't do
@@ -15021,7 +15079,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             )}
             </div>
             {componentGrid(r, st)}
-          </div>
           </div>
         );
       }}

@@ -89,7 +89,14 @@ export function NewProformaForm({ buyers, currencies }: Props) {
           <CardTitle>New proforma invoice</CardTitle>
         </CardHeader>
         <CardBody>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            onSubmit={handleSubmit}
+            // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+            // is false, Tab keeps native order and leaves the form.
+            // See the `raagam-keyboard-contract` skill.
+            data-focus-scope
+            className="space-y-4"
+          >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <Label htmlFor="pi-buyer">Buyer *</Label>
