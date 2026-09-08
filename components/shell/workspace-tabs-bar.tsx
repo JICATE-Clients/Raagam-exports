@@ -152,22 +152,17 @@ export function WorkspaceTabsBar() {
   ];
 
   return (
-    // `bg-primary-soft` (the same 4%-blue tint as MasterFullScreen's header
-    // and footer bands, master-full-screen.tsx) — swapped in 2026-09-08 for
-    // the old solid brand-green→blue gradient (client: the gradient "not
-    // fitting to our system", wanted "pastel color ... looks light feel").
-    // This is an ACTION bar, not a content ground, so it stays inside
-    // "brand on controls, yes / brand on surfaces, no" rather than reopening
-    // the five-times-rejected tinted-surface history — see
-    // `raagam-brand-colours`. Because the tint is close enough to white,
-    // text stays PLAIN `text-muted-foreground` / `text-foreground`, no
-    // inversion needed (only a SOLID `bg-primary` bar required that, and
-    // that was tried and rejected on the footer band for the same reason).
-    // An INACTIVE tab carries no fill of its own, so the row still reads as
-    // one toolbar; only the ACTIVE tab breaks that with `bg-surface` (white)
-    // + `shadow-sm`, the same pairing the footer/header use for their own
-    // active elements against this tint.
-    <div className="flex h-9 flex-none items-center gap-1.5 border-b border-border bg-primary-soft px-2">
+    // Went `bg-primary-soft` (4% tint, dull) → `bg-primary/10` (tint,
+    // shipped) → tried `bg-brand-green/10` (reverted, "not good fit") →
+    // SOLID `bg-primary` (client 2026-09-08, screenshot 2807: liked the
+    // dashboard "New order" button's colour, asked for the whole bar to
+    // match it, not just a tint). Solid needs its text inverted to white —
+    // same trade `raagam-brand-colours` records for the footer band trying
+    // this once before, except THERE it was rejected and HERE it's what was
+    // asked for. `border-b border-border` dropped: a neutral grey edge
+    // doesn't read against a saturated fill, same as the original gradient
+    // bar never carried one either.
+    <div className="flex h-9 flex-none items-center gap-1.5 bg-primary px-2">
       {showHome && (
         <button
           type="button"
@@ -179,7 +174,7 @@ export function WorkspaceTabsBar() {
             "flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
             isHomeActive
               ? "bg-surface font-bold text-foreground shadow-sm"
-              : "font-medium text-muted-foreground hover:bg-surface/60",
+              : "font-medium text-white/90 hover:bg-white/10",
           )}
         >
           <LayoutDashboard className={cn("h-3.5 w-3.5 flex-none", isHomeActive && "text-primary")} />
@@ -187,7 +182,7 @@ export function WorkspaceTabsBar() {
         </button>
       )}
 
-      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-border" />}
+      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-white/30" />}
 
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {openTabs.map((tab) => {
@@ -202,7 +197,7 @@ export function WorkspaceTabsBar() {
                 "group flex h-8 min-w-[130px] flex-none items-center gap-2 whitespace-nowrap rounded-md pl-3 pr-1.5 text-[13px] transition-colors duration-150",
                 active
                   ? "bg-surface font-bold text-foreground shadow-sm"
-                  : "font-medium text-muted-foreground hover:bg-surface/60",
+                  : "font-medium text-white/90 hover:bg-white/10",
               )}
             >
               {Icon && <Icon className={cn("h-3.5 w-3.5 flex-none", active && "text-primary")} />}
@@ -238,7 +233,10 @@ export function WorkspaceTabsBar() {
           items={overflowItems}
           label="More open screens"
           trigger={<MoreHorizontal className="h-3.5 w-3.5" />}
-          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-surface/60 hover:text-foreground"
+          // Now that the whole BAR is solid `bg-primary` (below), a same-fill
+          // button here would disappear into it — light overlay instead, so
+          // it still reads as a control against the saturated background.
+          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-white transition-colors duration-150 hover:bg-white/25"
           align="right"
         />
       )}
