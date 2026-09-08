@@ -69,17 +69,17 @@ export const SUBMODULES: SubmoduleDef[] = [
     description: "Trading partners, parties, banks & accounts",
     status: "ready",
     children: [
-      { slug: "country", label: "Country", singular: "Country", description: "Country master", type: "custom", custom: "country" },
-      { slug: "port", label: "Port", singular: "Port", description: "Shipping ports", type: "custom", custom: "port" },
-      { slug: "destination", label: "Destination", singular: "Destination", description: "Shipment destinations", type: "custom", custom: "destination" },
-      { slug: "bank", label: "Bank", singular: "Bank", description: "Bank master", type: "custom", custom: "bank" },
-      { slug: "applicant", label: "Applicant", singular: "Applicant", description: "LC / document applicants", type: "custom", custom: "applicant" },
-      { slug: "receivable-term", label: "Receivable Term", singular: "Receivable Term", description: "Receivable terms", type: "custom", custom: "receivable_term" },
-      { slug: "customer", label: "Customer", singular: "Customer", description: "Customer / buyer master", type: "custom", custom: "customer" },
-      { slug: "notify", label: "Notify", singular: "Notify Party", description: "Export notify parties", type: "custom", custom: "notify" },
-      { slug: "consignee", label: "Consignee", singular: "Consignee", description: "Export consignees", type: "custom", custom: "consignee" },
-      { slug: "payment-term", label: "Payment Term", singular: "Payment Term", description: "Payment terms", type: "custom", custom: "payment_term" },
-      { slug: "vendor", label: "Vendor", singular: "Vendor", description: "Suppliers / vendors", type: "custom", custom: "vendor" },
+      { slug: "country", label: "Country", singular: "Country", description: "Country master", type: "custom", custom: "country", icon: "country" },
+      { slug: "port", label: "Port", singular: "Port", description: "Shipping ports", type: "custom", custom: "port", icon: "port" },
+      { slug: "destination", label: "Destination", singular: "Destination", description: "Shipment destinations", type: "custom", custom: "destination", icon: "destination" },
+      { slug: "bank", label: "Bank", singular: "Bank", description: "Bank master", type: "custom", custom: "bank", icon: "bank" },
+      { slug: "applicant", label: "Applicant", singular: "Applicant", description: "LC / document applicants", type: "custom", custom: "applicant", icon: "applicant" },
+      { slug: "receivable-term", label: "Receivable Term", singular: "Receivable Term", description: "Receivable terms", type: "custom", custom: "receivable_term", icon: "receivable-term" },
+      { slug: "customer", label: "Customer", singular: "Customer", description: "Customer / buyer master", type: "custom", custom: "customer", icon: "customer" },
+      { slug: "notify", label: "Notify", singular: "Notify Party", description: "Export notify parties", type: "custom", custom: "notify", icon: "notify" },
+      { slug: "consignee", label: "Consignee", singular: "Consignee", description: "Export consignees", type: "custom", custom: "consignee", icon: "consignee" },
+      { slug: "payment-term", label: "Payment Term", singular: "Payment Term", description: "Payment terms", type: "custom", custom: "payment_term", icon: "payment-term" },
+      { slug: "vendor", label: "Vendor", singular: "Vendor", description: "Suppliers / vendors", type: "custom", custom: "vendor", icon: "vendor" },
       /**
        * RESTORED 2026-08-31 (user), after being removed on 08-01 — see the
        * note below, from which Employee has been struck.
@@ -96,13 +96,13 @@ export const SUBMODULES: SubmoduleDef[] = [
        *
        * Position is the legacy one: Associates ▸ Employee sits after Vendor.
        */
-      { slug: "employee", label: "Employee", singular: "Employee", description: "Employee master", type: "custom", custom: "employee" },
+      { slug: "employee", label: "Employee", singular: "Employee", description: "Employee master", type: "custom", custom: "employee", icon: "employee" },
       // A test bench, not a master: type a GSTIN and every detail the system can
       // derive is listed, including the ones it CANNOT (those need the paid
       // lookup). Saves nothing, owns no table.
-      { slug: "gst-number-check", label: "GST Number Check", singular: "GST Number Check", description: "Test what a GST number reveals — no data is saved", type: "custom", custom: "gstin_check" },
-      { slug: "our-banks", label: "Our Banks", singular: "Our Bank", description: "Company's own bank accounts", type: "custom", custom: "our_bank" },
-      { slug: "zones", label: "Zones", singular: "Zone", description: "Sales territory zones", type: "custom", custom: "zone" },
+      { slug: "gst-number-check", label: "GST Number Check", singular: "GST Number Check", description: "Test what a GST number reveals — no data is saved", type: "custom", custom: "gstin_check", icon: "gst-number-check" },
+      { slug: "our-banks", label: "Our Banks", singular: "Our Bank", description: "Company's own bank accounts", type: "custom", custom: "our_bank", icon: "our-banks" },
+      { slug: "zones", label: "Zones", singular: "Zone", description: "Sales territory zones", type: "custom", custom: "zone", icon: "zones" },
       // ----------------------------------------------------------------------
       // REMOVED 2026-08-01 (client): Account Group, Account Head, Merchandising
       // Team, Courier Delivery Address, TCS Assign to Customers, GST Assign to
