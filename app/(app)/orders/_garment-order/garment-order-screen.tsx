@@ -1333,13 +1333,14 @@ const today = () => {
 const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
 
 /**
- * THE DAY BEFORE A DELIVERY DATE — the Earlier Shipment Dt default (client
- * 2026-08-31: "the Earlier Shipment Dt must automatically calculate and default
- * to exactly one day prior (D-1) to the fetched Delivery Date").
+ * ONE WEEK BEFORE A DELIVERY DATE — the Earlier Shipment Dt default. Client
+ * 2026-08-31 set this to D-1; client 2026-09-08 replaced that with D-7
+ * ("consider the earlier shipment date to be 1 week before the actual
+ * delivery date") — same field, same mechanism, only the offset changed.
  *
  * It is a SAFETY MARGIN, not a derived value: the cargo has to be cleared and
- * ready the day before it is due. So this seeds the field and never owns it —
- * an operator who needs D-2 or D-3 types it and keeps it (see
+ * ready a week before it is due. So this seeds the field and never owns it —
+ * an operator who needs D-3 or D-10 types it and keeps it (see
  * `followsDelivery` at the two call sites).
  *
  * ## `addDays`, NOT `new Date(iso).setDate(d - 1)`
@@ -1361,8 +1362,8 @@ const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
  * so the guard is not defensive padding — it is the common case. A value that is
  * not a full YYYY-MM-DD produces "", which is what an unanswered field holds.
  */
-const dayBefore = (iso: string): string =>
-  /^\d{4}-\d{2}-\d{2}$/.test(iso) ? addDays(iso, -1) : "";
+const weekBefore = (iso: string): string =>
+  /^\d{4}-\d{2}-\d{2}$/.test(iso) ? addDays(iso, -7) : "";
 
 /**
  * The width of the Style picker column, stated ONCE.
@@ -2024,7 +2025,7 @@ export function GarmentOrderScreen({
      * opens each new row blank beside filled siblings.
      */
     delivery_date: form.delivery_date,
-    earlier_shipment_date: dayBefore(form.delivery_date),
+    earlier_shipment_date: weekBefore(form.delivery_date),
     warehouse_id: null,
     discharge_port_id: null,
     pack: "",
@@ -3469,12 +3470,12 @@ export function GarmentOrderScreen({
    *
    * ## EARLIER SHIPMENT IS ASKED THE SAME QUESTION SEPARATELY
    *
-   * It follows only while it still equals `dayBefore` of the date the row is
-   * leaving — i.e. while it is the untouched D-1 default. A row carrying a D-3
+   * It follows only while it still equals `weekBefore` of the date the row is
+   * leaving — i.e. while it is the untouched D-7 default. A row carrying a D-3
    * buffer keeps the DATE the operator typed rather than the OFFSET.
    *
    * Preserving the offset was the other candidate and is arguably kinder, but
-   * it is an inference: the client said D-1 is the default and that an operator
+   * it is an inference: the client said D-7 is the default and that an operator
    * may override it, not that an override is a rolling relationship. Keeping
    * one rule for both fields is what makes the behaviour explainable in a
    * sentence — "it follows until you change it" — and the offset version needs
@@ -3491,12 +3492,12 @@ export function GarmentOrderScreen({
       xs.map((x) => {
         if (x.delivery_date !== prev) return x;
         const followsShip =
-          !x.earlier_shipment_date || x.earlier_shipment_date === dayBefore(prev);
+          !x.earlier_shipment_date || x.earlier_shipment_date === weekBefore(prev);
         return {
           ...x,
           delivery_date: next,
           earlier_shipment_date: followsShip
-            ? dayBefore(next)
+            ? weekBefore(next)
             : x.earlier_shipment_date,
         };
       }),
@@ -8977,9 +8978,11 @@ export function GarmentOrderScreen({
     );
 
   /**
-   * A ROW'S OWN DELIVERY DATE, AND THE D-1 THAT TRAILS IT (client 2026-08-31:
+   * A ROW'S OWN DELIVERY DATE, AND THE D-7 THAT TRAILS IT. Client 2026-08-31:
    * "Write a hook that triggers on value changes: Earlier Shipment Date =
-   * Delivery Date - 1 Day").
+   * Delivery Date - 1 Day" — client 2026-09-08 changed the offset to one week
+   * ("the earlier shipment date to be 1 week before the actual delivery
+   * date"); the hook itself is unchanged.
    *
    * NOT A `useEffect`, deliberately. An effect watching `quantities` would fire
    * on every keystroke in every cell of the grid and would have to work out
@@ -8998,10 +9001,10 @@ export function GarmentOrderScreen({
    */
   const setRowDeliveryDate = (r: QuantityRow, next: string) => {
     const followsShip =
-      !r.earlier_shipment_date || r.earlier_shipment_date === dayBefore(r.delivery_date);
+      !r.earlier_shipment_date || r.earlier_shipment_date === weekBefore(r.delivery_date);
     setQty(r.key, {
       delivery_date: next,
-      ...(followsShip ? { earlier_shipment_date: dayBefore(next) } : {}),
+      ...(followsShip ? { earlier_shipment_date: weekBefore(next) } : {}),
     });
   };
 
@@ -12340,12 +12343,12 @@ export function GarmentOrderScreen({
       header: "Earlier Shipment Dt",
       required: true,
       /**
-       * D-1 OF THE CELL TO ITS LEFT, until the operator says otherwise. The
-       * arithmetic is `dayBefore`; when it applies is `setRowDeliveryDate`.
+       * D-7 OF THE CELL TO ITS LEFT, until the operator says otherwise. The
+       * arithmetic is `weekBefore`; when it applies is `setRowDeliveryDate`.
        *
        * Typing here is the override the client asked for ("adjust the shipment
        * buffer to D-2 or D-3"), and it is remembered by the value itself: once
-       * this stops equalling D-1 of the delivery date, moving the delivery date
+       * this stops equalling D-7 of the delivery date, moving the delivery date
        * leaves it alone.
        */
       cell: (r) => (
