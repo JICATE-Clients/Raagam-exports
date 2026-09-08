@@ -1359,7 +1359,7 @@ export function DataPicker({
             // a row with them. `@2xl/editor:h-8` is the compact density; it is a
             // CONTAINER query, so a picker inside a ~440px nested panel or on a
             // phone keeps the full 36px touch target.
-            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-3 text-base md:text-sm",
+            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-2.5 text-base md:text-sm",
             // Reserves the trailing slot; stated beside its width, not here.
             // A dense grid cell reserves less: see AFFORDANCE_PAD_COMPACT.
             compact ? AFFORDANCE_PAD_COMPACT : AFFORDANCE_PAD,

@@ -4328,6 +4328,58 @@ export function FabricBomScreen({
           variant="outline"
           size="sm"
           className="h-8 w-full"
+          /**
+           * `data-row-open` — THE LAST CELL OF THE TOP ROW IS A CELL, NOT
+           * CHROME (client 2026-09-08: Tab must reach "Components / Click" and
+           * then go straight on into the consumption table).
+           *
+           * IT WAS MOUSE-ONLY, and this file has paid for that exact shape
+           * before: the Fabric Lines [Detail] button ~1,300 lines down carries
+           * the same marker for the same reason, and Combos ▸ Structure Details
+           * was mouse-only until it got one (client 2026-08-19, screenshot 2358:
+           * "that tab navigation is not moving to the details button, why").
+           * Tab lands on FIELDS — `isFieldLike` / `ROW_FIELDS` — and a `<Button>`
+           * is not one, so the only door to "which panels are cut from this
+           * cloth" could not be opened from the keyboard at all. That is the one
+           * thing the marker is for: a button that OPENS something the keyboard
+           * cannot otherwise reach, never a button that is merely convenient.
+           *
+           * A MARKER, NEVER A HANDLER. `ROW_FIELDS` counts `[data-row-open]`, so
+           * this joins ALL THREE movement keys at once — Tab, Enter and ← → —
+           * which is what AGENTS.md means by one definition: a cell Tab stopped
+           * on that the arrows stepped over is literally the 2026-08-01 bug. A
+           * local keydown here would instead REPLACE the contract on this
+           * surface, because the provider bails on `defaultPrevented`.
+           *
+           * ## AND IT IS WHAT JOINS THE TOP ROW TO THE SIZES GRID
+           *
+           * With the button on the row's axis the rest of the sequence needs no
+           * code, and that is the point rather than a happy accident: this whole
+           * pane is ONE `data-grid-row` (`renderMobileRow` below is the entry's
+           * row body), and `tabAlongRow` walks a row through `tabFieldsIn` —
+           * every field in the row in DOM order, the row's own cells first and
+           * then the panel beneath. So Fabric ▸ Type ▸ Calculated ▸ the two
+           * toggles ▸ EndBit Loss % ▸ here ▸ the first size row's Finish Dia is
+           * one flat walk, and Shift+Tab comes back the same way.
+           *
+           * NOT ON `Assort Color` BESIDE IT, deliberately. That button is
+           * permanently `disabled` (its sub-detail is not built), `ROW_FIELDS`
+           * excludes `[disabled]`, and a marker there would be this file's own
+           * "an ellipsis is a promise that the rest is reachable" failure one
+           * shape along — a Tab stop that opens nothing. It joins the axis on
+           * the day it opens something.
+           */
+          data-row-open
+          /* THE COUNT IS THE VISIBLE LABEL AND SAYS NOTHING ON ITS OWN — "2", or
+             "Click". Now that a keyboard lands here, the cell has to announce
+             what it opens; the header band above it is hand-rolled text (see
+             `renderMobileRow`), so nothing associates it programmatically. Same
+             reason `Toggle` takes `ariaLabel` in a grid cell. */
+          aria-label={
+            e.component_ids.length
+              ? `Components — ${e.component_ids.length} chosen`
+              : "Components — none chosen"
+          }
           /* Captures the button's own rect so the sheet scales out of THIS
              button — `currentTarget`, not `target`: the click can land on the
              text node inside it. Same call `garment-order-screen.tsx` makes
