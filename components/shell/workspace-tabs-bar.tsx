@@ -153,21 +153,21 @@ export function WorkspaceTabsBar() {
 
   return (
     // `bg-primary-soft` (the same 4%-blue tint as MasterFullScreen's header
-    // and footer bands, master-full-screen.tsx) — swapped in 2026-09-08 for
-    // the old solid brand-green→blue gradient (client: the gradient "not
-    // fitting to our system", wanted "pastel color ... looks light feel").
-    // This is an ACTION bar, not a content ground, so it stays inside
-    // "brand on controls, yes / brand on surfaces, no" rather than reopening
-    // the five-times-rejected tinted-surface history — see
-    // `raagam-brand-colours`. Because the tint is close enough to white,
-    // text stays PLAIN `text-muted-foreground` / `text-foreground`, no
-    // inversion needed (only a SOLID `bg-primary` bar required that, and
-    // that was tried and rejected on the footer band for the same reason).
+    // and footer bands, master-full-screen.tsx) at ~4% was tried first
+    // (2026-09-08) and read as DULL — every other band of chrome around it
+    // (topbar, sidebar, page ground) is already white/near-white, so a
+    // near-invisible tint left the bar with no colour at all. `bg-primary/10`
+    // is the same blue, just strong enough to register as an intentional
+    // colour rather than almost-white, while staying well short of the
+    // solid `bg-primary` bar that was tried and rejected on the footer band
+    // (would need every button in the bar inverted to white-on-blue).
+    // Because the tint still reads close to white, text stays PLAIN
+    // `text-muted-foreground` / `text-foreground` — no inversion needed.
     // An INACTIVE tab carries no fill of its own, so the row still reads as
     // one toolbar; only the ACTIVE tab breaks that with `bg-surface` (white)
     // + `shadow-sm`, the same pairing the footer/header use for their own
     // active elements against this tint.
-    <div className="flex h-9 flex-none items-center gap-1.5 border-b border-border bg-primary-soft px-2">
+    <div className="flex h-9 flex-none items-center gap-1.5 border-b border-border bg-primary/10 px-2">
       {showHome && (
         <button
           type="button"
