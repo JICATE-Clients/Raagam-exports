@@ -168,7 +168,14 @@ export function ExportCategoriesClient({
             <CardTitle>{editingId ? "Edit category" : "New category"}</CardTitle>
           </CardHeader>
           <CardBody>
-            <form onSubmit={handleSave} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <form
+              onSubmit={handleSave}
+              // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+              // is false, Tab keeps native order and leaves the form.
+              // See the `raagam-keyboard-contract` skill.
+              data-focus-scope
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+            >
               <div>
                 <Label htmlFor="ec-name">Name *</Label>
                 <Input id="ec-name" value={name} onChange={(e) => setName(e.target.value)} required />

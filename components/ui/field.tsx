@@ -381,6 +381,7 @@ const SPAN = FIELD_SPAN;
 
 export function Field({
   label,
+  labelSuffix,
   size = "md",
   w,
   required,
@@ -400,6 +401,27 @@ export function Field({
    * lone button beside a labelled field wants to line up with it.
    */
   label?: ReactNode;
+  /**
+   * A derived annotation AFTER the required star — "Tolerance * (175 - 185)".
+   *
+   * IT EXISTS SO `label` CAN STAY A STRING. `RequiredScope` below reads
+   * `typeof label === "string" ? label : null`, and that string is what
+   * `useRequiredHold` announces: pass a `<>Tolerance ({range})</>` node instead
+   * and the hold on a blank mandatory field degrades from "Tolerance is
+   * required." to "This field is required." — on exactly the fields where the
+   * cursor is being held and the operator most needs the name. So the label and
+   * the thing appended to it are two props, not one node.
+   *
+   * ORDER IS THE POINT: this renders after the `*`, which is a position the
+   * `label` prop cannot reach because the star is drawn between them. Style it
+   * at the call site — it is chrome on a label, so it usually wants
+   * `font-normal text-muted-foreground`.
+   *
+   * NOT `hint`, which renders BELOW the control: on an `items-end` row that
+   * makes the field taller than its neighbours and rides its label ~26px above
+   * theirs (client screenshot 2397). A suffix stays on the label's own line.
+   */
+  labelSuffix?: ReactNode;
   size?: FieldSize;
   /**
    * A fixed WIDTH instead of a share of the track — for a value with a known
@@ -521,6 +543,7 @@ export function Field({
               of those numbers and would drift the first time they changed. */}
           {label === "" ? "\u00A0" : label}
           {required && <span className="ml-0.5 text-danger">*</span>}
+          {labelSuffix}
         </Label>
       )}
       {/* The same `required` that draws the star above reaches the control

@@ -138,7 +138,14 @@ function DetailsTab({
 
         <CardBody>
           {editing ? (
-            <form onSubmit={handleSave} className="space-y-4">
+            <form
+              onSubmit={handleSave}
+              // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+              // is false, Tab keeps native order and leaves the form.
+              // See the `raagam-keyboard-contract` skill.
+              data-focus-scope
+              className="space-y-4"
+            >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="dt-consignee">Consignee name</Label>
@@ -438,6 +445,10 @@ function LineForm({
   return (
     <form
       onSubmit={handleSubmit}
+      // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+      // is false, Tab keeps native order and leaves the form.
+      // See the `raagam-keyboard-contract` skill.
+      data-focus-scope
       className="rounded-md border border-border bg-surface-muted p-3 space-y-3"
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

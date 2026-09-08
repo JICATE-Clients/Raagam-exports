@@ -134,7 +134,14 @@ export function LcDetailClient({ lc, buyers, currencies, canEdit, canDelete }: P
       </CardHeader>
       <CardBody>
         {editing ? (
-          <form onSubmit={handleSave} className="space-y-4">
+          <form
+            onSubmit={handleSave}
+            // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+            // is false, Tab keeps native order and leaves the form.
+            // See the `raagam-keyboard-contract` skill.
+            data-focus-scope
+            className="space-y-4"
+          >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <Label htmlFor="e-no">LC number</Label>

@@ -128,7 +128,7 @@ const T_LABEL = "text-[11px] uppercase tracking-wide text-muted-foreground";
  * would render short with full-size digits and nothing would explain why. Same
  * trap `price-matrix.tsx` records.
  */
-const BOX = "h-[26px] @2xl/editor:h-[26px] text-[12.5px] md:text-[12.5px] text-right tabular-nums";
+const BOX = "h-[28px] @2xl/editor:h-[28px] text-[12.5px] md:text-[12.5px] text-right tabular-nums";
 
 /**
  * THE BREAKUP MATRIX — sizes ACROSS, the five figures DOWN (client 2026-08-27,
@@ -167,7 +167,21 @@ const BOX = "h-[26px] @2xl/editor:h-[26px] text-[12.5px] md:text-[12.5px] text-r
 const MX_WRAP = "w-fit max-w-full overflow-x-auto rounded-lg border border-border bg-surface";
 /** 26px rows, the compaction `price-matrix` runs at. */
 const MX_ROW_H = "min-h-[26px]";
-const MX_HEAD = cn(MATRIX_HEAD, MX_ROW_H);
+/**
+ * RIGHT-ALIGNED, BECAUSE THE COLUMN DECIDES AND ALL ITS BANDS AGREE.
+ *
+ * `MATRIX_HEAD` centres, which is right on Prices (a column there holds one
+ * rate and nothing stacks) and wrong here: the note on `MX_NUM` below already
+ * states that "the header and the Total column are right-aligned with them",
+ * and the size tokens were the one band that never was. A centred token over a
+ * column of right-stacked digits reads as a third alignment in a five-row sum.
+ *
+ * `pr-2` matches `MX_NUM`'s own 8px, so the token's right edge and the digits'
+ * right edge are one line. The left stays at `MATRIX_HEAD`'s `px-1` — the token
+ * is a bordered chip that floats, so only the aligned edge has work to do. The
+ * 4px this costs is bought back on the track below; see `sizeColPx` there.
+ */
+const MX_HEAD = cn(MATRIX_HEAD, MX_ROW_H, "justify-end pr-2");
 const MX_FOOT = cn(MATRIX_FOOT, MX_ROW_H);
 const MX_CELL = matrixCell(MX_ROW_H);
 /**
@@ -191,6 +205,21 @@ const MX_NAME = cn(
 );
 /** The roll-up column. `border-l-2` so it reads as a rule rather than a cell edge. */
 const MX_TOTAL = "border-l-2 border-border-strong font-semibold";
+/**
+ * THE COLUMN RULE, and the reason the cells read as "stuck together" without it.
+ *
+ * `matrixCell` draws a hairline UNDER a cell and none beside it, so a size run
+ * was five columns of digits with nothing between them — the horizontal
+ * arithmetic had a rule under every line and the vertical seam had none. One
+ * `--border` hairline (the pale token, never `border-strong`) is enough to
+ * separate them without competing with the two rules that mean something: the
+ * sticky name column's `border-r` and the Total column's `border-l-2`.
+ *
+ * NOT ON THE LAST SIZE — `MX_TOTAL`'s own 2px left rule is already that seam,
+ * and the two abutting in a gapless grid would stack into a 3px band that reads
+ * as heavier than the roll-up divider it sits beside.
+ */
+const MX_SEP = "border-r border-border";
 /** A cell that IS a field, and it KEEPS `Input`'s own border.
  *
  *  It read `rounded-none border-0 bg-transparent` on the same "the grid rule is
@@ -212,7 +241,24 @@ const MX_TOTAL = "border-l-2 border-border-strong font-semibold";
  *  intrinsic widths entirely, which is why the fix is the track and not a
  *  narrower box. */
 const MX_BOX =
-  "h-[22px] @2xl/editor:h-[22px] w-full min-w-0 rounded-[6px] px-1 text-right text-[12.5px] md:text-[12.5px] font-semibold tabular-nums";
+  "h-[28px] @2xl/editor:h-[28px] w-full min-w-0 rounded-[6px] px-1 text-right text-[12.5px] md:text-[12.5px] font-semibold tabular-nums";
+/**
+ * THE APPROVAL ROW IS THE ONE ROW THAT GROWS, and only it.
+ *
+ * A 28px box needs more than the 26px the read-only rows run at, and raising
+ * `MX_ROW_H` would spend that height five times over — the four derived rows
+ * hold bare figures and have no reason to get taller. A grid row is sized by
+ * its tallest cell and the rest stretch, so putting the height here lifts the
+ * typed row alone: the breakup grows 6px per open colour, not 30px.
+ *
+ * `px-1` REPLACES `px-0`. The box used to run cell-edge to cell-edge, so
+ * adjacent inputs met with their green skin borders touching and the column
+ * rule buried between them. 4px a side puts 8px between neighbouring boxes and
+ * lets `MX_SEP` be seen. It is affordable: `sizeColPx` allows 26px of chrome
+ * for an `<Input>` and the narrowest column this produces still leaves ~24px
+ * for two digits.
+ */
+const MX_FIELD_CELL = "min-h-[32px] px-1";
 
 /** The row grid, declared ONCE so the header and every line cannot drift. */
 /**
@@ -410,7 +456,15 @@ export function ApprovalQtyLines({
             );
           const track = [
             textColPx("Rejection".length, 16, 76, 120) + "px",
-            ...cells.map((x) => sizeColPx(x.z.label, colChars(x)) + "px"),
+            /* +4px. `sizeColPx` allows 26px of chrome per size column, and it
+               was calibrated for a cell whose content runs edge to edge. Both
+               bands now hold an 8px right inset instead — the header token
+               aligning to the digits (see `MX_HEAD`) and the typed box getting
+               `px-1` (see `MX_FIELD_CELL`) — so the column is widened by what
+               that alignment costs rather than being taken out of the content.
+               Without it a 6-character label ("12-18M", the longest `sizeColPx`
+               measures) is ~61px of chip inside 61px of room. */
+            ...cells.map((x) => sizeColPx(x.z.label, colChars(x)) + 4 + "px"),
             textColPx(
               Math.max(fmtNumber(r.total).length, fmtNumber(r.qty).length),
               16,
@@ -569,8 +623,11 @@ export function ApprovalQtyLines({
                           "Figure": the row names below say what they are, and a
                           word here would be a heading for a column of headings. */}
                       <div className={cn(MX_HEAD, "sticky left-0 z-30 justify-start pl-2")} />
-                      {cells.map((x) => (
-                        <div key={x.z.sizeId} className={MX_HEAD}>
+                      {cells.map((x, i) => (
+                        <div
+                          key={x.z.sizeId}
+                          className={cn(MX_HEAD, i < cells.length - 1 && MX_SEP)}
+                        >
                           <span className={MATRIX_SIZE_TOKEN}>{x.z.label}</span>
                         </div>
                       ))}
@@ -583,14 +640,24 @@ export function ApprovalQtyLines({
                           decisions, which is why the strip used to print it
                           above each box. */}
                       <div className={cn(MX_NAME, T_LABEL)}>Ordered</div>
-                      {cells.map((x) => (
-                        <div key={x.z.sizeId} className={MX_NUM}>{fmtNumber(x.z.qty)}</div>
+                      {cells.map((x, i) => (
+                        <div
+                          key={x.z.sizeId}
+                          className={cn(MX_NUM, i < cells.length - 1 && MX_SEP)}
+                        >
+                          {fmtNumber(x.z.qty)}
+                        </div>
                       ))}
                       <div className={cn(MX_NUM, MX_TOTAL)}>{fmtNumber(r.qty)}</div>
 
                       <div className={cn(MX_NAME, T_LABEL)}>Excess</div>
-                      {cells.map((x) => (
-                        <div key={x.z.sizeId} className={MX_NUM}>{fmtNumber(x.d.excess)}</div>
+                      {cells.map((x, i) => (
+                        <div
+                          key={x.z.sizeId}
+                          className={cn(MX_NUM, i < cells.length - 1 && MX_SEP)}
+                        >
+                          {fmtNumber(x.d.excess)}
+                        </div>
                       ))}
                       <div className={cn(MX_NUM, MX_TOTAL)}>{fmtNumber(r.excess)}</div>
 
@@ -602,10 +669,15 @@ export function ApprovalQtyLines({
                       <div className={cn(MX_NAME, T_LABEL, "bg-surface-muted/40 text-foreground")}>
                         Approval
                       </div>
-                      {cells.map((x) => (
+                      {cells.map((x, i) => (
                         <div
                           key={x.z.sizeId}
-                          className={cn(MX_CELL, "justify-end bg-surface-muted/40 px-0")}
+                          className={cn(
+                            MX_CELL,
+                            MX_FIELD_CELL,
+                            "justify-end bg-surface-muted/40",
+                            i < cells.length - 1 && MX_SEP,
+                          )}
                         >
                           <Input
                             type="number"
@@ -630,8 +702,11 @@ export function ApprovalQtyLines({
                       {anyRejection && (
                         <>
                           <div className={cn(MX_NAME, T_LABEL)}>Rejection</div>
-                          {cells.map((x) => (
-                            <div key={x.z.sizeId} className={MX_NUM}>
+                          {cells.map((x, i) => (
+                            <div
+                              key={x.z.sizeId}
+                              className={cn(MX_NUM, i < cells.length - 1 && MX_SEP)}
+                            >
                               {x.d.rejection === null ? (
                                 <span className="text-muted-foreground">—</span>
                               ) : (
@@ -656,8 +731,15 @@ export function ApprovalQtyLines({
                       >
                         To make
                       </div>
-                      {cells.map((x) => (
-                        <div key={x.z.sizeId} className={cn(MX_FOOT, "justify-end px-2 text-primary")}>
+                      {cells.map((x, i) => (
+                        <div
+                          key={x.z.sizeId}
+                          className={cn(
+                            MX_FOOT,
+                            "justify-end px-2 text-primary",
+                            i < cells.length - 1 && MX_SEP,
+                          )}
+                        >
                           {fmtNumber(x.d.total)}
                         </div>
                       ))}

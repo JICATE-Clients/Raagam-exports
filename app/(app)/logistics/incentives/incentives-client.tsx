@@ -189,7 +189,14 @@ export function IncentivesClient({ files, currencies, canCreate, canEdit, canDel
             <CardTitle>New export-incentive claim</CardTitle>
           </CardHeader>
           <CardBody>
-            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <form
+              onSubmit={handleCreate}
+              // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+              // is false, Tab keeps native order and leaves the form.
+              // See the `raagam-keyboard-contract` skill.
+              data-focus-scope
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            >
               <div>
                 <Label htmlFor="in-scheme">Scheme</Label>
                 <Select id="in-scheme" value={scheme} onChange={(e) => setScheme(e.target.value as IncentiveScheme)}>

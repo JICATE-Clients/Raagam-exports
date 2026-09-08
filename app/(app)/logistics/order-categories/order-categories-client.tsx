@@ -137,7 +137,14 @@ export function OrderCategoriesClient({
             <CardTitle>Assign category to order</CardTitle>
           </CardHeader>
           <CardBody>
-            <form onSubmit={handleAssign} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <form
+              onSubmit={handleAssign}
+              // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+              // is false, Tab keeps native order and leaves the form.
+              // See the `raagam-keyboard-contract` skill.
+              data-focus-scope
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            >
               <div>
                 <Label htmlFor="oc-order">Order *</Label>
                 <Select id="oc-order" value={orderId} onChange={(e) => setOrderId(e.target.value)} required>
