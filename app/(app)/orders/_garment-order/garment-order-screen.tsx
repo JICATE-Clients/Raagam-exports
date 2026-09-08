@@ -235,7 +235,6 @@ import {
   buildApprovalTree,
   flattenApprovalTree,
 } from "@/lib/orders/amendments/approval-tree";
-import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
 import {
   createAmendment,
   updateAmendment,
@@ -297,7 +296,6 @@ import {
   isPackBranchMode,
   SEASON_OPTIONS,
   dyeTypeOptions,
-  SHIP_MODES,
   PAY_MODES,
   amendmentStatusTone,
   amendmentStatusText,
@@ -2520,14 +2518,6 @@ export function GarmentOrderScreen({
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
-  const shipTypeOpts = useMemo(
-    () => lookups.filter((l) => l.kind === "ship_type"),
-    [lookups],
-  );
-  // From the Payment Term MASTER, not `lookups` — `pay_terms_id` is an FK into
-  // `public.payment_terms` since 0375, and the lookup rows it used to read are
-  // gone. Filtering `lookups` here would silently render an empty list.
-  const payTermOpts = data.paymentTerms;
   /*
    * `fabric_structure` HAS NO PICKER ON THIS SCREEN ANY MORE (0415).
    *
@@ -2871,6 +2861,29 @@ export function GarmentOrderScreen({
     coordinateId: string | null,
     held: string | null,
     /**
+     * THE STRUCTURE THIS PART BELONGS TO (client 2026-09-08: "inside that
+     * structure … only need to list that component"; example given — a
+     * Single Jersey structure whose style only declares a Neck component
+     * must offer Neck alone).
+     *
+     * A `StyleComponentRow` carries `fabric_category_id` (labelled
+     * "Structure" on the Style(s) ▸ Components grid, and the SAME fabric
+     * category `ComboStructRow.structure_id` picks — "the same list the
+     * Combos overlay's Structure cell offers, so the two cannot disagree
+     * about what a structure is", per the note on that column). Filtering by
+     * `coordinateId` alone let a component the style paired with the right
+     * coordinate but a DIFFERENT structure (a Sleeve declared under Woven)
+     * leak into a Single Jersey structure's part row, because nothing here
+     * ever read the pair's own Structure. This is that read.
+     *
+     * BLANK BEHAVES LIKE `coordinateId` DOES: a structure row's own
+     * `structure_id` is `required`, so this should never actually run blank
+     * in practice — but "no restriction" rather than "match nothing" is the
+     * one answer consistent with `coordinateId` a few lines below, and it is
+     * what keeps a not-yet-picked Structure from presenting an empty list.
+     */
+    structureId: string | null,
+    /**
      * COMPONENTS THIS FABRIC'S OTHER PARTS HAVE ALREADY TAKEN under the same
      * coordinate (client 2026-08-31, screenshot 2560: three part rows all
      * reading INNER / BACK BODY).
@@ -2906,7 +2919,11 @@ export function GarmentOrderScreen({
     const pairs = st?.components ?? [];
     const ids = new Set(
       pairs
-        .filter((c) => !coordinateId || c.coordinate_id === coordinateId)
+        .filter(
+          (c) =>
+            (!coordinateId || c.coordinate_id === coordinateId) &&
+            (!structureId || c.fabric_category_id === structureId),
+        )
         .map((c) => c.component_id)
         .filter(Boolean) as string[],
     );
@@ -4849,6 +4866,8 @@ export function GarmentOrderScreen({
    * not a re-negotiation of what an order needs. Whether Save should require the
    * five Logistic fields at all is a separate question for the client; if the
    * answer is no, they move out of this list rather than losing their labels.
+   * THE ANSWER CAME 2026-09-08: Ship Type, Ship Mode and Pay Terms did — see
+   * the note on the tab's `<FieldGrid>` and `sectionValidity`'s `fields`.
    */
   /* `validity`, `canSave` and `revealFirstProblem` USED TO SIT HERE and now live
      beneath the assortment arithmetic (search `const validity`). The quantity
@@ -6346,14 +6365,14 @@ export function GarmentOrderScreen({
 
        `some` is also what every other entry in this map means: `has(...)` is
        "any filled row", not "every field answered". `logistic` is the one
-       exception and it earns it — those five ARE mandatory. **If the gate comes
-       back, this goes back to `every` with it**; the two are one decision. */
+       exception and it earns it — the two fields left ARE mandatory. **If the
+       gate comes back, this goes back to `every` with it**; the two are one
+       decision. */
     ta: taRows.some((r) => r.days_required.trim() !== ""),
-    // Was `charges.length > 0`, and the charges are gone. The five fields
-    // the client made mandatory are the honest signal now.
-    logistic:
-      !!form.ship_type_id && !!form.ship_mode && !!form.pay_mode &&
-      !!form.pay_terms_id && !!form.currency_code,
+    // Was `charges.length > 0`, and the charges are gone. Ship Type, Ship
+    // Mode and Pay Terms left the Save gate with their `<Field>`s (2026-09-08);
+    // Pay Mode and Currency are the honest signal now.
+    logistic: !!form.pay_mode && !!form.currency_code,
   };
 
   /**
@@ -11336,32 +11355,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         required: true,
         empty: (f) => !f.merchandiser_id,
       },
-      // Logistic — the five that were invisible from where the operator stood.
-      {
-        section: "logistic",
-        label: "Ship Type",
-        required: true,
-        empty: (f) => !f.ship_type_id,
-      },
-      {
-        section: "logistic",
-        id: "lg-shipmode",
-        label: "Ship Mode",
-        required: true,
-        empty: (f) => !f.ship_mode,
-      },
+      // Logistic (now "Payment & Value") — was five, invisible from where the
+      // operator stood; Ship Type, Ship Mode and Pay Terms left with their
+      // `<Field>`s (2026-09-08, see the note on the tab's FieldGrid) and are
+      // no longer part of the Save gate. Pay Mode and Currency remain.
       {
         section: "logistic",
         id: "lg-paymode",
         label: "Pay Mode",
         required: true,
         empty: (f) => !f.pay_mode,
-      },
-      {
-        section: "logistic",
-        label: "Pay Terms",
-        required: true,
-        empty: (f) => !f.pay_terms_id,
       },
       {
         section: "logistic",
@@ -13872,7 +13875,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                       // Narrowing the coordinate around a component the style
                       // still pairs with it must keep that component.
                       ...(c.component_id &&
-                      !scopedComponents(r, id, null).some(
+                      !scopedComponents(r, id, null, st.structure_id).some(
                         (o) => o.id === c.component_id,
                       )
                         ? { component_id: null }
@@ -13899,6 +13902,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     r,
                     c.coordinate_id,
                     c.component_id,
+                    st.structure_id,
                     componentsTakenUnder(
                       st.components.filter((x) => x.key !== c.key),
                       c.coordinate_id,
@@ -18156,7 +18160,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     // as the insert, so stored rows are frozen rather than wiped.
     {
       key: "logistic",
-      label: "Logistic",
+      /**
+       * RENAMED FROM "Logistic" (client 2026-09-08): Ship Type, Ship Mode,
+       * Country and Pay Terms are removed from this tab below, leaving only
+       * Pay Mode, Currency, Ex-Rate and the three derived value fields — so
+       * the tab reads as what it now holds. The rail KEY stays `logistic`
+       * (AGENTS.md, "The sidebar lists SUB-MODULES": a label is not a route,
+       * and every `section: "logistic"` reference below still resolves).
+       */
+      label: "Payment & Value",
       content: (
         <div className="space-y-4">
           {/* Logistic scalars */}
@@ -18174,96 +18186,26 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   Zod input too, which is what stops a save nulling them. */}
               {/* `size="xs"` (2 of 12), SIX per row, so these fields line up
                   with the Order Info section rather than agreeing with it by
-                  coincidence. They were `sm` (four per row) until 2026-08-14;
-                  the whole screen moved together, because a density that
-                  changes as you move down the rail is the thing the client was
-                  reading as clutter.
+                  coincidence.
 
-                  ONE EXCEPTION, AND IT EXISTS TO KEEP THE ROWS FLUSH (client
-                  2026-08-17; re-solved 2026-08-21 when INR Value arrived).
-                  Eleven fields at `xs` is twenty-two columns — six on the first
-                  row and FIVE on the second, two short. Solve
-                  `2a + 3b + 4c + 6d = 24` over eleven cells and there are two
-                  answers: ten `xs` plus ONE `md`, or nine `xs` plus two `sm`.
-                  The second is rejected on DATA — `sm` is 3 (~200px) and
-                  "TT 30 DAYS FROM BL DATE" was clipped at 202px, which is the
-                  measurement that bought `Pay Terms` its width in the first
-                  place. So `Pay Terms` keeps `md` (4) and everything else is
-                  `xs`, and the section reads 6 + 5 with no hole.
+                  SHIP TYPE, SHIP MODE, COUNTRY AND PAY TERMS ARE REMOVED
+                  (client 2026-09-08). Their state, payload and Zod fields are
+                  UNTOUCHED — `ship_type_id`, `ship_mode`, `country_id` and
+                  `pay_terms_id` stay on `QuantityRow`/`form`/`amendmentInput`
+                  exactly as `Department`/`Agent`/`Received` did on 2026-08-10 —
+                  only the `<Field>`s below are gone, which is also what drops
+                  the old `md`/`lg` width exception this note used to carry: the
+                  six fields left (Currency, Ex-Rate, Pay Mode, Avg Rate, Gross
+                  Value, INR Value) are `xs` (2) apiece, 6 x 2 = 12, one flush
+                  row with no remainder to solve for.
 
-                  `Gross Value` GAVE UP the `md` it held while there were ten
-                  fields, and gave it up on the rule this note already stated:
-                  promote a field because its DATA wants the width, never
-                  whichever one happens to be last. A currency string is ~14
-                  characters and fits `xs`; a payment term is 23 and does not.
-                  The arithmetic only ever said how many.
-
-                  The `FieldGrid` above was never the problem: a span comes ONLY
-                  from `<Field size>`, so a child that is not a sized `Field`
-                  takes ONE of the 12 columns. Nine of these were bare pickers and
-                  hand-rolled `<div><Label/><Input/></div>` pairs and rendered
-                  ~90px wide, clipping their own values ("— Sel", "dd-m…"), while
-                  the three real `<Field>`s passed no `size` and fell back to the
-                  retired `md` (4 of 12) and sprawled. Row 1 summed to exactly 12
-                  and row 2 to 9, which is where the trailing gap came from
-                  (client 2026-08-11).
-
-                  Every picker takes `compact` so the `Field` draws the only
-                  label — and `required` MOVES onto the Field with it, because
-                  `data-picker.tsx` renders the red `*` inside the same
-                  `!compact` branch as the label. Each picker keeps its own
-                  `required` too; `DataPicker` ORs the prop with the
-                  `RequiredScope` context, so the cursor hold is unchanged. */}
-              {/* Contact, PO Date and Received (date) WITHDRAWN 2026-08-12
-                  (client): the Logistic tab is Ship Mode / Ship Type / Pay Mode
-                  / Payment Terms / Days / Currency / Country, and nothing else.
-                  Department, Agent and Received (mode) went the same way on
-                  08-10. Their columns and stored values are untouched; they left
-                  `amendmentInput` too, which is the half that stops
-                  `headerOnly()` nulling them on the next save. */}
-              <Field label="Ship Type" required size="xs">
-                <LookupDialogPicker
-                  kind="ship_type"
-                  label="Ship Type"
-                  compact
-                  options={shipTypeOpts}
-                  value={form.ship_type_id}
-                  onChange={(id) => set({ ship_type_id: id })}
-                  required
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                />
-              </Field>
-              {/* `<Field required>` rather than a bare Label: a `<Select>` reads
-                  requiredness from context (`select.tsx` → `useRequiredHold`), so
-                  the star and the cursor hold both come from this one prop. */}
-              <Field label="Ship Mode" required size="xs" htmlFor="lg-shipmode">
-                <Select
-                  id="lg-shipmode"
-                  value={form.ship_mode}
-                  onChange={(e) => set({ ship_mode: e.target.value })}
-                >
-                  <option value=""></option>
-                  {SHIP_MODES.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </Select>
-              </Field>
-              {/* `CountryPicker`'s own `required` DEFAULTS TO TRUE, so the star
-                  this field has always drawn appears nowhere in the call site.
-                  `compact` suppresses that label and its star together, which is
-                  why the wrapper has to say `required` out loud — leaving it off
-                  would quietly unmark a mandatory field (a122adc). */}
-              <Field label="Country" required size="xs">
-                <CountryPicker
-                  compact
-                  countries={data.countries}
-                  value={form.country_id}
-                  onChange={(id) => set({ country_id: id })}
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                />
-              </Field>
+                  `sectionValidity`'s `logistic` gate (search `empty: (f) =>`)
+                  and the rail-dot `logistic:` test below DROP their entries for
+                  these three — Country was never in the Save gate, only held by
+                  `CountryPicker`'s own default `required`, so removing its
+                  `<Field>` removes that hold with it. Un-hiding a field is
+                  putting its `<Field>` back and adding its `empty:` entry back;
+                  nothing else moved. */}
               {/* `CurrencyPicker` has no `required` prop of its own, so the
                   scope comes from the wrapper — its inner `DataPicker` ORs the
                   context (`data-picker.tsx:292`). `compact` because the Field
@@ -18298,26 +18240,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     <option key={o} value={o}>{o}</option>
                   ))}
                 </Select>
-              </Field>
-              {/* `lg` (6), NOT `md` (4) — IT ABSORBED THE WIDTH "Days" LEFT.
-                  This row is Pay Terms + Avg Rate + Gross Value + INR Value,
-                  and the three figures beside it are `xs` (2) each; without the
-                  extra two columns the row would sum to 10 and sit short of its
-                  track, which is the one thing the 08-17/19 de-clutter pass
-                  settled by hand across the whole screen. Pay Terms is also the
-                  right cell to give them to: it is the only picker on the line
-                  and its values are the longest text on it. */}
-              <Field label="Pay Terms" required size="lg">
-                <PaymentTermPicker
-                  label="Pay Terms"
-                  compact
-                  required
-                  options={payTermOpts}
-                  value={form.pay_terms_id}
-                  onChange={(id) => set({ pay_terms_id: id })}
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                />
               </Field>
               {/* "DAYS" STOOD HERE AND IS GONE (client 2026-08-29: "removes the
                   Days column from the Logistics tab entirely").
