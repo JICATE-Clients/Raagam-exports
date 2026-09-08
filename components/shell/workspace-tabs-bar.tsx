@@ -38,11 +38,10 @@
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, MoreHorizontal, Plus, X, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, MoreHorizontal, X, type LucideIcon } from "lucide-react";
 import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useWorkspaceTabs } from "@/lib/workspace-tabs";
 import { NAV } from "@/components/shell/nav";
 import { isHubRoute } from "@/lib/nav/module-groups";
-import { useSearch } from "@/components/search/search-provider";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { isPlainLeftClick } from "@/components/navigation/navigation-config";
 import { cn } from "@/lib/utils";
@@ -95,7 +94,6 @@ export function WorkspaceTabsBar() {
   const pathname = usePathname();
   const user = useAppUser();
   const openTab = useOpenWorkspaceTab();
-  const search = useSearch();
 
   // Keep the CURRENT route present as a tab — but only when it's a real
   // destination. A hub page (a module root or a group's own card index)
@@ -154,14 +152,22 @@ export function WorkspaceTabsBar() {
   ];
 
   return (
-    // Brand gradient chrome (client-approved, matches the original bar) — see
-    // the file header. A thin, continuous strip on purpose: an INACTIVE tab
-    // carries no fill or border of its own, just white/90 text at Archivo
-    // 500 directly on the gradient, so the row reads as one toolbar rather
-    // than a shelf of separate buttons. Only the ACTIVE tab breaks that —
-    // solid `bg-surface`, Archivo 700, a 1px `shadow-sm` — which is also why
-    // it's the one place a label sits on a fill rather than the raw gradient.
-    <div className="flex h-9 flex-none items-center gap-1.5 bg-gradient-to-r from-brand-green to-brand-blue px-2">
+    // `bg-primary-soft` (the same 4%-blue tint as MasterFullScreen's header
+    // and footer bands, master-full-screen.tsx) — swapped in 2026-09-08 for
+    // the old solid brand-green→blue gradient (client: the gradient "not
+    // fitting to our system", wanted "pastel color ... looks light feel").
+    // This is an ACTION bar, not a content ground, so it stays inside
+    // "brand on controls, yes / brand on surfaces, no" rather than reopening
+    // the five-times-rejected tinted-surface history — see
+    // `raagam-brand-colours`. Because the tint is close enough to white,
+    // text stays PLAIN `text-muted-foreground` / `text-foreground`, no
+    // inversion needed (only a SOLID `bg-primary` bar required that, and
+    // that was tried and rejected on the footer band for the same reason).
+    // An INACTIVE tab carries no fill of its own, so the row still reads as
+    // one toolbar; only the ACTIVE tab breaks that with `bg-surface` (white)
+    // + `shadow-sm`, the same pairing the footer/header use for their own
+    // active elements against this tint.
+    <div className="flex h-9 flex-none items-center gap-1.5 border-b border-border bg-primary-soft px-2">
       {showHome && (
         <button
           type="button"
@@ -173,7 +179,7 @@ export function WorkspaceTabsBar() {
             "flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
             isHomeActive
               ? "bg-surface font-bold text-foreground shadow-sm"
-              : "font-medium text-white/90 hover:bg-white/10",
+              : "font-medium text-muted-foreground hover:bg-surface/60",
           )}
         >
           <LayoutDashboard className={cn("h-3.5 w-3.5 flex-none", isHomeActive && "text-primary")} />
@@ -181,7 +187,7 @@ export function WorkspaceTabsBar() {
         </button>
       )}
 
-      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-white/30" />}
+      {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-border" />}
 
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {openTabs.map((tab) => {
@@ -196,7 +202,7 @@ export function WorkspaceTabsBar() {
                 "group flex h-8 min-w-[130px] flex-none items-center gap-2 whitespace-nowrap rounded-md pl-3 pr-1.5 text-[13px] transition-colors duration-150",
                 active
                   ? "bg-surface font-bold text-foreground shadow-sm"
-                  : "font-medium text-white/90 hover:bg-white/10",
+                  : "font-medium text-muted-foreground hover:bg-surface/60",
               )}
             >
               {Icon && <Icon className={cn("h-3.5 w-3.5 flex-none", active && "text-primary")} />}
@@ -227,22 +233,12 @@ export function WorkspaceTabsBar() {
         })}
       </div>
 
-      <button
-        type="button"
-        onClick={search.open}
-        aria-label="Open a screen"
-        title="Open a screen (⌘K)"
-        className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-white/15 text-white transition-colors duration-150 hover:bg-white/25"
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-
       {openTabs.length > 0 && (
         <DropdownMenu
           items={overflowItems}
           label="More open screens"
           trigger={<MoreHorizontal className="h-3.5 w-3.5" />}
-          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-white transition-colors duration-150 hover:bg-white/25"
+          triggerClassName="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-surface/60 hover:text-foreground"
           align="right"
         />
       )}
