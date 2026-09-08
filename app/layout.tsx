@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
@@ -8,19 +8,24 @@ import { SilentUpdater } from "@/components/pwa/silent-updater";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 /**
- * Archivo, self-hosted by `next/font/google` (no runtime request to Google,
- * no layout-shift flash — the font file ships with the build).
+ * Inter, self-hosted by `next/font/google` (no runtime request to Google,
+ * no layout-shift flash — the font file ships with the build). Swapped in
+ * from Archivo 2026-09-08 for a narrower, UI-grade face with real tabular
+ * figures — Archivo's wider proportions were fighting the field-width work
+ * (see `raagam-field-width-and-type-scale`). The 2026-09-07 "Archivo weight
+ * spec" (600/700 hierarchy on buttons, labels, table headers) is a weight
+ * decision, not a typeface one, and carries over unchanged onto Inter.
  *
  * ONLY THE FIVE WEIGHTS THE TYPOGRAPHY SYSTEM USES (400/500/600/700/800), per
  * the standing rule against introducing arbitrary weights the design system
- * doesn't call for. `variable` feeds `--font-archivo`, which `globals.css`
+ * doesn't call for. `variable` feeds `--font-inter`, which `globals.css`
  * points `--font-sans` at — so this is the ONE place the app's typeface is
- * named; nothing else hardcodes "Archivo".
+ * named; nothing else hardcodes "Inter".
  */
-const archivo = Archivo({
+const inter = Inter({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-archivo",
+  variable: "--font-inter",
   display: "swap",
 });
 
@@ -53,7 +58,7 @@ export default function RootLayout({
     // and the live DOM legitimately differ on this one element.
     <html
       lang="en"
-      className={`h-full antialiased ${archivo.variable}`}
+      className={`h-full antialiased ${inter.variable}`}
       suppressHydrationWarning
     >
       <head>
