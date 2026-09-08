@@ -45,12 +45,27 @@ export function SidebarItem({
       title={collapsed ? label : undefined}
       onClick={handleClick}
       className={cn(
-        "flex w-fit items-center gap-2 rounded-[10px] text-sm transition-colors",
+        // `text-[13px]`, not `text-sm` (14px) — matches the workspace tab
+        // bar's own label size (workspace-tabs-bar.tsx) exactly, client
+        // 2026-09-08: the sidebar read a size larger side-by-side with it.
+        "flex w-fit items-center gap-2 rounded-[10px] text-[13px] transition-colors",
         collapsed ? "h-10 w-10 justify-center" : "px-3 py-1.5",
         indent === 1 && !collapsed && "ml-3",
         indent === 2 && !collapsed && "ml-6",
+        // Tried `bg-brand-green/10` + `text-foreground` (client's `#85c325`
+        // and "make it black" asks, 2026-09-08) — both reverted same day
+        // ("not good fit"). Then SOLID `bg-primary` (client 2026-09-08,
+        // matching the tab bar's solid treatment) — scoped to just the
+        // active ROW, not the whole sidebar column: a full-column tint was
+        // already tried and rejected once (`raagam-brand-colours`,
+        // 2026-08-28, "remove the bg color, white is enpugh fopr me"), so
+        // this stays a per-row control colour, never a surface. White text
+        // (`text-primary-foreground`) is required at solid strength — the
+        // old `text-primary` blue-on-blue-tint pairing doesn't carry over.
+        // One component backs the icon rail, the context sidebar and its
+        // grandchild rows, so this is the ONE place to change for all three.
         active
-          ? "bg-primary/10 font-medium text-primary hover:bg-primary/20"
+          ? "bg-primary font-medium text-primary-foreground hover:bg-primary-hover"
           : "text-muted-foreground hover:bg-border hover:text-foreground",
       )}
     >
