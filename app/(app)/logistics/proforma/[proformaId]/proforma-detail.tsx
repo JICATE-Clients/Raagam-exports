@@ -247,6 +247,10 @@ export function ProformaDetail({ proforma, lines, canEdit, canDelete }: Props) {
           {canEdit && formOpen && (
             <form
               onSubmit={handleAddLine}
+              // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+              // is false, Tab keeps native order and leaves the form.
+              // See the `raagam-keyboard-contract` skill.
+              data-focus-scope
               className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface-muted p-3"
             >
               <div className="min-w-48 flex-1">
