@@ -112,9 +112,36 @@ const ACROSS_COMPACT_TRACK =
 export function RowRemoveChip({
   label,
   onClick,
+  align = "control",
 }: {
   label: string;
   onClick: () => void;
+  /**
+   * WHICH BAND OF THE FIRST ROW THIS CHIP LINES UP WITH — the CONTROL band
+   * (default) or the LABEL band above it.
+   *
+   * THIS IS THE PER-GRID OPT-OUT THE NOTE BELOW SAID TO EXPECT, arriving two
+   * days later (client 2026-09-08, Structure Details: "shift the circular X
+   * button upward so it sits at the header level above the parts table,
+   * perfectly aligned horizontally with the column labels (Coordinate *,
+   * Component *, etc.) rather than sitting in line with the first row of
+   * inputs").
+   *
+   * A PROP AND NOT A NEW DEFAULT, because the two instructions are both live and
+   * neither is wrong. 2026-09-06 asked for the control band and named the reason
+   * — the part row's own delete is `items-end` with the controls, so on an
+   * ordinary card the chip and the trash below it read as one column. That is
+   * still true of the 57 `forceCards` grids and must not move. What differs on
+   * Structure Details is what the first row IS: it prints its column titles as
+   * `<Field label>` on row 0 only (`j === 0`, client 2026-08-17 — "the label is
+   * acting as a column header"), so its label band is a HEADER band, and a chip
+   * derived from the control band sits below the header rather than in it.
+   *
+   * So the axis this prop names is not "up a bit"; it is which of the row's two
+   * bands is the one the operator reads the chip against. A grid whose first row
+   * carries real column titles says `"header"`; everything else says nothing.
+   */
+  align?: "control" | "header";
 }) {
   return (
     <Button
@@ -162,6 +189,14 @@ export function RowRemoveChip({
          justify it. That is a worse corner, not a broken one, and the fix when
          it turns up is a per-grid opt-out — not a second offset guessed here.
 
+         IT TURNED UP ON 2026-09-08, and as the remaining case rather than one of
+         the three guessed at: Structure Details' first row is a labelled field
+         AND its labels are the parts table's column titles, so the derivation
+         was right about the geometry and wrong about which band the operator
+         reads the chip against. `align="header"` is that opt-out — see the prop
+         above. The paragraph is kept as written because the three shapes it
+         names are still un-met and still take the same answer.
+
          ## 28px, UP FROM 24 (client 2026-09-06: "wrap it in a fixed-size flex
          container (w-7 h-7 …)"). It was already a fixed-size flex box — that
          is what the two cancellations above bought — so what the size buys is
@@ -171,7 +206,56 @@ export function RowRemoveChip({
          The icon moves with the box for the same reason (`h-4`, not `h-3.5`).
          It still fits the gutter: `pr-10` reserves 40px and a 28px chip inset
          6px occupies 34 of them. */
-      className="absolute right-1.5 top-[22px] flex h-7 w-7 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger @2xl/editor:top-4"
+      className={cn(
+        "absolute right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger",
+        /* THE CONTROL BAND — 22px, derived above. */
+        align === "control" && "top-[22px] @2xl/editor:top-4",
+        /* THE LABEL BAND, which on an opted-in grid is the header band.
+           NEGATIVE, AND DERIVED FROM THE BAND RATHER THAN FROM THE CORNER.
+
+           `top-1.5` was tried first and was not enough (client 2026-09-08, the
+           second report: "still touching/too close to the first row's delete
+           button below it … lift it significantly higher"). 6px put the 28px
+           chip at 6..34px while the control band starts at 18px, so it overlapped
+           the first row's controls — and its trash — by 16px. An inset measured
+           from the CORNER cannot answer "clear of the input rows", because the
+           corner is not the thing being cleared.
+
+           So it is measured from the bands instead, and the two requirements
+           collapse into one number: put the chip's BOTTOM edge on the boundary
+           between the label band and the control band. Above that line is header;
+           below it is the first row's inputs and its trash.
+
+             top = labelBand - chipHeight
+
+           `LABEL_METRICS` is `mb-0.5 leading-4` — 2 + 16 = 18px — so 18 - 28 =
+           -10px (`-top-2.5`). Nothing of the chip reaches 18px, which is the
+           "doesn't crowd or overlap the first row's input elements" half, and its
+           bottom sits flush with the header labels, which is the other.
+
+           THE COMPACT HALF IS REQUIRED HERE, unlike an inset would have been:
+           `LABEL_METRICS` shrinks to `mb-0 leading-[14px]` in an `@2xl/editor`
+           pane, so the band is 14px and the same subtraction gives -14px
+           (`-top-3.5`). Both numbers move if `LABEL_METRICS` does — which is the
+           same guarantee the 22px above carries, and the reason neither is
+           written as a literal measured once off a screenshot.
+
+           NOT `-mt-8`, which the request also offered: this chip is
+           `position: absolute`, so a margin does not move where it paints. And
+           not 32px by any route — the chip would clear the row entirely and land
+           in the frame's own `p-2.5`, which is 10px.
+
+           KNOWN REMAINDER, stated rather than found later: `top` resolves against
+           the row's PADDING BOX, and a `flatRows` row is `py-3 first:pt-0`. So on
+           the first row the label band starts at 0 and this lands exactly on it;
+           on every row after, the band starts 12px lower and the chip reads 12px
+           higher against it, sitting over the `border-t-2` divider rather than
+           beside the labels. Both are clear of the controls, which is the part
+           that was reported. Closing the 12px needs the offset to know whether it
+           is the first row — a `first:` variant pair — and that is a change to
+           make when someone reports it, not one to guess at now. */
+        align === "header" && "-top-2.5 @2xl/editor:-top-3.5",
+      )}
       onClick={onClick}
       aria-label={label}
     >
@@ -1323,6 +1407,7 @@ export function ChildGrid<T extends { key: string }>({
   narrow = false,
   tableFrom,
   tableAlways = false,
+  cornerRemoveAlign = "control",
   centerHeaders = false,
   lockExisting = false,
   hideRemove = false,
@@ -1507,6 +1592,16 @@ export function ChildGrid<T extends { key: string }>({
    * which states the arithmetic.
    */
   tableAlways?: boolean;
+  /**
+   * WHERE THE FLOATED ✕ SITS, for a grid whose first row prints its own column
+   * titles. Forwarded verbatim to `RowRemoveChip.align` — read the prop there
+   * for the reasoning; this is only the door a call site opens it through.
+   *
+   * It reaches the chip ONLY on the `cornerRemove` path (`!listRows && !summary`).
+   * A banded card's ✕ is IN the flow beside its summary line and has no `top` to
+   * argue about, so passing this to one is not wrong, it is inert.
+   */
+  cornerRemoveAlign?: "control" | "header";
   /**
    * EVERY COLUMN HEADING IS CENTRED, whatever its cells do (client, 2026-08-18:
    * "make all the heading in center, everything should look neat and clean").
@@ -3627,7 +3722,11 @@ export function ChildGrid<T extends { key: string }>({
                 /* The chip, its markers and its icon are `RowRemoveChip`'s —
                    see it at the top of this file for why it is a shared
                    declaration and not a class string written here. */
-                <RowRemoveChip label="Remove row" onClick={() => onRemove(row)} />
+                <RowRemoveChip
+                  label="Remove row"
+                  onClick={() => onRemove(row)}
+                  align={cornerRemoveAlign}
+                />
               )}
             </div>
             );

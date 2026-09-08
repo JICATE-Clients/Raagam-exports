@@ -14097,6 +14097,28 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          grid FOLDS (`foldRows` below), so the summary line is the whole of a
          closed structure, and its ✕ is the only way to remove one. */
       flatRows
+      /* THE ✕ SITS IN THE HEADER BAND, NOT THE CONTROL BAND (client 2026-09-08:
+         "shift the circular X button upward so it sits at the header level above
+         the parts table, perfectly aligned horizontally with the column labels
+         (Coordinate *, Component *, etc.) rather than sitting in line with the
+         first row of inputs").
+
+         THIS GRID IS THE ONE THE DEFAULT DOES NOT FIT, and the reason is two
+         rules of this screen meeting. `RowRemoveChip`'s 2026-09-06 default lines
+         the chip up with the first row's CONTROLS, because on an ordinary card
+         the part row's own `items-end` trash sits there and the two read as one
+         column. Here the row underneath is `componentGrid`, whose first row
+         prints the column titles as `<Field label>` and only there (`j === 0`,
+         client 2026-08-17: "the label is acting as a column header"). So this
+         card's label band is a HEADER band — and a chip 22px down sits below the
+         titles it is supposed to head, level with the first Coordinate picker.
+
+         ONE PROP, NO CLASS. The offset stays declared in `RowRemoveChip` beside
+         the arithmetic it comes from; a `className` override here would be the
+         second copy of a number that already exists, and the 09-06 note is
+         explicit that both offsets move if `LABEL_METRICS` or `Input`'s height
+         do. This only names WHICH band. */
+      cornerRemoveAlign="header"
       /* NO SUMMARY LINE (client 2026-08-18, screenshot 2347: "in top the fabric
          it's showing Circular Knit type, no need to show there").
 
@@ -18218,10 +18240,71 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   the rows carry no colour column to weight them by, so there is
                   no single rate; the total refuses rather than under-reporting,
                   because a partial Gross Value looks exactly like a real one. */}
+              {/* THESE THREE ARE BACK ON THE CURSOR PATH (client 2026-09-08:
+                  Enter on Pay Terms must "redirect focus directly to the
+                  immediate next field: Avg Rate", and Tab and Enter must run
+                  "Pay Items ➔ Avg Rate ➔ following inputs").
+
+                  ## WHAT IT WAS DOING, WHICH WAS NOT A BUG
+
+                  All three are `<Input readOnly>`, and `input.tsx` stamps
+                  `tabIndex={-1}` on a read-only box itself — "a field the
+                  operator cannot type into is never a tab stop", the standing
+                  auto-field rule. `FOCUSABLE_SELECTOR` excludes `[tabindex="-1"]`
+                  on every branch, so one attribute took them out of Tab, out of
+                  ↑↓←→ and out of Enter-advance at once. That left **Pay Terms as
+                  the last field of the section**, and Enter off the last field of
+                  a rail-editor section opens the NEXT SECTION (`registerContentEdge`)
+                  — which is the "jumping to the next tab" being reported. Nothing
+                  was submitting a form and nothing was skipping ahead: there was
+                  no field between Pay Terms and the end of the tab.
+
+                  ## SO THIS IS AN OPT-IN, NOT A PATCH
+
+                  `tabIndex={0}` is the documented way back in — `input.tsx`
+                  resolves `tabIndex ?? (readOnly ? -1 : undefined)` precisely so a
+                  caller can opt a derived field back into the order deliberately.
+                  No handler, no per-screen key binding, nothing in `lib/focus.ts`:
+                  the contract already walks whatever is focusable, and this says
+                  these three are.
+
+                  ALL THREE, NOT JUST AVG RATE. Opting in only the field the
+                  request names would move the hand-off one field along and
+                  reproduce the same report on Avg Rate — the row is the unit here,
+                  which is what "following inputs" asks for. The hand-off has not
+                  gone away and cannot: it now fires off INR Value, the new last
+                  field, because a section has to end somewhere.
+
+                  ## `readOnly` IS UNTOUCHED, AND THAT IS WHAT MAKES THE STOP SAFE
+
+                  The cursor can rest here and read the figure; it still cannot
+                  type one. Gross Value and Avg Rate are `order-value.ts`'s
+                  arithmetic and INR Value is Gross x Ex-Rate — a stop is a place
+                  to LOOK, never a fourth number that can disagree with the three
+                  it came from (see the notes below). Neither is `required`, so
+                  neither can hold the cursor: there is no cage to walk into.
+
+                  ## THE COUNTER-PRECEDENT, STATED SO IT CAN BE REVISITED CHEAPLY
+
+                  The same client asked for the OPPOSITE about derived boxes twice:
+                  `autoFilledField` (lib/focus.ts) exists because of 2026-08-31 —
+                  "the keyboard tab navigation must completely bypass the Entry
+                  Date and Location/Unit fields … automatically determined" — and
+                  the T&A tab's Date / Ref No in this same file carry a comment
+                  headed "THE TWO FIELDS THE CURSOR MUST BYPASS (client)". Those
+                  are auto-FILLED inputs standing among typeable ones; these are a
+                  computed tail an operator reads before leaving the tab, which is
+                  the distinction the two instructions turn on. If that reading is
+                  wrong the fix is to delete three `tabIndex={0}` — do NOT answer
+                  it by reversing the rule in `input.tsx`, which would put every
+                  derived field in the app back on the typing path. */}
               <Field label="Avg Rate" size="xs" htmlFor="lg-avgrate">
                 <Input
                   id="lg-avgrate"
                   readOnly
+                  /* Opts this derived box back onto the Tab/Enter path — see the
+                     note above. Without it `readOnly` sets `tabIndex={-1}`. */
+                  tabIndex={0}
                   className="text-right"
                   value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
                 />
@@ -18230,6 +18313,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 <Input
                   id="lg-gross"
                   readOnly
+                  /* On the cursor path with Avg Rate — see the note there. */
+                  tabIndex={0}
                   className="text-right"
                   value={
                     orderVal.grossValue == null
@@ -18269,6 +18354,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 <Input
                   id="lg-inr"
                   readOnly
+                  /* The row's last stop, and now where the section hand-off
+                     fires — see the note on Avg Rate. */
+                  tabIndex={0}
                   className="text-right"
                   value={inrVal == null ? "" : fmtMoney(inrVal, "INR")}
                 />
