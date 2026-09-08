@@ -130,20 +130,58 @@ export function RowRemoveChip({
          over it — so at rest this was an X with no boundary, sitting in the
          corner of whatever background happened to be behind it.
 
-         `p-0` cancels `size="sm"`'s `px-3` and `h-6 w-6` cancels its `h-8`: a
-         24px circle has no room for 12px of horizontal padding beside a 16px
+         `p-0` cancels `size="sm"`'s `px-3` and `h-7 w-7` cancels its `h-8`: a
+         28px circle has no room for 12px of horizontal padding beside a 16px
          icon. Those two cancellations are the whole of the alignment fix — with
-         them the painted circle IS the box, so `right-1.5 top-1.5` puts it 6px
-         from each edge and means it. */
-      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger"
+         them the painted circle IS the box, so `right-1.5` puts it 6px from that
+         edge and means it.
+
+         ## THE TOP IS DERIVED, NOT 6px (client 2026-09-06)
+
+         "Vertically center-align the X so it sits neatly in line with the first
+         row's inputs and delete (trash) icon column" — the THIRD report on this
+         control's alignment, after "in all section the close option look
+         floating" and "still looks a bit unaligned". At `top-1.5` the chip sat
+         level with the first row's LABELS, because a corner is measured from the
+         card and a label is the first thing in it; the controls start a label's
+         height further down, and the part row's own delete is `items-end` with
+         those controls. So the two were never on one line.
+
+         22px is the label plus half a control, less half this chip: `Label` is
+         `leading-4 mb-0.5` (18px) over an `Input` at `h-9` (36px), so the
+         control's centre is 36px down and a 28px chip starts 14px above it.
+         `@2xl/editor` is the same sum with that pane's own numbers —
+         `leading-[14px] mb-0` over `h-8` — 14 + 16 - 14 = 16px, which is
+         `top-4`. Both come from `LABEL_METRICS` and `Input`'s own height, so
+         they move if those do rather than being a measurement taken once.
+
+         KNOWN REMAINDER, stated rather than discovered later: this assumes the
+         card's first row is a LABELLED FIELD, which is what the 57 `forceCards`
+         call sites overwhelmingly open with. A card whose first row is a bare
+         control, a band or a nested grid gets a chip 22px down with no label to
+         justify it. That is a worse corner, not a broken one, and the fix when
+         it turns up is a per-grid opt-out — not a second offset guessed here.
+
+         ## 28px, UP FROM 24 (client 2026-09-06: "wrap it in a fixed-size flex
+         container (w-7 h-7 …)"). It was already a fixed-size flex box — that
+         is what the two cancellations above bought — so what the size buys is
+         AGREEMENT WITH THE ROW BELOW IT: a part row's delete is a `size="sm"`
+         ghost carrying a 16px `Trash2`, and at 24px this chip drew its icon at
+         14px, so the two controls in one visual column were a pixel-size apart.
+         The icon moves with the box for the same reason (`h-4`, not `h-3.5`).
+         It still fits the gutter: `pr-10` reserves 40px and a 28px chip inset
+         6px occupies 34 of them. */
+      className="absolute right-1.5 top-[22px] flex h-7 w-7 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger @2xl/editor:top-4"
       onClick={onClick}
       aria-label={label}
     >
       {/* `X`, NOT `Trash2` — one action, one icon. The two hand-rolled rows drew
           a bin while this one drew a cross, and both of their own comments call
-          it "the ✕", so the code and the prose already disagreed. 3.5 not 4, to
-          sit inside a 24px chip. */}
-      <X className="h-3.5 w-3.5 shrink-0" />
+          it "the ✕", so the code and the prose already disagreed. `h-4` since
+          the chip went to 28px: it is the size every other row-level delete on
+          these screens draws at, and 14px inside a 28px circle read as small
+          rather than as compact. */}
+      <X className="h-4 w-4 shrink-0" />
     </Button>
   );
 }

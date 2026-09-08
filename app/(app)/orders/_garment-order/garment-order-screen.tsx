@@ -1493,6 +1493,68 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
   Description: "range",
 };
 
+/**
+ * THE COORDINATE CELL'S OWN DENSITY (client 2026-09-07: "make the Coordinate
+ * input field and the Coordinate column in the table narrower and compact").
+ *
+ * Coordinate is the SHORTEST value on this line — a GAR master name, typically
+ * TOP / BOTTOM / PIECES — and it was carrying the same 220px pane and the same
+ * 36px trigger as a Fabric picker. Both places it appears on Styles Details are
+ * narrowed to 120px and dropped to a 30px control: the pane on the left of the
+ * composition line, and the first column of the Components table beside it.
+ *
+ * ## WHY THIS IS A CLASS AND NOT A PROP ON THE PICKER
+ *
+ * `DataPicker`'s trigger is deliberately `h-9 @2xl/editor:h-8`, and its own
+ * comment says why — "height and rhythm must match Input/Combobox exactly, these
+ * sit in a row with them". That is a statement about the app, and it stays true:
+ * a density prop on the primitive would be an invitation to make any field 30px,
+ * which is the drift the one-width rule exists to stop. This overrides the
+ * height for TWO named cells from outside, in the screen that asked for it.
+ *
+ * ## `pl-2` AND NOT `px-2`
+ *
+ * The right-hand padding is `AFFORDANCE_PAD_COMPACT` (`pr-6`), and it is not
+ * decoration: it is the 20px slot the ▼ / ✕ occupies, stated in
+ * `field-affordance.tsx` beside the slot's own width because "the pad and the
+ * slot are one measurement and must never be edited apart". A blanket `px-2`
+ * from out here outranks it (a descendant selector beats a class) and runs the
+ * value under the chevron. Only the LEFT edge is tightened.
+ *
+ * The descendant selector is what lets a class written OUTSIDE the control win:
+ * `[&_input]:…` compiles to `.cls input` (0,1,1) against the trigger's own
+ * `.h-8` (0,1,0), so no `!important` and no prop-drilling is needed.
+ *
+ * ## IT KEEPS THE CONTAINER QUERY — THE SAME HALF `COLOR_PRINT_BOX` KEEPS
+ *
+ * The trigger ships `h-9 @2xl/editor:h-8` — 36px, dropping to 32px in a wide
+ * editor pane — and that is a query, not a fixed size. A bare `[&_input]:h-[30px]`
+ * would flatten it, which is the defect `COLOR_PRINT_BOX` records below
+ * (client 2026-08-21, "make even look"): the box opts out of the responsive tier
+ * and stands 30px against a 36px control in the nested ~440px picker and on
+ * touch. So only the COMPACT tier moves, 32px -> 30px, and the touch tier is
+ * left alone — a 30px target on a phone is not what "compact" asked for.
+ *
+ * `@2xl/editor:[&_input]:…` and not `[&_input]:@2xl/editor:…`: the container
+ * variant goes OUTSIDE. Verified by compiling both through this project's own
+ * Tailwind before either was committed — a variant order that does not compile
+ * emits no CSS at all and fails silently, which is the warning `FIELD_TRACK`
+ * already carries about interpolated classes.
+ */
+const COORDINATE_DENSE = "@2xl/editor:[&_input]:h-[30px] [&_input]:pl-2";
+
+/**
+ * The narrowed Coordinate width — 7.5rem = 120px.
+ *
+ * READ BY THE COLUMN ONLY, and the pane beside it repeats the number as a
+ * literal `flex-[0_1_7.5rem]` rather than importing this one. Not an oversight
+ * and not a thing to "tidy": Tailwind v4 scans source TEXT, so
+ * `flex-[0_1_${COORDINATE_W}]` compiles to no CSS at all and the pane would
+ * silently fall back to `flex: 0 1 auto`. Same warning `FIELD_TRACK` carries.
+ * The two say 7.5rem in two places; change one and change the other.
+ */
+const COORDINATE_W = "7.5rem";
+
 export function GarmentOrderScreen({
   rows,
   bomStatus,
@@ -6716,23 +6778,65 @@ export function GarmentOrderScreen({
   ];
 
   /**
-   * Yarn / Fabric dyeing, prints and structures — one or two inputs a row, which
-   * LAYOUT.md §6 puts in the "<=3 -> inlineCards" band: a flex row per record
-   * under one shared header, never a stacked card. Carding a two-input row would
-   * be worse than the table it replaces.
+   * Yarn / Fabric dyeing, prints and structures — one or two inputs a row.
+   *
+   * A REAL TABLE SINCE 2026-09-05 (client, Tamil: "oru table aa convert pannu"),
+   * AND `inlineCards` IS THE THING IT REPLACED. LAYOUT.md §6 puts a row this
+   * narrow in the "<=3 -> inlineCards" band, and the band is not wrong about the
+   * COUNT — it picks a layout by how many fields a row has, not by what the
+   * operator is reading. An inline row is a flex line inside its own
+   * `rounded-md border p-1.5` card, so three grids on one line drew three frames
+   * and then a frame per row inside each, with the column names floating above
+   * unboxed cells. `tableAlways` hands all three to `ChildGrid`'s responsive
+   * table at every width, which already draws every part of what was asked for:
+   * `<th>`-declared headers with the red `*` on a `required` column, a rule
+   * under the header band, `border-l` gridlines between cells, a `w-10` `#`
+   * track and a `w-8` ✕ track carrying `data-row-remove` for Ctrl+Del. Nothing
+   * here draws a `<table>` — "line items are `ChildGrid`, never a hand-rolled
+   * table" is the standing rule that makes the keyboard contract free.
+   *
+   * `tableAlways` is safe HERE for the reason its own note in `child-grid.tsx`
+   * gives and would not be on a ten-column line grid: these tables are narrower
+   * than the panes they sit in, so defeating the stacked-card breakpoint costs
+   * nothing. The heights inside them are `COLOR_PRINT_BOX`, declared once above.
    *
    * EVERY COLUMN DECLARES A `width`, and that is not per-column taste — it is
    * the condition for the whole grid to hug its content. `hugsContent` is
-   * `columns.every((c) => c.width)` (child-grid.tsx), all-or-nothing on purpose,
-   * and in the `inlineCards` branch an unsized column is `flex-1` while a sized
-   * one is `shrink-0`. So ONE column left unsized does not merely go unstyled:
-   * it absorbs every spare pixel of the row and drops the grid back to full
-   * width. That was the state here -- Type carried `10rem`, Colour carried
-   * nothing, and a single Colour dropdown rendered ~1080px wide while Print and
-   * Structure each took the entire section (client 2026-08-11, screenshots
-   * 2246/2247). Add a column to any of these three and it needs a width, or all
-   * four grids stretch again.
+   * `columns.every((c) => c.width)` (child-grid.tsx), all-or-nothing on purpose.
+   * One column left unsized does not merely go unstyled: the grid stops hugging
+   * and its frame runs to the edge of the tab. That was the state here -- Type
+   * carried `10rem`, Colour carried nothing, and a single Colour dropdown
+   * rendered ~1080px wide while Print and Structure each took the entire section
+   * (client 2026-08-11, screenshots 2246/2247). Add a column to any of these
+   * three and it needs a width — and the pane basis at the call site, which is
+   * SUMMED from these numbers, has to move with it.
    */
+/**
+ * THE ROW'S CONTROL HEIGHT, DECLARED ONCE FOR ALL THREE GRIDS (client
+ * 2026-09-06: "30px compact input fields").
+ *
+ * ## WHY A CONSTANT AND NOT `inputClassName="h-8"` ON EACH CELL
+ *
+ * That is what stood here until 2026-09-05, and it was removed for a reason
+ * this constant has to keep honouring: a Colour cell carrying `h-8` sat beside
+ * a Type `<Select>` that passed no className and so kept `Input`'s own `h-9`,
+ * so the two controls of one row stood 32px and 36px apart. A per-cell height
+ * fixes the cell it is written on and leaves its neighbour, which is the shape
+ * AGENTS.md's "The header row" records as a bug of its own. So the height is
+ * named once and every control on the tab reads the same name.
+ *
+ * ## IT KEEPS THE CONTAINER QUERY, WHICH IS THE OTHER HALF
+ *
+ * `Input` ships `h-9 @2xl/editor:h-8` — 36px, dropping to 32px in a wide editor
+ * pane. That is a query, not a fixed size, and flattening it to a bare
+ * `h-[30px]` is the defect recorded on `quantityColumns` (client 2026-08-21,
+ * "make even look"): the box opts out of the responsive tier and stands 30px
+ * against a 36px picker in the nested ~440px picker and on touch. So only the
+ * COMPACT tier moves, 32px -> 30px; the touch tier is left where it is, because
+ * a 30px target on a phone is not what "compact" was asking for.
+ */
+const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
+
   const dyeColumns: ChildGridColumn<DyeingRow>[] = [
     {
       header: "Type",
@@ -6742,12 +6846,26 @@ export function GarmentOrderScreen({
          the tab declares on all three panes, so this width and that basis are
          one decision stated in two places and must move together.
 
+         6.5rem SINCE 2026-09-05 (client: "compact size, tighten"), and the
+         arithmetic moved with it — see the pane basis at the call site, which is
+         now DERIVED from these widths rather than a round number standing near
+         them.
+
+         104px, MEASURED NOT GUESSED, and the measurement CHANGED when this grid
+         became a real table (2026-09-05). A `<td>` carries its own `px-2`, so a
+         table column is 16px less generous than the same number was in the
+         `inlineCards` layout this replaces: 104 − 16 cell − 24 control `px-3`
+         leaves 64px of text against "MELANGE" at ~60px in `text-sm`. The
+         chevron OVERLAYS rather than reserving a track (`combobox.tsx` declares
+         `px-3` and no `pr-*`), which is what makes a column this narrow safe
+         here and would not be on a control that padded for it.
+
          The value is unaffected: this cell holds "Melange", "Dyed" or "Y/D".
 
          `structureColumns` further down declares the same 10rem and is NOT
          touched — that grid came off this tab on 2026-08-14 and is not one of
          the three sharing the row. */
-      width: "7rem",
+      width: "6.5rem",
       /**
        * A FIXED LIST PER SECTION (client 2026-08-17) — Y/D or Melange on a yarn
        * dyeing, Dyed or Melange on a fabric one. It was a free `<Input>`, which
@@ -6765,6 +6883,10 @@ export function GarmentOrderScreen({
        */
       cell: (r) => (
         <Select
+          /* The SAME height its Colour neighbour takes — see `COLOR_PRINT_BOX`.
+             This control passing nothing while the cell beside it carried `h-8`
+             is exactly how the two came to differ by 4px. */
+          className={COLOR_PRINT_BOX}
           value={r.dye_type}
           onChange={(e) =>
             setDyeings((xs) =>
@@ -6812,14 +6934,20 @@ export function GarmentOrderScreen({
        * THE WIDTH IS NOT OPTIONAL: `hugsContent` is `columns.every((c) => c.width)`,
        * so dropping it here would stretch all three grids on this tab.
        *
-       * 11rem, DOWN FROM 16 (2026-08-29) — see the note on `Type` above for the
-       * arithmetic. 176px still holds a colour name; the buyer references this
-       * cell also accepts ("0001") were never the long case.
+       * 7.5rem, DOWN FROM 11 and before that 16 — see the note on `Type` above
+       * for the arithmetic. 120px, less the cell's `px-2` and the control's
+       * `px-3`, is 80px of text and still holds "NAVY BLUE"; the buyer references
+       * this cell also accepts ("0001") were never the long case, and a name
+       * longer than the box is not lost — `TypeOrPick` joins `useOverflow` to a
+       * `Tooltip` on its own input, so it clips with an ellipsis and reveals on
+       * hover. That is the truncate-reveal rule satisfied INSIDE the control,
+       * which is what makes trimming this column cheap: the alternative is
+       * sizing every column for the longest value anyone might ever type.
        *
        * Trimmed, never dropped: those are different edits with very different
        * blast radii, and only one of them is safe.
        */
-      width: "11rem",
+      width: "7.5rem",
       /**
        * TYPE **OR** PICK SINCE 2026-08-17 (client: "allow users to manually
        * type/input color names or numbers, e.g. 0001, rather than forcing a
@@ -6859,7 +6987,10 @@ export function GarmentOrderScreen({
           options={colourPickOptions(r.color_id)}
           valueId={r.color_id}
           text={r.color_name}
-          inputClassName="h-8"
+          /* The tab's one control height — see `COLOR_PRINT_BOX`. It replaces a
+             hard-coded `h-8` that pinned this box to 32px while the control
+             beside it kept the primitive's responsive 36px. */
+          inputClassName={COLOR_PRINT_BOX}
           onChange={({ id, name }) =>
             setDyeings((xs) =>
               xs.map((x) =>
@@ -6968,7 +7099,23 @@ export function GarmentOrderScreen({
   const printColumns: ChildGridColumn<PrintRow>[] = [
     {
       header: "Roll form prints",
-      width: "16rem",
+      /* 8.5rem, DOWN FROM 16 (client 2026-09-05, "compact size, tighten").
+         136px, less the cell's own `px-2` and the control's `px-3`, is 96px of
+         text, which holds "ALL OVER PRINT"; a longer one clips and reveals on
+         hover through `TypeOrPick`'s own tooltip — the same trade the Colour
+         cell records.
+
+         THIS IS THE COLUMN THAT DECIDED THE ROW. Three cards at their old
+         widths measured ~69rem against a ~880px pane on a 1366 screen, so the
+         third wrapped onto a line of its own — which is the "put them in one
+         horizontal row" report. 16rem was never measured against anything; it
+         was simply wide enough that nothing complained while the grid had a
+         line to itself.
+
+         THE WIDTH IS NOT OPTIONAL: `hugsContent` is
+         `columns.every((c) => c.width)`, and the pane basis at the call site is
+         summed from this number. */
+      width: "8.5rem",
       cell: (r) => (
         <TypeOrPick
           label="Roll form print"
@@ -6976,7 +7123,10 @@ export function GarmentOrderScreen({
           options={printPickOptions(r.print_id)}
           valueId={r.print_id}
           text={r.print_name}
-          inputClassName="h-8"
+          /* The tab's one control height — see `COLOR_PRINT_BOX`. It replaces a
+             hard-coded `h-8` that pinned this box to 32px while the control
+             beside it kept the primitive's responsive 36px. */
+          inputClassName={COLOR_PRINT_BOX}
           onChange={({ id, name }) =>
             setPrints((xs) =>
               xs.map((x) =>
@@ -13445,13 +13595,29 @@ export function GarmentOrderScreen({
            It is the ONLY border added back. The card around the fabric is
            `ChildGrid`'s, and the client removed the per-structure frame on
            2026-08-18 — this is a rule inside one card, not a fourth box. */
-        /* `--border-strong` on the VERTICAL rule, `--border` on the
-           horizontal one. A vertical divider between two field grids has to be
-           read ACROSS a row of controls that are themselves outlined at
-           `border`, so at that weight it rendered and could not be seen
-           (client screenshot 2398). The horizontal rule never had the problem:
-           nothing else on the card runs parallel to it. */
-        className="mt-4 min-w-0 space-y-2 border-t border-border pt-3 min-[1250px]:mt-0 min-[1250px]:border-t-0 min-[1250px]:border-l min-[1250px]:border-border-strong min-[1250px]:pl-6 min-[1250px]:pt-0"
+        /* THE DIVIDER CAME OFF WHEN THE SPEC BECAME A CARD (2026-09-06).
+           It read `border-t border-border pt-3 mt-4` stacked and
+           `min-[1250px]:border-l min-[1250px]:border-border-strong
+           min-[1250px]:pl-6` side by side — one rule between the two halves,
+           at `--border-strong` because a vertical line has to be read ACROSS a
+           row of controls that are themselves outlined at `border` (client
+           screenshot 2398).
+
+           ITS JOB IS NOW DONE BY THE CARD'S OWN EDGE, and doing it twice is
+           worse than either alone: the card's right border and this `border-l`
+           sat 24px apart, two parallel rules with a gap of nothing between
+           them, and stacked the card's bottom edge met this `border-t` the same
+           way. What the rule was FOR is unchanged and is now stated more
+           strongly — 2026-08-20's "section partition indicator?" asked that the
+           cloth's fields and its parts' fields stop reading as one
+           undifferentiated block, and a frame around the first says that better
+           than a line beside it.
+
+           THE SPACING IS THE GRID'S NOW. `gap-x-6` / `gap-y-3` on the row above
+           already separate the halves, so `pl-6` and `pt-3` would be a second
+           24px on top of the first. If the card is ever removed, this line and
+           its two paddings come back together — they are one decision. */
+        className="min-w-0 space-y-2"
         onKeyDown={(e) => gridKeyNav(e)}
       >
         {st.components.map((c, j) => (
@@ -14201,7 +14367,34 @@ export function GarmentOrderScreen({
               * `FIELD_WIDTH` emits `w-*`, so tailwind-merge resolves that to the
               * later class rather than stacking both.
               */}
-            <div className="min-w-0 space-y-2">
+            {/*
+              * THE SPEC IS A CARD, so its bottom edge meets the parts table's
+              * (client 2026-09-06: "wrap the entire left-hand Structure Details
+              * block inside a bordered card container").
+              *
+              * NOTHING INSIDE MOVES. This is a wrapper on the half that already
+              * existed — the five-column track below, its field order and its
+              * single horizontal line are untouched, which is what "without
+              * rearranging them" asks for. The only thing it costs the track is
+              * `p-3`'s 24px, on a row whose floors are already tight above
+              * 1250px (see the track's own note).
+              *
+              * `self-stretch`, NOT `h-full`, AND THAT IS THE WHOLE TRICK. The
+              * outer grid is `items-start`, so a grid item is exactly as tall as
+              * its content and `h-full` would resolve against that height and do
+              * nothing. `align-self: stretch` overrides `items-start` for THIS
+              * item only, so the spec fills the row's height while the parts
+              * table beside it keeps sizing itself. Putting `items-stretch` on
+              * the grid instead would have stretched both halves and changed the
+              * right one too.
+              *
+              * `border-border` / `bg-surface`, NEVER `border-gray-200` /
+              * `bg-white`. This repo paints from declared tokens — the
+              * `bg-muted` lesson in doc/ui is what an undeclared Tailwind name
+              * costs — and a literal white would stay white in the dark theme
+              * while everything around it inverted.
+              */}
+            <div className="min-w-0 space-y-2 self-stretch rounded-lg border border-border bg-surface p-3">
             {/* FIVE COLUMNS, DOWN FROM SIX (client 2026-08-20, screenshot 2408:
                 "use that left side gap"). The sixth held the fabric's Colour /
                 Print slot, and when that moved onto the part row the track
@@ -14236,7 +14429,26 @@ export function GarmentOrderScreen({
                 second breakpoint guessed from arithmetic. That is a desktop
                 layout decision with client history behind it (screenshots 2354,
                 2408) and it is not this change. */}
-            <div className="grid items-end gap-x-3 gap-y-2 lg:grid-cols-[minmax(150px,1.3fr)_minmax(170px,1.7fr)_4.5rem_4.5rem_minmax(130px,1fr)]">
+            {/* TOLERANCE IS 9rem, GSM IS STILL 4.5 — the LABEL is what needs
+                the width, not the box (client 2026-09-06). "Tolerance * (175 -
+                185)" is ~23 characters and `Label` is `text-xs block` with no
+                `nowrap`, so over a 72px track it wrapped to three lines; on this
+                `items-end` row a taller cell bottom-aligns its input and rides
+                its label above every other label — the exact failure screenshot
+                2397 reported, and the reason the range had a `row-start-2` cell
+                of its own in the first place.
+
+                THE INPUT DOES NOT GROW WITH IT. Tolerance keeps `w="num"` (72px)
+                because a tolerance is one or two digits, so the extra 72px is
+                label, not a wider box and not a trailing empty track — the cell's
+                content spans the column even though its control does not.
+
+                THE FLOORS NOW ADD UP TO 714px, from 642. That is 72px worse
+                against the ~527px this half gets at a 1250px window, which the
+                note below already records as squeezed and deliberately unfixed.
+                Accepted knowingly rather than overlooked: the alternative was a
+                wrapping label, which is the defect above. */}
+            <div className="grid items-end gap-x-3 gap-y-2 lg:grid-cols-[minmax(150px,1.3fr)_minmax(170px,1.7fr)_4.5rem_9rem_minmax(130px,1fr)]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 
@@ -14434,7 +14646,33 @@ export function GarmentOrderScreen({
                   A field they emptied on purpose is exactly the one worth
                   refusing to leave blank, and zero still reads as an answer
                   (`structureProblems`). */}
-              <Field label="Tolerance" required={need.gsm_tolerance} w="num">
+              {/* THE DERIVED RANGE LIVES ON THIS LABEL (client 2026-09-06:
+                  "clean up the dangling 175 - 185 text by integrating it into
+                  the Tolerance label"). It had a cell of its own at
+                  `row-start-2`, which is what "dangling" names — a figure on a
+                  second row under two boxes, belonging to neither.
+
+                  `labelSuffix`, NOT a ReactNode `label`: the star is drawn
+                  between the two, so only a suffix can land AFTER it, and
+                  `label` staying a string is what keeps the required hold
+                  announcing "Tolerance is required." See the prop in
+                  `field.tsx`.
+
+                  It renders nothing until there is something to say — `gsmRange`
+                  returns "" with no GSM typed, so a fresh fabric reads
+                  "Tolerance *" and grows the annotation as it is filled in. */}
+              <Field
+                label="Tolerance"
+                labelSuffix={
+                  range ? (
+                    <span className="ml-1 font-normal tabular-nums text-muted-foreground">
+                      ({range})
+                    </span>
+                  ) : null
+                }
+                required={need.gsm_tolerance}
+                w="num"
+              >
                 <Input
                   type="number"
                   className="text-right"
@@ -14448,24 +14686,26 @@ export function GarmentOrderScreen({
                 />
               </Field>
               {/*
-                * THE RANGE SITS UNDER THE TWO BOXES IT IS THE SUM OF, and in a
-                * grid that costs nothing.
+                * THE RANGE'S OWN CELL STOOD HERE AND IS NOW THE TOLERANCE
+                * LABEL'S SUFFIX (client 2026-09-06). It was
+                * `col-span-2 col-start-3 row-start-2` — a right-aligned figure
+                * on a second row under GSM and Tolerance, belonging to neither,
+                * which is what the client called dangling.
                 *
-                * It had a labelled column of its own — ~123px to show a
-                * subtraction. Putting it inside GSM's `Field` instead made that
-                * field taller than its neighbours, and on a `flex items-end` row
-                * that matched its BOTTOM to theirs and shoved its label 26px up
-                * (client screenshot 2397). `row-start-2` has no such failure
-                * mode: row 1's alignment is computed without this cell, so the
-                * label above it cannot move.
+                * WHAT THAT CELL WAS AVOIDING STILL HOLDS, and the suffix is not
+                * a way back into it. The range was given a row of its own
+                * because putting it INSIDE GSM's `Field` made that field taller
+                * than its neighbours, and on an `items-end` row a taller field
+                * matches its BOTTOM to theirs and shoves its label ~26px up
+                * (client screenshot 2397). `labelSuffix` does not reopen that:
+                * it renders ON the label's existing line, so the field's height
+                * is unchanged and row 1's alignment is computed exactly as
+                * before. The width it needs came from the track instead — see
+                * the note there.
                 *
-                * No label. It is right-aligned beneath two numbers and reads as
-                * their result — naming it would be the caption the client has
-                * now removed four times.
+                * Still unlabelled, still right of the star, still reading as the
+                * result of the two boxes under it rather than as a caption.
                 */}
-              <div className="col-span-2 col-start-3 row-start-2 -mt-1 text-right text-[11px] tabular-nums text-muted-foreground">
-                {range}
-              </div>
               {/* THREE OPTIONS, DOWN FROM FOUR — "Printed" left the vocabulary
                   on 2026-08-31 (client: "Fabric Type is meant to define the
                   structural weave or dye category of the fabric. 'Printed' is an
@@ -15012,6 +15252,30 @@ export function GarmentOrderScreen({
      */
     {
       header: "Coordinate",
+      /* NARROWED TO 120px AND TIGHTENED (client 2026-09-07) — the same
+         instruction as the Coordinate pane beside this table, and the same two
+         numbers, so `COORDINATE_W` and `COORDINATE_DENSE` are stated once and
+         read twice.
+
+         THE OTHER THREE COLUMNS ARE UNTOUCHED and gain the width: with no
+         `width` of their own they flex, so Component / Structure / Fabric split
+         the ~80px this gives back — which is the point at this pane size, where
+         the 08-29 note records those pickers already down to ~144px each and
+         leaning on the `Truncated` reveal.
+
+         `className` REACHES THE `<th>` AND THE `<td>` BOTH (child-grid.tsx), so
+         the header's `px-2 py-2` and the cell's `px-1.5 py-1` are each overridden
+         by the same declaration; tailwind-merge keeps the later one. The header's
+         `py` is inert — a row of `<th>`s takes the tallest — so what actually
+         moves is the horizontal spacing, which is what a 120px column needs.
+
+         `width` IS A `<colgroup>` AND A `<th>` DECLARATION HERE, not `table-fixed`:
+         this grid does not hug (only some columns declare a width), so the table
+         stays `table-layout: auto` and 120px is a strong suggestion rather than a
+         cap. That is the right end of the trade for a value this short — a long
+         GAR name may push a few pixels past it instead of ellipsing at 120. */
+      width: COORDINATE_W,
+      className: cn("px-1 py-0.5", COORDINATE_DENSE),
       cell: (c) => (
         <RecordPicker
           label="Coordinate"
@@ -15494,7 +15758,19 @@ export function GarmentOrderScreen({
         * row of single-line fields.
         */}
       <div className="flex flex-wrap items-start gap-3 @lg/section:col-span-14">
-      <div className="min-w-0 flex-[1_1_220px]">
+      {/* 120px AND NOT 220 (client 2026-09-07) — see `COORDINATE_DENSE`. The
+          arithmetic in the note above is unchanged in shape and 100px slacker:
+          the line now measures Coordinate 120 + Sizes 220 + Components 512 +
+          Process 152 + Files 152 plus four 12px gaps = ~1,204 against the ~1,224
+          that was MEASURED to fit, so this moves the row further from its wrap
+          point rather than nearer it.
+
+          `flex-[0_1_7.5rem]` and not `flex-[1_1_…]`: with `grow: 1` the pane
+          would take a share of the line's slack back and land wider than the
+          120px asked for. That is the shape Process and Files beside it already
+          use, for the same reason — a pane sized to its content does not want
+          the remainder. */}
+      <div className={cn("min-w-0 flex-[0_1_7.5rem]", COORDINATE_DENSE)}>
       <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
         {/* THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added on "add the
             border for the coordinate section" (screenshot 2519) while
@@ -16535,53 +16811,101 @@ export function GarmentOrderScreen({
               2026-08-12, screenshot 2273). `fill` suppresses only the hug: the
               fields keep their declared widths and the slack falls to the right
               of them. */}
-          {/* THREE PEERS ON ONE LINE, WRAPPING — `wrap` plus a basis per section,
-              never a column count. The basis is ~23rem because that is what one
-              of these grids MEASURES: index + Type (7rem) + Colour (11rem) + ✕
-              and their gaps. A count would have to guess a container width to
+          {/* THREE PEERS ON ONE LINE — `wrap` plus a basis per section, never a
+              column count. A count would have to guess a container width to
               switch at, and both guesses were wrong — `@7xl` never fired on this
               pane and `@6xl` would have switched at a width narrower than the
-              content. See `SectionGrid.wrap`. */}
+              content. See `SectionGrid.wrap`.
+
+              EVERY BASIS IS SUMMED FROM ITS OWN COLUMNS, and that is the change
+              of 2026-09-05 (client: "display the three sections in one
+              horizontal row ... make each table clean and compact"). All three
+              declared a flat ~23rem before, which was the DYEING measurement
+              copied onto the print grid as well — so the narrowest of the three
+              claimed a line's worth of room it had no columns to fill:
+
+                dyeing  = # 40px + Type 104 + Colour 120 + ✕ 32 = 296px
+                prints  = # 40px + Print 136             + ✕ 32 = 208px
+
+              THESE ARE TABLE WIDTHS, not the flex row's. Each grid is a real
+              `<table>` since 2026-09-05 (client, Tamil: "oru table aa convert
+              pannu" — make it one table): `<th>`-declared columns,
+              `border-collapse`, a rule under the header and a `border-l`
+              between cells. So the `#` column is the table layout's own `w-10`
+              and the ✕ column its `w-8`, and each column carries a `<td>`'s
+              `px-2` INSIDE the width declared for it — which is why every
+              column above went up by 0.5rem in the same change.
+
+              800px of tables + `SectionGrid`'s two gap-4 gutters is 832px, and
+              THAT NUMBER IS THE WHOLE POINT — it is the width below which the
+              operator stops seeing three tables side by side.
+
+              WHAT EATS THE PANE IS CHROME, not this section. The screen is
+              `mount="page"`, so the app's 224px module sidebar stays on screen
+              BESIDE the editor's own 192px section rail; with the content
+              column's `px-4` and the section's own padding that is ~470px gone
+              before a table is drawn. A 1366 display leaves ~890px and the row
+              holds; 1280 leaves ~805px and it holds; below that it wraps.
+
+              THE FLOOR IS REAL AND IS NOT A TUNING PROBLEM. Three tables need
+              two dropdowns, two text boxes, three ordinals and three ✕ side by
+              side, and 832px is close to what that costs — the remaining slack
+              is the `#` column (24px a card) and the frames, both of which were
+              asked for by name. A pane materially narrower than this (a phone,
+              the ~440px nested picker, or a 1366 laptop at Windows' default
+              125% display scaling, which leaves ~1093 CSS px and ~620px of
+              content) cannot show three across at a usable field width, and
+              `wrap` is what it degrades to instead of spilling out of the
+              cards. If it wraps on a desk it should not, the width to find is
+              in the chrome — collapsing the section rail, or the overlay mount
+              AGENTS.md's operator rule 3 prefers for an editor like this.
+
+              `fill` CAME OFF ALL THREE, and the August note above is the one
+              this supersedes. `fill` suppresses the hug so every card takes the
+              same width, which is what "four different right edges" asked for
+              on 2026-08-12 while the columns were loose. Compacting the columns
+              answers that complaint at its source instead: the two dyeing grids
+              share `dyeColumns` and so measure identically anyway, and the
+              print grid is narrower because it genuinely has one fewer column —
+              a frame stretched past its last cell is the trailing grey the hug
+              exists to stop. */}
           <SectionGrid wrap>
             {/* Yarn dyeing */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- TWO grids share the Color/Print Details section; without captions the operator
                    cannot tell which is which. */
                 label="Yarn Dyeing"
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "yarn")}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add yarn dyeing"
               />
             </div>
             {/* Fabric dyeing */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- the other half of the pair above. */
                 label="Fabric Dyeing"
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "fabric")}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add fabric dyeing"
               />
             </div>
             {/* Roll form prints */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_13rem]">
               <ChildGrid<PrintRow>
                 /* grid-caption: exempt -- the third of three grids in one section; without captions
                    the operator cannot tell which is which. */
                 label="Roll form prints"
                 columns={printColumns}
                 rows={prints}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={addPrint}
                 onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add roll form print"
