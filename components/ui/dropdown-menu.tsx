@@ -42,12 +42,18 @@ export function DropdownMenu({
   label = "Actions",
   trigger,
   align = "right",
+  triggerClassName,
 }: {
   items: DropdownItem[];
   label?: string;
   /** Override the default 3-dot trigger. */
   trigger?: React.ReactNode;
   align?: "left" | "right";
+  /** Replace the trigger button's own classes — for a caller sitting on a
+   *  background the default `text-muted-foreground` can't read against (a
+   *  colored bar, say). Omit to keep the standard neutral button every other
+   *  call site already uses. */
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -121,7 +127,10 @@ export function DropdownMenu({
           setActive(0);
           setOpen((o) => !o);
         }}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+        className={
+          triggerClassName ??
+          "inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+        }
       >
         {trigger ?? <MoreVertical className="h-4 w-4" />}
       </button>

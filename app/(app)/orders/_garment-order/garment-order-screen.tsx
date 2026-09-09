@@ -29,8 +29,6 @@ import {
   Droplet,
   Scissors,
   Search,
-  Rocket,
-  Flag,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -237,7 +235,6 @@ import {
   buildApprovalTree,
   flattenApprovalTree,
 } from "@/lib/orders/amendments/approval-tree";
-import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
 import {
   createAmendment,
   updateAmendment,
@@ -299,7 +296,6 @@ import {
   isPackBranchMode,
   SEASON_OPTIONS,
   dyeTypeOptions,
-  SHIP_MODES,
   PAY_MODES,
   amendmentStatusTone,
   amendmentStatusText,
@@ -1335,13 +1331,14 @@ const today = () => {
 const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
 
 /**
- * THE DAY BEFORE A DELIVERY DATE — the Earlier Shipment Dt default (client
- * 2026-08-31: "the Earlier Shipment Dt must automatically calculate and default
- * to exactly one day prior (D-1) to the fetched Delivery Date").
+ * ONE WEEK BEFORE A DELIVERY DATE — the Earlier Shipment Dt default. Client
+ * 2026-08-31 set this to D-1; client 2026-09-08 replaced that with D-7
+ * ("consider the earlier shipment date to be 1 week before the actual
+ * delivery date") — same field, same mechanism, only the offset changed.
  *
  * It is a SAFETY MARGIN, not a derived value: the cargo has to be cleared and
- * ready the day before it is due. So this seeds the field and never owns it —
- * an operator who needs D-2 or D-3 types it and keeps it (see
+ * ready a week before it is due. So this seeds the field and never owns it —
+ * an operator who needs D-3 or D-10 types it and keeps it (see
  * `followsDelivery` at the two call sites).
  *
  * ## `addDays`, NOT `new Date(iso).setDate(d - 1)`
@@ -1363,8 +1360,8 @@ const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
  * so the guard is not defensive padding — it is the common case. A value that is
  * not a full YYYY-MM-DD produces "", which is what an unanswered field holds.
  */
-const dayBefore = (iso: string): string =>
-  /^\d{4}-\d{2}-\d{2}$/.test(iso) ? addDays(iso, -1) : "";
+const weekBefore = (iso: string): string =>
+  /^\d{4}-\d{2}-\d{2}$/.test(iso) ? addDays(iso, -7) : "";
 
 /**
  * The width of the Style picker column, stated ONCE.
@@ -1492,6 +1489,68 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
      more than any particular number. */
   Description: "range",
 };
+
+/**
+ * THE COORDINATE CELL'S OWN DENSITY (client 2026-09-07: "make the Coordinate
+ * input field and the Coordinate column in the table narrower and compact").
+ *
+ * Coordinate is the SHORTEST value on this line — a GAR master name, typically
+ * TOP / BOTTOM / PIECES — and it was carrying the same 220px pane and the same
+ * 36px trigger as a Fabric picker. Both places it appears on Styles Details are
+ * narrowed to 120px and dropped to a 30px control: the pane on the left of the
+ * composition line, and the first column of the Components table beside it.
+ *
+ * ## WHY THIS IS A CLASS AND NOT A PROP ON THE PICKER
+ *
+ * `DataPicker`'s trigger is deliberately `h-9 @2xl/editor:h-8`, and its own
+ * comment says why — "height and rhythm must match Input/Combobox exactly, these
+ * sit in a row with them". That is a statement about the app, and it stays true:
+ * a density prop on the primitive would be an invitation to make any field 30px,
+ * which is the drift the one-width rule exists to stop. This overrides the
+ * height for TWO named cells from outside, in the screen that asked for it.
+ *
+ * ## `pl-2` AND NOT `px-2`
+ *
+ * The right-hand padding is `AFFORDANCE_PAD_COMPACT` (`pr-6`), and it is not
+ * decoration: it is the 20px slot the ▼ / ✕ occupies, stated in
+ * `field-affordance.tsx` beside the slot's own width because "the pad and the
+ * slot are one measurement and must never be edited apart". A blanket `px-2`
+ * from out here outranks it (a descendant selector beats a class) and runs the
+ * value under the chevron. Only the LEFT edge is tightened.
+ *
+ * The descendant selector is what lets a class written OUTSIDE the control win:
+ * `[&_input]:…` compiles to `.cls input` (0,1,1) against the trigger's own
+ * `.h-8` (0,1,0), so no `!important` and no prop-drilling is needed.
+ *
+ * ## IT KEEPS THE CONTAINER QUERY — THE SAME HALF `COLOR_PRINT_BOX` KEEPS
+ *
+ * The trigger ships `h-9 @2xl/editor:h-8` — 36px, dropping to 32px in a wide
+ * editor pane — and that is a query, not a fixed size. A bare `[&_input]:h-[30px]`
+ * would flatten it, which is the defect `COLOR_PRINT_BOX` records below
+ * (client 2026-08-21, "make even look"): the box opts out of the responsive tier
+ * and stands 30px against a 36px control in the nested ~440px picker and on
+ * touch. So only the COMPACT tier moves, 32px -> 30px, and the touch tier is
+ * left alone — a 30px target on a phone is not what "compact" asked for.
+ *
+ * `@2xl/editor:[&_input]:…` and not `[&_input]:@2xl/editor:…`: the container
+ * variant goes OUTSIDE. Verified by compiling both through this project's own
+ * Tailwind before either was committed — a variant order that does not compile
+ * emits no CSS at all and fails silently, which is the warning `FIELD_TRACK`
+ * already carries about interpolated classes.
+ */
+const COORDINATE_DENSE = "@2xl/editor:[&_input]:h-[30px] [&_input]:pl-2";
+
+/**
+ * The narrowed Coordinate width — 7.5rem = 120px.
+ *
+ * READ BY THE COLUMN ONLY, and the pane beside it repeats the number as a
+ * literal `flex-[0_1_7.5rem]` rather than importing this one. Not an oversight
+ * and not a thing to "tidy": Tailwind v4 scans source TEXT, so
+ * `flex-[0_1_${COORDINATE_W}]` compiles to no CSS at all and the pane would
+ * silently fall back to `flex: 0 1 auto`. Same warning `FIELD_TRACK` carries.
+ * The two say 7.5rem in two places; change one and change the other.
+ */
+const COORDINATE_W = "7.5rem";
 
 export function GarmentOrderScreen({
   rows,
@@ -2026,7 +2085,7 @@ export function GarmentOrderScreen({
      * opens each new row blank beside filled siblings.
      */
     delivery_date: form.delivery_date,
-    earlier_shipment_date: dayBefore(form.delivery_date),
+    earlier_shipment_date: weekBefore(form.delivery_date),
     warehouse_id: null,
     discharge_port_id: null,
     pack: "",
@@ -2057,6 +2116,42 @@ export function GarmentOrderScreen({
     activity_id: null,
     days_required: "",
   });
+
+  /**
+   * FOUR T&A ROWS ARE SYSTEM-COMPUTED, NEVER OPERATOR-TYPED (external T&A
+   * spec, `doc/approval.md` §5.1, and client 2026-09-07 confirming all four
+   * read-only):
+   *
+   *   - Inspection, PP Approval, Material In-house — PINNED TO EXACTLY 1 DAY.
+   *     Each sits immediately after a different anchor in the downstream-
+   *     first walk (the delivery/shipment anchor, Cutting, and PP Send), so
+   *     `backwardSchedule`'s own chaining already produces "1 day before the
+   *     step before it" the moment `days_required` is fixed at `"1"` — no new
+   *     date arithmetic anywhere.
+   *   - PP Send — the one row that is NOT a fixed offset. Its Days comes from
+   *     `data.ppReviewDaysByCustomer`, this order's OWN customer's PP Sample
+   *     review lead time (Customer Master ▸ Approvals — Josten 5 days, Ocean
+   *     America 2, and so on). A customer with no row there is absent from
+   *     the map, and PP Send falls back to ordinary operator entry rather
+   *     than a guessed number — "NULL IS AN ANSWER. A GUESSED DATE IS NOT."
+   *
+   * `computedTaDays` is the ONE function every call site below reads (the
+   * seed, the Activity picker's `onChange`, the Days cell's `readOnly` +
+   * display, and the save payload) — so the four rows can never disagree
+   * about their own value between what the operator sees and what gets
+   * saved. Keyed by `short_name`, the same field `default_seed` filters by —
+   * never a label string, which capitalisation or a client rename could
+   * silently stop matching.
+   */
+  const FIXED_ONE_DAY_ACTIVITIES = new Set(["INSP", "PPAPPR", "MATIH"]);
+  const computedTaDays = (shortName: string | null | undefined): string | null => {
+    if (shortName && FIXED_ONE_DAY_ACTIVITIES.has(shortName)) return "1";
+    if (shortName === "PPSEND") {
+      const days = form.customer_id ? data.ppReviewDaysByCustomer[form.customer_id] : undefined;
+      return days != null ? String(days) : null;
+    }
+    return null;
+  };
 
   /**
    * THE LADDER, SEEDED FROM THE `ta_activities` MASTER — one row per activity,
@@ -2107,13 +2202,25 @@ export function GarmentOrderScreen({
    */
   const seedTaLadder = (): TaRow[] =>
     [...data.taActivities]
-      .filter((a) => !isInactive(a))
+      /* `default_seed` (0541, client-named 9-step chain: Inspection, Packing,
+         Ironing, Checking, Sewing, Cutting, PP Approval, PP Send, Material
+         Inhouse). Before this flag existed every ACTIVE master row seeded a
+         blank order — Fabric Plan, Accessories BOM, Yarn Purchase, Knitting,
+         Dyeing and Shipment included, none of which are in the client's named
+         chain (client, pointing at a screenshot: "for now nothing is
+         list[ed the way I asked]"). Those six rows are NOT removed from the
+         master — they stay full rows in "+ Add activity" — this only narrows
+         what a BLANK order starts with. */
+      .filter((a) => !isInactive(a) && a.default_seed)
       .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
       .map((a) => ({
         key: newKey(),
         row_uid: crypto.randomUUID(),
         activity_id: a.id,
-        days_required: a.default_offset_days > 0 ? String(a.default_offset_days) : "",
+        // FIXED_ONE_DAY_ACTIVITIES wins over the master's own default —
+        // see that constant's own comment for why these three are pinned
+        // rather than merely defaulted.
+        days_required: computedTaDays(a.short_name) ?? (a.default_offset_days > 0 ? String(a.default_offset_days) : ""),
       }));
 
   /**
@@ -2411,14 +2518,6 @@ export function GarmentOrderScreen({
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
-  const shipTypeOpts = useMemo(
-    () => lookups.filter((l) => l.kind === "ship_type"),
-    [lookups],
-  );
-  // From the Payment Term MASTER, not `lookups` — `pay_terms_id` is an FK into
-  // `public.payment_terms` since 0375, and the lookup rows it used to read are
-  // gone. Filtering `lookups` here would silently render an empty list.
-  const payTermOpts = data.paymentTerms;
   /*
    * `fabric_structure` HAS NO PICKER ON THIS SCREEN ANY MORE (0415).
    *
@@ -2762,6 +2861,29 @@ export function GarmentOrderScreen({
     coordinateId: string | null,
     held: string | null,
     /**
+     * THE STRUCTURE THIS PART BELONGS TO (client 2026-09-08: "inside that
+     * structure … only need to list that component"; example given — a
+     * Single Jersey structure whose style only declares a Neck component
+     * must offer Neck alone).
+     *
+     * A `StyleComponentRow` carries `fabric_category_id` (labelled
+     * "Structure" on the Style(s) ▸ Components grid, and the SAME fabric
+     * category `ComboStructRow.structure_id` picks — "the same list the
+     * Combos overlay's Structure cell offers, so the two cannot disagree
+     * about what a structure is", per the note on that column). Filtering by
+     * `coordinateId` alone let a component the style paired with the right
+     * coordinate but a DIFFERENT structure (a Sleeve declared under Woven)
+     * leak into a Single Jersey structure's part row, because nothing here
+     * ever read the pair's own Structure. This is that read.
+     *
+     * BLANK BEHAVES LIKE `coordinateId` DOES: a structure row's own
+     * `structure_id` is `required`, so this should never actually run blank
+     * in practice — but "no restriction" rather than "match nothing" is the
+     * one answer consistent with `coordinateId` a few lines below, and it is
+     * what keeps a not-yet-picked Structure from presenting an empty list.
+     */
+    structureId: string | null,
+    /**
      * COMPONENTS THIS FABRIC'S OTHER PARTS HAVE ALREADY TAKEN under the same
      * coordinate (client 2026-08-31, screenshot 2560: three part rows all
      * reading INNER / BACK BODY).
@@ -2797,7 +2919,11 @@ export function GarmentOrderScreen({
     const pairs = st?.components ?? [];
     const ids = new Set(
       pairs
-        .filter((c) => !coordinateId || c.coordinate_id === coordinateId)
+        .filter(
+          (c) =>
+            (!coordinateId || c.coordinate_id === coordinateId) &&
+            (!structureId || c.fabric_category_id === structureId),
+        )
         .map((c) => c.component_id)
         .filter(Boolean) as string[],
     );
@@ -3423,12 +3549,12 @@ export function GarmentOrderScreen({
    *
    * ## EARLIER SHIPMENT IS ASKED THE SAME QUESTION SEPARATELY
    *
-   * It follows only while it still equals `dayBefore` of the date the row is
-   * leaving — i.e. while it is the untouched D-1 default. A row carrying a D-3
+   * It follows only while it still equals `weekBefore` of the date the row is
+   * leaving — i.e. while it is the untouched D-7 default. A row carrying a D-3
    * buffer keeps the DATE the operator typed rather than the OFFSET.
    *
    * Preserving the offset was the other candidate and is arguably kinder, but
-   * it is an inference: the client said D-1 is the default and that an operator
+   * it is an inference: the client said D-7 is the default and that an operator
    * may override it, not that an override is a rolling relationship. Keeping
    * one rule for both fields is what makes the behaviour explainable in a
    * sentence — "it follows until you change it" — and the offset version needs
@@ -3445,12 +3571,12 @@ export function GarmentOrderScreen({
       xs.map((x) => {
         if (x.delivery_date !== prev) return x;
         const followsShip =
-          !x.earlier_shipment_date || x.earlier_shipment_date === dayBefore(prev);
+          !x.earlier_shipment_date || x.earlier_shipment_date === weekBefore(prev);
         return {
           ...x,
           delivery_date: next,
           earlier_shipment_date: followsShip
-            ? dayBefore(next)
+            ? weekBefore(next)
             : x.earlier_shipment_date,
         };
       }),
@@ -4158,12 +4284,20 @@ export function GarmentOrderScreen({
        * filter here would be a second answer to one question — and it is the
        * copy `lib/data-io` would bypass if orders ever gained an import path.
        */
-      ta_activities: taRows.map((r) => ({
-        sno: 0,
-        row_uid: r.row_uid,
-        activity_id: r.activity_id,
-        days_required: numOrNull(r.days_required),
-      })),
+      ta_activities: taRows.map((r) => {
+        // computedTaDays wins here too — a saved order from before these
+        // four went read-only may still carry an operator-typed value, and
+        // this is the one place both the seed path and the reopened-
+        // document path are guaranteed to pass through, so it is where the
+        // correction actually lands rather than only appearing to.
+        const computed = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+        return {
+          sno: 0,
+          row_uid: r.row_uid,
+          activity_id: r.activity_id,
+          days_required: computed != null ? Number(computed) : numOrNull(r.days_required),
+        };
+      }),
     };
     start(async () => {
       const res = editId
@@ -4370,18 +4504,20 @@ export function GarmentOrderScreen({
    * ever reaches this Map the ladder is still right and only the display of the
    * earlier row would be lost.
    */
-  const taDates = useMemo(
-    () =>
-      isRefusal(taLadder)
-        ? new Map<string, { target_date: string; float: number }>()
-        : new Map(
-            taLadder.rows.map((r) => [
-              r.row_uid,
-              { target_date: r.target_date, float: r.float },
-            ]),
-          ),
-    [taLadder],
-  );
+  const taDates = useMemo(() => {
+    if (isRefusal(taLadder)) return new Map<string, { target_date: string; float: number }>();
+    const m = new Map<string, { target_date: string; float: number }>();
+    for (const r of taLadder.rows) {
+      // A row whose own Days is blank, or that sits behind one that is
+      // (`Schedule.incomplete`), carries no date yet — left out of the Map
+      // entirely rather than stored as null, so `.get()` already answers
+      // "nothing to show" the same way it does while the whole ladder
+      // refuses, and every reader keeps its one `d ? … : "—"` check.
+      if (r.target_date == null || r.float == null) continue;
+      m.set(r.row_uid, { target_date: r.target_date, float: r.float });
+    }
+    return m;
+  }, [taLadder]);
 
   /**
    * THE ROAD LINE — a decorative connector behind the T&A cards, drawn between
@@ -4413,11 +4549,29 @@ export function GarmentOrderScreen({
   const taRoRef = useRef<ResizeObserver | null>(null);
   const [taTrack, setTaTrack] = useState({ d: "", w: 0, h: 0 });
 
+  /**
+   * THE TAB READS BACK TO FRONT — DISPLAY ONLY (client, 2026-09-07: "Inspection,
+   * Packing, Ironing, Checking, Sewing, Cutting, PP Approval, PP Send, Material
+   * Inhouse" as the on-screen order, i.e. nearest-to-shipment first). `taRows`
+   * itself is untouched and stays execution order (Material Inhouse first) —
+   * see the enormous warning on `taLadder` above: that array is what
+   * `orderTaLadder` chains `backwardSchedule` from, and reversing THAT array
+   * would compute a complete, plausible ladder of WRONG dates, which is the
+   * exact failure that comment exists to prevent. This is a second, derived
+   * array that only `ChildGrid`'s `rows` prop and the road-line ever see.
+   *
+   * `onAdd` prepends to the REAL `taRows` for the same reason: prepending the
+   * real array is what lands the new row at the END of THIS reversed one,
+   * next to the "+ Add activity" button it was clicked from — appending would
+   * have put it at the top of the screen, nowhere near the click.
+   */
+  const taRowsDisplay = useMemo(() => [...taRows].reverse(), [taRows]);
+
   const taDraw = useCallback(() => {
     const wrap = taWrapRef.current;
     if (!wrap) return;
     const wrapRect = wrap.getBoundingClientRect();
-    const pts = taRows
+    const pts = taRowsDisplay
       .map((r) => taNodeRefs.current.get(r.key))
       .filter((el): el is HTMLDivElement => !!el)
       .map((el) => {
@@ -4443,7 +4597,7 @@ export function GarmentOrderScreen({
       d += `C ${x0} ${midY}, ${x1} ${midY}, ${x1} ${y1} `;
     }
     setTaTrack({ d, w: wrapRect.width, h: wrapRect.height });
-  }, [taRows]);
+  }, [taRowsDisplay]);
 
   /**
    * A CALLBACK REF, NOT A PLAIN ONE — THE SECOND BUG THIS LINE SHIPPED WITH.
@@ -4500,8 +4654,12 @@ export function GarmentOrderScreen({
         // and this is the number the whole business tracks an order by, so the
         // list and the record have to call it the same thing.
         header: "RE No",
+        // font-semibold (client 2026-09-07, Archivo weight spec): the ONE
+        // identifying column on this list — every other cell in the row
+        // (Customer, Date, status pills) stays at its existing weight, per
+        // the spec's own example ("ORD-1024 → 600, everything else → 400").
         cell: (r) => (
-          <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>
+          <span className="font-mono text-xs font-semibold">{r.sales_order?.order_number ?? "—"}</span>
         ),
       },
       {
@@ -4594,46 +4752,24 @@ export function GarmentOrderScreen({
            */
           menu={(() => {
             const soId = r.sales_order_id;
+            /* ONE ENTRY, NOT THREE (client 2026-09-07: "reports listing
+               separate separate, make it as reports one single value").
+               The three used to be flat items under a "Documents" heading —
+               Order sheet / Material BOM / Fabric BOM, each its own row menu
+               click. `OrderDocumentTabs` (components/orders/order-document-
+               tabs.tsx) already exists as the switcher BETWEEN the three, and
+               every one of the three pages already renders it — so three menu
+               entries and the tab strip were two ways of answering the same
+               "which document" question, and the menu was the redundant one.
+               Reports now opens straight to the order sheet (the one document
+               with no gate — see the note this replaced), and the tab strip on
+               that page reaches the other two in one click each. */
             return [
-              /* THE ORDER SHEET NEEDS NO GATE HERE. It prints an entered garment
-                 order, and every row on this list IS one — so unlike the two
-                 beneath it there is no state in which opening this lands on a
-                 refusal. */
-              /* ONE `section` ON EACH, so the menu prints a DOCUMENTS heading
-                 above the group (client 2026-09-02: the three read as a bare
-                 list). The ⋮ trigger carries no label of its own — Edit and
-                 Delete are icon buttons beside it, not entries in here — so the
-                 heading is the only thing that says what this menu is FOR.
-                 THE LABELS LOSE THE WORD "report" TO THE HEADING. The menu is
-                 176px wide and "Material BOM report" wraps to two lines in it;
-                 the heading supplies the noun once instead of every row paying
-                 for it. */
               {
-                section: "Documents",
-                label: soId ? "Order sheet" : "Order sheet — no order number yet",
+                label: soId ? "Reports" : "Reports — no order number yet",
                 icon: FileText,
                 disabled: !soId,
                 onClick: () => router.push(`/orders/${soId}/gos`),
-              },
-              {
-                section: "Documents",
-                label: soId ? "Material BOM" : "Material BOM — no order number yet",
-                icon: ClipboardList,
-                disabled: !soId,
-                onClick: () => router.push(`/orders/${soId}/requirement`),
-              },
-              /* THE FABRIC BOM REPORT (client 2026-09-02), step 3's document
-                 beside step 2's. It is NOT gated on the Material BOM pill next
-                 to it and must never be: the two BOMs are separate documents on
-                 separate cycles, and an order can have its cloth planned before
-                 its trims. Reading one status for both is how a screen starts
-                 hiding a document that exists. */
-              {
-                section: "Documents",
-                label: soId ? "Fabric BOM" : "Fabric BOM — no order number yet",
-                icon: Layers,
-                disabled: !soId,
-                onClick: () => router.push(`/orders/${soId}/fabric-requirement`),
               },
             ];
           })()}
@@ -4730,6 +4866,8 @@ export function GarmentOrderScreen({
    * not a re-negotiation of what an order needs. Whether Save should require the
    * five Logistic fields at all is a separate question for the client; if the
    * answer is no, they move out of this list rather than losing their labels.
+   * THE ANSWER CAME 2026-09-08: Ship Type, Ship Mode and Pay Terms did — see
+   * the note on the tab's `<FieldGrid>` and `sectionValidity`'s `fields`.
    */
   /* `validity`, `canSave` and `revealFirstProblem` USED TO SIT HERE and now live
      beneath the assortment arithmetic (search `const validity`). The quantity
@@ -6227,14 +6365,14 @@ export function GarmentOrderScreen({
 
        `some` is also what every other entry in this map means: `has(...)` is
        "any filled row", not "every field answered". `logistic` is the one
-       exception and it earns it — those five ARE mandatory. **If the gate comes
-       back, this goes back to `every` with it**; the two are one decision. */
+       exception and it earns it — the two fields left ARE mandatory. **If the
+       gate comes back, this goes back to `every` with it**; the two are one
+       decision. */
     ta: taRows.some((r) => r.days_required.trim() !== ""),
-    // Was `charges.length > 0`, and the charges are gone. The five fields
-    // the client made mandatory are the honest signal now.
-    logistic:
-      !!form.ship_type_id && !!form.ship_mode && !!form.pay_mode &&
-      !!form.pay_terms_id && !!form.currency_code,
+    // Was `charges.length > 0`, and the charges are gone. Ship Type, Ship
+    // Mode and Pay Terms left the Save gate with their `<Field>`s (2026-09-08);
+    // Pay Mode and Currency are the honest signal now.
+    logistic: !!form.pay_mode && !!form.currency_code,
   };
 
   /**
@@ -6716,23 +6854,65 @@ export function GarmentOrderScreen({
   ];
 
   /**
-   * Yarn / Fabric dyeing, prints and structures — one or two inputs a row, which
-   * LAYOUT.md §6 puts in the "<=3 -> inlineCards" band: a flex row per record
-   * under one shared header, never a stacked card. Carding a two-input row would
-   * be worse than the table it replaces.
+   * Yarn / Fabric dyeing, prints and structures — one or two inputs a row.
+   *
+   * A REAL TABLE SINCE 2026-09-05 (client, Tamil: "oru table aa convert pannu"),
+   * AND `inlineCards` IS THE THING IT REPLACED. LAYOUT.md §6 puts a row this
+   * narrow in the "<=3 -> inlineCards" band, and the band is not wrong about the
+   * COUNT — it picks a layout by how many fields a row has, not by what the
+   * operator is reading. An inline row is a flex line inside its own
+   * `rounded-md border p-1.5` card, so three grids on one line drew three frames
+   * and then a frame per row inside each, with the column names floating above
+   * unboxed cells. `tableAlways` hands all three to `ChildGrid`'s responsive
+   * table at every width, which already draws every part of what was asked for:
+   * `<th>`-declared headers with the red `*` on a `required` column, a rule
+   * under the header band, `border-l` gridlines between cells, a `w-10` `#`
+   * track and a `w-8` ✕ track carrying `data-row-remove` for Ctrl+Del. Nothing
+   * here draws a `<table>` — "line items are `ChildGrid`, never a hand-rolled
+   * table" is the standing rule that makes the keyboard contract free.
+   *
+   * `tableAlways` is safe HERE for the reason its own note in `child-grid.tsx`
+   * gives and would not be on a ten-column line grid: these tables are narrower
+   * than the panes they sit in, so defeating the stacked-card breakpoint costs
+   * nothing. The heights inside them are `COLOR_PRINT_BOX`, declared once above.
    *
    * EVERY COLUMN DECLARES A `width`, and that is not per-column taste — it is
    * the condition for the whole grid to hug its content. `hugsContent` is
-   * `columns.every((c) => c.width)` (child-grid.tsx), all-or-nothing on purpose,
-   * and in the `inlineCards` branch an unsized column is `flex-1` while a sized
-   * one is `shrink-0`. So ONE column left unsized does not merely go unstyled:
-   * it absorbs every spare pixel of the row and drops the grid back to full
-   * width. That was the state here -- Type carried `10rem`, Colour carried
-   * nothing, and a single Colour dropdown rendered ~1080px wide while Print and
-   * Structure each took the entire section (client 2026-08-11, screenshots
-   * 2246/2247). Add a column to any of these three and it needs a width, or all
-   * four grids stretch again.
+   * `columns.every((c) => c.width)` (child-grid.tsx), all-or-nothing on purpose.
+   * One column left unsized does not merely go unstyled: the grid stops hugging
+   * and its frame runs to the edge of the tab. That was the state here -- Type
+   * carried `10rem`, Colour carried nothing, and a single Colour dropdown
+   * rendered ~1080px wide while Print and Structure each took the entire section
+   * (client 2026-08-11, screenshots 2246/2247). Add a column to any of these
+   * three and it needs a width — and the pane basis at the call site, which is
+   * SUMMED from these numbers, has to move with it.
    */
+/**
+ * THE ROW'S CONTROL HEIGHT, DECLARED ONCE FOR ALL THREE GRIDS (client
+ * 2026-09-06: "30px compact input fields").
+ *
+ * ## WHY A CONSTANT AND NOT `inputClassName="h-8"` ON EACH CELL
+ *
+ * That is what stood here until 2026-09-05, and it was removed for a reason
+ * this constant has to keep honouring: a Colour cell carrying `h-8` sat beside
+ * a Type `<Select>` that passed no className and so kept `Input`'s own `h-9`,
+ * so the two controls of one row stood 32px and 36px apart. A per-cell height
+ * fixes the cell it is written on and leaves its neighbour, which is the shape
+ * AGENTS.md's "The header row" records as a bug of its own. So the height is
+ * named once and every control on the tab reads the same name.
+ *
+ * ## IT KEEPS THE CONTAINER QUERY, WHICH IS THE OTHER HALF
+ *
+ * `Input` ships `h-9 @2xl/editor:h-8` — 36px, dropping to 32px in a wide editor
+ * pane. That is a query, not a fixed size, and flattening it to a bare
+ * `h-[30px]` is the defect recorded on `quantityColumns` (client 2026-08-21,
+ * "make even look"): the box opts out of the responsive tier and stands 30px
+ * against a 36px picker in the nested ~440px picker and on touch. So only the
+ * COMPACT tier moves, 32px -> 30px; the touch tier is left where it is, because
+ * a 30px target on a phone is not what "compact" was asking for.
+ */
+const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
+
   const dyeColumns: ChildGridColumn<DyeingRow>[] = [
     {
       header: "Type",
@@ -6742,12 +6922,26 @@ export function GarmentOrderScreen({
          the tab declares on all three panes, so this width and that basis are
          one decision stated in two places and must move together.
 
+         6.5rem SINCE 2026-09-05 (client: "compact size, tighten"), and the
+         arithmetic moved with it — see the pane basis at the call site, which is
+         now DERIVED from these widths rather than a round number standing near
+         them.
+
+         104px, MEASURED NOT GUESSED, and the measurement CHANGED when this grid
+         became a real table (2026-09-05). A `<td>` carries its own `px-2`, so a
+         table column is 16px less generous than the same number was in the
+         `inlineCards` layout this replaces: 104 − 16 cell − 24 control `px-3`
+         leaves 64px of text against "MELANGE" at ~60px in `text-sm`. The
+         chevron OVERLAYS rather than reserving a track (`combobox.tsx` declares
+         `px-3` and no `pr-*`), which is what makes a column this narrow safe
+         here and would not be on a control that padded for it.
+
          The value is unaffected: this cell holds "Melange", "Dyed" or "Y/D".
 
          `structureColumns` further down declares the same 10rem and is NOT
          touched — that grid came off this tab on 2026-08-14 and is not one of
          the three sharing the row. */
-      width: "7rem",
+      width: "6.5rem",
       /**
        * A FIXED LIST PER SECTION (client 2026-08-17) — Y/D or Melange on a yarn
        * dyeing, Dyed or Melange on a fabric one. It was a free `<Input>`, which
@@ -6765,6 +6959,10 @@ export function GarmentOrderScreen({
        */
       cell: (r) => (
         <Select
+          /* The SAME height its Colour neighbour takes — see `COLOR_PRINT_BOX`.
+             This control passing nothing while the cell beside it carried `h-8`
+             is exactly how the two came to differ by 4px. */
+          className={COLOR_PRINT_BOX}
           value={r.dye_type}
           onChange={(e) =>
             setDyeings((xs) =>
@@ -6812,14 +7010,20 @@ export function GarmentOrderScreen({
        * THE WIDTH IS NOT OPTIONAL: `hugsContent` is `columns.every((c) => c.width)`,
        * so dropping it here would stretch all three grids on this tab.
        *
-       * 11rem, DOWN FROM 16 (2026-08-29) — see the note on `Type` above for the
-       * arithmetic. 176px still holds a colour name; the buyer references this
-       * cell also accepts ("0001") were never the long case.
+       * 7.5rem, DOWN FROM 11 and before that 16 — see the note on `Type` above
+       * for the arithmetic. 120px, less the cell's `px-2` and the control's
+       * `px-3`, is 80px of text and still holds "NAVY BLUE"; the buyer references
+       * this cell also accepts ("0001") were never the long case, and a name
+       * longer than the box is not lost — `TypeOrPick` joins `useOverflow` to a
+       * `Tooltip` on its own input, so it clips with an ellipsis and reveals on
+       * hover. That is the truncate-reveal rule satisfied INSIDE the control,
+       * which is what makes trimming this column cheap: the alternative is
+       * sizing every column for the longest value anyone might ever type.
        *
        * Trimmed, never dropped: those are different edits with very different
        * blast radii, and only one of them is safe.
        */
-      width: "11rem",
+      width: "7.5rem",
       /**
        * TYPE **OR** PICK SINCE 2026-08-17 (client: "allow users to manually
        * type/input color names or numbers, e.g. 0001, rather than forcing a
@@ -6859,7 +7063,10 @@ export function GarmentOrderScreen({
           options={colourPickOptions(r.color_id)}
           valueId={r.color_id}
           text={r.color_name}
-          inputClassName="h-8"
+          /* The tab's one control height — see `COLOR_PRINT_BOX`. It replaces a
+             hard-coded `h-8` that pinned this box to 32px while the control
+             beside it kept the primitive's responsive 36px. */
+          inputClassName={COLOR_PRINT_BOX}
           onChange={({ id, name }) =>
             setDyeings((xs) =>
               xs.map((x) =>
@@ -6968,7 +7175,23 @@ export function GarmentOrderScreen({
   const printColumns: ChildGridColumn<PrintRow>[] = [
     {
       header: "Roll form prints",
-      width: "16rem",
+      /* 8.5rem, DOWN FROM 16 (client 2026-09-05, "compact size, tighten").
+         136px, less the cell's own `px-2` and the control's `px-3`, is 96px of
+         text, which holds "ALL OVER PRINT"; a longer one clips and reveals on
+         hover through `TypeOrPick`'s own tooltip — the same trade the Colour
+         cell records.
+
+         THIS IS THE COLUMN THAT DECIDED THE ROW. Three cards at their old
+         widths measured ~69rem against a ~880px pane on a 1366 screen, so the
+         third wrapped onto a line of its own — which is the "put them in one
+         horizontal row" report. 16rem was never measured against anything; it
+         was simply wide enough that nothing complained while the grid had a
+         line to itself.
+
+         THE WIDTH IS NOT OPTIONAL: `hugsContent` is
+         `columns.every((c) => c.width)`, and the pane basis at the call site is
+         summed from this number. */
+      width: "8.5rem",
       cell: (r) => (
         <TypeOrPick
           label="Roll form print"
@@ -6976,7 +7199,10 @@ export function GarmentOrderScreen({
           options={printPickOptions(r.print_id)}
           valueId={r.print_id}
           text={r.print_name}
-          inputClassName="h-8"
+          /* The tab's one control height — see `COLOR_PRINT_BOX`. It replaces a
+             hard-coded `h-8` that pinned this box to 32px while the control
+             beside it kept the primitive's responsive 36px. */
+          inputClassName={COLOR_PRINT_BOX}
           onChange={({ id, name }) =>
             setPrints((xs) =>
               xs.map((x) =>
@@ -8472,15 +8698,22 @@ export function GarmentOrderScreen({
          * leave it. Both flags come from the one `filled` boolean, so "off the
          * Tab path AND holding" is unrepresentable: filled → Tab steps over it,
          * blank → it comes straight back onto the Tab path with the hold that
-         * makes the operator answer it. ← → and the mouse always reach it, so
-         * changing a seeded activity deliberately still works.
+         * makes the operator answer it.
+         *
+         * ← → and the mouse used to always reach it regardless — NO LONGER
+         * TRUE for the client-named 9-step chain (2026-09-07: "make it read
+         * only"), which is now `disabled` below, same flag `lockRow` reads
+         * on the grid itself to withhold its ✕. A row added by hand through
+         * "+ Add activity" is not `default_seed` and stays fully editable.
          */
         const auto = autoFilledField(!!r.activity_id);
+        const fixed = !!taActivityById.get(r.activity_id ?? "")?.default_seed;
         return (
           <div data-focus-optional={auto.offTabPath ? "" : undefined}>
             <RecordPicker
               label="Activity"
               compact
+              disabled={fixed}
               /* EVERY activity, including switched-off ones — the other half of
                  the "Disabled rows" rule. `seedTaLadder` filters `isInactive`
                  so a retired activity is never seeded onto a NEW ladder; the
@@ -8495,11 +8728,21 @@ export function GarmentOrderScreen({
                  double-counts its own lead time. `usedIds` is every OTHER row's
                  activity, so the row's own value is never hidden from itself. */
               usedIds={taRows.filter((x) => x.key !== r.key).map((x) => x.activity_id).filter(Boolean) as string[]}
-              onChange={(id) =>
+              onChange={(id) => {
+                // A row reached "+ Add activity" (not `default_seed`, so the
+                // picker above is live) that happens to name one of the four
+                // computed activities still gets the right Days — the Days
+                // cell's own `readOnly` check reads the same `computedTaDays`,
+                // so the two can never disagree about which rows are locked.
+                const days = computedTaDays(id ? taActivityById.get(id)?.short_name : null);
                 setTaRows((xs) =>
-                  xs.map((x) => (x.key === r.key ? { ...x, activity_id: id } : x)),
-                )
-              }
+                  xs.map((x) =>
+                    x.key === r.key
+                      ? { ...x, activity_id: id, ...(days != null && { days_required: days }) }
+                      : x,
+                  ),
+                );
+              }}
             />
           </div>
         );
@@ -8523,9 +8766,17 @@ export function GarmentOrderScreen({
          forgotten half is always the one nobody notices until an operator is
          stuck in a cell. See the Activity column above for why the hold could
          not simply be left in place. */
-      cell: (r) => (
+      cell: (r) => {
+        // See `computedTaDays` above `seedTaLadder` — the display wins over
+        // whatever is stored so a legacy saved row (typed before this rule
+        // existed), or a PP Send row whose customer lookup only just
+        // resolved, never SHOWS a value different from what the save payload
+        // now sends for it.
+        const fixedDays = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+        return (
         <Input
           type="number"
+          readOnly={!!fixedDays}
           /* PILL, NOT A SQUARE BOX — `taRenderMobileRow` sits this inside a
              rounded `bg-surface-muted` chip beside its own "Days" label, so a
              bordered rectangular input here would draw a second, competing
@@ -8535,7 +8786,7 @@ export function GarmentOrderScreen({
              overriding) lets the chip's own background show through; the
              focus ring still comes from `Input`'s own base classes, unopposed. */
           className="w-12 rounded-full border-transparent bg-transparent text-center"
-          value={r.days_required}
+          value={fixedDays ?? r.days_required}
           onChange={(e) =>
             setTaRows((xs) =>
               xs.map((x) =>
@@ -8544,7 +8795,8 @@ export function GarmentOrderScreen({
             )
           }
         />
-      ),
+        );
+      },
     },
     {
       header: "Target Date",
@@ -8627,24 +8879,22 @@ export function GarmentOrderScreen({
    * rendering of the one `taDates` / `taActivityById` lookup the table cells
    * already make. Neither is on the Tab path either way.
    *
-   * ALTERNATING SIDES, STILL ONE `TaRow` PER `ChildGrid` ROW. This went
-   * through a 3-per-row (then 5-per-row) CSS-grid override on `data-grid-body`
-   * for a couple of requests, then back — the client's actual reference the
-   * whole time was the artifact's own "Version 7", the single-card-per-row
-   * road map with each activity alternating left and right, not a multi-
-   * column grid. `ChildGrid` never knew the difference either way: Tab,
-   * Ctrl+Del and Enter-adds-a-row all still walk the same one-activity-per-
-   * row model. What changed, again, is purely how ONE row's own content is
-   * laid out — `side` below, computed from `i % 2`.
+   * ONE STRAIGHT COLUMN, DATE-LEFT / ICON-CENTRE / CARD-RIGHT — the actual
+   * artifact "Version 3" (client, 2026-09-07: "I told as version three",
+   * against a screenshot of that link's PINNED version — reading the
+   * artifact live gave a LATER, different-looking revision, which is what
+   * the first pass of this got wrong). No alternating side, no 3-per-row
+   * grid: every row lays out the same way, one after another. `ChildGrid`
+   * still renders exactly one `TaRow` per `[data-grid-row]`; Tab, Ctrl+Del
+   * and Enter-adds-a-row all still walk that same one-activity-per-row
+   * model unchanged.
    *
-   * THE CONNECTING LINE IS MEASURED, DRAWN OUTSIDE THIS FUNCTION, AND DID NOT
-   * NEED TO CHANGE ACROSS ANY OF THIS. See the `taNodeRefs` / `taTrack` hooks
-   * above the early return: this function only hands one ref per card
-   * (`taNodeRefs.current.set(r.key, el)`) to the icon badge; the SVG path is
-   * drawn once, behind every row, from wherever those badges actually end up
-   * on screen. A grid of three columns and a single column of alternating
-   * sides are just two different arrangements of the same set of points —
-   * the measurement does not know or care which one it is looking at.
+   * THE CONNECTING LINE IS MEASURED, DRAWN OUTSIDE THIS FUNCTION, AND DOES
+   * NOT NEED TO CHANGE FOR THIS. See the `taNodeRefs` / `taTrack` hooks above
+   * the early return: this function only hands one ref per card
+   * (`taNodeRefs.current.set(r.key, el)`) to the icon badge; with every
+   * badge now stacked at the same x, the same "leave straight down, arrive
+   * straight down" bezier the mockup used just draws a plain vertical line.
    */
   const taRenderMobileRow = (r: TaRow, i: number) => {
     const d = taDates.get(r.row_uid);
@@ -8695,25 +8945,38 @@ export function GarmentOrderScreen({
               ? `Target in ${d.float} day${d.float === 1 ? "" : "s"}`
               : null;
 
-    /**
-     * ALTERNATING SIDES, NOT A GRID (client, pointing at the artifact's own
-     * "Version 7" — the single-card-per-row road map, not the 3-per-row grid
-     * that was built for a different request in between). Even rows cluster
-     * left, odd rows cluster right, with a flex-1 spacer taking up whatever
-     * side the cluster is NOT on. `flex-row-reverse` is what makes one set of
-     * JSX serve both sides: the spacer is always the LAST element in DOM
-     * order, so reversing the row moves it — and therefore the empty space —
-     * to the opposite edge without touching the cluster's own markup.
-     */
-    const side: "left" | "right" = i % 2 === 0 ? "left" : "right";
-
+    /* `inline-flex`, NOT `flex` — client: "add some padding for that close
+       option, see it's appearing above the working days words". A block
+       `flex` here sizes to whatever width `[data-grid-row]`'s own `w-fit`
+       override resolves to, which is one more layer between this content and
+       the row's actual edge than is worth trusting; `inline-flex` makes THIS
+       element shrink-wrap to its own content unconditionally, so the row
+       never reports a width wider than what is actually drawn. `mr-8` then
+       guarantees real clearance from `cornerRemove`'s ✕ (`child-grid.tsx`,
+       floated at the row's own top-right corner) — belt-and-braces alongside
+       that fit, not instead of it. */
     return (
-      <div className={cn("flex items-start gap-3 py-1", side === "right" && "flex-row-reverse")}>
-        <div className={cn("w-14 flex-none pt-1.5", side === "left" ? "text-right" : "text-left")}>
-          <div className="text-[10px] font-medium tracking-wide text-muted-foreground">
+      /* `gap-3` (was `gap-2`) and the date column at `w-16` (was `w-11`) —
+         client: "add gap between that icon and date". `w-11` (44px) was
+         narrower than a full DD/MM/YYYY at this font size (~60px, tabular
+         digits), so the date OVERFLOWED past its own right-aligned box with
+         nothing clipping it — invisible while the icon beside it was still
+         far enough away, and NOT invisible once "compact it more" pulled
+         that icon in close: the overflowing tail of the date (the last
+         digit or two) painted UNDER the icon's own solid circle, which is
+         drawn after it in DOM order and so covers it. Same failure the
+         user's "move the line backward" describes from the other side — the
+         connecting line's endpoint is this icon's own measured centre, so an
+         icon sitting hard against clipped text reads as the line running
+         into the date instead of stopping cleanly short of it. Widening the
+         box removes the overflow outright; the wider gap is the second, more
+         visible half of the same fix. */
+      <div className="inline-flex items-start gap-3 py-0.5 mr-8">
+        <div className="w-16 flex-none pt-0.5 text-right">
+          <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
             {String(i + 1).padStart(2, "0")}
           </div>
-          <div className="text-xs font-semibold tabular-nums text-foreground">
+          <div className="text-[11px] font-semibold tabular-nums text-foreground">
             {d ? fmtDate(d.target_date) : "—"}
           </div>
         </div>
@@ -8724,38 +8987,51 @@ export function GarmentOrderScreen({
             else taNodeRefs.current.delete(r.key);
           }}
           className={cn(
-            "mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-surface",
+            "flex h-7 w-7 flex-none items-center justify-center rounded-full ring-1 ring-offset-1 ring-offset-surface",
             toneNode[tone],
             toneRing[tone],
           )}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className="h-3.5 w-3.5" />
         </div>
 
-        <div className="w-full max-w-[280px] flex-none space-y-1.5 rounded-xl border border-border bg-surface p-2.5 text-left transition-shadow hover:shadow-md">
-          <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
-            {taColumns[0].cell(r, i)}
-          </RequiredScope>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {activity?.department && (
-              <span className="rounded-full border border-border bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {activity.department}
-              </span>
-            )}
-            <div className="flex items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2.5 pr-1">
-              <span className="text-[11px] font-medium text-muted-foreground">Days</span>
-              <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
-                {taColumns[1].cell(r, i)}
-              </RequiredScope>
-            </div>
+        {/* ONE OUTLINE PER ROW, NOT TWO (client: "two border per one
+           progress, make as single and compact") — the icon badge's own
+           ring already carries the status tone, so the card beside it drops
+           its border rather than drawing a second, redundant one; `bg-surface`
+           + a resting `shadow-sm` still separate it from the page without a
+           visible line. */}
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-surface p-1.5 text-left shadow-sm">
+          {/* NEITHER THIS CARD NOR THE ACTIVITY FIELD IS `flex-1` ANY MORE
+             (client: "field size needs to be fix" on the Activity box, then
+             "the field between [it] and [Close] this much gab cut it" on
+             the CARD — `flex-1` here was stretching the whole bordered box
+             out to the row's far edge, which is what left a wide strip of
+             empty card between "working days" and the row's own ✕. Dropping
+             it lets the card size to its own content instead; the `pr-9`
+             this used to carry is also gone; `cornerRemove`'s own `pr-10` on
+             the ROW is already what keeps the ✕ off the content, and
+             stacking a second reservation here was the other half of the
+             gap. `w-52` fits the longest seeded name ("ACCESSORIES BOM")
+             with room to spare; `flex-none` keeps it that width. */}
+          <div className="w-52 flex-none">
+            <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
+              {taColumns[0].cell(r, i)}
+            </RequiredScope>
           </div>
-          {caption && <div className={cn("text-[11px] font-medium", toneText[tone])}>{caption}</div>}
+          {activity?.department && (
+            <span className="rounded-full border border-border bg-surface-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {activity.department}
+            </span>
+          )}
+          <div className="flex flex-none items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2 pr-1">
+            <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
+              {taColumns[1].cell(r, i)}
+            </RequiredScope>
+            <span className="text-[10px] font-medium text-muted-foreground">working days</span>
+          </div>
+          {caption && <span className={cn("text-[10px] font-medium", toneText[tone])}>{caption}</span>}
         </div>
-
-        {/* THE SPACER. See the note above — this is what alternating sides
-           actually is: not two different layouts, one layout and which end
-           this element sits at. */}
-        <div className="flex-1" />
       </div>
     );
   };
@@ -8871,9 +9147,11 @@ export function GarmentOrderScreen({
     );
 
   /**
-   * A ROW'S OWN DELIVERY DATE, AND THE D-1 THAT TRAILS IT (client 2026-08-31:
+   * A ROW'S OWN DELIVERY DATE, AND THE D-7 THAT TRAILS IT. Client 2026-08-31:
    * "Write a hook that triggers on value changes: Earlier Shipment Date =
-   * Delivery Date - 1 Day").
+   * Delivery Date - 1 Day" — client 2026-09-08 changed the offset to one week
+   * ("the earlier shipment date to be 1 week before the actual delivery
+   * date"); the hook itself is unchanged.
    *
    * NOT A `useEffect`, deliberately. An effect watching `quantities` would fire
    * on every keystroke in every cell of the grid and would have to work out
@@ -8892,10 +9170,10 @@ export function GarmentOrderScreen({
    */
   const setRowDeliveryDate = (r: QuantityRow, next: string) => {
     const followsShip =
-      !r.earlier_shipment_date || r.earlier_shipment_date === dayBefore(r.delivery_date);
+      !r.earlier_shipment_date || r.earlier_shipment_date === weekBefore(r.delivery_date);
     setQty(r.key, {
       delivery_date: next,
-      ...(followsShip ? { earlier_shipment_date: dayBefore(next) } : {}),
+      ...(followsShip ? { earlier_shipment_date: weekBefore(next) } : {}),
     });
   };
 
@@ -11077,32 +11355,16 @@ export function GarmentOrderScreen({
         required: true,
         empty: (f) => !f.merchandiser_id,
       },
-      // Logistic — the five that were invisible from where the operator stood.
-      {
-        section: "logistic",
-        label: "Ship Type",
-        required: true,
-        empty: (f) => !f.ship_type_id,
-      },
-      {
-        section: "logistic",
-        id: "lg-shipmode",
-        label: "Ship Mode",
-        required: true,
-        empty: (f) => !f.ship_mode,
-      },
+      // Logistic (now "Payment & Value") — was five, invisible from where the
+      // operator stood; Ship Type, Ship Mode and Pay Terms left with their
+      // `<Field>`s (2026-09-08, see the note on the tab's FieldGrid) and are
+      // no longer part of the Save gate. Pay Mode and Currency remain.
       {
         section: "logistic",
         id: "lg-paymode",
         label: "Pay Mode",
         required: true,
         empty: (f) => !f.pay_mode,
-      },
-      {
-        section: "logistic",
-        label: "Pay Terms",
-        required: true,
-        empty: (f) => !f.pay_terms_id,
       },
       {
         section: "logistic",
@@ -12234,12 +12496,12 @@ export function GarmentOrderScreen({
       header: "Earlier Shipment Dt",
       required: true,
       /**
-       * D-1 OF THE CELL TO ITS LEFT, until the operator says otherwise. The
-       * arithmetic is `dayBefore`; when it applies is `setRowDeliveryDate`.
+       * D-7 OF THE CELL TO ITS LEFT, until the operator says otherwise. The
+       * arithmetic is `weekBefore`; when it applies is `setRowDeliveryDate`.
        *
        * Typing here is the override the client asked for ("adjust the shipment
        * buffer to D-2 or D-3"), and it is remembered by the value itself: once
-       * this stops equalling D-1 of the delivery date, moving the delivery date
+       * this stops equalling D-7 of the delivery date, moving the delivery date
        * leaves it alone.
        */
       cell: (r) => (
@@ -13445,13 +13707,29 @@ export function GarmentOrderScreen({
            It is the ONLY border added back. The card around the fabric is
            `ChildGrid`'s, and the client removed the per-structure frame on
            2026-08-18 — this is a rule inside one card, not a fourth box. */
-        /* `--border-strong` on the VERTICAL rule, `--border` on the
-           horizontal one. A vertical divider between two field grids has to be
-           read ACROSS a row of controls that are themselves outlined at
-           `border`, so at that weight it rendered and could not be seen
-           (client screenshot 2398). The horizontal rule never had the problem:
-           nothing else on the card runs parallel to it. */
-        className="mt-4 min-w-0 space-y-2 border-t border-border pt-3 min-[1250px]:mt-0 min-[1250px]:border-t-0 min-[1250px]:border-l min-[1250px]:border-border-strong min-[1250px]:pl-6 min-[1250px]:pt-0"
+        /* THE DIVIDER CAME OFF WHEN THE SPEC BECAME A CARD (2026-09-06).
+           It read `border-t border-border pt-3 mt-4` stacked and
+           `min-[1250px]:border-l min-[1250px]:border-border-strong
+           min-[1250px]:pl-6` side by side — one rule between the two halves,
+           at `--border-strong` because a vertical line has to be read ACROSS a
+           row of controls that are themselves outlined at `border` (client
+           screenshot 2398).
+
+           ITS JOB IS NOW DONE BY THE CARD'S OWN EDGE, and doing it twice is
+           worse than either alone: the card's right border and this `border-l`
+           sat 24px apart, two parallel rules with a gap of nothing between
+           them, and stacked the card's bottom edge met this `border-t` the same
+           way. What the rule was FOR is unchanged and is now stated more
+           strongly — 2026-08-20's "section partition indicator?" asked that the
+           cloth's fields and its parts' fields stop reading as one
+           undifferentiated block, and a frame around the first says that better
+           than a line beside it.
+
+           THE SPACING IS THE GRID'S NOW. `gap-x-6` / `gap-y-3` on the row above
+           already separate the halves, so `pl-6` and `pt-3` would be a second
+           24px on top of the first. If the card is ever removed, this line and
+           its two paddings come back together — they are one decision. */
+        className="min-w-0 space-y-2"
         onKeyDown={(e) => gridKeyNav(e)}
       >
         {st.components.map((c, j) => (
@@ -13597,7 +13875,7 @@ export function GarmentOrderScreen({
                       // Narrowing the coordinate around a component the style
                       // still pairs with it must keep that component.
                       ...(c.component_id &&
-                      !scopedComponents(r, id, null).some(
+                      !scopedComponents(r, id, null, st.structure_id).some(
                         (o) => o.id === c.component_id,
                       )
                         ? { component_id: null }
@@ -13624,6 +13902,7 @@ export function GarmentOrderScreen({
                     r,
                     c.coordinate_id,
                     c.component_id,
+                    st.structure_id,
                     componentsTakenUnder(
                       st.components.filter((x) => x.key !== c.key),
                       c.coordinate_id,
@@ -13931,6 +14210,28 @@ export function GarmentOrderScreen({
          grid FOLDS (`foldRows` below), so the summary line is the whole of a
          closed structure, and its ✕ is the only way to remove one. */
       flatRows
+      /* THE ✕ SITS IN THE HEADER BAND, NOT THE CONTROL BAND (client 2026-09-08:
+         "shift the circular X button upward so it sits at the header level above
+         the parts table, perfectly aligned horizontally with the column labels
+         (Coordinate *, Component *, etc.) rather than sitting in line with the
+         first row of inputs").
+
+         THIS GRID IS THE ONE THE DEFAULT DOES NOT FIT, and the reason is two
+         rules of this screen meeting. `RowRemoveChip`'s 2026-09-06 default lines
+         the chip up with the first row's CONTROLS, because on an ordinary card
+         the part row's own `items-end` trash sits there and the two read as one
+         column. Here the row underneath is `componentGrid`, whose first row
+         prints the column titles as `<Field label>` and only there (`j === 0`,
+         client 2026-08-17: "the label is acting as a column header"). So this
+         card's label band is a HEADER band — and a chip 22px down sits below the
+         titles it is supposed to head, level with the first Coordinate picker.
+
+         ONE PROP, NO CLASS. The offset stays declared in `RowRemoveChip` beside
+         the arithmetic it comes from; a `className` override here would be the
+         second copy of a number that already exists, and the 09-06 note is
+         explicit that both offsets move if `LABEL_METRICS` or `Input`'s height
+         do. This only names WHICH band. */
+      cornerRemoveAlign="header"
       /* NO SUMMARY LINE (client 2026-08-18, screenshot 2347: "in top the fabric
          it's showing Circular Knit type, no need to show there").
 
@@ -14016,17 +14317,74 @@ export function GarmentOrderScreen({
           .join("  ·  ");
         const foldedProblems = structureProblems(st, familyCodeOf(st.structure_id));
         return (
-          /* THE OPEN CARD'S RAIL, TRANSPARENT — see the long note in
-             `renderMobileRow`. Same width, same padding, no colour: the two
-             states must differ in NOTHING but the ink, or the rail reads as the
-             open row having shifted right rather than as it being the active
-             one.
+          /* NO RAIL — the transparent twin came off with the open row's coloured
+             one (client 2026-09-08); the long note is in `renderMobileRow`. It
+             held the closed state at the open one's inset and had no other job,
+             so it could not outlive it: kept alone it would indent every folded
+             fabric 18px past the open one it sits between.
 
-             `cursor-pointer` because the whole folded card already opens on
-             click (`ChildGrid` puts the handler on the row) and nothing said so.
-             A closed record that responds to a click it never advertised is the
-             other half of "now it's confusing". */
-          <div className="cursor-pointer space-y-2 border-l-2 border-transparent pl-4">
+             `cursor-pointer` MOVED ONTO THE CARD rather than going with the
+             wrapper. The whole folded row opens on click (`ChildGrid` puts the
+             handler on the row) and nothing else says so — a closed record that
+             responds to a click it never advertised is the other half of "now
+             it's confusing". */
+          /*
+            * A CLOSED FABRIC IS A CARD (client 2026-09-08: "wrap the collapsed
+            * structure row (1X1 LYCRA RIB ...) inside its own full-width
+            * bordered container ... so it appears as a distinct, unified row").
+            *
+            * `flatRows` above is why it had none, and the two instructions do
+            * not conflict. The client removed the per-structure frame on
+            * 2026-08-18 ("one frame is enough"), which was right for a row being
+            * EDITED — an open fabric is already fenced, first by the spec card
+            * on its left half and then by the parts table on its right. A CLOSED
+            * one has neither, so what was left was a line of controls between
+            * two horizontal rules, which is the floating this asks to stop. The
+            * two are about two STATES of one row, and `renderFoldedRow` is where
+            * a state-only frame can live without reopening the one `flatRows`
+            * closed.
+            *
+            * ## `border-border` / `bg-surface`, NOT `border-gray-200` /
+            * `bg-white`
+            *
+            * Those two were named literally and are the one part of the request
+            * not taken as written: this repo paints from declared tokens, and a
+            * hard `bg-white` stays white when the dark theme inverts everything
+            * around it. Same substitution the spec card one state over already
+            * made, for the same reason.
+            *
+            * ## NO `flex items-center justify-between`
+            *
+            * Also asked for by name, and it would undo what it is for. The
+            * children here are a `FieldGrid` and the advisory line under it, so
+            * `justify-between` would set the warning BESIDE the fields and
+            * centre it against them — and with no warning showing it does
+            * nothing at all. The "unified row" the flex was reaching for is what
+            * the `FieldGrid` already delivers: Structure at `md`, the summary at
+            * `xl`, on the grid's own track. The container is the change; the
+            * arrangement inside it is untouched.
+            *
+            * ## THE HOVER HAD TO MOVE WITH THE FILL
+            *
+            * `ChildGrid` puts `hover:bg-surface-muted` on the ROW to say a
+            * folded row opens on click (`cursor-pointer`, now on this card, is
+            * the other half of that sentence). An opaque card painted over that
+            * row hides it, so the card takes the same hover itself — the
+            * affordance is unchanged and the surface it plays on is the one now
+            * on top. The 40px `pr-10` gutter the ✕ hangs in is still the row's
+            * own and still tints.
+            *
+            * THE RAIL IS GONE, later the same day (client 2026-09-08, "remove the
+            * left-side border/outline"), and this card is half of why that was
+            * safe: with a closed fabric drawn as its own container and an open one
+            * drawn as a spec card beside its parts, the two states differ in shape
+            * rather than in the ink on a line beside them. The card starts on the
+            * overlay's own margin, exactly where the open row's spec card starts,
+            * so opening a fabric still moves nothing sideways. `space-y-2` sits on
+            * the card because the wrapper that used to carry it has gone; the 8px
+            * it sets is the same 8px.
+            */
+          <div className="cursor-pointer space-y-2 rounded-lg border border-border bg-surface p-3 transition-colors hover:bg-surface-muted">
           <FieldGrid>
             {/* THE STRUCTURE STAYS A REAL FIELD — Tab lands on fields, so a
                 folded row rendering none is mouse-only, and focusing it is what
@@ -14083,35 +14441,36 @@ export function GarmentOrderScreen({
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
           /**
-           * THE RAIL SAYS WHICH FABRIC YOU ARE WORKING ON (client 2026-08-20:
-           * "the table divide[r] need much clear[er] indicated for user they are
-           * working [on a] new one, now its confusing").
+           * NO RAIL DOWN THE LEFT EDGE (client 2026-09-08: "remove the left-side
+           * border/outline from the structure blocks … no vertical line
+           * indicators running down the left side"). The fields start on the
+           * overlay's own margin.
            *
-           * The divider between fabrics already says "a new record starts here"
-           * and was strengthened twice for this same complaint (to
-           * `border-strong`, then to 2px). It was never the missing signal: a
-           * boundary says where a record BEGINS, and the operator was asking
-           * which one is OPEN. A closed fabric still renders a real Structure
-           * picker — deliberately, so Tab can reach it — so a folded card reads
-           * as a short open one, and no amount of line weight between them fixes
-           * that.
+           * WHAT IT USED TO DO, so a later reader knows what was given up: a 2px
+           * `border-primary` with `pl-4` said WHICH FABRIC IS OPEN (client
+           * 2026-08-20, "the table divide[r] need much clear[er] indicated for
+           * user they are working [on a] new one, now its confusing"). A closed
+           * fabric renders a real Structure picker — deliberately, so Tab can
+           * reach it — so a folded row read as a short open one, and the rail was
+           * the one state marker that added no container: a row FILL was removed
+           * app-wide on 2026-08-18, a BOX per row is what `flatRows` exists to
+           * prevent ("one frame"), NUMBERING went on 2026-08-17 ("remove that #1,
+           * #2 … making huge UI gap"), and the DIVIDER had already failed twice.
            *
-           * WHY A RAIL AND NOT THE OBVIOUS THINGS. Every other candidate here is
-           * already a rejected one: a row FILL was removed app-wide on
-           * 2026-08-18, a BOX per row is what `flatRows` exists to prevent
-           * (client: "one frame"), NUMBERING went on 2026-08-17 ("remove that
-           * #1, #2 … making huge UI gap"), and the DIVIDER is the thing that has
-           * failed twice. The rail is the one signal none of those used, and it
-           * marks a STATE rather than adding a container.
+           * WHY REMOVING IT DOES NOT REOPEN THAT COMPLAINT. The two states stopped
+           * looking alike earlier the same day: an open fabric is a bordered spec
+           * card beside its parts table, a closed one is the single full-width
+           * card `renderFoldedRow` gained on 2026-09-08. They differ in SHAPE now,
+           * so the line beside them had nothing left of its own to say.
            *
-           * ITS TWIN IS IN `renderFoldedRow`, transparent and at the same
-           * padding. That matters more than it looks: without the matching
-           * inset, an open card would sit 18px right of a closed one and the
-           * rail would read as the row having MOVED rather than as the row being
-           * active. Presence or absence of colour is the whole message; nothing
-           * else may change between the two states.
+           * BOTH RAILS CAME OFF IN ONE CHANGE, and that is not tidiness. The twin
+           * in `renderFoldedRow` was transparent and existed ONLY to hold the two
+           * states at one inset, so removing either alone would shift the other
+           * 18px sideways on every fold — exactly the "the row MOVED rather than
+           * the row is active" failure the twin was built to prevent. If a state
+           * marker is ever wanted again it comes back as a pair, at the same width
+           * and the same padding.
            */
-          <div className="border-l-2 border-primary pl-4">
           <div
             /*
              * THE PARTS SIT BESIDE THE SPEC (client 2026-08-20: "why can't do
@@ -14201,7 +14560,34 @@ export function GarmentOrderScreen({
               * `FIELD_WIDTH` emits `w-*`, so tailwind-merge resolves that to the
               * later class rather than stacking both.
               */}
-            <div className="min-w-0 space-y-2">
+            {/*
+              * THE SPEC IS A CARD, so its bottom edge meets the parts table's
+              * (client 2026-09-06: "wrap the entire left-hand Structure Details
+              * block inside a bordered card container").
+              *
+              * NOTHING INSIDE MOVES. This is a wrapper on the half that already
+              * existed — the five-column track below, its field order and its
+              * single horizontal line are untouched, which is what "without
+              * rearranging them" asks for. The only thing it costs the track is
+              * `p-3`'s 24px, on a row whose floors are already tight above
+              * 1250px (see the track's own note).
+              *
+              * `self-stretch`, NOT `h-full`, AND THAT IS THE WHOLE TRICK. The
+              * outer grid is `items-start`, so a grid item is exactly as tall as
+              * its content and `h-full` would resolve against that height and do
+              * nothing. `align-self: stretch` overrides `items-start` for THIS
+              * item only, so the spec fills the row's height while the parts
+              * table beside it keeps sizing itself. Putting `items-stretch` on
+              * the grid instead would have stretched both halves and changed the
+              * right one too.
+              *
+              * `border-border` / `bg-surface`, NEVER `border-gray-200` /
+              * `bg-white`. This repo paints from declared tokens — the
+              * `bg-muted` lesson in doc/ui is what an undeclared Tailwind name
+              * costs — and a literal white would stay white in the dark theme
+              * while everything around it inverted.
+              */}
+            <div className="min-w-0 space-y-2 self-stretch rounded-lg border border-border bg-surface p-3">
             {/* FIVE COLUMNS, DOWN FROM SIX (client 2026-08-20, screenshot 2408:
                 "use that left side gap"). The sixth held the fabric's Colour /
                 Print slot, and when that moved onto the part row the track
@@ -14236,7 +14622,26 @@ export function GarmentOrderScreen({
                 second breakpoint guessed from arithmetic. That is a desktop
                 layout decision with client history behind it (screenshots 2354,
                 2408) and it is not this change. */}
-            <div className="grid items-end gap-x-3 gap-y-2 lg:grid-cols-[minmax(150px,1.3fr)_minmax(170px,1.7fr)_4.5rem_4.5rem_minmax(130px,1fr)]">
+            {/* TOLERANCE IS 9rem, GSM IS STILL 4.5 — the LABEL is what needs
+                the width, not the box (client 2026-09-06). "Tolerance * (175 -
+                185)" is ~23 characters and `Label` is `text-xs block` with no
+                `nowrap`, so over a 72px track it wrapped to three lines; on this
+                `items-end` row a taller cell bottom-aligns its input and rides
+                its label above every other label — the exact failure screenshot
+                2397 reported, and the reason the range had a `row-start-2` cell
+                of its own in the first place.
+
+                THE INPUT DOES NOT GROW WITH IT. Tolerance keeps `w="num"` (72px)
+                because a tolerance is one or two digits, so the extra 72px is
+                label, not a wider box and not a trailing empty track — the cell's
+                content spans the column even though its control does not.
+
+                THE FLOORS NOW ADD UP TO 714px, from 642. That is 72px worse
+                against the ~527px this half gets at a 1250px window, which the
+                note below already records as squeezed and deliberately unfixed.
+                Accepted knowingly rather than overlooked: the alternative was a
+                wrapping label, which is the defect above. */}
+            <div className="grid items-end gap-x-3 gap-y-2 lg:grid-cols-[minmax(150px,1.3fr)_minmax(170px,1.7fr)_4.5rem_9rem_minmax(130px,1fr)]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 
@@ -14434,7 +14839,33 @@ export function GarmentOrderScreen({
                   A field they emptied on purpose is exactly the one worth
                   refusing to leave blank, and zero still reads as an answer
                   (`structureProblems`). */}
-              <Field label="Tolerance" required={need.gsm_tolerance} w="num">
+              {/* THE DERIVED RANGE LIVES ON THIS LABEL (client 2026-09-06:
+                  "clean up the dangling 175 - 185 text by integrating it into
+                  the Tolerance label"). It had a cell of its own at
+                  `row-start-2`, which is what "dangling" names — a figure on a
+                  second row under two boxes, belonging to neither.
+
+                  `labelSuffix`, NOT a ReactNode `label`: the star is drawn
+                  between the two, so only a suffix can land AFTER it, and
+                  `label` staying a string is what keeps the required hold
+                  announcing "Tolerance is required." See the prop in
+                  `field.tsx`.
+
+                  It renders nothing until there is something to say — `gsmRange`
+                  returns "" with no GSM typed, so a fresh fabric reads
+                  "Tolerance *" and grows the annotation as it is filled in. */}
+              <Field
+                label="Tolerance"
+                labelSuffix={
+                  range ? (
+                    <span className="ml-1 font-normal tabular-nums text-muted-foreground">
+                      ({range})
+                    </span>
+                  ) : null
+                }
+                required={need.gsm_tolerance}
+                w="num"
+              >
                 <Input
                   type="number"
                   className="text-right"
@@ -14448,24 +14879,26 @@ export function GarmentOrderScreen({
                 />
               </Field>
               {/*
-                * THE RANGE SITS UNDER THE TWO BOXES IT IS THE SUM OF, and in a
-                * grid that costs nothing.
+                * THE RANGE'S OWN CELL STOOD HERE AND IS NOW THE TOLERANCE
+                * LABEL'S SUFFIX (client 2026-09-06). It was
+                * `col-span-2 col-start-3 row-start-2` — a right-aligned figure
+                * on a second row under GSM and Tolerance, belonging to neither,
+                * which is what the client called dangling.
                 *
-                * It had a labelled column of its own — ~123px to show a
-                * subtraction. Putting it inside GSM's `Field` instead made that
-                * field taller than its neighbours, and on a `flex items-end` row
-                * that matched its BOTTOM to theirs and shoved its label 26px up
-                * (client screenshot 2397). `row-start-2` has no such failure
-                * mode: row 1's alignment is computed without this cell, so the
-                * label above it cannot move.
+                * WHAT THAT CELL WAS AVOIDING STILL HOLDS, and the suffix is not
+                * a way back into it. The range was given a row of its own
+                * because putting it INSIDE GSM's `Field` made that field taller
+                * than its neighbours, and on an `items-end` row a taller field
+                * matches its BOTTOM to theirs and shoves its label ~26px up
+                * (client screenshot 2397). `labelSuffix` does not reopen that:
+                * it renders ON the label's existing line, so the field's height
+                * is unchanged and row 1's alignment is computed exactly as
+                * before. The width it needs came from the track instead — see
+                * the note there.
                 *
-                * No label. It is right-aligned beneath two numbers and reads as
-                * their result — naming it would be the caption the client has
-                * now removed four times.
+                * Still unlabelled, still right of the star, still reading as the
+                * result of the two boxes under it rather than as a caption.
                 */}
-              <div className="col-span-2 col-start-3 row-start-2 -mt-1 text-right text-[11px] tabular-nums text-muted-foreground">
-                {range}
-              </div>
               {/* THREE OPTIONS, DOWN FROM FOUR — "Printed" left the vocabulary
                   on 2026-08-31 (client: "Fabric Type is meant to define the
                   structural weave or dye category of the fabric. 'Printed' is an
@@ -14782,7 +15215,6 @@ export function GarmentOrderScreen({
             </div>
             {componentGrid(r, st)}
           </div>
-          </div>
         );
       }}
     />
@@ -15012,6 +15444,30 @@ export function GarmentOrderScreen({
      */
     {
       header: "Coordinate",
+      /* NARROWED TO 120px AND TIGHTENED (client 2026-09-07) — the same
+         instruction as the Coordinate pane beside this table, and the same two
+         numbers, so `COORDINATE_W` and `COORDINATE_DENSE` are stated once and
+         read twice.
+
+         THE OTHER THREE COLUMNS ARE UNTOUCHED and gain the width: with no
+         `width` of their own they flex, so Component / Structure / Fabric split
+         the ~80px this gives back — which is the point at this pane size, where
+         the 08-29 note records those pickers already down to ~144px each and
+         leaning on the `Truncated` reveal.
+
+         `className` REACHES THE `<th>` AND THE `<td>` BOTH (child-grid.tsx), so
+         the header's `px-2 py-2` and the cell's `px-1.5 py-1` are each overridden
+         by the same declaration; tailwind-merge keeps the later one. The header's
+         `py` is inert — a row of `<th>`s takes the tallest — so what actually
+         moves is the horizontal spacing, which is what a 120px column needs.
+
+         `width` IS A `<colgroup>` AND A `<th>` DECLARATION HERE, not `table-fixed`:
+         this grid does not hug (only some columns declare a width), so the table
+         stays `table-layout: auto` and 120px is a strong suggestion rather than a
+         cap. That is the right end of the trade for a value this short — a long
+         GAR name may push a few pixels past it instead of ellipsing at 120. */
+      width: COORDINATE_W,
+      className: cn("px-1 py-0.5", COORDINATE_DENSE),
       cell: (c) => (
         <RecordPicker
           label="Coordinate"
@@ -15494,7 +15950,19 @@ export function GarmentOrderScreen({
         * row of single-line fields.
         */}
       <div className="flex flex-wrap items-start gap-3 @lg/section:col-span-14">
-      <div className="min-w-0 flex-[1_1_220px]">
+      {/* 120px AND NOT 220 (client 2026-09-07) — see `COORDINATE_DENSE`. The
+          arithmetic in the note above is unchanged in shape and 100px slacker:
+          the line now measures Coordinate 120 + Sizes 220 + Components 512 +
+          Process 152 + Files 152 plus four 12px gaps = ~1,204 against the ~1,224
+          that was MEASURED to fit, so this moves the row further from its wrap
+          point rather than nearer it.
+
+          `flex-[0_1_7.5rem]` and not `flex-[1_1_…]`: with `grow: 1` the pane
+          would take a share of the line's slack back and land wider than the
+          120px asked for. That is the shape Process and Files beside it already
+          use, for the same reason — a pane sized to its content does not want
+          the remainder. */}
+      <div className={cn("min-w-0 flex-[0_1_7.5rem]", COORDINATE_DENSE)}>
       <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
         {/* THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added on "add the
             border for the coordinate section" (screenshot 2519) while
@@ -16535,53 +17003,101 @@ export function GarmentOrderScreen({
               2026-08-12, screenshot 2273). `fill` suppresses only the hug: the
               fields keep their declared widths and the slack falls to the right
               of them. */}
-          {/* THREE PEERS ON ONE LINE, WRAPPING — `wrap` plus a basis per section,
-              never a column count. The basis is ~23rem because that is what one
-              of these grids MEASURES: index + Type (7rem) + Colour (11rem) + ✕
-              and their gaps. A count would have to guess a container width to
+          {/* THREE PEERS ON ONE LINE — `wrap` plus a basis per section, never a
+              column count. A count would have to guess a container width to
               switch at, and both guesses were wrong — `@7xl` never fired on this
               pane and `@6xl` would have switched at a width narrower than the
-              content. See `SectionGrid.wrap`. */}
+              content. See `SectionGrid.wrap`.
+
+              EVERY BASIS IS SUMMED FROM ITS OWN COLUMNS, and that is the change
+              of 2026-09-05 (client: "display the three sections in one
+              horizontal row ... make each table clean and compact"). All three
+              declared a flat ~23rem before, which was the DYEING measurement
+              copied onto the print grid as well — so the narrowest of the three
+              claimed a line's worth of room it had no columns to fill:
+
+                dyeing  = # 40px + Type 104 + Colour 120 + ✕ 32 = 296px
+                prints  = # 40px + Print 136             + ✕ 32 = 208px
+
+              THESE ARE TABLE WIDTHS, not the flex row's. Each grid is a real
+              `<table>` since 2026-09-05 (client, Tamil: "oru table aa convert
+              pannu" — make it one table): `<th>`-declared columns,
+              `border-collapse`, a rule under the header and a `border-l`
+              between cells. So the `#` column is the table layout's own `w-10`
+              and the ✕ column its `w-8`, and each column carries a `<td>`'s
+              `px-2` INSIDE the width declared for it — which is why every
+              column above went up by 0.5rem in the same change.
+
+              800px of tables + `SectionGrid`'s two gap-4 gutters is 832px, and
+              THAT NUMBER IS THE WHOLE POINT — it is the width below which the
+              operator stops seeing three tables side by side.
+
+              WHAT EATS THE PANE IS CHROME, not this section. The screen is
+              `mount="page"`, so the app's 224px module sidebar stays on screen
+              BESIDE the editor's own 192px section rail; with the content
+              column's `px-4` and the section's own padding that is ~470px gone
+              before a table is drawn. A 1366 display leaves ~890px and the row
+              holds; 1280 leaves ~805px and it holds; below that it wraps.
+
+              THE FLOOR IS REAL AND IS NOT A TUNING PROBLEM. Three tables need
+              two dropdowns, two text boxes, three ordinals and three ✕ side by
+              side, and 832px is close to what that costs — the remaining slack
+              is the `#` column (24px a card) and the frames, both of which were
+              asked for by name. A pane materially narrower than this (a phone,
+              the ~440px nested picker, or a 1366 laptop at Windows' default
+              125% display scaling, which leaves ~1093 CSS px and ~620px of
+              content) cannot show three across at a usable field width, and
+              `wrap` is what it degrades to instead of spilling out of the
+              cards. If it wraps on a desk it should not, the width to find is
+              in the chrome — collapsing the section rail, or the overlay mount
+              AGENTS.md's operator rule 3 prefers for an editor like this.
+
+              `fill` CAME OFF ALL THREE, and the August note above is the one
+              this supersedes. `fill` suppresses the hug so every card takes the
+              same width, which is what "four different right edges" asked for
+              on 2026-08-12 while the columns were loose. Compacting the columns
+              answers that complaint at its source instead: the two dyeing grids
+              share `dyeColumns` and so measure identically anyway, and the
+              print grid is narrower because it genuinely has one fewer column —
+              a frame stretched past its last cell is the trailing grey the hug
+              exists to stop. */}
           <SectionGrid wrap>
             {/* Yarn dyeing */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- TWO grids share the Color/Print Details section; without captions the operator
                    cannot tell which is which. */
                 label="Yarn Dyeing"
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "yarn")}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={() => addDyeing("yarn")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add yarn dyeing"
               />
             </div>
             {/* Fabric dyeing */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_18.5rem]">
               <ChildGrid<DyeingRow>
                 /* grid-caption: exempt -- the other half of the pair above. */
                 label="Fabric Dyeing"
                 columns={dyeColumns}
                 rows={dyeings.filter((d) => d.section === "fabric")}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={() => addDyeing("fabric")}
                 onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add fabric dyeing"
               />
             </div>
             {/* Roll form prints */}
-            <div className="min-w-0 flex-[1_1_23rem]">
+            <div className="min-w-0 flex-[1_1_13rem]">
               <ChildGrid<PrintRow>
                 /* grid-caption: exempt -- the third of three grids in one section; without captions
                    the operator cannot tell which is which. */
                 label="Roll form prints"
                 columns={printColumns}
                 rows={prints}
-                inlineCards
-                fill
+                tableAlways
                 onAdd={addPrint}
                 onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add roll form print"
@@ -17644,7 +18160,15 @@ export function GarmentOrderScreen({
     // as the insert, so stored rows are frozen rather than wiped.
     {
       key: "logistic",
-      label: "Logistic",
+      /**
+       * RENAMED FROM "Logistic" (client 2026-09-08): Ship Type, Ship Mode,
+       * Country and Pay Terms are removed from this tab below, leaving only
+       * Pay Mode, Currency, Ex-Rate and the three derived value fields — so
+       * the tab reads as what it now holds. The rail KEY stays `logistic`
+       * (AGENTS.md, "The sidebar lists SUB-MODULES": a label is not a route,
+       * and every `section: "logistic"` reference below still resolves).
+       */
+      label: "Payment & Value",
       content: (
         <div className="space-y-4">
           {/* Logistic scalars */}
@@ -17662,96 +18186,26 @@ export function GarmentOrderScreen({
                   Zod input too, which is what stops a save nulling them. */}
               {/* `size="xs"` (2 of 12), SIX per row, so these fields line up
                   with the Order Info section rather than agreeing with it by
-                  coincidence. They were `sm` (four per row) until 2026-08-14;
-                  the whole screen moved together, because a density that
-                  changes as you move down the rail is the thing the client was
-                  reading as clutter.
+                  coincidence.
 
-                  ONE EXCEPTION, AND IT EXISTS TO KEEP THE ROWS FLUSH (client
-                  2026-08-17; re-solved 2026-08-21 when INR Value arrived).
-                  Eleven fields at `xs` is twenty-two columns — six on the first
-                  row and FIVE on the second, two short. Solve
-                  `2a + 3b + 4c + 6d = 24` over eleven cells and there are two
-                  answers: ten `xs` plus ONE `md`, or nine `xs` plus two `sm`.
-                  The second is rejected on DATA — `sm` is 3 (~200px) and
-                  "TT 30 DAYS FROM BL DATE" was clipped at 202px, which is the
-                  measurement that bought `Pay Terms` its width in the first
-                  place. So `Pay Terms` keeps `md` (4) and everything else is
-                  `xs`, and the section reads 6 + 5 with no hole.
+                  SHIP TYPE, SHIP MODE, COUNTRY AND PAY TERMS ARE REMOVED
+                  (client 2026-09-08). Their state, payload and Zod fields are
+                  UNTOUCHED — `ship_type_id`, `ship_mode`, `country_id` and
+                  `pay_terms_id` stay on `QuantityRow`/`form`/`amendmentInput`
+                  exactly as `Department`/`Agent`/`Received` did on 2026-08-10 —
+                  only the `<Field>`s below are gone, which is also what drops
+                  the old `md`/`lg` width exception this note used to carry: the
+                  six fields left (Currency, Ex-Rate, Pay Mode, Avg Rate, Gross
+                  Value, INR Value) are `xs` (2) apiece, 6 x 2 = 12, one flush
+                  row with no remainder to solve for.
 
-                  `Gross Value` GAVE UP the `md` it held while there were ten
-                  fields, and gave it up on the rule this note already stated:
-                  promote a field because its DATA wants the width, never
-                  whichever one happens to be last. A currency string is ~14
-                  characters and fits `xs`; a payment term is 23 and does not.
-                  The arithmetic only ever said how many.
-
-                  The `FieldGrid` above was never the problem: a span comes ONLY
-                  from `<Field size>`, so a child that is not a sized `Field`
-                  takes ONE of the 12 columns. Nine of these were bare pickers and
-                  hand-rolled `<div><Label/><Input/></div>` pairs and rendered
-                  ~90px wide, clipping their own values ("— Sel", "dd-m…"), while
-                  the three real `<Field>`s passed no `size` and fell back to the
-                  retired `md` (4 of 12) and sprawled. Row 1 summed to exactly 12
-                  and row 2 to 9, which is where the trailing gap came from
-                  (client 2026-08-11).
-
-                  Every picker takes `compact` so the `Field` draws the only
-                  label — and `required` MOVES onto the Field with it, because
-                  `data-picker.tsx` renders the red `*` inside the same
-                  `!compact` branch as the label. Each picker keeps its own
-                  `required` too; `DataPicker` ORs the prop with the
-                  `RequiredScope` context, so the cursor hold is unchanged. */}
-              {/* Contact, PO Date and Received (date) WITHDRAWN 2026-08-12
-                  (client): the Logistic tab is Ship Mode / Ship Type / Pay Mode
-                  / Payment Terms / Days / Currency / Country, and nothing else.
-                  Department, Agent and Received (mode) went the same way on
-                  08-10. Their columns and stored values are untouched; they left
-                  `amendmentInput` too, which is the half that stops
-                  `headerOnly()` nulling them on the next save. */}
-              <Field label="Ship Type" required size="xs">
-                <LookupDialogPicker
-                  kind="ship_type"
-                  label="Ship Type"
-                  compact
-                  options={shipTypeOpts}
-                  value={form.ship_type_id}
-                  onChange={(id) => set({ ship_type_id: id })}
-                  required
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                />
-              </Field>
-              {/* `<Field required>` rather than a bare Label: a `<Select>` reads
-                  requiredness from context (`select.tsx` → `useRequiredHold`), so
-                  the star and the cursor hold both come from this one prop. */}
-              <Field label="Ship Mode" required size="xs" htmlFor="lg-shipmode">
-                <Select
-                  id="lg-shipmode"
-                  value={form.ship_mode}
-                  onChange={(e) => set({ ship_mode: e.target.value })}
-                >
-                  <option value=""></option>
-                  {SHIP_MODES.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </Select>
-              </Field>
-              {/* `CountryPicker`'s own `required` DEFAULTS TO TRUE, so the star
-                  this field has always drawn appears nowhere in the call site.
-                  `compact` suppresses that label and its star together, which is
-                  why the wrapper has to say `required` out loud — leaving it off
-                  would quietly unmark a mandatory field (a122adc). */}
-              <Field label="Country" required size="xs">
-                <CountryPicker
-                  compact
-                  countries={data.countries}
-                  value={form.country_id}
-                  onChange={(id) => set({ country_id: id })}
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                />
-              </Field>
+                  `sectionValidity`'s `logistic` gate (search `empty: (f) =>`)
+                  and the rail-dot `logistic:` test below DROP their entries for
+                  these three — Country was never in the Save gate, only held by
+                  `CountryPicker`'s own default `required`, so removing its
+                  `<Field>` removes that hold with it. Un-hiding a field is
+                  putting its `<Field>` back and adding its `empty:` entry back;
+                  nothing else moved. */}
               {/* `CurrencyPicker` has no `required` prop of its own, so the
                   scope comes from the wrapper — its inner `DataPicker` ORs the
                   context (`data-picker.tsx:292`). `compact` because the Field
@@ -17787,26 +18241,6 @@ export function GarmentOrderScreen({
                   ))}
                 </Select>
               </Field>
-              {/* `lg` (6), NOT `md` (4) — IT ABSORBED THE WIDTH "Days" LEFT.
-                  This row is Pay Terms + Avg Rate + Gross Value + INR Value,
-                  and the three figures beside it are `xs` (2) each; without the
-                  extra two columns the row would sum to 10 and sit short of its
-                  track, which is the one thing the 08-17/19 de-clutter pass
-                  settled by hand across the whole screen. Pay Terms is also the
-                  right cell to give them to: it is the only picker on the line
-                  and its values are the longest text on it. */}
-              <Field label="Pay Terms" required size="lg">
-                <PaymentTermPicker
-                  label="Pay Terms"
-                  compact
-                  required
-                  options={payTermOpts}
-                  value={form.pay_terms_id}
-                  onChange={(id) => set({ pay_terms_id: id })}
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                />
-              </Field>
               {/* "DAYS" STOOD HERE AND IS GONE (client 2026-08-29: "removes the
                   Days column from the Logistics tab entirely").
                   
@@ -17837,10 +18271,71 @@ export function GarmentOrderScreen({
                   the rows carry no colour column to weight them by, so there is
                   no single rate; the total refuses rather than under-reporting,
                   because a partial Gross Value looks exactly like a real one. */}
+              {/* THESE THREE ARE BACK ON THE CURSOR PATH (client 2026-09-08:
+                  Enter on Pay Terms must "redirect focus directly to the
+                  immediate next field: Avg Rate", and Tab and Enter must run
+                  "Pay Items ➔ Avg Rate ➔ following inputs").
+
+                  ## WHAT IT WAS DOING, WHICH WAS NOT A BUG
+
+                  All three are `<Input readOnly>`, and `input.tsx` stamps
+                  `tabIndex={-1}` on a read-only box itself — "a field the
+                  operator cannot type into is never a tab stop", the standing
+                  auto-field rule. `FOCUSABLE_SELECTOR` excludes `[tabindex="-1"]`
+                  on every branch, so one attribute took them out of Tab, out of
+                  ↑↓←→ and out of Enter-advance at once. That left **Pay Terms as
+                  the last field of the section**, and Enter off the last field of
+                  a rail-editor section opens the NEXT SECTION (`registerContentEdge`)
+                  — which is the "jumping to the next tab" being reported. Nothing
+                  was submitting a form and nothing was skipping ahead: there was
+                  no field between Pay Terms and the end of the tab.
+
+                  ## SO THIS IS AN OPT-IN, NOT A PATCH
+
+                  `tabIndex={0}` is the documented way back in — `input.tsx`
+                  resolves `tabIndex ?? (readOnly ? -1 : undefined)` precisely so a
+                  caller can opt a derived field back into the order deliberately.
+                  No handler, no per-screen key binding, nothing in `lib/focus.ts`:
+                  the contract already walks whatever is focusable, and this says
+                  these three are.
+
+                  ALL THREE, NOT JUST AVG RATE. Opting in only the field the
+                  request names would move the hand-off one field along and
+                  reproduce the same report on Avg Rate — the row is the unit here,
+                  which is what "following inputs" asks for. The hand-off has not
+                  gone away and cannot: it now fires off INR Value, the new last
+                  field, because a section has to end somewhere.
+
+                  ## `readOnly` IS UNTOUCHED, AND THAT IS WHAT MAKES THE STOP SAFE
+
+                  The cursor can rest here and read the figure; it still cannot
+                  type one. Gross Value and Avg Rate are `order-value.ts`'s
+                  arithmetic and INR Value is Gross x Ex-Rate — a stop is a place
+                  to LOOK, never a fourth number that can disagree with the three
+                  it came from (see the notes below). Neither is `required`, so
+                  neither can hold the cursor: there is no cage to walk into.
+
+                  ## THE COUNTER-PRECEDENT, STATED SO IT CAN BE REVISITED CHEAPLY
+
+                  The same client asked for the OPPOSITE about derived boxes twice:
+                  `autoFilledField` (lib/focus.ts) exists because of 2026-08-31 —
+                  "the keyboard tab navigation must completely bypass the Entry
+                  Date and Location/Unit fields … automatically determined" — and
+                  the T&A tab's Date / Ref No in this same file carry a comment
+                  headed "THE TWO FIELDS THE CURSOR MUST BYPASS (client)". Those
+                  are auto-FILLED inputs standing among typeable ones; these are a
+                  computed tail an operator reads before leaving the tab, which is
+                  the distinction the two instructions turn on. If that reading is
+                  wrong the fix is to delete three `tabIndex={0}` — do NOT answer
+                  it by reversing the rule in `input.tsx`, which would put every
+                  derived field in the app back on the typing path. */}
               <Field label="Avg Rate" size="xs" htmlFor="lg-avgrate">
                 <Input
                   id="lg-avgrate"
                   readOnly
+                  /* Opts this derived box back onto the Tab/Enter path — see the
+                     note above. Without it `readOnly` sets `tabIndex={-1}`. */
+                  tabIndex={0}
                   className="text-right"
                   value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
                 />
@@ -17849,6 +18344,8 @@ export function GarmentOrderScreen({
                 <Input
                   id="lg-gross"
                   readOnly
+                  /* On the cursor path with Avg Rate — see the note there. */
+                  tabIndex={0}
                   className="text-right"
                   value={
                     orderVal.grossValue == null
@@ -17888,6 +18385,9 @@ export function GarmentOrderScreen({
                 <Input
                   id="lg-inr"
                   readOnly
+                  /* The row's last stop, and now where the section hand-off
+                     fires — see the note on Avg Rate. */
+                  tabIndex={0}
                   className="text-right"
                   value={inrVal == null ? "" : fmtMoney(inrVal, "INR")}
                 />
@@ -18030,8 +18530,18 @@ export function GarmentOrderScreen({
             * said here and the other three rules somewhere else. When the ladder
             * refuses there is no anchor, no start date and no float — so this
             * status line has nothing to say and correctly renders nothing.
+            *
+            * NOW ALSO TRUE WHILE THE LADDER IS MERELY INCOMPLETE (2026-09-07):
+            * `taLadder.startDate` is `null` the moment ANY row's Days is still
+            * blank, not only on a total refusal (see `Schedule.incomplete` in
+            * lib/ta/schedule.ts) — a "Work starts…" claim built on a chain
+            * that stops partway through is exactly the guessed date this
+            * module's own header refuses to print. `taLadder.incomplete`
+            * carries the same sentence the notices block already prints for
+            * this row, so nothing here restates it — it just stands down
+            * until there is a real start date to report.
             */}
-          {!isRefusal(taLadder) && (
+          {!isRefusal(taLadder) && taLadder.startDate != null && (
             <p className="rounded-md border border-border bg-surface-muted/40 px-3 py-2 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">
                 Scheduled back from {fmtDate(taLadder.anchor.date)}
@@ -18044,10 +18554,10 @@ export function GarmentOrderScreen({
               <span className="font-medium text-foreground">
                 {fmtDate(taLadder.startDate)}
               </span>
-              {taLadder.float < 0 ? (
+              {taLadder.float! < 0 ? (
                 <span className="font-medium text-danger">
                   {" "}
-                  — {Math.abs(taLadder.float)} days late already
+                  — {Math.abs(taLadder.float!)} days late already
                 </span>
               ) : taLadder.float === 0 ? (
                 <span className="font-medium text-warning"> — starting today</span>
@@ -18055,6 +18565,44 @@ export function GarmentOrderScreen({
                 <> — {taLadder.float} days from today</>
               )}
               .
+            </p>
+          )}
+
+          {/**
+            * FEASIBILITY WARNING — VISIBLE ONLY, NEVER BLOCKS SAVE (external
+            * spec, 2026-09-07: "the calculated Material Inhouse Date cannot
+            * be earlier than the style's Order Received Date … block the
+            * save"). The spec's own wording asks for a hard block; this app
+            * does not add one, because the client made every T&A field
+            * optional on 2026-08-31 and nothing in this tab has gated Save
+            * since — adding the tab's FIRST-EVER blocking rule here would
+            * silently reverse that decision. So this is the same shape as
+            * the status line above it: a fact stated in the danger tone,
+            * never wired into anything that refuses the click.
+            *
+            * `amend_date` (Order Info's "Date") IS THE ORDER'S OWN DATE —
+            * there is no separate "Order Received Date" live on this screen.
+            * `received_date` exists as a column but was explicitly withdrawn
+            * from the Logistic tab 2026-08-12 ("Ship Mode / Ship Type / Pay
+            * Mode / Payment Terms / Days / Currency / Country, and nothing
+            * else"); resurrecting it here to answer a spec nobody asked this
+            * screen to implement literally would undo that client decision
+            * for a different reason than the one that undid it.
+            *
+            * NEEDS A REAL `startDate` — same as the status line above (2026-
+            * 09-07): while any row's Days is still blank there is no "this
+            * schedule needs to start on…" to compare against `amend_date` at
+            * all, so the warning waits rather than comparing against a date
+            * that has not been derived yet.
+            */}
+          {!isRefusal(taLadder) && taLadder.startDate != null && taLadder.startDate < form.amend_date && (
+            <p className="rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
+              <span className="font-medium">
+                This schedule needs to start on {fmtDate(taLadder.startDate)}
+              </span>{" "}
+              — before {fmtDate(form.amend_date)}, the order's own Date. The
+              production days entered add up to more time than is actually
+              available; this does not block Save.
             </p>
           )}
 
@@ -18076,96 +18624,125 @@ export function GarmentOrderScreen({
             */}
 
           {/**
-            * THREE CARDS PER ROW, WITH A ROAD LINE BEHIND THEM (client, after a
-            * road-map mockup: "make 3 card per row and that line"). Both are
-            * layered OUTSIDE `ChildGrid` rather than built into it:
+            * ONE COLUMN, WITH A ROAD LINE BEHIND THE ICONS (client, pointing at
+            * the actual pinned "Version 3" of the road-map artifact — an
+            * earlier read of that same link had returned its LIVE content
+            * instead, which is a different, later revision; the screenshot of
+            * the pinned page is what this now matches). Both the line and the
+            * stacking are layered OUTSIDE `ChildGrid` rather than built into
+            * it:
             *
             * - `taWrapCallbackRef` is the coordinate space `taTrack`'s path was
             *   measured in (see the hooks above the early return, and that
             *   callback ref's own note on why a plain `useRef` missed every
-            *   tab switch) — the `<svg>` below is
-            *   an absolutely-positioned sibling of `ChildGrid`, painted first so
-            *   it sits BEHIND the cards, sized to the exact pixel box that was
-            *   measured so the path's raw coordinates need no `viewBox` scaling.
-            * - The arbitrary-descendant classes on the wrapper below turn
-            *   `ChildGrid`'s own row container (`[data-grid-body]`) into a CSS
-            *   grid from the OUTSIDE — no such prop exists on `ChildGrid`, and
-            *   none was added there, because this is purely how ~10 already-
-            *   correct rows are ARRANGED, not a new row shape. `ChildGrid` still
-            *   renders exactly one `TaRow` per `[data-grid-row]`; Tab, Ctrl+Del
-            *   and Enter-adds-a-row all still walk that same one-row-per-
-            *   activity model unchanged.
+            *   tab switch) — the `<svg>` below is an absolutely-positioned
+            *   sibling of `ChildGrid`, painted first so it sits BEHIND the
+            *   cards, sized to the exact pixel box that was measured so the
+            *   path's raw coordinates need no `viewBox` scaling.
+            * - `ChildGrid` needs no CSS-grid override for this: with
+            *   `flatRows` it already stacks one `[data-grid-row]` per line,
+            *   which is exactly what a single column wants. `ChildGrid` still
+            *   renders exactly one `TaRow` per `[data-grid-row]`; Tab,
+            *   Ctrl+Del and Enter-adds-a-row all still walk that same
+            *   one-row-per-activity model unchanged.
             * - `!border-t-0` / `!py-0` cancel `flatRows`'s own single-column
-            *   rhythm (a top divider and asymmetric top/bottom padding meant for
-            *   a stacked list), which would otherwise sit unevenly across a row
-            *   of three cards; the grid's own `gap` supplies the spacing instead.
+            *   rhythm (a top divider and asymmetric top/bottom padding meant
+            *   for a plain stacked list), since `taRenderMobileRow` draws its
+            *   own card with its own `py-1` instead.
             */}
-          {/* THE START CAP (client: "that order entry rock and shipent with
-             track icon need to add"). Same shape as the artifact's own
-             bookends — a small circle in the app's brand-soft tint, a
-             label under it — marking the two ends of the ladder that are
-             not activities: the order itself, and the shipment it is
-             building toward. Purely decorative, matching `road-cap` in the
-             reference artifact; carries no data of its own. */}
-          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-1">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
-              <Rocket className="h-4 w-4" />
+          {/* NO START/FINISH CAP (client 2026-09-07: "remove those order
+             enter and ship icon and wordings"). The rocket/"Order entered"
+             and flag/"Ready to ship" bookends the artifact mockup drew
+             around the ladder are gone; the ladder is now just its own
+             activities, top to bottom. THE DATE ITSELF IS BACK, though — a
+             plain label in the SAME column the rows' own date sits in
+             (client, same day: "that earlier ship date field also list near
+             [the row] number"), never an icon or a word like "Order entered".
+             `w-16` matches `taRenderMobileRow`'s own date-column width
+             exactly (widened from `w-11` the same day — that width let a full
+             DD/MM/YYYY overflow into the icon beside it), so this reads as
+             one continuous column with "01" beneath it rather than a second,
+             disconnected label. */}
+          {!isRefusal(taLadder) ? (
+            <div className="w-16 pb-1 text-right">
+              <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
+                SHIP
+              </div>
+              <div className="text-[11px] font-semibold tabular-nums text-foreground">
+                {fmtDate(taLadder.anchor.date)}
+              </div>
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Order entered
-            </span>
-          </div>
-          {/* NARROWER, SO THE TWO SIDES SIT CLOSER TOGETHER (client: "can i
-             think shrick those left and right between gab" — the alternating
-             cluster was spanning the FULL width of a wide content pane,
-             which is not what the artifact's own bounded shell showed. Same
-             `max-w-2xl` as the caps above it, so the line's left/right swing
-             lines up with the rocket and the flag rather than under- or
-             overshooting them. */}
-          <div ref={taWrapCallbackRef} className="relative mx-auto max-w-2xl">
+          ) : (
+            <p className="pb-1 text-[11px] font-medium text-warning">{taLadder.refused}</p>
+          )}
+          {/* `max-w-2xl`, LEFT-ALIGNED (client: "left align it and compact it
+             more") — no `mx-auto`, so the column hugs the pane's own left
+             edge instead of centring in whatever width the pane happens to
+             be. */}
+          <div ref={taWrapCallbackRef} className="relative isolate max-w-2xl">
             <svg
-              /* NO `-z-10` — see the fix note. A negative z-index on an
-                 element whose parent sets no z-index of its own does not
-                 mean "behind its sibling grid"; it means "behind the
-                 nearest ancestor that DOES form a stacking context", which
-                 on this screen is the tab pane's own opaque background. The
-                 svg painted, correctly, entirely out of sight underneath it.
-                 Plain DOM order does the job instead: this element is
-                 written BEFORE the grid below it and neither carries a
-                 z-index, so normal painting order alone puts it behind. */
-              className="pointer-events-none absolute left-0 top-0"
+              /* `-z-10`, AND `isolate` ON THE WRAPPER ABOVE — the DOM-order
+                 claim this comment used to make here was wrong, which is why
+                 the line kept drawing through the icons no matter how thin or
+                 pale it was made (client, twice: "that green line hiding the
+                 icons", then "still that line is above the icon").
+                 `position: absolute` takes an element OUT of normal flow, and
+                 the CSS paint order for a stacking context always paints its
+                 POSITIONED descendants (even at the default z-index:auto)
+                 AFTER its plain in-flow ones — the icon badges below are
+                 ordinary flex children with no position of their own, so this
+                 absolutely-positioned `<svg>` painted on top of them
+                 regardless of appearing earlier in the JSX. DOM order only
+                 breaks ties WITHIN one paint step, never between "positioned"
+                 and "static".
+                 A literal negative z-index is the fix for THAT — but tried
+                 alone (as a much earlier pass here found) it escapes to
+                 whichever ANCESTOR happens to establish the nearest stacking
+                 context, which on this screen is the tab pane's own opaque
+                 background, and the line vanishes completely behind it.
+                 `isolate` on the wrapper is what contains the escape: it
+                 forces THIS div to be that nearest context, so `-z-10` only
+                 has to outrank this wrapper's own children (the line and the
+                 grid), never the app chrome around it. */
+              className="pointer-events-none absolute left-0 top-0 -z-10"
               width={taTrack.w}
               height={taTrack.h}
               aria-hidden="true"
             >
+              {/* THIN, AND `--border` NOT `--border-strong` (client: "that
+                 green line hiding the icons") — the Orders skin tints
+                 `--border-strong` olive (`#b9c9a6`), and at the old 5px width,
+                 drawn straight through each icon's own centre, it read as a
+                 thick green bar cutting the glyph in half rather than a line
+                 behind it. `--border` is the same skin's much paler tint
+                 (`#dde5d3`) and 2px leaves the icon plainly on top. */}
               <path
                 d={taTrack.d}
                 fill="none"
-                stroke="var(--border-strong)"
-                strokeWidth={5}
+                stroke="var(--border)"
+                strokeWidth={2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
             </svg>
             <div
-              /* NO GRID OVERRIDE ANY MORE — the 3-per-row and 5-per-row grid
-                 CSS both went with the layout they were built for (client, at
-                 the artifact's own "Version 7": the ALTERNATING single-card
-                 road map, not the grid built for a request in between).
-                 `ChildGrid`'s own row container needs no help here: with
-                 `flatRows` it already stacks one `[data-grid-row]` per line,
-                 which is exactly what an alternating layout wants — each row
-                 decides its OWN left/right via `taRenderMobileRow`'s `side`,
-                 not via how the container arranges cells. `!border-t-0` /
-                 `!py-0` stay: `flatRows`'s single-column divider and padding
-                 were tuned for a plain stacked list, not a row that is now a
-                 flex cluster pinned to one edge, and `taRenderMobileRow`
-                 supplies its own `py-1` instead. */
-              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0"
+              /* NO GRID OVERRIDE — a single stacked column is `flatRows`'s own
+                 default shape, so nothing needs turning into a CSS grid from
+                 the outside here. `!border-t-0` / `!py-0` stay: they cancel
+                 `flatRows`'s own divider/padding rhythm, which
+                 `taRenderMobileRow` supplies its own version of instead.
+                 `w-fit`, added on top (client: the ✕ "still appearing
+                 orphaned" once the card itself stopped stretching — a
+                 `[data-grid-row]` is a plain block, and a block's own width
+                 is auto/100% of `[data-grid-body]` regardless of how wide
+                 the CARD inside it draws itself. Shrinking the row to its
+                 own content is what pulls `cornerRemove`'s `✕` — positioned
+                 off THIS element's corner, not the card's — back next to it. */
+              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0 [&_[data-grid-row]]:w-fit"
             >
               <ChildGrid<TaRow>
                 columns={taColumns}
-                rows={taRows}
+                rows={taRowsDisplay}
                 /* THE LADDER READS AS A SCHEDULE, NOT A TABLE (client, after
                    reviewing a timeline mockup): `forceCards` renders every width
                    as the stacked-card layout, and `renderMobileRow` swaps the
@@ -18183,6 +18760,15 @@ export function GarmentOrderScreen({
                    both assume a single stacked column. */
                 flatRows
                 renderMobileRow={taRenderMobileRow}
+                /* THE CLIENT-NAMED 9-STEP CHAIN IS FIXED, NOT JUST DEFAULT
+                   (client, 2026-09-07 — the same day 0541 seeded it: "make it
+                   read only"). Read off the master's own `default_seed` flag,
+                   never a hardcoded name list — the same reasoning
+                   `isInactive` already uses everywhere in this app. A row an
+                   operator adds by hand through "+ Add activity" (Fabric
+                   Plan, Accessories BOM, …) stays fully editable and
+                   removable; only the standard chain locks. */
+                lockRow={(r) => !!taActivityById.get(r.activity_id ?? "")?.default_seed}
                 /* NO `seedRow`. Every other grid on this screen opens on a blank
                    row because the operator is the only one who knows what
                    belongs in it; this one is seeded from the `ta_activities`
@@ -18190,23 +18776,14 @@ export function GarmentOrderScreen({
                    last one was deleted would be a row whose Activity picker
                    holds the cursor and whose Days blocks Save — a grid arguing
                    with an operator who has just emptied it on purpose. */
-                onAdd={() => setTaRows((xs) => [...xs, blankTaRow()])}
+                /* PREPENDS the real (execution-order) array — see
+                   `taRowsDisplay` above for why that lands the new row next
+                   to this button rather than at the top of the screen. */
+                onAdd={() => setTaRows((xs) => [blankTaRow(), ...xs])}
                 onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add activity"
               />
             </div>
-          </div>
-          {/* THE FINISH CAP (client: "order completion wiht flag and track").
-             Same treatment as the start cap, closing the ladder at Shipment
-             rather than naming it a second time — the last card already
-             says "SHIPMENT". */}
-          <div className="mx-auto flex max-w-2xl flex-col items-center gap-1 pb-1 pt-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary">
-              <Flag className="h-4 w-4" />
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Ready to ship
-            </span>
           </div>
         </div>
       ),

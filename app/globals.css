@@ -335,8 +335,13 @@
   --color-info-soft: var(--info-soft);
   --color-shell-tabbar: var(--shell-tabbar);
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    Arial, sans-serif;
+  /* Inter, loaded by `next/font/google` in app/layout.tsx (which sets
+     `--font-inter` on <html>) — the system stack stays as the fallback
+     chain for the one frame before the variable applies, and for any
+     stylesheet that renders outside <html> (there is none today, but the
+     fallback costs nothing to keep honest). */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 

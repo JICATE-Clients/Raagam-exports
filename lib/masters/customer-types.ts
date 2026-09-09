@@ -110,6 +110,21 @@ export interface CustomerMarking {
   marking: string | null;
 }
 
+/**
+ * One row = one `ta_approvals` milestone this customer requires, with the
+ * days their own team takes to review it (doc/approval.md §3). PRESENCE IS
+ * THE FLAG — there is no `is_mandatory` boolean to disagree with it; an
+ * approval not listed here simply is not tracked for this customer's orders.
+ * No `sno`: unlike the other child grids, this list is never reordered by an
+ * operator, only checked on/off against the fixed `ta_approvals` master.
+ */
+export interface CustomerApprovalPolicy {
+  id: string;
+  customer_id: string;
+  approval_id: string;
+  lead_time_days: number;
+}
+
 export interface Customer {
   id: string;
   code: string | null; // "Short Name"
@@ -169,6 +184,7 @@ export interface Customer {
   supplied_items: CustomerSuppliedItem[];
   nominated_vendors: CustomerNominatedVendor[];
   markings: CustomerMarking[];
+  approval_policy: CustomerApprovalPolicy[];
 }
 
 const nullableText = z.string().optional().nullable();
@@ -211,6 +227,11 @@ export const customerNominatedVendorInput = z.object({
 export const customerMarkingInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   marking: nullableText,
+});
+
+export const customerApprovalPolicyInput = z.object({
+  approval_id: z.string().uuid(),
+  lead_time_days: z.coerce.number().int().min(0).default(0),
 });
 
 export const customerInput = z.object({
@@ -263,5 +284,6 @@ export const customerInput = z.object({
   supplied_items: z.array(customerSuppliedItemInput).default([]),
   nominated_vendors: z.array(customerNominatedVendorInput).default([]),
   markings: z.array(customerMarkingInput).default([]),
+  approval_policy: z.array(customerApprovalPolicyInput).default([]),
 });
 export type CustomerInput = z.infer<typeof customerInput>;

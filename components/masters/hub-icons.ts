@@ -7,6 +7,7 @@ import {
   Clock,
   HandCoins,
   Percent,
+  Stamp,
   Timer,
   TrendingDown,
   Users,
@@ -77,6 +78,10 @@ export const MASTER_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   designation: { icon: BadgeCheck, tone: "primary" },
   "employee-category": { icon: Users, tone: "warning" },
   "pf-esi-control": { icon: Percent, tone: "danger" },
+  // System sub-module (0546, client 2026-09-07: "did you see" the HR sweep's
+  // icons, wanting the new TA Approvals tile to match rather than draw the
+  // generic `Tag`). A rubber stamp for a dictionary of technical sign-offs.
+  "ta-approvals": { icon: Stamp, tone: "accent" },
 };
 
 /** The mark for a name, or `undefined` so the card keeps its own defaults. */

@@ -164,6 +164,22 @@ keeps native Tab *outside* its grids (~51 screens: the `planning/*-detail` famil
 `*-assign-screen` masters). `--check tab-page-form` lists them; each needs one
 `data-focus-scope` on its form wrapper — a marker, never a handler.
 
+**AND THE ENUMERATION IS NOT THE WHOLE SET — `--check tab-page-form` HAS A FLOOR.** Its
+discriminator for "this is an editor" is `useUnsavedGuard` / `useFormDraft`, chosen because
+widening it to "a `<form>` with a submit button" would cage the operator inside every filter
+bar (98 of the 99 unmarked forms have one). That is the right gate and it costs a class of
+screen: a hand-rolled `<form>` page editor that ALSO skips the auto-reload guard is invisible
+to it, and to `--check unsaved-guard` beside it, whose own scope is `Sheet` /
+`MasterFullScreen` / `SimpleMasterScreen`. **Two checks, one hole, and a screen missing both
+rules falls through it** — which is not a hypothetical: the whole **Logistics** module sat
+there, eleven `<form>` editors across ten files (shipments, LC, proforma, EPCG, incentives,
+export/order categories), each with a submit button, none with a marker, none in either
+listing. All eleven carry `data-focus-scope` since 2026-09-08. They still declare no
+`useUnsavedGuard`, so the reload-guard rule above is unmet there and they remain invisible to
+the check — fixing that is what would put them back inside the enumeration, and it is the
+reason to do it. Until then: **a module absent from `--check tab-page-form` has not been
+cleared by it.**
+
 Tab refuses to move in exactly two cases — a live duplicate-name error, and a blank
 mandatory field (below). Full contract, reasoning and the accessibility trade-off in the
 `raagam-keyboard-contract` skill; checked by

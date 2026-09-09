@@ -203,7 +203,14 @@ export function EpcgClient({
             <CardTitle>New EPCG declaration</CardTitle>
           </CardHeader>
           <CardBody>
-            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <form
+              onSubmit={handleCreate}
+              // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+              // is false, Tab keeps native order and leaves the form.
+              // See the `raagam-keyboard-contract` skill.
+              data-focus-scope
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            >
               <div>
                 <Label htmlFor="ep-lic">Licence number</Label>
                 <Input id="ep-lic" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} />

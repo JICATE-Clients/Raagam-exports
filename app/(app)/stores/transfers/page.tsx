@@ -73,7 +73,10 @@ export default async function TransfersPage() {
     },
     {
       header: "Item",
-      cell: (r) => <span className="text-sm">{r.item_name ?? "--"}</span>,
+      // font-semibold (client 2026-09-07, Archivo weight spec) — this list
+      // carries no document number of its own, so Item is the row's actual
+      // identifying fact; Store/Qty/Type stay at their existing weight.
+      cell: (r) => <span className="text-sm font-semibold">{r.item_name ?? "--"}</span>,
     },
     {
       header: "Qty",

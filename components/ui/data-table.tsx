@@ -79,8 +79,11 @@ export function DataTable<T>({
                   // make the each table title label as bold") — the same move
                   // `child-grid.tsx`'s `GRID_HEADER_TEXT` makes, so a
                   // `ChildGrid` row and a `DataTable` header read the same
-                  // weight.
-                  "px-3 py-2 text-xs font-bold text-muted-foreground",
+                  // weight. `uppercase tracking-[0.06em]` (client 2026-09-07,
+                  // Archivo weight spec: table headers are "hierarchy through
+                  // case and spacing, not just weight" — the same reasoning
+                  // that keeps this bold at 12px rather than clotting).
+                  "px-3 py-2 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
                   align[c.align ?? "left"],
                   c.className,
                 )}

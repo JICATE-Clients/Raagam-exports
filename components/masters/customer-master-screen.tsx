@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MapPin, Package, SlidersHorizontal, Truck, User, Users, X, type LucideIcon } from "lucide-react";
+import { CheckCircle2, MapPin, Package, SlidersHorizontal, Truck, User, Users, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -22,6 +22,7 @@ import { ApplicantPicker } from "@/components/masters/applicant-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { ChildGrid } from "@/components/masters/child-grid";
+import { Toggle } from "@/components/ui/toggle";
 import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-columns-dialog";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
@@ -52,6 +53,7 @@ import {
   BUSINESS_ENTITIES,
   PAN_BUSINESS_ENTITY,
 } from "@/lib/masters/customer-types";
+import type { TaApproval } from "@/lib/masters/ta-approval-types";
 import type { Applicant } from "@/lib/masters/applicant-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
@@ -60,7 +62,7 @@ import { createdSection } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
-type SectionKey = "identity" | "address" | "agents" | "supplied" | "vendors" | "general";
+type SectionKey = "identity" | "address" | "agents" | "supplied" | "vendors" | "approvals" | "general";
 
 type HeaderForm = {
   code: string;
@@ -321,6 +323,7 @@ export function CustomerMasterScreen({
   destinations,
   couriers,
   packingColumns,
+  approvals,
   companyGstin = null,
   perms,
 }: {
@@ -348,6 +351,9 @@ export function CustomerMasterScreen({
   destinations: PickerItem[];
   couriers: PickerItem[];
   packingColumns: PackingFormatColumn[];
+  /** The 18-milestone Approvals Dictionary (doc/approval.md §2) — every ACTIVE
+   *  `ta_approvals` row, for the Approvals policy checklist. */
+  approvals: TaApproval[];
   /**
    * Our own GSTIN — the reference point that turns a customer's GSTIN into
    * "Within State" / "Other State". Optional because the /masters page does not
@@ -390,6 +396,15 @@ export function CustomerMasterScreen({
   const [nominated, setNominated] = useState<VendorRow[]>([]);
   const [recommended, setRecommended] = useState<VendorRow[]>([]);
   const [markings, setMarkings] = useState<MarkRow[]>([]);
+  /**
+   * The Approvals policy checklist (doc/approval.md §3) — keyed by
+   * `approval_id`, value is the lead-time-days TEXT the operator typed.
+   * PRESENCE OF A KEY is "this approval applies to this customer"; there is
+   * no separate boolean, so un-ticking a row deletes its key rather than
+   * flipping a flag on it (mirrors `customer_approval_defaults` itself,
+   * which has no `is_mandatory` column for the same reason).
+   */
+  const [approvalDays, setApprovalDays] = useState<Record<string, string>>({});
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
@@ -613,6 +628,7 @@ export function CustomerMasterScreen({
     setNominated([]);
     setRecommended([]);
     setMarkings([]);
+    setApprovalDays({});
     setDirty(false);
     setOpen(true);
   }
@@ -705,6 +721,9 @@ export function CustomerMasterScreen({
         .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" })),
     );
     setMarkings(r.markings.map((m) => ({ key: newKey(), marking: m.marking ?? "" })));
+    setApprovalDays(
+      Object.fromEntries(r.approval_policy.map((p) => [p.approval_id, String(p.lead_time_days)])),
+    );
     setDirty(false);
     setOpen(true);
   }
@@ -800,6 +819,10 @@ export function CustomerMasterScreen({
           ...recommended.map((r, i) => ({ list_kind: "recommended" as const, sno: i + 1, vendor_id: r.vendor_id || null })),
         ],
         markings: markings.map((m, i) => ({ sno: i + 1, marking: m.marking || null })),
+        approval_policy: Object.entries(approvalDays).map(([approval_id, days]) => ({
+          approval_id,
+          lead_time_days: Number(days) || 0,
+        })),
       };
       const res = editId ? await updateCustomer(editId, payload) : await createCustomer(payload);
       if (res.ok) {
@@ -870,12 +893,14 @@ export function CustomerMasterScreen({
       form.color_spec_applicable ||
       form.tcs_applicable
     ) || markings.some((m) => m.marking.trim());
+  const hasApprovals = Object.keys(approvalDays).length > 0;
   const done: Record<SectionKey, boolean> = {
     identity: hasIdentity,
     address: hasAddress,
     agents: hasAgents,
     supplied: hasSupplied,
     vendors: hasVendors,
+    approvals: hasApprovals,
     general: hasGeneral,
   };
 
@@ -1493,6 +1518,80 @@ export function CustomerMasterScreen({
                       <VendorGrid title="Nominated Vendor" rows={nominated} setRows={setNominated} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                       <VendorGrid title="Recommended Vendor" rows={recommended} setRows={setRecommended} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                     </div>
+                  </SectionBody>
+            ),
+          },
+          {
+            key: "approvals",
+            label: "Approvals",
+            icon: CheckCircle2,
+            done: done.approvals,
+            content: (
+                  <SectionBody title="Approvals">
+                    {/* `hideAdd` + `hideRemove` (doc/approval.md §3, and the
+                        HR sweep's "no hand-rolled boxes" — client 2026-09-07:
+                        "did you see" the primitives replacing bordered panels
+                        elsewhere). The 18 rows are the `ta_approvals` master
+                        itself: nothing here is added or deleted, only ticked.
+                        `ChildGrid` still earns its place over a plain list —
+                        the keyboard contract (Tab lands on fields, arrows move
+                        cell to cell) comes for free instead of being rebuilt
+                        for a table this screen would otherwise hand-roll. */}
+                    <ChildGrid<TaApproval & { key: string }>
+                      rows={approvals.map((a) => ({ ...a, key: a.id }))}
+                      hideAdd
+                      hideRemove
+                      onAdd={() => {}}
+                      onRemove={() => {}}
+                      columns={[
+                        {
+                          header: "",
+                          width: "3rem",
+                          align: "center",
+                          cell: (a) => (
+                            <Toggle
+                              checked={a.id in approvalDays}
+                              ariaLabel={`${a.name} — applies to this customer`}
+                              onChange={(checked) => {
+                                setApprovalDays((m) => {
+                                  const next = { ...m };
+                                  if (checked) next[a.id] = String(a.standard_days || 0);
+                                  else delete next[a.id];
+                                  return next;
+                                });
+                                setDirty(true);
+                              }}
+                            />
+                          ),
+                        },
+                        {
+                          header: "Approval",
+                          cell: (a) => <span className="text-foreground">{a.name}</span>,
+                        },
+                        {
+                          header: "Department",
+                          cell: (a) => <span className="text-muted-foreground">{a.department}</span>,
+                        },
+                        {
+                          header: "Review Days",
+                          width: "8rem",
+                          cell: (a) => (
+                            <Input
+                              type="number"
+                              min="0"
+                              disabled={!(a.id in approvalDays)}
+                              value={approvalDays[a.id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setApprovalDays((m) => ({ ...m, [a.id]: v }));
+                                setDirty(true);
+                              }}
+                              aria-label={`${a.name} — customer review days`}
+                            />
+                          ),
+                        },
+                      ]}
+                    />
                   </SectionBody>
             ),
           },
