@@ -3616,8 +3616,18 @@ export function ChildGrid<T extends { key: string }>({
             const canRemoveRow = !listRows && !summary && !locked(row);
             /* Two renderings of ONE control — see `removeBeside` above. The
                `renderMobileRow` half of the gate is stated there too: a caller
-               drawing its own row leaves nothing here to sit the chip beside. */
-            const besideRemove = canRemoveRow && removeBeside && !renderMobileRow;
+               drawing its own row leaves nothing here to sit the chip beside.
+
+               `locked(row)` IS NOT IN THIS GATE, and that is the point of the
+               layout: a row that keeps no ✕ still takes the same shape, with a
+               spacer where the chip would be. In the corner that question does
+               not arise — an absolute chip occupies no width, so a locked row
+               and a removable one are already identical. In the flow it decides
+               how wide the FIELDS are, and without the spacer the first row of a
+               `lockExisting` grid comes out a chip-and-gap wider than every row
+               under it (client 2026-09-09, on this same Marking grid: "the first
+               row stretches wider than the rows with the ✕ button"). */
+            const besideRemove = removeBeside && !renderMobileRow && !listRows && !summary;
             const cornerRemove = canRemoveRow && !besideRemove;
             /* A FUNCTION, so a folded row (which renders `renderFoldedRow`
                instead) never pays for cells it throws away. Written once because
@@ -3801,7 +3811,13 @@ export function ChildGrid<T extends { key: string }>({
                    growing when it is the field that is narrow. */
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1 space-y-2">{cells()}</div>
-                  <RowRemoveChip inFlow label="Remove row" onClick={() => onRemove(row)} />
+                  {locked(row) ? (
+                    /* The chip's own box, empty — see `besideRemove` above for
+                       why a locked row reserves it rather than closing up. */
+                    <span aria-hidden className="h-7 w-7 shrink-0" />
+                  ) : (
+                    <RowRemoveChip inFlow label="Remove row" onClick={() => onRemove(row)} />
+                  )}
                 </div>
               ) : (
                 cells()

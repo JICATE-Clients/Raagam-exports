@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldGrid, FieldRow, type FieldSize, type FieldWidth } from "@/components/ui/field";
+import { Field, FIELD_WIDTH, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -341,12 +341,144 @@ const GENERAL_W = {
  * drew a single "Marking" column across the whole 1440px pane, with the ✕ a foot
  * away from the value it removes.
  *
- * Derived from what the grid actually contains — the `#` index, one `name`-width
- * value and the row's ✕ — rather than picked to look right:
+ * ## THE CAP HAS A FLOOR, AND THE FIRST ONE WENT UNDER IT
  *
- *   288 (the value) + ~40 (#) + ~40 (remove) + the card's own padding ~= 400
+ * 26rem (416px) was derived from the CONTENT — a 320px value, the `#` and the ✕ —
+ * and it broke the grid, because `ChildGrid`'s responsive table only switches in
+ * from a 512px container (`@lg:block`). Below that it renders stacked CARDS, and
+ * a card row has no shared column widths: the row `lockExisting` leaves without a
+ * ✕ came out wider than the rows that have one (client 2026-09-09, "the first row
+ * stretches wider than the rows with the ✕ button"). The card layout also drops
+ * the column headers, which AGENTS.md already records as "a real defect, not a
+ * preference" from the Style ▸ Process sheet.
+ *
+ * So the cap is `max(what the content needs, what the table needs)` and the
+ * table wins:
+ *
+ *   320 (the value) + ~40 (#) + ~40 (remove) + padding  = ~416   the content
+ *   512                                                         the @lg switch
+ *   -> 34rem (544px), the switch plus ~32px of headroom
+ *
+ * Still a quarter of the pane it used to take, so rule 4 holds. **Never narrow a
+ * `ChildGrid` past 512px to make it compact** — that is not a tighter table, it is
+ * a different layout.
+ *
+ * THIS IS A CAP AND NO LONGER THE WIDTH. `MARKING_COL_W` below declares the
+ * column, so the bordered box now hugs its content at ~380px and stops well short
+ * of this number — which is the tightening that could not be had by lowering the
+ * cap. What 34rem still buys is the CONTAINER the `@lg` query measures, and that
+ * is the only reason it is this size.
  */
-const MARKING_W = "max-w-[26rem]";
+const MARKING_W = "max-w-[34rem]";
+
+/**
+ * THE MARKING COLUMN IS DECLARED, WHICH IS WHAT MAKES THE TABLE HUG IT (client
+ * 2026-09-09, Tamil: "marking table la irukka cell-a compact-a tighten pannu,
+ * neat-a" — tighten the cell in the marking table).
+ *
+ * The cap above keeps the CONTAINER at 544px so the table renders at all, and a
+ * table with no declared column is `w-full min-w-[420px]`: it filled that 544px
+ * whatever was in it, so a 320px box sat in a 480px column and the card trailed
+ * ~160px of empty grey to the right of the ✕. The cap answered "how much of the
+ * pane", and this answers "how much of the cap".
+ *
+ * `ChildGrid` hugs when EVERY column declares a `width` (`hugsContent`) — one
+ * column here, so this single declaration is the whole of it. The table becomes
+ * `w-auto table-fixed` inside a `w-fit` card, and the box now ends just after the
+ * ✕ instead of at the cap:
+ *
+ *   40 (the `#` track) + 288 + 32 (the ✕ track) = 360, + GRID_FRAME's padding
+ *
+ * 288 IS THE `name` STEP FROM `lib/ui/sizes.ts`, not a measurement of the longest
+ * shipping mark anyone has typed — the same width every other text field on this
+ * screen takes, which is what keeps the grid reading as part of the form rather
+ * than as a thing sized to itself. It is 32px tighter than the box it replaces.
+ *
+ * THE CAP STAYS AT 34rem AND MUST. Hugging is done by the bordered box, never by
+ * the `@container` root (see `cardHug` in `child-grid.tsx`), so the container the
+ * `@lg` query measures is still 544px and still shows the table. Narrowing the
+ * cap to "tighten" it instead would drop the whole grid back to stacked cards —
+ * the failure `MARKING_W` above records.
+ *
+ * The control needs no width of its own: `Input` is `w-full`, so it fills the
+ * declared column in the table, and on a phone — below the switch, where the
+ * cards layout does not read a column width — `removeBeside` reserves the ✕'s box
+ * on the row that has no ✕, which is what makes those rows agree.
+ */
+const MARKING_COL_W = "18rem";
+
+/**
+ * THE AGENTS TABLE HUGS ITS TWO COLUMNS (`erp-form-compact` rule 4 — a sub-grid
+ * is capped to the FORM's width, not the screen's — the same rule
+ * `MARKING_COL_W` above and `APPROVALS_W` below already answer, reached the same
+ * way `APPROVALS_W` reaches it: by declaring the columns).
+ *
+ * It was the last child grid on this screen still stretched across the pane.
+ * Neither column declared a `width`, so the table stayed `w-full min-w-[420px]`
+ * and split the whole pane between two pickers — an Agent Type holding "CHA"
+ * came out ~680px wide on a 1440px pane. That is rule 1 ("no field fills the
+ * column it happens to sit in"), one table along.
+ *
+ * `hugsContent` IS ALL-OR-NOTHING — two of two, or the table reads neither — so
+ * this is one declaration, derived rather than picked:
+ *
+ *   type   176 — `term` from `lib/ui/sizes.ts`. The values are operator-typed
+ *                `config_lookups` rows (BUYING AGENT, FORWARDING AGENT, CHA):
+ *                no hard maximum to size to, so it takes the step above the
+ *                140-170 select band, and the step is paid for by the CONTROL
+ *                rather than the value — a `LookupDialogPicker` carries its
+ *                trailing icon button inside the box, so ~28px of the cell is
+ *                never the value.
+ *   agent  288 — `name`. A trading party's name has no hard maximum either, and
+ *                288 is the step Marking's free text and every other name field
+ *                on this screen already takes.
+ *
+ *   40 (the `#` track) + 176 + 288 + 32 (the ✕ track) = 536, + GRID_FRAME's
+ *   padding.
+ *
+ * WELL CLEAR OF THE `@lg` SWITCH (512px), the coupling to leave alone: hugging
+ * is done by the bordered box and never by the `@container` root (`cardHug` in
+ * `child-grid.tsx`), so the container the query measures is still the pane and
+ * the table still renders. The card is what stops at the last column.
+ */
+const AGENTS_W = {
+  agent_type: "11rem",
+  agent: "18rem",
+} satisfies Record<string, string>;
+
+/**
+ * SUPPLIED ITEMS AND NOMINATED VENDORS ARE CAPPED, NOT STRETCHED
+ * (`erp-form-compact` rule 4, and rule 1 beside it).
+ *
+ * Four grids across two tabs, one shape: a single column holding a single
+ * picker, drawn two-up in a `md:grid-cols-2`. So each card took half the pane
+ * and the picker took the card — a category name in a ~700px box — which is the
+ * "this much huge" complaint the standard exists for, and the same defect
+ * `MARKING_W` above records one column at a time.
+ *
+ * A CAP ON THE BOX, NOT A COLUMN WIDTH, and that is the part worth knowing: all
+ * four are `forceCards`, and the stacked-card branch renders each cell as a
+ * plain `<div>` — it never reads `ChildGridColumn.width`, which only the table,
+ * inline and `across` branches do. Declaring one here would size nothing AND
+ * flip `hugsContent` on, putting `w-fit` around cards whose only un-contained
+ * child is a bare input: the collapse `cardHug` records. So the width comes from
+ * the wrapper.
+ *
+ * Derived from the field, with `removeBeside`'s in-flow chip on the row:
+ *
+ *   288 (the `name` step) + 8 (`gap-2`) + 28 (the chip) + 20 (GRID_FRAME's
+ *   `p-2.5`) = 344
+ *
+ * STAYING IN CARDS MODE IS DELIBERATE, not an oversight to correct later. 344px
+ * is below the `@lg` switch (512px), so a responsive grid capped here would drop
+ * to stacked cards anyway — the failure `MARKING_W` names. `forceCards` was
+ * already the answer for this shape; the cap now agrees with it instead of
+ * fighting it, and the layout cannot flip silently on a narrower pane.
+ *
+ * `max-w-full` is the phone half: below 344px the card takes the pane rather
+ * than overflowing it.
+ */
+const PICKER_CARD_W = "w-[21.5rem] max-w-full";
 
 /**
  * THE APPROVALS GRID HUGS ITS COLUMNS (`erp-form-compact` rule 4, same rule as
@@ -399,17 +531,54 @@ const APPROVALS_W = {
   review_days: "4.5rem",
 } satisfies Record<string, string>;
 
-const FIELD_SIZE = {
-  // ---- Address ----
-  street: "sm", // a single-line Input now — a Textarea sets the row's height
-  city_id: "sm",
-  state_id: "sm",
-  pin: "sm",
-  address_country_id: "sm",
-  land_line: "sm",
-  email: "sm",
-  web_site: "sm",
-} satisfies Record<string, FieldSize>;
+/**
+ * ADDRESS, SHRINK-WRAPPED (`erp-form-compact`) — the last section of this editor
+ * still on the twelfths track, after Identity and General left it on 2026-09-09.
+ *
+ * Nine fields at `size="sm"` is 3 of 12 each, so on a 1440px pane a six-digit PIN
+ * was ~340px — the same width as the street address — and the section broke into
+ * three rows of four with a hole in the last. A fraction cannot be made compact:
+ * narrowing the control inside a twelfth leaves the CELL at its old width and the
+ * value floating in it. So `FieldRow` + `Field w=`.
+ *
+ * NO HAND-TYPED PIXELS, unlike `IDENTITY_W` above and for the reason that map
+ * states — the five-width vocabulary is reached for FIRST, and here every value
+ * lands on a step:
+ *
+ *   short options 90-120  ->  `range` 112   PIN, six digits with a hard maximum
+ *   selects       140-170  ->  `code`  144   City, State, Land Line
+ *   free text              ->  `name`  288   Street, E-Mail, Web site
+ *
+ * City and State are `code` because that is what the SAME KIND OF VALUE already
+ * takes two sections down: Port of Loading, Port of Discharge and Final
+ * Destination are all place-name pickers at `code` in `GENERAL_W`. A screen
+ * measuring the same value twice is the drift `lib/ui/sizes.ts` exists to stop.
+ *
+ * MOBILE AND WHATSAPP ARE `term` (176), ONE STEP WIDER THAN THE OTHER PHONE
+ * FIELD, and the step is paid for by the CONTROL rather than the value: each of
+ * those two cells holds its input AND a `ContactChip` in a flex beside it, so at
+ * `code` the number would have been squeezed by a fixed 28px button. Land Line
+ * has no chip and stays at 144.
+ *
+ * DERIVED, so it can be checked against the pane — this row WRAPS (only Identity
+ * asked for one unbroken line), and these are the two lines it wraps into:
+ *
+ *   288 + 144 + 144 + 112 + 144 + 176 + 176 = 1184 + 6 x 12 = 1256   street..whatsapp
+ *   288 + 288                               =  576 + 1 x 12 =  588   e-mail, web site
+ *
+ * Both inside 1440, and the first line is the seven fields that describe WHERE
+ * the customer is, which is the break an operator would make by hand.
+ */
+const ADDRESS_W = {
+  street: "name", //      a postal line has no hard maximum — free text
+  city_id: "code",
+  state_id: "code",
+  pin: "range", //        6 digits
+  land_line: "code",
+  contact: "term", //     Mobile and WhatsApp, both: input + ContactChip
+  email: "name",
+  web_site: "name",
+} satisfies Record<string, FieldWidth>;
 
 type ContactRow = {
   key: string;
@@ -1623,25 +1792,38 @@ export function CustomerMasterScreen({
             done: done.address,
             content: (
                   <SectionBody title="Address">
-                    <FieldGrid>
+                    {/* ONE wrapping `FieldRow`, laid out by WIDTHS — see
+                        `ADDRESS_W` above for the bands and the arithmetic.
+
+                        `align="start"`, and this row has the hazard that choice
+                        is for: WhatsApp renders a "Same as mobile" tick BELOW
+                        its control, and both `ValidatedInput` cells can render a
+                        format message there too. `items-end` measures from the
+                        bottom, so those cells would sit their LABEL a line above
+                        every other label on the row. Nothing here has the
+                        opposite hazard — the longest label is "Land Line" at
+                        ~55px inside a 144px box, so no label wraps. */}
+                    <FieldRow align="start">
                       {/* A single-line Input, not the 3-row Textarea this used
-                          to be: every grid row is as tall as its tallest item,
-                          so a textarea sharing the row would leave City / State
-                          / Pin above a band of dead space. Stored newlines
-                          survive; an <input> just shows them on one line. */}
-                      <Field label="Street" size={FIELD_SIZE.street} htmlFor="cu-street">
+                          to be — a 96px-tall cell sharing a row of 32px controls
+                          sets the line's height and leaves City / State / Pin
+                          standing above a band of dead space. That was true of
+                          the twelfths grid and is true of this row. Stored
+                          newlines survive; an <input> just shows them on one
+                          line. */}
+                      <Field label="Street" w={ADDRESS_W.street} htmlFor="cu-street">
                         <Input uppercase id="cu-street" value={form.street} onChange={(e) => set({ street: e.target.value })} />
                       </Field>
                       {/* The pickers were the self-labelling idiom while the rest
                           of the screen used an external <Label> + `compact`. One
                           idiom now, or half the cells would carry two labels. */}
-                      <Field label="City" size={FIELD_SIZE.city_id}>
+                      <Field label="City" w={ADDRESS_W.city_id}>
                         <LookupDialogPicker kind="city" label="City" options={cities} value={form.city_id || null} onChange={(id) => set({ city_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="State" size={FIELD_SIZE.state_id}>
+                      <Field label="State" w={ADDRESS_W.state_id}>
                         <StatePicker label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                       </Field>
-                      <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cu-pin">
+                      <Field label="Pin" w={ADDRESS_W.pin} htmlFor="cu-pin">
                         <Input id="cu-pin" value={form.pin} onChange={(e) => set({ pin: e.target.value })} />
                       </Field>
                       {/* Country used to have its OWN field here, bound to
@@ -1653,14 +1835,21 @@ export function CustomerMasterScreen({
                           above, not from a visible field here. Do not add this
                           field back without re-reading that picker's comment
                           first. */}
-                      <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cu-landline">
+                      <Field label="Land Line" w={ADDRESS_W.land_line} htmlFor="cu-landline">
                         <Input id="cu-landline" value={form.land_line} onChange={(e) => set({ land_line: e.target.value })} />
                       </Field>
-                      {/* Two grid children, not one — so the span goes to EACH
-                          cell via `cellClassName`. A literal string: Tailwind v4
-                          scans source text, so an interpolated span emits no CSS.
-                          It is FIELD_SIZE's `sm` (3) written the only way this
-                          component can take it. */}
+                      {/* Two cells, not one — so the WIDTH goes to each of them
+                          via `cellClassName`; there is no wrapper to put it on,
+                          and that missing wrapper is the whole point of the
+                          component.
+
+                          `FIELD_WIDTH[...]` is the same table `Field w=` reads,
+                          so the pair cannot drift from the fields beside it —
+                          and it is Tailwind-safe for the reason the prop's own
+                          note gives: v4 scans SOURCE TEXT, and `"w-44"` is a
+                          literal in `field.tsx`. What that note forbids is
+                          BUILDING a class (`w-${n}`), which emits no CSS at all;
+                          reading one out of a map of literals is fine. */}
                       <MobileWhatsAppFields
                         idPrefix="cu"
                         mobile={form.mobile}
@@ -1668,15 +1857,15 @@ export function CustomerMasterScreen({
                         isdCode={isdOf.get(form.address_country_id) ?? null}
                         onMobileChange={(v) => set({ mobile: v })}
                         onWhatsAppChange={(v) => set({ whatsapp: v })}
-                        cellClassName="@lg/section:col-span-3"
+                        cellClassName={FIELD_WIDTH[ADDRESS_W.contact]}
                       />
-                      <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="cu-email">
+                      <Field label="E-Mail" w={ADDRESS_W.email} htmlFor="cu-email">
                         <ValidatedInput format="email" id="cu-email" value={form.email} onChange={(e) => set({ email: e.target.value })} />
                       </Field>
-                      <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="cu-web">
+                      <Field label="Web site" w={ADDRESS_W.web_site} htmlFor="cu-web">
                         <ValidatedInput format="website" id="cu-web" value={form.web_site} onChange={(e) => set({ web_site: e.target.value })} />
                       </Field>
-                    </FieldGrid>
+                    </FieldRow>
 
                     {/* contacts */}
                     <div className="mt-6">
@@ -1782,12 +1971,18 @@ export function CustomerMasterScreen({
                       columns={[
                         {
                           header: "Agent Type",
+                          // Both columns declare a width, which is what makes
+                          // the table hug instead of filling the pane — see
+                          // `AGENTS_W` for the arithmetic and why it is
+                          // all-or-nothing.
+                          width: AGENTS_W.agent_type,
                           cell: (a) => (
                             <LookupDialogPicker kind="agent_type" label="Agent Type" options={agentTypes} value={a.agent_type_id || null} onChange={(id) => { setAgents((xs) => xs.map((r) => (r.key === a.key ? { ...r, agent_type_id: id } : r))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                           ),
                         },
                         {
                           header: "Agent",
+                          width: AGENTS_W.agent,
                           cell: (a) => (
                             <LookupDialogPicker kind="agent" label="Agent" options={agentOptions} value={a.agent_id || null} onChange={(id) => { setAgents((xs) => xs.map((r) => (r.key === a.key ? { ...r, agent_id: id } : r))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                           ),
@@ -1804,7 +1999,14 @@ export function CustomerMasterScreen({
             done: done.supplied,
             content: (
                   <SectionBody title="Supplied Items">
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {/* A WRAPPING FLEX ROW, NOT A HALF-PANE GRID. Each card
+                        now carries its own width (`PICKER_CARD_W`), so a
+                        `md:grid-cols-2` would park two 344px cards at the 0 and
+                        720 marks of a 1440px pane with a third of the section
+                        empty between them. Packed left to right with the
+                        standard's 12px-family gap, they read as one block and
+                        wrap together on a narrow pane. */}
+                    <div className="flex flex-wrap gap-4">
                       <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={sewingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
                       <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={packingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
                     </div>
@@ -1818,7 +2020,9 @@ export function CustomerMasterScreen({
             done: done.vendors,
             content: (
                   <SectionBody title="Nominated Vendors">
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {/* Packed left to right, same as Supplied Items above —
+                        see the note there and `PICKER_CARD_W`. */}
+                    <div className="flex flex-wrap gap-4">
                       <VendorGrid title="Nominated Vendor" rows={nominated} setRows={setNominated} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                       <VendorGrid title="Recommended Vendor" rows={recommended} setRows={setRecommended} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                     </div>
@@ -2052,11 +2256,16 @@ export function CustomerMasterScreen({
                            the input box and place it beside the input on the
                            right"). This grid is the shape the corner was never
                            derived for — ONE column, a bare `<Input>` with no
-                           label band, inside `MARKING_W` (26rem, below `@lg`'s
-                           512px, so it is always cards and never the table) —
-                           and there the corner's derived `top` landed the chip
-                           across the input's own box. `removeBeside` on
-                           `ChildGrid` carries the reasoning. */
+                           label band — so the corner's derived `top` landed the
+                           chip across the input's own box.
+
+                           IT IS THE PHONE PATH THAT STILL READS THIS. The cap
+                           went to 34rem the same day (see `MARKING_W`), which
+                           puts the grid back above the `@lg` switch, and the
+                           TABLE has always had a real ✕ cell. So on a desktop
+                           editor this is inert; below 544px, where the cards
+                           come back, it is what keeps the ✕ out of the box.
+                           `removeBeside` on `ChildGrid` carries the reasoning. */
                         removeBeside
                         label="Marking"
                         pageSize={10}
@@ -2067,6 +2276,7 @@ export function CustomerMasterScreen({
                         columns={[
                           {
                             header: "Marking",
+                            width: MARKING_COL_W,
                             cell: (m) => (
                               <Input uppercase value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" />
                             ),
@@ -2198,12 +2408,23 @@ function CategoryGrid({
     [rows],
   );
   return (
+    /* Capped to the FORM's width, never the pane's — see `PICKER_CARD_W`. */
+    <div className={PICKER_CARD_W}>
+      {/* THE ✕ BESIDE THE PICKER, NOT IN THE CARD'S CORNER — the same fix
+          Marking took on this screen (client 2026-09-09) and for the same
+          reason, which `removeBeside` on `ChildGrid` states in full: the corner
+          is derived against a card of stacked LABELLED fields, and this row is
+          ONE unlabelled control in a card capped at 21.5rem, so the derived
+          `top` paints a 28px chip across the box it deletes. In the flow it also
+          decides how wide the field is, which is what `PICKER_CARD_W`'s
+          arithmetic counts. */}
     <ChildGrid<CatRowT>
       lockExisting
       label={title}
       pageSize={10}
       forceCards
       flatRows
+      removeBeside
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, blankCat(newKey())]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
@@ -2221,6 +2442,7 @@ function CategoryGrid({
         },
       ]}
     />
+    </div>
   );
 }
 
@@ -2254,12 +2476,23 @@ function VendorGrid({
     [rows],
   );
   return (
+    /* Capped to the FORM's width, never the pane's — see `PICKER_CARD_W`. */
+    <div className={PICKER_CARD_W}>
+      {/* THE ✕ BESIDE THE PICKER, NOT IN THE CARD'S CORNER — the same fix
+          Marking took on this screen (client 2026-09-09) and for the same
+          reason, which `removeBeside` on `ChildGrid` states in full: the corner
+          is derived against a card of stacked LABELLED fields, and this row is
+          ONE unlabelled control in a card capped at 21.5rem, so the derived
+          `top` paints a 28px chip across the box it deletes. In the flow it also
+          decides how wide the field is, which is what `PICKER_CARD_W`'s
+          arithmetic counts. */}
     <ChildGrid<VendorRowT>
       lockExisting
       label={title}
       pageSize={10}
       forceCards
       flatRows
+      removeBeside
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, blankVendor(newKey())]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
@@ -2273,5 +2506,6 @@ function VendorGrid({
         },
       ]}
     />
+    </div>
   );
 }
