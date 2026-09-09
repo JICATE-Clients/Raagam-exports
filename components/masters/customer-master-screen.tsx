@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldGrid, FieldRow, type FieldSize } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, type FieldSize, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -275,6 +275,130 @@ const IDENTITY_W = {
   business_entity: "w-[130px]",
 } satisfies Record<string, string>;
 
+/**
+ * GENERAL, SHRINK-WRAPPED (client 2026-09-09: currencies ~100, selects ~150,
+ * GST ~140, "so they don't stretch across the full screen").
+ *
+ * Seventeen fields at `size="sm"` is 3 of 12 each, so a three-letter currency
+ * CODE was ~340px on a 1440px pane and the section ran to five rows of four with
+ * a hole in the last one. `FieldRow` + `Field w=` is the fix, and unlike
+ * Identity this one needs NO hand-typed pixels: the `erp-form-compact` bands map
+ * straight onto the five-width vocabulary, which is where the skill says to look
+ * first.
+ *
+ *   short options 90-120  ->  `range` 112   currencies, Ship Mode, TCS
+ *   selects       140-170  ->  `code`  144   Pay Mode, Ship Type, ports, formats
+ *   text / codes  130-160  ->  `code`  144   GST No
+ *
+ * THREE FIELDS SIT OUTSIDE THOSE BANDS, each for a reason that is about the
+ * CONTROL rather than the value:
+ *
+ * - `packing_list_format_id` is `name` (288) because its cell holds TWO controls
+ *   — the picker and the "Columns" button that edits the very format picked
+ *   beside it. The picker is `flex-1` inside, so it lands at ~196px and the
+ *   button keeps its own width. At `code` the button would have squeezed the
+ *   picker to nothing.
+ * - `commercial_invoice_format_id` is `term` (176) because its LABEL is 25
+ *   characters. At 144 it wraps to two lines, and a wrapping label is the one
+ *   thing `items-start` below cannot absorb.
+ * - `color_spec_applicable` keeps `code` (144) for the same reason at the
+ *   margin: the value is Yes/No, the label is 21 characters.
+ *
+ * Nothing here is sized to its own longest VALUE, which is the line the
+ * vocabulary draws. Ship Type holds "DELIVERED DUTY PAID (DDP)" and still takes
+ * 144 — the picker clips it with an ellipsis and reveals it on hover, which is
+ * the `Truncated` contract doing its job.
+ *
+ *   5 x 112 + 10 x 144 + 288 + 176 = 2464   the controls
+ *   + 15 x 12                      =  180   FIELD_ROW's gap-x-3
+ *   = 2644                                  two wrapped lines inside the 1440 cap
+ *
+ * TWO LINES IS THE POINT, not a miss. Seventeen fields cannot sit on one, and the
+ * comparison is against the FIVE rows the twelfths track drew.
+ */
+const GENERAL_W = {
+  currency_1: "range",
+  currency_2: "range",
+  currency_3: "range",
+  ship_mode: "range",
+  ship_type_id: "code",
+  pay_mode: "code",
+  receivable_term_id: "code",
+  pref_courier_id: "code",
+  port_of_loading_id: "code",
+  port_of_discharge_id: "code",
+  final_destination_id: "code",
+  packing_list_format_id: "name", //           holds the picker AND its "Columns" button
+  commercial_invoice_format_id: "term", //     a 25-character LABEL, not a wide value
+  color_spec_applicable: "code", //            a 21-character label over a Yes/No
+  tcs_applicable: "range",
+  gst_no: "code",
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE MARKING GRID IS CAPPED TO THE FORM, NOT THE SCREEN (`erp-form-compact`
+ * rule 4). It is ONE column of text: uncapped, `ChildGrid` is a block box and
+ * drew a single "Marking" column across the whole 1440px pane, with the ✕ a foot
+ * away from the value it removes.
+ *
+ * Derived from what the grid actually contains — the `#` index, one `name`-width
+ * value and the row's ✕ — rather than picked to look right:
+ *
+ *   288 (the value) + ~40 (#) + ~40 (remove) + the card's own padding ~= 400
+ */
+const MARKING_W = "max-w-[26rem]";
+
+/**
+ * THE APPROVALS GRID HUGS ITS COLUMNS (`erp-form-compact` rule 4, same rule as
+ * `MARKING_W` above — a sub-grid is capped to the FORM's width, not the screen's).
+ *
+ * It reached that rule from the other side. Marking is capped by a wrapper
+ * because it is ONE flexible column and there is nothing to hug; this grid has
+ * four columns of BOUNDED content, so the answer is `ChildGrid`'s own
+ * `hugsContent` — declare a `width` on EVERY column and the table becomes
+ * `w-auto table-fixed` inside a `w-fit` card instead of `w-full` across the pane.
+ * It is all-or-nothing: the toggle and Review Days already declared one, and two
+ * of four is the same as none, which is why an 18-row tick list was drawing
+ * MERCHANDISING in a ~400px cell.
+ *
+ * Derived from the content, not picked to look right. The values are the
+ * `ta_approvals` seed (0542), the cells are `text-sm` in `px-2`:
+ *
+ *   toggle   48 — a Toggle, unchanged
+ *   name    256 — "WHITE SEAL SAMPLE APPROVAL", the longest of the 18, is ~218px
+ *                 of 14px capitals + 16px padding. A longer one WRAPS to a second
+ *                 line; it does not overflow, so this stays a width and not a
+ *                 measurement of the current data.
+ *   dept    160 — "MERCHANDISING" (~118px + padding). The column is `text` and
+ *                 0542's own comment says every row holds that one value today.
+ *   days     72 — the `num` step from `lib/ui/sizes.ts`: a count, never more
+ *                 than two digits (0542 seeds 5 · 7 · 10 · 14). It was `8rem`,
+ *                 sized to nothing, and 112px on the way down.
+ *
+ *   40 (the `#` track) + 48 + 256 + 160 + 72 = 576, + GRID_FRAME's padding.
+ *
+ * THE HEADER IS WHAT WAS HOLDING THAT COLUMN OPEN, so it changed with it:
+ * "REVIEW DAYS" is ~98px of 12.5px bold capitals at `tracking-[0.06em]` plus
+ * 16px of `px-2`, so the widest thing in the column was its own title and no
+ * width under ~114px could be honoured without wrapping it onto a second line —
+ * which lifts the header band for all four columns and undoes the compaction it
+ * was meant to buy. "Days" fits on one line at 72px. It reads unambiguously
+ * beside Approval and Department, the input keeps the full "customer review
+ * days" in its `aria-label`, and it matches how every other narrow numeric
+ * column in this app is titled (Alt qty, Base qty, Loss %, Cons Qty).
+ *
+ * WELL CLEAR OF THE `@lg` SWITCH (512px), which is the coupling to leave alone:
+ * the layout is a container query on the grid's own root, so a cap under that
+ * breakpoint flips the table to stacked cards — and this grid passes no
+ * `renderMobileRow`, so those cards would be 18 unlabelled boxes.
+ */
+const APPROVALS_W = {
+  applies: "3rem",
+  name: "16rem",
+  department: "10rem",
+  review_days: "4.5rem",
+} satisfies Record<string, string>;
+
 const FIELD_SIZE = {
   // ---- Address ----
   street: "sm", // a single-line Input now — a Textarea sets the row's height
@@ -285,24 +409,6 @@ const FIELD_SIZE = {
   land_line: "sm",
   email: "sm",
   web_site: "sm",
-  // ---- General ----
-  currency_1: "sm",
-  currency_2: "sm",
-  currency_3: "sm",
-  ship_mode: "sm",
-  ship_type_id: "sm",
-  pay_mode: "sm",
-  receivable_term_id: "sm",
-  pref_courier_id: "sm",
-  port_of_loading_id: "sm",
-  port_of_discharge_id: "sm",
-  final_destination_id: "sm",
-  packing_list_format_id: "sm", // holds the picker AND its "Columns" button
-  commercial_invoice_format_id: "sm",
-  color_spec_applicable: "sm",
-  tcs_applicable: "sm",
-  gst_no: "sm",
-  gstin_insight: "full", // a fact strip, not a field — see above
 } satisfies Record<string, FieldSize>;
 
 type ContactRow = {
@@ -1734,7 +1840,11 @@ export function CustomerMasterScreen({
                         `ChildGrid` still earns its place over a plain list —
                         the keyboard contract (Tab lands on fields, arrows move
                         cell to cell) comes for free instead of being rebuilt
-                        for a table this screen would otherwise hand-roll. */}
+                        for a table this screen would otherwise hand-roll.
+
+                        Every column declares a `width` — see `APPROVALS_W` for
+                        the arithmetic and for why two of four was the same as
+                        none. */}
                     <ChildGrid<TaApproval & { key: string }>
                       rows={approvals.map((a) => ({ ...a, key: a.id }))}
                       hideAdd
@@ -1744,7 +1854,7 @@ export function CustomerMasterScreen({
                       columns={[
                         {
                           header: "",
-                          width: "3rem",
+                          width: APPROVALS_W.applies,
                           align: "center",
                           cell: (a) => (
                             <Toggle
@@ -1764,15 +1874,17 @@ export function CustomerMasterScreen({
                         },
                         {
                           header: "Approval",
+                          width: APPROVALS_W.name,
                           cell: (a) => <span className="text-foreground">{a.name}</span>,
                         },
                         {
                           header: "Department",
+                          width: APPROVALS_W.department,
                           cell: (a) => <span className="text-muted-foreground">{a.department}</span>,
                         },
                         {
-                          header: "Review Days",
-                          width: "8rem",
+                          header: "Days",
+                          width: APPROVALS_W.review_days,
                           cell: (a) => (
                             <Input
                               type="number"
@@ -1800,23 +1912,33 @@ export function CustomerMasterScreen({
             done: done.general,
             content: (
                   <SectionBody title="General">
-                    <FieldGrid>
+                    {/* ONE wrapping `FieldRow`, laid out by WIDTHS — see `GENERAL_W`
+                        at the top of this file for the bands, the three fields that
+                        sit outside them and the arithmetic.
+
+                        `align="start"`, because GST No renders a `DuplicateError`
+                        BELOW its control and the row's default bottom alignment
+                        measures from the bottom of that — so the GST box lifted out
+                        of its line the moment a duplicate GSTIN was typed. Safe
+                        here only because no label wraps at these widths, which is
+                        what `commercial_invoice_format_id`'s `term` is buying. */}
+                    <FieldRow align="start">
                       {/* The three currencies were interleaved with Ship Mode /
                           Type / Pay Mode — the DOM order that drew the legacy
                           two-column form (currencies left, shipping right). On a
                           12-col track DOM order IS reading order, so they are
                           grouped: three codes and the two shipping fields now sit
                           on one row instead of consuming three half-rows. */}
-                      <Field label="Currency 1" size={FIELD_SIZE.currency_1}>
+                      <Field label="Currency 1" w={GENERAL_W.currency_1}>
                         <CurrencyPicker label="Currency 1" currencies={currencies} value={form.currency_1 || null} onChange={(code) => set({ currency_1: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Currency 2" size={FIELD_SIZE.currency_2}>
+                      <Field label="Currency 2" w={GENERAL_W.currency_2}>
                         <CurrencyPicker label="Currency 2" currencies={currencies} value={form.currency_2 || null} onChange={(code) => set({ currency_2: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Currency 3" size={FIELD_SIZE.currency_3}>
+                      <Field label="Currency 3" w={GENERAL_W.currency_3}>
                         <CurrencyPicker label="Currency 3" currencies={currencies} value={form.currency_3 || null} onChange={(code) => set({ currency_3: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Ship Mode" size={FIELD_SIZE.ship_mode} htmlFor="cu-shipmode">
+                      <Field label="Ship Mode" w={GENERAL_W.ship_mode} htmlFor="cu-shipmode">
                         <Select id="cu-shipmode" value={form.ship_mode} onChange={(e) => set({ ship_mode: e.target.value })}>
                           <option value=""></option>
                           {SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -1829,28 +1951,28 @@ export function CustomerMasterScreen({
                           <Select> it could only pick, and it had to compose the
                           "DELIVERED DUTY PAID (DDP)" option text itself; the
                           picker's `lookupLabel` does that now. */}
-                      <Field label="Ship Type" size={FIELD_SIZE.ship_type_id}>
+                      <Field label="Ship Type" w={GENERAL_W.ship_type_id}>
                         <LookupDialogPicker kind="ship_type" label="Ship Type" options={shipTypes} value={form.ship_type_id || null} onChange={(id) => set({ ship_type_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cu-paymode">
+                      <Field label="Pay Mode" w={GENERAL_W.pay_mode} htmlFor="cu-paymode">
                         <Select id="cu-paymode" value={form.pay_mode} onChange={(e) => set({ pay_mode: e.target.value })}>
                           <option value=""></option>
                           {PAY_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Receivable Terms" size={FIELD_SIZE.receivable_term_id}>
+                      <Field label="Receivable Terms" w={GENERAL_W.receivable_term_id}>
                         <RecordPicker label="Receivable Term" items={receivableTerms} value={form.receivable_term_id || null} onChange={(id) => set({ receivable_term_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Pref. Courier" size={FIELD_SIZE.pref_courier_id}>
+                      <Field label="Pref. Courier" w={GENERAL_W.pref_courier_id}>
                         <RecordPicker label="Courier" items={couriers} value={form.pref_courier_id || null} onChange={(id) => set({ pref_courier_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Port of Loading" size={FIELD_SIZE.port_of_loading_id}>
+                      <Field label="Port of Loading" w={GENERAL_W.port_of_loading_id}>
                         <RecordPicker label="Port" items={ports} value={form.port_of_loading_id || null} onChange={(id) => set({ port_of_loading_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Port of Discharge" size={FIELD_SIZE.port_of_discharge_id}>
+                      <Field label="Port of Discharge" w={GENERAL_W.port_of_discharge_id}>
                         <RecordPicker label="Port" items={ports} value={form.port_of_discharge_id || null} onChange={(id) => set({ port_of_discharge_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Final Destination" size={FIELD_SIZE.final_destination_id}>
+                      <Field label="Final Destination" w={GENERAL_W.final_destination_id}>
                         <RecordPicker label="Destination" items={destinations} value={form.final_destination_id || null} onChange={(id) => set({ final_destination_id: id ?? "" })} compact />
                       </Field>
                       {/* ONE cell holding two controls: "Columns" edits the very
@@ -1859,7 +1981,7 @@ export function CustomerMasterScreen({
                           `items-center` now that the picker's label sits above
                           the whole cell — it used to be `items-end` to clear the
                           label the picker drew for itself. */}
-                      <Field label="Packing List Format" size={FIELD_SIZE.packing_list_format_id}>
+                      <Field label="Packing List Format" w={GENERAL_W.packing_list_format_id}>
                         <div className="flex items-center gap-2">
                           <div className="min-w-0 flex-1">
                             <LookupDialogPicker kind="packing_list_format" label="Packing List Format" options={packingFormats} value={form.packing_list_format_id || null} onChange={(id) => set({ packing_list_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
@@ -1867,22 +1989,22 @@ export function CustomerMasterScreen({
                           <Button type="button" variant="outline" size="md" disabled={!form.packing_list_format_id} onClick={() => setColsOpen(true)}>Columns</Button>
                         </div>
                       </Field>
-                      <Field label="Commercial Invoice Format" size={FIELD_SIZE.commercial_invoice_format_id}>
+                      <Field label="Commercial Invoice Format" w={GENERAL_W.commercial_invoice_format_id}>
                         <LookupDialogPicker kind="commercial_invoice_format" label="Commercial Invoice Format" options={commercialFormats} value={form.commercial_invoice_format_id || null} onChange={(id) => set({ commercial_invoice_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Color Spec Applicable" size={FIELD_SIZE.color_spec_applicable} htmlFor="cu-colorspec">
+                      <Field label="Color Spec Applicable" w={GENERAL_W.color_spec_applicable} htmlFor="cu-colorspec">
                         <Select id="cu-colorspec" value={form.color_spec_applicable ? "yes" : "no"} onChange={(e) => set({ color_spec_applicable: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
                         </Select>
                       </Field>
-                      <Field label="TCS" size={FIELD_SIZE.tcs_applicable} htmlFor="cu-tcs">
+                      <Field label="TCS" w={GENERAL_W.tcs_applicable} htmlFor="cu-tcs">
                         <Select id="cu-tcs" value={form.tcs_applicable ? "yes" : "no"} onChange={(e) => set({ tcs_applicable: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
                         </Select>
                       </Field>
-                      <Field label="GST No" size={FIELD_SIZE.gst_no} htmlFor="cu-gst">
+                      <Field label="GST No" w={GENERAL_W.gst_no} htmlFor="cu-gst">
                         <>
                           <ValidatedInput
                             id="cu-gst"
@@ -1899,26 +2021,43 @@ export function CustomerMasterScreen({
                           <DuplicateError error={gstDupError} id="cu-gst" />
                         </>
                       </Field>
-                      {/* A wide fact strip, not a field — its own `full` cell
-                          under the 3-wide GST box rather than crammed inside it. */}
-                      {gstin && (
-                        <Field size={FIELD_SIZE.gstin_insight}>
-                          <GstinInsight
-                            decoded={gstin}
-                            // Customers have no PAN column, so the mismatch
-                            // line stays dormant; the strip still shows the PAN
-                            // the number carries, which is the useful half.
-                            panValue=""
-                            suggestions={gstinSuggestions}
-                          />
-                        </Field>
-                      )}
-                    </FieldGrid>
+                    </FieldRow>
 
-                    {/* Marking grid */}
-                    <div className="mt-6">
+                    {/* A fact strip, not a field, and now a SIBLING of the row rather
+                        than a cell in it. It used to take a `size="full"` cell, which
+                        is a `col-span-12` — meaningless in a flex row, where it would
+                        have queued up beside GST No at its natural width instead of
+                        taking its own line. Outside the row it spans the section, and
+                        `mt-2` keeps it tucked under the field it explains. */}
+                    {gstin && (
+                      <div className="mt-2">
+                        <GstinInsight
+                          decoded={gstin}
+                          // Customers have no PAN column, so the mismatch
+                          // line stays dormant; the strip still shows the PAN
+                          // the number carries, which is the useful half.
+                          panValue=""
+                          suggestions={gstinSuggestions}
+                        />
+                      </div>
+                    )}
+
+                    {/* Marking grid, capped — see `MARKING_W` above for why a
+                        one-column grid must not be given the whole pane. */}
+                    <div className={`mt-6 ${MARKING_W}`}>
                       <ChildGrid<MarkRow>
                         lockExisting
+                        /* THE ✕ BESIDE THE FIELD, NOT IN THE CARD'S CORNER
+                           (client 2026-09-09: "move the delete X button out of
+                           the input box and place it beside the input on the
+                           right"). This grid is the shape the corner was never
+                           derived for — ONE column, a bare `<Input>` with no
+                           label band, inside `MARKING_W` (26rem, below `@lg`'s
+                           512px, so it is always cards and never the table) —
+                           and there the corner's derived `top` landed the chip
+                           across the input's own box. `removeBeside` on
+                           `ChildGrid` carries the reasoning. */
+                        removeBeside
                         label="Marking"
                         pageSize={10}
                         rows={markings}

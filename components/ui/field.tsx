@@ -356,8 +356,22 @@ export const FIELD_WIDTH: Record<FieldWidth, string> = {
  * one ever needs it, that is the case to handle rather than a reason to go back
  * to top alignment, which misaligns on the far more common long label.
  */
-export const FIELD_ROW =
-  "flex flex-wrap items-end gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5";
+const FIELD_ROW_BASE = "flex flex-wrap gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5";
+
+export const FIELD_ROW = `${FIELD_ROW_BASE} items-end`;
+
+/**
+ * The wrapping row, TOP-ALIGNED — same choice as `FIELD_ROW_NOWRAP_TOP` below,
+ * and read the long note there for how to pick between the two.
+ *
+ * It exists because the hazard it answers is not a property of wrapping. Customer
+ * ▸ General wraps (seventeen fields never fit one line) and still has a field
+ * rendering a `DuplicateError` under its control — GST No — so bottom alignment
+ * lifts that box out of its line the moment a duplicate GSTIN is typed. Offering
+ * `items-start` only to `nowrap` rows would have meant hand-rolling a flex row
+ * here, which is the thing `FieldRow` exists to stop.
+ */
+export const FIELD_ROW_TOP = `${FIELD_ROW_BASE} items-start`;
 
 /**
  * ONE LINE, NEVER FOLDED — `FIELD_ROW` with the wrap taken out.
@@ -442,8 +456,8 @@ export function FieldRow({
    * Which edge the fields line up on. `"end"` is the default and the house rule
    * (a wrapping label must not drop its control); `"start"` is for a row whose
    * fields render a hint or an error BELOW the control. `FIELD_ROW_NOWRAP_TOP`
-   * above explains how to choose. Only read when `nowrap` is set — a wrapping
-   * row has never needed it.
+   * below explains how to choose, and it applies to a wrapping row as well —
+   * the hazard is the field's own sub-content, not the wrapping.
    */
   align?: "end" | "start";
 }) {
@@ -458,7 +472,9 @@ export function FieldRow({
             ? align === "start"
               ? FIELD_ROW_NOWRAP_TOP
               : FIELD_ROW_NOWRAP
-            : FIELD_ROW
+            : align === "start"
+              ? FIELD_ROW_TOP
+              : FIELD_ROW
         }
       >
         {children}
