@@ -1,28 +1,74 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import { listStaff, getLocations } from "@/lib/hr/masters-service";
+import { listDepartments } from "@/lib/masters/department-service";
+import { listDivisions } from "@/lib/masters/division-service";
+import { listEmployeeCategories } from "@/lib/masters/employee-category-service";
+import { listHostelCategories } from "@/lib/masters/hostel-category-service";
+import { listBanks } from "@/lib/masters/bank-service";
+import { isInactive } from "@/lib/masters/inactive";
 import { PageHeader } from "@/components/ui/page-header";
 import StaffClient from "./staff-client";
 
 export default async function StaffPage() {
   await requirePermission("hr_payroll", "view");
 
-  const [staff, locations, canCreate, canExport, canDelete] = await Promise.all([
+  const [
+    staff,
+    locations,
+    departments,
+    divisions,
+    categories,
+    hostelCategories,
+    banks,
+    canCreate,
+    canExport,
+    canDelete,
+  ] = await Promise.all([
     listStaff(),
     getLocations(),
+    listDepartments(),
+    listDivisions(),
+    listEmployeeCategories(),
+    listHostelCategories(),
+    listBanks(),
     can("hr_payroll", "create"),
     can("hr_payroll", "export"),
     can("hr_payroll", "delete"),
   ]);
 
+  /**
+   * THE OPTION LISTS CARRY `inactive`, THEY ARE NOT FILTERED HERE.
+   *
+   * AGENTS.md ▸ "Disabled rows": a switched-off master row must not be
+   * offered — but the one a record ALREADY HOLDS has to survive, greyed and
+   * tagged, or a filled field shows as empty and the next save blanks the FK.
+   * Filtering in this query would satisfy the first half and silently break the
+   * second, so the flag travels and the control decides.
+   *
+   * `isInactive()` reads all three spellings the schema uses (`inactive`,
+   * `blocked`, `is_active`); never test one by hand.
+   */
+  const opt = <T extends { id: string }>(
+    rows: T[],
+    label: (r: T) => string | null,
+  ) =>
+    rows.map((r) => ({
+      id: r.id,
+      name: label(r) ?? "—",
+      inactive: isInactive(r as never),
+    }));
+
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Staff"
-        description="Manage salaried staff members."
-      />
+      <PageHeader title="Staff" description="Manage salaried staff members." />
       <StaffClient
         staff={staff}
         locations={locations}
+        departments={opt(departments, (d) => d.name ?? d.short_name)}
+        divisions={opt(divisions, (d) => d.division_name)}
+        categories={opt(categories, (c) => c.name)}
+        hostelCategories={opt(hostelCategories, (h) => h.name)}
+        banks={opt(banks, (b) => b.name)}
         canCreate={canCreate}
         canExport={canExport}
         canDelete={canDelete}
