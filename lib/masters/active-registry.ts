@@ -85,6 +85,24 @@ export const ACTIVE_ENTITIES: Record<string, ActiveEntity> = {
     label: "Country",
     revalidate: ["/masters", "/masters/associates", "/masters/associates/country"],
   },
+  /**
+   * Registered 2026-09-09, when the Inactive switch came OFF the Customer
+   * editor's Identity row. That is the 08-17 rule arriving one master later, and
+   * the order matters: the row action has to exist before the field goes, or
+   * blocking a customer stops being possible at all rather than moving.
+   *
+   * `inactive`, catalog-confirmed — 0299 renamed `customers.blocked` to
+   * `inactive`, and `customerInput`, the list's Status column and
+   * `customer-actions.ts` all read that spelling. Paths copied from that file's
+   * own `rev()`.
+   */
+  customer: {
+    table: "customers",
+    column: "inactive",
+    module: "masters",
+    label: "Customer",
+    revalidate: ["/masters", "/masters/associates", "/masters/associates/customer"],
+  },
 };
 
 export type ActiveEntityKey = keyof typeof ACTIVE_ENTITIES;

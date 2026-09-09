@@ -289,6 +289,50 @@ straight to Postgres, so an entity whose importable `fields` cannot express a co
 record still lets a half-filled row in (see the note on `materials` in
 `lib/data-io/entities.ts`).
 
+## Editable sub-tables open with a row (STANDING)
+
+**An editable table, child grid or dynamic list never renders empty** — not on a new
+record, and not after a fetch that came back with nothing. An editable grid is a typing
+surface, not a list of results, and an operator opening one expects a caret rather than a
+"+ Add" button to find first. The legacy RP screens they are migrating from all open with a
+row standing ready.
+
+Three statements, and the third is the one screens forget:
+
+- **Initial state carries one row**, seeded from a blank-row factory, never `[]`.
+- **`[]`, `null` and `undefined` all mean "no lines yet"** and fall back to that same one
+  row — so an EXISTING record with no children opens ready to type too, not only a new one.
+- **Opening the editor for a new record runs the factory again.** A `useState` initialiser
+  fires once per mount and these editors do not remount between records, so a screen that
+  seeds only at init shows the *previous* record's rows the second time New is pressed.
+
+**`ChildGrid`'s `seedRow` is the primitive answer, and it is not always the right one.** It
+seeds once per empty spell rather than once per mount, which is what makes it correct across
+a switch from a record with lines to one without. But it seeds by CALLING `onAdd` from an
+effect — so on a screen whose add handler sets a dirty flag, every record opens reading
+"Unsaved changes" and `useUnsavedGuard` holds off the silent auto-reload on work nobody
+touched. There, seed the STATE in the open handlers instead, before their `setDirty(false)`.
+`customer-master-screen.tsx`'s Marking grid says so in its own comment; Department, Work
+Timing and the process grids pass `seedRow` because their handlers touch no such flag.
+
+**THE SEEDED ROW IS SAVED UNLESS THE SAVE SIDE DROPS IT.** So every key the factory stamps
+must be `""`, `null` or `false`, and the save path owes a blank-row filter testing only
+fields the operator has to type. A "helpful" default — a type, a UOM, a supply type — turns
+its clause in that OR-chain into **the constant `true` wearing the shape of evidence**, and
+an untouched row is then inserted as a phantom line. That is what happened twice in Material
+BOM and why `scripts/check-blank-row-filter.mts` exists; `normalizeMarkings` in
+`customer-actions.ts` is the shape to copy.
+
+Two things that follow from the rules above rather than needing their own: `keepOne` is
+already the default, so the last row cannot be deleted and the grid cannot be emptied back
+to a bare button; and a seeded row's cells are marked `required` only where the record truly
+needs a line, or the cursor is held in a grid the operator has not read yet.
+
+Exempt: a read-only table, a grid that cannot grow, and a grid whose rows are DERIVED from
+another document, where a seeded row would sit beside computed ones and look like data. Say
+which with a `// default-row: exempt -- <reason>` comment. Full rules in the
+`erp-table-default-row` skill.
+
 ## Created Date / Created User (STANDING)
 
 **Every listing of records shows who made the row and when** — two columns, in that

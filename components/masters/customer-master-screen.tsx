@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -39,7 +40,6 @@ import {
   partyOrigin,
   OriginBadge,
   PublishesBadge,
-  originNameHint,
   originDeleteBlock,
   type PartyOrigin,
 } from "@/components/masters/party-origin";
@@ -216,17 +216,66 @@ const BLANK: HeaderForm = {
  * the picker ~185px beside a ~90px button. Split the editor into columns and
  * that pairing is the first thing that breaks.
  */
+/**
+ * IDENTITY LEAVES THE TWELFTHS TRACK, AND THEN LEAVES THE WIDTH VOCABULARY TOO
+ * (client 2026-09-09: eight fields "tightly on a single horizontal row",
+ * `flex-nowrap`, `gap-2.5`, each width named).
+ *
+ * The first step was the ordinary one. Nine fields at `size="sm"` is 3 of 12
+ * each, so on a 1440px pane a two-character Doc Prefix was as wide as the
+ * customer's NAME and the section broke into three ragged rows. A fraction
+ * cannot be made compact — shrinking the control inside a twelfth leaves the
+ * CELL at its old width and the value floating in a hole — so `FieldRow` +
+ * per-field widths is the move, exactly as Country, Destination and Port made on
+ * 2026-09-08.
+ *
+ * ## THESE ARE HAND-MEASURED PIXELS, NOT `FieldWidth`, AND THAT IS THE TRADE
+ *
+ * `lib/ui/sizes.ts` states the rule these break, in its own words: "There are
+ * FIVE widths for the whole application, not one per field — the failure this
+ * must never become is a screen measured against its own longest value." That
+ * rule is right and it is why the five-width vocabulary exists.
+ *
+ * It was tried here FIRST and the client rejected the result. The nearest
+ * vocabulary fit is 288/112/112/144/112/176/176/144 = 1264px of controls, and
+ * every one of those is a step wider than the value needs: `code` (144) for a
+ * unit id that holds four characters, `name` (288) for a customer name the
+ * client wants at 170. The row was compact by the vocabulary's standards and
+ * still not compact, because the vocabulary's floor is coarser than this row.
+ *
+ * So the widths below are the client's, named per field, and they are scoped to
+ * THIS ROW by living in this file rather than by widening `FieldWidth`. That
+ * boundary is the whole mitigation: nothing else in the app can reach them, and
+ * a screen that wants a compact row still meets the five widths first. **Do not
+ * copy this map to another screen** — reach for `FieldWidth`, and come back here
+ * only if the same rejection happens again, at which point the vocabulary needs
+ * a sixth width rather than a second exception.
+ *
+ * DERIVED, so it can be checked against the pane:
+ *
+ *   170 + 85 + 85 + 110 + 95 + 95 + 150 + 130 = 920   the controls
+ *   + 7 x 10                                  =  70   FIELD_ROW_NOWRAP's gap-x-2.5
+ *   = 990                                             one line inside the 1440 cap
+ *
+ * `also_notify` is the one width the client did not name — a tick and the word
+ * "Yes" needs almost nothing, so it takes its LABEL's width, the same 95px as
+ * "Also Consignee" beside it. Two of the others are label-bound rather than
+ * value-bound too: "In-house Unit ID" and "Business Entity" are longer than
+ * anything typed into them. `items-end` covers the case where one of those still
+ * wraps — the label goes to two lines and the control stays on the row's line.
+ */
+const IDENTITY_W = {
+  name: "w-[170px]",
+  doc_prefix: "w-[85px]",
+  doc_id: "w-[85px]",
+  inhouse_unit_id: "w-[110px]",
+  also_consignee: "w-[95px]",
+  also_notify: "w-[95px]", //     not named by the client; sized by its label
+  country_id: "w-[150px]",
+  business_entity: "w-[130px]",
+} satisfies Record<string, string>;
+
 const FIELD_SIZE = {
-  // ---- Identity ----
-  inactive: "sm",
-  name: "sm",
-  doc_prefix: "sm",
-  doc_id: "sm",
-  also_consignee: "sm",
-  also_notify: "sm",
-  country_id: "sm",
-  business_entity: "sm",
-  inhouse_unit_id: "sm",
   // ---- Address ----
   street: "sm", // a single-line Input now — a Textarea sets the row's height
   city_id: "sm",
@@ -288,9 +337,60 @@ const contactHasData = (c: ContactRow) =>
   );
 
 type AgentRow = { key: string; agent_type_id: string; agent_id: string };
+/**
+ * THE AGENTS GRID OPENS WITH ONE BLANK ROW (`erp-table-default-row`), the last
+ * of this editor's five child grids to get one.
+ *
+ * BOTH cells stay `""`. `normalizeAgents` in `customer-actions.ts` drops a row
+ * on `agent_type_id || agent_id`, so a row is kept the moment EITHER is set —
+ * which is right for a half-entered agent and is also why neither key may carry
+ * a default. Pre-filling a type (there are few agent types and one is common)
+ * would satisfy that OR on every seeded row and insert a `customer_agents` line
+ * naming no agent.
+ */
+const blankAgent = (key: string): AgentRow => ({ key, agent_type_id: "", agent_id: "" });
 type CatRow = { key: string; category_id: string };
+/**
+ * SEWING AND PACKAGING EACH OPEN WITH ONE BLANK ROW
+ * (`erp-table-default-row`), the same as the two vendor lists below. Supplied
+ * Items is two side-by-side single-column grids, so an empty tab showed two
+ * headers and two "+ Add category" buttons and nothing to type in.
+ *
+ * `normalizeSupplied` in `customer-actions.ts` drops a row by testing
+ * `category_id`, this grid's only field, so a seeded row writes no
+ * `customer_supplied_items` line until a category is picked.
+ */
+const blankCat = (key: string): CatRow => ({ key, category_id: "" });
 type VendorRow = { key: string; vendor_id: string };
+/**
+ * NOMINATED AND RECOMMENDED EACH OPEN WITH ONE BLANK ROW
+ * (`erp-table-default-row`). Both lists on the Nominated Vendors tab are typing
+ * surfaces, and the tab used to show two headers and two "+ Add vendor" buttons —
+ * so naming a customer's first approved supplier cost a click in each column
+ * before any typing.
+ *
+ * Blank means blank. `normalizeVendors` in `customer-actions.ts` drops a row by
+ * testing `vendor_id`, which is the only field this grid has, so a seeded row
+ * writes nothing until a vendor is picked. That matters more here than on most
+ * grids: MBA narrows its own vendor picker to this list, so a phantom row would
+ * reach a downstream document rather than just sitting in the master.
+ */
+const blankVendor = (key: string): VendorRow => ({ key, vendor_id: "" });
 type MarkRow = { key: string; marking: string };
+/**
+ * THE MARKING GRID IS NEVER EMPTY — one blank row is always waiting
+ * (`erp-table-default-row`). An operator opening General expects a caret, not a
+ * "+ Add marking" button to find first, and this is the same shape
+ * `blankContact` above already gives the Contacts grid.
+ *
+ * It is a FACTORY rather than an inline literal at each of the four call sites
+ * (mount, New, Edit-with-no-rows, "+ Add") because the seeded row's blankness is
+ * load-bearing: `normalizeMarkings` in `customer-actions.ts` drops a row by
+ * testing `marking` for content, so any key stamped with a truthy default here
+ * would turn that filter into a constant and insert a phantom marking. One
+ * definition is what keeps the four call sites honest.
+ */
+const blankMarking = (key: string): MarkRow => ({ key, marking: "" });
 
 /**
  * Master-detail CRUD for the legacy "Customer" master (Associates) — full 5-tab
@@ -382,20 +482,57 @@ export function CustomerMasterScreen({
   const [editOrigin, setEditOrigin] = useState<PartyOrigin | null>(null);
   const [dirty, setDirty] = useState(false);
   const isdOf = useIsdLookup(countries);
+  /** Block / Unblock in the listing's ⋮ menu — one implementation for every
+   *  master listing, and the reason Identity carries no Inactive switch. */
+  const { blockItem } = useBlockAction("customer");
 
   // Hold off the silent PWA auto-reload while there's unsaved work or a save is
   // in flight. The overlay itself is a MasterFullScreen, which already guards.
   useUnsavedGuard(dirty || isPending);
 
   const [form, setForm] = useState<HeaderForm>(BLANK);
-  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  // Seeded, never `[]` — see the `markings` note below for the literal key and
+  // for why this screen seeds state rather than passing `seedRow`.
+  const [contacts, setContacts] = useState<ContactRow[]>(() => [blankContact("ct0")]);
   const [applicantIds, setApplicantIds] = useState<string[]>([]);
-  const [agents, setAgents] = useState<AgentRow[]>([]);
-  const [sewing, setSewing] = useState<CatRow[]>([]);
-  const [packing, setPacking] = useState<CatRow[]>([]);
-  const [nominated, setNominated] = useState<VendorRow[]>([]);
-  const [recommended, setRecommended] = useState<VendorRow[]>([]);
-  const [markings, setMarkings] = useState<MarkRow[]>([]);
+  // Seeded, never `[]` — see the `markings` note below for the literal key and
+  // for why this screen seeds state rather than passing `seedRow`.
+  const [agents, setAgents] = useState<AgentRow[]>(() => [blankAgent("ag0")]);
+  // Seeded, never `[]` — see the `markings` note below for the literal key and
+  // for why this screen seeds state rather than passing `seedRow`.
+  const [sewing, setSewing] = useState<CatRow[]>(() => [blankCat("sw0")]);
+  const [packing, setPacking] = useState<CatRow[]>(() => [blankCat("pk0")]);
+  /**
+   * Seeded, never `[]` — see the `markings` note below for why the key is a
+   * literal here and why this screen seeds its STATE rather than passing
+   * `ChildGrid`'s `seedRow` (its `onAdd` sets `dirty`, and `VendorGrid`'s does
+   * too). `openAdd` / `openEdit` re-seed before the overlay opens; these values
+   * only ever cover the mount.
+   */
+  const [nominated, setNominated] = useState<VendorRow[]>(() => [blankVendor("nv0")]);
+  const [recommended, setRecommended] = useState<VendorRow[]>(() => [blankVendor("rv0")]);
+  /**
+   * Seeded, never `[]` (`erp-table-default-row`). `openAdd` / `openEdit` below
+   * both re-seed before the overlay opens, so this initial value is only ever
+   * the mount-time one — but it is stated rather than left empty so the grid
+   * cannot render row-less by any path.
+   *
+   * The key is a LITERAL, not `newKey()`: an initialiser runs during render and
+   * `newKey` reads `keySeq.current`, which `react-hooks/refs` correctly rejects.
+   * Keys only have to be unique within the array, and the sequence issues `k…`,
+   * so `m0` can never collide with one.
+   *
+   * NOT `ChildGrid`'s own `seedRow`, and that is deliberate — do not "simplify"
+   * it into one. `seedRow` seeds by CALLING `onAdd` from an effect, and this
+   * screen's `onAdd` sets `dirty`. Every customer would then open reading
+   * "Unsaved changes", and `useUnsavedGuard(dirty || isPending)` would hold off
+   * the silent PWA auto-reload on a record nobody had touched. Seeding the state
+   * instead happens in `openAdd` / `openEdit` BEFORE their `setDirty(false)`, so
+   * a pristine record stays pristine. `seedRow` is right for a grid whose add
+   * handler does not touch a dirty flag (Department, Work Timing, the process
+   * grids); it is wrong here.
+   */
+  const [markings, setMarkings] = useState<MarkRow[]>(() => [blankMarking("m0")]);
   /**
    * The Approvals policy checklist (doc/approval.md §3) — keyed by
    * `approval_id`, value is the lead-time-days TEXT the operator typed.
@@ -622,12 +759,12 @@ export function CustomerMasterScreen({
     setForm(blankForm);
     setContacts([blankContact(newKey())]);
     setApplicantIds([]);
-    setAgents([]);
-    setSewing([]);
-    setPacking([]);
-    setNominated([]);
-    setRecommended([]);
-    setMarkings([]);
+    setAgents([blankAgent(newKey())]);
+    setSewing([blankCat(newKey())]);
+    setPacking([blankCat(newKey())]);
+    setNominated([blankVendor(newKey())]);
+    setRecommended([blankVendor(newKey())]);
+    setMarkings([blankMarking(newKey())]);
     setApprovalDays({});
     setDirty(false);
     setOpen(true);
@@ -680,47 +817,52 @@ export function CustomerMasterScreen({
       tcs_applicable: r.tcs_applicable,
       gst_no: r.gst_no ?? "",
     });
-    setContacts(
-      r.contacts.map((c) => ({
-        key: newKey(),
-        department_id: c.department_id ?? "",
-        contact_name: c.contact_name ?? "",
-        designation_id: c.designation_id ?? "",
-        land_line: c.land_line ?? "",
-        mobile: c.mobile ?? "",
-        email_id: c.email_id ?? "",
-        internal_department_id: c.internal_department_id ?? "",
-      })),
-    );
+    const contactsIn = (r.contacts ?? []).map((c) => ({
+      key: newKey(),
+      department_id: c.department_id ?? "",
+      contact_name: c.contact_name ?? "",
+      designation_id: c.designation_id ?? "",
+      land_line: c.land_line ?? "",
+      mobile: c.mobile ?? "",
+      email_id: c.email_id ?? "",
+      internal_department_id: c.internal_department_id ?? "",
+    }));
+    setContacts(contactsIn.length ? contactsIn : [blankContact(newKey())]);
     setApplicantIds(r.applicants.map((a) => a.applicant_id).filter((id): id is string => !!id));
-    setAgents(
-      r.agents.map((a) => ({
-        key: newKey(),
-        agent_type_id: a.agent_type_id ?? "",
-        agent_id: a.agent_id ?? "",
-      })),
-    );
-    setSewing(
-      r.supplied_items
-        .filter((s) => s.section === "sewing")
-        .map((s) => ({ key: newKey(), category_id: s.category_id ?? "" })),
-    );
-    setPacking(
-      r.supplied_items
-        .filter((s) => s.section === "packing")
-        .map((s) => ({ key: newKey(), category_id: s.category_id ?? "" })),
-    );
-    setNominated(
-      r.nominated_vendors
-        .filter((v) => v.list_kind === "nominated")
-        .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" })),
-    );
-    setRecommended(
-      r.nominated_vendors
-        .filter((v) => v.list_kind === "recommended")
-        .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" })),
-    );
-    setMarkings(r.markings.map((m) => ({ key: newKey(), marking: m.marking ?? "" })));
+    const agentsIn = (r.agents ?? []).map((a) => ({
+      key: newKey(),
+      agent_type_id: a.agent_type_id ?? "",
+      agent_id: a.agent_id ?? "",
+    }));
+    setAgents(agentsIn.length ? agentsIn : [blankAgent(newKey())]);
+    // One array split by section, so each side is independently empty — a
+    // customer who supplies sewing trims but no packaging is ordinary, not a
+    // half-loaded record. Each falls back on its own count, exactly as the two
+    // vendor lists below do.
+    const suppliedRowsIn = (section: "sewing" | "packing") =>
+      (r.supplied_items ?? [])
+        .filter((x) => x.section === section)
+        .map((x) => ({ key: newKey(), category_id: x.category_id ?? "" }));
+    const sewingIn = suppliedRowsIn("sewing");
+    const packingIn = suppliedRowsIn("packing");
+    setSewing(sewingIn.length ? sewingIn : [blankCat(newKey())]);
+    setPacking(packingIn.length ? packingIn : [blankCat(newKey())]);
+    // Both lists come out of ONE array, so each is independently empty on most
+    // customers — a nomination list with no recommendations is the normal case,
+    // not a missing record. Each falls back on its own count.
+    const vendorRowsIn = (kind: "nominated" | "recommended") =>
+      (r.nominated_vendors ?? [])
+        .filter((v) => v.list_kind === kind)
+        .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" }));
+    const nominatedIn = vendorRowsIn("nominated");
+    const recommendedIn = vendorRowsIn("recommended");
+    setNominated(nominatedIn.length ? nominatedIn : [blankVendor(newKey())]);
+    setRecommended(recommendedIn.length ? recommendedIn : [blankVendor(newKey())]);
+    // `[]`, null and a row-less record all mean "no markings yet", which is the
+    // state the blank row exists for — so Row 1 is ready to type on an existing
+    // customer too, not only a new one.
+    const markingRowsIn = (r.markings ?? []).map((m) => ({ key: newKey(), marking: m.marking ?? "" }));
+    setMarkings(markingRowsIn.length ? markingRowsIn : [blankMarking(newKey())]);
     setApprovalDays(
       Object.fromEntries(r.approval_policy.map((p) => [p.approval_id, String(p.lead_time_days)])),
     );
@@ -1126,7 +1268,23 @@ export function CustomerMasterScreen({
         addLabel="+ Add Customer"
         onAdd={openAdd}
         columns={columns}
-        actions={{ onView: setViewRow, onEdit: openEdit, onDelete: remove }}
+        actions={{
+          onView: setViewRow,
+          onEdit: openEdit,
+          onDelete: remove,
+          /**
+           * BLOCK / UNBLOCK LIVES HERE, NOT ON THE FORM (client 2026-08-17:
+           * "block option move to that table listing … no more in the creating
+           * screen"). Identity's Inactive switch was removed in the same change,
+           * so this is the only route to the flag and had to land first.
+           *
+           * `perms.canDelete` because blocking is the destructive direction and
+           * `setMasterActive` gates it that way server-side. The label reads off
+           * `isInactive`, so a blocked row offers "Unblock" without this screen
+           * knowing which of the three spellings `customers` uses.
+           */
+          menu: (r) => blockItem(r, { label: r.name, canBlock: perms.canDelete }),
+        }}
         empty="No customers yet."
         mobile={{
           title: (r) => r.name,
@@ -1231,20 +1389,56 @@ export function CustomerMasterScreen({
             done: done.identity,
             content: (
                   <SectionBody title="Identity">
-                    {/* ONE FieldGrid for the whole section — `SectionBody` has no
-                        grid of its own, and two stacked grids would agree on the
-                        left edge but not on the row gap. */}
-                    <FieldGrid>
-                      {editId && (
-                        <Field size={FIELD_SIZE.inactive}>
-                          <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-                            <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
-                            <span className="text-sm text-foreground">Inactive</span>
-                          </label>
-                        </Field>
-                      )}
-                      <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cu-name"
-                        hint={editOrigin ? originNameHint(editOrigin) : undefined}>
+                    {/* ONE `FieldRow`, laid out by WIDTHS — see `IDENTITY_W` at the
+                        top of this file for the arithmetic and for which two widths
+                        trade against `FieldWidth`'s own test.
+
+                        NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block
+                        option move to that table listing … we are used to give that
+                        block while CREATING the data but we need to move this in
+                        ACTION only, no more in the creating screen"). It is the
+                        listing's ⋮ ▸ Block / Unblock now — `useBlockAction` above,
+                        with `customer` registered in `lib/masters/active-registry.ts`
+                        in the same change. **The row action had to land first**: it
+                        is the only route to the flag once the field is gone, and
+                        deleting the field alone would have made blocking a customer
+                        impossible rather than moved it. `form.inactive` is still in
+                        the form state and still round-trips, so an edit cannot null
+                        it — the value is simply no longer typed here, exactly as
+                        `bank-master-screen.tsx` already has it.
+
+                        It was also the field that made this row impossible to
+                        tighten: unlabelled and edit-only, it left a hole on New and
+                        a floating switch on Edit, so the row had two shapes. */}
+                    {/* `align="start"` — TOP-ALIGNED, and the whole row rather than
+                        a `self-start` on one field (client 2026-09-09: every input
+                        box on the exact same horizontal line, labels top-aligned,
+                        and Name's helper text not pushing the others down).
+
+                        THE CHOICE IS ABOUT WHICH HAZARD THIS ROW HAS. `items-end`
+                        is the house default and it is there for a LABEL that
+                        outgrows its box — bottom-aligning keeps such a field's
+                        control on the row's line. This row does not have that
+                        problem: labels are `text-xs`, and the longest,
+                        "In-house Unit ID", is ~96px inside its 110px box, so all
+                        eight sit on one line. What it does have is content BELOW a
+                        control — Name renders a `DuplicateError` and a
+                        `SpellSuggestHint`, and bottom alignment measures from the
+                        bottom of both, so the row visibly jumped as soon as a
+                        colliding name was typed. (Name carried an `originNameHint`
+                        under it as well until 2026-09-09, when the client had it
+                        removed outright — the label and its box, nothing else. The
+                        origin is still said twice on this screen: `OriginBadge` in
+                        the editor header, and a "From <source>" pair in the record
+                        sheet, so nothing about where the row came from is lost.)
+
+                        `self-start` on Name alone fixed that field and left the
+                        row's own axis wrong, which is why it is gone: with the row
+                        top-aligned there is nothing left to override, and the
+                        boxes line up whether or not the helper text is showing.
+                        See `FIELD_ROW_NOWRAP_TOP` for how to choose. */}
+                    <FieldRow nowrap align="start">
+                      <Field label="Name" required className={IDENTITY_W.name} htmlFor="cu-name">
                         {/* `readOnly`, not `disabled`: the value still submits
                             and still copies, and Input's own readOnly sets
                             tabIndex={-1}, so it leaves the Tab order for free. */}
@@ -1261,13 +1455,20 @@ export function CustomerMasterScreen({
                           onApply={(v) => setForm((f) => ({ ...f, name: v }))}
                         />
                       </Field>
-                      <Field label="Doc Prefix" size={FIELD_SIZE.doc_prefix} htmlFor="cu-prefix">
+                      {/* THE THREE IDENTIFIER CODES SIT TOGETHER (client 2026-09-09).
+                          In-house Unit ID used to close the row, four fields away from the
+                          Doc Prefix and ID it belongs with; the row reads as one band, so
+                          the codes being adjacent is what makes it scannable. */}
+                      <Field label="Doc Prefix" className={IDENTITY_W.doc_prefix} htmlFor="cu-prefix">
                         <Input uppercase id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
                       </Field>
-                      <Field label="ID" size={FIELD_SIZE.doc_id} htmlFor="cu-docid">
+                      <Field label="ID" className={IDENTITY_W.doc_id} htmlFor="cu-docid">
                         <Input uppercase id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} />
                       </Field>
-                      <Field label="Also Consignee" size={FIELD_SIZE.also_consignee} htmlFor="cu-alsocons">
+                      <Field label="In-house Unit ID" className={IDENTITY_W.inhouse_unit_id} htmlFor="cu-inhouseunit">
+                        <Input uppercase id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
+                      </Field>
+                      <Field label="Also Consignee" className={IDENTITY_W.also_consignee} htmlFor="cu-alsocons">
                         <Select id="cu-alsocons" value={form.also_consignee ? "yes" : "no"} onChange={(e) => set({ also_consignee: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
@@ -1278,7 +1479,7 @@ export function CustomerMasterScreen({
                           same 36px control height as the Select beside it. That
                           replaces a `sm:pt-6` hack which faked the same offset
                           at one viewport width only. */}
-                      <Field label="Also Notify" size={FIELD_SIZE.also_notify} htmlFor="cu-alsonotify">
+                      <Field label="Also Notify" className={IDENTITY_W.also_notify} htmlFor="cu-alsonotify">
                         <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
                           <input id="cu-alsonotify" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.also_notify} onChange={(e) => set({ also_notify: e.target.checked })} />
                           <span className="text-sm text-foreground">Yes</span>
@@ -1296,19 +1497,16 @@ export function CustomerMasterScreen({
                           `country_id` and `address_country_id` — see the Address
                           section below, which used to carry its own picker for
                           the second column. */}
-                      <Field label="Country" size={FIELD_SIZE.country_id}>
+                      <Field label="Country" className={IDENTITY_W.country_id}>
                         <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id, address_country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                       </Field>
-                      <Field label="Business Entity" size={FIELD_SIZE.business_entity} htmlFor="cu-bizentity">
+                      <Field label="Business Entity" className={IDENTITY_W.business_entity} htmlFor="cu-bizentity">
                         <Select id="cu-bizentity" value={form.business_entity} onChange={(e) => set({ business_entity: e.target.value })}>
                           <option value=""></option>
                           {BUSINESS_ENTITIES.map((b) => <option key={b} value={b}>{b}</option>)}
                         </Select>
                       </Field>
-                      <Field label="In-house Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="cu-inhouseunit">
-                        <Input uppercase id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
-                      </Field>
-                    </FieldGrid>
+                    </FieldRow>
                   </SectionBody>
             ),
           },
@@ -1467,7 +1665,7 @@ export function CustomerMasterScreen({
                       pageSize={10}
                       rows={agents}
                       onAdd={() => {
-                        setAgents((xs) => [...xs, { key: newKey(), agent_type_id: "", agent_id: "" }]);
+                        setAgents((xs) => [...xs, blankAgent(newKey())]);
                         setDirty(true);
                       }}
                       onRemove={(a) => {
@@ -1724,7 +1922,7 @@ export function CustomerMasterScreen({
                         label="Marking"
                         pageSize={10}
                         rows={markings}
-                        onAdd={() => { setMarkings((xs) => [...xs, { key: newKey(), marking: "" }]); setDirty(true); }}
+                        onAdd={() => { setMarkings((xs) => [...xs, blankMarking(newKey())]); setDirty(true); }}
                         onRemove={(m) => { setMarkings((xs) => xs.filter((r) => r.key !== m.key)); setDirty(true); }}
                         addLabel="+ Add marking"
                         columns={[
@@ -1868,7 +2066,7 @@ function CategoryGrid({
       forceCards
       flatRows
       rows={rows}
-      onAdd={() => { setRows((xs) => [...xs, { key: newKey(), category_id: "" }]); setDirty(true); }}
+      onAdd={() => { setRows((xs) => [...xs, blankCat(newKey())]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
       addLabel="+ Add category"
       columns={[
@@ -1924,7 +2122,7 @@ function VendorGrid({
       forceCards
       flatRows
       rows={rows}
-      onAdd={() => { setRows((xs) => [...xs, { key: newKey(), vendor_id: "" }]); setDirty(true); }}
+      onAdd={() => { setRows((xs) => [...xs, blankVendor(newKey())]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
       addLabel="+ Add vendor"
       columns={[

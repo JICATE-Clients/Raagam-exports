@@ -359,19 +359,110 @@ export const FIELD_WIDTH: Record<FieldWidth, string> = {
 export const FIELD_ROW =
   "flex flex-wrap items-end gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5";
 
+/**
+ * ONE LINE, NEVER FOLDED — `FIELD_ROW` with the wrap taken out.
+ *
+ * `FIELD_ROW` above is `flex-wrap` on purpose and that is still the default: a
+ * row of fields folding its tail onto a second line is how this app avoids
+ * sideways scrolling, which the layout contract prefers in almost every case.
+ *
+ * THE EXCEPTION IS A ROW OF EXPLICITLY-SIZED NARROW FIELDS read as one band —
+ * Customer ▸ Identity (client 2026-09-09: eight fields "tightly on a single
+ * horizontal row"). There the fold is the defect rather than the graceful
+ * degradation: at ~990px the row fits any normal pane, and a window narrow
+ * enough to fold it drops ONE field to a second line, which reads as a stray
+ * rather than as a wrapped row.
+ *
+ * Three parts, and each answers a different failure:
+ *
+ * - `flex-nowrap` and `[&>*]:shrink-0` together. Nowrap alone still lets flex
+ *   compress every child below its stated width, so the pixel widths the caller
+ *   asked for would silently become suggestions and the values inside them would
+ *   clip with no visible cause.
+ * - `gap-x-2.5` (10px) rather than `gap-x-3`. Tighter, because a band of 85-170px
+ *   controls at 12px apart reads as separated rather than grouped.
+ * - `overflow-x-auto` on the OUTER container, so the one case that genuinely
+ *   cannot fit scrolls inside its own box instead of pushing the page sideways.
+ *   Safe with the pickers on this row because `DataPicker` PORTALS its panel and
+ *   `LookupDialogPicker` opens a dialog — an in-flow popup would be clipped by
+ *   this, so check that before using `nowrap` on a row with a new control.
+ *
+ * `items-end` is unchanged and is what keeps this usable: a label too long for
+ * its own 85px box wraps to two lines and its control still sits on the row's
+ * line with the others.
+ */
+const FIELD_ROW_NOWRAP_BASE = "flex flex-nowrap gap-x-2.5 gap-y-2 [&>*]:shrink-0";
+
+/** The nowrap row, bottom-aligned — the same axis `FIELD_ROW` uses. */
+export const FIELD_ROW_NOWRAP = `${FIELD_ROW_NOWRAP_BASE} items-end`;
+
+/**
+ * THE NOWRAP ROW, TOP-ALIGNED — `align="start"` (client 2026-09-09: every input
+ * box on "the exact same horizontal line", labels top-aligned, and Name's helper
+ * text not pushing the others down).
+ *
+ * ## THE TWO ALIGNMENTS ANSWER DIFFERENT QUESTIONS, AND BOTH ANSWERS ARE RIGHT
+ *
+ * `items-end` exists for a LABEL that outgrows its box: at 72-112px "NoOf
+ * Cartons" wraps to two lines, and bottom-aligning is what keeps its control on
+ * the row's line with the nine beside it (screenshot 2374). Read that note above.
+ *
+ * `items-start` exists for CONTENT BELOW THE CONTROL — a `hint`, a
+ * `DuplicateError`, a `SpellSuggestHint`. Bottom alignment measures from the
+ * BOTTOM of all that, so the field's input rides up out of the row the moment a
+ * duplicate name is typed: the row visibly jumps while the operator is still in
+ * it. `FIELD_ROW`'s own note names this as the case to handle rather than a
+ * reason to abandon `items-end`, and this is that handling.
+ *
+ * **Pick by which hazard the row actually has.** Customer ▸ Identity has the
+ * second and not the first: its labels are `text-xs` and every one of the eight
+ * fits its stated width on one line ("In-house Unit ID", the longest, is ~96px in
+ * a 110px box), while Name carries all three kinds of sub-control content. A row
+ * with wrapping labels must stay `items-end`, because top-aligning there drops
+ * that one control a line below its neighbours — which is the fault this whole
+ * pair of constants exists to avoid, arriving from the other side.
+ *
+ * A row that has BOTH hazards is not solvable by an alignment: it needs its label
+ * band given a uniform height, and that is worth building the day one turns up.
+ */
+export const FIELD_ROW_NOWRAP_TOP = `${FIELD_ROW_NOWRAP_BASE} items-start`;
+
 export function FieldRow({
   children,
   className,
+  nowrap = false,
+  align = "end",
 }: {
   children: ReactNode;
   className?: string;
+  /** One line, never folded — see `FIELD_ROW_NOWRAP` above for the three parts
+   *  and for the portal caveat on pickers. */
+  nowrap?: boolean;
+  /**
+   * Which edge the fields line up on. `"end"` is the default and the house rule
+   * (a wrapping label must not drop its control); `"start"` is for a row whose
+   * fields render a hint or an error BELOW the control. `FIELD_ROW_NOWRAP_TOP`
+   * above explains how to choose. Only read when `nowrap` is set — a wrapping
+   * row has never needed it.
+   */
+  align?: "end" | "start";
 }) {
   // Two elements, not one, for the reason `FieldGrid` documents below: a size
   // container query does not apply to its own container, so any `@lg/section:`
   // class on this div would resolve against an ANCESTOR named `section`.
   return (
-    <div className={cn("@container/section", className)}>
-      <div className={FIELD_ROW}>{children}</div>
+    <div className={cn("@container/section", nowrap && "overflow-x-auto", className)}>
+      <div
+        className={
+          nowrap
+            ? align === "start"
+              ? FIELD_ROW_NOWRAP_TOP
+              : FIELD_ROW_NOWRAP
+            : FIELD_ROW
+        }
+      >
+        {children}
+      </div>
     </div>
   );
 }
