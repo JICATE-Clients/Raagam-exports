@@ -19430,7 +19430,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               <div className="mb-1 flex items-center gap-3">
                 <Toggle
                   id="ta-pp-hardlock"
-                  checked={form.production_based_pp_approval}
+                  // `!!` — `BLANK` and `openEdit` both always set this field,
+                  // but a `checked` prop that is ever `undefined` (a stale
+                  // client on an order saved before 0552, or a dev bundle
+                  // caught mid hot-reload) trips React's uncontrolled→
+                  // controlled warning permanently for this input's lifetime.
+                  // Coercing to a real boolean is cheap insurance against that
+                  // whole class, not a fix for a specific cause.
+                  checked={!!form.production_based_pp_approval}
                   onChange={(production_based_pp_approval) => set({ production_based_pp_approval })}
                   label="Production-Based PP Approval"
                 />
