@@ -306,6 +306,12 @@ export const FIELD_WIDTH: Record<FieldWidth, string> = {
   range: "w-28", //     112px
   code: "w-36", //      144px — the width `across="compact"` already settled on
   term: "w-44", //      176px
+  /**
+   * 200px. A STATIC ARBITRARY LITERAL, the same shape `num` above takes, because
+   * 12.5rem is not on Tailwind's own `w-*` scale between `w-44` and `w-48` — and
+   * `w-48` is 192, which is under the 200 the client measured.
+   */
+  party: "w-[12.5rem]", //  200px
   name: "w-72", //      288px
 };
 

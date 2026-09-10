@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Field, type FieldSize } from "@/components/ui/field";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -36,32 +36,87 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExpo
 const BLANK = { account_no: "", account_name: "", bank_name: "", branch_name: "", swift_code: "", ifsc_code: "", address: "", inactive: false };
 
 /**
- * How wide each field is on the 12-column track (LAYOUT.md §3).
+ * OUR BANK, SHRINK-WRAPPED (`erp-form-compact`).
  *
- * `sm` (3 of 12 — four per row) is the working default, and every identifier on
- * this form is fixed-width: an account number, an 8/11-character SWIFT, an
- * 11-character IFSC. The three NAME fields were `lg` (half a row each), which
- * put three fields on a row that holds four (client 2026-07-29); at `sm` they
- * are still ~275px in the 1180px editor, i.e. ~34 characters of a bank name.
+ * Eight fields at `size="sm"` is 3 of 12 each, and a `Sheet` is `max-w-[1180px]`
+ * — so an ELEVEN-CHARACTER IFSC stood in a ~275px box, and so did the SWIFT
+ * beside it, and so did every name on the form. A fraction cannot be made
+ * compact: narrowing the control inside a twelfth leaves the CELL at its old
+ * width and the value floating in it. So `FieldRow` + `Field w=`.
  *
- * THE SPANS OF ONE ROW MUST SUM TO 12 — a row past 12 does not shrink, its last
- * field wraps onto a line of its own with the rest of that line left empty.
- *   row 1   account_no 3 + account_name 3 + bank_name 3 + branch_name 3 = 12
- *   row 2   swift_code 3 + ifsc_code 3 + address 6                      = 12
- *   row 3   inactive 3   (edit only — which is why it is LAST: rows 1-2 then
- *                         look identical in New and in Edit)
+ * The map it replaces was not careless — it read `3 + 3 + 3 + 3 = 12` and was
+ * checked against that sum. But summing to 12 only says a row does not overflow;
+ * it never says any field in it is the right size, and here four of the eight
+ * were identifiers with a hard maximum sitting in the same box as a bank's name.
+ *
+ * NO HAND-TYPED PIXELS — every value lands on a step, and the two bounded ones
+ * are bounded by the SCHEMA rather than by eye (`lib/validation/formats.ts`):
+ *
+ *   text / codes 130-160  ->  `code`  144   Swift, IFSC — `maxLength: 11` both,
+ *                                           ~99px of glyphs plus the box's own
+ *                                           padding, so `range` (112) would clip
+ *                                           the eleventh character
+ *   short options 90-120  ->  `term`  176   Account No — `maxLength: 18`, the
+ *                                           widest bounded value here at ~151px
+ *                                           of digits; it takes the step above
+ *                                           the band because the band is drawn
+ *                                           for enums, not for 18 digits
+ *   free text             ->  `name`  288   Account Name, Bank Name, Branch
+ *                                           Name, Address
+ *
+ * THE FOUR NAMES STAY AT 288 AND THAT IS THE POINT. `FieldWidth`'s test is
+ * "does the value have a hard maximum the schema guarantees?", and a bank's name
+ * does not — so they take the widest step, which is roughly the width they
+ * already had. Nothing on this form was tightened by guessing at its longest
+ * value; what was tightened is the four fields whose maximum is written down,
+ * and the CARD, which used to fill 1180px whatever was in it.
+ *
+ * `party` (200) IS NOT FOR BANK NAME HERE, though it was added for a field of
+ * that name. Its own note in `lib/ui/sizes.ts` draws the line: it is for a
+ * picker TRIGGER, never to make a text input wider, because sizing a typing
+ * surface to its data is the failure that file exists to prevent. This is a
+ * typing surface.
+ *
+ *   176 + 288        = 464 + 1 x 12 = 476   account no, account name
+ *   288 + 288        = 576 + 1 x 12 = 588   bank name, branch name
+ *   144 + 144 + 288  = 576 + 2 x 12 = 600   swift, ifsc, address
+ *
+ * THREE LINES THAT EACH MEAN SOMETHING: the account, then the bank, then how a
+ * remitter reaches it. The twelfths gave four fields, then three, then a lone
+ * tick box, grouped by nothing but the arithmetic of 12.
  */
-const FIELD_SIZE = {
-  account_no: "sm", // 3 — a fixed-width identifier, never free text
-  account_name: "sm", // 3 — "RAAGAM EXPORTS CURRENT A/C" fits at ~34 chars
-  bank_name: "sm", // 3 — "STATE BANK OF INDIA"
-  branch_name: "sm", // 3 — "PEELAMEDU"
-  swift_code: "sm", // 3 — 8 or 11 characters
-  ifsc_code: "sm", // 3 — exactly 11 characters
-  address: "sm", // 3 — the one free-text line on the form; it keeps the same
-  //                    box as its neighbours (uniform 4-per-row, 2026-07-29)
-  inactive: "sm", // 3 — a tick box; it only needs room for its own caption
-} satisfies Record<string, FieldSize>;
+const OUR_BANK_W = {
+  account_no: "term", //   18 digits, the schema's own maximum
+  account_name: "name",
+  bank_name: "name",
+  branch_name: "name",
+  swift_code: "code", //   8 or 11 characters
+  ifsc_code: "code", //    exactly 11
+  address: "name", //      the one free-text line on the form
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * HOW WIDE THE FORM IS (`erp-form-compact` rule 3) — the card AND the footer's
+ * button box, from ONE declaration.
+ *
+ * Narrowing the fields does not narrow the CARD: `DetailSection` is a block box
+ * and goes on filling the Sheet's 1180px whatever is inside it, and the footer
+ * buttons stay pinned to that pane — so Save would sit most of a screen to the
+ * right of the last field it saves. `country-master-screen.tsx` records this
+ * pattern and both of its readers.
+ *
+ * BOTH BOUNDS MATTER, and together they make the three-line shape above a fact
+ * rather than a hope:
+ *
+ *   >= 600   or Address drops off the third line and stands alone on a fourth
+ *   <  744   (588 + a gap + a `code` field) or Swift climbs onto the bank line
+ *            and the codes are split across two lines
+ *
+ * 640 sits between them with 40px over the floor and 104 under the ceiling.
+ * `FIELD_ROW`'s `gap-x-3` is 12px at BOTH densities, so unlike a padding-derived
+ * cap this arithmetic does not move between the compact and full editor.
+ */
+const FORM_W = "max-w-[40rem]";
 
 export function OurBankMasterScreen({
   rows,
@@ -289,21 +344,38 @@ export function OurBankMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Bank" : "New Bank"}
         footer={
-          <>
+          /* `mr-auto` inside the Sheet footer's `justify-end` row: the auto
+             margin eats the free space on the RIGHT, so this box starts at the
+             left edge and the buttons — right-aligned inside it — end exactly
+             where the card above them ends. Without it they stay pinned to the
+             1180px pane and Save floats most of a screen away from the last
+             field it saves. `FORM_W` is the same string the card takes; that is
+             rule 3's second reader. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !form.account_name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
-        {/* Seven fields — one titled section (LAYOUT.md §4), on the 12-col track
-            so the two 11-character codes stop claiming half a row each. Legacy
-            field order preserved. Widths come from FIELD_SIZE above, which
-            carries the per-row arithmetic. */}
-        <DetailSection label="Details" cols={12}>
+        {/* Seven fields — one titled section (LAYOUT.md §4). `cols={1}` because
+            they are NOT on the twelfths track any more: the `FieldRow` below is a
+            content-width flex row that packs them by WIDTH, and the section just
+            stacks it above the edit-only toggle. Legacy field order preserved.
+            Widths and the per-line arithmetic are in `OUR_BANK_W` above. */}
+        <DetailSection label="Details" cols={1} className={FORM_W}>
+          {/* `align="start"`, and this row has the hazard that choice is for:
+              three of its seven cells render something BELOW the control —
+              Account No carries a `DuplicateError`, and it, Swift and IFSC are
+              each a `ValidatedInput` that shows a format message there.
+              `items-end` measures from the bottom of that, so the moment one of
+              them complained its LABEL would jump a line above every other label
+              on the row. Nothing here has the opposite hazard: the longest
+              label, "Account Name", is ~78px inside 288. */}
+          <FieldRow align="start">
           {/* The one field this record cannot exist without: an Our Bank row is
               here to be PRINTED on a proforma invoice so a buyer can wire money
               to it, and without the account number it serves no purpose at all.
@@ -315,7 +387,7 @@ export function OurBankMasterScreen({
               unsaveable, which is the over-marking AGENTS.md warns about: the test
               is "must the record be unsaveable without it?", not "should this
               usually be filled?". */}
-          <Field label="Account No" required size={FIELD_SIZE.account_no} htmlFor="ob-account-no">
+          <Field label="Account No" required w={OUR_BANK_W.account_no} htmlFor="ob-account-no">
             <ValidatedInput
               id="ob-account-no"
               format="account"
@@ -325,7 +397,7 @@ export function OurBankMasterScreen({
             />
             <DuplicateError error={dupError} id="ob-account-no" />
           </Field>
-          <Field label="Account Name" size={FIELD_SIZE.account_name} htmlFor="ob-account-name">
+          <Field label="Account Name" w={OUR_BANK_W.account_name} htmlFor="ob-account-name">
             <Input
               id="ob-account-name"
               uppercase
@@ -333,7 +405,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, account_name: e.target.value })}
             />
           </Field>
-          <Field label="Bank Name" size={FIELD_SIZE.bank_name} htmlFor="ob-bank-name">
+          <Field label="Bank Name" w={OUR_BANK_W.bank_name} htmlFor="ob-bank-name">
             <Input
               id="ob-bank-name"
               uppercase
@@ -341,7 +413,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
             />
           </Field>
-          <Field label="Branch Name" size={FIELD_SIZE.branch_name} htmlFor="ob-branch-name">
+          <Field label="Branch Name" w={OUR_BANK_W.branch_name} htmlFor="ob-branch-name">
             <Input
               id="ob-branch-name"
               uppercase
@@ -349,7 +421,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
             />
           </Field>
-          <Field label="Swift Code" size={FIELD_SIZE.swift_code} htmlFor="ob-swift">
+          <Field label="Swift Code" w={OUR_BANK_W.swift_code} htmlFor="ob-swift">
             <ValidatedInput
               id="ob-swift"
               format="swift"
@@ -357,7 +429,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, swift_code: e.target.value })}
             />
           </Field>
-          <Field label="IFSC Code" size={FIELD_SIZE.ifsc_code} htmlFor="ob-ifsc">
+          <Field label="IFSC Code" w={OUR_BANK_W.ifsc_code} htmlFor="ob-ifsc">
             <ValidatedInput
               id="ob-ifsc"
               format="ifsc"
@@ -365,7 +437,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, ifsc_code: e.target.value })}
             />
           </Field>
-          <Field label="Address" size={FIELD_SIZE.address} htmlFor="ob-address">
+          <Field label="Address" w={OUR_BANK_W.address} htmlFor="ob-address">
             <Input
               uppercase
               id="ob-address"
@@ -373,7 +445,20 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </Field>
-          {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
+          </FieldRow>
+
+          {/* A ROW OF ITS OWN, not the eighth cell of the one above, and that is
+              structural rather than cosmetic. The old note here kept `inactive`
+              LAST so that "rows 1-2 look identical in New and in Edit" — a
+              property worth keeping, and on a packed row it would have depended
+              on the toggle being wide enough not to fit beside Address (600 + a
+              gap + the switch). That is an arithmetic nobody can check by
+              reading, since the toggle's width is its own word. A second
+              `FieldRow` makes it true by construction, and costs nothing:
+              `DetailSection cols={1}` stacks with `space-y-2` / `@2xl:space-y-1.5`,
+              the same rhythm `FIELD_ROW`'s own `gap-y` uses within a row.
+
+              `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
               Entry uses) — the identical swap Country, Destination and Notify
               made, and from the SAME component, so no two masters can drift
               apart. It is still a real `<input type="checkbox">` underneath
@@ -385,14 +470,18 @@ export function OurBankMasterScreen({
               the labelled fields beside it. The switch renders its own word, so
               a `label="Inactive"` here would draw the name twice. */}
           {editId && (
-            <Field label="" size={FIELD_SIZE.inactive}>
-              <Toggle
-                id="ob-inactive"
-                label="Inactive"
-                checked={form.inactive}
-                onChange={(inactive) => setForm({ ...form, inactive })}
-              />
-            </Field>
+            <FieldRow>
+              {/* No `w` at all: the switch renders its own word and hugs it, so
+                  a step from the vocabulary would only pad it. */}
+              <Field label="">
+                <Toggle
+                  id="ob-inactive"
+                  label="Inactive"
+                  checked={form.inactive}
+                  onChange={(inactive) => setForm({ ...form, inactive })}
+                />
+              </Field>
+            </FieldRow>
           )}
         </DetailSection>
       </Sheet>

@@ -72,5 +72,32 @@ export type FieldWidth =
   | "code"
   /** 11rem · 176px — a two-word enum: "Circular Knit", "Yarn Dyed". */
   | "term"
+  /**
+   * 12.5rem · 200px — A TRADING PARTY'S NAME IN A PICKER TRIGGER: a bank, an
+   * agent, a branch.
+   *
+   * THE SIXTH WIDTH, added 2026-09-09 for Consignee ▸ General ▸ Bank, and added
+   * to the vocabulary rather than as a `w-[200px]` in that screen's own map
+   * because `erp-form-compact` names this exact case: "if a screen genuinely
+   * needs the top of a band, that is the case for a SIXTH vocabulary width, not
+   * for a local map". The client asked for 200px there by measuring an actual
+   * clipped value, not by preference.
+   *
+   * IT IS THE ONE STEP THAT IS NOT BOUNDED BY THE SCHEMA, and that is the line
+   * to hold. Every step above answers "does the value have a hard maximum?" with
+   * yes; a bank name does not, so by that test it is `name` (288px) and always
+   * was. What this step says instead is narrower and checkable: the value is a
+   * name, it is rendered as the TRIGGER of a picker rather than as a typing
+   * surface, and `name` would break the row it sits in. Two of those three are
+   * properties of the row, which is why this must never be reached for to make a
+   * TEXT INPUT wider — that is "size to the data", which §3 refuses and this
+   * file's own header calls the failure it must never become.
+   *
+   * The gap it fills is real: `term` 176 → `name` 288 is a 112px jump, and a
+   * short proper noun lands in the middle of it. It is the last step that will
+   * be added on this argument; a seventh means the vocabulary has become one
+   * width per field.
+   */
+  | "party"
   /** 18rem · 288px — LAYOUT.md §3's ~280px, named so a mixed row can state it. */
   | "name";
