@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { createRole, toggleRolePermission } from "@/app/(app)/admin/actions";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -135,7 +136,7 @@ function PermissionMatrix({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+    <div className="-mx-5 overflow-x-auto border-y border-border">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-surface-muted">
@@ -200,11 +201,30 @@ export default function RolesClient({
   rolePermissions: RolePermissionRow[];
 }) {
   const [showCreate, setShowCreate] = useState(false);
-  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(
-    roles[0]?.id ?? null,
-  );
 
-  const selectedRole = roles.find((r) => r.id === selectedRoleId) ?? null;
+  /**
+   * A SHEET, ANCHORED TO THE ROW — never an inline expansion at the foot of
+   * the whole list. That was the reported bug: the matrix used to render
+   * below every role row rather than beside the one clicked, so opening
+   * "Editing" on the second role could mean scrolling past a dozen more to
+   * find it, with nothing on screen tying the two together.
+   *
+   * `open` stays a separate flag from `editingRole` (never nulled on close) —
+   * the same split every other Sheet-based screen in this app uses (see
+   * bank-master-screen.tsx's `editId`/`form`) — so the panel keeps showing
+   * the role it was editing while it animates shut instead of going blank.
+   */
+  const [open, setOpen] = useState(false);
+  const [editingRole, setEditingRole] = useState<RoleRow | null>(null);
+  const [origin, setOrigin] = useState<DOMRect | null>(null);
+
+  function openPermissions(role: RoleRow, e: React.MouseEvent<HTMLButtonElement>) {
+    // `currentTarget`, never `target` — the click can land on a text node
+    // inside the button, which has no `getBoundingClientRect` of its own.
+    setOrigin(e.currentTarget.getBoundingClientRect());
+    setEditingRole(role);
+    setOpen(true);
+  }
 
   const roleColumns: Column<RoleRow>[] = [
     { header: "Name", cell: (r) => <span className="font-medium">{r.name}</span> },
@@ -224,20 +244,18 @@ export default function RolesClient({
         ),
     },
     {
-      /* Not row CRUD — this toggles the permission editor open for the row, and
-         its label reports that state. A labelled column says so; the unnamed
+      /* Not row CRUD — this opens the permission editor for the row, and its
+         label reports that state. A labelled column says so; the unnamed
          action cell that <RowActions> owns would not (LAYOUT.md §6a). */
       header: "Permissions",
       align: "right",
       cell: (r) => (
         <Button
-          variant={selectedRoleId === r.id ? "subtle" : "ghost"}
+          variant={open && editingRole?.id === r.id ? "subtle" : "ghost"}
           size="sm"
-          onClick={() =>
-            setSelectedRoleId(selectedRoleId === r.id ? null : r.id)
-          }
+          onClick={(e) => openPermissions(r, e)}
         >
-          {selectedRoleId === r.id ? "Editing" : "Edit Permissions"}
+          {open && editingRole?.id === r.id ? "Editing" : "Edit Permissions"}
         </Button>
       ),
     },
@@ -265,29 +283,33 @@ export default function RolesClient({
         getKey={(r) => r.id}
       />
 
-      {selectedRole && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Permissions — {selectedRole.name}
-            </CardTitle>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelectedRoleId(null)}
-            >
-              Close
-            </Button>
-          </CardHeader>
-          <CardBody className="p-0">
-            <PermissionMatrix
-              role={selectedRole}
-              permissions={permissions}
-              rolePermissions={rolePermissions}
-            />
-          </CardBody>
-        </Card>
-      )}
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editingRole ? `Permissions — ${editingRole.name}` : "Permissions"}
+        // "md", not "sm": this is a hand-rolled <table>, not a ChildGrid, so
+        // the ChildGrid breakpoint reasoning in AGENTS.md's "A sub-detail
+        // Sheet's size" does not apply — but 16 modules × 6 actions is
+        // genuinely wide content (a module label plus six checkbox columns),
+        // and "sm"'s ~408px would force it into a horizontal scroll or
+        // truncate every module name. "md" gives it room to sit flat.
+        size="md"
+        origin={origin}
+        footer={
+          <span className="mr-auto text-xs text-muted-foreground">
+            Every change here saves immediately — there is no separate Save
+            button.
+          </span>
+        }
+      >
+        {editingRole && (
+          <PermissionMatrix
+            role={editingRole}
+            permissions={permissions}
+            rolePermissions={rolePermissions}
+          />
+        )}
+      </Sheet>
     </div>
   );
 }

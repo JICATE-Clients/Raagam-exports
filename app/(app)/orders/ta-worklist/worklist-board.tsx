@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2, Clock, RotateCcw } from "lucide-react";
+import { CheckCircle2, Clock, RotateCcw, UserRound, UserRoundX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
@@ -12,8 +12,8 @@ import { acquireBusy } from "@/lib/reload-guard";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
+  assignTaActivity,
   completeTaActivity,
-  registerBypass,
   reopenTaActivity,
   startTaActivity,
 } from "@/lib/ta/worklist-actions";
@@ -65,14 +65,21 @@ export function WorklistBoard({
   rows,
   canComplete,
   showDepartment,
+  viewerEmployeeId,
 }: {
   rows: WorklistRow[];
   canComplete: boolean;
   /** True when the list spans departments, so each row must say whose it is. */
   showDepartment: boolean;
+  /** `wl.viewerEmployeeId` (0547) — what Claim sends; null on an unlinked login. */
+  viewerEmployeeId: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The delay attribution the operator has picked, per row, before Done is
+  // pressed on a LATE row (0547). Local-only and thrown away on completion —
+  // there is nothing to restore it from and nothing else reads it.
+  const [delayChoice, setDelayChoice] = useState<Record<string, string>>({});
   const { success, error } = useToast();
 
   // Block the silent auto-update for as long as an action is in flight. See the
@@ -130,7 +137,14 @@ export function WorklistBoard({
               </p>
 
               {/* Line 2 — the quantity and the material, which is the half a
-                  legacy T&A screen never showed. */}
+                  legacy T&A screen never showed. Department and the bypass
+                  figure ride along here as plain text rather than pills
+                  (2026-09-09 UI pass, TA Worklist option A) — neither needs
+                  the same scan-speed as the lateness/assignee pills in the
+                  corner, and giving them equal pill weight was crowding a
+                  card that can already carry Claim/Release, Start/Undo, the
+                  delay picker and Done at once. Nothing here changed except
+                  where it's drawn. */}
               <p className="text-xs text-muted-foreground">
                 {row.orderQty > 0 && (
                   <span className="tabular-nums text-foreground">
@@ -139,6 +153,14 @@ export function WorklistBoard({
                 )}
                 {row.styleRefs.length > 0 && (
                   <span> · Style {row.styleRefs.join(", ")}</span>
+                )}
+                {showDepartment && row.departmentName && <span> · {row.departmentName}</span>}
+                {row.bypassPercent != null && (
+                  <span>
+                    {" "}
+                    · {Math.round(row.bypassPercent * 100)}% bypassed
+                    {row.bypassedQty != null ? ` (${fmtNumber(row.bypassedQty)} pcs)` : ""}
+                  </span>
                 )}
                 {row.materials.length > 0 && (
                   <>
@@ -172,29 +194,58 @@ export function WorklistBoard({
                   {fmtDate(row.targetDate)}
                 </span>
                 <SlipPill row={row} />
-                {/* INDEPENDENT OF `status` (0540) — a row can be `pending` or
-                   `in_progress` and still show pieces already moved past it,
-                   which is the whole point: the floor does not wait for a
-                   formal Done to send work along. */}
-                {row.bypassPercent != null && (
-                  <StatusPill tone="info">
-                    {Math.round(row.bypassPercent * 100)}% bypassed
+                {/* WHO THIS IS ON TODAY (0547) — "You" rather than the
+                    operator's own name repeated back at them; anyone else's
+                    claim shows the name they'd otherwise have to ask about. */}
+                {row.assignedStaffId && (
+                  <StatusPill tone={row.assignedStaffId === viewerEmployeeId ? "info" : "neutral"}>
+                    {row.assignedStaffId === viewerEmployeeId
+                      ? "You"
+                      : (row.assignedStaffName ?? "Claimed")}
                   </StatusPill>
-                )}
-                {showDepartment && row.departmentName && (
-                  <StatusPill tone="neutral">{row.departmentName}</StatusPill>
                 )}
               </div>
 
               {canComplete && (
-                <div className="flex items-center gap-1.5">
-                  <BypassRegister
-                    row={row}
-                    disabled={busyId === row.id}
-                    onRegister={(qty) =>
-                      run(row.id, () => registerBypass(row.id, qty), "Bypass registered")
-                    }
-                  />
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {/* CLAIM / RELEASE — self-serve only in this pass: an
+                      operator claims their own row or gives up their own
+                      claim. Reassigning someone ELSE's row is a manager
+                      action this board does not offer yet; the underlying
+                      `assignTaActivity` accepts any staffId when that is
+                      built, this UI just never sends one. Absent entirely
+                      when the login has no employee link — there is nothing
+                      truthful for it to claim AS. */}
+                  {viewerEmployeeId && !row.assignedStaffId && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId === row.id}
+                      onClick={() =>
+                        run(
+                          row.id,
+                          () => assignTaActivity(row.id, viewerEmployeeId),
+                          "Claimed",
+                        )
+                      }
+                      // toolbar-size: exempt -- per-row action, see the Done note below.
+                    >
+                      <UserRound aria-hidden /> Claim
+                    </Button>
+                  )}
+                  {viewerEmployeeId && row.assignedStaffId === viewerEmployeeId && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId === row.id}
+                      onClick={() =>
+                        run(row.id, () => assignTaActivity(row.id, null), "Released")
+                      }
+                      // toolbar-size: exempt -- per-row action, see the Done note below.
+                    >
+                      <UserRoundX aria-hidden /> Release
+                    </Button>
+                  )}
                   {row.status !== "in_progress" && (
                     <Button
                       variant="outline"
@@ -227,11 +278,48 @@ export function WorklistBoard({
                       <RotateCcw aria-hidden /> Undo
                     </Button>
                   )}
+                  {/* LATE ALREADY — completing it now is still a late
+                      completion, so the attribution has to be picked before
+                      Done fires (0547). This is the courtesy half; the
+                      server re-checks `target_date` itself and refuses a
+                      missing attribution on a late row regardless of what
+                      this control did or didn't show, so a stale `daysLate`
+                      from page load can never write an unattributed delay. */}
+                  {row.daysLate > 0 && (
+                    <Select
+                      value={delayChoice[row.id] ?? ""}
+                      onChange={(e) =>
+                        setDelayChoice((xs) => ({ ...xs, [row.id]: e.target.value }))
+                      }
+                      className="h-8 w-36 text-xs"
+                      disabled={busyId === row.id}
+                    >
+                      <option value="">Delay caused by…</option>
+                      <option value="internal_staff">Staff</option>
+                      <option value="buyer_delay">Buyer</option>
+                      <option value="material_supplier">Material Supplier</option>
+                    </Select>
+                  )}
                   <Button
                     size="sm"
-                    disabled={busyId === row.id}
+                    disabled={
+                      busyId === row.id || (row.daysLate > 0 && !delayChoice[row.id])
+                    }
                     onClick={() =>
-                      run(row.id, () => completeTaActivity(row.id), "Marked done")
+                      run(
+                        row.id,
+                        () =>
+                          completeTaActivity(
+                            row.id,
+                            undefined,
+                            (delayChoice[row.id] as
+                              | "internal_staff"
+                              | "buyer_delay"
+                              | "material_supplier"
+                              | undefined) || undefined,
+                          ),
+                        "Marked done",
+                      )
                     }
                     // toolbar-size: exempt -- per-row action, see above.
                   >
@@ -244,58 +332,6 @@ export function WorklistBoard({
         </li>
       ))}
     </ul>
-  );
-}
-
-/**
- * The qty box + "Bypass" button that registers pieces routed past this
- * activity ahead of schedule (0540). Local, uncontrolled-by-the-list state —
- * every other action on this screen (Start/Undo/Done) is a single click with
- * no value to type, so this is the one row control that needs its own input,
- * kept here rather than lifted into `WorklistBoard` because no sibling row
- * needs to know about it.
- *
- * PREFILLED FROM THE ROW'S OWN LAST FIGURE, never blank-by-default — a
- * bypass is cumulative (`registerBypass`'s own header), so the box should
- * show what is already on record and let the operator raise it, not make
- * them re-key a running total from memory.
- */
-function BypassRegister({
-  row,
-  disabled,
-  onRegister,
-}: {
-  row: WorklistRow;
-  disabled: boolean;
-  onRegister: (qty: number) => void;
-}) {
-  const [value, setValue] = useState(row.bypassedQty != null ? String(row.bypassedQty) : "");
-  const qty = Number(value);
-  const valid = value.trim() !== "" && Number.isFinite(qty) && qty > 0;
-
-  return (
-    <div className="flex items-center gap-1">
-      <Input
-        type="number"
-        min={1}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Qty"
-        disabled={disabled}
-        className="h-8 w-16 text-xs"
-        aria-label={`${row.activity} — pieces bypassed`}
-      />
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={disabled || !valid}
-        onClick={() => onRegister(qty)}
-        // toolbar-size: exempt -- per-row action inside a card, see the
-        // Start/Undo/Done buttons beside it.
-      >
-        Bypass
-      </Button>
-    </div>
   );
 }
 

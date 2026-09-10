@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Bug, ChevronDown, LogOut, Search } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { setCurrentLocation } from "@/lib/auth/location-actions";
+import { setRolePreview } from "@/lib/auth/role-simulation-actions";
+import type { PreviewableRole } from "@/lib/auth/role-simulation";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useLocationState } from "@/lib/auth/location-context";
 import { confirmDiscard } from "@/lib/reload-guard";
@@ -12,15 +14,55 @@ import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { bugPortalUrl, bugReporterConfigured } from "@/lib/bug-reporter";
 import { cn } from "@/lib/utils";
 
-export function Topbar() {
+/** Order-independent set equality, for "has the pending pick actually changed". */
+function sameRoleSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const s = new Set(a);
+  return b.every((id) => s.has(id));
+}
+
+export function Topbar({
+  previewableRoles,
+}: {
+  /** Every role a Super Admin may preview — empty for anyone else. */
+  previewableRoles: PreviewableRole[];
+}) {
   const user = useAppUser();
   const search = useSearch();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [switching, startSwitch] = useTransition();
+  const [previewing, startPreview] = useTransition();
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  /**
+   * TICKING IS NOT APPLYING. `MultiSelect` reports every tick as it happens
+   * (it has no "closed" event to hang a commit on — see its own file), and a
+   * role switch triggers `router.refresh()` on every server component, so
+   * committing per-tick would fire `confirmDiscard()`'s "Discard unsaved
+   * changes?" prompt on every single checkbox click. Local `pendingPreview`
+   * holds the in-progress pick; an explicit "Apply" is the one moment that
+   * actually switches the session, once, however many roles were ticked.
+   *
+   * Re-synced from `user.simulatedRoleIds` whenever the server's answer
+   * changes (a fresh page load, another tab applying a different preview) —
+   * otherwise a stale local pick would survive past the refresh it was
+   * supposed to cause. Done by adjusting state DURING RENDER (React's own
+   * pattern for "reset local state when a prop changes") rather than in a
+   * `useEffect`, which would commit the stale value for one extra frame and
+   * trip `react-hooks/set-state-in-effect`.
+   */
+  const [syncedIds, setSyncedIds] = useState(user.simulatedRoleIds);
+  const [pendingPreview, setPendingPreview] = useState(user.simulatedRoleIds);
+  if (!sameRoleSet(syncedIds, user.simulatedRoleIds)) {
+    setSyncedIds(user.simulatedRoleIds);
+    setPendingPreview(user.simulatedRoleIds);
+  }
+  const previewDirty = !sameRoleSet(pendingPreview, user.simulatedRoleIds);
 
   /**
    * THE UNIT NOW COMES FROM THE SESSION, NOT FROM LOCAL STATE.
@@ -67,6 +109,30 @@ export function Topbar() {
       // `profiles.current_location_id` is written and the layout path
       // revalidated; this re-renders the current route against the new unit.
       // Every RLS policy narrows to that column, so the data changes with it.
+      router.refresh();
+    });
+  }
+
+  /**
+   * A REAL Super Admin only — `realIsSuperAdmin`, not `isSuperAdmin`, which is
+   * false while already previewing. Same `confirmDiscard()` guard as the unit
+   * switch and for the same reason: this triggers `router.refresh()`, which
+   * re-runs every Server Component and can redirect a page the newly-applied
+   * roles can't reach — exactly the kind of re-render that must not silently
+   * eat a half-typed form. Fired once, on Apply, never per tick — see
+   * `pendingPreview`'s note above.
+   */
+  function onApplyPreview() {
+    if (!previewDirty) return;
+    if (!confirmDiscard()) return;
+
+    setPreviewError(null);
+    startPreview(async () => {
+      const result = await setRolePreview(pendingPreview);
+      if (!result.ok) {
+        setPreviewError(result.error);
+        return;
+      }
       router.refresh();
     });
   }
@@ -154,6 +220,68 @@ export function Topbar() {
             className="hidden text-xs text-danger lg:inline"
           >
             {error}
+          </span>
+        )}
+
+        {/* Role Preview — Super Admin only, and only when there's a role to
+            preview. Hidden below `md`: this is a testing/support tool for an
+            admin at a desk, not a shop-floor control, and the bar's mobile
+            width budget is already spoken for (see the Location `<Select>`'s
+            own note above the 314px floor this bar was cut down to).
+
+            A MULTI-select, not a single one — an operator can hold more than
+            one role at once (see `AppUser.simulatedRoleIds`), and previewing
+            only ever one at a time cannot represent that. Ticking is local
+            (`pendingPreview`); "Apply" is the one moment that actually
+            switches the session — see that state's own note above.
+
+            `hideChips`: the RolePreviewBanner below states every active
+            preview role in one line ("Previewing as X, Y") once applied,
+            which is this control's "elsewhere" for a chip row — the bar has
+            no width to spare for one, and it would wrap the header onto a
+            second line on every pick.
+
+            `triggerClassName` only reaches the trigger's WIDTH — the input
+            itself (height, text size) has no exposed className hook (unlike
+            `<Select>`, which threads one into `Combobox`'s `inputClassName`),
+            so this renders at the primitive's own h-9 default rather than
+            matching the bar's h-8 rhythm. Accepted rather than forked: this
+            is an admin-only, desktop-only control, and reusing the real
+            multi-select — full keyboard contract, search, required-hold —
+            is worth a few px of height mismatch. */}
+        {user.realIsSuperAdmin && previewableRoles.length > 0 && (
+          <div className="hidden items-center gap-1.5 md:flex">
+            <MultiSelect
+              compact
+              hideChips
+              id="role-preview"
+              label="Preview as role"
+              options={previewableRoles.map((r) => ({ id: r.id, label: r.name }))}
+              values={pendingPreview}
+              onChange={setPendingPreview}
+              disabled={previewing}
+              placeholder="Super Admin (you)"
+              triggerClassName="w-40"
+            />
+            {previewDirty && (
+              <button
+                type="button"
+                onClick={onApplyPreview}
+                disabled={previewing}
+                className="shrink-0 text-xs font-medium text-primary underline underline-offset-2 disabled:opacity-60"
+              >
+                Apply
+              </button>
+            )}
+          </div>
+        )}
+        {previewError && (
+          <span
+            id="role-preview-error"
+            role="alert"
+            className="hidden text-xs text-danger lg:inline"
+          >
+            {previewError}
           </span>
         )}
       </div>

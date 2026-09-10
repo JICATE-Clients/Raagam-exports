@@ -534,6 +534,31 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/orders/budget-approval", label: "Approval", description: "Approve or reject a submitted order budget — the last gate before purchase may act on it" },
         ],
       },
+      // TA FOLLOWUP — its own standalone row, alongside Order Management
+      // (operator request, 2026-09-09), not nested a level down under
+      // "Time & Action (TA)" the way the rest of that group's screens are.
+      // One screen, so `kind: "link"` rather than a `group`.
+      //
+      // Route renamed from `/orders/ta-approvals-worklist` to
+      // `/orders/ta-followup` in the same change — the feature was built
+      // this session and had no bookmarks or prose references yet, so this
+      // is the one moment a slug can be fixed for free. Renaming it LATER,
+      // after the route is load-bearing, is the `setup`/Order Management
+      // story this file already warns about above: "A rename is never just
+      // the registry."
+      { kind: "link", href: "/orders/ta-followup", label: "TA Followup" },
+      // TA WORKLIST JOINS IT (operator request, 2026-09-10) — this comment
+      // used to say TA Worklist deliberately STAYS nested under "Time &
+      // Action (TA)", unlike TA Followup. That was true only while the group
+      // still had a sidebar row of its own; the group was hidden the same
+      // day (see `hidden: true` on it, below), which made the ONE screen
+      // this whole file already singles out as "the only one that reads a
+      // schedule back" — the daily worklist, not a setup/admin screen —
+      // unreachable by menu at all. Promoted the same way TA Followup was,
+      // for the same reason: a screen that answers "what do I owe today"
+      // is not the same kind of thing as the six configuration screens
+      // still sitting behind the hidden group.
+      { kind: "link", href: "/orders/ta-worklist", label: "TA Worklist" },
       // THE REGISTER IS OFF THE MENU (client 2026-08-17). It is the fourth child
       // of `retired` at the bottom of this table, and the note there says why the
       // group now holds two different kinds of screen.
@@ -608,20 +633,44 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       },
       // Already a hub of exactly this shape before the rest of the app caught
       // up — six TA screens behind one sidebar row. Left where it is.
+      //
+      // HIDDEN FROM THE SIDEBAR (operator request, 2026-09-10) — "off the
+      // menu, still on the URL", the same treatment `retired` above already
+      // established for exactly this shape of ask. None of these seven
+      // children are `cardOnly`, so this reads against the flag's own stated
+      // precondition on purpose: nothing else owns their sidebar row, so
+      // hiding the group stops them being reachable by menu at all — that is
+      // the whole request, not an accident the precondition is there to
+      // catch. Every route, `moduleLeafItems` search entry and
+      // `SECTION_ACTIONS` quick-create stays live; `owningNavHref` does not
+      // filter `hidden`, so opening one of these screens still lights up the
+      // Orders module row, just no sub-module row beneath it.
+      //
+      // `hidden: true` on this ONE group only — the standalone "TA Followup"
+      // row that was moved OUT of this group on 2026-09-09 is a different
+      // entry and was not asked to go with it.
       {
         kind: "group",
         slug: "ta",
+        hidden: true,
         label: "Time & Action (TA)",
         description: "Activities, plans, follow-ups and completion for each order",
+        status: "provisional",
+        note:
+          "These screens are off the Orders menu by request — TA Activity, TA Department Assign, TA User Rights, TA Style, TA Plan and TA Completion. They all still work and still open from search — nothing has been deleted.",
         children: [
-          // FIRST, and that is the point of it. The other six screens all
-          // CAPTURE a schedule; this is the only one that reads one back. The
-          // client's diagnosis of why legacy T&A died is that nothing ever did
-          // — "data nothing reads is data nobody maintains" — so the daily
-          // screen leads the group rather than sitting at the end of the setup
-          // it depends on.
-          { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late" },
-          { href: "/orders/ta-approvals-worklist", label: "Approvals Worklist", description: "Technical approvals awaiting Sent/Approved/Rework, across every order" },
+          // NO LONGER FIRST-AND-LEADING — it has its own row now (see
+          // "TA WORKLIST JOINS IT" above, next to TA Followup). `cardOnly`
+          // is what keeps it out of `moduleLeafItems`' search listing a
+          // second time under this group's label, matching the doc-comment
+          // rule on that flag: a screen shown here only because this hub's
+          // cards would otherwise be six real setup screens plus a gap
+          // where the group's own daily-use lead card used to be.
+          { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late", cardOnly: true },
+          // MOVED OUT (operator request, 2026-09-09): the customer-approvals
+          // tracking board is now its own standalone row, "TA Followup",
+          // alongside Order Management rather than nested under this group —
+          // see that entry above for why.
           { href: "/orders/ta-masters", label: "TA Activity", description: "Master list of T&A activities" },
           { href: "/orders/ta-department-assign", label: "TA Department Assign", description: "Assign activities to departments and owners" },
           { href: "/orders/ta-user-rights", label: "TA User Rights", description: "Per-user activity permission matrix" },

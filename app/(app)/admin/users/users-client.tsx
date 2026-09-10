@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { createUser, assignRole, removeRole } from "@/app/(app)/admin/actions";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -151,17 +152,15 @@ function CreateUserForm({
 /* ------------------------------------------------------------------ */
 
 function RolePanel({
-  user,
+  userId,
   userRoles,
   roles,
   locations,
-  onClose,
 }: {
-  user: ProfileRow;
+  userId: string;
   userRoles: UserRoleEntry[];
   roles: RoleOption[];
   locations: LocationOption[];
-  onClose: () => void;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -174,7 +173,7 @@ function RolePanel({
     if (!roleId) return;
     startTransition(async () => {
       const result = await assignRole(
-        user.id,
+        userId,
         roleId,
         locationId || null,
       );
@@ -200,97 +199,88 @@ function RolePanel({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          Roles for {user.full_name ?? user.email ?? "User"}
-        </CardTitle>
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Close
-        </Button>
-      </CardHeader>
-      <CardBody className="space-y-4">
-        {/* Current roles */}
-        <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Current Roles
-          </p>
-          {userRoles.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No roles assigned.</p>
-          ) : (
-            <div className="space-y-1">
-              {userRoles.map((ur) => (
-                <div
-                  key={ur.id}
-                  className="flex items-center justify-between rounded-md border border-border bg-surface-muted px-3 py-1.5"
+    <div className="space-y-4">
+      {/* Current roles */}
+      <div>
+        <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Current Roles
+        </p>
+        {userRoles.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No roles assigned.</p>
+        ) : (
+          <div className="space-y-1">
+            {userRoles.map((ur) => (
+              <div
+                key={ur.id}
+                className="flex items-center justify-between rounded-md border border-border bg-surface-muted px-3 py-1.5"
+              >
+                <span className="text-sm text-foreground">{ur.role_name}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => handleRemove(ur.id)}
+                  className="text-danger hover:text-danger"
                 >
-                  <span className="text-sm text-foreground">{ur.role_name}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() => handleRemove(ur.id)}
-                    className="text-danger hover:text-danger"
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-        {/* Assign role form */}
-        <form onSubmit={handleAssign} className="border-t border-border pt-3">
-          <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Assign Role
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="ar-role">Role *</Label>
-              <Select
-                id="ar-role"
-                value={roleId}
-                onChange={(e) => setRoleId(e.target.value)}
-                required
-              >
-                <option value=""></option>
-                {roles.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="ar-loc">Location (optional)</Label>
-              <Select
-                id="ar-loc"
-                value={locationId}
-                onChange={(e) => setLocationId(e.target.value)}
-              >
-                <option value="">Any</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <div className="mt-3 flex justify-end">
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={isPending || !roleId}
-            >
-              {isPending ? "Assigning…" : "Assign Role"}
-            </Button>
-          </div>
-        </form>
-      </CardBody>
-    </Card>
+      {/* Assign role form — stacked, not the old 2-column grid: a "sm" Sheet's
+          ~368px of content splits into two ~175px <Select>s that badly crowd a
+          location name, and the mockup this replaces (approved by the operator)
+          showed both fields stacked full-width instead. */}
+      <form onSubmit={handleAssign} className="space-y-3 border-t border-border pt-3">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Assign Role
+        </p>
+        <div>
+          <Label htmlFor="ar-role">Role *</Label>
+          <Select
+            id="ar-role"
+            value={roleId}
+            onChange={(e) => setRoleId(e.target.value)}
+            required
+          >
+            <option value=""></option>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="ar-loc">Location (optional)</Label>
+          <Select
+            id="ar-loc"
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
+          >
+            <option value="">Any</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            disabled={isPending || !roleId}
+          >
+            {isPending ? "Assigning…" : "Assign Role"}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -310,7 +300,24 @@ export default function UsersClient({
   locations: LocationOption[];
 }) {
   const [showCreate, setShowCreate] = useState(false);
-  const [managingUserId, setManagingUserId] = useState<string | null>(null);
+
+  /**
+   * A SHEET, ANCHORED TO THE ROW — the same fix just applied to Roles &
+   * Permissions, mirrored. "Manage" used to open a Card ABOVE the whole table,
+   * so a user near the bottom of a long list opened their panel off-screen at
+   * the TOP — the same disconnect, in the opposite direction. `open` stays
+   * separate from `managingUser` (never nulled on close) so the panel keeps
+   * naming the user it was managing while it animates shut.
+   */
+  const [open, setOpen] = useState(false);
+  const [managingUser, setManagingUser] = useState<ProfileRow | null>(null);
+  const [origin, setOrigin] = useState<DOMRect | null>(null);
+
+  function openManage(user: ProfileRow, e: React.MouseEvent<HTMLButtonElement>) {
+    setOrigin(e.currentTarget.getBoundingClientRect());
+    setManagingUser(user);
+    setOpen(true);
+  }
 
   // Group roles by user id
   const rolesByUser: Record<string, UserRoleEntry[]> = {};
@@ -318,11 +325,6 @@ export default function UsersClient({
     if (!rolesByUser[ur.user_id]) rolesByUser[ur.user_id] = [];
     rolesByUser[ur.user_id].push(ur);
   }
-
-  const managingUser =
-    managingUserId != null
-      ? profiles.find((p) => p.id === managingUserId) ?? null
-      : null;
 
   const columns: Column<ProfileRow>[] = [
     {
@@ -370,20 +372,18 @@ export default function UsersClient({
       ),
     },
     {
-      /* Not row CRUD — opens the per-user roles/locations panel below the table
+      /* Not row CRUD — opens the per-user roles/locations Sheet, and its label
+         reports that state, the same as the Roles page's Permissions column
          (LAYOUT.md §6a). */
       header: "Manage",
       align: "right",
       cell: (r) => (
         <Button
-          variant="ghost"
+          variant={open && managingUser?.id === r.id ? "subtle" : "ghost"}
           size="sm"
-          aria-expanded={managingUserId === r.id}
-          onClick={() =>
-            setManagingUserId(managingUserId === r.id ? null : r.id)
-          }
+          onClick={(e) => openManage(r, e)}
         >
-          {managingUserId === r.id ? "Close" : "Manage"}
+          {open && managingUser?.id === r.id ? "Editing" : "Manage"}
         </Button>
       ),
     },
@@ -395,10 +395,7 @@ export default function UsersClient({
         <Button
           variant="primary"
           size="md"
-          onClick={() => {
-            setShowCreate((v) => !v);
-            setManagingUserId(null);
-          }}
+          onClick={() => setShowCreate((v) => !v)}
         >
           + New User
         </Button>
@@ -411,22 +408,41 @@ export default function UsersClient({
         />
       )}
 
-      {managingUser && (
-        <RolePanel
-          user={managingUser}
-          userRoles={rolesByUser[managingUser.id] ?? []}
-          roles={roles}
-          locations={locations}
-          onClose={() => setManagingUserId(null)}
-        />
-      )}
-
       <DataTable
         columns={withCreatedColumns(columns, profiles)}
         rows={profiles}
         getKey={(r) => r.id}
         empty="No users found."
       />
+
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={
+          managingUser
+            ? `Roles — ${managingUser.full_name ?? managingUser.email ?? "User"}`
+            : "Roles"
+        }
+        // "sm", not "md": unlike the permission matrix this is narrow content
+        // — a short role list plus a two-field assign form — exactly the
+        // "small config dialog" size exists for.
+        size="sm"
+        origin={origin}
+        footer={
+          <span className="mr-auto text-xs text-muted-foreground">
+            Role changes save immediately — there is no separate Save button.
+          </span>
+        }
+      >
+        {managingUser && (
+          <RolePanel
+            userId={managingUser.id}
+            userRoles={rolesByUser[managingUser.id] ?? []}
+            roles={roles}
+            locations={locations}
+          />
+        )}
+      </Sheet>
     </div>
   );
 }

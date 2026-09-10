@@ -4,15 +4,20 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { getDefaultTaskOwners } from "@/lib/ta/task-owner-defaults";
 import {
   amendmentInput,
   mergeTaCompletions,
+  mergeTaApprovalCompletions,
   styleFileMessage,
   stylesMissingFiles,
   taRowsToWrite,
+  taApprovalRowsToWrite,
   type AmendmentInput,
   type SavedTaRow,
+  type SavedTaApprovalRow,
 } from "./types";
+import { getCustomerApprovalDefaults } from "./service";
 import { normalizeFileRows } from "./file-rows";
 import {
   assortBalanceMessage,
@@ -36,6 +41,11 @@ import { componentRowStarted, impliedCoordinateId } from "@/lib/orders/styles/ru
    would be a date no control enforces: BOTH HALVES OR NEITHER, the rule
    `purchase_qty` already follows. */
 import { orderTaLadder, isRefusal } from "@/lib/orders/ta/order-ladder";
+/* The Approvals engine's generic date calculator — every ta_approvals row,
+   scheduled from the buyer's own lead time. See `taApprovalRows`'s own
+   header for why this port omits the production-ladder PP Sample bridge and
+   holiday-awareness that the unmerged branch it came from has. */
+import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -1051,8 +1061,9 @@ function normalizeTaActivities(data: AmendmentInput) {
       row_uid: r.row_uid,
       activity_id: r.activity_id,
       days_required: r.days_required,
+      assigned_staff_id: r.assigned_staff_id,
     }))
-    .filter((r) => r.activity_id || r.days_required != null)
+    .filter((r) => r.activity_id || r.days_required != null || r.assigned_staff_id)
     .filter((r) => {
       if (seen.has(r.row_uid)) return false;
       seen.add(r.row_uid);
@@ -1071,8 +1082,11 @@ function normalizeTaActivities(data: AmendmentInput) {
  * price line or a pack type, because the form holds their whole truth. Two of
  * this table's columns are never on this form at all:
  *
- *     entered on the ORDER, on the T&A tab   activity_id · days_required
- *     entered on the DASHBOARD, days later   actual_date · status · notes
+ *     entered on the ORDER, on the T&A tab   activity_id · days_required ·
+ *                                             assigned_staff_id (0547; moved
+ *                                             here 2026-09-10 — see TaRowCore)
+ *     entered on the DASHBOARD, days later   actual_date · status · notes ·
+ *                                             delay_attribution
  *
  * So an operator reopening the order to fix a typo in Pay Terms and pressing
  * Save would DESTROY EVERY COMPLETION RECORD ON THE ORDER — silently, with no
@@ -1198,7 +1212,14 @@ async function taActivityRows(
   // which is correct and costs one round trip.
   const { data: savedRaw, error: savedErr } = await s
     .from("garment_order_amendment_ta_activities")
-    .select("row_uid, sno, activity_id, days_required, actual_date, status, notes")
+    // ONE STRING LITERAL, NOT `+`-CONCATENATED — supabase-js infers the
+    // returned row shape by parsing this argument's LITERAL TYPE at compile
+    // time; a runtime `string1 + string2` widens to `string` and the
+    // generated type falls back to an untyped error shape, which is exactly
+    // what broke `SavedTaRow[]` below when this was first split in two.
+    .select(
+      "row_uid, sno, activity_id, days_required, actual_date, status, notes, assigned_staff_id, delay_attribution",
+    )
     .eq("amendment_id", amendmentId);
   if (savedErr) return { ok: false, error: savedErr.message };
   /* SORTED BY `sno` HERE, because `taRowsToWrite` re-emits them IN THE ORDER IT
@@ -1272,6 +1293,131 @@ async function taActivityRows(
      this file. `created_by` is deliberately NOT named on the row, so the
      column's `default auth.uid()` fires (0475's lesson, inverted). */
   return { ok: true, rows: mergeTaCompletions(rows, saved, targetDates) };
+}
+
+/**
+ * The order's approval tracker — THE ROWS AS TYPED. Mirrors
+ * `normalizeTaActivities` exactly and for the identical reason: drop rows
+ * that answer nothing, de-duplicate on `row_uid` (unique per amendment;
+ * `uq_goa_ta_approvals_row_uid`), because the merge below reads the saved
+ * rows into a Map keyed by it and two rows sharing an anchor would both
+ * claim one completion. No `sno` — approvals carry no execution order, so
+ * there is nothing to renumber.
+ */
+function normalizeTaApprovals(data: AmendmentInput) {
+  const seen = new Set<string>();
+  return data.ta_approvals
+    .map((r) => ({ row_uid: r.row_uid, approval_id: r.approval_id }))
+    .filter((r) => r.approval_id)
+    .filter((r) => {
+      if (seen.has(r.row_uid)) return false;
+      seen.add(r.row_uid);
+      return true;
+    });
+}
+
+/**
+ * THE APPROVALS TRACKER'S ROWS, MERGED — the second child of this document
+ * that is not replaced wholesale, for the same reason `taActivityRows`
+ * above is not: `actual_sent_date`, `actual_received_date`, `proof_path`
+ * and `status` are entered on the merchandiser board
+ * (`/orders/ta-followup`), days or weeks later.
+ *
+ * SCOPED SIMPLER THAN THE UNMERGED `ta-approvals-engine` BRANCH THIS WAS
+ * PORTED FROM, DELIBERATELY, IN TWO WAYS:
+ *
+ *   1. NO PP-SAMPLE PRODUCTION-LADDER BRIDGE. That branch dates the PP
+ *      Sample row from `garment_order_amendment_ta_activities`' own PPAPPR
+ *      row (Cutting − 1 day) rather than from `computeApprovalSchedule`.
+ *      Main's `taActivityRows` does not yet expose a resolved PPAPPR date to
+ *      a caller — building that hookup is real surgery on an already
+ *      heavily-invariant function, and this port does not attempt it blind.
+ *      PP Sample is therefore scheduled generically here, the same as every
+ *      other approval, off its own `standard_days` / buyer override. Wiring
+ *      the bridge back in is a scoped follow-up, not a correctness bug: an
+ *      operator can still set a buyer-specific lead time for PP Sample same
+ *      as any other approval.
+ *   2. NO HOLIDAYS. `taActivityRows`'s own header states the rule this
+ *      repo already follows: "HOLIDAYS ARE PASSED BY NEITHER HALF, AND THAT
+ *      IS WHY THEY AGREE… if either side ever starts passing a holiday set,
+ *      BOTH must, in the same change." The production ladder does not
+ *      consult holidays today, so this does not either — introducing
+ *      holiday-awareness only here would make this table schedule against a
+ *      calendar the ladder beside it does not know about.
+ */
+async function taApprovalRows(
+  s: Awaited<ReturnType<typeof createClient>>,
+  amendmentId: string,
+  data: AmendmentInput,
+): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string }> {
+  // READ BEFORE ANY DELETE — same reason `taActivityRows` reads first.
+  const { data: savedRaw, error: savedErr } = await s
+    .from("garment_order_amendment_ta_approvals")
+    .select("row_uid, approval_id, actual_sent_date, actual_received_date, proof_path, status")
+    .eq("amendment_id", amendmentId);
+  if (savedErr) return { ok: false, error: savedErr.message };
+  const saved = (savedRaw ?? []) as SavedTaApprovalRow[];
+
+  const rows = taApprovalRowsToWrite(normalizeTaApprovals(data), saved);
+  if (!rows.length) return { ok: true, rows: [] };
+
+  const approvalIds = [...new Set(rows.map((r) => r.approval_id).filter((v): v is string => !!v))];
+  const meta = new Map<
+    string,
+    { label: string; direction: "AFTER_ORDER_DATE" | "BEFORE_SHIPMENT_DATE"; standardDays: number }
+  >();
+  if (approvalIds.length) {
+    const { data: apprs, error: apprErr } = await s
+      .from("ta_approvals")
+      .select("id, name, apply_condition, standard_days")
+      .in("id", approvalIds);
+    if (apprErr) return { ok: false, error: apprErr.message };
+    for (const a of (apprs ?? []) as {
+      id: string;
+      name: string | null;
+      apply_condition: "AFTER_ORDER_DATE" | "BEFORE_SHIPMENT_DATE";
+      standard_days: number | null;
+    }[]) {
+      meta.set(a.id, {
+        label: a.name ?? "",
+        direction: a.apply_condition,
+        standardDays: a.standard_days ?? 0,
+      });
+    }
+  }
+
+  /* THIS ORDER'S BUYER-LEAD-TIME OVERRIDES. `data.customer_id` is required
+     by the Zod input ("Customer is required"), so this is never skipped for
+     a real save — only a malformed payload could reach here without one,
+     and that payload already failed validation upstream. */
+  const overrides = new Map(
+    (await getCustomerApprovalDefaults(data.customer_id)).map((d) => [d.approval_id, d.lead_time_days]),
+  );
+
+  const genericInputs = rows
+    .filter((r) => r.approval_id)
+    .map((r) => {
+      const m = meta.get(r.approval_id!);
+      return {
+        approvalId: r.approval_id!,
+        label: m?.label ?? "",
+        direction: m?.direction ?? ("AFTER_ORDER_DATE" as const),
+        leadTimeDays: overrides.get(r.approval_id!) ?? m?.standardDays ?? 0,
+      };
+    });
+
+  const scheduled = computeApprovalSchedule({
+    approvals: genericInputs,
+    orderDate: data.amend_date,
+    // Same anchor `taActivityRows` hands `orderTaLadder` — one order-level
+    // ship date, not a second opinion about which destination anchors it.
+    exFactoryDate: data.delivery_date ?? null,
+  });
+  const byApprovalId = new Map(scheduled.map((sc) => [sc.approvalId, sc.targetDate]));
+
+  const targetDates = rows.map((r) => (r.approval_id ? (byApprovalId.get(r.approval_id) ?? null) : null));
+
+  return { ok: true, rows: mergeTaApprovalCompletions(rows, saved, targetDates) };
 }
 
 /**
@@ -1359,6 +1505,13 @@ async function writeChildren(
   const ta = await taActivityRows(s, amendmentId, data, quantityRows);
   if (!ta.ok) return fail(ta.error);
 
+  /**
+   * The order's approval tracker — RESOLVED HERE, ONE CALL AFTER THE LADDER
+   * ABOVE, for the same "before the delete loop" reason `ta` is.
+   */
+  const approvals = await taApprovalRows(s, amendmentId, data);
+  if (!approvals.ok) return fail(approvals.error);
+
   const inserts: [string, Record<string, unknown>[]][] = [
     ["garment_order_amendment_styles", styleRows],
     // AFTER the styles it depends on, though the order of this list only
@@ -1391,13 +1544,18 @@ async function writeChildren(
     ["garment_order_amendment_pack_type_lines", normalizePackTypeLines(data, packTypeRows)],
     /* The order's Time & Action ladder (0481). MERGED, NOT REPLACED — the rows
        were built above, before the delete loop, carrying each row's stored
-       `actual_date` / `status` / `notes` across by `row_uid`. It is in this
-       list all the same, so the delete-and-reinsert still happens: the rows
-       being reinserted are simply not the payload's alone. Read
-       `taActivityRows` before changing anything here — putting
-       `normalizeTaActivities(data)` in this slot instead would compile, pass
-       every check, and destroy every completion record on the order. */
+       `actual_date` / `status` / `notes` / `assigned_staff_id` /
+       `delay_attribution` (0547) across by `row_uid`. It is in this list all
+       the same, so the delete-and-reinsert still happens: the rows being
+       reinserted are simply not the payload's alone. Read `taActivityRows`
+       before changing anything here — putting `normalizeTaActivities(data)`
+       in this slot instead would compile, pass every check, and destroy
+       every completion record on the order. */
     ["garment_order_amendment_ta_activities", ta.rows],
+    /* The order's approval tracker. MERGED, NOT REPLACED — same shape and
+       the same reasoning as ta_activities immediately above. Read
+       `taApprovalRows` before changing anything here. */
+    ["garment_order_amendment_ta_approvals", approvals.rows],
     // THIS LIST DRIVES THE DELETE LOOP AS WELL AS THE INSERTS. An entry added
     // only to the insert side would leave the previous rows in place and add
     // the new ones beside them, doubling the grid on every save.
@@ -2063,4 +2221,17 @@ export async function deleteAmendment(id: string): Promise<Result> {
   if (error) return fail(error.message);
   rev();
   return { ok: true };
+}
+
+/**
+ * Task Owner auto-populate (0547, operator request 2026-09-10) — a thin
+ * server-action wrapper so the client screen can call `getDefaultTaskOwners`
+ * (`lib/ta/task-owner-defaults.ts`, `server-only`) directly. Read-only, no
+ * permission gate of its own: it hands back nothing `orders:view` doesn't
+ * already, and the screen only calls it on a brand-new, not-yet-saved order.
+ */
+export async function fetchDefaultTaskOwners(
+  customerId: string | null,
+): Promise<Record<string, string>> {
+  return getDefaultTaskOwners(customerId);
 }

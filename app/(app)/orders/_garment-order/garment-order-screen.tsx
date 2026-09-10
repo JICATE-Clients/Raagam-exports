@@ -93,6 +93,10 @@ import { inrValue, isPackWise, orderValue } from "@/lib/orders/amendments/order-
  * from another and then be surprised when the two are asked to diverge.
  */
 import { isRefusal, orderTaLadder } from "@/lib/orders/ta/order-ladder";
+import { computeApprovalSchedule } from "@/lib/orders/ta/approval-schedule";
+import { getTaActivityWip } from "@/lib/ta/worklist-actions";
+import { ACTIVITY_SHORT_NAME_TO_STAGE, type ProductionStage } from "@/lib/production/types";
+import type { StageWip } from "@/lib/production/service";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Segmented } from "@/components/ui/segmented";
@@ -240,7 +244,10 @@ import {
   updateAmendment,
   deleteAmendment,
   loadOrderSeed,
+  fetchDefaultTaskOwners,
 } from "@/lib/orders/amendments/actions";
+import { taOwnerOptions } from "@/lib/ta/task-owners";
+import { customerApprovalOptions } from "@/lib/orders/ta/customer-approval-options";
 import type {
   FabricTypeCounts,
   SeededAmendmentChildren,
@@ -312,7 +319,12 @@ import {
   styleFileMessage,
   orderUnitLabel,
   type GarmentOrderAmendment,
+  type AmendmentTaApproval,
 } from "@/lib/orders/amendments/types";
+import {
+  OrderApprovalFollowup,
+  type OrderApprovalRow,
+} from "@/components/orders/order-approval-followup";
 // `StylePickerRow` left this import on 2026-08-25 with the Style picker itself —
 // the type describes a master row, and nothing on this screen holds one now.
 import type {
@@ -742,6 +754,31 @@ type TaRow = {
   activity_id: string | null;
   /** A string: it is typed. `numOrNull` narrows it for the ladder and the payload. */
   days_required: string;
+  /** Who owns this row (0547, operator request 2026-09-10) — typed here, not
+   *  on the T&A Worklist; see `TaRowCore`'s own note in lib/orders/amendments/
+   *  types.ts for the reversal this is. Scoped to the Activity's department
+   *  by `taOwnerOptions()` (lib/ta/task-owners.ts). */
+  assigned_staff_id: string | null;
+};
+/**
+ * T&A ▸ Approvals ▸ one row of the order's approval tracker.
+ *
+ * ONE FIELD ON SCREEN, THE SAME SHAPE `TaRow` ABOVE IS: `approval_id` is all
+ * the operator types here. Target Date is derived (`computeApprovalSchedule`,
+ * via `taApprovalDates`) and Dept-equivalent context is read through
+ * `approval_id`, never copied onto the row — same reasoning `TaRow
+ * .activity_id`'s own note gives.
+ *
+ * `actual_sent_date` / `actual_received_date` / `proof_path` / `status` are
+ * NOT here, same as `TaRow` carries no `actual_date`/`status`/`notes`: they
+ * are entered on the merchandiser board (`/orders/ta-followup`),
+ * not on this screen, and this shape's `row_uid` is what lets them survive a
+ * save it never touches.
+ */
+type TaApprovalRow = {
+  key: string;
+  row_uid: string;
+  approval_id: string | null;
 };
 /** Quantities ▸ Assort ▸ one size cell (0414). `qty` is a string: it is typed. */
 type AssortSizeRow = { key: string; size_id: string | null; qty: string };
@@ -1159,6 +1196,24 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       row_uid: x.row_uid,
       activity_id: x.activity_id,
       days_required: num(x.days_required),
+      // `?? null`, not the completion-style coalesce above — `assigned_staff_id`
+      // is typed here now (0547), same as `activity_id`, so a `Seeded<...>`
+      // source (a fresh order seed, which always carries none) and a SAVED
+      // one (which may) both read correctly through one line.
+      assigned_staff_id: x.assigned_staff_id ?? null,
+    })),
+    /**
+     * T&A ▸ Approvals. Always empty from an ORDER, same reason `taActivities`
+     * above is — here so `applyRows` maps a SAVED document's rows back onto
+     * the screen. `row_uid` TAKEN VERBATIM, same reasoning as `taActivities`:
+     * it is what `normalizeTaApprovals` matches a saved `actual_sent_date` /
+     * `actual_received_date` / `proof_path` / `status` back onto, entered on
+     * the merchandiser board days or weeks after this order was saved.
+     */
+    taApprovals: (src.taApprovals ?? []).map((x): TaApprovalRow => ({
+      key: newKey(),
+      row_uid: x.row_uid,
+      approval_id: x.approval_id,
     })),
   };
 }
@@ -1773,6 +1828,31 @@ export function GarmentOrderScreen({
   const [taRows, setTaRows] = useState<TaRow[]>([]);
 
   /**
+   * T&A ▸ Approvals — the order's approval tracker.
+   *
+   * Seeded from the CUSTOMER's own defaults, not from a blank row and not
+   * from the `ta_approvals` master directly — see the Customer picker's
+   * `onChange` for where that seeding happens, and why it fires there
+   * rather than in a top-up alongside every other grid's.
+   */
+  const [taApprovalRows, setTaApprovalRows] = useState<TaApprovalRow[]>([]);
+
+  /**
+   * THE SAVED HALF OF T&A ▸ APPROVALS — `id` / `status` / `actual_sent_date` /
+   * `actual_received_date` / `proof_path` / `active_version`, none of which
+   * `TaApprovalRow` carries (see that type's own note on why not: `id` is
+   * re-minted on every save by `writeChildren`'s delete-and-reinsert, so it
+   * cannot live in the editable-grid state the way `row_uid` does).
+   *
+   * Populated ONLY in `openEdit` from `r.ta_approvals` — a fresh/seeded order
+   * has no saved approval rows to act on yet, so this stays `[]` until the
+   * order itself has been saved at least once. The "TA Followup" tab below
+   * joins this by `row_uid` onto `taApprovalRows` to know which declared
+   * approvals are actionable and which are still unsaved.
+   */
+  const [savedApprovals, setSavedApprovals] = useState<AmendmentTaApproval[]>([]);
+
+  /**
    * THE ATTACHED DOCUMENTS (0416) — the style JPG, the buyer's PDF order sheet,
    * shade cards. Metadata only; the bytes are already in the private
    * `garment-order-docs` bucket by the time a row exists here.
@@ -2115,6 +2195,47 @@ export function GarmentOrderScreen({
     row_uid: crypto.randomUUID(),
     activity_id: null,
     days_required: "",
+    // Never pre-filled here — `applyDefaultTaskOwners` fills it separately,
+    // once the Customer is known, and only on a brand-new order.
+    assigned_staff_id: null,
+  });
+
+  /**
+   * TASK OWNER AUTO-POPULATE (0547, operator request 2026-09-10) — tops up
+   * `taRows` from `fetchDefaultTaskOwners(customerId)`
+   * (lib/orders/amendments/actions.ts), the same buyer's most recently
+   * SAVED, non-draft order's own assignments.
+   *
+   * "TOP UP, NEVER RESET" — the same rule the Approvals grid's own
+   * customer-defaults seed follows two fields below: only a row with NO
+   * owner yet is filled, and only when it already has an Activity (an
+   * unmapped row has no department to check the default against). A row the
+   * operator has already assigned, by hand or from an earlier top-up, is
+   * never overwritten here.
+   *
+   * Called ONLY from the Customer field's `onChange`, and only while
+   * `!editId` — a brand-new, not-yet-saved order. Firing it on a SAVED
+   * order's Customer change would silently overwrite that order's own
+   * recorded owners with a different order's, which is exactly the "12/12
+   * lines destroyed" class of bug this file exists to avoid elsewhere.
+   */
+  const applyDefaultTaskOwners = (defaults: Record<string, string>) => {
+    if (!Object.keys(defaults).length) return;
+    setTaRows((xs) =>
+      xs.map((r) =>
+        r.assigned_staff_id || !r.activity_id
+          ? r
+          : { ...r, assigned_staff_id: defaults[r.activity_id] ?? null },
+      ),
+    );
+  };
+
+  /** One Approvals row the operator added by hand — same `row_uid` reasoning
+   *  as `blankTaRow`: minted with `crypto.randomUUID()`, never `newKey()`. */
+  const blankTaApprovalRow = (): TaApprovalRow => ({
+    key: newKey(),
+    row_uid: crypto.randomUUID(),
+    approval_id: null,
   });
 
   /**
@@ -2221,6 +2342,8 @@ export function GarmentOrderScreen({
         // see that constant's own comment for why these three are pinned
         // rather than merely defaulted.
         days_required: computedTaDays(a.short_name) ?? (a.default_offset_days > 0 ? String(a.default_offset_days) : ""),
+        // Same as `blankTaRow` — never pre-filled at seed time.
+        assigned_staff_id: null,
       }));
 
   /**
@@ -2376,6 +2499,14 @@ export function GarmentOrderScreen({
        seeded off an order gets the factory's ladder and a saved one gets its
        own. */
     setTaRows(r.taActivities);
+    /* T&A ▸ Approvals. Same "order seed hands over []" reasoning as
+       taActivities immediately above — a fresh order gets no approvals here;
+       the Customer picker's own onChange seeds them from that buyer's
+       defaults once picked. A SAVED document's rows round-trip through
+       exactly here, which is the load path the unmerged branch this feature
+       was ported from never wired — without it, reopening an order with
+       approvals already on it would show an empty grid. */
+    setTaApprovalRows(r.taApprovals);
     // Covers BOTH callers — a saved document reopened, and a seed from an
     // order. Tops up only the grids that came back empty.
     //
@@ -3693,6 +3824,8 @@ export function GarmentOrderScreen({
        read as data the operator entered, these would silently claim another
        order's completion records. */
     setTaRows([]);
+    setTaApprovalRows([]);
+    setSavedApprovals([]);
     setAttachments([]);
     /* A FRESH FOLDER PER RECORD. Without this, a new order started after
        another would upload into the previous one's folder — harmless for
@@ -3803,7 +3936,19 @@ export function GarmentOrderScreen({
          `openOneRow` inside `applyRows` then seeds the master's ladder — so
          an old order opens on the ladder it would have had. */
       taActivities: r.ta_activities,
+      /* THE SAVED APPROVALS TRACKER — was missing here (this call predates
+         the Approvals grid's own row_uid-mapping being wired up), which
+         meant reopening a saved order always showed an empty Approvals grid
+         regardless of what was actually declared on it. Through the SAME
+         `toRows` mapping as `taActivities`, for the same row_uid-anchor
+         reason. */
+      taApprovals: r.ta_approvals,
     });
+    /* THE RAW SAVED ROWS, separately from the grid mapping above — `toRows`
+       strips `id`/`status`/dates down to `row_uid`/`approval_id` for the
+       editable grid, but the "TA Followup" tab needs the full saved shape to
+       know what it can act on. See `savedApprovals`'s own note. */
+    setSavedApprovals(r.ta_approvals ?? []);
     /* NOT PART OF `applyRows`, deliberately: that mapping is shared with the
        ORDER SEED, and an order carries no attachments. Folding files into it
        would make every seeded amendment clear the documents of the one it was
@@ -4285,19 +4430,35 @@ export function GarmentOrderScreen({
        * copy `lib/data-io` would bypass if orders ever gained an import path.
        */
       ta_activities: taRows.map((r) => {
-        // computedTaDays wins here too — a saved order from before these
-        // four went read-only may still carry an operator-typed value, and
-        // this is the one place both the seed path and the reopened-
-        // document path are guaranteed to pass through, so it is where the
-        // correction actually lands rather than only appearing to.
+        // computedTaDays wins here too, same as `taLadder` above — a saved
+        // order from before these four went read-only may still carry an
+        // empty or stale `days_required` in state, and both the seed path
+        // and the reopened-document path pass through here, so this is
+        // where the correction lands for what gets STORED. It used to be
+        // the only place it landed at all, which is exactly how a Days cell
+        // could show "1" while the on-screen ladder still saw the row as
+        // unanswered and stopped the walk there (fixed on `taLadder`).
         const computed = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
         return {
           sno: 0,
           row_uid: r.row_uid,
           activity_id: r.activity_id,
           days_required: computed != null ? Number(computed) : numOrNull(r.days_required),
+          // Typed on this screen (0547) — sent verbatim, same as activity_id.
+          assigned_staff_id: r.assigned_staff_id,
         };
       }),
+      /* T&A ▸ Approvals. Narrower than `taRows` above: no `target_date`,
+         since `taApprovalRows` (actions.ts) computes it server-side through
+         the same `computeApprovalSchedule` this screen's own
+         `taApprovalDates` reads; and no `actual_sent_date` /
+         `actual_received_date` / `proof_path` / `status`, which belong to
+         the merchandiser board and are carried across by `row_uid` there,
+         never sent from this form. */
+      ta_approvals: taApprovalRows.map((r) => ({
+        row_uid: r.row_uid,
+        approval_id: r.approval_id,
+      })),
     };
     start(async () => {
       const res = editId
@@ -4465,12 +4626,29 @@ export function GarmentOrderScreen({
   const taLadder = useMemo(
     () =>
       orderTaLadder({
-        rows: taRows.map((r) => ({
-          row_uid: r.row_uid,
-          activity_id: r.activity_id,
-          label: taLabel(r.activity_id),
-          days_required: numOrNull(r.days_required),
-        })),
+        rows: taRows.map((r) => {
+          // `computedTaDays` wins here too, and for the SAME reason the save
+          // payload applies it (see the comment on `ta_activities` below): a
+          // system-computed row's Days CELL displays the pinned/customer
+          // value, but its raw `days_required` state can still be blank — a
+          // fresh seed writes the computed value into state, but a REOPENED
+          // order loads whatever was actually stored, which for an order
+          // saved before these four went read-only is nothing at all. Reading
+          // the raw state here, unlike the save payload, is what let the
+          // Days cell show "1" while the ladder still saw an unanswered row
+          // and stopped the walk there — Cutting kept its date, everything
+          // from PP Approval onward (further from delivery in this order's
+          // ladder) went blank despite Materials In-house and Inspection
+          // having real values of their own, because `backwardSchedule`
+          // never recovers once a step ahead of them comes back null.
+          const computed = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+          return {
+            row_uid: r.row_uid,
+            activity_id: r.activity_id,
+            label: taLabel(r.activity_id),
+            days_required: computed != null ? Number(computed) : numOrNull(r.days_required),
+          };
+        }),
         /* EVERY quantity row, unfiltered — the rule is "the earliest non-blank
            `earlier_shipment_date` across the Quantities rows" and choosing which
            rows count is `orderTaLadder`'s job, not this call site's. A blank
@@ -4481,7 +4659,7 @@ export function GarmentOrderScreen({
         })),
         deliveryDate: form.delivery_date || null,
       }),
-    [taRows, quantities, form.delivery_date, taLabel],
+    [taRows, quantities, form.delivery_date, taLabel, taActivityById],
   );
 
   /**
@@ -4518,6 +4696,54 @@ export function GarmentOrderScreen({
     }
     return m;
   }, [taLadder]);
+
+  /**
+   * THE FLOOR STAGES THIS LADDER ACTUALLY NAMES, so the bypass fetch below
+   * only asks for stages present on this order rather than all 5 every time.
+   * PLAIN, not `useMemo` — cheap (at most a few dozen rows) and it must not
+   * become the effect's own re-render trigger through a fresh array identity
+   * the way `taRows` itself would on every keystroke.
+   */
+  const taFloorStagesKey = taRows
+    .map((r) => {
+      const shortName = taActivityById.get(r.activity_id ?? "")?.short_name?.toUpperCase();
+      return shortName ? ACTIVITY_SHORT_NAME_TO_STAGE[shortName] : undefined;
+    })
+    .filter((s): s is ProductionStage => !!s)
+    .sort()
+    .join(",");
+
+  /**
+   * BYPASS, FROM THE FLOOR LEDGER — the client asked for this ON THIS TAB
+   * rather than only on the separate T&A Worklist (`/orders/ta-worklist`),
+   * which is being retired. `getTaActivityWip` (lib/ta/worklist-actions.ts)
+   * reads the same `stage_cumulative_good_qty` function (0548) that screen's
+   * own bypass pill derives from, so the two can never disagree.
+   *
+   * FETCHED ONLY FOR A SAVED AMENDMENT (`editId`) — a brand-new, unsaved order
+   * has no `production_entries` rows to have produced against yet, and
+   * `getTaActivityWip` has no amendment id to ask for regardless.
+   *
+   * KEYED BY STAGE — the per-`row_uid` lookup used by `taColumns` /
+   * `taRenderMobileRow` is a PLAIN derived value declared next to them, below
+   * the early return, the same split `taDates` (fetched/computed up here) and
+   * `taApprovalDates` (looked up per row down there) already draw.
+   */
+  const [taBypassByStage, setTaBypassByStage] = useState<Partial<Record<ProductionStage, StageWip>>>({});
+  useEffect(() => {
+    if (!editId || !taFloorStagesKey) {
+      setTaBypassByStage({});
+      return;
+    }
+    let cancelled = false;
+    const stages = taFloorStagesKey.split(",") as ProductionStage[];
+    void getTaActivityWip(editId, stages).then((res) => {
+      if (!cancelled) setTaBypassByStage(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editId, taFloorStagesKey]);
 
   /**
    * THE ROAD LINE — a decorative connector behind the T&A cards, drawn between
@@ -8645,9 +8871,26 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   })();
 
   /**
-   * The four columns. Days is the only one the operator types into: Target Date
-   * comes out of the ladder, Dept comes off the activity, and Activity is
-   * PICKED rather than typed.
+   * `taBypassByStage` (a fetch, above the early return) RE-KEYED BY ROW_UID —
+   * a PLAIN derived value, not a `useMemo`, for the same reason
+   * `taApprovalDates` above is plain: this is below the `if (mode === "list")`
+   * return, so a hook here would run on the editor render and be skipped on
+   * the list render (AGENTS.md, "Hooks above every early return" — this file
+   * has taken production down over exactly this five times). Cheap — a pass
+   * over a grid that is at most a few dozen rows, re-run every render.
+   */
+  const taBypass = new Map<string, StageWip & { stage: ProductionStage }>();
+  for (const r of taRows) {
+    const shortName = taActivityById.get(r.activity_id ?? "")?.short_name?.toUpperCase();
+    const stage = shortName ? ACTIVITY_SHORT_NAME_TO_STAGE[shortName] : undefined;
+    const wip = stage ? taBypassByStage[stage] : undefined;
+    if (stage && wip && wip.qty > 0) taBypass.set(r.row_uid, { ...wip, stage });
+  }
+
+  /**
+   * The five columns. Days is the only one the operator types into: Target
+   * Date and Bypass come out of the ladder / the floor ledger, Dept comes off
+   * the activity, and Activity is PICKED rather than typed.
    *
    * ## READ-ONLY CELLS ARE `<Input readOnly>`, NOT TEXT
    *
@@ -8806,6 +9049,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         return (
           <Input
             readOnly
+            /* `bg-surface-muted` — COMPUTED, NOT ENTERED. This cell, Dept and
+               Bypass are the three columns the operator never types into;
+               the muted fill is what tells the eye that apart from Activity,
+               Days and Task Owner without changing a single column, width or
+               value (2026-09-09 UI pass — see doc/ui/order/ta plan.md). */
+            className="bg-surface-muted"
             /* `fmtDate`, never `toLocaleDateString` — DD/MM/YYYY is owned by
                `lib/format.ts` and nothing formats a date at a call site. Blank
                while the ladder refuses: a date the plan cannot actually produce
@@ -8823,11 +9072,309 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         /* READ THROUGH THE ACTIVITY, never stored on the row — see
            `taActivityById`. Blank when the row has no activity yet, which is the
            honest answer and the state the Activity cell is already holding the
-           cursor for. */
-        <Input readOnly value={taActivityById.get(r.activity_id ?? "")?.department ?? ""} />
+           cursor for. `bg-surface-muted` — see Target Date's own note above. */
+        <Input
+          readOnly
+          className="bg-surface-muted"
+          value={taActivityById.get(r.activity_id ?? "")?.department ?? ""}
+        />
       ),
     },
+    {
+      header: "Task Owner",
+      width: "12rem",
+      cell: (r) => {
+        const opts = taOwnerOptions({
+          activityId: r.activity_id,
+          departmentsByActivity: data.taOwnerDepartmentsByActivity,
+          employees: data.employees,
+          currentValue: r.assigned_staff_id,
+        });
+        /* REQUIRED ONLY ONCE THE ROW IS ACTUALLY A ROW — the same
+           "requiredness is a property of the field FOR A STATE, not of the
+           column" call AGENTS.md's Mandatory fields section makes for
+           Fabric's Using field. A blank T&A tab must still save (client
+           2026-09-07, "make it optional"); a row the operator HAS started —
+           picked an Activity and answered Days — must not save with nobody
+           named to it. `required` passed straight to `RecordPicker`, per
+           row, is what makes this a property of the ROW rather than a star
+           on the column header nothing backs (AGENTS.md, "the star has
+           nothing behind it"). */
+        const rowFilled = !!r.activity_id && !!r.days_required;
+        return (
+          <RecordPicker
+            label="Task Owner"
+            compact
+            items={opts.items}
+            placeholder={opts.shortHint ?? undefined}
+            emptyHint={opts.hint}
+            value={r.assigned_staff_id}
+            required={rowFilled}
+            onChange={(id) =>
+              setTaRows((xs) =>
+                xs.map((x) => (x.key === r.key ? { ...x, assigned_staff_id: id } : x)),
+              )
+            }
+          />
+        );
+      },
+    },
+    {
+      header: "Bypass",
+      width: "9rem",
+      cell: (r) => {
+        /* DERIVED, from `production_entries` (0548) — never typed here, same
+           reason Target Date has no control behind it. Blank for a non-floor
+           activity (Fabric Plan, Knitting, Dyeing, …) and for a floor stage
+           with nothing logged yet, same "0 reads as nothing to show" call
+           `lib/ta/worklist.ts` makes for the worklist's own pill. */
+        const b = taBypass.get(r.row_uid);
+        return (
+          <Input
+            readOnly
+            className="bg-surface-muted"
+            title={
+              b ? `${fmtNumber(b.qty)} good pieces recorded on Production${b.lastEntryDate ? `, last on ${fmtDate(b.lastEntryDate)}` : ""}` : undefined
+            }
+            value={b ? `${fmtNumber(b.qty)} pcs` : ""}
+          />
+        );
+      },
+    },
   ];
+
+  /**
+   * T&A ▸ Approvals ▸ each row's target date, MIRRORING WHAT THE SERVER WILL
+   * WRITE ON SAVE (`taApprovalRows` in actions.ts) — BOTH HALVES OR NEITHER,
+   * the same rule `orderTaLadder` above already follows.
+   *
+   * A PLAIN DERIVED VALUE, NOT A `useMemo` — same reason as `taProblems` and
+   * `taColumns` beside it: this is BELOW the `if (mode === "list")` early
+   * return, so a hook here would run on the editor render and be skipped on
+   * the list render (AGENTS.md, "Hooks above every early return" — this file
+   * has taken production down over exactly this five times). Nothing
+   * expensive enough to memoise: one pass over a grid that is at most a few
+   * dozen rows.
+   *
+   * NO PP-SAMPLE PRODUCTION-LADDER BRIDGE, deliberately narrower than the
+   * unmerged branch this feature was ported from — see `taApprovalRows`
+   * (actions.ts) for why. PP Sample is scheduled the same way every other
+   * approval is here, off `data.taApprovals`' own `standard_days` / this
+   * buyer's override.
+   */
+  const taApprovalDates = (() => {
+    const overrideByApproval = new Map(
+      data.customerApprovalDefaults
+        .filter((d) => d.customer_id === form.customer_id)
+        .map((d) => [d.approval_id, d.lead_time_days]),
+    );
+    /* ONLY A ROW THIS CUSTOMER ACTUALLY CONFIGURED FEEDS THE SCHEDULER
+       (operator, 2026-09-09: "if there is no approval for that customer it
+       should show the required indication instead... don't show like this
+       dummy date"). `?? a?.standard_days ?? 0` used to fall back to the
+       MASTER's generic figure the moment this buyer had no override, which
+       computed a real-looking date off a number nobody set for them — the
+       same "silent fallback makes the customer's own list advisory" trap
+       AGENTS.md's Nominated vendors section names. A row can still HOLD such
+       an approval (picked before this customer had one configured, or a
+       default withdrawn after save — "the held value survives"), so it
+       still gets a hint below, not a hold. */
+    const genericInputs = taApprovalRows
+      .filter((r) => r.approval_id && overrideByApproval.has(r.approval_id))
+      .map((r) => {
+        const a = data.taApprovals.find((x) => x.id === r.approval_id);
+        return {
+          approvalId: r.approval_id!,
+          label: a?.name ?? "",
+          direction: (a?.apply_condition as "AFTER_ORDER_DATE" | "BEFORE_SHIPMENT_DATE") ?? "AFTER_ORDER_DATE",
+          leadTimeDays: overrideByApproval.get(r.approval_id!)!,
+        };
+      });
+    const scheduled = computeApprovalSchedule({
+      approvals: genericInputs,
+      orderDate: form.amend_date,
+      exFactoryDate: form.delivery_date || null,
+    });
+    const byApprovalId = new Map(scheduled.map((sc) => [sc.approvalId, sc]));
+    const out = new Map<string, { target_date: string | null; isConflicted: boolean; errorMessage: string | null }>();
+    for (const r of taApprovalRows) {
+      if (!r.approval_id) {
+        out.set(r.row_uid, { target_date: null, isConflicted: false, errorMessage: null });
+        continue;
+      }
+      /* NOT CONFIGURED FOR THIS CUSTOMER — same RED/advisory shape as a real
+         scheduling conflict below (`isConflicted`/`errorMessage`), reusing
+         the Target Date cell's own border + tooltip rather than inventing a
+         second flag the cell would need a second branch to read. */
+      if (!overrideByApproval.has(r.approval_id)) {
+        const a = data.taApprovals.find((x) => x.id === r.approval_id);
+        out.set(r.row_uid, {
+          target_date: null,
+          isConflicted: true,
+          errorMessage: `${a?.name ?? "This approval"} is not configured for this customer — set its lead time on the customer's own Approvals tab.`,
+        });
+        continue;
+      }
+      const sc = byApprovalId.get(r.approval_id);
+      out.set(r.row_uid, {
+        target_date: sc?.targetDate ?? null,
+        isConflicted: sc?.isConflicted ?? false,
+        errorMessage: sc?.errorMessage ?? null,
+      });
+    }
+    return out;
+  })();
+
+  /**
+   * T&A ▸ Approvals ▸ the grid's own columns — one field on screen
+   * (`approval_id`); Target Date is derived, never typed. Plain table
+   * (`ChildGrid` default), not `forceCards` — the ladder above is already
+   * the one place on this tab that reads as a schedule rather than a grid.
+   */
+  const taApprovalColumns: ChildGridColumn<TaApprovalRow>[] = [
+    {
+      header: "Approval",
+      width: "16rem",
+      cell: (r) => {
+        /* SCOPED TO THIS ORDER'S CUSTOMER (operator, 2026-09-09: "that
+           approval listing totally from approval master but it should
+           based on that customer approval only") — `customerApprovalOptions`
+           reads `data.customerApprovalDefaults`, already loaded into
+           `AmendmentFormData` for exactly this and never wired to the
+           picker until now. Empty-and-explain, never the whole master. */
+        const opts = customerApprovalOptions({
+          customerId: form.customer_id,
+          customerName: data.customers.find((c) => c.id === form.customer_id)?.name,
+          approvals: data.taApprovals,
+          defaults: data.customerApprovalDefaults,
+          currentValue: r.approval_id,
+        });
+        return (
+          <RecordPicker
+            label="Approval"
+            compact
+            items={opts.items}
+            placeholder={opts.shortHint ?? undefined}
+            emptyHint={opts.hint}
+            value={r.approval_id}
+            usedIds={
+              taApprovalRows
+                .filter((x) => x.key !== r.key)
+                .map((x) => x.approval_id)
+                .filter(Boolean) as string[]
+            }
+            onChange={(id) =>
+              setTaApprovalRows((xs) =>
+                xs.map((x) => (x.key === r.key ? { ...x, approval_id: id } : x)),
+              )
+            }
+          />
+        );
+      },
+    },
+    {
+      header: "Target Date",
+      width: "9rem",
+      cell: (r) => {
+        const d = taApprovalDates.get(r.row_uid);
+        /* SHOW AND FLAG, NEVER CLAMP — the same AGENTS.md rule the
+           production ladder's own status line follows, applied to a buyer
+           approval instead of a physical step. `computeApprovalSchedule`
+           never refuses; a conflicted date still SAVES, so the one thing
+           this cell owes the operator is making an impossible-looking date
+           visibly impossible rather than a plain black box that reads as
+           agreed. */
+        return (
+          <Input
+            readOnly
+            className={d?.isConflicted ? "border-danger text-danger" : undefined}
+            title={d?.isConflicted ? (d.errorMessage ?? undefined) : undefined}
+            value={d?.target_date ? fmtDate(d.target_date) : ""}
+          />
+        );
+      },
+    },
+  ];
+
+  /**
+   * ONE ROW, ALWAYS (operator, 2026-09-09: "make approval date in single
+   * row") — `ChildGrid`'s own responsive fallback (no `forceCards`) hides
+   * its table BELOW `@lg` of the GRID'S OWN width (512px), which the
+   * Approvals panel can easily be once it is sharing the T&A pane with the
+   * ladder beside it (see the two-column grid above `taColumns`). Below
+   * that the default card layout would stack Approval and Target Date onto
+   * two lines — exactly what was asked NOT to happen. A hand-drawn row,
+   * the same shape `taRenderMobileRow` already uses for the ladder, sizes
+   * to its own two fields (a name and a date) rather than to a 512px
+   * threshold that has nothing to do with how much space they need.
+   */
+  const taApprovalRenderMobileRow = (r: TaApprovalRow, i: number) => (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-surface p-1.5 text-left shadow-sm">
+      <span className="w-4 flex-none text-[10px] font-medium text-muted-foreground">
+        {String(i + 1).padStart(2, "0")}
+      </span>
+      <div className="min-w-0 flex-1">
+        <RequiredScope required={taApprovalColumns[0].required} label={taApprovalColumns[0].header}>
+          {taApprovalColumns[0].cell(r, i)}
+        </RequiredScope>
+      </div>
+      <div className="w-24 flex-none">
+        <RequiredScope required={taApprovalColumns[1].required} label={taApprovalColumns[1].header}>
+          {taApprovalColumns[1].cell(r, i)}
+        </RequiredScope>
+      </div>
+    </div>
+  );
+
+  /**
+   * EVERY APPROVAL ROW CURRENTLY CONFLICTED, SAID IN ONE PLACE — the
+   * Approvals-tab equivalent of `taProblems` above, RED rather than amber:
+   * `taProblems` covers a row with nothing typed in it yet, an unfinished
+   * plan; this covers a row that IS fully answered and whose answer is a
+   * date outside the order's own window — a real scheduling conflict, not a
+   * gap. Neither blocks Save, so both stay advisory text, never wired
+   * through `dupFieldProps`.
+   */
+  const taApprovalProblems: { row_uid: string; message: string }[] = [];
+  for (const r of taApprovalRows) {
+    const d = taApprovalDates.get(r.row_uid);
+    if (d?.isConflicted && d.errorMessage) {
+      taApprovalProblems.push({ row_uid: r.row_uid, message: d.errorMessage });
+    }
+  }
+
+  /**
+   * T&A ▸ TA FOLLOWUP — every DECLARED approval (`taApprovalRows`, the
+   * Approvals grid above) joined by `row_uid` onto its SAVED counterpart
+   * (`savedApprovals`) for the status/dates/proof only a save produces, and
+   * onto the master (`data.taApprovals`) for its name/department/proof
+   * requirement — the same three-way join the Approvals grid's own cells
+   * make independently (`taApprovalDates`, the `RecordPicker`'s `items`).
+   *
+   * A row with no `savedApprovals` match (freshly added, never saved) still
+   * appears here — `id: null` — so the tab shows every approval that WILL
+   * exist rather than silently hiding what the operator just typed; the
+   * component itself is what disables actions on it and says why.
+   */
+  const approvalFollowupRows: OrderApprovalRow[] = taApprovalRows.map((r) => {
+    const saved = savedApprovals.find((s) => s.row_uid === r.row_uid);
+    const opt = data.taApprovals.find((o) => o.id === r.approval_id);
+    const d = taApprovalDates.get(r.row_uid);
+    return {
+      id: saved?.id ?? null,
+      rowUid: r.row_uid,
+      approvalId: r.approval_id,
+      approvalName: opt?.name ?? "—",
+      department: opt?.department ?? null,
+      requiresProof: opt?.requires_proof ?? true,
+      targetDate: d?.target_date ?? null,
+      status: saved?.status ?? "pending",
+      actualSentDate: saved?.actual_sent_date ?? null,
+      actualReceivedDate: saved?.actual_received_date ?? null,
+      proofPath: saved?.proof_path ?? null,
+      activeVersion: saved?.active_version ?? 1,
+    };
+  });
 
   /**
    * A pictogram per seeded activity, keyed by `short_name` — purely a wayfinding
@@ -9001,36 +9548,53 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            its border rather than drawing a second, redundant one; `bg-surface`
            + a resting `shadow-sm` still separate it from the page without a
            visible line. */}
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-surface p-1.5 text-left shadow-sm">
-          {/* NEITHER THIS CARD NOR THE ACTIVITY FIELD IS `flex-1` ANY MORE
-             (client: "field size needs to be fix" on the Activity box, then
-             "the field between [it] and [Close] this much gab cut it" on
-             the CARD — `flex-1` here was stretching the whole bordered box
-             out to the row's far edge, which is what left a wide strip of
-             empty card between "working days" and the row's own ✕. Dropping
-             it lets the card size to its own content instead; the `pr-9`
-             this used to carry is also gone; `cornerRemove`'s own `pr-10` on
-             the ROW is already what keeps the ✕ off the content, and
-             stacking a second reservation here was the other half of the
-             gap. `w-52` fits the longest seeded name ("ACCESSORIES BOM")
-             with room to spare; `flex-none` keeps it that width. */}
-          <div className="w-52 flex-none">
+        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-surface p-1.5 text-left shadow-sm">
+          {/* ONE ROW, TIGHTENED, NOT TWO (operator, 2026-09-09: "no more
+             second row, I mean single row" — reversing the same day's
+             earlier two-row split). That split fixed the wrap by FORCING it
+             in the same place every time; this fixes it a second way —
+             narrowing Activity and Task Owner so the whole row is more
+             likely to fit as ONE line in the first place, now that the T&A
+             tab shares its pane with the Approvals panel beside it. Still
+             `flex-wrap`, so an unusually long Activity name on a very narrow
+             pane still wraps rather than overflowing — that is the safety
+             net, not the design. */}
+          <div className="w-36 flex-none">
             <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
               {taColumns[0].cell(r, i)}
             </RequiredScope>
           </div>
-          {activity?.department && (
-            <span className="rounded-full border border-border bg-surface-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {activity.department}
-            </span>
-          )}
           <div className="flex flex-none items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2 pr-1">
             <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
               {taColumns[1].cell(r, i)}
             </RequiredScope>
-            <span className="text-[10px] font-medium text-muted-foreground">working days</span>
+            <span className="text-[10px] font-medium text-muted-foreground">days</span>
+          </div>
+          {/* TASK OWNER (0547) — same `RequiredScope`-only pattern as Activity/
+             Days above, not `<Field>`: this card never gives either of those a
+             visible star (confirmed accepted trade-off, since a `compact`
+             RecordPicker draws none of its own), so a one-off star here would
+             make the three controls disagree about their own convention. The
+             hold still works regardless — `useRequiredHold` inside
+             `RecordPicker` does not depend on a star being drawn anywhere.
+             `w-32` (was `w-40`) — same tightening as Activity above. */}
+          <div className="w-32 flex-none">
+            <RequiredScope required={taColumns[4].required} label={taColumns[4].header}>
+              {taColumns[4].cell(r, i)}
+            </RequiredScope>
           </div>
           {caption && <span className={cn("text-[10px] font-medium", toneText[tone])}>{caption}</span>}
+          {/* DERIVED, same figure `taColumns`' own "Bypass" cell shows — see
+             its comment. Only rendered when there is something to show, same
+             "0 reads as nothing" rule the worklist's own pill follows. */}
+          {taBypass.get(r.row_uid) && (
+            <span
+              className="rounded-full bg-info-soft px-1.5 py-0.5 text-[9px] font-semibold text-info"
+              title={`${fmtNumber(taBypass.get(r.row_uid)!.qty)} good pieces recorded on Production`}
+            >
+              {fmtNumber(taBypass.get(r.row_uid)!.qty)} pcs
+            </span>
+          )}
         </div>
       </div>
     );
@@ -18580,14 +19144,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             * the status line above it: a fact stated in the danger tone,
             * never wired into anything that refuses the click.
             *
-            * `amend_date` (Order Info's "Date") IS THE ORDER'S OWN DATE —
-            * there is no separate "Order Received Date" live on this screen.
-            * `received_date` exists as a column but was explicitly withdrawn
-            * from the Logistic tab 2026-08-12 ("Ship Mode / Ship Type / Pay
-            * Mode / Payment Terms / Days / Currency / Country, and nothing
-            * else"); resurrecting it here to answer a spec nobody asked this
-            * screen to implement literally would undo that client decision
-            * for a different reason than the one that undid it.
+            * `amend_date` (Order Info's "Date") IS STILL WHAT THIS COMPARISON
+            * USES, not the newer `received_date` field. Order Info gained a
+            * real "Received Date" field on 2026-09-09 (reinstated from the
+            * withdrawal below, as an Order Info field rather than a Logistic
+            * one), but wiring THIS feasibility warning to it instead of
+            * `amend_date` is a separate decision nobody has asked for — do
+            * that deliberately, not as a side effect of the field existing.
+            * `received_date` was explicitly withdrawn from the Logistic tab
+            * 2026-08-12 ("Ship Mode / Ship Type / Pay Mode / Payment Terms /
+            * Days / Currency / Country, and nothing else"); it did not
+            * resurface there, only on Order Info.
             *
             * NEEDS A REAL `startDate` — same as the status line above (2026-
             * 09-07): while any row's Days is still blank there is no "this
@@ -18663,6 +19230,33 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              DD/MM/YYYY overflow into the icon beside it), so this reads as
              one continuous column with "01" beneath it rather than a second,
              disconnected label. */}
+          {/**
+            * LADDER LEFT, APPROVALS RIGHT (2026-09-09 UI pass, operator
+            * request against a screenshot of the two stacked vertically:
+            * "looks unaligned... move the approval to the right side"). A
+            * CSS-grid pair around the two existing blocks, nothing inside
+            * either one — the ladder's own `max-w-2xl` / left-align and the
+            * Approvals panel's own header/table are both untouched, so the
+            * road-line `<svg>` (measured off `taWrapCallbackRef`, below)
+            * keeps drawing exactly as it did full-width.
+            *
+            * `@3xl/editor`, NOT `lg:` — this screen's content pane is the
+            * `@container/editor` `MasterFullScreen` already declares (see
+            * `master-full-screen.tsx`), and every other width decision on
+            * this tab (`@2xl/editor` elsewhere in this file, the compact
+            * density switch) reads that same named container rather than
+            * the viewport. A viewport breakpoint answers "is the WINDOW wide
+            * enough", which can stay true while the editor pane itself
+            * (beside the SECTIONS rail, inside whatever the pane is mounted
+            * in) is nowhere near that width — the first cut of this used
+            * `lg:` and stayed stacked at a window comfortably past 1024px
+            * wide. Single column below `@3xl` (768px of PANE, not window),
+            * side by side above it — the ladder gets the wider track (`2fr`)
+            * since it is the one with up to nine rows; Approvals rarely
+            * holds more than a handful.
+            */}
+          <div className="grid grid-cols-1 items-start gap-4 @3xl/editor:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div>
           {!isRefusal(taLadder) ? (
             <div className="w-16 pb-1 text-right">
               <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
@@ -18785,7 +19379,92 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               />
             </div>
           </div>
+          </div>
+
+          {/**
+            * T&A ▸ APPROVALS — beside the ladder now, not below it (see the
+            * grid opened above). PLAIN TABLE, deliberately not `forceCards`
+            * — the ladder is already the one place on this tab that reads as
+            * a schedule rather than a grid, and a narrow right-hand column is
+            * the wrong width for cards anyway.
+            *
+            * A REAL PANEL, NOT A BARE `<h4>` (2026-09-09 UI pass) — framing
+            * only: the header bar says what this table is FOR (declaring
+            * which approvals apply, not acting on them — see the TA Followup
+            * tab below for that half), so it reads as its own concern rather
+            * than a continuation of the ladder beside it. No column, field or
+            * behaviour changed.
+            */}
+          <div>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-2">
+              <CheckCheck className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+              <div>
+                <div className="text-sm font-semibold text-foreground">Approvals</div>
+                <div className="text-xs text-muted-foreground">
+                  Declared approvals and their computed review windows
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2 bg-surface p-3">
+              <ChildGrid<TaApprovalRow>
+                columns={taApprovalColumns}
+                rows={taApprovalRows}
+                /* See `taApprovalRenderMobileRow`'s own comment — forced so a
+                   narrow Approvals column never drops Target Date onto its
+                   own line. `flatRows` drops `ChildGrid`'s own card box, the
+                   same pairing `taColumns` uses, since the hand-drawn row
+                   above already draws one. */
+                forceCards
+                flatRows
+                renderMobileRow={taApprovalRenderMobileRow}
+                onAdd={() => setTaApprovalRows((xs) => [...xs, blankTaApprovalRow()])}
+                onRemove={(r) => setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add approval"
+              />
+              {/* SHOW AND FLAG (see `taApprovalProblems`'s own comment) — RED,
+                  never a hold: nothing here is wired through `dupFieldProps`, so
+                  a conflicted approval still saves and Tab still moves through
+                  it freely. */}
+              {taApprovalProblems.length > 0 && (
+                <ul className="space-y-1 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
+                  {taApprovalProblems.map((pb) => (
+                    <li key={pb.row_uid}>{pb.message}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          </div>
+          </div>
         </div>
+      ),
+    },
+    /**
+     * TA FOLLOWUP — this order's customer-approval lifecycle, acted on in
+     * place (operator request, 2026-09-10). A separate rail tab from "T&A"
+     * rather than a third grid inside it: that tab is about DECLARING which
+     * approvals apply and reading their computed dates; this one is about
+     * ACTING on a declared approval (Send / Approve / Rework), which needs
+     * room for a file picker and a mandatory-remarks form that a table cell
+     * has none of.
+     *
+     * `OrderApprovalFollowup` (components/orders/order-approval-followup.tsx)
+     * owns the actions and the interaction — this tab only builds the rows
+     * (`approvalFollowupRows`, above) and hands over `editId` for the upload
+     * path. Not part of `canSubmitSurface`/blocked-Save problems: nothing
+     * here can block Save, the same reason Approvals' own conflict list is
+     * advisory rather than a hold.
+     */
+    {
+      key: "ta-followup",
+      label: "TA Followup",
+      content: (
+        <OrderApprovalFollowup
+          amendmentId={editId}
+          rows={approvalFollowupRows}
+          canAct={perms.canEdit}
+        />
       ),
     },
     {
@@ -19312,7 +19991,57 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 compact
                 items={customerFold.rows}
                 value={form.customer_id}
-                onChange={(id) => set({ customer_id: id })}
+                onChange={(id) => {
+                  set({ customer_id: id });
+                  /**
+                   * SEED THE APPROVALS GRID FROM THIS BUYER'S OWN DEFAULTS —
+                   * the one place this fires, deliberately not folded into any
+                   * grid top-up: those seed once, from a fixed master, the
+                   * moment the document opens; this seeds from whichever
+                   * customer is CURRENTLY picked, which can change (or be
+                   * picked for the first time) at any point while the order
+                   * is open.
+                   *
+                   * ONLY WHEN EMPTY — the same "only if empty" test every
+                   * other seed uses, so re-picking the same customer (or a
+                   * saved order's own already-loaded rows) never clobbers
+                   * rows the operator has already edited or a completion the
+                   * worklist has recorded against a `row_uid`.
+                   *
+                   * `data.customerApprovalDefaults` is the WHOLE table,
+                   * filtered here client-side — the same shape
+                   * `nominatedVendorOptions` already uses for
+                   * `customer_nominated_vendors`, not a fetch triggered by
+                   * the picker. Empty for a buyer with no defaults
+                   * configured: the operator adds approvals by hand, the
+                   * same empty-and-explain shape every scoped list here
+                   * uses.
+                   */
+                  if (id) {
+                    setTaApprovalRows((xs) =>
+                      xs.length
+                        ? xs
+                        : data.customerApprovalDefaults
+                            .filter((d) => d.customer_id === id)
+                            .map((d) => ({
+                              key: newKey(),
+                              row_uid: crypto.randomUUID(),
+                              approval_id: d.approval_id,
+                            })),
+                    );
+                    /* TASK OWNER AUTO-POPULATE (0547) — an async server
+                       lookup, unlike the synchronous seed above, since it
+                       reads this buyer's most recent SAVED order rather than
+                       a table already loaded into `data`. `!editId` is the
+                       new-order guard `applyDefaultTaskOwners` itself
+                       documents; see that function's own note for why a
+                       SAVED order must never re-fire this on a Customer
+                       change. */
+                    if (!editId) {
+                      void fetchDefaultTaskOwners(id).then(applyDefaultTaskOwners);
+                    }
+                  }
+                }}
               />
             </Field>
             {/**
@@ -19494,7 +20223,19 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               and `container-type: inline-size` applies SIZE CONTAINMENT, so a
               shrink-to-fit flex item wrapping it measures 0 and collapses. A
               field in the row needs none of that. */}
-          <FieldGrid>
+          {/* THIS ROW WAS DECLARED A `FieldRow` BY THE COMMENT BELOW ON
+              2026-08-26 AND STAYED A `FieldGrid` (col-span-2 `xs` on a
+              twelve-column track) UNTIL NOW — the "SUPERSEDED 2026-08-26"
+              note a few lines down has been describing this tag as changed
+              since the day it was written. Fixed 2026-09-09 alongside adding
+              Received Date, which is what surfaced the mismatch: a new field
+              at `xs` would have pushed the row to fourteen columns and wrapped
+              one cell onto its own line rather than tightening anything, and
+              `w` (the fix) only shrinks a cell inside a `FieldRow` — inside a
+              `FieldGrid` the surrounding column stays the same width and the
+              control just floats in dead space (`Field`'s own note). So the
+              tag now matches what the comment already claimed. */}
+          <FieldRow>
             {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
                 entry run is SCNo → Date → Customer → PO No → Merchandiser →
                 Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
@@ -19510,11 +20251,23 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 `useRequiredHold`, holds the cursor on a blank box; the validity
                 entry blocks Save; the Zod rule guards the writer. One
                 declaration is not enough on a header field — all three, or the
-                star is decoration. */}
-            <Field label="Deli.Dt" size="xs" htmlFor="hd-deli" required>
+                star is decoration.
+                `w="code"` (144px), not `size="xs"` — same floor as `Date` above:
+                a native `type="date"` input draws its own dd/mm/yyyy and
+                calendar button and clips below ~130px. */}
+            <Field label="Deli.Dt" w="code" htmlFor="hd-deli" required>
               <Input id="hd-deli" type="date" required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
             </Field>
-            <Field label="Season" size="xs" htmlFor="hd-season" required>
+            {/* RECEIVED DATE (client 2026-09-09) — the header's own
+                `received_date` column, withdrawn from the write path
+                2026-08-12 as a Logistic-tab field and reinstated here as an
+                Order Info one (see the note on `amendmentInput.received_date`
+                in lib/orders/amendments/types.ts). Not required: an order can
+                be entered before its received date is known or recorded. */}
+            <Field label="Received Date" w="code" htmlFor="hd-received">
+              <Input id="hd-received" type="date" value={form.received_date} onChange={(e) => set({ received_date: e.target.value })} />
+            </Field>
+            <Field label="Season" w="range" htmlFor="hd-season" required>
               <Select id="hd-season" required value={form.season} onChange={(e) => set({ season: e.target.value })}>
                 <option value=""></option>
                 {SEASON_OPTIONS.map((o) => (
@@ -19569,7 +20322,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * is a live FACET, the second one narrowing the Style picker
               * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
               */}
-            <Field label="Excess %" size="xs" htmlFor="hd-excess">
+            <Field label="Excess %" w="num" htmlFor="hd-excess">
               <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
             </Field>
             {/**
@@ -19630,7 +20383,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
                 Keys are untouched — it is the same real `<input type="checkbox">`
                 underneath, so Tab, Enter and Space behave as they did. */}
-            <Toggle className={FIELD_SPAN.xs}
+            <Toggle
               id="hd-pack"
               label="Pack"
               checked={form.pack}
@@ -19693,7 +20446,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * meaning — see the note on the Quantities tab, which is where it
               * lives and what it opens.
               */}
-            <Toggle className={FIELD_SPAN.xs}
+            <Toggle
               id="hd-multord"
               label="Multi Style"
               checked={form.mult_ord}
@@ -19732,7 +20485,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 placeholder is left as-is deliberately: changing it to something
                 like "Select a rule" would quietly erase the evidence that blank
                 used to mean something. */}
-            <Field label="Rejection Rule" size="xs" required>
+            <Field label="Rejection Rule" w="term" required>
               <RecordPicker
                 label="Rejection Rule"
                 /* `compact` — WITHOUT IT THE LABEL RENDERS TWICE (client 2026-08-12,
@@ -19789,7 +20542,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 de-clutter rules. That reasoning did not die with the cell: it is
                 what the per-style Files cell is built as, so it lives on the
                 `variant="cell"` control in `file-attachments.tsx`. */}
-          </FieldGrid>
+          </FieldRow>
           {/**
             * THE FOLD SAYS WHAT IT HID (client 2026-08-31, the other half of the
             * Customer dedup ask).

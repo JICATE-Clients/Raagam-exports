@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { requireUser } from "@/lib/auth/server";
 import { getCurrentLocation } from "@/lib/auth/location";
+import { listPreviewableRoles } from "@/lib/auth/role-simulation";
 import { PermissionProvider } from "@/lib/auth/permission-context";
 import { LocationProvider } from "@/lib/auth/location-context";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
+import { RolePreviewBanner } from "@/components/shell/role-preview-banner";
 import { WorkspaceTabsBar } from "@/components/shell/workspace-tabs-bar";
 import { MobileNav } from "@/components/shell/mobile-nav";
 import { SearchProvider } from "@/components/search/search-provider";
@@ -31,6 +33,12 @@ export default async function AppLayout({
 
   const stores = await listStoreNavLinks();
 
+  // Only fetched for a real Super Admin — `realIsSuperAdmin`, not
+  // `isSuperAdmin`, so the switcher stays reachable while already previewing.
+  const previewableRoles = user.realIsSuperAdmin
+    ? await listPreviewableRoles()
+    : [];
+
   return (
     <PermissionProvider user={user}>
       <LocationProvider value={{ current: location, allowed, source }}>
@@ -40,7 +48,8 @@ export default async function AppLayout({
           <div className="flex h-screen overflow-hidden">
             <Sidebar stores={stores} />
             <div className="flex min-w-0 flex-1 flex-col">
-              <Topbar />
+              <Topbar previewableRoles={previewableRoles} />
+              <RolePreviewBanner />
               <WorkspaceTabsBar />
               {/* `pb-20` below md is clearance for MobileNav's floating bar;
                   `md:pb-6` is ordinary page padding. A page-mounted

@@ -17,6 +17,7 @@ import {
   FileText,
   PackageCheck,
   TrendingUp,
+  UserCheck,
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
@@ -86,6 +87,13 @@ export const REPORTS: ReportDefinition[] = [
     description: "Profitability by shipment — revenue vs. total cost",
     icon: TrendingUp,
     module: "reports",
+  },
+  {
+    slug: "ta-performance",
+    label: "T&A Staff Performance",
+    description: "On-time completion by staff, for the Monthly Review Meeting",
+    icon: UserCheck,
+    module: "orders",
   },
 ];
 

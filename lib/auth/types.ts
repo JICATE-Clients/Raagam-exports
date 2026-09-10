@@ -109,7 +109,30 @@ export interface AppUser {
   email: string | null;
   phone: string | null;
   fullName: string | null;
+  /**
+   * Governs every `hasPermission()` call. While a Role Preview (see
+   * `lib/auth/role-simulation.ts`) is active, this is FALSE even for a real
+   * Super Admin — the whole point of the preview is that `hasPermission`,
+   * `requirePermission` and `can` stop short-circuiting and start reading the
+   * previewed role's `permissions` for real. Use `realIsSuperAdmin` for
+   * "is this person actually a Super Admin" (e.g. showing the switcher itself).
+   */
   isSuperAdmin: boolean;
+  /**
+   * The signed-in profile's OWN `is_super_admin` flag, unaffected by preview.
+   * Gates the Role Preview switcher and its Server Action — never gates
+   * anything else, or a previewed "Administrator" role could re-grant itself
+   * the switcher by name collision.
+   */
+  realIsSuperAdmin: boolean;
+  /**
+   * The roles being previewed (`roles.id[]`) — empty when not previewing.
+   * An ARRAY, not a single id: an operator commonly holds more than one role
+   * at once (`user_roles` is a genuine many-to-many), and `permissions` below
+   * is already the union across all of these, exactly as `my_permissions()`
+   * unions a real user's `user_roles` rows.
+   */
+  simulatedRoleIds: string[];
   /** Where this person USUALLY works — an administrator's statement. Fallback only. */
   defaultLocationId: string | null;
   /**

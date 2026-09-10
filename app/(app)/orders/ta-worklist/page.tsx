@@ -2,8 +2,12 @@ import Link from "next/link";
 import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { getWorklist, type WorklistNote, type WorklistRow } from "@/lib/ta/worklist";
+import { getMyStaffTaKpi } from "@/lib/ta/kpi";
+import { endOfMonth, startOfMonth, today } from "@/lib/calendar";
 import { PageHeader } from "@/components/ui/page-header";
+import { buttonClasses } from "@/components/ui/button";
 import { Stat } from "@/components/ui/stat";
+import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { WorklistBoard } from "./worklist-board";
@@ -34,9 +38,31 @@ import { WorklistBoard } from "./worklist-board";
  */
 export const metadata = { title: "TA Worklist" };
 
-export default async function TaWorklistPage() {
+/**
+ * `?scope=mine` (0547) — a URL search param, not client state, so the toggle
+ * costs zero client JavaScript beyond the two `Link`s that set it: this page
+ * is a server component and `getWorklist({ mineOnly })` runs the narrowing on
+ * the server, the same way every other scoping decision here already does.
+ */
+export default async function TaWorklistPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ scope?: string }>;
+}) {
   await requirePermission("orders", "view");
-  const wl = await getWorklist();
+  const { scope } = await searchParams;
+  const mineOnly = scope === "mine";
+  const wl = await getWorklist({ mineOnly });
+
+  // THIS MONTH, ALWAYS THE VIEWER'S OWN FIGURE (0547) — `getMyStaffTaKpi`
+  // pins `p_staff_id` to `wl.viewerEmployeeId` explicitly rather than letting
+  // `staff_ta_kpi` pick, because a manager (who holds `orders:export`) would
+  // otherwise get the WHOLE TEAM's rows back on their own daily worklist,
+  // which is a report, not a badge. Skipped entirely on an unlinked login —
+  // there is no personal figure to show.
+  const myKpi = wl.viewerEmployeeId
+    ? await getMyStaffTaKpi(wl.viewerEmployeeId, startOfMonth(today()), endOfMonth(today()))
+    : null;
 
   const backlog = wl.rows.filter((r) => r.bucket === "backlog");
   const dueToday = wl.rows.filter((r) => r.bucket === "today");
@@ -51,6 +77,12 @@ export default async function TaWorklistPage() {
           wl.scope.kind === "own_department" && wl.scope.departmentName
             ? `${wl.scope.departmentName} — Time & Action activities due on ${fmtDate(wl.today)}.`
             : `Time & Action activities due on ${fmtDate(wl.today)}, across every department.`
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <KpiBadge score={myKpi?.onTimeScorePercentage ?? null} />
+            <ScopeToggle mineOnly={mineOnly} />
+          </div>
         }
       />
 
@@ -115,6 +147,7 @@ export default async function TaWorklistPage() {
         rows={backlog}
         canComplete={wl.canComplete}
         showDepartment={showDepartment}
+        viewerEmployeeId={wl.viewerEmployeeId}
         empty="Nothing overdue."
       />
       <Section
@@ -123,6 +156,7 @@ export default async function TaWorklistPage() {
         rows={dueToday}
         canComplete={wl.canComplete}
         showDepartment={showDepartment}
+        viewerEmployeeId={wl.viewerEmployeeId}
         empty="Nothing due today."
       />
       <Section
@@ -131,6 +165,7 @@ export default async function TaWorklistPage() {
         rows={upcoming}
         canComplete={wl.canComplete}
         showDepartment={showDepartment}
+        viewerEmployeeId={wl.viewerEmployeeId}
         empty="Nothing scheduled in the next week."
       />
     </div>
@@ -143,6 +178,7 @@ function Section({
   rows,
   canComplete,
   showDepartment,
+  viewerEmployeeId,
   empty,
 }: {
   title: string;
@@ -150,6 +186,7 @@ function Section({
   rows: WorklistRow[];
   canComplete: boolean;
   showDepartment: boolean;
+  viewerEmployeeId: string | null;
   empty: string;
 }) {
   return (
@@ -167,6 +204,7 @@ function Section({
           rows={rows}
           canComplete={canComplete}
           showDepartment={showDepartment}
+          viewerEmployeeId={viewerEmployeeId}
         />
       )}
     </section>
@@ -201,5 +239,72 @@ function NoteBanner({ note }: { note: WorklistNote }) {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Department / My Tasks (0547) — two `Link`s, not client state, so this stays
+ * inside the "zero client JavaScript except the buttons" rule the file
+ * header states: the page itself does the narrowing server-side off
+ * `?scope=`, this only sets which URL is next.
+ *
+ * `buttonClasses` (`components/ui/button.tsx`), never a hand-rolled class
+ * list — it is the one place a control that must be an `<a>` rather than a
+ * `<button>` gets the exact same classes a real `Button` would, including the
+ * default `md` (h-9) size the header row STANDING rule requires.
+ */
+function ScopeToggle({ mineOnly }: { mineOnly: boolean }) {
+  // `md` (h-9), not `sm` — AGENTS.md, "The header row (STANDING)": every
+  // control in the band above a list is the header's own size, and this sits
+  // inside `PageHeader actions={…}`, one of the two shapes the row-size check
+  // recognises as a header row. A segmented toggle is not a dense grid
+  // control like a ChildGrid's "+ Add line", which is the shape `sm` is for.
+  return (
+    <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-1">
+      <Link
+        href="/orders/ta-worklist"
+        className={buttonClasses({
+          variant: mineOnly ? "ghost" : "outline",
+          className: "border-transparent shadow-none",
+        })}
+      >
+        Department
+      </Link>
+      <Link
+        href="/orders/ta-worklist?scope=mine"
+        className={buttonClasses({
+          variant: mineOnly ? "outline" : "ghost",
+          className: "border-transparent shadow-none",
+        })}
+      >
+        My Tasks
+      </Link>
+    </div>
+  );
+}
+
+/**
+ * This month's on-time score, always the SIGNED-IN OPERATOR'S OWN figure
+ * (see `getMyStaffTaKpi` in `page.tsx` above for why it is pinned rather
+ * than left to `staff_ta_kpi`'s own "everyone, if you hold export" default).
+ *
+ * `null` covers TWO honest states this badge does not try to tell apart —
+ * an unlinked login (no employee record to score) and a linked one with
+ * nothing completed yet this month — both read as "nothing to show" rather
+ * than a wrong number, which is worse than no number.
+ *
+ * 90 / 75 THRESHOLDS, copied from nowhere else in this codebase: this is the
+ * spec's own three-tier read (green ≥90, amber 75–89, red <75), reused
+ * verbatim on the Reports ▸ T&A Staff Performance page's `ScoreBadge` (now a
+ * plain-text cell there, per `ReportView`'s export-safe-columns rule) so the
+ * two surfaces can never disagree about where a tier boundary sits.
+ */
+function KpiBadge({ score }: { score: number | null }) {
+  if (score == null) return null;
+  const tone = score >= 90 ? "success" : score >= 75 ? "warning" : "danger";
+  return (
+    <Link href="/reports/ta-performance" title="This month's on-time completion — open the full report">
+      <StatusPill tone={tone}>{score}% on-time</StatusPill>
+    </Link>
   );
 }

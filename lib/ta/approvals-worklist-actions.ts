@@ -17,10 +17,19 @@ import { today } from "@/lib/calendar";
 
 type Result = { ok: true } | { ok: false; error: string };
 
-const LIST_PATH = "/orders/ta-approvals-worklist";
+const LIST_PATH = "/orders/ta-followup";
 const TABLE = "garment_order_amendment_ta_approvals";
 const HISTORY_TABLE = "garment_order_amendment_ta_approval_history";
 
+/**
+ * Dispatch Proof Enforcement (spec §4.1/§6). The screen already hides the
+ * no-file "Mark Sent" button once `requiresProof` is true, but that is only
+ * the courtesy half — same rule as every mandatory-field check in this app
+ * ("Duplicates" ▸ AGENTS.md: "the screen check is a courtesy; this one is the
+ * guard"). Re-read `requires_proof` from the row's own approval here rather
+ * than trusting a client-passed flag, so a stale or tampered client can't
+ * skip it.
+ */
 export async function markApprovalSent(
   id: string,
   sentDate?: string,
@@ -31,6 +40,20 @@ export async function markApprovalSent(
   const date = sentDate?.trim() || today();
 
   const s = await createClient();
+
+  if (!proof) {
+    const { data: row, error: readError } = await s
+      .from(TABLE)
+      .select("approval:ta_approvals(requires_proof)")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) return { ok: false, error: readError.message };
+    const requiresProof = !!(Array.isArray(row?.approval) ? row?.approval[0] : row?.approval)?.requires_proof;
+    if (requiresProof) {
+      return { ok: false, error: "A proof file is required before this approval can be marked sent" };
+    }
+  }
+
   const patch: Record<string, unknown> = { actual_sent_date: date, status: "sent" };
   if (proof) {
     patch.proof_path = proof.path;

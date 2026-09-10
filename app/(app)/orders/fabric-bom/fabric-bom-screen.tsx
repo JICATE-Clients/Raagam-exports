@@ -48,7 +48,6 @@ import {
   Layers,
   ListChecks,
   Shapes,
-  Palette,
   Waypoints,
   Ruler,
   Spool,
@@ -4442,28 +4441,51 @@ export function FabricBomScreen({
    *
    * `Assort Color wise` IS THE ONE THAT IS NOT ITS COLUMN'S WIDTH. Its column
    * is 4.5rem, sized for a centred checkbox under a wrapped two-line heading;
-   * with the label held to ONE line it is the longest string on the row
-   * (~105px at `text-xs`), so it gets `w-28` and the row stays honest. A
-   * nowrap label in a box narrower than itself does not wrap — it overflows,
-   * which is the failure this number exists to avoid.
+   * with the label held to ONE line it is the longest string on the row, so
+   * it gets a width of its own rather than inheriting the column's, and the
+   * row stays honest. A nowrap label in a box narrower than itself does not
+   * wrap — it overflows, which is the failure this number exists to avoid.
    *
    * `Type` IS THE SAME FAILURE ON THE CONTROL SIDE, NOT THE LABEL (client
    * 2026-09-04: "Roll form ... value need to display, no wits hided"). The
-   * label "Roll form" fits `w-24` easily; the SELECT beside it holds the
+   * label "Roll form" fits `w-32` easily; the SELECT beside it holds the
    * value, and "Open Width" (`WIDTH_FORM_OPTIONS`) plus the control's own
    * padding and chevron does not fit in 96px — it was the control's text
    * getting clipped, not the label wrapping. `w-32` gives the longer option
    * room without reaching for the row's own budget.
+   *
+   * ## FIVE OF THESE WERE MEASURED AGAINST THE WRONG FONT (found 2026-09-09,
+   * ## operator: "the title look messed to the table lables")
+   *
+   * The note above sized `Assort Color wise` at "~105px at `text-xs`" — but
+   * the header band never renders `text-xs`. It renders `GRID_HEADER_TEXT`
+   * (`child-grid.tsx`): `font-bold uppercase tracking-[0.06em]`, the SAME
+   * constant `ChildGrid`'s own `<th>` uses, deliberately, so this bar's header
+   * reads as the same kind of heading (see the note on the two-band bar
+   * above). Bold, uppercase and letter-spaced text is measurably wider per
+   * character than the plain lowercase `text-xs` the estimate assumed, and
+   * `shrink-0` on a fixed-`w-*` flex child does not stop that difference from
+   * mattering — the box stays at its declared width regardless of its
+   * content, so text wider than the box does not grow the box or wrap it, it
+   * overflows and visually bleeds into the next column's border and text.
+   * That is what "Assort Color wise" overlapping "Size Wise" was: not a
+   * z-index or positioning bug, a plain width shortfall on five of the eight
+   * columns (`Calculated`, `Assort Color wise`, `Size Wise`, `EndBit Loss %`,
+   * `Components`, `Assort Color` — everything sized off the old estimate
+   * rather than off `Type`'s, which measured its own control instead and
+   * happened to be wide enough by coincidence). Re-measured against the real
+   * font below; the LABELS THEMSELVES ARE UNCHANGED — this is a width fix,
+   * not a wording one.
    */
   const MANUAL_FIELD_W: Record<string, string> = {
     Fabric: "w-36",
     Type: "w-32",
-    Calculated: "w-24",
-    "Assort Color wise": "w-28",
-    "Size Wise": "w-20",
-    "EndBit Loss %": "w-24",
-    Components: "w-24",
-    "Assort Color": "w-24",
+    Calculated: "w-28",
+    "Assort Color wise": "w-44",
+    "Size Wise": "w-24",
+    "EndBit Loss %": "w-32",
+    Components: "w-28",
+    "Assort Color": "w-32",
   };
 
   /**
@@ -4597,16 +4619,35 @@ export function FabricBomScreen({
           rows={manualEntries}
           forceCards
           flatRows
-          /* `railWidthPx`, `railCompact` AND `railBg` ALL STAY UNSET NOW —
-             Material BOM's own 268px / `px-3 py-2` / tinted pane, and
-             deliberately (client 2026-09-04, later than every note this
-             block used to carry: "the size of the rail menu and color etc I
-             need same" — i.e. as Material BOM's). This call site used to set
-             all three to match Components' narrower rail; that match is gone
-             because Components' own rail reverted to the same defaults the
-             same afternoon — see its call site. The two rails stay identical
-             by both falling through to the primitive, not by one copying the
-             other's override. */
+          /* `railCompact` AND `railBg` STAY UNSET — Material BOM's own
+             `px-3 py-2` / tinted pane, and deliberately (client 2026-09-04,
+             later than every note this block used to carry: "the size of the
+             rail menu and color etc I need same" — i.e. as Material BOM's).
+             This call site used to set all three to match Components'
+             narrower rail; that match broke on 2026-09-04 when Components'
+             own rail reverted to the same defaults — see its call site.
+
+             `railWidthPx` IS THE ONE EXCEPTION, AND IT IS NEW (client
+             2026-09-09: "the assort color went second row .. reduce that
+             new fabric rail width, move the field again to the first row").
+             The header-width fix above (`MANUAL_FIELD_W`, "the title look
+             messed to the table lables") made the entry bar itself ~180px
+             wider — it had to be, the old widths were undersized for
+             `GRID_HEADER_TEXT` — and the bar plus the default 268px rail no
+             longer both fit inside this section's (non-`wide`) 1440px pane
+             at the operator's own screen width, so the last column wrapped
+             to a second line. Narrowing the rail is what the operator asked
+             for to buy that room back, over the alternatives: `wide` (1720px)
+             would fix it too but widens the WHOLE tab including the rail and
+             the style list for a problem that is really eight columns too
+             wide for 268px of rail beside them; re-narrowing the header
+             columns would undo the fix two turns ago and bring the overlap
+             back. 180px still fits a truncated fabric name (`Truncated`
+             already handles that) — it is the rail giving up room it was not
+             using, not new clipping. This is a deliberate, narrow deviation
+             from the 2026-09-04 "same as Material BOM" parity above, for
+             this call site only; Components and Material BOM are untouched. */
+          railWidthPx={180}
           /* LOAD-BEARING, THE SAME WAY IT IS ON COMPONENTS. Every column in
              `manualEntryColumns` declares a `width` — it was written for the
              `<table>` this replaces — so without `fill` the card would hug
@@ -5043,9 +5084,11 @@ export function FabricBomScreen({
              whole grid, a pane's width away from the list it grows. Components
              took `railAdd` when the prop was written; this call site did not,
              and that difference is the entire reason the two rails read
-             differently. `railWidthPx`/`railCompact`/`railBg` were also both
-             rails' at that point and are gone from both now — see the note
-             above `railAlways`.
+             differently. `railCompact`/`railBg` were also both rails' at that
+             point and are gone from both now — see the note above
+             `railAlways`. `railWidthPx` was too, until 2026-09-09, when this
+             call site alone took it back for a header-width fix — see the
+             note above it.
 
              `w-full px-3` MATCHES COMPONENTS' OWN `addClassName`, verbatim now
              that neither rail runs `railCompact`: full width so the button is
@@ -6217,21 +6260,22 @@ export function FabricBomScreen({
   });
 
   const validity = sectionValidity({
-    /* `colors` IS LISTED THOUGH IT DECLARES NO PROBLEMS. The array is the rail's
-       ORDER, which is what `revealFirstProblem` steps through — a section
-       missing from it is a section the reveal cannot land on if it ever grows a
-       rule. Nothing here blocks Save: the palette is the order's and a BOM with
-       no dia stated is an ordinary document. */
+    /* `colors` WAS LISTED HERE THOUGH IT DECLARED NO PROBLEMS, until the
+       "Fabric BOM" and "Color/Print Details" rail tabs were merged into one
+       2026-09-09 — see the note on the palette panels themselves, inside
+       `bom`'s own `content`. One rail row now, so one entry; the palette
+       panels' own (lack of) Save-blocking behaviour is unchanged, just no
+       longer a separate stop for `revealFirstProblem` to name.
+       `components` IS LISTED THOUGH IT DECLARES NO PROBLEMS, for the reason
+       `colors` used to demonstrate. The array is the rail's ORDER, which is
+       what `revealFirstProblem` steps through — a section missing from it is
+       a section the reveal cannot land on if it ever grows a rule. It
+       declares none today: a panel nobody has mapped is an ordinary
+       half-answered document, and `fabricBomLineInput` already refuses a
+       line that names a fabric with no Open/Tubular. */
     sections: [
       { key: "bom" },
-      { key: "colors" },
       { key: "lines" },
-      /* `components` IS LISTED FOR `colors`' REASON — the array is the rail's
-         order, which `revealFirstProblem` steps through, so a section left out
-         of it is one the reveal cannot land on if it ever grows a rule. It
-         declares none today: a panel nobody has mapped is an ordinary
-         half-answered document, and `fabricBomLineInput` already refuses a line
-         that names a fabric with no Open/Tubular. */
       { key: "components" },
       /* `manual` DOES declare problems — see `manualBlockers` in `extra`. Its
          position here is the RAIL's order and must stay in step with the
@@ -6241,12 +6285,12 @@ export function FabricBomScreen({
          Manual tab between FabricAllocation and YarnProcess — the consumption is
          settled before the cloth is routed. */
       { key: "manual" },
-      /* `process` IS LISTED FOR `colors`' REASON EXACTLY — the array is the
+      /* `process` IS LISTED FOR `components`' REASON EXACTLY — the array is the
          rail's order, which `revealFirstProblem` steps through, so a section
          left out of it is one the reveal cannot land on if it ever grows a rule.
          It declares none today: a fabric bought finished runs no route, and a
          route with unmeasured losses is an ordinary half-answered document. */
-      /* `yarns` IS LISTED FOR THE SAME REASON as `colors` and `process`, and
+      /* `yarns` IS LISTED FOR THE SAME REASON as `components` and `process`, and
          declares no problems for `process`' reason one material earlier: a yarn
          bought ready-dyed runs no route, and a route with unmeasured losses is
          an ordinary half-answered document. Its POSITION is the rail's, and the
@@ -6959,6 +7003,63 @@ export function FabricBomScreen({
       done: !!form.garment_order_id,
       content: (
         <SectionBody title="Fabric BOM">
+          {/* COPY FROM ANOTHER BOM (client 2026-09-01, point 4). It sits on THIS
+              tab because that is where the client put it — "a Copy option must
+              be integrated into this screen" — and because Size Details is the
+              only thing on the tab an operator types, so it is the only thing a
+              copy can save them.
+
+              AT THE TOP OF THE TAB, NOT BETWEEN THE HEADER FIELDS AND THE
+              PALETTE PANELS (operator, 2026-09-09: "move that copy from to
+              the top ... now it's in between the screen"). It used to sit
+              directly above the palette-panel row because that row was the
+              only thing on the standalone "Color/Print Details" tab it could
+              read as belonging to; merging that tab into this one (see the
+              note on the palette panels below) left it stranded mid-page,
+              under the Garment order / Date / Customer / Delivery fields and
+              above everything else. It copies MORE than the palette now that
+              the two tabs are one screen in the operator's eyes, so the top
+              of the tab — before any of what it can fill in — is where it
+              reads as an action ON the document rather than a control
+              belonging to one panel under it.
+
+              A `<Select>` USED AS A COMMAND, not as a value: choosing a source
+              copies immediately and the box returns to blank. That is unusual
+              enough to say out loud, and it is the honest shape — "copied from"
+              is not a property of this BOM, so a control left showing a name
+              would be claiming a link that nothing stores. The toast is what
+              reports the result, and it names the counts because an additive
+              copy that found nothing new is otherwise indistinguishable from a
+              broken one.
+
+              HIDDEN WITH NOTHING TO OFFER. On the first BOM in the system every
+              source is excluded, and a permanently empty dropdown is the
+              "permanently closed gate" this module has already been told off
+              for once. */}
+          {copySources.length > 0 && (
+            <div className="mb-3 flex items-center justify-end gap-2">
+              <label htmlFor="fb-copy" className="text-xs text-muted-foreground">
+                Copy from
+              </label>
+              <Select
+                id="fb-copy"
+                compact
+                className="h-8 w-64"
+                value=""
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (id) copyFromBom(id);
+                }}
+              >
+                <option value="" />
+                {copySources.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           {/**
            * WIDTHS, NOT TWELFTHS (client 2026-09-03: Customer and Delivery
            * "stretched excessively wide compared to their text content").
@@ -7113,57 +7214,63 @@ export function FabricBomScreen({
             error={orderErr}
             order={order}
           />
-        </SectionBody>
-      ),
-    },
-    /**
-     * ---------------- Color / Print Details (0490) ----------------
-     *
-     * THE LEGACY TAB HAS FOUR PANELS AND THIS HAS FOUR PANELS (client
-     * screenshot 2577): Yarn Dyeing, Fabric Dyeing, Roll form prints, Dia /
-     * Size Width Details. What it does NOT have is the legacy Style Detail tree
-     * beside them — the client's own instruction ("in this screen in our
-     * application no need the style details section", screenshot 2578), and the
-     * right call independently: that tree is the ORDER's styles, combos and
-     * size quantities, which this screen already names in its header and
-     * repeats down the Fabric Lines grid's Style Ref No and Combo columns.
-     *
-     * ## THREE ARE READ AND ONE IS TYPED, WHICH IS THE WHOLE DESIGN
-     *
-     * The order already declares its palette on Garment Order ▸ Color/Print
-     * Details, and a fabric BOM names exactly one order. Copying those lists
-     * here would be a second copy free to drift, and would ask the operator to
-     * retype what they have already told the order — see `getOrderPalette` and
-     * 0490's header for the argument in full. Dia is the one panel the order
-     * cannot answer, so it is the one panel with a table behind it.
-     *
-     * SO THE READ-ONLY PANELS ARE NOT THE THING THAT WAS JUST REMOVED. Style
-     * Detail was redundant reference — data this screen shows twice already.
-     * The dyeing type (Y/D, Melange, Dyed) appears NOWHERE else on this screen:
-     * the line grid carries a colour NAME but never how that colour is
-     * achieved, and that is exactly what decides whether step 4 plans a yarn
-     * dyeing or a fabric dyeing.
-     *
-     * ## `done` IS THE DIA, BECAUSE THE DIA IS THE ONLY THING THIS SECTION OWNS
-     *
-     * A quiet dot means "this section has been answered". Lighting it on a
-     * palette read from elsewhere would report the OPERATOR as having done
-     * something the order did.
-     *
-     * UNCHANGED BY THE PANELS BECOMING EDITABLE (2026-09-02), and the argument
-     * above is exactly why. The palette still ARRIVES from the order, so a BOM
-     * opened against an order that declares six colours would light this dot
-     * before the operator had looked at the tab — the same false claim, now
-     * with an editable box under it. The dia is still the only thing on this
-     * tab that starts empty and can only be filled here.
-     */
-    {
-      key: "colors",
-      label: "Color/Print Details",
-      icon: Palette,
-      done: dias.some((d) => d.knit_type || d.dia.trim()),
-      content: (
-        <SectionBody title="Color/Print Details">
+
+          {/**
+           * ---------------- Palette panels (0490) — MERGED IN 2026-09-09
+           * ----------------
+           *
+           * "Fabric BOM" and "Color/Print Details" were two rail tabs;
+           * operator instruction 2026-09-09 ("merge it into a single tab")
+           * folded the second into the first. Nothing below moved for any
+           * reason but that — the panels, their data and every rule in the
+           * comments that follow are exactly what the standalone
+           * "Color/Print Details" tab carried, now rendered as the rest of
+           * this section's content instead of behind its own rail row.
+           *
+           * `key: "colors"` IS GONE, not renamed — a second `FullScreenSection`
+           * would still be a second rail row, which is the thing being
+           * removed. `validity.sections` drops the matching entry for the
+           * same reason: one section, one entry.
+           *
+           * `done` STOPPED BEING THE DIA. The standalone tab's dot answered
+           * "has the operator typed the one thing only this tab can supply"
+           * (the dia — the palette itself just arrives from the order, so
+           * lighting the dot on it would credit the operator with the
+           * order's own answer). A merged tab has one dot, and it is
+           * `!!form.garment_order_id` — the same one "Fabric BOM" always
+           * used, and the actual precondition for everything below reading
+           * as anything but empty. The dia-typed signal has no dot to be
+           * left on now; it is not lost information, it still drives the
+           * dia panel's own empty/filled rows, only the RAIL no longer
+           * summarises it.
+           *
+           * THE LEGACY TAB HAD FOUR PANELS AND THIS HAS FOUR PANELS (client
+           * screenshot 2577): Fabric Colour, Yarn Colour, Roll form prints,
+           * Dia / Size Width Details. What it does NOT have is the legacy
+           * Style Detail tree beside them — the client's own instruction
+           * ("in this screen in our application no need the style details
+           * section", screenshot 2578), and the right call independently:
+           * that tree is the ORDER's styles, combos and size quantities,
+           * which this screen already names in its header and repeats down
+           * the Fabric Lines grid's Style Ref No and Combo columns.
+           *
+           * ## THREE ARE READ AND ONE IS TYPED, WHICH IS THE WHOLE DESIGN
+           *
+           * The order already declares its palette on Garment Order ▸
+           * Color/Print Details, and a fabric BOM names exactly one order.
+           * Copying those lists here would be a second copy free to drift,
+           * and would ask the operator to retype what they have already told
+           * the order — see `getOrderPalette` and 0490's header for the
+           * argument in full. Dia is the one panel the order cannot answer,
+           * so it is the one panel with a table behind it.
+           *
+           * SO THE READ-ONLY PANELS ARE NOT THE THING THAT WAS JUST REMOVED.
+           * Style Detail was redundant reference — data this screen shows
+           * twice already. The dyeing type (Y/D, Melange, Dyed) appears
+           * NOWHERE else on this screen: the line grid carries a colour NAME
+           * but never how that colour is achieved, and that is exactly what
+           * decides whether step 4 plans a yarn dyeing or a fabric dyeing.
+           */}
           {/* CONDITIONAL, WHICH IS THE ONLY SHAPE A LINE UNDER A HEADING MAY
               TAKE HERE. `SectionBody`'s `hint` prop was REMOVED with all 51 of
               its call sites on 2026-08-17 ("a heading gets no explanatory
@@ -7257,20 +7364,24 @@ export function FabricBomScreen({
 
               Auto-placement fills left to right, so this reads:
 
-                  Colour           | Yarn Colour
+                  Fabric Colour    | Yarn Colour
                   Roll form prints | Dia / Size Width Details
 
-              Colour and Yarn Colour are a PAIR — one column each, same kind of
-              value, split only by which section of the order declared them —
-              and putting them side by side is the arrangement the client chose
-              for this same pair on the order's own tab (2026-08-12, screenshots
-              2269 · 2270). After them, the last panel the order declares and
-              the one panel this BOM owns.
+              Fabric Colour and Yarn Colour are a PAIR — one column each, same
+              kind of value, split only by which section of the order declared
+              them — and putting them side by side is the arrangement the
+              client chose for this same pair on the order's own tab
+              (2026-08-12, screenshots 2269 · 2270). After them, the last
+              panel the order declares and the one panel this BOM owns.
 
               THE ORDER OF THE FOUR IS THE CLIENT'S OWN LIST, in their words:
               "all the color, yarn color, and roll-form print details … must
               automatically auto-fill", then the Size Details section to add. So
-              Colour · Yarn Colour · Roll form prints · Dia.
+              Colour · Yarn Colour · Roll form prints · Dia. (The first panel's
+              own label was renamed "Colour" → "Fabric Colour" on 2026-09-09,
+              to read as unambiguously paired with "Yarn Colour" beside it —
+              the client's WORDS above still say "color", unchanged, because
+              that is a quotation.)
 
               ## ONE ROW OF FOUR (client 2026-09-03)
 
@@ -7313,49 +7424,6 @@ export function FabricBomScreen({
               this editor's normal width and outside a phone's; the mobile
               fallback is `ChildGrid`'s own stacked cards, which each panel keeps
               through `renderMobileRow`. */}
-          {/* COPY FROM ANOTHER BOM (client 2026-09-01, point 4). It sits on THIS
-              tab because that is where the client put it — "a Copy option must
-              be integrated into this screen" — and because Size Details is the
-              only thing on the tab an operator types, so it is the only thing a
-              copy can save them.
-
-              A `<Select>` USED AS A COMMAND, not as a value: choosing a source
-              copies immediately and the box returns to blank. That is unusual
-              enough to say out loud, and it is the honest shape — "copied from"
-              is not a property of this BOM, so a control left showing a name
-              would be claiming a link that nothing stores. The toast is what
-              reports the result, and it names the counts because an additive
-              copy that found nothing new is otherwise indistinguishable from a
-              broken one.
-
-              HIDDEN WITH NOTHING TO OFFER. On the first BOM in the system every
-              source is excluded, and a permanently empty dropdown is the
-              "permanently closed gate" this module has already been told off
-              for once. */}
-          {copySources.length > 0 && (
-            <div className="mb-3 flex items-center justify-end gap-2">
-              <label htmlFor="fb-copy" className="text-xs text-muted-foreground">
-                Copy from
-              </label>
-              <Select
-                id="fb-copy"
-                compact
-                className="h-8 w-64"
-                value=""
-                onChange={(e) => {
-                  const id = e.target.value;
-                  if (id) copyFromBom(id);
-                }}
-              >
-                <option value="" />
-                {copySources.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
           {/* DENSE CELLS, AND NO HEIGHT OVERRIDE AT ALL (client 2026-09-03:
               "uniform compact height 32px (h-8)", "py-1.5 px-2").
 
@@ -7402,8 +7470,13 @@ export function FabricBomScreen({
               width. */}
           <div className="flex w-full flex-row flex-nowrap items-start gap-3 [&_input]:text-xs [&_select]:text-xs">
             <PaletteTable<PaletteRow>
-              label="Colour"
-              columns={editableColourColumns("Colour", "fabric")}
+              /* "Fabric Colour", NOT "Colour" (client 2026-09-09) — this panel
+                 sits beside "Yarn Colour" and read as the unqualified default
+                 of the pair. The column header and the panel title share this
+                 string (both come from the one `editableColourColumns` arg
+                 below), so renaming here renames both at once. */
+              label="Fabric Colour"
+              columns={editableColourColumns("Fabric Colour", "fabric")}
               rows={paletteEdit?.fabric ?? blankPalette()}
               width="max-w-[210px]"
               onAdd={() => mutPalette("fabric", (xs) => [...xs, { key: newKey(), value: "" }])}
@@ -7417,7 +7490,7 @@ export function FabricBomScreen({
                   return left.length ? left : [{ key: newKey(), value: "" }];
                 })
               }
-              addLabel="+ Add colour"
+              addLabel="+ Add fabric colour"
             />
             <PaletteTable<PaletteRow>
               label="Yarn Colour"
@@ -8784,11 +8857,6 @@ export function FabricBomScreen({
           const fabricName =
             fabrics.find((f) => f.id === componentsForEntry.item_id)?.name ??
             "(no fabric named)";
-          /* SAME LOOKUP THE TOP-OF-SCREEN BAND USES for the identical three
-             fields (`styleIdentityFor`) — Style Ref No / Style No / Article No,
-             read-only, legacy's own header above the "Colors Details" grid
-             (screenshot 2680). */
-          const identity = styleIdentityFor(componentsForEntry.style_ref_no);
           const options = componentOptionsFor(componentsForEntry);
           const selected = new Set(componentsForEntry.component_ids);
           const toggle = (id: string) =>
@@ -8830,20 +8898,15 @@ export function FabricBomScreen({
               footer={<SubSheetFooter onDone={() => setComponentsFor(null)} parent="fabric BOM" />}
             >
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Style Ref No</div>
-                    <div>{identity?.ref || componentsForEntry.style_ref_no || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Style No</div>
-                    <div>{identity?.style || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Article No</div>
-                    <div>{identity?.article || "—"}</div>
-                  </div>
-                </div>
+                {/* Style Ref No / Style No / Article No REMOVED (client
+                    2026-09-09: "that title bar is not needed") — this sheet's
+                    own title already carries the fabric (`Components —
+                    ${fabricName}`), and the Manual tab it opens from already
+                    shows the style above the fabric-line grid, so the band
+                    repeated context the operator was already looking at.
+                    `styleIdentityFor` stays imported and used elsewhere (the
+                    top-of-screen band, Components tab) — only this sheet's
+                    own copy of it goes. */}
                 {/* LEGACY'S "Colors Details" GRID — Coordinate | Component | a
                     checkbox, one row per component the style still has to give
                     (screenshot 2680: PIECES | FRONT BODY1 | ✓). A fixed list

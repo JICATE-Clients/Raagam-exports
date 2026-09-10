@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,20 @@ import { Stat } from "@/components/ui/stat";
 import { useToast } from "@/components/ui/toast";
 import { usePermission } from "@/lib/auth/permission-context";
 import { fmtNumber, fmtDate } from "@/lib/format";
-import { recordEntry, confirmEntry, logRework } from "@/lib/production/actions";
+import {
+  recordEntry,
+  confirmEntry,
+  logRework,
+  checkStageAvailability,
+} from "@/lib/production/actions";
 import {
   PRODUCTION_STAGES,
   STAGE_LABELS,
+  upstreamStage,
   type ProductionLine,
+  type ProductionStage,
 } from "@/lib/production/types";
+import type { StageAvailability } from "@/lib/production/service";
 import type {
   LineDashboardRow,
   OrderProgressRow,
@@ -162,36 +170,19 @@ function OrderProgressTab({ rows }: { rows: OrderProgressRow[] }) {
         <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span>
       ),
     },
-    {
-      header: "Cutting",
+    // One column per floor stage — generated from PRODUCTION_STAGES so a
+    // stage added there (as Checking/Ironing were) shows up here without a
+    // second column literal to keep in sync.
+    ...PRODUCTION_STAGES.map((stage): Column<OrderProgressRow> => ({
+      header: STAGE_LABELS[stage],
       align: "right",
       cell: (r) => {
-        const p = r.progress.find((s) => s.stage === "cutting");
+        const p = r.progress.find((s) => s.stage === stage);
         return (
           <span className="tabular-nums text-sm">{fmtNumber(p?.good ?? 0)}</span>
         );
       },
-    },
-    {
-      header: "Sewing",
-      align: "right",
-      cell: (r) => {
-        const p = r.progress.find((s) => s.stage === "sewing");
-        return (
-          <span className="tabular-nums text-sm">{fmtNumber(p?.good ?? 0)}</span>
-        );
-      },
-    },
-    {
-      header: "Packing",
-      align: "right",
-      cell: (r) => {
-        const p = r.progress.find((s) => s.stage === "packing");
-        return (
-          <span className="tabular-nums text-sm">{fmtNumber(p?.good ?? 0)}</span>
-        );
-      },
-    },
+    })),
     {
       header: "Progress",
       cell: (r) => {
@@ -251,9 +242,10 @@ function RecordOutputTab({
   const { success, error: toastError } = useToast();
   const canApprove = usePermission("production", "approve");
 
-  // form state
+  // form state — `orderId` holds an AMENDMENT id (0548): ordersForPicker
+  // already resolves each order to its current, non-draft amendment.
   const [orderId, setOrderId] = useState(ordersForPicker[0]?.id ?? "");
-  const [stage, setStage] = useState<string>(PRODUCTION_STAGES[0]);
+  const [stage, setStage] = useState<ProductionStage>(PRODUCTION_STAGES[0]);
   const [lineId, setLineId] = useState(lines[0]?.id ?? "");
   const [date, setDate] = useState(today);
   const [color, setColor] = useState("");
@@ -262,6 +254,7 @@ function RecordOutputTab({
   const [rejectQty, setRejectQty] = useState("0");
   const [note, setNote] = useState("");
   const [formPending, startFormTransition] = useTransition();
+  const [availability, setAvailability] = useState<StageAvailability | null>(null);
 
   // per-entry pending tracking
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -274,12 +267,34 @@ function RecordOutputTab({
     setNote("");
   }
 
+  // The WIP ceiling, shown BEFORE the operator types a quantity — the same
+  // figure `recordEntry`'s guard checks, read live so the limit is never a
+  // surprise only met after Save (see the upstream note on this feature).
+  useEffect(() => {
+    let cancelled = false;
+    if (!orderId || !upstreamStage(stage)) {
+      setAvailability(null);
+      return;
+    }
+    void checkStageAvailability(orderId, stage).then((res) => {
+      if (!cancelled) setAvailability(res.ok ? res.data : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, stage]);
+
   function handleRecord(e: React.FormEvent) {
     e.preventDefault();
     startFormTransition(async () => {
       const result = await recordEntry({
-        sales_order_id: orderId,
-        stage: stage as "cutting" | "sewing" | "packing",
+        amendment_id: orderId,
+        stage,
+        // No shift picker on this form yet — SHIFT_1 is the schema default;
+        // ProductionEntryInput (a Zod z.infer, not z.input) requires it
+        // explicitly since a default only makes a field optional on the way
+        // IN, not on the inferred output type this payload is typed against.
+        shift_code: "SHIFT_1",
         line_id: stage === "sewing" && lineId ? lineId : null,
         entry_date: date || null,
         color: color || null,
@@ -341,7 +356,9 @@ function RecordOutputTab({
       header: "Order",
       cell: (e) => (
         <span className="font-mono text-xs">
-          {e.sales_orders?.order_number ?? "—"}
+          {e.garment_order_amendments?.sales_order?.order_number ??
+            e.garment_order_amendments?.code ??
+            "—"}
         </span>
       ),
     },
@@ -452,7 +469,7 @@ function RecordOutputTab({
                 <Select
                   id="pe-stage"
                   value={stage}
-                  onChange={(e) => setStage(e.target.value)}
+                  onChange={(e) => setStage(e.target.value as ProductionStage)}
                 >
                   {PRODUCTION_STAGES.map((s) => (
                     <option key={s} value={s}>
@@ -460,6 +477,21 @@ function RecordOutputTab({
                     </option>
                   ))}
                 </Select>
+                {availability && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Available from {STAGE_LABELS[availability.upstreamStage!]}:{" "}
+                    <span
+                      className={
+                        availability.availableQty === 0
+                          ? "font-medium text-destructive"
+                          : "font-medium text-foreground"
+                      }
+                    >
+                      {fmtNumber(availability.availableQty ?? 0)}
+                    </span>{" "}
+                    pieces
+                  </p>
+                )}
               </div>
 
               {stage === "sewing" && (

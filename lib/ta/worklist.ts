@@ -2,6 +2,12 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { getAppUser, can } from "@/lib/auth/server";
 import { addDays, daysBetween, today } from "@/lib/calendar";
+import { currentAmendmentsBySalesOrder } from "@/lib/orders/amendments/current";
+import { stageWipByPair } from "@/lib/production/service";
+import {
+  ACTIVITY_SHORT_NAME_TO_STAGE as ACTIVITY_TO_STAGE,
+  type ProductionStage,
+} from "@/lib/production/types";
 
 /**
  * The T&A daily worklist — "what does MY department owe today, on which order".
@@ -54,6 +60,14 @@ import { addDays, daysBetween, today } from "@/lib/calendar";
  * (0035) carries a legacy free-text `department` beside it, and both are read —
  * with a stated precedence — rather than a third one being introduced. See
  * `activityDepartments()`.
+ *
+ * ## "MY DEPARTMENT" AND "MY TASKS" ARE TWO DIFFERENT NARROWINGS (0547)
+ *
+ * `assigned_staff_id` on the T&A row REFINES the department scope above, it
+ * does not replace it — a row with nobody claiming it is still every eligible
+ * department member's, exactly as before this column existed. `getWorklist`'s
+ * `mineOnly` option applies this as one more narrowing step, past department
+ * scope, and reports what it drops the same as every other step here.
  */
 
 /* ------------------------------------------------------------------ *
@@ -136,6 +150,10 @@ export interface WorklistRow {
   departmentName: string | null;
   /** Which of the two existing mappings answered. Shown in the row's tooltip. */
   departmentSource: "assign" | "activity" | null;
+  /** Who this row is on today, if anyone has claimed it (0547). Null = every eligible department member's. */
+  assignedStaffId: string | null;
+  assignedStaffName: string | null;
+  delayAttribution: string;
   targetDate: string;
   status: string;
   /** Positive = overdue by this many calendar days. 0 = due today. */
@@ -187,12 +205,24 @@ export interface Worklist {
     droppedOtherDepartment: number;
     droppedTooOld: number;
     droppedSuperseded: number;
+    /** Dropped by `mineOnly` (0547) — 0 whenever that scope was not requested. */
+    droppedNotMine: number;
   };
   notes: WorklistNote[];
   /** False when the T&A table is not in this database — the screen says so. */
   available: boolean;
   /** `orders:edit` — whether the Done button does anything. */
   canComplete: boolean;
+  /** Echoes the `mineOnly` option the caller asked for (0547). */
+  mineOnly: boolean;
+  /**
+   * The signed-in user's OWN `employees.id` (0547), null when unlinked. What
+   * a "Claim" button on the board sends as `assignTaActivity`'s `staffId` —
+   * resolved once, here, through the same `profiles.employee_code →
+   * employees.code` join `myDepartment()` already makes, so the client never
+   * has to ask a second endpoint "who am I" and risk it disagreeing.
+   */
+  viewerEmployeeId: string | null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -244,11 +274,20 @@ function isMissingTable(error: { code?: string; message?: string } | null): bool
  * the WHOLE worklist with a note saying so. It must never get an empty one:
  * "your department has nothing due" from a user who has no department is the
  * exact silent-empty failure this file is built around.
+ *
+ * `employeeId` (0547) rides along on the SAME join rather than a second query
+ * — it is what "mine" scoping (below) compares `assigned_staff_id` against,
+ * and it is resolved through exactly the same `profiles.employee_code →
+ * employees.code` path a department is, so the two can never disagree about
+ * who the caller is. `employeeId` can be non-null while `id`/`name` (the
+ * department) are null — an employee record with no `department_id` set —
+ * which is why this returns an object even when the department half is
+ * empty, rather than falling through to the overall `null`.
  */
 async function myDepartment(
   sb: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-): Promise<{ id: string; name: string | null } | null> {
+): Promise<{ id: string | null; name: string | null; employeeId: string | null } | null> {
   const { data: profile } = await sb
     .from("profiles")
     .select("employee_code")
@@ -260,13 +299,14 @@ async function myDepartment(
 
   const { data: emp } = await sb
     .from("employees")
-    .select("department_id")
+    .select("id, department_id")
     .eq("code", code)
     .limit(1)
     .maybeSingle();
 
+  const employeeId = str((emp as Row | null)?.id);
   const deptId = str((emp as Row | null)?.department_id);
-  if (!deptId) return null;
+  if (!deptId) return { id: null, name: null, employeeId };
 
   const { data: dept } = await sb
     .from("config_lookups")
@@ -274,7 +314,7 @@ async function myDepartment(
     .eq("id", deptId)
     .maybeSingle();
 
-  return { id: deptId, name: str((dept as Row | null)?.name) };
+  return { id: deptId, name: str((dept as Row | null)?.name), employeeId };
 }
 
 /**
@@ -474,8 +514,18 @@ async function materialsByOrder(
  *
  * `now` is injectable so a check can pin a date instead of depending on the day
  * it runs — the same reason `orderTaLadder` takes one.
+ *
+ * `mineOnly` (0547) narrows past department scope to rows this caller has
+ * personally claimed (`assigned_staff_id`) on the T&A Worklist. It is an
+ * ADDITIONAL narrowing step, counted and reported the same as every other one
+ * in this file — never a silent extra filter — and it is independent of the
+ * department scope above it: a row assigned to the caller by name is theirs
+ * regardless of which department the activity is mapped to.
  */
-export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
+export async function getWorklist(
+  opts: { now?: Date; mineOnly?: boolean } = {},
+): Promise<Worklist> {
+  const { now = new Date(), mineOnly = false } = opts;
   const t = today(now);
   const horizonTo = addDays(t, HORIZON_DAYS);
   const backlogFrom = addDays(t, -BACKLOG_FLOOR_DAYS);
@@ -492,6 +542,7 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     droppedOtherDepartment: 0,
     droppedTooOld: 0,
     droppedSuperseded: 0,
+    droppedNotMine: 0,
   };
 
   const [sb, user, canEdit] = await Promise.all([
@@ -511,6 +562,8 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     notes,
     available,
     canComplete: canEdit,
+    mineOnly,
+    viewerEmployeeId: null,
   });
 
   if (!user) return empty(true);
@@ -520,7 +573,13 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     .from("garment_order_amendment_ta_activities")
     .select(
       "id, row_uid, amendment_id, activity_id, target_date, actual_date, status, notes, " +
-        "bypassed_qty, bypassed_at, " +
+        "assigned_staff_id, delay_attribution, " +
+        // `!assigned_staff_id` names the FK explicitly (0547) — this table has
+        // only the one FK to `employees` today, so it is not yet required for
+        // the "second FK breaks every embed" reason (AGENTS.md), but naming it
+        // is what keeps this embed alive the day a second one is added, rather
+        // than becoming the next PGRST201.
+        "assignee:employees!assigned_staff_id(id, name), " +
         "activity:ta_activities(id, short_name, name, department, sequence), " +
         "amendment:garment_order_amendments!inner(" +
         "id, code, is_draft, amend_date, created_at, sales_order_id, " +
@@ -573,9 +632,13 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
   ]);
 
   const deptNameLower = (dept?.name ?? "").trim().toLowerCase();
-  const scopeToDept = Boolean(dept && assignLines > 0);
+  // `dept.id` can now be null on a non-null `dept` (0547: an employee record
+  // exists but carries no department_id) — that is still "no department to
+  // scope to", same as the fully-unlinked case, so both conditions gate on
+  // `dept.id`, never on `dept` alone.
+  const scopeToDept = Boolean(dept?.id && assignLines > 0);
 
-  if (!dept) {
+  if (!dept?.id) {
     // NO `href` HERE, DELIBERATELY. The link would be to the Employee master,
     // and `components/masters/employee-master-screen.tsx` is mounted at no
     // route — it is the only screen that could set `profiles.employee_code`,
@@ -608,22 +671,18 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
   // schedule that was replaced. Today every order in this database has exactly
   // one, so this drops nothing — which is precisely why it has to be written
   // now rather than discovered later as double rows on the floor's screen.
+  //
+  // `currentAmendmentsBySalesOrder` (lib/orders/amendments/current.ts) is this
+  // same tie-break, extracted so `lib/production/service.ts` doesn't re-derive
+  // it — it queries every amendment per order rather than scanning `raw` (which
+  // only carries amendments with a T&A row at all), so it is the more correct
+  // version of what used to be inlined here.
+  const orderIdsForCurrent = [
+    ...new Set(raw.map((r) => str(one(r, "amendment")?.sales_order_id)).filter(Boolean)),
+  ] as string[];
+  const currentAmendments = await currentAmendmentsBySalesOrder(sb, orderIdsForCurrent);
   const currentByOrder = new Map<string, string>();
-  for (const r of raw) {
-    const a = one(r, "amendment");
-    if (!a) continue;
-    const orderId = str(a.sales_order_id);
-    if (!orderId) continue;
-    const prev = currentByOrder.get(orderId);
-    if (!prev) {
-      currentByOrder.set(orderId, String(a.id));
-      continue;
-    }
-    const prevRow = raw.map((x) => one(x, "amendment")).find((x) => x && String(x.id) === prev);
-    const key = (x: Row | null | undefined) =>
-      `${str(x?.amend_date) ?? ""}|${str(x?.created_at) ?? ""}`;
-    if (key(a) > key(prevRow)) currentByOrder.set(orderId, String(a.id));
-  }
+  for (const [orderId, a] of currentAmendments) currentByOrder.set(orderId, a.id);
 
   /* ---- 5. Narrow, counting every drop. ------------------------------------- */
   type Kept = { r: Row; a: Row; act: Row | null; deptName: string | null; src: "assign" | "activity" | null };
@@ -662,7 +721,11 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
 
     if (scopeToDept && dept) {
       if (owners && owners.size) {
-        mine = owners.has(dept.id);
+        // `dept.id` is `string | null` at the type level (0547: an employee
+        // with no department_id is still a valid `dept`) even though
+        // `scopeToDept` already guarantees it is set at runtime here — the
+        // explicit check is what lets TS narrow it for `.has()`.
+        mine = dept.id != null && owners.has(dept.id);
         src = "assign";
         deptName = mine ? dept.name : null;
       } else {
@@ -700,6 +763,36 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
       href: "/orders/ta-department-assign",
       hrefLabel: "TA Department Assign",
     });
+  }
+
+  /* ---- 5b. `mineOnly` (0547) — narrows PAST department scope, not instead of
+   * it. A row already dropped as another department's is never reachable
+   * here; a row that survived department scope but is claimed by someone
+   * else now is. Spliced in place (never rebound to a new array) so every
+   * downstream step below — styles, materials, the WIP query, row-building —
+   * keeps reading the one `kept` list without needing to know this ran.
+   *
+   * `myEmployeeId == null` (an unlinked login) drops EVERY row rather than
+   * matching none of them by accident — an unset `assigned_staff_id` must
+   * never equal an unset `myEmployeeId` here, or "My Tasks" for a login with
+   * no employee record would show every unclaimed row in the company. */
+  if (mineOnly) {
+    const myEmployeeId = dept?.employeeId ?? null;
+    const before = kept.length;
+    for (let i = kept.length - 1; i >= 0; i--) {
+      const assignedTo = str(kept[i]!.r.assigned_staff_id);
+      if (myEmployeeId == null || assignedTo !== myEmployeeId) kept.splice(i, 1);
+    }
+    counts.droppedNotMine = before - kept.length;
+
+    if (myEmployeeId == null) {
+      notes.push({
+        level: "info",
+        text:
+          "Your login is not linked to an employee record, so nothing on the T&A Worklist " +
+          "can be personally yours. The link is profiles.employee_code → employees.code.",
+      });
+    }
   }
 
   /* ---- 6. The style / quantity half. --------------------------------------- */
@@ -752,6 +845,26 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     });
   }
 
+  /* ---- 7b. The WIP half — bypass DERIVED from the floor ledger. ------------
+   * `production_entries` (0548) is the shop-floor's own record of what has
+   * actually been produced; `stageWipByPair` (lib/production/service.ts) is
+   * the one batching wrapper around `stage_cumulative_good_qty` that this
+   * read, the Order Entry T&A tab's bypass display, and
+   * `lib/production/actions.ts`'s write-time WIP guard ALL call, so none of
+   * the three can ever disagree the way a hand-typed `bypassed_qty` (0540)
+   * could. Only rows whose activity is one of the 5 floor stages
+   * (ACTIVITY_TO_STAGE) get a figure; everything else stays null, unchanged
+   * from before. SECURITY DEFINER on the function (0548) is what lets a user
+   * with no `production` permission still see this on their T&A worklist. */
+  const stagePairs: { amendmentId: string; stage: ProductionStage }[] = [];
+  for (const { a, act } of kept) {
+    const shortName = str(act?.short_name)?.toUpperCase();
+    const stage = shortName ? ACTIVITY_TO_STAGE[shortName] : undefined;
+    if (!stage) continue;
+    stagePairs.push({ amendmentId: String(a.id), stage });
+  }
+  const wipByPair = await stageWipByPair(stagePairs);
+
   /* ---- 8. Build the rows. --------------------------------------------------- */
   const rows: WorklistRow[] = kept.map(({ r, a, act, deptName, src }) => {
     const targetDate = String(r.target_date);
@@ -765,7 +878,14 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     const all = (orderId && materials.get(orderId)) || [];
 
     const orderQty = st?.pieces ?? 0;
-    const bypassedQty = r.bypassed_qty == null ? null : num(r.bypassed_qty);
+    const shortName = str(act?.short_name)?.toUpperCase();
+    const stage = shortName ? ACTIVITY_TO_STAGE[shortName] : undefined;
+    const wip = stage ? wipByPair.get(`${a.id}|${stage}`) : undefined;
+    // 0, same as before registerBypass existed, reads as "nothing to show" —
+    // a pill reading "0% bypassed" on every row with a floor stage and no
+    // output yet would be noise, not information.
+    const bypassedQty = wip && wip.qty > 0 ? wip.qty : null;
+    const bypassedAt = bypassedQty != null ? wip!.lastEntryDate : null;
     const bypassPercent =
       bypassedQty != null && orderQty > 0 ? bypassedQty / orderQty : null;
 
@@ -780,12 +900,15 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
       orderQty,
       orderUom: st?.uom ?? null,
       bypassedQty,
-      bypassedAt: str(r.bypassed_at),
+      bypassedAt,
       bypassPercent,
       activityId: str(r.activity_id),
       activity: str(act?.name) ?? str(act?.short_name) ?? "—",
       departmentName: deptName,
       departmentSource: src,
+      assignedStaffId: str(r.assigned_staff_id),
+      assignedStaffName: str(one(r, "assignee")?.name),
+      delayAttribution: str(r.delay_attribution) ?? "none",
       targetDate,
       status: str(r.status) ?? "pending",
       daysLate,
@@ -863,6 +986,8 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     const why: string[] = [];
     if (counts.droppedOtherDepartment)
       why.push(`${counts.droppedOtherDepartment} belong to another department`);
+    if (counts.droppedNotMine)
+      why.push(`${counts.droppedNotMine} are claimed by someone else`);
     if (counts.droppedDone) why.push(`${counts.droppedDone} are already completed`);
     if (counts.droppedDraft) why.push(`${counts.droppedDraft} are on draft orders`);
     if (counts.droppedSuperseded)
@@ -900,5 +1025,7 @@ export async function getWorklist(now: Date = new Date()): Promise<Worklist> {
     notes,
     available: true,
     canComplete: canEdit,
+    mineOnly,
+    viewerEmployeeId: dept?.employeeId ?? null,
   };
 }
