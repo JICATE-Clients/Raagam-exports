@@ -33,6 +33,11 @@ const NATIVE_CLASS = cn(
   // @2xl/editor:h-8 — compact density; see the note in components/ui/input.tsx.
   "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-2.5 text-base md:text-sm",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+  // THE HAND, NOT THE TEXT CARET. A `<select>` defaults to `cursor: default`
+  // even though the whole control is one click target — so it looked inert
+  // beside every button and link in the app, which do point (client
+  // 2026-09-09). `disabled:` still wins, because it comes after.
+  "cursor-pointer",
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
