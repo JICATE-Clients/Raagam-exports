@@ -79,7 +79,17 @@ export interface Staff {
   id: string;
   code: string | null;
   name: string;
-  designation: string | null;
+  /**
+   * FROM THE MASTER (0548). It was free text until then, which meant MANAGER,
+   * Manager and MGR were three answers to one question and none of them linked
+   * to Master Data ▸ HR ▸ Designation.
+   *
+   * `staff_work_experience.designation` stays TEXT on purpose: that is a title
+   * held at ANOTHER company, not ours to keep a master row for.
+   */
+  designation_id: string | null;
+  /** What `designation` said before 0548, where it matched no master row. */
+  designation_legacy: string | null;
   location_id: string | null;
   monthly_salary: number;
   esi_applicable: boolean;
@@ -98,9 +108,9 @@ export interface Staff {
   division_id: string | null;
 
   // employment
-  staff_type: StaffType;
+  employment_type: EmploymentType;
   card_no: string | null;
-  salary_paid: SalaryPaid;
+  pay_frequency: PayFrequency;
   week_off: WeekDay | null;
   hostel_category_id: string | null;
   vehicle_no: string | null;
@@ -141,14 +151,6 @@ export interface Staff {
   police_station: string | null;
   pan_no: string | null;
 
-  // running balances (opening figures typed by a human, not a ledger)
-  loan_balance: number;
-  advance_balance: number;
-  expected_salary: number;
-  cl_balance: number;
-  el_credit_days: number;
-  el_carry_days: number;
-
   /**
    * A bar on a CURRENT employee, which is a different question from
    * `is_active` ("does this person still work here"). Collapsing the two would
@@ -164,8 +166,8 @@ export interface Staff {
   perm_address3: string | null;
   perm_city: string | null;
   perm_pin: string | null;
+  /** One number per address — `perm_mobile` went in 0549. */
   perm_phone: string | null;
-  perm_mobile: string | null;
 
   /**
    * STORED, NOT DERIVED. It records the operator's INTENT to keep the two
@@ -179,14 +181,13 @@ export interface Staff {
   corr_city: string | null;
   corr_pin: string | null;
   corr_phone: string | null;
-  corr_mobile: string | null;
 
   email: string | null;
   qualification: string | null;
   blood_group: BloodGroup | null;
   identification_mark_1: string | null;
   identification_mark_2: string | null;
-  sex: Sex | null;
+  gender: Gender | null;
   marital_status: MaritalStatus | null;
   nationality: string | null;
   religion: string | null;
@@ -197,7 +198,7 @@ export interface Staff {
 
   // ---- Reference ----
   // The referees and emergency contacts USED to be twenty-four columns here.
-  // 0538 made them lists (`StaffExternalReference` / `StaffEmergencyContact`)
+  // 0547 made them lists (`StaffExternalReference` / `StaffEmergencyContact`)
   // because two was what the legacy screen could hold, not what the business
   // has. The two ADDRESSES stay columns: they are two named, different things,
   // not the first two of a list.
@@ -286,7 +287,7 @@ export interface StaffBankAccountRow {
 }
 
 /**
- * One external referee (0538). A LIST, not a numbered pair: two was the legacy
+ * One external referee (0547). A LIST, not a numbered pair: two was the legacy
  * screen's limit rather than the business's.
  */
 export interface StaffExternalReference {
@@ -302,7 +303,7 @@ export interface StaffExternalReference {
 }
 
 /**
- * One emergency contact (0538). Same shape as a referee but for `relation` in
+ * One emergency contact (0547). Same shape as a referee but for `relation` in
  * place of `designation` — which is why they are two tables rather than one
  * with a `kind` column.
  */
@@ -316,6 +317,26 @@ export interface StaffEmergencyContact {
   address2: string | null;
   phone: string | null;
   mobile: string | null;
+}
+
+/**
+ * One spell on a shift (0554). A row per spell rather than a column on the
+ * person, because attendance and OT ask "which shift on THAT DAY" — a single
+ * column only ever knows today, and would recompute an old payslip against a
+ * shift the person was not on.
+ *
+ * `effective_to` null means the assignment is current. Overlapping spells are
+ * refused by the database, so the question always has exactly one answer.
+ */
+export interface HrShiftAssignment {
+  id: string;
+  staff_id: string | null;
+  worker_id: string | null;
+  sno: number;
+  shift_category_id: string;
+  effective_from: string;
+  effective_to: string | null;
+  notes: string | null;
 }
 
 /** One nomination line — what the nomination is FOR (0536). */
@@ -437,21 +458,6 @@ export const contractorInput = z.object({
 });
 export type ContractorInput = z.infer<typeof contractorInput>;
 
-export const workerInput = z.object({
-  name: capsName(),
-  worker_type: z.enum(WORKER_TYPES),
-  contractor_id: z.string().uuid().optional().nullable(),
-  location_id: z.string().uuid().optional().nullable(),
-  biometric_id: z.string().optional().nullable(),
-  shift_wage_per_day: z.coerce.number().nonnegative().default(0),
-  hourly_wage: z.coerce.number().nonnegative().default(0),
-  piece_rate: z.coerce.number().nonnegative().default(0),
-  esi_applicable: z.boolean().default(true),
-  pf_applicable: z.boolean().default(true),
-  joined_date: z.string().optional().nullable(),
-  is_active: z.boolean().default(true),
-});
-export type WorkerInput = z.infer<typeof workerInput>;
 
 /**
  * THE VOCABULARIES ARE DECLARED ONCE AND MIRROR 0534's CHECK CONSTRAINTS.
@@ -461,8 +467,8 @@ export type WorkerInput = z.infer<typeof workerInput>;
  * MIGRATION, not an edit here — add a value to this array alone and Postgres
  * rejects every row that uses it.
  */
-export const STAFF_TYPES = ["Permanent", "Temporary", "Contract", "Probation", "Trainee"] as const;
-export const SALARY_PAID = ["Monthly", "Weekly", "Daily", "Piece Rate"] as const;
+export const EMPLOYMENT_TYPES = ["Permanent", "Temporary", "Contract", "Probation", "Trainee"] as const;
+export const PAY_FREQUENCIES = ["Monthly", "Weekly", "Daily", "Piece Rate"] as const;
 export const WEEK_DAYS = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 ] as const;
@@ -471,7 +477,7 @@ export const PAY_MODES = ["Cash", "Bank"] as const;
 /** Legacy offers L / H / V / No — "No" is the ABSENCE of a type, i.e. null. */
 export const DISABILITY_TYPES = ["L", "H", "V"] as const;
 export const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] as const;
-export const SEXES = ["Male", "Female", "Trans Gender"] as const;
+export const GENDERS = ["Male", "Female", "Trans Gender"] as const;
 export const MARITAL_STATUSES = ["Single", "Married", "Divorced", "Widow"] as const;
 /**
  * ESI / PF, and EXEMPTED IS NOT "NO". An exempted employee is outside the
@@ -481,14 +487,14 @@ export const MARITAL_STATUSES = ["Single", "Married", "Divorced", "Widow"] as co
  */
 export const STATUTORY_STATUSES = ["Yes", "No", "Exempted"] as const;
 
-export type StaffType = (typeof STAFF_TYPES)[number];
-export type SalaryPaid = (typeof SALARY_PAID)[number];
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
+export type PayFrequency = (typeof PAY_FREQUENCIES)[number];
 export type WeekDay = (typeof WEEK_DAYS)[number];
 export type GuardianRelation = (typeof GUARDIAN_RELATIONS)[number];
 export type PayMode = (typeof PAY_MODES)[number];
 export type DisabilityType = (typeof DISABILITY_TYPES)[number];
 export type BloodGroup = (typeof BLOOD_GROUPS)[number];
-export type Sex = (typeof SEXES)[number];
+export type Gender = (typeof GENDERS)[number];
 export type MaritalStatus = (typeof MARITAL_STATUSES)[number];
 export type StatutoryStatus = (typeof STATUTORY_STATUSES)[number];
 
@@ -519,11 +525,40 @@ const optEnum = <T extends readonly [string, ...string[]]>(values: T) =>
     .nullable()
     .transform((v) => (v || null) as T[number] | null);
 
-export const staffInput = z.object({
+/**
+ * THE SHARED PERSON RECORD — every field `staff` and `workers` both carry
+ * (0553). Neither table's own columns are here: staff has `monthly_salary`
+ * (derived), workers have their wage basis, rate type and contractor.
+ *
+ * One schema because the client asked for a worker's record to be the staff
+ * record ("all other things are exactly same from staff"). Two copies would
+ * have drifted on the first change to either.
+ */
+/**
+ * WHICH PERSON TABLE A RECORD LIVES IN. `staff` and `workers` carry the same
+ * record (0553) and share every child table, so the code that reads or writes
+ * a child row needs to be told which parent column to use — this is that one
+ * word, rather than a boolean nobody can read at a call site.
+ */
+export const PERSON_KINDS = ["staff", "worker"] as const;
+export type PersonKind = (typeof PERSON_KINDS)[number];
+
+/** The child tables' parent column, for a kind. */
+export const PARENT_COLUMN: Record<PersonKind, "staff_id" | "worker_id"> = {
+  staff: "staff_id",
+  worker: "worker_id",
+};
+
+export const personInput = z.object({
   name: capsName(),
-  designation: z.string().optional().nullable(),
+  designation_id: optUuid,
   location_id: z.string().uuid().optional().nullable(),
-  monthly_salary: money,
+  /**
+   * NOT IN THIS SCHEMA ANY MORE — `monthly_salary` is DERIVED from `act_gross`
+   * by a trigger (0551), the way `esi_applicable` is derived from `esi_status`.
+   * Sending it would be a second opinion the database overwrites on the same
+   * statement. Payroll still reads the column and always will.
+   */
   /**
    * `esi_applicable` / `pf_applicable` ARE NOT IN THIS SCHEMA, deliberately.
    *
@@ -548,9 +583,9 @@ export const staffInput = z.object({
   division_id: optUuid,
 
   // employment
-  staff_type: z.enum(STAFF_TYPES).default("Permanent"),
+  employment_type: z.enum(EMPLOYMENT_TYPES).default("Permanent"),
   card_no: optText,
-  salary_paid: z.enum(SALARY_PAID).default("Monthly"),
+  pay_frequency: z.enum(PAY_FREQUENCIES).default("Monthly"),
   week_off: optEnum(WEEK_DAYS),
   hostel_category_id: optUuid,
   vehicle_no: optText,
@@ -609,14 +644,6 @@ export const staffInput = z.object({
       message: "PAN must be 5 letters, then 4 digits, then a letter",
     }),
 
-  // running balances — opening figures typed by a human, not a ledger
-  loan_balance: money,
-  advance_balance: money,
-  expected_salary: money,
-  cl_balance: money,
-  el_credit_days: money,
-  el_carry_days: money,
-
   blocked: z.boolean().default(false),
 
   // ---- General (0535) ----
@@ -626,7 +653,6 @@ export const staffInput = z.object({
   perm_city: optText,
   perm_pin: optText,
   perm_phone: optText,
-  perm_mobile: optText,
 
   corr_same_as_permanent: z.boolean().default(false),
   corr_address1: optText,
@@ -635,7 +661,6 @@ export const staffInput = z.object({
   corr_city: optText,
   corr_pin: optText,
   corr_phone: optText,
-  corr_mobile: optText,
 
   /**
    * NOT `capsName()` and never uppercased — a URL path and a mailbox name can
@@ -654,7 +679,7 @@ export const staffInput = z.object({
   blood_group: optEnum(BLOOD_GROUPS),
   identification_mark_1: optText,
   identification_mark_2: optText,
-  sex: optEnum(SEXES),
+  gender: optEnum(GENDERS),
   marital_status: optEnum(MARITAL_STATUSES),
   nationality: optText,
   religion: optText,
@@ -751,7 +776,41 @@ export const staffNominationInput = z.object({
   nomination_for: optText,
 });
 export type StaffNominationInput = z.infer<typeof staffNominationInput>;
-export type StaffInput = z.infer<typeof staffInput>;
+export type PersonInput = z.infer<typeof personInput>;
+
+/** Staff add nothing of their own — `monthly_salary` is derived (0551). */
+export const staffInput = personInput;
+export type StaffInput = PersonInput;
+
+// `workerInput` MUST FOLLOW `personInput`: it extends it, and a `const` is
+// not hoisted — declared above, it read as used-before-assigned.
+
+/**
+ * A WORKER IS THE PERSON RECORD PLUS A WAGE BASIS.
+ *
+ * `worker_type` is legacy's "Type" (Shift Rate / piece), `contractor_id` its
+ * "Under Contractor", and the three wage columns are what
+ * `computeActualWage` (lib/hr/calc.ts) actually pays from — which is why a
+ * worker has no `monthly_salary`.
+ *
+ * `esi_applicable` / `pf_applicable` are ABSENT for the same reason they are
+ * absent from `personInput`: a trigger derives them from `esi_status` /
+ * `pf_status` (0553 extends 0536's to this table), so a value sent here would
+ * be overwritten on the same statement.
+ */
+export const workerInput = personInput.extend({
+  worker_type: z.enum(WORKER_TYPES),
+  contractor_id: optUuid,
+  biometric_id: optText,
+  shift_wage_per_day: money,
+  hourly_wage: money,
+  piece_rate: money,
+  /** The production department the worker is on — legacy's "Prod. Dept". */
+  prod_dept_id: optUuid,
+  /** Legacy's "CTC / Shift". */
+  ctc_per_shift: money,
+});
+export type WorkerInput = z.infer<typeof workerInput>;
 
 export const payrollSettingsInput = z.object({
   ot_multiplier: z.coerce.number().min(1).default(2),

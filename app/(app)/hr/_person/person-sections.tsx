@@ -2,6 +2,7 @@
 
 import {
   Briefcase,
+  Clock,
   Contact,
   FileText,
   HeartHandshake,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 
 /**
- * THE STAFF RECORD'S SECTION RAIL — the list down the left of the editor.
+ * THE PERSON RECORD'S SECTION RAIL — staff and workers both. — the list down the left of the editor.
  *
  * ## WHY THIS IS THE RAIL AND NOT THE APP SIDEBAR
  *
@@ -56,8 +57,9 @@ import {
  * registry and bank account details") and sit directly after Detail, which is
  * where the client placed them.
  */
-export type StaffSectionKey =
+export type PersonSectionKey =
   | "detail"
+  | "shifts"
   | "salary-registry"
   | "bank"
   | "general"
@@ -66,12 +68,20 @@ export type StaffSectionKey =
   | "reference"
   | "nomination";
 
-export const STAFF_SECTIONS: {
-  key: StaffSectionKey;
+/**
+ * ONE RAIL FOR BOTH. The client asked for a worker's record to be the staff
+ * record ("all other things are exactly same from staff", 2026-09-09) — only
+ * the Detail tab differs, and it differs by adding fields, not sections. Two
+ * copies of this list would have drifted the first time either changed.
+ */
+export const PERSON_SECTIONS: {
+  key: PersonSectionKey;
   label: string;
   icon: LucideIcon;
 }[] = [
   { key: "detail", label: "Detail", icon: FileText },
+  // Dated spells, not a field on Detail — see `hr_shift_assignments` (0554).
+  { key: "shifts", label: "Shifts", icon: Clock },
   { key: "salary-registry", label: "Salary Registry", icon: Wallet },
   // "Bank Account", not "Bank Account Details" (client 2026-09-09). The rail is
   // 228px and truncates — the longer label rendered as "Bank Account …", so the

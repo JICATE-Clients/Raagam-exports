@@ -9,7 +9,10 @@ import {
   payrollSettingsInput,
   type ContractorInput,
   type WorkerInput,
+  type PersonInput,
   type StaffInput,
+  type PersonKind,
+  PARENT_COLUMN,
   type PayrollSettingsInput,
 } from "@/lib/hr/types";
 
@@ -45,28 +48,50 @@ export async function updateContractor(id: string, data: ContractorInput): Promi
 
 /* ---- Workers ---- */
 
-export async function createWorker(data: WorkerInput): Promise<Result> {
+export async function createWorker(
+  data: WorkerInput,
+  children?: StaffChildren,
+): Promise<Result> {
   if (!(await can("hr_payroll", "create"))) return { ok: false, error: "Forbidden" };
   const parsed = workerInput.safeParse(data);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
   }
   const supabase = await createClient();
-  const { error } = await supabase.from("workers").insert(parsed.data);
+  const { data: row, error } = await supabase
+    .from("workers")
+    .insert(withoutBlankLocation(parsed.data))
+    .select("id")
+    .single();
   if (error) return { ok: false, error: error.message };
+  if (children) {
+    const childErr = await replacePersonChildren(supabase, "worker", row.id, children);
+    if (childErr) return { ok: false, error: childErr };
+  }
   revalidatePath("/hr/workers");
   return { ok: true };
 }
 
-export async function updateWorker(id: string, data: WorkerInput): Promise<Result> {
+export async function updateWorker(
+  id: string,
+  data: WorkerInput,
+  children?: StaffChildren,
+): Promise<Result> {
   if (!(await can("hr_payroll", "edit"))) return { ok: false, error: "Forbidden" };
   const parsed = workerInput.safeParse(data);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
   }
   const supabase = await createClient();
-  const { error } = await supabase.from("workers").update(parsed.data).eq("id", id);
+  const { error } = await supabase
+    .from("workers")
+    .update(withoutBlankLocation(parsed.data))
+    .eq("id", id);
   if (error) return { ok: false, error: error.message };
+  if (children) {
+    const childErr = await replacePersonChildren(supabase, "worker", id, children);
+    if (childErr) return { ok: false, error: childErr };
+  }
   revalidatePath("/hr/workers");
   return { ok: true };
 }
@@ -91,7 +116,7 @@ export async function updateWorker(id: string, data: WorkerInput): Promise<Resul
  * The same treatment on UPDATE: the column cannot hold null, so a blank there
  * means "leave it as it is" rather than "clear it".
  */
-function withoutBlankLocation(data: StaffInput): Record<string, unknown> {
+function withoutBlankLocation(data: PersonInput): Record<string, unknown> {
   const out: Record<string, unknown> = { ...data };
   if (out.location_id == null) delete out.location_id;
   return out;
@@ -106,6 +131,7 @@ export type StaffChildren = {
   bankAccounts: Record<string, unknown>[];
   externalRefs: Record<string, unknown>[];
   emergencyContacts: Record<string, unknown>[];
+  shifts: Record<string, unknown>[];
 };
 
 /**
@@ -124,26 +150,31 @@ export type StaffChildren = {
  * `sno` is the row's ORDER, assigned here from the array index, so the list
  * comes back in the sequence the operator arranged it.
  */
-async function replaceStaffChildren(
+async function replacePersonChildren(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  staffId: string,
+  kind: PersonKind,
+  id: string,
   children: StaffChildren,
 ): Promise<string | null> {
+  // The seven `hr_*` tables take either parent (0553); this is the one place
+  // that decides which column, so no query can pick the wrong one.
+  const parent = PARENT_COLUMN[kind];
   const tables = [
-    ["staff_family_members", children.family],
-    ["staff_work_experience", children.experience],
-    ["staff_internal_references", children.internalRefs],
-    ["staff_nominations", children.nominations],
-    ["staff_bank_accounts", children.bankAccounts],
-    ["staff_external_references", children.externalRefs],
-    ["staff_emergency_contacts", children.emergencyContacts],
+    ["hr_family_members", children.family],
+    ["hr_work_experience", children.experience],
+    ["hr_internal_references", children.internalRefs],
+    ["hr_nominations", children.nominations],
+    ["hr_bank_accounts", children.bankAccounts],
+    ["hr_external_references", children.externalRefs],
+    ["hr_emergency_contacts", children.emergencyContacts],
+    ["hr_shift_assignments", children.shifts],
   ] as const;
 
   for (const [table, rows] of tables) {
-    const { error: delErr } = await supabase.from(table).delete().eq("staff_id", staffId);
+    const { error: delErr } = await supabase.from(table).delete().eq(parent, id);
     if (delErr) return delErr.message;
     if (!rows.length) continue;
-    const payload = rows.map((r, i) => ({ ...r, staff_id: staffId, sno: i + 1 }));
+    const payload = rows.map((r, i) => ({ ...r, [parent]: id, sno: i + 1 }));
     const { error: insErr } = await supabase.from(table).insert(payload);
     if (insErr) return insErr.message;
   }
@@ -167,7 +198,7 @@ export async function createStaff(
     .single();
   if (error) return { ok: false, error: error.message };
   if (children) {
-    const childErr = await replaceStaffChildren(supabase, row.id, children);
+    const childErr = await replacePersonChildren(supabase, "staff", row.id, children);
     if (childErr) return { ok: false, error: childErr };
   }
   revalidatePath("/hr/staff");
@@ -191,7 +222,7 @@ export async function updateStaff(
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
   if (children) {
-    const childErr = await replaceStaffChildren(supabase, id, children);
+    const childErr = await replacePersonChildren(supabase, "staff", id, children);
     if (childErr) return { ok: false, error: childErr };
   }
   revalidatePath("/hr/staff");

@@ -1310,8 +1310,18 @@ export interface ChildGridColumn<T> {
   cell: (row: T, index: number) => ReactNode;
   align?: "left" | "right" | "center";
   className?: string;
-  /** Card-mode track width, e.g. "6rem" for a percentage or "auto" to hug.
-   *  Omit to flex and take the remaining space (the picker/name column). */
+  /**
+   * The column's width — `"6rem"` for a percentage, omitted to flex and take
+   * the remaining space (the picker/name column).
+   *
+   * DO NOT PASS `"auto"`. It reads as "hug your content" and does that in card
+   * mode, where it is a flex track — but the TABLE branch puts it straight on
+   * `<th style={{ width }}>`, where `auto` is the CSS DEFAULT and means "let
+   * the layout algorithm decide". A narrow control under a long header then
+   * absorbs the table's leftover width and sits in a band of empty space
+   * (client 2026-09-09, four toggle columns doing exactly that). A fixed rem
+   * width is the way to say hug, and it is right in both modes.
+   */
   width?: string;
   /**
    * A totals cell under this column. Any column declaring one switches the

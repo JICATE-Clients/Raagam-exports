@@ -9,16 +9,25 @@ import {
   PAY_MODES,
   BLOOD_GROUPS,
   MARITAL_STATUSES,
-  SALARY_PAID,
-  SEXES,
+  PAY_FREQUENCIES,
+  GENDERS,
   STATUTORY_STATUSES,
-  STAFF_TYPES,
+  EMPLOYMENT_TYPES,
   WEEK_DAYS,
-  type StaffInput,
+  WORKER_TYPES,
+  WORKER_TYPE_LABELS,
+  type PersonInput,
+  type PersonKind,
+  type WorkerInput,
 } from "@/lib/hr/types";
-import type { StaffRow, LocationOption } from "@/lib/hr/masters-service";
-import { createStaff, updateStaff } from "@/lib/hr/masters-actions";
-import { getStaffChildren } from "./staff-children";
+import type { StaffRow, WorkerRow, LocationOption } from "@/lib/hr/masters-service";
+import {
+  createStaff,
+  updateStaff,
+  createWorker,
+  updateWorker,
+} from "@/lib/hr/masters-actions";
+import { getPersonChildren } from "./person-children";
 import { fmtMoney } from "@/lib/format";
 import { DataTable } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -43,7 +52,7 @@ import {
 } from "@/components/masters/master-full-screen";
 import { sectionValidity } from "@/lib/screens/validity";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { STAFF_SECTIONS } from "./staff-sections";
+import { PERSON_SECTIONS } from "./person-sections";
 
 /**
  * THE CHILD ROWS THE THREE GRID TABS HOLD.
@@ -135,7 +144,7 @@ const blankBankAccount = (key: string): BankAccountRow => ({
 });
 
 /**
- * An external referee and an emergency contact (0538).
+ * An external referee and an emergency contact (0547).
  *
  * These were TWO NUMBERED BLOCKS of fields until the client asked for lists
  * ("we cna add it for add external ref and add emergency contact like before").
@@ -170,6 +179,28 @@ type EmergencyRow = {
 };
 const blankEmergency = (key: string): EmergencyRow => ({
   key, name: "", relation: "", address1: "", address2: "", phone: "", mobile: "",
+});
+
+/**
+ * One spell on a shift (0554). Dated, because attendance and OT ask which
+ * shift a person was on THAT DAY — a single field on Detail would only ever
+ * know today.
+ */
+type ShiftRow = {
+  key: string;
+  shift_category_id: string;
+  effective_from: string;
+  effective_to: string;
+  notes: string;
+};
+const blankShift = (key: string): ShiftRow => ({
+  key,
+  shift_category_id: "",
+  // Today, because a new assignment almost always starts now — and the column
+  // is NOT NULL, so a blank would be refused rather than defaulted.
+  effective_from: new Date().toISOString().slice(0, 10),
+  effective_to: "",
+  notes: "",
 });
 
 type NominationRow = { key: string; nomination_for: string };
@@ -224,11 +255,10 @@ type MasterOption = { id: string; name: string; inactive: boolean };
  * A BLANK STAFF RECORD, and every default matches the column default in 0534 —
  * so an untouched form saves the row Postgres would have created anyway.
  */
-const DEFAULTS: StaffInput = {
+const PERSON_DEFAULTS: PersonInput = {
   name: "",
-  designation: null,
+  designation_id: null,
   location_id: null,
-  monthly_salary: 0,
   joined_date: null,
   is_active: true,
 
@@ -239,9 +269,9 @@ const DEFAULTS: StaffInput = {
   department_id: null,
   division_id: null,
 
-  staff_type: "Permanent",
+  employment_type: "Permanent",
   card_no: null,
-  salary_paid: "Monthly",
+  pay_frequency: "Monthly",
   week_off: "Sunday",
   hostel_category_id: null,
   vehicle_no: null,
@@ -273,12 +303,6 @@ const DEFAULTS: StaffInput = {
   police_station: null,
   pan_no: null,
 
-  loan_balance: 0,
-  advance_balance: 0,
-  expected_salary: 0,
-  cl_balance: 0,
-  el_credit_days: 0,
-  el_carry_days: 0,
 
   blocked: false,
 
@@ -289,7 +313,6 @@ const DEFAULTS: StaffInput = {
   perm_city: null,
   perm_pin: null,
   perm_phone: null,
-  perm_mobile: null,
 
   corr_same_as_permanent: false,
   corr_address1: null,
@@ -298,14 +321,13 @@ const DEFAULTS: StaffInput = {
   corr_city: null,
   corr_pin: null,
   corr_phone: null,
-  corr_mobile: null,
 
   email: null,
   qualification: null,
   blood_group: null,
   identification_mark_1: null,
   identification_mark_2: null,
-  sex: null,
+  gender: null,
   marital_status: null,
   nationality: null,
   religion: null,
@@ -327,29 +349,102 @@ const DEFAULTS: StaffInput = {
   pf_date_of_leaving: null,
 };
 
-export default function StaffClient({
-  staff,
+/**
+ * A WORKER'S OWN FIELDS, on top of the shared record. Legacy's Worker Detail
+ * adds four boxes to the ones Staff has: the rate Type, the contractor worked
+ * under, the production department and a CTC per shift (0553).
+ */
+const WORKER_DEFAULTS: WorkerInput = {
+  ...PERSON_DEFAULTS,
+  worker_type: "shift",
+  contractor_id: null,
+  biometric_id: null,
+  shift_wage_per_day: 0,
+  hourly_wage: 0,
+  piece_rate: 0,
+  prod_dept_id: null,
+  ctc_per_shift: 0,
+};
+
+/** A row from either table, as the list renders it. */
+export type PersonRow = StaffRow | WorkerRow;
+
+/**
+ * The handful of words that differ between the two screens. Everything else —
+ * every section, every field, every grid — is shared, which is the whole point
+ * of this component.
+ */
+const COPY = {
+  staff: {
+    entity: "Staff",
+    lower: "staff",
+    ioKey: "staff",
+    empty: "No staff yet.",
+    payFrequency: "Salary Paid",
+    gross: "Gross Salary",
+  },
+  worker: {
+    entity: "Worker",
+    lower: "worker",
+    ioKey: "workers",
+    empty: "No workers yet.",
+    // Legacy calls the same column "Wages Paid" and "Gross Wages" on this
+    // screen. The COLUMNS are `pay_frequency` and `act_gross` either way —
+    // 0553 renamed them precisely so one schema could carry both labels.
+    payFrequency: "Wages Paid",
+    gross: "Gross Wages",
+  },
+} as const;
+
+/**
+ * THE PERSON RECORD EDITOR — staff and workers, one component.
+ *
+ * The client asked for a worker's record to be the staff record ("all other
+ * things are exactly same from staff", 2026-09-09). A second copy of this file
+ * would have been ~2,600 lines that drift apart on the first change to either —
+ * and every change asked for over the last two days would have needed doing
+ * twice.
+ *
+ * `kind` picks the four things that genuinely differ: the labels in `COPY`, the
+ * extra Detail fields a worker carries, which list columns show, and which pair
+ * of server actions the save calls.
+ */
+export default function PersonClient({
+  kind,
+  rows,
   locations,
   departments,
   divisions,
   categories,
   hostelCategories,
   banks,
+  designations,
+  contractors = [],
+  shiftCategories = [],
   canCreate = false,
   canExport = false,
   canDelete = false,
 }: {
-  staff: StaffRow[];
+  kind: PersonKind;
+  rows: PersonRow[];
   locations: LocationOption[];
   departments: MasterOption[];
   divisions: MasterOption[];
   categories: MasterOption[];
   hostelCategories: MasterOption[];
   banks: MasterOption[];
+  designations: MasterOption[];
+  /** Workers only — legacy's "Under Contractor". Empty for staff. */
+  contractors?: MasterOption[];
+  /** `config_lookups` kind 'shift_category' — the shifts a person may be on. */
+  shiftCategories?: MasterOption[];
   canCreate?: boolean;
   canExport?: boolean;
   canDelete?: boolean;
 }) {
+  const isWorker = kind === "worker";
+  const copy = COPY[kind];
+  const DEFAULTS = (isWorker ? WORKER_DEFAULTS : PERSON_DEFAULTS) as PersonInput;
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -363,12 +458,12 @@ export default function StaffClient({
    * the same reason the descriptor engine keeps `autoId` off its `fields`.
    */
   const [editCode, setEditCode] = useState<string | null>(null);
-  const [form, setForm] = useState<StaffInput>(DEFAULTS);
-  const [saved, setSaved] = useState<StaffInput>(DEFAULTS);
+  const [form, setForm] = useState<PersonInput>(DEFAULTS);
+  const [saved, setSaved] = useState<PersonInput>(DEFAULTS);
   const sel = useRowSelection();
   const shellRef = useRef<MasterFullScreenHandle>(null);
 
-  const set = (patch: Partial<StaffInput>) => setForm((f) => ({ ...f, ...patch }));
+  const set = (patch: Partial<PersonInput>) => setForm((f) => ({ ...f, ...patch }));
 
   /**
    * A REAL DIRTY FLAG, not "does the form hold values".
@@ -404,6 +499,7 @@ export default function StaffClient({
     setBankAccounts([]);
     setExternalRefs([]);
     setEmergencyContacts([]);
+    setShifts([]);
     setEditId(null);
     setEditCode(null);
     setShowForm(true);
@@ -422,14 +518,14 @@ export default function StaffClient({
    * the migration is additive, so rows created before it hold null where the
    * form expects a value.
    */
-  function openEdit(s: StaffRow) {
+  function openEdit(s: PersonRow) {
     const row = s as unknown as Record<string, unknown>;
     const next = Object.fromEntries(
-      (Object.keys(DEFAULTS) as (keyof StaffInput)[]).map((k) => [
+      (Object.keys(DEFAULTS) as (keyof PersonInput)[]).map((k) => [
         k,
         row[k] ?? DEFAULTS[k],
       ]),
-    ) as StaffInput;
+    ) as PersonInput;
     setForm(next);
     setSaved(next);
     setEditId(s.id);
@@ -446,7 +542,7 @@ export default function StaffClient({
      * right for a rail whose first section is Detail, not Family.
      */
     setChildrenLoading(true);
-    getStaffChildren(s.id)
+    getPersonChildren(kind, s.id)
       .then((c) => {
         setFamily(
           c.family.map((r) => ({
@@ -517,6 +613,15 @@ export default function StaffClient({
             mobile: r.mobile ?? "",
           })),
         );
+        setShifts(
+          c.shifts.map((r) => ({
+            key: newKey(),
+            shift_category_id: r.shift_category_id,
+            effective_from: r.effective_from,
+            effective_to: r.effective_to ?? "",
+            notes: r.notes ?? "",
+          })),
+        );
       })
       .catch((e: unknown) => toastError(e instanceof Error ? e.message : "Could not load details."))
       .finally(() => setChildrenLoading(false));
@@ -527,13 +632,74 @@ export default function StaffClient({
     setEditId(null);
   }
 
+
+  function submit() {
+    const children = childPayload;
+    startTransition(async () => {
+      /**
+       * THE ONE PLACE THE TWO TABLES PART. `personInput` is the shared shape;
+       * a worker's payload carries four more keys and goes to a different pair
+       * of actions, each with its own Zod schema and its own permission check.
+       */
+      const result = isWorker
+        ? editId
+          ? await updateWorker(editId, form as WorkerInput, children)
+          : await createWorker(form as WorkerInput, children)
+        : editId
+          ? await updateStaff(editId, form, children)
+          : await createStaff(form, children);
+      if (result.ok) {
+        success(`${copy.entity} ${editId ? "updated" : "created"}.`);
+        cancel();
+        router.refresh();
+      } else {
+        toastError(result.error);
+      }
+    });
+  }
+
   /**
+   * THE CHILD ROWS. Held beside `form` rather than inside it because they are
+   * separate tables — `staffInput` describes the `staff` row and nothing else,
+   * and folding arrays into it would put them in the same payload the column
+   * schema parses.
+   *
+   * `keySeq` is a monotonic counter for React keys only. It is a ref, not
+   * state: bumping it must not re-render, and two rows added in one tick must
+   * not collide on the same key.
+   */
+  const [family, setFamily] = useState<FamilyRow[]>([]);
+  const [experience, setExperience] = useState<ExperienceRow[]>([]);
+  const [internalRefs, setInternalRefs] = useState<InternalRefRow[]>([]);
+  const [nominations, setNominations] = useState<NominationRow[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([]);
+  const [externalRefs, setExternalRefs] = useState<ExternalRefRow[]>([]);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyRow[]>([]);
+  const [shifts, setShifts] = useState<ShiftRow[]>([]);
+  /** True while `getStaffChildren` is in flight — the grids are empty until then. */
+  const [childrenLoading, setChildrenLoading] = useState(false);
+
+  /**
+   * WHAT WILL ACTUALLY BE SAVED, and the ONE answer both the save and the rail
+   * dots read.
+   *
    * A ROW IS DROPPED IF IT IS BLANK. `seedRow` opens every grid with one empty
    * line so the first entry costs no click — and an operator who never touches
    * Family Details would otherwise save an empty family member.
+   *
+   * A PLAIN CONST, NOT `useMemo`. It filters a handful of short arrays, and
+   * the React Compiler memoizes it — a hand-written `useMemo` here made the
+   * compiler skip optimising the whole component ("existing memoization could
+   * not be preserved"), which costs more than it saved.
+   *
+   * THE DOTS READ IT TOO. `seedRow` calls the grid's
+   * `onAdd` the moment a section mounts, so `family.length > 0` becomes true by
+   * merely LOOKING at the tab — and the blank it counted is then filtered out
+   * here and never saved. The dot claimed data the record did not have, on all
+   * six grids. Deriving both from this list makes "the dot is on" and "a row
+   * will be written" the same statement.
    */
-  function childPayload() {
-    return {
+  const childPayload = {
       family: family
         .filter((r) => r.name.trim() || r.relation.trim() || r.other_information.trim())
         .map((r) => ({
@@ -599,44 +765,19 @@ export default function StaffClient({
           phone: r.phone.trim() || null,
           mobile: r.mobile.trim() || null,
         })),
-    };
-  }
+      // A spell with no shift chosen is not a spell — `shift_category_id` is
+      // NOT NULL, so an unfilled seed row would be refused by the database
+      // rather than dropped here.
+      shifts: shifts
+        .filter((r) => r.shift_category_id && r.effective_from)
+        .map((r) => ({
+          shift_category_id: r.shift_category_id,
+          effective_from: r.effective_from,
+          effective_to: r.effective_to || null,
+          notes: r.notes.trim() || null,
+        })),
+  };
 
-  function submit() {
-    const children = childPayload();
-    startTransition(async () => {
-      const result = editId
-        ? await updateStaff(editId, form, children)
-        : await createStaff(form, children);
-      if (result.ok) {
-        success(editId ? "Staff updated." : "Staff created.");
-        cancel();
-        router.refresh();
-      } else {
-        toastError(result.error);
-      }
-    });
-  }
-
-  /**
-   * THE CHILD ROWS. Held beside `form` rather than inside it because they are
-   * separate tables — `staffInput` describes the `staff` row and nothing else,
-   * and folding arrays into it would put them in the same payload the column
-   * schema parses.
-   *
-   * `keySeq` is a monotonic counter for React keys only. It is a ref, not
-   * state: bumping it must not re-render, and two rows added in one tick must
-   * not collide on the same key.
-   */
-  const [family, setFamily] = useState<FamilyRow[]>([]);
-  const [experience, setExperience] = useState<ExperienceRow[]>([]);
-  const [internalRefs, setInternalRefs] = useState<InternalRefRow[]>([]);
-  const [nominations, setNominations] = useState<NominationRow[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([]);
-  const [externalRefs, setExternalRefs] = useState<ExternalRefRow[]>([]);
-  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyRow[]>([]);
-  /** True while `getStaffChildren` is in flight — the grids are empty until then. */
-  const [childrenLoading, setChildrenLoading] = useState(false);
   const keySeq = useRef(0);
   const newKey = () => `r${keySeq.current++}`;
 
@@ -652,6 +793,8 @@ export default function StaffClient({
     setExternalRefs((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   const setEmergencyAt = (key: string, patch: Partial<EmergencyRow>) =>
     setEmergencyContacts((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+  const setShiftAt = (key: string, patch: Partial<ShiftRow>) =>
+    setShifts((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   /**
    * THE ONE ACCOUNT, or a blank standing in for it.
    *
@@ -725,7 +868,12 @@ export default function StaffClient({
     },
     {
       header: "Alive",
-      width: "auto",
+      // A FIXED WIDTH, NOT `auto`. `auto` is this prop's CARD-mode
+      // spelling for "hug"; in the TABLE branch it lands on
+      // `<th style={{width:"auto"}}>`, which is the CSS default — so the
+      // column absorbed the table's leftover width and left a band of
+      // empty space beside a 40px switch (client 2026-09-09).
+      width: "5rem",
       align: "center",
       cell: (r) => (
         <Toggle
@@ -760,7 +908,12 @@ export default function StaffClient({
     },
     {
       header: "Residing With Employee",
-      width: "auto",
+      // A FIXED WIDTH, NOT `auto`. `auto` is this prop's CARD-mode
+      // spelling for "hug"; in the TABLE branch it lands on
+      // `<th style={{width:"auto"}}>`, which is the CSS default — so the
+      // column absorbed the table's leftover width and left a band of
+      // empty space beside a 40px switch (client 2026-09-09).
+      width: "8rem",
       align: "center",
       cell: (r) => (
         <Toggle
@@ -916,7 +1069,7 @@ export default function StaffClient({
           aria-label="Internal referee"
         >
           <option value=""></option>
-          {staff
+          {rows
             .filter((m) => m.id !== editId)
             .map((m) => (
               <option key={m.id} value={m.id}>
@@ -990,6 +1143,61 @@ export default function StaffClient({
     (r, k) => (r as unknown as Record<string, string>)[k] ?? "",
   );
 
+  const shiftColumns: ChildGridColumn<ShiftRow>[] = [
+    {
+      header: "Shift",
+      cell: (r) => (
+        <MasterSelect
+          id={`sh-cat-${r.key}`}
+          options={shiftCategories}
+          value={r.shift_category_id || null}
+          onChange={(v) => setShiftAt(r.key, { shift_category_id: v ?? "" })}
+        />
+      ),
+    },
+    {
+      header: "From",
+      width: "10rem",
+      cell: (r) => (
+        <Input
+          type="date"
+          value={r.effective_from}
+          onChange={(e) => setShiftAt(r.key, { effective_from: e.target.value })}
+          aria-label="Effective from"
+        />
+      ),
+    },
+    {
+      /**
+       * BLANK MEANS STILL ON IT — not a far-future date. "Unknown end" and
+       * "ends in 2099" are different facts and only one is true, which is why
+       * the column is nullable (0554).
+       */
+      header: "To",
+      width: "10rem",
+      cell: (r) => (
+        <Input
+          type="date"
+          min={r.effective_from || undefined}
+          value={r.effective_to}
+          onChange={(e) => setShiftAt(r.key, { effective_to: e.target.value })}
+          aria-label="Effective to — blank while current"
+        />
+      ),
+    },
+    {
+      header: "Notes",
+      cell: (r) => (
+        <Input
+          uppercase
+          value={r.notes}
+          onChange={(e) => setShiftAt(r.key, { notes: e.target.value })}
+          aria-label="Notes"
+        />
+      ),
+    },
+  ];
+
   const nominationColumns: ChildGridColumn<NominationRow>[] = [
     {
       // Legacy's single unlabelled column, headed "For".
@@ -1012,7 +1220,7 @@ export default function StaffClient({
    * `*`, the cursor hold and this list cannot disagree.
    */
   const validity = sectionValidity({
-    sections: STAFF_SECTIONS.map((s) => ({ key: s.key })),
+    sections: PERSON_SECTIONS.map((s) => ({ key: s.key })),
     values: form,
     fields: [
       {
@@ -1050,7 +1258,7 @@ export default function StaffClient({
    * `done` is the quiet "has data" dot. No `problems` badge: the operator's rule
    * 2 drops it, and `footer.onBlockedSave` is what names a blocked Save instead.
    */
-  const sections: FullScreenSection[] = STAFF_SECTIONS.map((s) => {
+  const sections: FullScreenSection[] = PERSON_SECTIONS.map((s) => {
     const base = { key: s.key, label: s.label, icon: s.icon };
     switch (s.key) {
       case "detail":
@@ -1149,7 +1357,7 @@ export default function StaffClient({
                       onChange={(e) =>
                         set({
                           guardian_relation:
-                            (e.target.value as StaffInput["guardian_relation"]) || null,
+                            (e.target.value as PersonInput["guardian_relation"]) || null,
                         })
                       }
                     >
@@ -1179,18 +1387,18 @@ export default function StaffClient({
                 </Field>
 
                 {/*
-                  Free text today. There is a real Designation master at
-                  /masters/hr/designation, so this should become a picker over
-                  it — but that turns a text column into a foreign key and has
-                  to migrate the values already stored, which is a separate
-                  decision with a data-repair step (0534 says the same).
+                  FROM THE MASTER (0548). It was a free-text box until then —
+                  the note here used to say so and defer the change, because
+                  turning a text column into a foreign key has to migrate what
+                  is already stored. That repair is now in the migration, and it
+                  was free to do: `staff` held no rows.
                 */}
                 <Field label="Designation" size="md" htmlFor="st-designation">
-                  <Input
+                  <MasterSelect
                     id="st-designation"
-                    uppercase
-                    value={form.designation ?? ""}
-                    onChange={(e) => set({ designation: e.target.value || null })}
+                    options={designations}
+                    value={form.designation_id}
+                    onChange={(v) => set({ designation_id: v })}
                   />
                 </Field>
 
@@ -1245,12 +1453,12 @@ export default function StaffClient({
                   <Field label="Type" size="sm" htmlFor="st-type">
                     <Select
                       id="st-type"
-                      value={form.staff_type}
+                      value={form.employment_type}
                       onChange={(e) =>
-                        set({ staff_type: e.target.value as StaffInput["staff_type"] })
+                        set({ employment_type: e.target.value as PersonInput["employment_type"] })
                       }
                     >
-                      {STAFF_TYPES.map((t) => (
+                      {EMPLOYMENT_TYPES.map((t) => (
                         <option key={t} value={t}>
                           {t}
                         </option>
@@ -1267,15 +1475,15 @@ export default function StaffClient({
                     />
                   </Field>
 
-                  <Field label="Salary Paid" size="sm" htmlFor="st-salary-paid">
+                  <Field label={copy.payFrequency} size="sm" htmlFor="st-salary-paid">
                     <Select
                       id="st-salary-paid"
-                      value={form.salary_paid}
+                      value={form.pay_frequency}
                       onChange={(e) =>
-                        set({ salary_paid: e.target.value as StaffInput["salary_paid"] })
+                        set({ pay_frequency: e.target.value as PersonInput["pay_frequency"] })
                       }
                     >
-                      {SALARY_PAID.map((t) => (
+                      {PAY_FREQUENCIES.map((t) => (
                         <option key={t} value={t}>
                           {t}
                         </option>
@@ -1288,7 +1496,7 @@ export default function StaffClient({
                       id="st-week-off"
                       value={form.week_off ?? ""}
                       onChange={(e) =>
-                        set({ week_off: (e.target.value as StaffInput["week_off"]) || null })
+                        set({ week_off: (e.target.value as PersonInput["week_off"]) || null })
                       }
                     >
                       {/* Blank is a real answer: no fixed weekly off. */}
@@ -1323,7 +1531,7 @@ export default function StaffClient({
                       onChange={(e) => set({ manager_id: e.target.value || null })}
                     >
                       <option value=""></option>
-                      {staff
+                      {rows
                         .filter((m) => m.id !== editId)
                         .map((m) => (
                           <option key={m.id} value={m.id}>
@@ -1332,6 +1540,107 @@ export default function StaffClient({
                         ))}
                     </Select>
                   </Field>
+
+                  {/*
+                    THE FOUR BOXES LEGACY ADDS FOR A WORKER, and nothing else
+                    on this screen differs (client 2026-09-09). They sit in
+                    Employment because that is what they describe: how this
+                    person is engaged and paid.
+                  */}
+                  {isWorker && (
+                    <>
+                      {/* Legacy's "Type" — the wage BASIS, which is what
+                          `computeActualWage` branches on (lib/hr/calc.ts). Not
+                          the same question as Employment Type above, which is
+                          Permanent / Temporary / Contract. */}
+                      <Field label="Rate Type" size="sm" htmlFor="wk-type">
+                        <Select
+                          id="wk-type"
+                          value={(form as WorkerInput).worker_type}
+                          onChange={(e) =>
+                            set({
+                              worker_type: e.target.value as WorkerInput["worker_type"],
+                            } as Partial<PersonInput>)
+                          }
+                        >
+                          {WORKER_TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {WORKER_TYPE_LABELS[t]}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+
+                      <Field label="Under Contractor" size="sm" htmlFor="wk-contractor">
+                        <MasterSelect
+                          id="wk-contractor"
+                          options={contractors}
+                          value={(form as WorkerInput).contractor_id}
+                          onChange={(v) =>
+                            set({ contractor_id: v } as Partial<PersonInput>)
+                          }
+                        />
+                      </Field>
+
+                      {/* The production department the worker is ON, which is a
+                          different question from the Department they belong to
+                          — 0553 keeps them as two columns for that reason. */}
+                      <Field label="Prod. Dept" size="sm" htmlFor="wk-prod-dept">
+                        <MasterSelect
+                          id="wk-prod-dept"
+                          options={departments}
+                          value={(form as WorkerInput).prod_dept_id}
+                          onChange={(v) =>
+                            set({ prod_dept_id: v } as Partial<PersonInput>)
+                          }
+                        />
+                      </Field>
+
+                      <MoneyField
+                        id="wk-ctc"
+                        label="CTC / Shift"
+                        value={(form as WorkerInput).ctc_per_shift}
+                        onChange={(v) => set({ ctc_per_shift: v } as Partial<PersonInput>)}
+                      />
+
+                      {/* The wage basis itself. Legacy puts these on its own
+                          rate panel; here they follow Rate Type, which is what
+                          decides which of the three is read. */}
+                      <MoneyField
+                        id="wk-shift-wage"
+                        label="Shift Wage / Day"
+                        value={(form as WorkerInput).shift_wage_per_day}
+                        onChange={(v) =>
+                          set({ shift_wage_per_day: v } as Partial<PersonInput>)
+                        }
+                      />
+                      <MoneyField
+                        id="wk-hourly"
+                        label="Hourly Wage"
+                        value={(form as WorkerInput).hourly_wage}
+                        onChange={(v) => set({ hourly_wage: v } as Partial<PersonInput>)}
+                      />
+                      <MoneyField
+                        id="wk-piece"
+                        label="Piece Rate"
+                        value={(form as WorkerInput).piece_rate}
+                        onChange={(v) => set({ piece_rate: v } as Partial<PersonInput>)}
+                      />
+
+                      <Field label="Biometric ID" size="sm" htmlFor="wk-biometric">
+                        <Input
+                          id="wk-biometric"
+                          uppercase
+                          value={(form as WorkerInput).biometric_id ?? ""}
+                          onChange={(e) =>
+                            set({
+                              biometric_id: e.target.value || null,
+                            } as Partial<PersonInput>)
+                          }
+                        />
+                      </Field>
+                    </>
+                  )}
 
                   <Field label="Vehicle No" size="sm" htmlFor="st-vehicle">
                     <Input
@@ -1473,7 +1782,7 @@ export default function StaffClient({
                       onChange={(e) =>
                         set({
                           disability_type:
-                            (e.target.value as StaffInput["disability_type"]) || null,
+                            (e.target.value as PersonInput["disability_type"]) || null,
                         })
                       }
                     >
@@ -1529,14 +1838,44 @@ export default function StaffClient({
           ),
         };
 
+      case "shifts":
+        return {
+          ...base,
+          done: childPayload.shifts.length > 0,
+          content: (
+            <div className="space-y-2">
+              {/*
+                A LIST OF SPELLS, not a field on Detail. `workers` carries
+                `shift_wage_per_day` and `ctc_per_shift` — those are RATES;
+                this says which shift, and for which dates (0554).
+
+                The database refuses overlapping spells, so a save that would
+                put someone on two shifts on one day comes back as an error
+                rather than quietly making "which shift that day"
+                unanswerable.
+              */}
+              {childrenLoading ? (
+                <LoadingRows />
+              ) : (
+                <ChildGrid<ShiftRow>
+                  columns={shiftColumns}
+                  rows={shifts}
+                  onAdd={() => setShifts((xs) => [...xs, blankShift(newKey())])}
+                  onRemove={(r) => setShifts((xs) => xs.filter((x) => x.key !== r.key))}
+                  addLabel="+ Add shift"
+                  seedRow
+                />
+              )}
+            </div>
+          ),
+        };
+
       case "salary-registry":
         return {
           ...base,
           done:
             form.stat_gross > 0 ||
             form.act_gross > 0 ||
-            form.monthly_salary > 0 ||
-            form.expected_salary > 0 ||
             // ESI and PF live here now, so their answers light this dot.
             form.esi_status !== "No" ||
             form.pf_status !== "No",
@@ -1567,45 +1906,25 @@ export default function StaffClient({
                   would drift from the arithmetic.
                 */}
                 <FieldGrid>
-                  <MoneyField id="st-stat-gross" label="Gross Salary" value={form.stat_gross} onChange={(v) => set({ stat_gross: v })} />
+                  <MoneyField id="st-stat-gross" label={copy.gross} value={form.stat_gross} onChange={(v) => set({ stat_gross: v })} />
                   <MoneyField id="st-stat-basic" label="Basic" value={form.stat_basic} onChange={(v) => set({ stat_basic: v })} />
                   <MoneyField id="st-stat-da" label="DA" value={form.stat_da} onChange={(v) => set({ stat_da: v })} />
                   <MoneyField id="st-stat-hra" label="HRA" value={form.stat_hra} onChange={(v) => set({ stat_hra: v })} />
+                  <DerivedMoney label="Others" value={form.stat_gross - form.stat_basic - form.stat_da - form.stat_hra} />
                 </FieldGrid>
               </div>
 
               <div className="space-y-2">
                 <GroupHeading>Pay — Actual</GroupHeading>
                 <FieldGrid>
-                  <MoneyField id="st-act-gross" label="Gross Salary" value={form.act_gross} onChange={(v) => set({ act_gross: v })} />
+                  <MoneyField id="st-act-gross" label={copy.gross} value={form.act_gross} onChange={(v) => set({ act_gross: v })} />
                   <MoneyField id="st-act-basic" label="Basic" value={form.act_basic} onChange={(v) => set({ act_basic: v })} />
                   <MoneyField id="st-act-da" label="DA" value={form.act_da} onChange={(v) => set({ act_da: v })} />
                   <MoneyField id="st-act-hra" label="HRA" value={form.act_hra} onChange={(v) => set({ act_hra: v })} />
-                  <MoneyField id="st-monthly" label="Monthly Salary" value={form.monthly_salary} onChange={(v) => set({ monthly_salary: v })} />
-                  <MoneyField id="st-expected" label="Exp. Salary" value={form.expected_salary} onChange={(v) => set({ expected_salary: v })} />
+                  <DerivedMoney label="Others" value={form.act_gross - form.act_basic - form.act_da - form.act_hra} />
                 </FieldGrid>
               </div>
 
-              {/*
-                THE BALANCES MOVED HERE FROM THE BANK TAB (client 2026-09-09).
-                A loan balance and a leave balance are payroll figures — they
-                belong on the tab about pay, not on the one saying which account
-                the pay goes to.
-
-                They are OPENING figures typed by a human, not a ledger (0534).
-                When advances and leave get their own transactions these become
-                the derived answer, and this heading is where that will show.
-              */}
-              <div className="space-y-2">
-                <GroupHeading>Balances</GroupHeading>
-                <FieldGrid>
-                  <MoneyField id="st-loan" label="Loan Bal." value={form.loan_balance} onChange={(v) => set({ loan_balance: v })} />
-                  <MoneyField id="st-advance" label="Advance Bal." value={form.advance_balance} onChange={(v) => set({ advance_balance: v })} />
-                  <MoneyField id="st-cl" label="CL Bal." value={form.cl_balance} onChange={(v) => set({ cl_balance: v })} />
-                  <MoneyField id="st-el-cr" label="EL Cr. Days" value={form.el_credit_days} onChange={(v) => set({ el_credit_days: v })} />
-                  <MoneyField id="st-el-carry" label="EL Carry Days" value={form.el_carry_days} onChange={(v) => set({ el_carry_days: v })} />
-                </FieldGrid>
-              </div>
 
               {/*
                 ESI AND PF SIT WITH PAY, not with the nominations.
@@ -1634,7 +1953,7 @@ export default function StaffClient({
                       id="st-esi-status"
                       value={form.esi_status}
                       onChange={(e) =>
-                        set({ esi_status: e.target.value as StaffInput["esi_status"] })
+                        set({ esi_status: e.target.value as PersonInput["esi_status"] })
                       }
                     >
                       {STATUTORY_STATUSES.map((v) => (
@@ -1659,7 +1978,7 @@ export default function StaffClient({
                       id="st-pf-status"
                       value={form.pf_status}
                       onChange={(e) =>
-                        set({ pf_status: e.target.value as StaffInput["pf_status"] })
+                        set({ pf_status: e.target.value as PersonInput["pf_status"] })
                       }
                     >
                       {STATUTORY_STATUSES.map((v) => (
@@ -1681,7 +2000,7 @@ export default function StaffClient({
       case "bank":
         return {
           ...base,
-          done: !!account.ac_no || !!account.bank_id || form.pay_mode === "Bank",
+          done: childPayload.bankAccounts.length > 0 || form.pay_mode === "Bank",
           content: (
             <div className="space-y-6">
               {/*
@@ -1699,7 +2018,7 @@ export default function StaffClient({
                   <Select
                     id="st-pay-mode"
                     value={form.pay_mode}
-                    onChange={(e) => set({ pay_mode: e.target.value as StaffInput["pay_mode"] })}
+                    onChange={(e) => set({ pay_mode: e.target.value as PersonInput["pay_mode"] })}
                   >
                     {PAY_MODES.map((m) => (
                       <option key={m} value={m}>
@@ -1823,17 +2142,19 @@ export default function StaffClient({
                 <GroupHeading>Permanent Address</GroupHeading>
                 <FieldGrid>
                   {/*
-                    THREE UNLABELLED LINES, and the blank labels are deliberate.
-                    `label=""` keeps the label ROW while drawing no text, so the
-                    three boxes line up with City and Pin beside them — passing
-                    no label at all would pull them 18px up and leave the row
-                    ragged (see `Field`'s own note on the two spellings).
+                    EACH LINE IS NAMED (client 2026-09-09). They were one
+                    "Address" label over three boxes, the second and third
+                    carrying `label=""` — which keeps the label ROW while
+                    drawing no text, so the boxes still lined up. That solved the
+                    alignment and left the operator guessing what went in the
+                    second box.
 
-                    Legacy stacks them; here they take a row of their own at
-                    `md` (4 of 12), which is the widest a free address line gets
-                    without stretching past the fields underneath.
+                    "No." is the door or building number and the two lines under
+                    it are the rest, which is how an address is dictated here.
+                    The columns are unchanged: `perm_address1..3` (0535) are
+                    three free-text lines and always were.
                   */}
-                  <Field label="Address" size="md" htmlFor="st-perm-1">
+                  <Field label="No." size="md" htmlFor="st-perm-1">
                     <Input
                       id="st-perm-1"
                       uppercase
@@ -1841,7 +2162,7 @@ export default function StaffClient({
                       onChange={(e) => set({ perm_address1: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="" size="md" htmlFor="st-perm-2">
+                  <Field label="Address Line 1" size="md" htmlFor="st-perm-2">
                     <Input
                       id="st-perm-2"
                       uppercase
@@ -1849,7 +2170,7 @@ export default function StaffClient({
                       onChange={(e) => set({ perm_address2: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="" size="md" htmlFor="st-perm-3">
+                  <Field label="Address Line 2" size="md" htmlFor="st-perm-3">
                     <Input
                       id="st-perm-3"
                       uppercase
@@ -1858,7 +2179,14 @@ export default function StaffClient({
                     />
                   </Field>
 
-                  <Field label="City" size="sm" htmlFor="st-perm-city">
+                  {/*
+                    `md`, NOT `sm`. With Mobile gone (0549) the row was
+                    City + Pin + Phone = 9 of 12, so it no longer closed and its
+                    columns stopped lining up with the three address lines above
+                    it. At `md` the row is 4 + 4 + 4 and both rows are three
+                    columns wide.
+                  */}
+                  <Field label="City" size="md" htmlFor="st-perm-city">
                     <Input
                       id="st-perm-city"
                       uppercase
@@ -1866,25 +2194,18 @@ export default function StaffClient({
                       onChange={(e) => set({ perm_city: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="Pin" size="sm" htmlFor="st-perm-pin">
+                  <Field label="Pin" size="md" htmlFor="st-perm-pin">
                     <Input
                       id="st-perm-pin"
                       value={form.perm_pin ?? ""}
                       onChange={(e) => set({ perm_pin: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="Phone" size="sm" htmlFor="st-perm-ph">
+                  <Field label="Phone" size="md" htmlFor="st-perm-ph">
                     <Input
                       id="st-perm-ph"
                       value={form.perm_phone ?? ""}
                       onChange={(e) => set({ perm_phone: e.target.value || null })}
-                    />
-                  </Field>
-                  <Field label="Mobile" size="sm" htmlFor="st-perm-mob">
-                    <Input
-                      id="st-perm-mob"
-                      value={form.perm_mobile ?? ""}
-                      onChange={(e) => set({ perm_mobile: e.target.value || null })}
                     />
                   </Field>
                 </FieldGrid>
@@ -1928,7 +2249,6 @@ export default function StaffClient({
                                   corr_city: form.perm_city,
                                   corr_pin: form.perm_pin,
                                   corr_phone: form.perm_phone,
-                                  corr_mobile: form.perm_mobile,
                                 }
                               : { corr_same_as_permanent: false },
                           )
@@ -1945,7 +2265,7 @@ export default function StaffClient({
                     ticked it needs to SEE what will be saved, and a row that
                     disappears makes the form jump under the cursor.
                   */}
-                  <Field label="Address" size="md" htmlFor="st-corr-1">
+                  <Field label="No." size="md" htmlFor="st-corr-1">
                     <Input
                       id="st-corr-1"
                       uppercase
@@ -1954,7 +2274,7 @@ export default function StaffClient({
                       onChange={(e) => set({ corr_address1: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="" size="md" htmlFor="st-corr-2">
+                  <Field label="Address Line 1" size="md" htmlFor="st-corr-2">
                     <Input
                       id="st-corr-2"
                       uppercase
@@ -1963,7 +2283,7 @@ export default function StaffClient({
                       onChange={(e) => set({ corr_address2: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="" size="md" htmlFor="st-corr-3">
+                  <Field label="Address Line 2" size="md" htmlFor="st-corr-3">
                     <Input
                       id="st-corr-3"
                       uppercase
@@ -1973,7 +2293,7 @@ export default function StaffClient({
                     />
                   </Field>
 
-                  <Field label="City" size="sm" htmlFor="st-corr-city">
+                  <Field label="City" size="md" htmlFor="st-corr-city">
                     <Input
                       id="st-corr-city"
                       uppercase
@@ -1982,7 +2302,7 @@ export default function StaffClient({
                       onChange={(e) => set({ corr_city: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="Pin" size="sm" htmlFor="st-corr-pin">
+                  <Field label="Pin" size="md" htmlFor="st-corr-pin">
                     <Input
                       id="st-corr-pin"
                       readOnly={form.corr_same_as_permanent}
@@ -1990,20 +2310,12 @@ export default function StaffClient({
                       onChange={(e) => set({ corr_pin: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="Phone" size="sm" htmlFor="st-corr-ph">
+                  <Field label="Phone" size="md" htmlFor="st-corr-ph">
                     <Input
                       id="st-corr-ph"
                       readOnly={form.corr_same_as_permanent}
                       value={form.corr_phone ?? ""}
                       onChange={(e) => set({ corr_phone: e.target.value || null })}
-                    />
-                  </Field>
-                  <Field label="Mobile" size="sm" htmlFor="st-corr-mob">
-                    <Input
-                      id="st-corr-mob"
-                      readOnly={form.corr_same_as_permanent}
-                      value={form.corr_mobile ?? ""}
-                      onChange={(e) => set({ corr_mobile: e.target.value || null })}
                     />
                   </Field>
                 </FieldGrid>
@@ -2047,7 +2359,7 @@ export default function StaffClient({
                       id="st-blood"
                       value={form.blood_group ?? ""}
                       onChange={(e) =>
-                        set({ blood_group: (e.target.value as StaffInput["blood_group"]) || null })
+                        set({ blood_group: (e.target.value as PersonInput["blood_group"]) || null })
                       }
                     >
                       <option value=""></option>
@@ -2059,14 +2371,20 @@ export default function StaffClient({
                     </Select>
                   </Field>
 
-                  <Field label="Sex" size="sm" htmlFor="st-sex">
+                  {/*
+                    GENDER, not "Sex" (client 2026-09-09). The column followed
+                    the label in 0550 rather than staying behind: the list's
+                    third value is "Trans Gender", so `sex` was describing the
+                    wrong thing from the day it was written.
+                  */}
+                  <Field label="Gender" size="sm" htmlFor="st-gender">
                     <Select
-                      id="st-sex"
-                      value={form.sex ?? ""}
-                      onChange={(e) => set({ sex: (e.target.value as StaffInput["sex"]) || null })}
+                      id="st-gender"
+                      value={form.gender ?? ""}
+                      onChange={(e) => set({ gender: (e.target.value as PersonInput["gender"]) || null })}
                     >
                       <option value=""></option>
-                      {SEXES.map((x) => (
+                      {GENDERS.map((x) => (
                         <option key={x} value={x}>
                           {x}
                         </option>
@@ -2080,7 +2398,7 @@ export default function StaffClient({
                       value={form.marital_status ?? ""}
                       onChange={(e) =>
                         set({
-                          marital_status: (e.target.value as StaffInput["marital_status"]) || null,
+                          marital_status: (e.target.value as PersonInput["marital_status"]) || null,
                         })
                       }
                     >
@@ -2204,7 +2522,7 @@ export default function StaffClient({
       case "family":
         return {
           ...base,
-          done: family.length > 0,
+          done: childPayload.family.length > 0,
           content: childrenLoading ? (
             <LoadingRows />
           ) : (
@@ -2222,7 +2540,7 @@ export default function StaffClient({
       case "experience":
         return {
           ...base,
-          done: experience.length > 0,
+          done: childPayload.experience.length > 0,
           content: childrenLoading ? (
             <LoadingRows />
           ) : (
@@ -2241,9 +2559,9 @@ export default function StaffClient({
         return {
           ...base,
           done:
-            externalRefs.length > 0 ||
-            emergencyContacts.length > 0 ||
-            internalRefs.length > 0,
+            childPayload.externalRefs.length > 0 ||
+            childPayload.emergencyContacts.length > 0 ||
+            childPayload.internalRefs.length > 0,
           content: (
             <div className="space-y-6">
               {/*
@@ -2311,7 +2629,7 @@ export default function StaffClient({
           // The ESI/PF terms moved to Salary Registry, so this dot no longer
           // reads them — a section's "has data" light must answer for what is
           // actually in it.
-          done: nominations.length > 0,
+          done: childPayload.nominations.length > 0,
           content: (
             <div className="space-y-6">
               <div className="space-y-2">
@@ -2340,19 +2658,45 @@ export default function StaffClient({
     }
   });
 
-  const columns: Column<StaffRow>[] = [
+  /**
+   * THE LIST DIFFERS BY TWO COLUMNS, and only two.
+   *
+   * Staff show the monthly salary payroll computes from; a worker has none
+   * (0553) and shows the wage basis instead — the rate Type and the contractor
+   * they work under, which is what an operator scans this list for.
+   */
+  const columns: Column<PersonRow>[] = [
     {
       header: "Code",
       cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span>,
     },
     { header: "Name", cell: (r) => r.name },
-    { header: "Designation", cell: (r) => r.designation ?? "—" },
-    { header: "Location", cell: (r) => r.location_name ?? "—" },
     {
-      header: "Monthly Salary",
-      align: "right",
-      cell: (r) => <span className="tabular-nums">{fmtMoney(r.monthly_salary)}</span>,
+      header: "Designation",
+      // `designation_name` is resolved in the service — the row holds an id.
+      cell: (r) => r.designation_name ?? "—",
     },
+    { header: "Location", cell: (r) => r.location_name ?? "—" },
+    ...(isWorker
+      ? ([
+          {
+            header: "Type",
+            cell: (r) => WORKER_TYPE_LABELS[(r as WorkerRow).worker_type] ?? "—",
+          },
+          {
+            header: "Contractor",
+            cell: (r) => (r as WorkerRow).contractor_name ?? "—",
+          },
+        ] as Column<PersonRow>[])
+      : ([
+          {
+            header: "Monthly Salary",
+            align: "right",
+            cell: (r) => (
+              <span className="tabular-nums">{fmtMoney((r as StaffRow).monthly_salary)}</span>
+            ),
+          },
+        ] as Column<PersonRow>[])),
     {
       header: "Status",
       cell: (r) => (
@@ -2368,15 +2712,15 @@ export default function StaffClient({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DataIoToolbar
-          entityKey="staff"
-          rows={staff}
+          entityKey={copy.ioKey}
+          rows={rows}
           canImport={canCreate}
           canExport={canExport}
         />
         <div className="ml-auto">
           {canCreate && (
             <Button size="md" onClick={openAdd}>
-              + Add Staff
+              + Add {copy.entity}
             </Button>
           )}
         </div>
@@ -2384,22 +2728,22 @@ export default function StaffClient({
 
       {canDelete && (
         <BulkDeleteBar
-          entityKey="staff"
+          entityKey={copy.ioKey}
           selectedIds={sel.selectedIds}
           onClear={sel.clear}
-          label="staff"
+          label={copy.lower}
         />
       )}
 
       <DataTable
-        columns={withCreatedColumns(columns, staff)}
-        rows={staff}
+        columns={withCreatedColumns(columns, rows)}
+        rows={rows}
         getKey={(r) => r.id}
-        empty="No staff yet."
+        empty={copy.empty}
         selectable={canDelete}
         selectedKeys={sel.selectedKeys}
         onToggle={sel.toggle}
-        onToggleAll={() => sel.toggleAll(staff.map((s) => s.id))}
+        onToggleAll={() => sel.toggleAll(rows.map((r) => r.id))}
       />
 
       {/*
@@ -2414,21 +2758,25 @@ export default function StaffClient({
         ref={shellRef}
         open={showForm}
         onClose={cancel}
-        modeLabel={editId ? <>Editing staff</> : <>New staff</>}
+        modeLabel={editId ? <>Editing {copy.lower}</> : <>New {copy.lower}</>}
         header={{
-          initials: "ST",
-          title: editId ? form.name || "Staff" : "New Staff",
+          initials: isWorker ? "WK" : "ST",
+          title: editId ? form.name || copy.entity : `New ${copy.entity}`,
           badges: dirty ? (
             <span className="text-[11px] font-medium text-warning">● Unsaved</span>
           ) : null,
         }}
         sections={sections}
         footer={{
-          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New staff",
+          status: dirty
+            ? "Unsaved changes"
+            : editId
+              ? "All changes saved"
+              : `New ${copy.lower}`,
           onCancel: cancel,
           onSave: submit,
           // Names the ENTITY — a bare "Save" could belong to any record.
-          saveLabel: "Save staff",
+          saveLabel: `Save ${copy.lower}`,
           canSave: validity.canSave,
           // Keeps Save clickable when blocked so it explains itself, and so
           // Ctrl+S and Enter-off-the-last-field reach the same handler.
@@ -2522,6 +2870,38 @@ function LoadingRows() {
     <div className="rounded-lg border border-border px-4 py-8 text-center text-sm text-muted-foreground">
       Loading…
     </div>
+  );
+}
+
+/**
+ * OTHERS — GROSS LESS THE NAMED HEADS, computed and never stored.
+ *
+ * Legacy greys this box on both pay panels because it is arithmetic, and 0534
+ * left the column out for the same reason: a stored copy and the sum can
+ * disagree, and then nobody knows which is the salary.
+ *
+ * Read-only and `skipTab`, like every other derived value on this screen —
+ * reachable with the mouse, off the typing path. A negative answer is shown as
+ * typed rather than clamped: it means the heads add up to more than the gross,
+ * which is a data-entry error the operator needs to SEE, not one to hide.
+ */
+function DerivedMoney({ label, value }: { label: string; value: number }) {
+  /**
+   * BLANK AT ZERO, matching `MoneyField` — an empty panel showed `0.00` in this
+   * box while every field feeding it was empty, which reads as a figure
+   * somebody entered (client 2026-09-09).
+   *
+   * Rounded BEFORE the comparison, and that is not fussiness: the value is a
+   * subtraction of four floats, so heads that genuinely cancel can land on
+   * `-2.8e-14` — truthy, and rendered as `-0.00`. Rounding to paise first makes
+   * "they cancel" and "nothing typed" the same answer, which is what an empty
+   * box should mean here.
+   */
+  const paise = Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
+  return (
+    <Field label={label} size="sm" hint="Gross less the heads" skipTab>
+      <Input readOnly value={paise === 0 ? "" : paise.toFixed(2)} />
+    </Field>
   );
 }
 

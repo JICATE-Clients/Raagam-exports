@@ -1,7 +1,8 @@
 "use server";
 
 import { can } from "@/lib/auth/server";
-import { getStaffChildren as read } from "@/lib/hr/masters-service";
+import { getPersonChildren as read } from "@/lib/hr/masters-service";
+import type { PersonKind } from "@/lib/hr/types";
 import type {
   StaffFamilyMember,
   StaffWorkExperience,
@@ -10,10 +11,11 @@ import type {
   StaffBankAccountRow,
   StaffExternalReference,
   StaffEmergencyContact,
+  HrShiftAssignment,
 } from "@/lib/hr/types";
 
 /**
- * A SERVER ACTION AROUND `getStaffChildren`, because the editor is a CLIENT
+ * A SERVER ACTION AROUND `getPersonChildren`, because the editor is a CLIENT
  * component and the service is `server-only`.
  *
  * The four lists are not on the list query — `listStaff` returns every staff
@@ -28,7 +30,7 @@ import type {
  * closed with empty lists rather than throwing keeps the editor usable for
  * someone who may read the staff row but not its details.
  */
-export async function getStaffChildren(staffId: string): Promise<{
+export async function getPersonChildren(kind: PersonKind, id: string): Promise<{
   family: StaffFamilyMember[];
   experience: StaffWorkExperience[];
   internalRefs: StaffInternalReference[];
@@ -36,6 +38,7 @@ export async function getStaffChildren(staffId: string): Promise<{
   bankAccounts: StaffBankAccountRow[];
   externalRefs: StaffExternalReference[];
   emergencyContacts: StaffEmergencyContact[];
+  shifts: HrShiftAssignment[];
 }> {
   if (!(await can("hr_payroll", "view"))) {
     return {
@@ -46,7 +49,8 @@ export async function getStaffChildren(staffId: string): Promise<{
       bankAccounts: [],
       externalRefs: [],
       emergencyContacts: [],
+      shifts: [],
     };
   }
-  return read(staffId);
+  return read(kind, id);
 }

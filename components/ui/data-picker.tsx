@@ -1371,6 +1371,16 @@ export function DataPicker({
             "text-ellipsis",
             "placeholder:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            // THE HAND, NOT THE TEXT CARET (client 2026-09-09). An `<input>`
+            // defaults to a caret, so a dropdown looked like a text box while the
+            // native `<select>` beside it pointed — and `Select` renders NATIVE on
+            // touch/SSR and this on a fine pointer, so the same `<Select>` showed
+            // two different cursors depending on the device. That is exactly the
+            // native/enhanced drift this file's comments keep warning about.
+            //
+            // Typing still filters the list; the cursor says "this opens a list",
+            // which is what the control is for. `disabled:` still wins, below.
+            "cursor-pointer",
             "disabled:cursor-not-allowed disabled:opacity-50",
             invalid ? "border-danger" : "border-border hover:border-primary",
             !selected && !open && "text-muted-foreground",

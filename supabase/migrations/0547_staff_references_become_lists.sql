@@ -1,5 +1,5 @@
 -- ===========================================================================
--- 0538 — external references and emergency contacts become LISTS.
+-- 0547 — external references and emergency contacts become LISTS.
 --
 -- 0536 made these twenty-four columns on `staff`, and said why: legacy numbers
 -- them 1) and 2) on the form, exactly two of each, so a table would have added

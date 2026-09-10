@@ -184,8 +184,13 @@ export const IO_ENTITIES: IoEntity[] = [
       { key: "shift_wage_per_day", header: "Shift Wage/Day", kind: "number" },
       { key: "hourly_wage", header: "Hourly Wage", kind: "number" },
       { key: "piece_rate", header: "Piece Rate", kind: "number" },
-      { key: "esi_applicable", header: "ESI Applicable", kind: "boolean" },
-      { key: "pf_applicable", header: "PF Applicable", kind: "boolean" },
+      // THE STATUS, NOT THE BOOLEAN — same correction the staff entity below
+      // carries. `esi_applicable` / `pf_applicable` are derived by a trigger
+      // (0536 for staff, extended to workers in 0553), so an imported value is
+      // overwritten on the same statement and the column silently ignores the
+      // spreadsheet.
+      { key: "esi_status", header: "ESI", kind: "string" },
+      { key: "pf_status", header: "PF", kind: "string" },
       { key: "joined_date", header: "Joined Date", kind: "date" },
       IS_ACTIVE,
     ],
@@ -198,11 +203,21 @@ export const IO_ENTITIES: IoEntity[] = [
     revalidate: ["/hr/staff"],
     schema: staffInput,
     fields: [
+      // THREE FIELDS HERE WENT STALE UNDER THE STAFF MIGRATIONS, and an import
+      // that silently drops a column is worse than one that refuses:
+      //   - `designation` became `designation_id`, a reference to the master
+      //     (0548). It is not importable as a name until this file can resolve
+      //     one, so it is absent rather than broken.
+      //   - `monthly_salary` is derived from `act_gross` by a trigger (0551);
+      //     an imported value is overwritten on the same statement. `act_gross`
+      //     is the importable column now.
+      //   - `esi_applicable` / `pf_applicable` are derived from `esi_status` /
+      //     `pf_status` (0536), for the same reason. The STATUS is what an
+      //     import should carry.
       { key: "name", header: "Name", kind: "string", required: true },
-      { key: "designation", header: "Designation", kind: "string" },
-      { key: "monthly_salary", header: "Monthly Salary", kind: "number" },
-      { key: "esi_applicable", header: "ESI Applicable", kind: "boolean" },
-      { key: "pf_applicable", header: "PF Applicable", kind: "boolean" },
+      { key: "act_gross", header: "Gross Salary", kind: "number" },
+      { key: "esi_status", header: "ESI", kind: "string" },
+      { key: "pf_status", header: "PF", kind: "string" },
       { key: "joined_date", header: "Joined Date", kind: "date" },
       IS_ACTIVE,
     ],
