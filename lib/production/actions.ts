@@ -8,11 +8,14 @@ import {
   productionEntryInput,
   productionLineInput,
   isConfirmable,
+  upstreamStage,
+  STAGE_LABELS,
   STAGE_MILESTONE,
   type ProductionEntryInput,
   type ProductionLineInput,
   type ProductionStage,
 } from "./types";
+import { getStageAvailability, type StageAvailability } from "./service";
 
 type OkResult = { ok: true };
 type ErrResult = { ok: false; error: string };
@@ -21,7 +24,35 @@ type CreateResult = { ok: true; id: string } | ErrResult;
 
 // ---- entries ----
 
-/** Record a new production entry (status = 'recorded'). Supervisor action. */
+/**
+ * The "Available from `<upstream stage>`: N pieces" hint the Record Output
+ * form shows BEFORE the operator types a quantity — the same figure
+ * `recordEntry`'s WIP guard checks, exposed as its own read so the ceiling is
+ * not a surprise the operator only meets after Save.
+ */
+export async function checkStageAvailability(
+  amendmentId: string,
+  stage: ProductionStage,
+): Promise<{ ok: true; data: StageAvailability } | ErrResult> {
+  if (!(await can("production", "view"))) return { ok: false, error: "Forbidden" };
+  if (!amendmentId) return { ok: false, error: "No order selected" };
+  return { ok: true, data: await getStageAvailability(amendmentId, stage) };
+}
+
+/**
+ * Record a new production entry (status = 'recorded'). Supervisor action.
+ *
+ * THE WIP GUARD (0548): a downstream stage may never carry more cumulative
+ * good pieces than its own upstream stage has produced — `getStageAvailability`
+ * reads both cumulative totals through `stage_cumulative_good_qty`, the same
+ * function the T&A worklist's derived bypass figure reads, so this guard and
+ * that display can never disagree. Cutting has no upstream and is unguarded.
+ * Deliberately checked against ALL recorded output, not confirmed-only: a
+ * piece a supervisor has physically logged already exists on the floor and
+ * can already be bypassed downstream — waiting for a manager's confirmation
+ * to unlock the next department would reintroduce the sequential-blocking
+ * assumption this feature exists to remove.
+ */
 export async function recordEntry(
   payload: ProductionEntryInput,
 ): Promise<CreateResult> {
@@ -33,6 +64,22 @@ export async function recordEntry(
       ok: false,
       error: parsed.error.issues[0]?.message ?? "Invalid input",
     };
+  }
+
+  const stage = parsed.data.stage;
+  const upstream = upstreamStage(stage);
+  if (upstream) {
+    const availability = await getStageAvailability(parsed.data.amendment_id, stage);
+    const newTotal = availability.ownQty + parsed.data.good_qty;
+    if (parsed.data.good_qty > 0 && newTotal > (availability.upstreamQty ?? 0)) {
+      const available = availability.availableQty ?? 0;
+      return {
+        ok: false,
+        error:
+          `WIP limit exceeded: only ${available} piece${available === 1 ? "" : "s"} ` +
+          `available from ${STAGE_LABELS[upstream]}.`,
+      };
+    }
   }
 
   const supabase = await createClient();
@@ -178,7 +225,7 @@ export async function logRework(
   const { data: source, error: fetchErr } = await supabase
     .from("production_entries")
     .select(
-      "id, sales_order_id, stage, line_id, color, size, reject_qty, entry_date",
+      "id, amendment_id, sales_order_id, stage, line_id, color, size, reject_qty, entry_date",
     )
     .eq("id", fromEntryId)
     .single();
@@ -187,7 +234,8 @@ export async function logRework(
 
   const src = source as {
     id: string;
-    sales_order_id: string;
+    amendment_id: string | null;
+    sales_order_id: string | null;
     stage: string;
     line_id: string | null;
     color: string | null;
@@ -199,6 +247,7 @@ export async function logRework(
   const { data, error } = await supabase
     .from("production_entries")
     .insert({
+      amendment_id: overrides?.amendment_id ?? src.amendment_id,
       sales_order_id: src.sales_order_id,
       stage: src.stage,
       line_id: overrides?.line_id ?? src.line_id,

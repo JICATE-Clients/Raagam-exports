@@ -21,6 +21,8 @@ import type { GarmentOrderAmendment } from "./types";
    and a screen cannot import a `server-only` module. */
 import { caseFoldKey } from "./types";
 import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
+import { listEmployees } from "@/lib/masters/employee-service";
+import type { TaOwnerEmployee } from "@/lib/ta/task-owners";
 import type { ComponentScopeRow } from "@/lib/masters/component-coordinates";
 /* TYPE ONLY — erased at compile time, so naming it here does not pull the
    Style master's server module into this bundle. See `getApprovedSampleRows`. */
@@ -199,6 +201,12 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         // read-only here but must be SHOWN, since the tab is where an operator
         // sees how far the order has actually got.
         "ta_activities:garment_order_amendment_ta_activities(*), " +
+        // The order's approval tracker. `*` for the same reason as
+        // `ta_activities` above: the screen needs `row_uid` to round-trip
+        // the anchor, and the merchandiser-board-owned columns
+        // (`actual_sent_date`, `actual_received_date`, `proof_path`,
+        // `status`) are read-only here but must be SHOWN.
+        "ta_approvals:garment_order_amendment_ta_approvals(*), " +
         // The Assort tree (0414). Two levels of embed under the quantity row —
         // and, like every other name here, ONE unresolvable relationship
         // fails the WHOLE query rather than this branch of it, which is why
@@ -258,6 +266,9 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
        sort a refused (undated) row to the front, so sorting on the date would
        be a second, disagreeing answer to "what order is this ladder in?". */
     ta_activities: bySno(r.ta_activities),
+    // No `sno` here — approvals carry no execution order (same note as
+    // `AmendmentTaApproval` in types.ts), so there is nothing to sort by.
+    ta_approvals: r.ta_approvals ?? [],
     quantities: bySno(r.quantities).map((q) => ({
       ...q,
       // Size cells have no `sno` — the ORDER of a ratio is the column order,
@@ -935,6 +946,25 @@ export type AmendmentFormData = {
    * never defaulted to a guessed number of days.
    */
   ppReviewDaysByCustomer: Record<string, number>;
+  /** The `ta_approvals` master, for the Approvals grid's own picker. */
+  taApprovals: TaApprovalOption[];
+  /**
+   * EVERY customer's approval defaults, unscoped — see
+   * `getAllCustomerApprovalDefaults` for why this is the whole table rather
+   * than a per-customer fetch. Filtered client-side when the order's
+   * Customer changes, to seed the Approvals grid.
+   */
+  customerApprovalDefaults: CustomerApprovalDefault[];
+  /**
+   * activity_id -> department_id[] where `ta_department_assign_lines.
+   * is_owner = true` (0547 Task Owner, operator request 2026-09-10). Scopes
+   * the T&A grid's Task Owner picker — see `taOwnerOptions()` in
+   * `lib/ta/task-owners.ts`, and `getTaOwnerDepartments()` below for why this
+   * is NOT the same map `lib/ta/worklist.ts`'s `activityDepartments()` builds.
+   */
+  taOwnerDepartmentsByActivity: Record<string, string[]>;
+  /** Full employees master, for the Task Owner picker (0547). */
+  employees: TaOwnerEmployee[];
 };
 
 /**
@@ -989,6 +1019,143 @@ async function getTaActivityRows(): Promise<TaActivityOption[]> {
     is_active: r.is_active,
     default_seed: r.default_seed ?? false,
   }));
+}
+
+/**
+ * The order's approval tracker (`garment_order_amendment_ta_approvals`) —
+ * the `ta_approvals` master, for the Approvals grid's own picker. Same
+ * additive `PickerRow` shape as `TaActivityOption` above, and for the same
+ * reason: handed straight to `RecordPicker`, with the rules that read the
+ * extra keys (target-date scheduling) living on the SCREEN.
+ *
+ * `requires_proof` RIDES ALONG so the worklist board (a separate screen)
+ * knows whether to enforce Dispatch Proof — never copied onto the order's
+ * own row, same "read through, never copy" call `TaActivityOption.department`
+ * already makes.
+ */
+export type TaApprovalOption = PickerRow & {
+  short_name: string | null;
+  department: string | null;
+  apply_condition: string | null;
+  standard_days: number;
+  requires_proof: boolean;
+};
+
+/**
+ * ORDERED BY `sequence` for the same reason `getTaActivityRows` is — a
+ * plausible-looking but wrongly-ordered picker list is a worse failure than
+ * an obviously empty one. `is_active` selected, not filtered, for the
+ * "Disabled rows" rule: an approval retired after an order named it must
+ * stay resolvable on that order rather than blanking the FK on save.
+ */
+async function getTaApprovalRows(): Promise<TaApprovalOption[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("ta_approvals")
+    .select("id, short_name, name, department, apply_condition, standard_days, requires_proof, is_active, sequence")
+    .order("sequence");
+  if (error) throw new Error(`Could not load the T&A approvals master: ${error.message}`);
+  return ((data ?? []) as {
+    id: string;
+    short_name: string | null;
+    name: string | null;
+    department: string | null;
+    apply_condition: string | null;
+    standard_days: number | null;
+    requires_proof: boolean | null;
+    is_active: boolean | null;
+  }[]).map((r) => ({
+    id: r.id,
+    code: r.short_name,
+    name: r.name ?? r.short_name ?? "",
+    short_name: r.short_name,
+    department: r.department,
+    apply_condition: r.apply_condition,
+    standard_days: r.standard_days ?? 0,
+    requires_proof: r.requires_proof ?? true,
+    is_active: r.is_active,
+  }));
+}
+
+/** One customer's own approval selection + lead-time override. */
+export type CustomerApprovalDefault = {
+  customer_id: string;
+  approval_id: string;
+  lead_time_days: number;
+};
+
+/**
+ * A SINGLE customer's approval defaults — the SERVER-SIDE lookup
+ * `taApprovalRows` (actions.ts) makes at SAVE time, to resolve this order's
+ * buyer-specific lead-time override. Scoped by `customerId` because a save
+ * only ever needs one buyer's rows.
+ *
+ * NOT what the SCREEN calls to seed the Approvals grid — see
+ * `getAllCustomerApprovalDefaults` below for that.
+ */
+export async function getCustomerApprovalDefaults(
+  customerId: string,
+): Promise<CustomerApprovalDefault[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("customer_approval_defaults")
+    .select("customer_id, approval_id, lead_time_days")
+    .eq("customer_id", customerId);
+  if (error) throw new Error(`Could not load this customer's approval defaults: ${error.message}`);
+  return (data ?? []) as CustomerApprovalDefault[];
+}
+
+/**
+ * EVERY customer's approval defaults, unscoped — loaded once into
+ * `AmendmentFormData` and filtered CLIENT-SIDE when the order's Customer
+ * changes, the same shape `nominatedVendorOptions` already uses for
+ * `customer_nominated_vendors`. Empty for a customer with no defaults
+ * configured: the operator adds approvals to the order manually — the same
+ * "empty-and-explain" shape every other nominated/scoped list in this app
+ * uses, never a fallback to "every approval".
+ */
+async function getAllCustomerApprovalDefaults(): Promise<CustomerApprovalDefault[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("customer_approval_defaults")
+    .select("customer_id, approval_id, lead_time_days");
+  if (error) throw new Error(`Could not load customer approval defaults: ${error.message}`);
+  return (data ?? []) as CustomerApprovalDefault[];
+}
+
+/**
+ * activity_id -> department_id[], from `ta_department_assign_lines` rows
+ * marked `is_owner = true` (0547 Task Owner). Deliberately NOT the same map
+ * `lib/ta/worklist.ts`'s `activityDepartments()` builds — that one answers
+ * "which departments touch this activity at all" (for the daily worklist,
+ * `is_owner` ignored on purpose); this answers "which department OWNS it"
+ * (for who may be assigned the task). The two questions can disagree — a
+ * department can be CC'd on an activity's worklist without being the one
+ * that owns assigning it — so one map answering both would quietly narrow
+ * or widen whichever question borrowed the other's answer.
+ *
+ * Same embed-unwrapping as `activityDepartments()` (a PostgREST to-one embed
+ * arrives as an object OR a one-element array) — mirrored inline rather than
+ * imported, since that helper is private to `worklist.ts`.
+ */
+async function getTaOwnerDepartments(): Promise<Record<string, string[]>> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("ta_department_assign_lines")
+    .select("activity_id, assign:ta_department_assigns(department_id)")
+    .eq("is_owner", true);
+  if (error) throw new Error(`Could not load Task Owner department scoping: ${error.message}`);
+
+  const out: Record<string, string[]> = {};
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const activityId = row.activity_id as string | null;
+    const assign = row.assign as { department_id: string | null } | { department_id: string | null }[] | null;
+    const deptId = (Array.isArray(assign) ? assign[0] : assign)?.department_id ?? null;
+    if (!activityId || !deptId) continue;
+    (out[activityId] ??= []).push(deptId);
+  }
+  for (const k of Object.keys(out)) out[k] = Array.from(new Set(out[k]));
+  return out;
 }
 
 /**
@@ -1431,6 +1598,10 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     rejectionRules,
     taActivities,
     ppReviewDaysByCustomer,
+    taApprovals,
+    customerApprovalDefaults,
+    taOwnerDepartmentsByActivity,
+    employeesRaw,
   ] = await Promise.all([
     getCustomerRows(),
     getMerchandiserRows(),
@@ -1453,6 +1624,10 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getRejectionRuleRows(),
     getTaActivityRows(),
     getCustomerPpReviewDays(),
+    getTaApprovalRows(),
+    getAllCustomerApprovalDefaults(),
+    getTaOwnerDepartments(),
+    listEmployees(),
   ]);
   return {
     /**
@@ -1500,5 +1675,15 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     rejectionRules,
     taActivities,
     ppReviewDaysByCustomer,
+    taApprovals,
+    customerApprovalDefaults,
+    taOwnerDepartmentsByActivity,
+    employees: employeesRaw.map((e) => ({
+      id: e.id,
+      code: e.code,
+      name: e.name,
+      department_id: e.department_id,
+      inactive: e.inactive,
+    })),
   };
 }

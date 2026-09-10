@@ -34,6 +34,7 @@ export default async function ApprovalsWorklistPage() {
   const backlog = wl.rows.filter((r) => r.bucket === "backlog");
   const dueToday = wl.rows.filter((r) => r.bucket === "today");
   const upcoming = wl.rows.filter((r) => r.bucket === "upcoming");
+  const resolved = wl.rows.filter((r) => r.bucket === "resolved");
 
   return (
     <div className="space-y-4">
@@ -100,6 +101,17 @@ export default async function ApprovalsWorklistPage() {
         canComplete={wl.canComplete}
         empty="Nothing scheduled in the next week."
       />
+
+      {resolved.length > 0 && (
+        <details className="space-y-2">
+          <summary className="cursor-pointer text-sm font-semibold">
+            Approved ({resolved.length}) — for follow-up tracking, not action
+          </summary>
+          <div className="pt-2">
+            <ApprovalsWorklistBoard rows={resolved} canComplete={wl.canComplete} />
+          </div>
+        </details>
+      )}
     </div>
   );
 }

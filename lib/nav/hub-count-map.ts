@@ -78,7 +78,7 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // Same reasoning as ta-worklist directly above: the whole
   // garment_order_amendment_ta_approvals table is every approval ever
   // scheduled, not "how many are waiting on you today".
-  "/orders/ta-approvals-worklist": null,
+  "/orders/ta-followup": null,
   "/orders/ta-masters": "ta_activities",
   "/orders/ta-department-assign": "ta_department_assigns",
   // A MATRIX, NOT A LIST (W3's audit). `ta_user_rights` holds one row per user

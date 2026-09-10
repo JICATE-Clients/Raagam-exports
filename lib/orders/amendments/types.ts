@@ -1335,6 +1335,58 @@ export interface AmendmentTaActivity {
    *  `ta_plan_activities`' (0401) verbatim, one spelling of one state machine. */
   status: string;
   notes: string | null;
+  /** Who owns this row (0547) — typed on the T&A tab, not the dashboard; see
+   *  `TaRowCore`'s note. Round-tripped here so a reopened order's ladder
+   *  shows who was already assigned, the same way `activity_id` does. */
+  assigned_staff_id: string | null;
+  /** `none` | `internal_staff` | `buyer_delay` | `material_supplier`. Set on
+   *  the dashboard when a row completes late — see `TaCompletion`. */
+  delay_attribution: string;
+}
+
+/**
+ * T&A ▸ Approvals ▸ one row of the order's approval tracker
+ * (`garment_order_amendment_ta_approvals`). Mirrors `AmendmentTaActivity`'s
+ * own shape and reasoning:
+ *
+ * `row_uid` IS THE ANCHOR, exactly as above — `actual_sent_date` /
+ * `actual_received_date` / `proof_path` / `status` are carried across a save
+ * by `row_uid`. Never re-derive it for a row read back from the database.
+ *
+ * `target_date` IS WRITTEN, NEVER COMPUTED ON THIS SCREEN — it comes from
+ * `lib/orders/ta/approval-schedule.ts`'s `computeApprovalSchedule`, run
+ * server-side in `taApprovalRows` (actions.ts) and mirrored client-side by
+ * this screen's own `taApprovalDates` for the read-only Target Date cell.
+ * BOTH HALVES OR NEITHER, the same rule `AmendmentTaActivity.target_date`
+ * already states.
+ *
+ * `actual_sent_date` / `actual_received_date` / `proof_path` / `status` are
+ * writable from TWO places as of the "TA Followup" tab inside Order Entry
+ * (operator request, 2026-09-10) — that tab and the standalone
+ * `/orders/ta-followup` board both call the SAME four actions in
+ * `lib/ta/approvals-worklist-actions.ts`, so there is exactly one place that
+ * knows how to transition a row regardless of where the click happened. This
+ * reverses what this comment used to say ("never on this screen") — the
+ * later instruction wins; a reader who finds the old claim quoted elsewhere
+ * is holding something this supersedes.
+ */
+export interface AmendmentTaApproval {
+  id: string;
+  amendment_id: string;
+  row_uid: string;
+  /** The `ta_approvals` master row. Name/department/proof-requirement is
+   *  read THROUGH this — never copied onto the row. */
+  approval_id: string | null;
+  target_date: string | null;
+  actual_sent_date: string | null;
+  actual_received_date: string | null;
+  /** Storage path inside the PRIVATE `order-approval-docs` bucket — never a URL. */
+  proof_path: string | null;
+  /** `pending` | `sent` | `approved` | `rework`. */
+  status: string;
+  /** Bumped by `markApprovalRework` on every rejection — `> 1` is what tells
+   *  a reader "this has a history worth opening". */
+  active_version: number;
 }
 
 /**
@@ -1618,6 +1670,8 @@ export interface GarmentOrderAmendment {
   pack_type_lines: AmendmentPackTypeLine[];
   /** The order's Time & Action ladder (0481). Merged on save, never replaced. */
   ta_activities: AmendmentTaActivity[];
+  /** The order's approval tracker. Merged on save, never replaced — same reasoning as `ta_activities`. */
+  ta_approvals: AmendmentTaApproval[];
   quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
   files: AmendmentFile[];
@@ -2064,6 +2118,43 @@ export const amendmentTaActivityInput = z.object({
     (v) => (v === "" || v === null || v === undefined ? null : v),
     z.coerce.number().int("Days must be a whole number of days").nullable(),
   ),
+  /**
+   * WHO OWNS THIS ROW — typed on THIS screen (operator request, 2026-09-10),
+   * reversing what this table's own `TaCompletion` comment used to say
+   * ("set from the T&A WORKLIST... never from Order Entry's T&A tab"). A
+   * merchandiser assigns the owner when the ladder is built, the same way
+   * they assign `activity_id`; `delay_attribution` stays a dashboard-owned
+   * completion field below, because THAT fact ("who caused this delay")
+   * genuinely cannot be known until the row is late.
+   */
+  assigned_staff_id: uuidN,
+});
+
+/**
+ * One row of the order's approval tracker. DELIBERATELY NARROWER THAN THE
+ * ROW, same reasoning as `amendmentTaActivityInput` immediately above:
+ *
+ *   * `target_date` is computed by the SERVER (`taApprovalRows` in
+ *     actions.ts, via `computeApprovalSchedule`) — a client stating an
+ *     opinion about it would be the same "BOTH HALVES OR NEITHER" failure.
+ *   * `actual_sent_date` / `actual_received_date` / `proof_path` / `status`
+ *     belong to the MERCHANDISER BOARD, entered days or weeks later by
+ *     someone else. Carried across a save by `row_uid`, from the database,
+ *     never from this payload.
+ *
+ * `row_uid` is REQUIRED — this table is created today, so there is no older
+ * client whose omission needs protecting, and a missing anchor should fail
+ * loud rather than delete a completion record silently.
+ */
+export const amendmentTaApprovalInput = z.object({
+  row_uid: z
+    .string()
+    .uuid(
+      "Every approval row needs its anchor — reload the order rather than " +
+        "saving a form that has lost one, or the sent/received records " +
+        "already logged against it cannot be matched back.",
+    ),
+  approval_id: uuidN,
 });
 
 /**
@@ -2301,6 +2392,16 @@ export const amendmentInput = z.object({
   // update writing NULL over them. Row type keeps `amend_year` so a saved value
   // still loads and still shows anywhere that reads the record.
   delivery_date: nullableText,
+  /**
+   * ORDER RECEIVED DATE — reinstated on Order Info (client 2026-09-09).
+   *
+   * `received_date` was withdrawn from this schema on 2026-08-12 along with
+   * the rest of the old Logistic tab's dropped fields (see the note below).
+   * It comes back now as an ORDER INFO field, not a Logistic one — the
+   * column and `HeaderForm.received_date` were never removed, only the
+   * write path was, so this is the one line that reconnects them.
+   */
+  received_date: nullableText,
   excess_pct: num,
   pack: z.boolean().default(false),
   /* 0467 — retail SET packs. Independent of `pack`; see the header type. */
@@ -2312,12 +2413,14 @@ export const amendmentInput = z.object({
   /**
    * WITHDRAWN FROM THE FORM (client), and therefore from this schema.
    *
-   * 2026-08-12 — `contact_id`, `logi_po_date`, `received_date` and the whole
-   * `style_prices` child, which restated the Prices tab: the Logistic tab is
-   * Ship Mode / Ship Type / Pay Mode / Payment Terms / Days / Currency /
-   * Country and nothing else. `AmendmentStylePrice` and the `style_prices`
-   * EMBED both stay — the read side keeps showing what is stored, exactly as
-   * `charges` does; it is only the write side that withdraws.
+   * 2026-08-12 — `contact_id`, `logi_po_date`, `received_date` (SINCE
+   * REINSTATED, above — as an Order Info field, not a Logistic one; see its
+   * own note) and the whole `style_prices` child, which restated the Prices
+   * tab: the Logistic tab is Ship Mode / Ship Type / Pay Mode / Payment
+   * Terms / Days / Currency / Country and nothing else. `AmendmentStylePrice`
+   * and the `style_prices` EMBED both stay — the read side keeps showing
+   * what is stored, exactly as `charges` does; it is only the write side
+   * that withdraws.
    * 2026-08-10 — `department_id`, `agent_id`, `received_mode`, the whole
    * `charges` child and `cd1_pct … cd3_days`. 2026-08-11 — `initiated`, the
    * Order Info "Initiated" dropdown, and `amend_type`, its "Type" dropdown
@@ -2404,6 +2507,12 @@ export const amendmentInput = z.object({
    * than the rows it writes, and `normalizeTaActivities` for the merge.
    */
   ta_activities: z.array(amendmentTaActivityInput).default([]),
+  /**
+   * The order's approval tracker. MERGED on save rather than replaced — see
+   * `amendmentTaApprovalInput` for why this list is narrower than the rows
+   * it writes, and `normalizeTaApprovals` for the merge.
+   */
+  ta_approvals: z.array(amendmentTaApprovalInput).default([]),
   quantities: z.array(amendmentQuantityInput).default([]),
   files: z.array(amendmentFileInput).default([]),
 })
@@ -2480,19 +2589,44 @@ export type AmendmentInput = z.infer<typeof amendmentInput>;
  * rule restated at each caller.
  */
 
-/** What identifies and describes a ladder step. The T&A tab owns all of it. */
+/**
+ * What identifies and describes a ladder step. The T&A tab owns all of it.
+ *
+ * `assigned_staff_id` (0547) is here, not on `TaCompletion` below, as of the
+ * "TA Followup"/Task Owner work (operator request, 2026-09-10) — this
+ * REVERSES what `TaCompletion`'s own comment used to say ("set from the T&A
+ * WORKLIST, never from Order Entry's T&A tab"). A merchandiser assigns the
+ * owner when the ladder is built, the same act as picking `activity_id`; see
+ * `amendmentTaActivityInput`'s note on the same field for why. The later
+ * instruction wins — a reader who finds the old claim quoted elsewhere is
+ * holding something this supersedes.
+ */
 export type TaRowCore = {
   row_uid: string;
   sno: number;
   activity_id: string | null;
   days_required: number | null;
+  assigned_staff_id: string | null;
 };
 
-/** What the DASHBOARD owns. Never on `amendmentTaActivityInput`; see its note. */
+/**
+ * What the DASHBOARD owns. Never on `amendmentTaActivityInput`; see its note.
+ *
+ * `delay_attribution` (0547) is here for the same reason `actual_date` /
+ * `status` / `notes` are: it cannot be known until the row is actually late,
+ * which happens on the T&A WORKLIST, days after the order was saved — unlike
+ * `assigned_staff_id` (moved to `TaRowCore` above), which the merchandiser
+ * already knows at Order Entry time. Leaving it out of this type — and so
+ * out of `mergeTaCompletions` below — would silently reset it to its column
+ * default on the next unrelated order save, the exact "12/12 lines + 10
+ * answers destroyed" failure this file's header is about, one column at a
+ * time.
+ */
 export type TaCompletion = {
   actual_date: string | null;
   status: string | null;
   notes: string | null;
+  delay_attribution: string | null;
 };
 
 /** A row as it comes back out of the database. */
@@ -2503,6 +2637,7 @@ export type MergedTaRow = TaRowCore & { target_date: string | null } & {
   actual_date: string | null;
   status: string;
   notes: string | null;
+  delay_attribution: string;
 };
 
 /**
@@ -2538,6 +2673,7 @@ export function taRowsToWrite(
     sno: i + 1,
     activity_id: r.activity_id,
     days_required: r.days_required,
+    assigned_staff_id: r.assigned_staff_id,
   }));
 }
 
@@ -2566,6 +2702,15 @@ export function taRowsToWrite(
  * ladder refused — which reaches here only on a DRAFT, because a real save
  * returns the refusal instead of writing. An undated row appears on no worklist,
  * which is the honest reading of a plan nobody has finished writing.
+ *
+ * `assigned_staff_id` needs no line here any more — it lives on `TaRowCore`
+ * now (see that type's note) and arrives already carried by `...r` below,
+ * the same way `activity_id`/`days_required` always have.
+ *
+ * `delay_attribution` (0547) DOES coalesce, to `'none'`, for the same reason
+ * `status` coalesces to `'pending'` — the column is `not null default
+ * 'none'`, and this writer names it on every row, so the column's own
+ * default never gets a chance to fire.
  */
 export function mergeTaCompletions(
   rows: readonly TaRowCore[],
@@ -2581,6 +2726,85 @@ export function mergeTaCompletions(
       actual_date: was?.actual_date ?? null,
       status: was?.status ?? "pending",
       notes: was?.notes ?? null,
+      delay_attribution: was?.delay_attribution ?? "none",
+    };
+  });
+}
+
+/**
+ * THE SAME MERGE, FOR THE APPROVALS TRACKER — one exported function pair for
+ * the same reason `taRowsToWrite` / `mergeTaCompletions` are: a server
+ * action cannot be vectored, and "a merge that is merely written is not a
+ * merge that is known to work". `scripts/check-ta-approval-merge.mts`
+ * proves these; `npm run check:ta-approval-merge`.
+ *
+ * No `sno` here, unlike the activity ladder's core — approvals carry no
+ * execution order, so there is nothing to renumber.
+ */
+
+/** What identifies an approval row. The Approvals grid owns all of it. */
+export type TaApprovalRowCore = {
+  row_uid: string;
+  approval_id: string | null;
+};
+
+/** What the MERCHANDISER BOARD owns. Never on `amendmentTaApprovalInput`. */
+export type TaApprovalCompletion = {
+  actual_sent_date: string | null;
+  actual_received_date: string | null;
+  proof_path: string | null;
+  status: string | null;
+};
+
+/** A row as it comes back out of the database. */
+export type SavedTaApprovalRow = TaApprovalRowCore & TaApprovalCompletion;
+
+/** A row as it goes in, its date resolved and completion carried across. */
+export type MergedTaApprovalRow = TaApprovalRowCore & { target_date: string | null } & {
+  actual_sent_date: string | null;
+  actual_received_date: string | null;
+  proof_path: string | null;
+  status: string;
+};
+
+/**
+ * WHICH APPROVAL LIST THIS SAVE IS WRITING — the payload's, or the stored
+ * one. Same "empty means unchanged, not deleted" rule `taRowsToWrite` states
+ * at length; not repeated here.
+ */
+export function taApprovalRowsToWrite(
+  typed: readonly TaApprovalRowCore[],
+  saved: readonly SavedTaApprovalRow[],
+): TaApprovalRowCore[] {
+  const winner: readonly TaApprovalRowCore[] = typed.length ? typed : saved;
+  return winner.map((r) => ({ row_uid: r.row_uid, approval_id: r.approval_id }));
+}
+
+/**
+ * CARRY THE MERCHANDISER BOARD'S COLUMNS ACROSS THE SAVE, by `row_uid`. Same
+ * reasoning as `mergeTaCompletions`: a row with no saved counterpart is NEW
+ * and starts `pending`; a saved row absent from the incoming list was
+ * deliberately deleted by the operator, and its completion goes with it.
+ *
+ * `targetDates` is index-for-index with `rows` — the caller resolves every
+ * approval's date from `lib/orders/ta/approval-schedule.ts` BEFORE calling
+ * this; this function only carries dates across, it never computes one.
+ */
+export function mergeTaApprovalCompletions(
+  rows: readonly TaApprovalRowCore[],
+  saved: readonly SavedTaApprovalRow[],
+  targetDates: readonly (string | null)[],
+): MergedTaApprovalRow[] {
+  const prior = new Map(saved.map((r) => [r.row_uid, r]));
+  return rows.map((r, i) => {
+    const was = prior.get(r.row_uid);
+    return {
+      ...r,
+      target_date: targetDates[i] ?? null,
+      actual_sent_date: was?.actual_sent_date ?? null,
+      actual_received_date: was?.actual_received_date ?? null,
+      proof_path: was?.proof_path ?? null,
+      status: was?.status ?? "pending",
     };
   });
 }

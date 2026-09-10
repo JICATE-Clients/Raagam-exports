@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { today } from "@/lib/calendar";
+import { stageWipByPair, type StageWip } from "@/lib/production/service";
+import type { ProductionStage } from "@/lib/production/types";
 
 /**
  * Marking a T&A activity done, from the worklist.
@@ -15,19 +17,23 @@ import { today } from "@/lib/calendar";
  * the completion on the order tab and completing it means opening the order,
  * which is the friction that killed legacy T&A.
  *
- * ## THIS TOUCHES THREE COLUMNS AND NOTHING ELSE, AND THAT IS LOAD-BEARING
+ * ## THIS TOUCHES ONLY COLUMNS THE MERGE ALSO CARRIES, AND THAT IS LOAD-BEARING
  *
  * `writeChildren` — how the amendment saves its 20-odd child grids — DELETES
  * every child row and reinserts. The T&A table survives that only because the
- * amendment's writer merges `actual_date` / `status` / `notes` across by
- * `row_uid` (see §1.1 of the T&A contract, and the
+ * amendment's writer merges `actual_date` / `status` / `notes` /
+ * `assigned_staff_id` / `delay_attribution` (0547) across by `row_uid` (see
+ * §1.1 of the T&A contract, `mergeTaCompletions` in
+ * `lib/orders/amendments/types.ts`, and the
  * `raagam-material-attribute-edit-orphans` memory for the day this repo paid for
  * that lesson: "12/12 lines + 10 answers destroyed and unrecoverable").
  *
- * So this action must never insert, never delete, and never write a column the
- * merge does not carry. It is a targeted `update` by primary key of exactly the
- * three columns the merge preserves. Anything more here would be a second writer
- * over the same rows, which is the shape of that bug.
+ * So every action in this file must write ONLY columns the merge carries. It is
+ * a targeted `update` by primary key of exactly those columns. Writing anything
+ * the merge does not know about would be a second writer over the same rows,
+ * which is the shape of that bug — and the reason `assignTaActivity` /
+ * `delayAttribution` below were added to `TaCompletion` in the SAME change that
+ * added them here, not as a follow-up.
  *
  * ## No RPC, so no function grant to get wrong
  *
@@ -43,6 +49,9 @@ const LIST_PATH = "/orders/ta-worklist";
 
 const TABLE = "garment_order_amendment_ta_activities";
 
+const DELAY_ATTRIBUTIONS = ["none", "internal_staff", "buyer_delay", "material_supplier"] as const;
+type DelayAttribution = (typeof DELAY_ATTRIBUTIONS)[number];
+
 /**
  * Record that an activity was completed.
  *
@@ -50,10 +59,20 @@ const TABLE = "garment_order_amendment_ta_activities";
  * never `new Date().toISOString().slice(0,10)` — that is UTC, and a completion
  * logged at 02:00 in Tirupur would be filed under yesterday. It is also accepted
  * from the caller, because work is often logged the morning after it was done.
+ *
+ * `delayAttribution` (0547) is required only when the completion is LATE —
+ * `staff_ta_kpi`'s on-time score reads it, and an unattributed late row would
+ * count against the assignee by default (`delay_attribution`'s own column
+ * default is `'none'`, not "unknown"), which is the wrong direction to fail
+ * silently in. Reading `target_date` here (one extra row, by primary key) is
+ * the courtesy check; the CHECK constraint (0547) is what actually refuses a
+ * 5th spelling — this only refuses a MISSING one on a late row, which no
+ * constraint can express.
  */
 export async function completeTaActivity(
   id: string,
   actualDate?: string,
+  delayAttribution?: DelayAttribution,
 ): Promise<Result> {
   if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
   if (!id) return { ok: false, error: "No activity given" };
@@ -62,11 +81,35 @@ export async function completeTaActivity(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return { ok: false, error: "Completion date must be a calendar date" };
   }
+  if (delayAttribution && !DELAY_ATTRIBUTIONS.includes(delayAttribution)) {
+    return { ok: false, error: "Unrecognised delay attribution" };
+  }
 
   const supabase = await createClient();
+
+  const { data: row, error: rowError } = await supabase
+    .from(TABLE)
+    .select("target_date")
+    .eq("id", id)
+    .maybeSingle();
+  if (rowError) return { ok: false, error: rowError.message };
+  if (!row) return { ok: false, error: "That T&A row no longer exists" };
+
+  const isLate = row.target_date != null && date > row.target_date;
+  if (isLate && (!delayAttribution || delayAttribution === "none")) {
+    return {
+      ok: false,
+      error: "This is late — say who it was on (Staff / Buyer / Material Supplier) before marking it done",
+    };
+  }
+
   const { error } = await supabase
     .from(TABLE)
-    .update({ actual_date: date, status: "done" })
+    .update({
+      actual_date: date,
+      status: "done",
+      delay_attribution: isLate ? delayAttribution : "none",
+    })
     .eq("id", id);
 
   if (error) return { ok: false, error: error.message };
@@ -81,6 +124,12 @@ export async function completeTaActivity(
  * row and now needs someone with database access. `status` goes back to
  * `pending` rather than `in_progress`: the row is being disclaimed, and claiming
  * it is half-done would be inventing a fact.
+ *
+ * `delay_attribution` resets to `'none'` alongside `actual_date`/`status`
+ * (0547) — it describes a completion, and a row with no completion has
+ * nothing for it to describe. Leaving a stale `'buyer_delay'` on a reopened,
+ * not-yet-redone row would misattribute whatever the NEXT completion turns
+ * out to be.
  */
 export async function reopenTaActivity(id: string): Promise<Result> {
   if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
@@ -89,7 +138,39 @@ export async function reopenTaActivity(id: string): Promise<Result> {
   const supabase = await createClient();
   const { error } = await supabase
     .from(TABLE)
-    .update({ actual_date: null, status: "pending" })
+    .update({ actual_date: null, status: "pending", delay_attribution: "none" })
+    .eq("id", id);
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(LIST_PATH);
+  return { ok: true };
+}
+
+/**
+ * Claim (or release) a T&A row for one specific person (0547).
+ *
+ * `staffId: null` releases the row back to "every eligible department
+ * member's" — the same absence `garment_order_amendment_ta_activities.
+ * assigned_staff_id is null` already means everywhere else this column is
+ * read (`lib/ta/worklist.ts`).
+ *
+ * DELIBERATELY NOT DEPARTMENT-LOCKED. The T&A Worklist UI scopes the picker's
+ * OPTIONS to the row's own department (the same `activityDepartments()` /
+ * `myDepartment()` logic `getWorklist` already uses), but this action itself
+ * only checks `orders:edit` — assigning does not grant anyone new access, it
+ * is routing information, and a hard department lock here would block the
+ * legitimate case of one department genuinely lending a hand on another's
+ * activity. If that ever needs to become a real boundary, it belongs in RLS,
+ * not as a second copy of the department-matching logic here.
+ */
+export async function assignTaActivity(id: string, staffId: string | null): Promise<Result> {
+  if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
+  if (!id) return { ok: false, error: "No activity given" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ assigned_staff_id: staffId })
     .eq("id", id);
 
   if (error) return { ok: false, error: error.message };
@@ -173,66 +254,43 @@ export async function startTaActivity(id: string): Promise<Result> {
   return { ok: true };
 }
 
+// `registerBypass` (hand-typed bypassed_qty/bypassed_at, 0540) lived here and
+// is gone as of 0548 — bypass is now DERIVED from `production_entries` via
+// `stage_cumulative_good_qty`, computed live in `lib/ta/worklist.ts`
+// `getWorklist()`, so the T&A worklist and the floor ledger can never
+// disagree the way a hand-typed running total could. The `bypassed_qty`/
+// `bypassed_at` columns stay on the table for their existing history; nothing
+// writes to them any more.
+
 /**
- * Register how many pieces have BYPASSED this activity ahead of its own
- * schedule (0540) — the shop-floor reality that Sewing's first 500 pieces
- * reach Checking and Ironing long before Sewing itself is marked `done`.
+ * The same derived bypass figure `getWorklist()` shows, for Order Entry's own
+ * T&A tab (`garment-order-screen.tsx`) — the client asked for it there
+ * directly rather than only on the separate worklist screen.
  *
- * INDEPENDENT OF `status`/`actual_date`, same as those two columns are of
- * each other — this never touches either, so a row can be `pending` and
- * carry a bypass, or `done` with none. Never a 4th `status` value (see the
- * 0540 migration header: the worklist buckets rows by exactly three states,
- * and a fourth spelling would put a row in none of them).
+ * Gated on `orders:view`, NOT `production:view` — this is read from an
+ * `orders`-scoped screen, by whoever can already see the order, and
+ * `stage_cumulative_good_qty` is SECURITY DEFINER (0548) precisely so a user
+ * with no `production` permission still gets an honest answer rather than a
+ * silent zero from RLS.
  *
- * CUMULATIVE, NOT AN INCREMENT — the caller sends the new running total (the
- * same shape `days_required` already uses: the operator's own figure, never
- * summed here), and `qty` REFUSES rather than clamps against the order's own
- * total pieces (`garment_order_amendment_styles.po_qty`, summed) — a guessed
- * ceiling is worse than an error the operator can act on.
+ * Returns a plain object keyed by STAGE, not by T&A row — the caller (one
+ * amendment's own ladder) maps each of its rows to a stage and looks up this
+ * object, the same "keyed by the fact, not the row" shape `taActivityById`
+ * already uses for the activity master.
  */
-export async function registerBypass(id: string, qty: number): Promise<Result> {
-  if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
-  if (!id) return { ok: false, error: "No activity given" };
-  if (!Number.isFinite(qty) || qty <= 0) {
-    return { ok: false, error: "Enter how many pieces have bypassed this activity" };
+export async function getTaActivityWip(
+  amendmentId: string,
+  stages: ProductionStage[],
+): Promise<Partial<Record<ProductionStage, StageWip>>> {
+  if (!(await can("orders", "view"))) return {};
+  const uniqueStages = [...new Set(stages)];
+  if (!amendmentId || !uniqueStages.length) return {};
+
+  const wip = await stageWipByPair(uniqueStages.map((stage) => ({ amendmentId, stage })));
+  const out: Partial<Record<ProductionStage, StageWip>> = {};
+  for (const stage of uniqueStages) {
+    const v = wip.get(`${amendmentId}|${stage}`);
+    if (v) out[stage] = v;
   }
-
-  const supabase = await createClient();
-
-  const { data: row, error: rowError } = await supabase
-    .from(TABLE)
-    .select("amendment_id")
-    .eq("id", id)
-    .maybeSingle();
-  if (rowError) return { ok: false, error: rowError.message };
-  if (!row) return { ok: false, error: "That T&A row no longer exists" };
-
-  const { data: styles, error: styleError } = await supabase
-    .from("garment_order_amendment_styles")
-    .select("po_qty")
-    .eq("amendment_id", row.amendment_id);
-  if (styleError) return { ok: false, error: styleError.message };
-
-  const orderQty = (styles ?? []).reduce((sum, s) => sum + (Number(s.po_qty) || 0), 0);
-  if (orderQty <= 0) {
-    return {
-      ok: false,
-      error: "This order has no pieces on its styles yet, so a bypass quantity has nothing to be measured against",
-    };
-  }
-  if (qty > orderQty) {
-    return {
-      ok: false,
-      error: `Cannot exceed the order's own ${orderQty} pieces`,
-    };
-  }
-
-  const { error } = await supabase
-    .from(TABLE)
-    .update({ bypassed_qty: qty, bypassed_at: today() })
-    .eq("id", id);
-
-  if (error) return { ok: false, error: error.message };
-  revalidatePath(LIST_PATH);
-  return { ok: true };
+  return out;
 }

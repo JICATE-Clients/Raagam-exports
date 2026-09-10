@@ -21,6 +21,7 @@ import type {
   AmendmentPackType,
   AmendmentPackTypeLine,
   AmendmentTaActivity,
+  AmendmentTaApproval,
   AmendmentStyleProcess,
   AmendmentStyleSize,
   AmendmentStyleComponent,
@@ -206,6 +207,16 @@ export interface SeededAmendmentChildren {
    * against it.
    */
   taActivities?: Seeded<AmendmentTaActivity>[];
+  /**
+   * The order's approval tracker. Same reasoning as `taActivities`
+   * immediately above: a `sales_order` carries no approval list of its own,
+   * so an order seed always hands over `[]` and the SCREEN seeds it instead
+   * — from the buyer's own `customer_approval_defaults`, not from a blank
+   * row and not from the `ta_approvals` master directly. It is in this type
+   * only so `applyRows` can map a SAVED document's rows back onto the
+   * screen, the same way `taActivities` is.
+   */
+  taApprovals?: Seeded<AmendmentTaApproval>[];
   /** Still seeded and still diffed (scripts/check-amendment-diff.mts), but the
    *  Country/Sizewise TAB was withdrawn on 2026-08-10, so the screen no longer
    *  consumes it. Optional rather than deleted: the diff vectors are the only
@@ -275,6 +286,7 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   styleComponents: [],
   styleProcesses: [],
   taActivities: [],
+  taApprovals: [],
   quantities: [],
   countrySizes: [],
 };

@@ -52,12 +52,25 @@ function check(label: string, actual: unknown, expected: unknown) {
   }
 }
 
-/** A row as the payload types it — no completion columns; the input has none. */
-const typed = (uid: string, sno: number, activity: string | null, days: number | null): TaRowCore => ({
+/**
+ * A row as the payload types it — no DASHBOARD-owned completion columns; the
+ * input has none of those. `assigned_staff_id` (0547) IS here, not a
+ * completion column — reversed 2026-09-10, see `TaRowCore`'s own note — so it
+ * takes a 5th, optional param rather than living on `saved()`'s completion
+ * object below.
+ */
+const typed = (
+  uid: string,
+  sno: number,
+  activity: string | null,
+  days: number | null,
+  owner: string | null = null,
+): TaRowCore => ({
   row_uid: uid,
   sno,
   activity_id: activity,
   days_required: days,
+  assigned_staff_id: owner,
 });
 
 /** A row as it comes back out of the database, with whatever was recorded. */
@@ -66,12 +79,14 @@ const saved = (
   sno: number,
   activity: string | null,
   days: number | null,
-  completion: Partial<Pick<SavedTaRow, "actual_date" | "status" | "notes">> = {},
+  completion: Partial<Pick<SavedTaRow, "actual_date" | "status" | "notes" | "delay_attribution">> = {},
+  owner: string | null = null,
 ): SavedTaRow => ({
-  ...typed(uid, sno, activity, days),
+  ...typed(uid, sno, activity, days, owner),
   actual_date: null,
   status: "pending",
   notes: null,
+  delay_attribution: "none",
   ...completion,
 });
 
@@ -114,10 +129,12 @@ check(
     sno: 2,
     activity_id: "act-knit",
     days_required: 5,
+    assigned_staff_id: null,
     target_date: "2026-10-06",
     actual_date: "2026-09-14",
     status: "done",
     notes: "GREIGE IN ON TIME",
+    delay_attribution: "none",
   },
 );
 
@@ -164,10 +181,12 @@ check(
       sno: 1,
       activity_id: "act-knit",
       days_required: 7,
+      assigned_staff_id: null,
       target_date: "2026-10-02",
       actual_date: "2026-09-14",
       status: "done",
       notes: "GREIGE IN ON TIME",
+      delay_attribution: "none",
     },
   ],
 );
@@ -189,10 +208,12 @@ check(
       sno: 1,
       activity_id: "act-cut",
       days_required: 3,
+      assigned_staff_id: null,
       target_date: "2026-10-03",
       actual_date: null,
       status: "pending",
       notes: null,
+      delay_attribution: "none",
     },
   ],
 );
@@ -340,12 +361,14 @@ check(
   ),
   [
     { row_uid: "uid-fabric", sno: 1, activity_id: "act-fabric", days_required: 2,
-      target_date: null, actual_date: null, status: "pending", notes: null },
+      assigned_staff_id: null, target_date: null, actual_date: null, status: "pending",
+      notes: null, delay_attribution: "none" },
     { row_uid: "uid-knit", sno: 2, activity_id: "act-knit", days_required: null,
-      target_date: null, actual_date: "2026-09-14", status: "done",
-      notes: "GREIGE IN ON TIME" },
+      assigned_staff_id: null, target_date: null, actual_date: "2026-09-14", status: "done",
+      notes: "GREIGE IN ON TIME", delay_attribution: "none" },
     { row_uid: "uid-ship", sno: 3, activity_id: "act-ship", days_required: 1,
-      target_date: null, actual_date: null, status: "pending", notes: null },
+      assigned_staff_id: null, target_date: null, actual_date: null, status: "pending",
+      notes: null, delay_attribution: "none" },
   ],
 );
 
@@ -365,6 +388,91 @@ check(
   "a short date list leaves the rest undated rather than shifting them",
   mergeTaCompletions(LADDER_TYPED, LADDER_SAVED, dates("2026-10-01")).map((r) => r.target_date),
   ["2026-10-01", null, null],
+);
+
+// =============================================================================
+// 0547 — assigned_staff_id (TYPED) and delay_attribution (DASHBOARD) TAKE
+// DIFFERENT PATHS THROUGH THE SAME SAVE
+// =============================================================================
+// `assigned_staff_id` moved from `TaCompletion` to `TaRowCore` on 2026-09-10
+// (operator request — a merchandiser assigns the Task Owner in Order Entry's
+// T&A grid, not a staff member claiming it later on the Worklist). So it now
+// behaves exactly like `activity_id`/`days_required`: whatever the CURRENT
+// typed payload says is what is written, full stop — there is no "survives
+// because the merge carried it across" story for it any more, and a vector
+// claiming otherwise would be testing a design this file no longer implements.
+//
+// `delay_attribution` stays genuinely dashboard-owned — it cannot be known
+// until the row is actually late — so IT still needs the completion-survives
+// story the file's headline vector already proves for `actual_date`/`status`.
+
+const CLAIMED_SAVED: SavedTaRow[] = [
+  saved("uid-fabric", 1, "act-fabric", 2, {}, "emp-brittor"),
+  saved(
+    "uid-knit",
+    2,
+    "act-knit",
+    5,
+    { actual_date: "2026-09-14", status: "done", notes: "GREIGE IN ON TIME" },
+    "emp-brittor",
+  ),
+  saved(
+    "uid-cut",
+    3,
+    "act-cut",
+    3,
+    { actual_date: "2026-09-20", status: "done", delay_attribution: "buyer_delay" },
+    "emp-ravi",
+  ),
+];
+
+// The operator's CURRENT pick, on THIS save — reassigning uid-fabric away
+// from emp-brittor to nobody, and uid-cut to a different person. This is the
+// shape a real save takes: the screen always states its own current value,
+// never "whatever was there before".
+const CLAIMED_TYPED: TaRowCore[] = [
+  typed("uid-fabric", 1, "act-fabric", 2, null),
+  typed("uid-knit", 2, "act-knit", 5, "emp-brittor"),
+  typed("uid-cut", 3, "act-cut", 3, "emp-suresh"),
+];
+
+check(
+  "assigned_staff_id is written from the TYPED payload, not carried from saved",
+  mergeTaCompletions(
+    taRowsToWrite(CLAIMED_TYPED, CLAIMED_SAVED),
+    CLAIMED_SAVED,
+    dates(null, null, null),
+  ).map((r) => `${r.row_uid}:${r.assigned_staff_id ?? "—"}`),
+  ["uid-fabric:—", "uid-knit:emp-brittor", "uid-cut:emp-suresh"],
+);
+
+check(
+  "...and an empty-payload fallback save re-emits the SAVED assignee, same as activity_id",
+  taRowsToWrite([], CLAIMED_SAVED).map((r) => `${r.row_uid}:${r.assigned_staff_id ?? "—"}`),
+  ["uid-fabric:emp-brittor", "uid-knit:emp-brittor", "uid-cut:emp-ravi"],
+);
+
+check(
+  "a recorded delay attribution survives the same save, and an unattributed row defaults to none",
+  mergeTaCompletions(
+    taRowsToWrite(CLAIMED_TYPED, CLAIMED_SAVED),
+    CLAIMED_SAVED,
+    dates(null, null, null),
+  ).map((r) => r.delay_attribution),
+  ["none", "none", "buyer_delay"],
+);
+
+check(
+  "a step the operator removed takes its attribution with it, same as status",
+  mergeTaCompletions(
+    taRowsToWrite(
+      [typed("uid-fabric", 1, "act-fabric", 2), typed("uid-knit", 2, "act-knit", 5)],
+      CLAIMED_SAVED,
+    ),
+    CLAIMED_SAVED,
+    dates(null, null),
+  ).map((r) => r.row_uid),
+  ["uid-fabric", "uid-knit"],
 );
 
 console.log(

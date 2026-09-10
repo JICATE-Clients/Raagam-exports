@@ -1,13 +1,32 @@
 import { z } from "zod";
 
-export const PRODUCTION_STAGES = ["cutting", "sewing", "packing"] as const;
+// ORDER IS THE FLOOR FLOW, not alphabetical — `upstreamStage()` below reads
+// "the stage before this one in the array" as the physical upstream
+// department, so Checking/Ironing had to be inserted here at the right index
+// (0539: they already exist as T&A activities between Sewing and Packing) and
+// not just appended.
+export const PRODUCTION_STAGES = [
+  "cutting",
+  "sewing",
+  "checking",
+  "ironing",
+  "packing",
+] as const;
 export type ProductionStage = (typeof PRODUCTION_STAGES)[number];
 
 export const STAGE_LABELS: Record<ProductionStage, string> = {
   cutting: "Cutting",
   sewing: "Sewing",
+  checking: "Checking",
+  ironing: "Ironing",
   packing: "Packing",
 };
+
+/** The stage immediately before this one on the floor, or null for Cutting. */
+export function upstreamStage(stage: ProductionStage): ProductionStage | null {
+  const i = PRODUCTION_STAGES.indexOf(stage);
+  return i > 0 ? PRODUCTION_STAGES[i - 1] : null;
+}
 
 export const ENTRY_STATUSES = ["recorded", "confirmed"] as const;
 export type EntryStatus = (typeof ENTRY_STATUSES)[number];
@@ -15,11 +34,41 @@ export type EntryStatus = (typeof ENTRY_STATUSES)[number];
 export const LINE_TYPES = ["cutting", "sewing", "packing", "general"] as const;
 export type LineType = (typeof LINE_TYPES)[number];
 
-/** Map a stage to the T&A milestone name it should complete (best-effort). */
+export const SHIFT_CODES = ["SHIFT_1", "SHIFT_2"] as const;
+export type ShiftCode = (typeof SHIFT_CODES)[number];
+
+/**
+ * Map a stage to the T&A milestone name it should complete (best-effort,
+ * name-matched — `lib/production/actions.ts confirmEntry()`). `ta_milestones`
+ * is the OLDER, still-live TA Plan model (`lib/orders/actions.ts
+ * getTaMilestones`, read by `lib/dashboard/service.ts`'s on-time metrics) —
+ * a separate table from the amendment-based `garment_order_amendment_
+ * ta_activities` this feature's bypass is derived from. Both exist; this map
+ * only concerns the older one.
+ */
 export const STAGE_MILESTONE: Record<ProductionStage, string> = {
   cutting: "Cutting",
   sewing: "Sewing",
+  checking: "Checking",
+  ironing: "Ironing",
   packing: "Finishing & Packing",
+};
+
+/**
+ * `ta_activities.short_name` (0035) → the floor stage it corresponds to, for
+ * every place that derives a bypass/WIP figure from a T&A row: `lib/ta/
+ * worklist.ts`'s `getWorklist()`, `lib/ta/worklist-actions.ts`'s
+ * `getTaActivityWip` (Order Entry's own T&A tab), and anything else that
+ * needs to go from "which T&A activity" to "which production_entries.stage".
+ * Only the 5 floor stages have an entry; every other T&A activity (Fabric
+ * Plan, Knitting, Dyeing, Inspection, Shipment, …) is not a floor stage.
+ */
+export const ACTIVITY_SHORT_NAME_TO_STAGE: Record<string, ProductionStage> = {
+  CUT: "cutting",
+  SEW: "sewing",
+  CHECK: "checking",
+  IRON: "ironing",
+  PACK: "packing",
 };
 
 export interface ProductionLine {
@@ -35,9 +84,13 @@ export interface ProductionLine {
 
 export interface ProductionEntry {
   id: string;
-  sales_order_id: string;
+  /** The garment order amendment this output belongs to (0548). */
+  amendment_id: string | null;
+  /** Legacy pre-amendment FK (0011) — kept for rows a backfill couldn't resolve. */
+  sales_order_id: string | null;
   stage: ProductionStage;
   line_id: string | null;
+  shift_code: ShiftCode;
   entry_date: string;
   color: string | null;
   size: string | null;
@@ -62,9 +115,10 @@ export interface StageProgress {
 
 // ---------- input schemas ----------
 export const productionEntryInput = z.object({
-  sales_order_id: z.string().uuid(),
+  amendment_id: z.string().uuid(),
   stage: z.enum(PRODUCTION_STAGES),
   line_id: z.string().uuid().optional().nullable(),
+  shift_code: z.enum(SHIFT_CODES).default("SHIFT_1"),
   entry_date: z.string().optional().nullable(),
   color: z.string().optional().nullable(),
   size: z.string().optional().nullable(),

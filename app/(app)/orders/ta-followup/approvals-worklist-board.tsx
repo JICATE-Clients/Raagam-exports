@@ -138,12 +138,15 @@ export function ApprovalsWorklistBoard({
               </div>
 
               <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <span className="tabular-nums text-xs text-muted-foreground">{fmtDate(row.targetDate)}</span>
-                  <SlipPill row={row} />
-                  <StatusPill tone={row.status === "sent" ? "info" : "neutral"}>
-                    {row.status === "pending" ? "Pending" : row.status === "sent" ? "Sent" : row.status}
+                  {row.bucket !== "resolved" && <SlipPill row={row} />}
+                  <StatusPill
+                    tone={row.status === "sent" ? "info" : row.status === "approved" ? "success" : "neutral"}
+                  >
+                    {row.status === "pending" ? "Pending" : row.status === "sent" ? "Sent" : row.status === "approved" ? "Approved" : row.status}
                   </StatusPill>
+                  <DelayPills row={row} />
                 </div>
 
                 {canComplete && row.status === "pending" && (
@@ -196,6 +199,13 @@ export function ApprovalsWorklistBoard({
 }
 
 /** "Mark Sent", with an optional file attached in the same click. */
+/**
+ * Dispatch Proof Enforcement (spec §4.1). `requiresProof` approvals drop the
+ * no-file "Mark Sent" button entirely — the file input opens on the SAME
+ * click as "Attach & Send", so there is no keystroke that reaches SENT
+ * without a file chosen. `markApprovalSent` re-checks this server-side (see
+ * its own header); this is the courtesy half, not the guard.
+ */
 function SendControl({
   row,
   disabled,
@@ -219,7 +229,7 @@ function SendControl({
         }}
       />
       <Button
-        variant="outline"
+        variant={row.requiresProof ? "primary" : "outline"}
         size="sm"
         disabled={disabled}
         onClick={() => fileRef.current?.click()}
@@ -227,10 +237,37 @@ function SendControl({
       >
         <Upload aria-hidden /> Attach & Send
       </Button>
-      <Button size="sm" disabled={disabled} onClick={() => onSend(row, null)}>
-        <Send aria-hidden /> Mark Sent
-      </Button>
+      {!row.requiresProof && (
+        <Button size="sm" disabled={disabled} onClick={() => onSend(row, null)}>
+          <Send aria-hidden /> Mark Sent
+        </Button>
+      )}
     </div>
+  );
+}
+
+/**
+ * Delay Attribution Engine (spec §5) — read-only pills, shown only once the
+ * fact they measure has happened (see `approvals-worklist.ts` for why both
+ * can be null). Merchandiser delay is always shown once a dispatch is late;
+ * buyer delay only shows when it is actually > 0 — a buyer who replied
+ * within their agreed lead time has nothing to be flagged for, and showing
+ * "0 days" on every resolved row would bury the ones that matter.
+ */
+function DelayPills({ row }: { row: ApprovalWorklistRow }) {
+  return (
+    <>
+      {!!row.merchandiserDelayDays && (
+        <span title="Dispatched later than the target send date">
+          <StatusPill tone="warning">Dispatch +{row.merchandiserDelayDays}d</StatusPill>
+        </span>
+      )}
+      {!!row.buyerDelayDays && (
+        <span title={`Buyer took longer than the agreed ${row.masterLeadDays}-day review`}>
+          <StatusPill tone="danger">Buyer +{row.buyerDelayDays}d</StatusPill>
+        </span>
+      )}
+    </>
   );
 }
 
