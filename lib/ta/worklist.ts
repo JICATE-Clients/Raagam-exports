@@ -138,6 +138,16 @@ export interface WorklistRow {
   /** `bypassedQty / orderQty`, 0-1. Null when either side is missing/zero. */
   bypassPercent: number | null;
   /**
+   * True when the floor is actively producing past this activity
+   * (`bypassedQty > 0`) even though its own `targetDate` has slipped — the
+   * "Bypass Alert Suppression" rule (doc/ui/order/ta two approval.md §7.4).
+   * Pieces are physically moving, so an "N days late" alert here is a false
+   * positive on the CALENDAR half of the picture, not a real stall; the row
+   * still sorts and buckets by `daysLate` as before, only the ALERT styling
+   * (`SlipPill`, `escalated`) is suppressed.
+   */
+  bypassInProgress: boolean;
+  /**
    * True only for a CUTTING row whose order tracks a PP Sample approval that
    * is not yet Approved (doc/approval.md §5.2, "Cutting Room Safety Lock").
    * Always false for every other activity — this is a belt-and-braces UI
@@ -888,6 +898,7 @@ export async function getWorklist(
     const bypassedAt = bypassedQty != null ? wip!.lastEntryDate : null;
     const bypassPercent =
       bypassedQty != null && orderQty > 0 ? bypassedQty / orderQty : null;
+    const bypassInProgress = bypassedQty != null;
 
     return {
       id: String(r.id),
@@ -902,6 +913,7 @@ export async function getWorklist(
       bypassedQty,
       bypassedAt,
       bypassPercent,
+      bypassInProgress,
       activityId: str(r.activity_id),
       activity: str(act?.name) ?? str(act?.short_name) ?? "—",
       departmentName: deptName,
@@ -913,7 +925,9 @@ export async function getWorklist(
       status: str(r.status) ?? "pending",
       daysLate,
       bucket,
-      escalated: daysLate >= ESCALATE_AFTER_DAYS,
+      // Suppressed while the floor is producing (§7.4) — an escalation exists
+      // to get someone chasing a stall, and a row with live output isn't one.
+      escalated: daysLate >= ESCALATE_AFTER_DAYS && !bypassInProgress,
       materials: all.slice(0, MATERIALS_SHOWN),
       materialsOmitted: Math.max(0, all.length - MATERIALS_SHOWN),
       notes: str(r.notes),
@@ -934,11 +948,22 @@ export async function getWorklist(
       .maybeSingle();
     if (ppSample) {
       const amendmentIds = [...new Set(cutRows.map((r) => r.amendmentId))];
+      // PRODUCTION-BASED PP APPROVAL (0552, §3) — same opt-out the action
+      // reads. An order with the toggle off is dropped from `amendmentIds`
+      // before the tracker query, so its CUTTING rows never risk a
+      // stale-`true` `cuttingBlocked` from a status this screen never checked.
+      const { data: orders } = await sb
+        .from("garment_order_amendments")
+        .select("id, production_based_pp_approval")
+        .in("id", amendmentIds);
+      const gatedAmendmentIds = (orders ?? [])
+        .filter((o) => o.production_based_pp_approval !== false)
+        .map((o) => String(o.id));
       const { data: trackers } = await sb
         .from("garment_order_amendment_ta_approvals")
         .select("amendment_id, status")
         .eq("approval_id", ppSample.id)
-        .in("amendment_id", amendmentIds);
+        .in("amendment_id", gatedAmendmentIds);
       const statusByAmendment = new Map((trackers ?? []).map((t) => [String(t.amendment_id), t.status]));
       for (const row of cutRows) {
         const status = statusByAmendment.get(row.amendmentId);

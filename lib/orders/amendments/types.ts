@@ -1607,6 +1607,15 @@ export interface GarmentOrderAmendment {
   /** MULTI ORDER — several buyer PO numbers on this one order (0427). Opens the
    *  PO No column on the Quantities tab. Not `mult_ord`; see it above. */
   multi_order: boolean;
+  /**
+   * PRODUCTION-BASED PP APPROVAL (doc/ui/order/ta two approval.md §3). YES
+   * (default) is the Cutting Room Safety Lock already enforced in
+   * `startTaActivity` (`lib/ta/worklist-actions.ts`) — a declared PP Sample
+   * approval must reach `approved` before the CUTTING row may start. NO turns
+   * that lock off for this order; the backward schedule and the approval
+   * tracker are unaffected either way, only the cutting gate reads it.
+   */
+  production_based_pp_approval: boolean;
   // logistic scalars
   department_id: string | null;
   ship_type_id: string | null;
@@ -2410,6 +2419,8 @@ export const amendmentInput = z.object({
   mult_ord: z.boolean().default(false),
   /** MULTI ORDER (0427) — several buyer POs, one per quantity line. */
   multi_order: z.boolean().default(false),
+  /** PRODUCTION-BASED PP APPROVAL (§3) — see the row type for what it gates. */
+  production_based_pp_approval: z.boolean().default(true),
   /**
    * WITHDRAWN FROM THE FORM (client), and therefore from this schema.
    *

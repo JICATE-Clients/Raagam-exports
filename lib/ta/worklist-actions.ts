@@ -195,6 +195,17 @@ async function cuttingBlockedReason(
   s: Awaited<ReturnType<typeof createClient>>,
   amendmentId: string,
 ): Promise<string | null> {
+  // PRODUCTION-BASED PP APPROVAL (0552, §3) — the order's own opt-out. NO
+  // decouples cutting from PP Sample review entirely, so nothing below this
+  // line runs: not "the tracker doesn't block", but "this order doesn't ask
+  // the question at all", same as a database with no PP Sample master row.
+  const { data: order } = await s
+    .from("garment_order_amendments")
+    .select("production_based_pp_approval")
+    .eq("id", amendmentId)
+    .maybeSingle();
+  if (order && order.production_based_pp_approval === false) return null;
+
   const { data: approval, error } = await s
     .from("ta_approvals")
     .select("id")
