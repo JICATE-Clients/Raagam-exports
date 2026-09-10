@@ -1272,6 +1272,16 @@ type HeaderForm = {
   mult_ord: boolean;
   /** MULTI ORDER (0427) — several buyer POs, one per quantity line. */
   multi_order: boolean;
+  /**
+   * PRODUCTION-BASED PP APPROVAL (doc/ui/order/ta two approval.md §3) — YES
+   * (default) is the strict gate already live: cutting refuses to start while
+   * this order's declared PP Sample approval sits unapproved (T&A ▸ Approvals
+   * below; enforced in `startTaActivity`, `lib/ta/worklist-actions.ts`). NO
+   * decouples the two — cutting and material buying proceed on the ordinary
+   * backward schedule and PP Sample review runs in parallel rather than ahead
+   * of them, for a buyer whose rotation depends on not waiting.
+   */
+  production_based_pp_approval: boolean;
   // logistic scalars
   department_id: string | null;
   ship_type_id: string | null;
@@ -1332,6 +1342,7 @@ const BLANK: HeaderForm = {
   is_set_pack: false,
   mult_ord: false,
   multi_order: false,
+  production_based_pp_approval: true,
   department_id: null,
   ship_type_id: null,
   contact_id: null,
@@ -3878,6 +3889,7 @@ export function GarmentOrderScreen({
       is_set_pack: r.is_set_pack ?? false,
       mult_ord: r.mult_ord,
       multi_order: r.multi_order,
+      production_based_pp_approval: r.production_based_pp_approval ?? true,
       department_id: r.department_id,
       ship_type_id: r.ship_type_id,
       contact_id: r.contact_id,
@@ -4031,6 +4043,7 @@ export function GarmentOrderScreen({
       is_set_pack: form.is_set_pack,
       mult_ord: form.mult_ord,
       multi_order: form.multi_order,
+      production_based_pp_approval: form.production_based_pp_approval,
       department_id: form.department_id,
       ship_type_id: form.ship_type_id,
       contact_id: form.contact_id,
@@ -19407,6 +19420,26 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               </div>
             </div>
             <div className="space-y-2 bg-surface p-3">
+              {/* PRODUCTION-BASED PP APPROVAL (0552, §3) — sits with what it
+                  gates, same principle as Multi Order above: this switch is
+                  the on/off for the Cutting Room Safety Lock the rows below
+                  declare, so it lives in the panel that owns those rows
+                  rather than in Order Info, two sections away. YES (default)
+                  changes nothing an order does today; only turning it OFF is
+                  a new behaviour. */}
+              <div className="mb-1 flex items-center gap-3">
+                <Toggle
+                  id="ta-pp-hardlock"
+                  checked={form.production_based_pp_approval}
+                  onChange={(production_based_pp_approval) => set({ production_based_pp_approval })}
+                  label="Production-Based PP Approval"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {form.production_based_pp_approval
+                    ? "Cutting waits until PP Sample below is Approved."
+                    : "Cutting and material buying proceed without waiting on PP Sample."}
+                </span>
+              </div>
               <ChildGrid<TaApprovalRow>
                 columns={taApprovalColumns}
                 rows={taApprovalRows}

@@ -341,9 +341,22 @@ export function WorklistBoard({
  * "3 days late" and not "-3": a negative number in a Days column is the shape
  * `backwardSchedule` reports float in, and reusing it here would make two
  * different facts look like one.
+ *
+ * A row with `bypassInProgress` never reads as an alert here (§7.4) — the
+ * floor is actively producing past this activity, so "N days late" would be
+ * a false positive on the calendar half alone. `daysLate` itself is left
+ * untouched (it still sorts/buckets the row); only the PILL'S TONE softens,
+ * same split `escalated` makes in `lib/ta/worklist.ts`.
  */
 function SlipPill({ row }: { row: WorklistRow }) {
   if (row.daysLate > 0) {
+    if (row.bypassInProgress) {
+      return (
+        <StatusPill tone="info">
+          {row.daysLate} {row.daysLate === 1 ? "day" : "days"} late · bypass in progress
+        </StatusPill>
+      );
+    }
     return (
       <StatusPill tone={row.escalated ? "danger" : "warning"}>
         {row.daysLate} {row.daysLate === 1 ? "day" : "days"} late
