@@ -685,7 +685,7 @@ export function MultiSelect({
           onKeyDown={onTriggerKeyDown}
           className={cn(
             // Same metrics as Input / DataPicker — these share rows with both.
-            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface pl-3 pr-9 text-base md:text-sm",
+            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface pl-2.5 pr-9 text-base md:text-sm",
             // truncate-reveal: exempt -- the full selection is rendered in the
             // chip line below, so nothing here is the only copy of a value.
             "text-ellipsis placeholder:text-muted-foreground",

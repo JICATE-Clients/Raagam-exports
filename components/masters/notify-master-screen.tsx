@@ -11,6 +11,7 @@ import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Toggle } from "@/components/ui/toggle";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
@@ -157,7 +158,7 @@ const blankContact = (key: string): ContactRow => ({
 const FIELD_SIZE = {
   name: "sm",
   country: "sm",
-  inactive: "sm", // a tick; it sits last in the row, so it takes the remainder
+  inactive: "sm", // a switch; it sits last in the row, so it takes the remainder
   street: "sm", // a single-line Input now — a Textarea sets the row's height
   city: "sm",
   state: "sm",
@@ -716,17 +717,44 @@ export function NotifyMasterScreen({
                   canDelete={perms.canDelete}
                 />
               </Field>
+              {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch
+                  Order Entry uses) — the identical swap the sibling Country and
+                  Destination masters made, and from the SAME component, so the
+                  three masters and Garment Order's Pack / Multi Style switches
+                  cannot drift apart. Size, track colour and the ON `--primary`
+                  are `Toggle`'s, not this screen's, which is the whole point of
+                  asking for "the same as Order Entry".
+
+                  IT IS STILL A REAL CHECKBOX UNDERNEATH, and that is what makes
+                  the swap safe rather than merely pretty. `Toggle` keeps an
+                  `sr-only` `<input type="checkbox">` and draws the switch with
+                  its siblings, because `isFieldLike()` (lib/focus.ts) counts an
+                  `<input>` and NOT a `<button role="switch">` — the obvious
+                  build would have dropped this flag off Tab, off Enter-advance
+                  and off the arrows, leaving it mouse-only. Tab reaches it,
+                  Enter and Space toggle it, and a screen reader still announces
+                  a checkbox.
+
+                  `label=""` RESERVES THE LABEL ROW, and it is the alignment fix
+                  rather than decoration. `FIELD_TRACK` (cols={12}) carries no
+                  `items-end`, so a cell with no label at all collapses its
+                  label row and lifts its control ~16px above the labelled
+                  fields beside it — the documented 2026-08-11 fault, and what
+                  put this tick above the centre line of the Name and Country
+                  boxes it shares a row with. The spacer goes through the real
+                  `Label`, so the reserved row keeps that component's own
+                  `@2xl/editor` metrics instead of a second copy of them.
+
+                  No `label="Inactive"` on the Field: the switch renders its own
+                  words, and two labels would draw the name twice. */}
               {editId && (
-                <Field size={FIELD_SIZE.inactive}>
-                  <label className="flex h-8 cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.inactive}
-                      onChange={(e) => set({ inactive: e.target.checked })}
-                    />
-                    <span className="text-sm text-foreground">Inactive</span>
-                  </label>
+                <Field label="" size={FIELD_SIZE.inactive}>
+                  <Toggle
+                    id="nt-inactive"
+                    label="Inactive"
+                    checked={form.inactive}
+                    onChange={(inactive) => set({ inactive })}
+                  />
                 </Field>
               )}
             </DetailSection>

@@ -343,7 +343,7 @@ export function Combobox({
           // <Select> actually renders (select.tsx upgrades to Combobox on a fine
           // pointer), so missing it here would leave every dropdown 4px taller
           // than the inputs beside it. See components/ui/input.tsx.
-          "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+          "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-2.5 text-base md:text-sm",
           // Reserves the trailing slot; stated beside its width, not here.
           compact ? AFFORDANCE_PAD_COMPACT : AFFORDANCE_PAD,
           "placeholder:text-muted-foreground",

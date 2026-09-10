@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, FIELD_WIDTH, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -39,7 +40,6 @@ import {
   partyOrigin,
   OriginBadge,
   PublishesBadge,
-  originNameHint,
   originDeleteBlock,
   type PartyOrigin,
 } from "@/components/masters/party-origin";
@@ -216,45 +216,369 @@ const BLANK: HeaderForm = {
  * the picker ~185px beside a ~90px button. Split the editor into columns and
  * that pairing is the first thing that breaks.
  */
-const FIELD_SIZE = {
-  // ---- Identity ----
-  inactive: "sm",
-  name: "sm",
-  doc_prefix: "sm",
-  doc_id: "sm",
-  also_consignee: "sm",
-  also_notify: "sm",
-  country_id: "sm",
-  business_entity: "sm",
-  inhouse_unit_id: "sm",
-  // ---- Address ----
-  street: "sm", // a single-line Input now — a Textarea sets the row's height
-  city_id: "sm",
-  state_id: "sm",
-  pin: "sm",
-  address_country_id: "sm",
-  land_line: "sm",
-  email: "sm",
-  web_site: "sm",
-  // ---- General ----
-  currency_1: "sm",
-  currency_2: "sm",
-  currency_3: "sm",
-  ship_mode: "sm",
-  ship_type_id: "sm",
-  pay_mode: "sm",
-  receivable_term_id: "sm",
-  pref_courier_id: "sm",
-  port_of_loading_id: "sm",
-  port_of_discharge_id: "sm",
-  final_destination_id: "sm",
-  packing_list_format_id: "sm", // holds the picker AND its "Columns" button
-  commercial_invoice_format_id: "sm",
-  color_spec_applicable: "sm",
-  tcs_applicable: "sm",
-  gst_no: "sm",
-  gstin_insight: "full", // a fact strip, not a field — see above
-} satisfies Record<string, FieldSize>;
+/**
+ * IDENTITY LEAVES THE TWELFTHS TRACK, AND THEN LEAVES THE WIDTH VOCABULARY TOO
+ * (client 2026-09-09: eight fields "tightly on a single horizontal row",
+ * `flex-nowrap`, `gap-2.5`, each width named).
+ *
+ * The first step was the ordinary one. Nine fields at `size="sm"` is 3 of 12
+ * each, so on a 1440px pane a two-character Doc Prefix was as wide as the
+ * customer's NAME and the section broke into three ragged rows. A fraction
+ * cannot be made compact — shrinking the control inside a twelfth leaves the
+ * CELL at its old width and the value floating in a hole — so `FieldRow` +
+ * per-field widths is the move, exactly as Country, Destination and Port made on
+ * 2026-09-08.
+ *
+ * ## THESE ARE HAND-MEASURED PIXELS, NOT `FieldWidth`, AND THAT IS THE TRADE
+ *
+ * `lib/ui/sizes.ts` states the rule these break, in its own words: "There are
+ * FIVE widths for the whole application, not one per field — the failure this
+ * must never become is a screen measured against its own longest value." That
+ * rule is right and it is why the five-width vocabulary exists.
+ *
+ * It was tried here FIRST and the client rejected the result. The nearest
+ * vocabulary fit is 288/112/112/144/112/176/176/144 = 1264px of controls, and
+ * every one of those is a step wider than the value needs: `code` (144) for a
+ * unit id that holds four characters, `name` (288) for a customer name the
+ * client wants at 170. The row was compact by the vocabulary's standards and
+ * still not compact, because the vocabulary's floor is coarser than this row.
+ *
+ * So the widths below are the client's, named per field, and they are scoped to
+ * THIS ROW by living in this file rather than by widening `FieldWidth`. That
+ * boundary is the whole mitigation: nothing else in the app can reach them, and
+ * a screen that wants a compact row still meets the five widths first. **Do not
+ * copy this map to another screen** — reach for `FieldWidth`, and come back here
+ * only if the same rejection happens again, at which point the vocabulary needs
+ * a sixth width rather than a second exception.
+ *
+ * DERIVED, so it can be checked against the pane:
+ *
+ *   170 + 85 + 85 + 110 + 95 + 95 + 150 + 130 = 920   the controls
+ *   + 7 x 10                                  =  70   FIELD_ROW_NOWRAP's gap-x-2.5
+ *   = 990                                             one line inside the 1440 cap
+ *
+ * `also_notify` is the one width the client did not name — a tick and the word
+ * "Yes" needs almost nothing, so it takes its LABEL's width, the same 95px as
+ * "Also Consignee" beside it. Two of the others are label-bound rather than
+ * value-bound too: "In-house Unit ID" and "Business Entity" are longer than
+ * anything typed into them. `items-end` covers the case where one of those still
+ * wraps — the label goes to two lines and the control stays on the row's line.
+ */
+const IDENTITY_W = {
+  name: "w-[170px]",
+  doc_prefix: "w-[85px]",
+  doc_id: "w-[85px]",
+  inhouse_unit_id: "w-[110px]",
+  also_consignee: "w-[95px]",
+  also_notify: "w-[95px]", //     not named by the client; sized by its label
+  country_id: "w-[150px]",
+  business_entity: "w-[130px]",
+} satisfies Record<string, string>;
+
+/**
+ * GENERAL, SHRINK-WRAPPED (client 2026-09-09: currencies ~100, selects ~150,
+ * GST ~140, "so they don't stretch across the full screen").
+ *
+ * Seventeen fields at `size="sm"` is 3 of 12 each, so a three-letter currency
+ * CODE was ~340px on a 1440px pane and the section ran to five rows of four with
+ * a hole in the last one. `FieldRow` + `Field w=` is the fix, and unlike
+ * Identity this one needs NO hand-typed pixels: the `erp-form-compact` bands map
+ * straight onto the five-width vocabulary, which is where the skill says to look
+ * first.
+ *
+ *   short options 90-120  ->  `range` 112   currencies, Ship Mode, TCS
+ *   selects       140-170  ->  `code`  144   Pay Mode, Ship Type, ports, formats
+ *   text / codes  130-160  ->  `code`  144   GST No
+ *
+ * THREE FIELDS SIT OUTSIDE THOSE BANDS, each for a reason that is about the
+ * CONTROL rather than the value:
+ *
+ * - `packing_list_format_id` is `name` (288) because its cell holds TWO controls
+ *   — the picker and the "Columns" button that edits the very format picked
+ *   beside it. The picker is `flex-1` inside, so it lands at ~196px and the
+ *   button keeps its own width. At `code` the button would have squeezed the
+ *   picker to nothing.
+ * - `commercial_invoice_format_id` is `term` (176) because its LABEL is 25
+ *   characters. At 144 it wraps to two lines, and a wrapping label is the one
+ *   thing `items-start` below cannot absorb.
+ * - `color_spec_applicable` keeps `code` (144) for the same reason at the
+ *   margin: the value is Yes/No, the label is 21 characters.
+ *
+ * Nothing here is sized to its own longest VALUE, which is the line the
+ * vocabulary draws. Ship Type holds "DELIVERED DUTY PAID (DDP)" and still takes
+ * 144 — the picker clips it with an ellipsis and reveals it on hover, which is
+ * the `Truncated` contract doing its job.
+ *
+ *   5 x 112 + 10 x 144 + 288 + 176 = 2464   the controls
+ *   + 15 x 12                      =  180   FIELD_ROW's gap-x-3
+ *   = 2644                                  two wrapped lines inside the 1440 cap
+ *
+ * TWO LINES IS THE POINT, not a miss. Seventeen fields cannot sit on one, and the
+ * comparison is against the FIVE rows the twelfths track drew.
+ */
+const GENERAL_W = {
+  currency_1: "range",
+  currency_2: "range",
+  currency_3: "range",
+  ship_mode: "range",
+  ship_type_id: "code",
+  pay_mode: "code",
+  receivable_term_id: "code",
+  pref_courier_id: "code",
+  port_of_loading_id: "code",
+  port_of_discharge_id: "code",
+  final_destination_id: "code",
+  packing_list_format_id: "name", //           holds the picker AND its "Columns" button
+  commercial_invoice_format_id: "term", //     a 25-character LABEL, not a wide value
+  color_spec_applicable: "code", //            a 21-character label over a Yes/No
+  tcs_applicable: "range",
+  gst_no: "code",
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE MARKING GRID IS CAPPED TO THE FORM, NOT THE SCREEN (`erp-form-compact`
+ * rule 4). It is ONE column of text: uncapped, `ChildGrid` is a block box and
+ * drew a single "Marking" column across the whole 1440px pane, with the ✕ a foot
+ * away from the value it removes.
+ *
+ * ## THE CAP HAS A FLOOR, AND THE FIRST ONE WENT UNDER IT
+ *
+ * 26rem (416px) was derived from the CONTENT — a 320px value, the `#` and the ✕ —
+ * and it broke the grid, because `ChildGrid`'s responsive table only switches in
+ * from a 512px container (`@lg:block`). Below that it renders stacked CARDS, and
+ * a card row has no shared column widths: the row `lockExisting` leaves without a
+ * ✕ came out wider than the rows that have one (client 2026-09-09, "the first row
+ * stretches wider than the rows with the ✕ button"). The card layout also drops
+ * the column headers, which AGENTS.md already records as "a real defect, not a
+ * preference" from the Style ▸ Process sheet.
+ *
+ * So the cap is `max(what the content needs, what the table needs)` and the
+ * table wins:
+ *
+ *   320 (the value) + ~40 (#) + ~40 (remove) + padding  = ~416   the content
+ *   512                                                         the @lg switch
+ *   -> 34rem (544px), the switch plus ~32px of headroom
+ *
+ * Still a quarter of the pane it used to take, so rule 4 holds. **Never narrow a
+ * `ChildGrid` past 512px to make it compact** — that is not a tighter table, it is
+ * a different layout.
+ *
+ * THIS IS A CAP AND NO LONGER THE WIDTH. `MARKING_COL_W` below declares the
+ * column, so the bordered box now hugs its content at ~380px and stops well short
+ * of this number — which is the tightening that could not be had by lowering the
+ * cap. What 34rem still buys is the CONTAINER the `@lg` query measures, and that
+ * is the only reason it is this size.
+ */
+const MARKING_W = "max-w-[34rem]";
+
+/**
+ * THE MARKING COLUMN IS DECLARED, WHICH IS WHAT MAKES THE TABLE HUG IT (client
+ * 2026-09-09, Tamil: "marking table la irukka cell-a compact-a tighten pannu,
+ * neat-a" — tighten the cell in the marking table).
+ *
+ * The cap above keeps the CONTAINER at 544px so the table renders at all, and a
+ * table with no declared column is `w-full min-w-[420px]`: it filled that 544px
+ * whatever was in it, so a 320px box sat in a 480px column and the card trailed
+ * ~160px of empty grey to the right of the ✕. The cap answered "how much of the
+ * pane", and this answers "how much of the cap".
+ *
+ * `ChildGrid` hugs when EVERY column declares a `width` (`hugsContent`) — one
+ * column here, so this single declaration is the whole of it. The table becomes
+ * `w-auto table-fixed` inside a `w-fit` card, and the box now ends just after the
+ * ✕ instead of at the cap:
+ *
+ *   40 (the `#` track) + 288 + 32 (the ✕ track) = 360, + GRID_FRAME's padding
+ *
+ * 288 IS THE `name` STEP FROM `lib/ui/sizes.ts`, not a measurement of the longest
+ * shipping mark anyone has typed — the same width every other text field on this
+ * screen takes, which is what keeps the grid reading as part of the form rather
+ * than as a thing sized to itself. It is 32px tighter than the box it replaces.
+ *
+ * THE CAP STAYS AT 34rem AND MUST. Hugging is done by the bordered box, never by
+ * the `@container` root (see `cardHug` in `child-grid.tsx`), so the container the
+ * `@lg` query measures is still 544px and still shows the table. Narrowing the
+ * cap to "tighten" it instead would drop the whole grid back to stacked cards —
+ * the failure `MARKING_W` above records.
+ *
+ * The control needs no width of its own: `Input` is `w-full`, so it fills the
+ * declared column in the table, and on a phone — below the switch, where the
+ * cards layout does not read a column width — `removeBeside` reserves the ✕'s box
+ * on the row that has no ✕, which is what makes those rows agree.
+ */
+const MARKING_COL_W = "18rem";
+
+/**
+ * THE AGENTS TABLE HUGS ITS TWO COLUMNS (`erp-form-compact` rule 4 — a sub-grid
+ * is capped to the FORM's width, not the screen's — the same rule
+ * `MARKING_COL_W` above and `APPROVALS_W` below already answer, reached the same
+ * way `APPROVALS_W` reaches it: by declaring the columns).
+ *
+ * It was the last child grid on this screen still stretched across the pane.
+ * Neither column declared a `width`, so the table stayed `w-full min-w-[420px]`
+ * and split the whole pane between two pickers — an Agent Type holding "CHA"
+ * came out ~680px wide on a 1440px pane. That is rule 1 ("no field fills the
+ * column it happens to sit in"), one table along.
+ *
+ * `hugsContent` IS ALL-OR-NOTHING — two of two, or the table reads neither — so
+ * this is one declaration, derived rather than picked:
+ *
+ *   type   176 — `term` from `lib/ui/sizes.ts`. The values are operator-typed
+ *                `config_lookups` rows (BUYING AGENT, FORWARDING AGENT, CHA):
+ *                no hard maximum to size to, so it takes the step above the
+ *                140-170 select band, and the step is paid for by the CONTROL
+ *                rather than the value — a `LookupDialogPicker` carries its
+ *                trailing icon button inside the box, so ~28px of the cell is
+ *                never the value.
+ *   agent  288 — `name`. A trading party's name has no hard maximum either, and
+ *                288 is the step Marking's free text and every other name field
+ *                on this screen already takes.
+ *
+ *   40 (the `#` track) + 176 + 288 + 32 (the ✕ track) = 536, + GRID_FRAME's
+ *   padding.
+ *
+ * WELL CLEAR OF THE `@lg` SWITCH (512px), the coupling to leave alone: hugging
+ * is done by the bordered box and never by the `@container` root (`cardHug` in
+ * `child-grid.tsx`), so the container the query measures is still the pane and
+ * the table still renders. The card is what stops at the last column.
+ */
+const AGENTS_W = {
+  agent_type: "11rem",
+  agent: "18rem",
+} satisfies Record<string, string>;
+
+/**
+ * SUPPLIED ITEMS AND NOMINATED VENDORS ARE CAPPED, NOT STRETCHED
+ * (`erp-form-compact` rule 4, and rule 1 beside it).
+ *
+ * Four grids across two tabs, one shape: a single column holding a single
+ * picker, drawn two-up in a `md:grid-cols-2`. So each card took half the pane
+ * and the picker took the card — a category name in a ~700px box — which is the
+ * "this much huge" complaint the standard exists for, and the same defect
+ * `MARKING_W` above records one column at a time.
+ *
+ * A CAP ON THE BOX, NOT A COLUMN WIDTH, and that is the part worth knowing: all
+ * four are `forceCards`, and the stacked-card branch renders each cell as a
+ * plain `<div>` — it never reads `ChildGridColumn.width`, which only the table,
+ * inline and `across` branches do. Declaring one here would size nothing AND
+ * flip `hugsContent` on, putting `w-fit` around cards whose only un-contained
+ * child is a bare input: the collapse `cardHug` records. So the width comes from
+ * the wrapper.
+ *
+ * Derived from the field, with `removeBeside`'s in-flow chip on the row:
+ *
+ *   288 (the `name` step) + 8 (`gap-2`) + 28 (the chip) + 20 (GRID_FRAME's
+ *   `p-2.5`) = 344
+ *
+ * STAYING IN CARDS MODE IS DELIBERATE, not an oversight to correct later. 344px
+ * is below the `@lg` switch (512px), so a responsive grid capped here would drop
+ * to stacked cards anyway — the failure `MARKING_W` names. `forceCards` was
+ * already the answer for this shape; the cap now agrees with it instead of
+ * fighting it, and the layout cannot flip silently on a narrower pane.
+ *
+ * `max-w-full` is the phone half: below 344px the card takes the pane rather
+ * than overflowing it.
+ */
+const PICKER_CARD_W = "w-[21.5rem] max-w-full";
+
+/**
+ * THE APPROVALS GRID HUGS ITS COLUMNS (`erp-form-compact` rule 4, same rule as
+ * `MARKING_W` above — a sub-grid is capped to the FORM's width, not the screen's).
+ *
+ * It reached that rule from the other side. Marking is capped by a wrapper
+ * because it is ONE flexible column and there is nothing to hug; this grid has
+ * four columns of BOUNDED content, so the answer is `ChildGrid`'s own
+ * `hugsContent` — declare a `width` on EVERY column and the table becomes
+ * `w-auto table-fixed` inside a `w-fit` card instead of `w-full` across the pane.
+ * It is all-or-nothing: the toggle and Review Days already declared one, and two
+ * of four is the same as none, which is why an 18-row tick list was drawing
+ * MERCHANDISING in a ~400px cell.
+ *
+ * Derived from the content, not picked to look right. The values are the
+ * `ta_approvals` seed (0542), the cells are `text-sm` in `px-2`:
+ *
+ *   toggle   48 — a Toggle, unchanged
+ *   name    256 — "WHITE SEAL SAMPLE APPROVAL", the longest of the 18, is ~218px
+ *                 of 14px capitals + 16px padding. A longer one WRAPS to a second
+ *                 line; it does not overflow, so this stays a width and not a
+ *                 measurement of the current data.
+ *   dept    160 — "MERCHANDISING" (~118px + padding). The column is `text` and
+ *                 0542's own comment says every row holds that one value today.
+ *   days     72 — the `num` step from `lib/ui/sizes.ts`: a count, never more
+ *                 than two digits (0542 seeds 5 · 7 · 10 · 14). It was `8rem`,
+ *                 sized to nothing, and 112px on the way down.
+ *
+ *   40 (the `#` track) + 48 + 256 + 160 + 72 = 576, + GRID_FRAME's padding.
+ *
+ * THE HEADER IS WHAT WAS HOLDING THAT COLUMN OPEN, so it changed with it:
+ * "REVIEW DAYS" is ~98px of 12.5px bold capitals at `tracking-[0.06em]` plus
+ * 16px of `px-2`, so the widest thing in the column was its own title and no
+ * width under ~114px could be honoured without wrapping it onto a second line —
+ * which lifts the header band for all four columns and undoes the compaction it
+ * was meant to buy. "Days" fits on one line at 72px. It reads unambiguously
+ * beside Approval and Department, the input keeps the full "customer review
+ * days" in its `aria-label`, and it matches how every other narrow numeric
+ * column in this app is titled (Alt qty, Base qty, Loss %, Cons Qty).
+ *
+ * WELL CLEAR OF THE `@lg` SWITCH (512px), which is the coupling to leave alone:
+ * the layout is a container query on the grid's own root, so a cap under that
+ * breakpoint flips the table to stacked cards — and this grid passes no
+ * `renderMobileRow`, so those cards would be 18 unlabelled boxes.
+ */
+const APPROVALS_W = {
+  applies: "3rem",
+  name: "16rem",
+  department: "10rem",
+  review_days: "4.5rem",
+} satisfies Record<string, string>;
+
+/**
+ * ADDRESS, SHRINK-WRAPPED (`erp-form-compact`) — the last section of this editor
+ * still on the twelfths track, after Identity and General left it on 2026-09-09.
+ *
+ * Nine fields at `size="sm"` is 3 of 12 each, so on a 1440px pane a six-digit PIN
+ * was ~340px — the same width as the street address — and the section broke into
+ * three rows of four with a hole in the last. A fraction cannot be made compact:
+ * narrowing the control inside a twelfth leaves the CELL at its old width and the
+ * value floating in it. So `FieldRow` + `Field w=`.
+ *
+ * NO HAND-TYPED PIXELS, unlike `IDENTITY_W` above and for the reason that map
+ * states — the five-width vocabulary is reached for FIRST, and here every value
+ * lands on a step:
+ *
+ *   short options 90-120  ->  `range` 112   PIN, six digits with a hard maximum
+ *   selects       140-170  ->  `code`  144   City, State, Land Line
+ *   free text              ->  `name`  288   Street, E-Mail, Web site
+ *
+ * City and State are `code` because that is what the SAME KIND OF VALUE already
+ * takes two sections down: Port of Loading, Port of Discharge and Final
+ * Destination are all place-name pickers at `code` in `GENERAL_W`. A screen
+ * measuring the same value twice is the drift `lib/ui/sizes.ts` exists to stop.
+ *
+ * MOBILE AND WHATSAPP ARE `term` (176), ONE STEP WIDER THAN THE OTHER PHONE
+ * FIELD, and the step is paid for by the CONTROL rather than the value: each of
+ * those two cells holds its input AND a `ContactChip` in a flex beside it, so at
+ * `code` the number would have been squeezed by a fixed 28px button. Land Line
+ * has no chip and stays at 144.
+ *
+ * DERIVED, so it can be checked against the pane — this row WRAPS (only Identity
+ * asked for one unbroken line), and these are the two lines it wraps into:
+ *
+ *   288 + 144 + 144 + 112 + 144 + 176 + 176 = 1184 + 6 x 12 = 1256   street..whatsapp
+ *   288 + 288                               =  576 + 1 x 12 =  588   e-mail, web site
+ *
+ * Both inside 1440, and the first line is the seven fields that describe WHERE
+ * the customer is, which is the break an operator would make by hand.
+ */
+const ADDRESS_W = {
+  street: "name", //      a postal line has no hard maximum — free text
+  city_id: "code",
+  state_id: "code",
+  pin: "range", //        6 digits
+  land_line: "code",
+  contact: "term", //     Mobile and WhatsApp, both: input + ContactChip
+  email: "name",
+  web_site: "name",
+} satisfies Record<string, FieldWidth>;
 
 type ContactRow = {
   key: string;
@@ -288,9 +612,60 @@ const contactHasData = (c: ContactRow) =>
   );
 
 type AgentRow = { key: string; agent_type_id: string; agent_id: string };
+/**
+ * THE AGENTS GRID OPENS WITH ONE BLANK ROW (`erp-table-default-row`), the last
+ * of this editor's five child grids to get one.
+ *
+ * BOTH cells stay `""`. `normalizeAgents` in `customer-actions.ts` drops a row
+ * on `agent_type_id || agent_id`, so a row is kept the moment EITHER is set —
+ * which is right for a half-entered agent and is also why neither key may carry
+ * a default. Pre-filling a type (there are few agent types and one is common)
+ * would satisfy that OR on every seeded row and insert a `customer_agents` line
+ * naming no agent.
+ */
+const blankAgent = (key: string): AgentRow => ({ key, agent_type_id: "", agent_id: "" });
 type CatRow = { key: string; category_id: string };
+/**
+ * SEWING AND PACKAGING EACH OPEN WITH ONE BLANK ROW
+ * (`erp-table-default-row`), the same as the two vendor lists below. Supplied
+ * Items is two side-by-side single-column grids, so an empty tab showed two
+ * headers and two "+ Add category" buttons and nothing to type in.
+ *
+ * `normalizeSupplied` in `customer-actions.ts` drops a row by testing
+ * `category_id`, this grid's only field, so a seeded row writes no
+ * `customer_supplied_items` line until a category is picked.
+ */
+const blankCat = (key: string): CatRow => ({ key, category_id: "" });
 type VendorRow = { key: string; vendor_id: string };
+/**
+ * NOMINATED AND RECOMMENDED EACH OPEN WITH ONE BLANK ROW
+ * (`erp-table-default-row`). Both lists on the Nominated Vendors tab are typing
+ * surfaces, and the tab used to show two headers and two "+ Add vendor" buttons —
+ * so naming a customer's first approved supplier cost a click in each column
+ * before any typing.
+ *
+ * Blank means blank. `normalizeVendors` in `customer-actions.ts` drops a row by
+ * testing `vendor_id`, which is the only field this grid has, so a seeded row
+ * writes nothing until a vendor is picked. That matters more here than on most
+ * grids: MBA narrows its own vendor picker to this list, so a phantom row would
+ * reach a downstream document rather than just sitting in the master.
+ */
+const blankVendor = (key: string): VendorRow => ({ key, vendor_id: "" });
 type MarkRow = { key: string; marking: string };
+/**
+ * THE MARKING GRID IS NEVER EMPTY — one blank row is always waiting
+ * (`erp-table-default-row`). An operator opening General expects a caret, not a
+ * "+ Add marking" button to find first, and this is the same shape
+ * `blankContact` above already gives the Contacts grid.
+ *
+ * It is a FACTORY rather than an inline literal at each of the four call sites
+ * (mount, New, Edit-with-no-rows, "+ Add") because the seeded row's blankness is
+ * load-bearing: `normalizeMarkings` in `customer-actions.ts` drops a row by
+ * testing `marking` for content, so any key stamped with a truthy default here
+ * would turn that filter into a constant and insert a phantom marking. One
+ * definition is what keeps the four call sites honest.
+ */
+const blankMarking = (key: string): MarkRow => ({ key, marking: "" });
 
 /**
  * Master-detail CRUD for the legacy "Customer" master (Associates) — full 5-tab
@@ -382,20 +757,57 @@ export function CustomerMasterScreen({
   const [editOrigin, setEditOrigin] = useState<PartyOrigin | null>(null);
   const [dirty, setDirty] = useState(false);
   const isdOf = useIsdLookup(countries);
+  /** Block / Unblock in the listing's ⋮ menu — one implementation for every
+   *  master listing, and the reason Identity carries no Inactive switch. */
+  const { blockItem } = useBlockAction("customer");
 
   // Hold off the silent PWA auto-reload while there's unsaved work or a save is
   // in flight. The overlay itself is a MasterFullScreen, which already guards.
   useUnsavedGuard(dirty || isPending);
 
   const [form, setForm] = useState<HeaderForm>(BLANK);
-  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  // Seeded, never `[]` — see the `markings` note below for the literal key and
+  // for why this screen seeds state rather than passing `seedRow`.
+  const [contacts, setContacts] = useState<ContactRow[]>(() => [blankContact("ct0")]);
   const [applicantIds, setApplicantIds] = useState<string[]>([]);
-  const [agents, setAgents] = useState<AgentRow[]>([]);
-  const [sewing, setSewing] = useState<CatRow[]>([]);
-  const [packing, setPacking] = useState<CatRow[]>([]);
-  const [nominated, setNominated] = useState<VendorRow[]>([]);
-  const [recommended, setRecommended] = useState<VendorRow[]>([]);
-  const [markings, setMarkings] = useState<MarkRow[]>([]);
+  // Seeded, never `[]` — see the `markings` note below for the literal key and
+  // for why this screen seeds state rather than passing `seedRow`.
+  const [agents, setAgents] = useState<AgentRow[]>(() => [blankAgent("ag0")]);
+  // Seeded, never `[]` — see the `markings` note below for the literal key and
+  // for why this screen seeds state rather than passing `seedRow`.
+  const [sewing, setSewing] = useState<CatRow[]>(() => [blankCat("sw0")]);
+  const [packing, setPacking] = useState<CatRow[]>(() => [blankCat("pk0")]);
+  /**
+   * Seeded, never `[]` — see the `markings` note below for why the key is a
+   * literal here and why this screen seeds its STATE rather than passing
+   * `ChildGrid`'s `seedRow` (its `onAdd` sets `dirty`, and `VendorGrid`'s does
+   * too). `openAdd` / `openEdit` re-seed before the overlay opens; these values
+   * only ever cover the mount.
+   */
+  const [nominated, setNominated] = useState<VendorRow[]>(() => [blankVendor("nv0")]);
+  const [recommended, setRecommended] = useState<VendorRow[]>(() => [blankVendor("rv0")]);
+  /**
+   * Seeded, never `[]` (`erp-table-default-row`). `openAdd` / `openEdit` below
+   * both re-seed before the overlay opens, so this initial value is only ever
+   * the mount-time one — but it is stated rather than left empty so the grid
+   * cannot render row-less by any path.
+   *
+   * The key is a LITERAL, not `newKey()`: an initialiser runs during render and
+   * `newKey` reads `keySeq.current`, which `react-hooks/refs` correctly rejects.
+   * Keys only have to be unique within the array, and the sequence issues `k…`,
+   * so `m0` can never collide with one.
+   *
+   * NOT `ChildGrid`'s own `seedRow`, and that is deliberate — do not "simplify"
+   * it into one. `seedRow` seeds by CALLING `onAdd` from an effect, and this
+   * screen's `onAdd` sets `dirty`. Every customer would then open reading
+   * "Unsaved changes", and `useUnsavedGuard(dirty || isPending)` would hold off
+   * the silent PWA auto-reload on a record nobody had touched. Seeding the state
+   * instead happens in `openAdd` / `openEdit` BEFORE their `setDirty(false)`, so
+   * a pristine record stays pristine. `seedRow` is right for a grid whose add
+   * handler does not touch a dirty flag (Department, Work Timing, the process
+   * grids); it is wrong here.
+   */
+  const [markings, setMarkings] = useState<MarkRow[]>(() => [blankMarking("m0")]);
   /**
    * The Approvals policy checklist (doc/approval.md §3) — keyed by
    * `approval_id`, value is the lead-time-days TEXT the operator typed.
@@ -622,12 +1034,12 @@ export function CustomerMasterScreen({
     setForm(blankForm);
     setContacts([blankContact(newKey())]);
     setApplicantIds([]);
-    setAgents([]);
-    setSewing([]);
-    setPacking([]);
-    setNominated([]);
-    setRecommended([]);
-    setMarkings([]);
+    setAgents([blankAgent(newKey())]);
+    setSewing([blankCat(newKey())]);
+    setPacking([blankCat(newKey())]);
+    setNominated([blankVendor(newKey())]);
+    setRecommended([blankVendor(newKey())]);
+    setMarkings([blankMarking(newKey())]);
     setApprovalDays({});
     setDirty(false);
     setOpen(true);
@@ -680,47 +1092,52 @@ export function CustomerMasterScreen({
       tcs_applicable: r.tcs_applicable,
       gst_no: r.gst_no ?? "",
     });
-    setContacts(
-      r.contacts.map((c) => ({
-        key: newKey(),
-        department_id: c.department_id ?? "",
-        contact_name: c.contact_name ?? "",
-        designation_id: c.designation_id ?? "",
-        land_line: c.land_line ?? "",
-        mobile: c.mobile ?? "",
-        email_id: c.email_id ?? "",
-        internal_department_id: c.internal_department_id ?? "",
-      })),
-    );
+    const contactsIn = (r.contacts ?? []).map((c) => ({
+      key: newKey(),
+      department_id: c.department_id ?? "",
+      contact_name: c.contact_name ?? "",
+      designation_id: c.designation_id ?? "",
+      land_line: c.land_line ?? "",
+      mobile: c.mobile ?? "",
+      email_id: c.email_id ?? "",
+      internal_department_id: c.internal_department_id ?? "",
+    }));
+    setContacts(contactsIn.length ? contactsIn : [blankContact(newKey())]);
     setApplicantIds(r.applicants.map((a) => a.applicant_id).filter((id): id is string => !!id));
-    setAgents(
-      r.agents.map((a) => ({
-        key: newKey(),
-        agent_type_id: a.agent_type_id ?? "",
-        agent_id: a.agent_id ?? "",
-      })),
-    );
-    setSewing(
-      r.supplied_items
-        .filter((s) => s.section === "sewing")
-        .map((s) => ({ key: newKey(), category_id: s.category_id ?? "" })),
-    );
-    setPacking(
-      r.supplied_items
-        .filter((s) => s.section === "packing")
-        .map((s) => ({ key: newKey(), category_id: s.category_id ?? "" })),
-    );
-    setNominated(
-      r.nominated_vendors
-        .filter((v) => v.list_kind === "nominated")
-        .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" })),
-    );
-    setRecommended(
-      r.nominated_vendors
-        .filter((v) => v.list_kind === "recommended")
-        .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" })),
-    );
-    setMarkings(r.markings.map((m) => ({ key: newKey(), marking: m.marking ?? "" })));
+    const agentsIn = (r.agents ?? []).map((a) => ({
+      key: newKey(),
+      agent_type_id: a.agent_type_id ?? "",
+      agent_id: a.agent_id ?? "",
+    }));
+    setAgents(agentsIn.length ? agentsIn : [blankAgent(newKey())]);
+    // One array split by section, so each side is independently empty — a
+    // customer who supplies sewing trims but no packaging is ordinary, not a
+    // half-loaded record. Each falls back on its own count, exactly as the two
+    // vendor lists below do.
+    const suppliedRowsIn = (section: "sewing" | "packing") =>
+      (r.supplied_items ?? [])
+        .filter((x) => x.section === section)
+        .map((x) => ({ key: newKey(), category_id: x.category_id ?? "" }));
+    const sewingIn = suppliedRowsIn("sewing");
+    const packingIn = suppliedRowsIn("packing");
+    setSewing(sewingIn.length ? sewingIn : [blankCat(newKey())]);
+    setPacking(packingIn.length ? packingIn : [blankCat(newKey())]);
+    // Both lists come out of ONE array, so each is independently empty on most
+    // customers — a nomination list with no recommendations is the normal case,
+    // not a missing record. Each falls back on its own count.
+    const vendorRowsIn = (kind: "nominated" | "recommended") =>
+      (r.nominated_vendors ?? [])
+        .filter((v) => v.list_kind === kind)
+        .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" }));
+    const nominatedIn = vendorRowsIn("nominated");
+    const recommendedIn = vendorRowsIn("recommended");
+    setNominated(nominatedIn.length ? nominatedIn : [blankVendor(newKey())]);
+    setRecommended(recommendedIn.length ? recommendedIn : [blankVendor(newKey())]);
+    // `[]`, null and a row-less record all mean "no markings yet", which is the
+    // state the blank row exists for — so Row 1 is ready to type on an existing
+    // customer too, not only a new one.
+    const markingRowsIn = (r.markings ?? []).map((m) => ({ key: newKey(), marking: m.marking ?? "" }));
+    setMarkings(markingRowsIn.length ? markingRowsIn : [blankMarking(newKey())]);
     setApprovalDays(
       Object.fromEntries(r.approval_policy.map((p) => [p.approval_id, String(p.lead_time_days)])),
     );
@@ -1126,7 +1543,23 @@ export function CustomerMasterScreen({
         addLabel="+ Add Customer"
         onAdd={openAdd}
         columns={columns}
-        actions={{ onView: setViewRow, onEdit: openEdit, onDelete: remove }}
+        actions={{
+          onView: setViewRow,
+          onEdit: openEdit,
+          onDelete: remove,
+          /**
+           * BLOCK / UNBLOCK LIVES HERE, NOT ON THE FORM (client 2026-08-17:
+           * "block option move to that table listing … no more in the creating
+           * screen"). Identity's Inactive switch was removed in the same change,
+           * so this is the only route to the flag and had to land first.
+           *
+           * `perms.canDelete` because blocking is the destructive direction and
+           * `setMasterActive` gates it that way server-side. The label reads off
+           * `isInactive`, so a blocked row offers "Unblock" without this screen
+           * knowing which of the three spellings `customers` uses.
+           */
+          menu: (r) => blockItem(r, { label: r.name, canBlock: perms.canDelete }),
+        }}
         empty="No customers yet."
         mobile={{
           title: (r) => r.name,
@@ -1231,20 +1664,56 @@ export function CustomerMasterScreen({
             done: done.identity,
             content: (
                   <SectionBody title="Identity">
-                    {/* ONE FieldGrid for the whole section — `SectionBody` has no
-                        grid of its own, and two stacked grids would agree on the
-                        left edge but not on the row gap. */}
-                    <FieldGrid>
-                      {editId && (
-                        <Field size={FIELD_SIZE.inactive}>
-                          <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-                            <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
-                            <span className="text-sm text-foreground">Inactive</span>
-                          </label>
-                        </Field>
-                      )}
-                      <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cu-name"
-                        hint={editOrigin ? originNameHint(editOrigin) : undefined}>
+                    {/* ONE `FieldRow`, laid out by WIDTHS — see `IDENTITY_W` at the
+                        top of this file for the arithmetic and for which two widths
+                        trade against `FieldWidth`'s own test.
+
+                        NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block
+                        option move to that table listing … we are used to give that
+                        block while CREATING the data but we need to move this in
+                        ACTION only, no more in the creating screen"). It is the
+                        listing's ⋮ ▸ Block / Unblock now — `useBlockAction` above,
+                        with `customer` registered in `lib/masters/active-registry.ts`
+                        in the same change. **The row action had to land first**: it
+                        is the only route to the flag once the field is gone, and
+                        deleting the field alone would have made blocking a customer
+                        impossible rather than moved it. `form.inactive` is still in
+                        the form state and still round-trips, so an edit cannot null
+                        it — the value is simply no longer typed here, exactly as
+                        `bank-master-screen.tsx` already has it.
+
+                        It was also the field that made this row impossible to
+                        tighten: unlabelled and edit-only, it left a hole on New and
+                        a floating switch on Edit, so the row had two shapes. */}
+                    {/* `align="start"` — TOP-ALIGNED, and the whole row rather than
+                        a `self-start` on one field (client 2026-09-09: every input
+                        box on the exact same horizontal line, labels top-aligned,
+                        and Name's helper text not pushing the others down).
+
+                        THE CHOICE IS ABOUT WHICH HAZARD THIS ROW HAS. `items-end`
+                        is the house default and it is there for a LABEL that
+                        outgrows its box — bottom-aligning keeps such a field's
+                        control on the row's line. This row does not have that
+                        problem: labels are `text-xs`, and the longest,
+                        "In-house Unit ID", is ~96px inside its 110px box, so all
+                        eight sit on one line. What it does have is content BELOW a
+                        control — Name renders a `DuplicateError` and a
+                        `SpellSuggestHint`, and bottom alignment measures from the
+                        bottom of both, so the row visibly jumped as soon as a
+                        colliding name was typed. (Name carried an `originNameHint`
+                        under it as well until 2026-09-09, when the client had it
+                        removed outright — the label and its box, nothing else. The
+                        origin is still said twice on this screen: `OriginBadge` in
+                        the editor header, and a "From <source>" pair in the record
+                        sheet, so nothing about where the row came from is lost.)
+
+                        `self-start` on Name alone fixed that field and left the
+                        row's own axis wrong, which is why it is gone: with the row
+                        top-aligned there is nothing left to override, and the
+                        boxes line up whether or not the helper text is showing.
+                        See `FIELD_ROW_NOWRAP_TOP` for how to choose. */}
+                    <FieldRow nowrap align="start">
+                      <Field label="Name" required className={IDENTITY_W.name} htmlFor="cu-name">
                         {/* `readOnly`, not `disabled`: the value still submits
                             and still copies, and Input's own readOnly sets
                             tabIndex={-1}, so it leaves the Tab order for free. */}
@@ -1261,13 +1730,20 @@ export function CustomerMasterScreen({
                           onApply={(v) => setForm((f) => ({ ...f, name: v }))}
                         />
                       </Field>
-                      <Field label="Doc Prefix" size={FIELD_SIZE.doc_prefix} htmlFor="cu-prefix">
+                      {/* THE THREE IDENTIFIER CODES SIT TOGETHER (client 2026-09-09).
+                          In-house Unit ID used to close the row, four fields away from the
+                          Doc Prefix and ID it belongs with; the row reads as one band, so
+                          the codes being adjacent is what makes it scannable. */}
+                      <Field label="Doc Prefix" className={IDENTITY_W.doc_prefix} htmlFor="cu-prefix">
                         <Input uppercase id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
                       </Field>
-                      <Field label="ID" size={FIELD_SIZE.doc_id} htmlFor="cu-docid">
+                      <Field label="ID" className={IDENTITY_W.doc_id} htmlFor="cu-docid">
                         <Input uppercase id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} />
                       </Field>
-                      <Field label="Also Consignee" size={FIELD_SIZE.also_consignee} htmlFor="cu-alsocons">
+                      <Field label="In-house Unit ID" className={IDENTITY_W.inhouse_unit_id} htmlFor="cu-inhouseunit">
+                        <Input uppercase id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
+                      </Field>
+                      <Field label="Also Consignee" className={IDENTITY_W.also_consignee} htmlFor="cu-alsocons">
                         <Select id="cu-alsocons" value={form.also_consignee ? "yes" : "no"} onChange={(e) => set({ also_consignee: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
@@ -1278,7 +1754,7 @@ export function CustomerMasterScreen({
                           same 36px control height as the Select beside it. That
                           replaces a `sm:pt-6` hack which faked the same offset
                           at one viewport width only. */}
-                      <Field label="Also Notify" size={FIELD_SIZE.also_notify} htmlFor="cu-alsonotify">
+                      <Field label="Also Notify" className={IDENTITY_W.also_notify} htmlFor="cu-alsonotify">
                         <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
                           <input id="cu-alsonotify" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.also_notify} onChange={(e) => set({ also_notify: e.target.checked })} />
                           <span className="text-sm text-foreground">Yes</span>
@@ -1296,19 +1772,16 @@ export function CustomerMasterScreen({
                           `country_id` and `address_country_id` — see the Address
                           section below, which used to carry its own picker for
                           the second column. */}
-                      <Field label="Country" size={FIELD_SIZE.country_id}>
+                      <Field label="Country" className={IDENTITY_W.country_id}>
                         <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id, address_country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                       </Field>
-                      <Field label="Business Entity" size={FIELD_SIZE.business_entity} htmlFor="cu-bizentity">
+                      <Field label="Business Entity" className={IDENTITY_W.business_entity} htmlFor="cu-bizentity">
                         <Select id="cu-bizentity" value={form.business_entity} onChange={(e) => set({ business_entity: e.target.value })}>
                           <option value=""></option>
                           {BUSINESS_ENTITIES.map((b) => <option key={b} value={b}>{b}</option>)}
                         </Select>
                       </Field>
-                      <Field label="In-house Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="cu-inhouseunit">
-                        <Input uppercase id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
-                      </Field>
-                    </FieldGrid>
+                    </FieldRow>
                   </SectionBody>
             ),
           },
@@ -1319,25 +1792,38 @@ export function CustomerMasterScreen({
             done: done.address,
             content: (
                   <SectionBody title="Address">
-                    <FieldGrid>
+                    {/* ONE wrapping `FieldRow`, laid out by WIDTHS — see
+                        `ADDRESS_W` above for the bands and the arithmetic.
+
+                        `align="start"`, and this row has the hazard that choice
+                        is for: WhatsApp renders a "Same as mobile" tick BELOW
+                        its control, and both `ValidatedInput` cells can render a
+                        format message there too. `items-end` measures from the
+                        bottom, so those cells would sit their LABEL a line above
+                        every other label on the row. Nothing here has the
+                        opposite hazard — the longest label is "Land Line" at
+                        ~55px inside a 144px box, so no label wraps. */}
+                    <FieldRow align="start">
                       {/* A single-line Input, not the 3-row Textarea this used
-                          to be: every grid row is as tall as its tallest item,
-                          so a textarea sharing the row would leave City / State
-                          / Pin above a band of dead space. Stored newlines
-                          survive; an <input> just shows them on one line. */}
-                      <Field label="Street" size={FIELD_SIZE.street} htmlFor="cu-street">
+                          to be — a 96px-tall cell sharing a row of 32px controls
+                          sets the line's height and leaves City / State / Pin
+                          standing above a band of dead space. That was true of
+                          the twelfths grid and is true of this row. Stored
+                          newlines survive; an <input> just shows them on one
+                          line. */}
+                      <Field label="Street" w={ADDRESS_W.street} htmlFor="cu-street">
                         <Input uppercase id="cu-street" value={form.street} onChange={(e) => set({ street: e.target.value })} />
                       </Field>
                       {/* The pickers were the self-labelling idiom while the rest
                           of the screen used an external <Label> + `compact`. One
                           idiom now, or half the cells would carry two labels. */}
-                      <Field label="City" size={FIELD_SIZE.city_id}>
+                      <Field label="City" w={ADDRESS_W.city_id}>
                         <LookupDialogPicker kind="city" label="City" options={cities} value={form.city_id || null} onChange={(id) => set({ city_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="State" size={FIELD_SIZE.state_id}>
+                      <Field label="State" w={ADDRESS_W.state_id}>
                         <StatePicker label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                       </Field>
-                      <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cu-pin">
+                      <Field label="Pin" w={ADDRESS_W.pin} htmlFor="cu-pin">
                         <Input id="cu-pin" value={form.pin} onChange={(e) => set({ pin: e.target.value })} />
                       </Field>
                       {/* Country used to have its OWN field here, bound to
@@ -1349,14 +1835,21 @@ export function CustomerMasterScreen({
                           above, not from a visible field here. Do not add this
                           field back without re-reading that picker's comment
                           first. */}
-                      <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cu-landline">
+                      <Field label="Land Line" w={ADDRESS_W.land_line} htmlFor="cu-landline">
                         <Input id="cu-landline" value={form.land_line} onChange={(e) => set({ land_line: e.target.value })} />
                       </Field>
-                      {/* Two grid children, not one — so the span goes to EACH
-                          cell via `cellClassName`. A literal string: Tailwind v4
-                          scans source text, so an interpolated span emits no CSS.
-                          It is FIELD_SIZE's `sm` (3) written the only way this
-                          component can take it. */}
+                      {/* Two cells, not one — so the WIDTH goes to each of them
+                          via `cellClassName`; there is no wrapper to put it on,
+                          and that missing wrapper is the whole point of the
+                          component.
+
+                          `FIELD_WIDTH[...]` is the same table `Field w=` reads,
+                          so the pair cannot drift from the fields beside it —
+                          and it is Tailwind-safe for the reason the prop's own
+                          note gives: v4 scans SOURCE TEXT, and `"w-44"` is a
+                          literal in `field.tsx`. What that note forbids is
+                          BUILDING a class (`w-${n}`), which emits no CSS at all;
+                          reading one out of a map of literals is fine. */}
                       <MobileWhatsAppFields
                         idPrefix="cu"
                         mobile={form.mobile}
@@ -1364,15 +1857,15 @@ export function CustomerMasterScreen({
                         isdCode={isdOf.get(form.address_country_id) ?? null}
                         onMobileChange={(v) => set({ mobile: v })}
                         onWhatsAppChange={(v) => set({ whatsapp: v })}
-                        cellClassName="@lg/section:col-span-3"
+                        cellClassName={FIELD_WIDTH[ADDRESS_W.contact]}
                       />
-                      <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="cu-email">
+                      <Field label="E-Mail" w={ADDRESS_W.email} htmlFor="cu-email">
                         <ValidatedInput format="email" id="cu-email" value={form.email} onChange={(e) => set({ email: e.target.value })} />
                       </Field>
-                      <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="cu-web">
+                      <Field label="Web site" w={ADDRESS_W.web_site} htmlFor="cu-web">
                         <ValidatedInput format="website" id="cu-web" value={form.web_site} onChange={(e) => set({ web_site: e.target.value })} />
                       </Field>
-                    </FieldGrid>
+                    </FieldRow>
 
                     {/* contacts */}
                     <div className="mt-6">
@@ -1467,7 +1960,7 @@ export function CustomerMasterScreen({
                       pageSize={10}
                       rows={agents}
                       onAdd={() => {
-                        setAgents((xs) => [...xs, { key: newKey(), agent_type_id: "", agent_id: "" }]);
+                        setAgents((xs) => [...xs, blankAgent(newKey())]);
                         setDirty(true);
                       }}
                       onRemove={(a) => {
@@ -1478,12 +1971,18 @@ export function CustomerMasterScreen({
                       columns={[
                         {
                           header: "Agent Type",
+                          // Both columns declare a width, which is what makes
+                          // the table hug instead of filling the pane — see
+                          // `AGENTS_W` for the arithmetic and why it is
+                          // all-or-nothing.
+                          width: AGENTS_W.agent_type,
                           cell: (a) => (
                             <LookupDialogPicker kind="agent_type" label="Agent Type" options={agentTypes} value={a.agent_type_id || null} onChange={(id) => { setAgents((xs) => xs.map((r) => (r.key === a.key ? { ...r, agent_type_id: id } : r))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                           ),
                         },
                         {
                           header: "Agent",
+                          width: AGENTS_W.agent,
                           cell: (a) => (
                             <LookupDialogPicker kind="agent" label="Agent" options={agentOptions} value={a.agent_id || null} onChange={(id) => { setAgents((xs) => xs.map((r) => (r.key === a.key ? { ...r, agent_id: id } : r))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                           ),
@@ -1500,7 +1999,14 @@ export function CustomerMasterScreen({
             done: done.supplied,
             content: (
                   <SectionBody title="Supplied Items">
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {/* A WRAPPING FLEX ROW, NOT A HALF-PANE GRID. Each card
+                        now carries its own width (`PICKER_CARD_W`), so a
+                        `md:grid-cols-2` would park two 344px cards at the 0 and
+                        720 marks of a 1440px pane with a third of the section
+                        empty between them. Packed left to right with the
+                        standard's 12px-family gap, they read as one block and
+                        wrap together on a narrow pane. */}
+                    <div className="flex flex-wrap gap-4">
                       <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={sewingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
                       <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={packingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
                     </div>
@@ -1514,7 +2020,9 @@ export function CustomerMasterScreen({
             done: done.vendors,
             content: (
                   <SectionBody title="Nominated Vendors">
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {/* Packed left to right, same as Supplied Items above —
+                        see the note there and `PICKER_CARD_W`. */}
+                    <div className="flex flex-wrap gap-4">
                       <VendorGrid title="Nominated Vendor" rows={nominated} setRows={setNominated} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                       <VendorGrid title="Recommended Vendor" rows={recommended} setRows={setRecommended} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                     </div>
@@ -1536,7 +2044,11 @@ export function CustomerMasterScreen({
                         `ChildGrid` still earns its place over a plain list —
                         the keyboard contract (Tab lands on fields, arrows move
                         cell to cell) comes for free instead of being rebuilt
-                        for a table this screen would otherwise hand-roll. */}
+                        for a table this screen would otherwise hand-roll.
+
+                        Every column declares a `width` — see `APPROVALS_W` for
+                        the arithmetic and for why two of four was the same as
+                        none. */}
                     <ChildGrid<TaApproval & { key: string }>
                       rows={approvals.map((a) => ({ ...a, key: a.id }))}
                       hideAdd
@@ -1546,7 +2058,7 @@ export function CustomerMasterScreen({
                       columns={[
                         {
                           header: "",
-                          width: "3rem",
+                          width: APPROVALS_W.applies,
                           align: "center",
                           cell: (a) => (
                             <Toggle
@@ -1566,15 +2078,17 @@ export function CustomerMasterScreen({
                         },
                         {
                           header: "Approval",
+                          width: APPROVALS_W.name,
                           cell: (a) => <span className="text-foreground">{a.name}</span>,
                         },
                         {
                           header: "Department",
+                          width: APPROVALS_W.department,
                           cell: (a) => <span className="text-muted-foreground">{a.department}</span>,
                         },
                         {
-                          header: "Review Days",
-                          width: "8rem",
+                          header: "Days",
+                          width: APPROVALS_W.review_days,
                           cell: (a) => (
                             <Input
                               type="number"
@@ -1602,23 +2116,33 @@ export function CustomerMasterScreen({
             done: done.general,
             content: (
                   <SectionBody title="General">
-                    <FieldGrid>
+                    {/* ONE wrapping `FieldRow`, laid out by WIDTHS — see `GENERAL_W`
+                        at the top of this file for the bands, the three fields that
+                        sit outside them and the arithmetic.
+
+                        `align="start"`, because GST No renders a `DuplicateError`
+                        BELOW its control and the row's default bottom alignment
+                        measures from the bottom of that — so the GST box lifted out
+                        of its line the moment a duplicate GSTIN was typed. Safe
+                        here only because no label wraps at these widths, which is
+                        what `commercial_invoice_format_id`'s `term` is buying. */}
+                    <FieldRow align="start">
                       {/* The three currencies were interleaved with Ship Mode /
                           Type / Pay Mode — the DOM order that drew the legacy
                           two-column form (currencies left, shipping right). On a
                           12-col track DOM order IS reading order, so they are
                           grouped: three codes and the two shipping fields now sit
                           on one row instead of consuming three half-rows. */}
-                      <Field label="Currency 1" size={FIELD_SIZE.currency_1}>
+                      <Field label="Currency 1" w={GENERAL_W.currency_1}>
                         <CurrencyPicker label="Currency 1" currencies={currencies} value={form.currency_1 || null} onChange={(code) => set({ currency_1: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Currency 2" size={FIELD_SIZE.currency_2}>
+                      <Field label="Currency 2" w={GENERAL_W.currency_2}>
                         <CurrencyPicker label="Currency 2" currencies={currencies} value={form.currency_2 || null} onChange={(code) => set({ currency_2: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Currency 3" size={FIELD_SIZE.currency_3}>
+                      <Field label="Currency 3" w={GENERAL_W.currency_3}>
                         <CurrencyPicker label="Currency 3" currencies={currencies} value={form.currency_3 || null} onChange={(code) => set({ currency_3: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Ship Mode" size={FIELD_SIZE.ship_mode} htmlFor="cu-shipmode">
+                      <Field label="Ship Mode" w={GENERAL_W.ship_mode} htmlFor="cu-shipmode">
                         <Select id="cu-shipmode" value={form.ship_mode} onChange={(e) => set({ ship_mode: e.target.value })}>
                           <option value=""></option>
                           {SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -1631,28 +2155,28 @@ export function CustomerMasterScreen({
                           <Select> it could only pick, and it had to compose the
                           "DELIVERED DUTY PAID (DDP)" option text itself; the
                           picker's `lookupLabel` does that now. */}
-                      <Field label="Ship Type" size={FIELD_SIZE.ship_type_id}>
+                      <Field label="Ship Type" w={GENERAL_W.ship_type_id}>
                         <LookupDialogPicker kind="ship_type" label="Ship Type" options={shipTypes} value={form.ship_type_id || null} onChange={(id) => set({ ship_type_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cu-paymode">
+                      <Field label="Pay Mode" w={GENERAL_W.pay_mode} htmlFor="cu-paymode">
                         <Select id="cu-paymode" value={form.pay_mode} onChange={(e) => set({ pay_mode: e.target.value })}>
                           <option value=""></option>
                           {PAY_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Receivable Terms" size={FIELD_SIZE.receivable_term_id}>
+                      <Field label="Receivable Terms" w={GENERAL_W.receivable_term_id}>
                         <RecordPicker label="Receivable Term" items={receivableTerms} value={form.receivable_term_id || null} onChange={(id) => set({ receivable_term_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Pref. Courier" size={FIELD_SIZE.pref_courier_id}>
+                      <Field label="Pref. Courier" w={GENERAL_W.pref_courier_id}>
                         <RecordPicker label="Courier" items={couriers} value={form.pref_courier_id || null} onChange={(id) => set({ pref_courier_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Port of Loading" size={FIELD_SIZE.port_of_loading_id}>
+                      <Field label="Port of Loading" w={GENERAL_W.port_of_loading_id}>
                         <RecordPicker label="Port" items={ports} value={form.port_of_loading_id || null} onChange={(id) => set({ port_of_loading_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Port of Discharge" size={FIELD_SIZE.port_of_discharge_id}>
+                      <Field label="Port of Discharge" w={GENERAL_W.port_of_discharge_id}>
                         <RecordPicker label="Port" items={ports} value={form.port_of_discharge_id || null} onChange={(id) => set({ port_of_discharge_id: id ?? "" })} compact />
                       </Field>
-                      <Field label="Final Destination" size={FIELD_SIZE.final_destination_id}>
+                      <Field label="Final Destination" w={GENERAL_W.final_destination_id}>
                         <RecordPicker label="Destination" items={destinations} value={form.final_destination_id || null} onChange={(id) => set({ final_destination_id: id ?? "" })} compact />
                       </Field>
                       {/* ONE cell holding two controls: "Columns" edits the very
@@ -1661,7 +2185,7 @@ export function CustomerMasterScreen({
                           `items-center` now that the picker's label sits above
                           the whole cell — it used to be `items-end` to clear the
                           label the picker drew for itself. */}
-                      <Field label="Packing List Format" size={FIELD_SIZE.packing_list_format_id}>
+                      <Field label="Packing List Format" w={GENERAL_W.packing_list_format_id}>
                         <div className="flex items-center gap-2">
                           <div className="min-w-0 flex-1">
                             <LookupDialogPicker kind="packing_list_format" label="Packing List Format" options={packingFormats} value={form.packing_list_format_id || null} onChange={(id) => set({ packing_list_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
@@ -1669,22 +2193,22 @@ export function CustomerMasterScreen({
                           <Button type="button" variant="outline" size="md" disabled={!form.packing_list_format_id} onClick={() => setColsOpen(true)}>Columns</Button>
                         </div>
                       </Field>
-                      <Field label="Commercial Invoice Format" size={FIELD_SIZE.commercial_invoice_format_id}>
+                      <Field label="Commercial Invoice Format" w={GENERAL_W.commercial_invoice_format_id}>
                         <LookupDialogPicker kind="commercial_invoice_format" label="Commercial Invoice Format" options={commercialFormats} value={form.commercial_invoice_format_id || null} onChange={(id) => set({ commercial_invoice_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
-                      <Field label="Color Spec Applicable" size={FIELD_SIZE.color_spec_applicable} htmlFor="cu-colorspec">
+                      <Field label="Color Spec Applicable" w={GENERAL_W.color_spec_applicable} htmlFor="cu-colorspec">
                         <Select id="cu-colorspec" value={form.color_spec_applicable ? "yes" : "no"} onChange={(e) => set({ color_spec_applicable: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
                         </Select>
                       </Field>
-                      <Field label="TCS" size={FIELD_SIZE.tcs_applicable} htmlFor="cu-tcs">
+                      <Field label="TCS" w={GENERAL_W.tcs_applicable} htmlFor="cu-tcs">
                         <Select id="cu-tcs" value={form.tcs_applicable ? "yes" : "no"} onChange={(e) => set({ tcs_applicable: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
                         </Select>
                       </Field>
-                      <Field label="GST No" size={FIELD_SIZE.gst_no} htmlFor="cu-gst">
+                      <Field label="GST No" w={GENERAL_W.gst_no} htmlFor="cu-gst">
                         <>
                           <ValidatedInput
                             id="cu-gst"
@@ -1701,35 +2225,58 @@ export function CustomerMasterScreen({
                           <DuplicateError error={gstDupError} id="cu-gst" />
                         </>
                       </Field>
-                      {/* A wide fact strip, not a field — its own `full` cell
-                          under the 3-wide GST box rather than crammed inside it. */}
-                      {gstin && (
-                        <Field size={FIELD_SIZE.gstin_insight}>
-                          <GstinInsight
-                            decoded={gstin}
-                            // Customers have no PAN column, so the mismatch
-                            // line stays dormant; the strip still shows the PAN
-                            // the number carries, which is the useful half.
-                            panValue=""
-                            suggestions={gstinSuggestions}
-                          />
-                        </Field>
-                      )}
-                    </FieldGrid>
+                    </FieldRow>
 
-                    {/* Marking grid */}
-                    <div className="mt-6">
+                    {/* A fact strip, not a field, and now a SIBLING of the row rather
+                        than a cell in it. It used to take a `size="full"` cell, which
+                        is a `col-span-12` — meaningless in a flex row, where it would
+                        have queued up beside GST No at its natural width instead of
+                        taking its own line. Outside the row it spans the section, and
+                        `mt-2` keeps it tucked under the field it explains. */}
+                    {gstin && (
+                      <div className="mt-2">
+                        <GstinInsight
+                          decoded={gstin}
+                          // Customers have no PAN column, so the mismatch
+                          // line stays dormant; the strip still shows the PAN
+                          // the number carries, which is the useful half.
+                          panValue=""
+                          suggestions={gstinSuggestions}
+                        />
+                      </div>
+                    )}
+
+                    {/* Marking grid, capped — see `MARKING_W` above for why a
+                        one-column grid must not be given the whole pane. */}
+                    <div className={`mt-6 ${MARKING_W}`}>
                       <ChildGrid<MarkRow>
                         lockExisting
+                        /* THE ✕ BESIDE THE FIELD, NOT IN THE CARD'S CORNER
+                           (client 2026-09-09: "move the delete X button out of
+                           the input box and place it beside the input on the
+                           right"). This grid is the shape the corner was never
+                           derived for — ONE column, a bare `<Input>` with no
+                           label band — so the corner's derived `top` landed the
+                           chip across the input's own box.
+
+                           IT IS THE PHONE PATH THAT STILL READS THIS. The cap
+                           went to 34rem the same day (see `MARKING_W`), which
+                           puts the grid back above the `@lg` switch, and the
+                           TABLE has always had a real ✕ cell. So on a desktop
+                           editor this is inert; below 544px, where the cards
+                           come back, it is what keeps the ✕ out of the box.
+                           `removeBeside` on `ChildGrid` carries the reasoning. */
+                        removeBeside
                         label="Marking"
                         pageSize={10}
                         rows={markings}
-                        onAdd={() => { setMarkings((xs) => [...xs, { key: newKey(), marking: "" }]); setDirty(true); }}
+                        onAdd={() => { setMarkings((xs) => [...xs, blankMarking(newKey())]); setDirty(true); }}
                         onRemove={(m) => { setMarkings((xs) => xs.filter((r) => r.key !== m.key)); setDirty(true); }}
                         addLabel="+ Add marking"
                         columns={[
                           {
                             header: "Marking",
+                            width: MARKING_COL_W,
                             cell: (m) => (
                               <Input uppercase value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" />
                             ),
@@ -1861,14 +2408,25 @@ function CategoryGrid({
     [rows],
   );
   return (
+    /* Capped to the FORM's width, never the pane's — see `PICKER_CARD_W`. */
+    <div className={PICKER_CARD_W}>
+      {/* THE ✕ BESIDE THE PICKER, NOT IN THE CARD'S CORNER — the same fix
+          Marking took on this screen (client 2026-09-09) and for the same
+          reason, which `removeBeside` on `ChildGrid` states in full: the corner
+          is derived against a card of stacked LABELLED fields, and this row is
+          ONE unlabelled control in a card capped at 21.5rem, so the derived
+          `top` paints a 28px chip across the box it deletes. In the flow it also
+          decides how wide the field is, which is what `PICKER_CARD_W`'s
+          arithmetic counts. */}
     <ChildGrid<CatRowT>
       lockExisting
       label={title}
       pageSize={10}
       forceCards
       flatRows
+      removeBeside
       rows={rows}
-      onAdd={() => { setRows((xs) => [...xs, { key: newKey(), category_id: "" }]); setDirty(true); }}
+      onAdd={() => { setRows((xs) => [...xs, blankCat(newKey())]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
       addLabel="+ Add category"
       columns={[
@@ -1884,6 +2442,7 @@ function CategoryGrid({
         },
       ]}
     />
+    </div>
   );
 }
 
@@ -1917,14 +2476,25 @@ function VendorGrid({
     [rows],
   );
   return (
+    /* Capped to the FORM's width, never the pane's — see `PICKER_CARD_W`. */
+    <div className={PICKER_CARD_W}>
+      {/* THE ✕ BESIDE THE PICKER, NOT IN THE CARD'S CORNER — the same fix
+          Marking took on this screen (client 2026-09-09) and for the same
+          reason, which `removeBeside` on `ChildGrid` states in full: the corner
+          is derived against a card of stacked LABELLED fields, and this row is
+          ONE unlabelled control in a card capped at 21.5rem, so the derived
+          `top` paints a 28px chip across the box it deletes. In the flow it also
+          decides how wide the field is, which is what `PICKER_CARD_W`'s
+          arithmetic counts. */}
     <ChildGrid<VendorRowT>
       lockExisting
       label={title}
       pageSize={10}
       forceCards
       flatRows
+      removeBeside
       rows={rows}
-      onAdd={() => { setRows((xs) => [...xs, { key: newKey(), vendor_id: "" }]); setDirty(true); }}
+      onAdd={() => { setRows((xs) => [...xs, blankVendor(newKey())]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
       addLabel="+ Add vendor"
       columns={[
@@ -1936,5 +2506,6 @@ function VendorGrid({
         },
       ]}
     />
+    </div>
   );
 }

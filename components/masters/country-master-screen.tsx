@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Select } from "@/components/ui/select";
-import { Field, type FieldSize } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -35,34 +36,83 @@ const BLANK = {
 };
 
 /**
- * How wide each field is on the 12-col track. Sized to the data, not to the
- * cell: everything here except the name is two to four characters or a tick.
+ * WIDTHS, NOT TWELFTHS (client 2026-09-08: the fields "stretch across the full
+ * width with excessive empty space" — make them "tightly shrink-wrapped to fit
+ * their text content").
  *
- * THE SPANS OF A ROW MUST SUM TO 12. Nothing in the build catches a row that
- * goes past it — the last field simply wraps onto a line of its own with the
- * rest of that line left empty.
+ * This form used to be `size="sm"` on all six fields — 3 of 12 each, four per
+ * row. On a `size="lg"` sheet capped at 1180px that is ~280px PER FIELD, so a
+ * two-character ISD code and a four-value enum each got the width of a customer
+ * name. A fraction cannot be made compact: shrinking the control inside a
+ * twelfth leaves the CELL at its old width and the value floating in dead space
+ * (the "surplus reads as a HOLE rather than as room" failure `FieldRow`'s own
+ * note records). Leaving the fractional track is the only thing that works,
+ * which is what `FieldRow` + `Field w=` is for.
  *
- *   row 1 — name 6 + country_group 2 + ecgc_code 2 + isd_code 2 = 12
- *   row 2 — default_country 2 + inactive 2 = 4  (the flags; inactive is edit-only)
+ *   row 1 — name 144 + country_group 112 + ecgc 72 + isd 72, three 12px gaps
+ *            = 436px, and the row simply ENDS there.
+ *   row 2 — the two flags at content width (inactive is edit-only).
  *
- * Four per row is the target (client 2026-07-29). It lands here because the
- * three codes stopped taking a third of the row each — they were md/xs/xs, so
- * row 1 was 6+4+2 = 12 with only THREE fields on it and ISD pushed down.
+ * **The sums-to-12 rule does not apply and is not being broken** — that rule is
+ * about a fractional track where leftovers read as page padding. A content-width
+ * row has no twelfths to leave over. Do not "settle" this row by widening a
+ * field.
+ *
+ * THE FIVE WIDTHS ARE THE WHOLE VOCABULARY (`lib/ui/sizes.ts`): num 72 · range
+ * 112 · code 144 · term 176 · name 288. The requested ~135 / ~120 / ~85 / ~75
+ * are mapped onto the nearest of those rather than hand-written, because "a
+ * screen measured against its own longest value" is the exact failure that file
+ * exists to prevent — and a `w-[135px]` here would be the sixth unnamed constant
+ * after the four it was written to replace.
+ *
+ * `name` IS THE ONE THAT TRADES AGAINST THE RULE, and it is deliberate rather
+ * than overlooked. `FieldWidth`'s test is "does the value have a hard maximum
+ * the schema guarantees?" — `country_group` is a 4-value enum, `isd_code` is
+ * `maxLength: 5`, and both qualify outright. A country NAME does not: it is free
+ * text, and `countryInput.name` sets no ceiling. At `code` (144px, ~16
+ * characters at 14px type) "UNITED ARAB EMIRATES" scrolls inside the box — it
+ * did at 280px too, which is what the old comment here recorded, just sooner.
+ * Bump this one to `term` (176) or `name` (288) if that reads badly in use; the
+ * other three are sound at any width the vocabulary offers.
  */
+const FIELD_W = {
+  name: "code", //          144px — free text; see the note above
+  country_group: "range", // 112px — EU · USA · CANADA · OTHERS
+  ecgc_code: "num", //        72px
+  isd_code: "num", //         72px — format="isd", maxLength 5 ("+91")
+} satisfies Record<string, FieldWidth>;
+
 /**
- * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29) —
- * the City / State / Pin / Country shape, applied across the masters instead of
- * sizing each field to its own data. Rows here are 3+3+3+3 = 12 then 3+3 = 6.
- * See applicant-master-screen for the rule and what it trades away.
+ * HOW WIDE THE FORM IS — the DETAILS card AND the footer's buttons, from ONE
+ * declaration (client 2026-09-08: the card "stretches to full 100% width leaving
+ * half of the right side completely empty"; end it after ISD Code and "align the
+ * action buttons accordingly").
+ *
+ * Narrowing the FIELDS did not narrow the CARD. `DetailSection` is a block box,
+ * so it still filled the sheet's 1180px while its content stopped at 436px —
+ * which is why the fix is a width on the card and not more work on the fields.
+ *
+ * DERIVED, NOT PICKED. The row is the four widths plus the three 12px gaps
+ * `FIELD_ROW` puts between them:
+ *
+ *   144 + 112 + 72 + 72  = 400   the controls (FIELD_W above)
+ *   + 3 × 12             =  36   gap-x-3
+ *   = 436                        the content row
+ *   + 2 × 8              =  16   the card's own `@2xl/editor:p-2`
+ *   + 2 × 1              =   2   its border
+ *   = 454                        the card, hugging exactly
+ *
+ * 29rem (464px) leaves 10px of slack over that, deliberately: at the NON-compact
+ * density the card's padding is `p-2.5` rather than `p-2`, which costs 4px more,
+ * and a cap that fits only at one density would wrap the row into two lines at
+ * the other. Slack is invisible; a wrap is not.
+ *
+ * BOTH READERS TAKE THIS SAME STRING, which is the only reason the buttons line
+ * up with the card's right edge rather than approximately so. Change the number
+ * here and the card and the footer move together; hand a second copy to either
+ * one and they drift the first time a field width changes.
  */
-const FIELD_SIZE = {
-  name: "sm", // "UNITED ARAB EMIRATES" scrolls inside the box
-  country_group: "sm",
-  ecgc_code: "sm",
-  isd_code: "sm",
-  default_country: "sm",
-  inactive: "sm",
-} satisfies Record<string, FieldSize>;
+const FORM_W = "max-w-[29rem]";
 
 /**
  * The stored `code` for a NEW country, derived from its name.
@@ -244,7 +294,13 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
         onClose={() => setOpen(false)}
         title={editId ? "Edit Country" : "New Country"}
         footer={
-          <>
+          /* `mr-auto` inside the Sheet footer's `justify-end` row: the auto
+             margin eats the free space on the RIGHT, so this box sits at the
+             left edge and the buttons — right-aligned inside it by `justify-end`
+             — end exactly where the card above them ends. Without it they stay
+             pinned to the 1180px pane and float a screen-width away from a
+             464px form. `FORM_W` is the same string the card takes. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -263,91 +319,109 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             >
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         {/* Six fields — under the 7 that would call for grouping (LAYOUT.md §4),
-            so one flat section. Widths come from FIELD_SIZE at the top of this
-            file, which carries the row arithmetic. */}
-        <DetailSection label="Details" cols={12}>
-          <Field label="Name" size={FIELD_SIZE.name} required htmlFor="co-name">
-            <Input
-              id="co-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-              onKeyDown={nameSuggest.onKeyDown}
-              required
-              {...dupFieldProps(dupError, "co-name")}
-            />
-            <DuplicateError error={dupError} id="co-name" />
-            <SpellSuggestHint
-              suggestions={nameSuggest.suggestions}
-              existing={nameSuggest.existing}
-              activeIndex={nameSuggest.activeIndex}
-              duplicate={!!dupError}
-              onApply={(v) => set({ name: v })}
-            />
-          </Field>
-          <Field label="Country Group" size={FIELD_SIZE.country_group} htmlFor="co-group">
-            <Select
-              id="co-group"
-              value={form.country_group}
-              onChange={(e) => set({ country_group: e.target.value as "" | CountryGroup })}
-            >
-              <option value=""></option>
-              {COUNTRY_GROUPS.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="ECGC Code" size={FIELD_SIZE.ecgc_code} htmlFor="co-ecgc">
-            <Input
-              uppercase
-              id="co-ecgc"
-              value={form.ecgc_code}
-              onChange={(e) => set({ ecgc_code: e.target.value })}
-            />
-          </Field>
-          <Field label="ISD Code" size={FIELD_SIZE.isd_code} htmlFor="co-isd">
-            <ValidatedInput
-              id="co-isd"
-              format="isd"
-              value={form.isd_code}
-              onChange={(e) => set({ isd_code: e.target.value })}
-            />
-          </Field>
-          {/* Each flag gets its own cell rather than a hand-rolled flex row, so
-              the checkboxes sit on the same 12-col track as everything else.
-              A tick is a Yes/No, which is `xs` — at `md` the two of them ate a
-              two-thirds row on their own. */}
-          <Field size={FIELD_SIZE.default_country}>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.default_country}
-                onChange={(e) => set({ default_country: e.target.checked })}
+            so one flat section. `cols={1}` because the fields are NOT laid out
+            on the twelfths track any more: each `FieldRow` below is a
+            content-width flex row, and the section just stacks the two of them.
+            Widths come from FIELD_W at the top of this file. */}
+        <DetailSection label="Details" cols={1} className={FORM_W}>
+          {/* The four inputs, one row, ending where the content ends.
+              `FIELD_ROW` brings `gap-x-3` (12px) and `items-end` — the controls
+              align on their BOTTOM edge, so a label that wraps inside a narrow
+              cell pushes itself up rather than pushing its input a line down.
+              That is what keeps the four boxes on one line. */}
+          <FieldRow>
+            <Field label="Name" w={FIELD_W.name} required htmlFor="co-name">
+              <Input
+                id="co-name"
+                uppercase
+                value={form.name}
+                onChange={(e) => set({ name: e.target.value })}
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
+                required
+                {...dupFieldProps(dupError, "co-name")}
               />
-              <span className="text-sm text-foreground">Default Country</span>
-            </label>
-          </Field>
-          {editId && (
-            <Field size={FIELD_SIZE.inactive}>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
+              <DuplicateError error={dupError} id="co-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
+                activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
+                onApply={(v) => set({ name: v })}
+              />
             </Field>
-          )}
+            <Field label="Country Group" w={FIELD_W.country_group} htmlFor="co-group">
+              <Select
+                id="co-group"
+                value={form.country_group}
+                onChange={(e) => set({ country_group: e.target.value as "" | CountryGroup })}
+              >
+                <option value=""></option>
+                {COUNTRY_GROUPS.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="ECGC Code" w={FIELD_W.ecgc_code} htmlFor="co-ecgc">
+              <Input
+                uppercase
+                id="co-ecgc"
+                value={form.ecgc_code}
+                onChange={(e) => set({ ecgc_code: e.target.value })}
+              />
+            </Field>
+            <Field label="ISD Code" w={FIELD_W.isd_code} htmlFor="co-isd">
+              <ValidatedInput
+                id="co-isd"
+                format="isd"
+                value={form.isd_code}
+                onChange={(e) => set({ isd_code: e.target.value })}
+              />
+            </Field>
+          </FieldRow>
+
+          {/* The flags get their OWN row, below the inputs and at content width.
+              They are deliberately not in the row above: `FIELD_ROW` is
+              `items-end` and a switch carries no label row, so sharing the row
+              would bottom-align them against the 46px fields and leave them
+              floating beside the boxes. A second row is what keeps both tight.
+
+              `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
+              Entry uses). Size, track colour and the ON `--primary` are the
+              component's, not this screen's — which is the point of asking for
+              "the same as Order Entry": Garment Order's Pack / Multi Style
+              switches render from this same file, so they cannot drift apart.
+
+              IT IS STILL A REAL CHECKBOX UNDERNEATH, and that is what makes the
+              swap safe rather than merely pretty. `Toggle` keeps an `sr-only`
+              `<input type="checkbox">` and draws the switch with its siblings,
+              because `isFieldLike()` (lib/focus.ts) counts an `<input>` and NOT
+              a `<button role="switch">` — the obvious build would have dropped
+              both flags off Tab, off Enter-advance and off the arrows, leaving
+              them mouse-only. Tab reaches them, Enter and Space toggle them, and
+              a screen reader still announces a checkbox. */}
+          <FieldRow>
+            <Toggle
+              id="co-default"
+              label="Default Country"
+              checked={form.default_country}
+              onChange={(default_country) => set({ default_country })}
+            />
+            {editId && (
+              <Toggle
+                id="co-inactive"
+                label="Inactive"
+                checked={form.inactive}
+                onChange={(inactive) => set({ inactive })}
+              />
+            )}
+          </FieldRow>
         </DetailSection>
       </Sheet>
     </div>
