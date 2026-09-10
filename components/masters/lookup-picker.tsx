@@ -48,12 +48,19 @@ export function LevyPicker({
   value,
   onChange,
   clearable = true,
+  compact = false,
 }: {
   label: string;
   levies: Levy[];
   value: string;
   onChange: (v: string) => void;
   clearable?: boolean;
+  /** Trigger-only, for a caller that draws the caption on its own `<Field>` —
+   *  the same prop `CategoryPicker` and `MaterialPicker` below already forward.
+   *  Added 2026-09-10 for Vendor's TDS & ESI row, where this picker's own label
+   *  sat at a different offset from the two `Field`-labelled boxes beside it.
+   *  `label` is still required: it is the dialog's title and the toast's noun. */
+  compact?: boolean;
 }) {
   const rows: PickerRow[] = useMemo(
     () =>
@@ -75,6 +82,7 @@ export function LevyPicker({
       value={value}
       onChange={(v) => onChange(v ?? "")}
       clearable={clearable}
+      compact={compact}
     />
   );
 }
