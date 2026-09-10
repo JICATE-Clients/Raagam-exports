@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -54,15 +54,25 @@ const BLANK = {
  * forces. Neither share was ever the right answer, because a share is not a
  * width — the third option is the one the track cannot express.
  *
- *   zone_name  ->  `code`  144   free text with no schema maximum, so it takes
- *                                the step every other master name takes here
- *                                (Country's `name`, Consignee's `IDENTITY_W.name`,
- *                                Notify's short name). A third opinion on a
- *                                party-name width is the drift `lib/ui/sizes.ts`
- *                                exists to stop.
+ * 180px, AND IT IS HAND-TYPED — the one width in this file that is not a step of
+ * `lib/ui/sizes.ts`, and the skill's own rule is what licenses it rather than an
+ * exception to it. `erp-form-compact`: "reach for `w={…}` first, and hand-typed
+ * pixels only when a row has been tried at these and rejected."
  *
- * NO NEW MEASUREMENTS AND NO HAND-TYPED PIXELS: the value is a step of the
- * vocabulary, picked by content type, not by this screen's longest zone.
+ * THIS ROW HAS NOW BEEN TRIED AT EVERY STEP THAT COULD HOLD A PLACE NAME, and
+ * each was reported back the same day (client 2026-09-10): `code` 144, then
+ * `term` 176 for "~170", then `party` 200 for "the exact same width
+ * (w-[200px])", then 180, then 220, then 180 again. That is the sentence's
+ * condition met six times over, not a preference overriding it — and rounding "~170" to
+ * `term`'s 176 is what started the sequence. The client is tuning this row by
+ * eye against a real screen; a number they can see beats a vocabulary they
+ * cannot.
+ *
+ * WHAT THE VOCABULARY STILL GETS IS THE RULE UNDERNEATH IT. This is not "size to
+ * the data" — nobody measured CENTRAL EAST and cut a box to fit it. It is one
+ * number for BOTH controls, chosen for the row, which is the question
+ * `lib/ui/sizes.ts` says to ask. So it stays local: no seventh step was added
+ * there, because a step exists to be reused and this number answers one screen.
  *
  * THE INACTIVE SWITCH HAD A STEP HERE (`range` 112) AND THE CONTROL IS GONE
  * (client 2026-09-09), so the step went with it. Deactivating a zone was never
@@ -73,38 +83,51 @@ const BLANK = {
  * edited through this form is saved inactive. Drop the field from the form state
  * and every edit silently switches the record back on.
  */
-const FIELD_W = {
-  zone_name: "code",
-} satisfies Record<string, FieldWidth>;
+/**
+ * TWO GRAMMARS, ONE NUMBER — the same split `FIELD_WIDTH` / `FIELD_WIDTH_CSS`
+ * makes in `field.tsx`, and for the identical reason: a `Field` takes a Tailwind
+ * class, a `ChildGridColumn.width` is written into `style`, and neither form can
+ * be built from the other because Tailwind v4 scans SOURCE TEXT. Both are
+ * literals here so the scanner sees the class, and they sit on adjacent lines so
+ * a change to one that misses the other is visible in a two-line diff.
+ *
+ * Everything else in this file reads one of these, so 180 is stated twice and
+ * nowhere else — the grid column, the box around it and the footer cap all
+ * follow.
+ */
+const BOX_W = "w-[180px]"; //  the Zone Name field
+const BOX_W_CSS = "180px"; //  the Area column — the same 180
 
 /**
- * HOW WIDE THE FORM IS — one reader now, the footer's button box, so Cancel and
- * Save end where the row above them ends instead of a screen-width to its right.
+ * AND THE TWO CONTROLS THEMSELVES, ONE STRING (client 2026-09-10: "the exact
+ * same fixed dimensions … w-[220px] h-8 text-xs. Remove any flex-1 or w-full so
+ * both boxes are 100% equal in width and height").
  *
- * IT USED TO CAP A `DetailSection` AS WELL, and that card is gone: the client
- * asked for the "Details" and "AREAS" captions off and for Zone Name and Area on
- * ONE row (2026-09-09). A section exists to group and label a set of fields, and
- * with the label removed and one row left there is nothing for it to group — so
- * what was left of it was a bordered box drawing a 16px empty band above a
- * single line. `DetailSection`'s `label` is required and its header div carries
- * `min-h-4`, so "no caption" is not a state that component has; the honest way
- * to say it is not to use one.
+ * Sizing the two WRAPPERS was not enough to make the two BOXES identical, and
+ * that is the lesson here. `Input` is `w-full` by default, so each box was the
+ * width of whatever contained it — correct on both sides today and correct only
+ * by coincidence, since the grid cell and the `Field` are sized by different
+ * props in different files. Stating the width on the control removes the
+ * indirection: `cn` is tailwind-merge and `className` is last, so `w-[220px]`
+ * REPLACES `w-full` rather than fighting it.
  *
- * DERIVED, NOT PICKED. The row is the name field, the gap, and the Areas grid:
+ * `flex-1` was never on either control. The grid cell takes it only when its
+ * column declares no `width` (`c.width ? "shrink-0" : "flex-1"`), and this one
+ * has declared 220 since `AREA_COL_W` below — so that half of the instruction is
+ * already true and is recorded here so the next reader does not go looking.
  *
- *   144                =  144   Zone Name (FIELD_W above)
- *   + 1 x 12           =   12   `FIELD_ROW`'s gap-x-3
- *   144 + 8 + 32       =  184   the grid: its one column (AREA_COL_W), the row's
- *                               own `gap-2`, and the 32px ✕ track. No index
- *                               (`hideIndex`) and no frame (`frameless`), so
- *                               there is nothing else in it to count.
- *   = 340                       the row, ending exactly there
+ * `h-8` FLAT, not the primitive's `h-9 @2xl/editor:h-8`. The pair is deliberate
+ * — 36px keeps a full touch target on a phone and 32px is the desktop editor's
+ * density — and inside this Sheet the container query already resolves to 32,
+ * so this changes nothing on the screen the client is looking at and pins the
+ * narrow case to match it.
  *
- * 22rem (352px) leaves 12px over that, the same slack-not-wrap trade Country's
- * cap makes: the buttons must not be the thing that decides where the row
- * breaks.
+ * `text-xs md:text-xs`, BOTH HALVES. `Input` sets `text-base md:text-sm`, two
+ * classes at two breakpoints, so a bare `text-xs` would win under `md` and lose
+ * above it — 12px on a phone and 14px on the desk, which is the opposite of the
+ * one thing being asked for.
  */
-const FORM_W = "max-w-[22rem]";
+const INPUT_BOX = `${BOX_W} h-8 text-xs md:text-xs`;
 
 /**
  * AND THE AREAS GRID HUGS TOO — the child half of the same rule, and the reason
@@ -121,12 +144,135 @@ const FORM_W = "max-w-[22rem]";
  * is a cap this grid is already inside, and its width is coupled to the
  * responsive table's breakpoint that `inlineCards` does not use. Declaring the
  * COLUMN's width is the tool that fits — an area is a place name, so it takes
- * `code`'s 144 like the zone it belongs to — and it buys the card for free:
+ * the same step the zone it belongs to takes (`AREA_COL_W` below) — and it buys
+ * the card for free:
  * `hugsContent` is true once every column declares a width, and inline mode's
  * `cardHug` is then an unconditional `w-fit`. The frame stops at the last column
  * instead of trailing grey to the edge of the section.
  */
-const AREA_COL_W = "9rem"; // 144px — `code`, as FIELD_W.zone_name
+/**
+ * THE AREA BOX IS THE ZONE NAME BOX — the same width, by construction rather
+ * than by agreement (client 2026-09-10: "zone name input box size same to area
+ * input box"). Both controls hold the same kind of value, a place name typed by
+ * hand, so the row reads as two boxes rather than as a wide one and a narrow
+ * one.
+ *
+ * READ OUT OF `BOX_W_CSS`, NOT RETYPED. This line was `"11rem"` with a comment
+ * saying it matched the field beside it, which is exactly the shape that goes
+ * wrong: change the field and the grid keeps the old number, silently and with a
+ * comment still claiming otherwise. The width has moved three times since, and
+ * this line has been correct through all three without being touched.
+ */
+const AREA_COL_W = BOX_W_CSS; // 180px — the Zone Name box, by construction
+
+/**
+ * AND THE BOX AROUND IT, WHICH IS NOT DECORATION — it is what gives `ChildGrid`
+ * a width to lay itself out in.
+ *
+ * `ChildGrid`'s outer element is the `@container` one (`container-type:
+ * inline-size`, so `contain: inline-size` with it), and a size-contained box
+ * contributes NOTHING to its own intrinsic width. As a bare flex item that
+ * resolves to max-content 0: the card inside keeps its `w-fit` and spills out of
+ * a parent measured at nothing. Its own comment records the same cycle from the
+ * other side — "a content-sized container-query element is a cycle the browser
+ * resolves by collapsing it" — which is why `hugsContent` puts `w-fit` on the
+ * INNER card and never on that div.
+ *
+ * So the grid gets a definite width from its parent instead. That is what
+ * `material-master-screen.tsx` does by handing the composition grid a
+ * `<Field size="xl">` cell, and what Notify's contacts grid does with
+ * `CONTACTS_W`; a plain sized `<div>` is the same answer without a label slot
+ * this row has no room for.
+ *
+ * DERIVED IN CSS, not retyped as a class. The box is the column plus the grid
+ * row's own `gap-2` (8px) and its 32px ✕ track — 2.5rem between them — so it is
+ * stated as a `calc()` off `AREA_COL_W` and follows the column the day that
+ * changes. A Tailwind `w-[…rem]` could not: it would have to be a literal for
+ * the scanner, and a literal is what would have needed retyping when the step
+ * moved from 176 to 200 an hour later.
+ */
+const AREA_BOX_W = `calc(${AREA_COL_W} + 2.5rem)`; // 220px today
+
+/**
+ * HOW WIDE THE FORM IS — one reader now, the footer's button box, so Cancel and
+ * Save end where the row above them ends instead of a screen-width to its right.
+ *
+ * IT USED TO CAP A `DetailSection` AS WELL, and that card is gone: the client
+ * asked for the "Details" and "AREAS" captions off and for Zone Name and Area on
+ * ONE row (2026-09-09). A section exists to group and label a set of fields, and
+ * with the label removed and one row left there is nothing for it to group — so
+ * what was left of it was a bordered box drawing a 16px empty band above a
+ * single line. `DetailSection`'s `label` is required and its header div carries
+ * `min-h-4`, so "no caption" is not a state that component has; the honest way
+ * to say it is not to use one.
+ *
+ * DERIVED, NOT PICKED. The row is the name field, the gap, and the Areas box:
+ *
+ *   180                =  180   Zone Name (BOX_W above)
+ *   + 1 x 12           =   12   the row's gap — `gap="row"`, i.e. `gap-x-3`,
+ *                               and NOT the 10px `nowrap` brings by itself. See
+ *                               the note on the row below.
+ *   180 + 8 + 32       =  220   the Areas box (AREA_BOX_W): its one column
+ *                               (AREA_COL_W), the row's own `gap-2`, and the
+ *                               32px ✕ track. No index (`hideIndex`) and no
+ *                               frame (`frameless`), so there is nothing else
+ *                               in it to count.
+ *   = 412                       the row, ending exactly there
+ *   + 0.75rem          =   12   slack, the same trade Country's cap makes: the
+ *                               buttons must not be the thing that decides where
+ *                               the row breaks.
+ *   = 424
+ *
+ * AND IT IS THE SUM, NOT A NUMBER THAT MATCHED THE SUM ONCE. Every term above
+ * traces back to `BOX_W_CSS`, so changing that one number moves the field,
+ * the grid column, the box around it and this cap together. A hand-typed
+ * `max-w-[26rem]` was correct on the day it was written and would have gone
+ * quietly wrong on the next width change — which arrived the SAME DAY, when the
+ * step moved from `term` to `party`. Nothing here was edited for it.
+ *
+ * Declared here, below `AREA_BOX_W`, because it reads it; the JSX puts it on the
+ * footer as an inline `maxWidth`, since a `calc()` cannot be a Tailwind class.
+ */
+const FORM_W = `calc(${AREA_COL_W} + 0.75rem + ${AREA_BOX_W} + 0.75rem)`;
+
+/**
+ * THE LABEL ROW, STATED BY THE CLIENT AND APPLIED TO BOTH COLUMNS (2026-09-10:
+ * "set both labels to h-4 mb-1 text-xs … so their sizes and horizontal baseline
+ * match perfectly").
+ *
+ * 16px of label, 4px of gap, then a 32px box — on BOTH sides, so the two inputs
+ * start at the same y and stay there. That is the whole of what makes these twin
+ * columns rather than two columns that happen to line up today.
+ *
+ * IT REPLACES THE `mt-2` THIS FILE CARRIED AN HOUR AGO. That answered the same
+ * question from the other end (space the control DOWN from its label) and the two
+ * cannot both be live — together they would spend 12px where the instruction
+ * asks for 4. The later instruction wins and the earlier one is gone rather than
+ * exempted around.
+ *
+ * `leading-4` RIDES WITH THEM, and it is not decoration. `Label` and the grid's
+ * band both carry `LABEL_METRICS`, whose line box is 16px on a phone and
+ * `@2xl/editor:leading-[14px]` on a desktop editor — so without pinning it the
+ * two labels would agree with each other and disagree with themselves across the
+ * container query, inside a fixed `h-4` box. One leading at both densities is
+ * what makes `h-4` mean the same thing everywhere.
+ *
+ * TWO LITERALS FOR ONE RULE, and they cannot be built from one string: these are
+ * child-selector variants and Tailwind v4 scans SOURCE TEXT, so an interpolated
+ * `[&>label]:` prefix emits no CSS. Same split, same reason, as `BOX_W` /
+ * `BOX_W_CSS` above — they sit on adjacent lines so a change to one that misses
+ * the other shows up in a two-line diff.
+ *
+ * THEY REACH THE LABELS FROM THE PARENT because neither label is addressable
+ * directly: `Field` renders its own `<Label>` with no className to pass through,
+ * and the grid's band is drawn inside `ChildGrid`. A parent-scoped rule is also
+ * what makes them WIN — `[&>label]:h-4` is one class plus one element, so it
+ * outranks the label's own single class, and a container query adds no
+ * specificity of its own.
+ */
+const LABEL_ON_FIELD = "[&>label]:h-4 [&>label]:mb-1 [&>label]:leading-4 [&>label]:text-xs";
+const LABEL_ON_GRID =
+  "[&>:first-child]:h-4 [&>:first-child]:mb-1 [&>:first-child]:leading-4 [&>:first-child]:text-xs";
 
 /**
  * ONE ROW, TWO CONTROLS, NO CAPTIONS — what the three removals above add up to,
@@ -155,6 +301,29 @@ const AREA_COL_W = "9rem"; // 144px — `code`, as FIELD_W.zone_name
  * relocated. Passing no label instead would leave an empty grid with no band at
  * all, dropping its "+ Add area" 14px above the field beside it — the
  * misalignment `ChildGrid` records from screenshot 2170.
+ *
+ * AND THE ROW IS PINNED TO ONE LINE (`nowrap`, client 2026-09-10). `FieldRow`
+ * wraps by default and that is the house rule, because a row of many fields
+ * folding its tail is better than a page that scrolls sideways. This row has
+ * TWO children and nothing to fold: at 404px the only way it breaks is a pane
+ * narrower than that, and what appears there is the Areas box alone on a second
+ * line, reading as a stray rather than as a wrapped row — the same fault
+ * `FIELD_ROW_NOWRAP` records from Customer ▸ Identity. `[&>*]:shrink-0` comes
+ * with it and is the half that matters more here: without it flex compresses
+ * both children below the widths above and the values clip with no visible
+ * cause.
+ *
+ * `gap="row"` because `nowrap` alone brings 10px, tightened for a BAND of eight
+ * narrow controls. Two controls cannot read as a band, so the only question left
+ * is whether the pair matches the 12px every other row on this screen uses. The
+ * prop's own note in `field.tsx` carries the argument.
+ *
+ * The `overflow-x-auto` that `nowrap` puts on the outer container is safe here:
+ * the two things this row renders below a control — `DuplicateError` and
+ * `SpellSuggestHint` — are both IN FLOW, so the container grows to fit them
+ * instead of clipping. That is the check `erp-form-compact` asks for before
+ * using `nowrap`, and the reason it asks is a picker with an in-flow panel;
+ * there is no picker on this row.
  */
 
 export function ZoneMasterScreen({
@@ -437,7 +606,10 @@ export function ZoneMasterScreen({
              where the row above them ends. Without it they stay pinned to the
              1180px pane and float a screen-width away from a 340px form.
              `FORM_W` is the arithmetic, stated once at the top of this file. */
-          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
+          <div
+            className="mr-auto flex w-full items-center justify-end gap-2"
+            style={{ maxWidth: FORM_W }}
+          >
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
@@ -468,12 +640,21 @@ export function ZoneMasterScreen({
             screen — and the name's two hints appear WHILE TYPING, which is worse
             than a hint that is simply there: the row would settle at one height
             and then jump. Top alignment pins both boxes to the same line and lets
-            each grow into the space below it. */}
-        <FieldRow align="start">
-          <Field label="Zone Name" w={FIELD_W.zone_name} required htmlFor="zn-name">
+            each grow into the space below it.
+
+            `nowrap` + `gap="row"` are the other half of the same row — one line,
+            never folded, at 12px (client 2026-09-10, "flex flex-row items-start
+            gap-3"). It went 12 → 16 → 12 across three instructions in one hour;
+            `gap="wide"` is still in `field.tsx` and still correct for the case it
+            names, this row is simply no longer it. The long note above
+            `AREA_BOX_W` has the rest, including the overflow check. */}
+        <FieldRow nowrap gap="row" align="start">
+          <Field label="Zone Name" required htmlFor="zn-name" className={`${BOX_W} ${LABEL_ON_FIELD}`}>
             <Input
               id="zn-name"
               uppercase
+              // Both boxes take the SAME string — see `INPUT_BOX`.
+              className={INPUT_BOX}
               value={form.zone_name}
               onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
               required
@@ -490,46 +671,74 @@ export function ZoneMasterScreen({
               onApply={(v) => setForm((f) => ({ ...f, zone_name: v }))}
             />
           </Field>
-          {/* Was a hand-rolled row list: its own header band, its own `#` column,
-              its own remove button and a `max-h-56` inner scroller — i.e.
-              ChildGrid, reimplemented and 3px out of step with it. One field per
-              row, so `inlineCards`; `pageSize` replaces the scroll-in-a-box
+          {/* THE SIZED BOX IS LOAD-BEARING — `ChildGrid`'s outer element is size
+              contained, so as a bare flex item it measures 0 and the card inside
+              it spills. `AREA_BOX_W` above states the width and the arithmetic.
+
+              Inside it: was a hand-rolled row list — its own header band, its own
+              `#` column, its own remove button and a `max-h-56` inner scroller,
+              i.e. ChildGrid, reimplemented and 3px out of step with it. One field
+              per row, so `inlineCards`; `pageSize` replaces the scroll-in-a-box
               (client 2026-07-25). Keyboard nav comes with the component, so the
               local gridKeyNav wiring goes too. */}
-          <ChildGrid<{ key: string; area_name: string }>
-            lockExisting
-            // Shown ONLY while the grid is empty, in the slot the column header
-            // takes once a row exists — `flushRows` allows exactly one band, so
-            // this is a header that stands in for itself, not a caption.
-            label="Area"
-            rows={childRows}
-            onAdd={addChildRow}
-            onRemove={(row) => removeChildRow(row.key)}
-            addLabel="+ Add area"
-            inlineCards
-            // The three props that put this grid ON the row beside Zone Name
-            // rather than in a card under its own caption. See `AREA_COL_W`.
-            flushRows
-            hideIndex
-            frameless
-            pageSize={8}
-            columns={[
-              {
-                header: "Area",
-                // The one column's width, and with it the grid's — see
-                // `AREA_COL_W`. Without it `inlineCards` gives this cell
-                // `flex-1` and the box takes every pixel the row will give.
-                width: AREA_COL_W,
-                cell: (row) => (
-                  <Input
-                    uppercase
-                    value={row.area_name}
-                    onChange={(e) => updateChild(row.key, e.target.value)}
-                  />
-                ),
-              },
-            ]}
-          />
+          <div style={{ width: AREA_BOX_W }}>
+            <ChildGrid<{ key: string; area_name: string }>
+              lockExisting
+              // Shown ONLY while the grid is empty, in the slot the column header
+              // takes once a row exists — `flushRows` allows exactly one band, so
+              // this is a header that stands in for itself, not a caption.
+              label="Area"
+              rows={childRows}
+              onAdd={addChildRow}
+              onRemove={(row) => removeChildRow(row.key)}
+              addLabel="+ Add area"
+              inlineCards
+              // The three props that put this grid ON the row beside Zone Name
+              // rather than in a card under its own caption. See `AREA_COL_W`.
+              flushRows
+              hideIndex
+              frameless
+              // The other half of `LABEL_ON_FIELD` — see its note. `flushRows`
+              // makes the band the grid's ONE label row, and this gives that band
+              // the same 16px box and 4px gap the field's own label has, so the
+              // two controls under them start at the same y.
+              bodyClassName={LABEL_ON_GRID}
+              pageSize={8}
+              columns={[
+                {
+                  header: "Area",
+                  // The one column's width, and with it the grid's — see
+                  // `AREA_COL_W`. Without it `inlineCards` gives this cell
+                  // `flex-1` and the box takes every pixel the row will give.
+                  width: AREA_COL_W,
+                  cell: (row) => (
+                    <Input
+                      uppercase
+                      // The other half of `INPUT_BOX` — same width, height and
+                      // type size as Zone Name, from one declaration.
+                      className={INPUT_BOX}
+                      value={row.area_name}
+                      onChange={(e) => updateChild(row.key, e.target.value)}
+                    />
+                  ),
+                },
+              ]}
+              /* "+ Add area", CLEARLY BELOW THE ROWS RATHER THAN JOINED TO THEM
+                 (client 2026-09-10). The card's own rhythm gives 12px — a flush
+                 row's `pb-1.5` (6px) plus the card's `space-y-1.5` (6px) — and
+                 `frameless` is what makes that read as too little here: with no
+                 card border to close the rows off, the button sits under the last
+                 row's rule and looks like the row after it.
+
+                 `mt-2` is additive in Tailwind v4, where `space-y` is a
+                 `margin-block-end` on every child but the last and carries zero
+                 specificity (`:where()`), so it lands ON TOP of the 6px rather
+                 than replacing it: 14px from the last input's box. In v3 it would
+                 have been silently inert — `space-y` was a `margin-top` on the
+                 later siblings at a specificity `mt-2` loses to. */
+              addClassName="mt-2"
+            />
+          </div>
         </FieldRow>
       </Sheet>
     </div>

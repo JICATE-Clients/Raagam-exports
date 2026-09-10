@@ -1430,6 +1430,7 @@ export function ChildGrid<T extends { key: string }>({
   onRemove,
   addLabel = "+ Add row",
   addClassName,
+  bodyClassName,
   renderMobileRow,
   pageSize,
   forceCards = false,
@@ -1516,6 +1517,28 @@ export function ChildGrid<T extends { key: string }>({
    * change nobody asked for.
    */
   addClassName?: string;
+  /**
+   * EXTRA CLASSES ON THE ROWS CONTAINER — the `data-grid-body` element, in
+   * whichever of the four layouts is rendering.
+   *
+   * It exists for the vertical rhythm `flushRows` deliberately removes.
+   * `flushRows` drops the body's `space-y-1.5` so the first row starts exactly
+   * where a `Field`'s control does beside it, and that is right for the TOP of
+   * the grid and wrong for everything under it: the rows then stack with only
+   * their own `pb-1.5` between them (client 2026-09-10, Zone ▸ Edit — "vertical
+   * margin between the Area label, its input, and the + Add area button").
+   *
+   * A CALLER PASSING SPACING HERE OWES THE FIELD BESIDE IT THE SAME OFFSET.
+   * Spacing the band off the first row moves that row DOWN, which is the exact
+   * alignment `flushRows` was added to buy — so the plain `Field` sharing the row
+   * has to drop by the same amount or the two controls stop sitting on one line.
+   * `zone-master-screen.tsx` states the value once and hands it to both sides;
+   * copy that shape rather than passing a number here alone.
+   *
+   * NOT a default and not a substitute for `flushRows`. Every grid that does not
+   * pass this renders exactly as before.
+   */
+  bodyClassName?: string;
   /** Custom mobile-card body per row; falls back to stacking every column's cell if omitted. */
   renderMobileRow?: (row: T, index: number) => ReactNode;
   /** Paginate the rows at N per page with a Prev/Next bar, instead of an inner
@@ -2810,7 +2833,11 @@ export function ChildGrid<T extends { key: string }>({
                 gridKeyNav takes its grid from `e.currentTarget`. It used to be on
                 the <table>, which still worked when the grid was derived from the
                 event target, but would now resolve to a node that owns no rows. */}
-            <tbody data-grid-body onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}>
+            <tbody
+              data-grid-body
+              className={bodyClassName}
+              onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
+            >
               {view.map((row, localI) => {
                 const i = offset + localI;
                 return (
@@ -2967,7 +2994,7 @@ export function ChildGrid<T extends { key: string }>({
              the `across` prop for why this exists and what each piece is for. */
           <div
             data-grid-body
-            className={acrossCompact ? ACROSS_COMPACT_TRACK : FIELD_TRACK}
+            className={cn(acrossCompact ? ACROSS_COMPACT_TRACK : FIELD_TRACK, bodyClassName)}
             onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
           >
             {view.map((row, localI) => {
@@ -3052,7 +3079,7 @@ export function ChildGrid<T extends { key: string }>({
             data-grid-body
             // `flushRows` removes the gap under the header band as well, so the
             // first row starts where a `Field`'s control does. See the prop.
-            className={cn(!flushRows && "space-y-1.5")}
+            className={cn(!flushRows && "space-y-1.5", bodyClassName)}
             onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
           >
             {/* THE ONE BAND, when the grid has no rows to head.
@@ -3304,6 +3331,7 @@ export function ChildGrid<T extends { key: string }>({
                2026-08-18, screenshots 2345 · 2346). Drawing it on the row's TOP
                instead cannot paint a trailing edge, whatever follows the rows. */
             listRows || flatRows ? undefined : "space-y-2",
+            bodyClassName,
             /* `tableFrom` is the caller-declared breakpoint at which the table
                takes over; it falls back to the `narrow` pair when unset. Merged
                with the rule above rather than replacing it — the two answer
