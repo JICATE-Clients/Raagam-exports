@@ -27,9 +27,11 @@ import { holdEmpty } from "@/components/ui/input";
  */
 
 const NATIVE_CLASS = cn(
-  // px-3 matches Input/Combobox — this was the lone px-2 control.
+  // px-2.5 matches Input/Combobox — this was once the lone px-2 control,
+  // and the whole set moved px-3 -> px-2.5 on 2026-09-08. Keep it in step
+  // with the other five; input.tsx names them.
   // @2xl/editor:h-8 — compact density; see the note in components/ui/input.tsx.
-  "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+  "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-2.5 text-base md:text-sm",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
   "disabled:cursor-not-allowed disabled:opacity-50",
 );

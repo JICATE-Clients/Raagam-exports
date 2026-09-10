@@ -44,6 +44,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
+import { Toggle } from "@/components/ui/toggle";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -877,20 +878,26 @@ export function ApplicantMasterScreen({
                 </Select>
                 </Field>
                 {/* Edit only, so it takes a short second row rather than a share of
-                the first — row 1 then looks identical in New and in Edit.
-                `min-h-9` puts the tick on the same baseline as the controls
-                above it instead of half a line higher. */}
+                the first — row 1 then looks identical in New and in Edit. */}
+                {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
+                    Entry uses) — the identical swap Country, Destination and Notify
+                    made, and from the SAME component, so no two masters can drift
+                    apart. It is still a real `<input type="checkbox">` underneath
+                    (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
+                    still counts it and Tab, Enter-advance and the arrows all reach it.
+
+                    `label=""` RESERVES the label row rather than drawing one: a cell
+                    with no label at all collapses it and lifts the switch ~16px above
+                    the labelled fields beside it. The switch renders its own word, so
+                    a `label="Inactive"` here would draw the name twice. */}
                 {editId && (
-                <Field size={FIELD_SIZE.inactive}>
-                <label className="flex min-h-9 cursor-pointer items-center gap-2">
-                <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-                </label>
+                <Field label="" size={FIELD_SIZE.inactive}>
+                  <Toggle
+                    id="ap-inactive"
+                    label="Inactive"
+                    checked={form.inactive}
+                    onChange={(inactive) => set({ inactive })}
+                  />
                 </Field>
                 )}
                 </DetailSection>

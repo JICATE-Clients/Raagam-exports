@@ -113,9 +113,31 @@ export function RowRemoveChip({
   label,
   onClick,
   align = "control",
+  inFlow = false,
 }: {
   label: string;
   onClick: () => void;
+  /**
+   * THE SAME CHIP, IN THE FLOW INSTEAD OF THE CORNER — for a row whose fields
+   * sit BESIDE it rather than under it (client 2026-09-09, Customer ▸ General ▸
+   * Marking: "move the delete X button out of the input box and place it beside
+   * the input on the right").
+   *
+   * The corner is measured from the CARD, and every `top` argued out above
+   * assumes the card opens with a labelled field. A one-column grid of bare
+   * inputs has no label band at all, so the derived 22px put a 28px chip at
+   * 22..50px against an `h-9` input spanning 0..36 — the chip painted ON the
+   * box it deletes, which is what was reported. No offset answers that, because
+   * the thing being lined up with is not the corner: `flex items-center` on the
+   * row is, and it needs the chip to take part in layout.
+   *
+   * So this drops `absolute` and both `top` rules (they resolve against nothing
+   * once the box is in the flow) and keeps everything else — the markers, the
+   * label, the circle, the icon — because it is the same control. Cards-mode
+   * only, and only on the `cornerRemove` path; see `removeBeside` on `ChildGrid`
+   * for the door a call site opens it through.
+   */
+  inFlow?: boolean;
   /**
    * WHICH BAND OF THE FIRST ROW THIS CHIP LINES UP WITH — the CONTROL band
    * (default) or the LABEL band above it.
@@ -207,9 +229,13 @@ export function RowRemoveChip({
          It still fits the gutter: `pr-10` reserves 40px and a 28px chip inset
          6px occupies 34 of them. */
       className={cn(
-        "absolute right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger",
+        "flex h-7 w-7 items-center justify-center rounded-full bg-surface-muted p-0 text-muted-foreground shadow-sm hover:bg-danger-soft hover:text-danger",
+        /* IN THE FLOW, the row centres it (`flex items-center`) and `shrink-0`
+           keeps the 28px circle a circle beside a field that can grow. Both
+           `top` rules below stand down with the `absolute` they belong to. */
+        inFlow ? "shrink-0" : "absolute right-1.5",
         /* THE CONTROL BAND — 22px, derived above. */
-        align === "control" && "top-[22px] @2xl/editor:top-4",
+        !inFlow && align === "control" && "top-[22px] @2xl/editor:top-4",
         /* THE LABEL BAND, which on an opted-in grid is the header band.
            NEGATIVE, AND DERIVED FROM THE BAND RATHER THAN FROM THE CORNER.
 
@@ -254,7 +280,7 @@ export function RowRemoveChip({
            that was reported. Closing the 12px needs the offset to know whether it
            is the first row — a `first:` variant pair — and that is a change to
            make when someone reports it, not one to guess at now. */
-        align === "header" && "-top-2.5 @2xl/editor:-top-3.5",
+        !inFlow && align === "header" && "-top-2.5 @2xl/editor:-top-3.5",
       )}
       onClick={onClick}
       aria-label={label}
@@ -1414,6 +1440,7 @@ export function ChildGrid<T extends { key: string }>({
   tableFrom,
   tableAlways = false,
   cornerRemoveAlign = "control",
+  removeBeside = false,
   centerHeaders = false,
   lockExisting = false,
   hideRemove = false,
@@ -1609,6 +1636,45 @@ export function ChildGrid<T extends { key: string }>({
    * argue about, so passing this to one is not wrong, it is inert.
    */
   cornerRemoveAlign?: "control" | "header";
+  /**
+   * THE ✕ SITS BESIDE THE ROW'S FIELDS, NOT IN THE CARD'S CORNER (client
+   * 2026-09-09, Customer ▸ General ▸ Marking: "move the delete X button out of
+   * the input box and place it beside the input on the right (flex items-center
+   * gap-2)").
+   *
+   * ## WHY IT IS A PROP AND NOT THE NEW DEFAULT
+   *
+   * The corner is right for the shape it was derived against — a card of stacked
+   * LABELLED fields, where the chip has a label band to align with and 40px of
+   * reserved gutter (`pr-10`) to stand in. That is the 57 `forceCards` grids and
+   * they must not move; `RowRemoveChip.align` records three rounds of client
+   * reports getting that offset right.
+   *
+   * It is wrong for the OTHER shape, and Marking is the whole of it: ONE column,
+   * a bare `<Input>` with no label, in a pane capped at 26rem. With no label band
+   * the derived `top-[22px]` drops a 28px chip across an `h-9` input's lower half
+   * — the ✕ paints inside the box it deletes. There is no offset that fixes it,
+   * because a corner inset cannot centre on a control; only taking part in the
+   * layout can.
+   *
+   * So the row becomes `flex items-center gap-2`: the columns in a growing left
+   * half, the chip `shrink-0` on the right, vertically centred on the field by
+   * the flexbox rather than by arithmetic. `relative pr-10` comes off with the
+   * float — the gutter existed to keep a label out from under a floating chip,
+   * and nothing floats here.
+   *
+   * ## WHAT IT DOES NOT TOUCH
+   *
+   * Cards mode only, and only on the `cornerRemove` path (`!listRows &&
+   * !summary`): a banded card's ✕ is already in the flow beside its summary, a
+   * list row draws its own, and the responsive TABLE has always had a real ✕
+   * cell — this grid is only ever cards because 26rem is below `@lg` (512px).
+   * It is inert on all of those rather than wrong, so it is safe to pass.
+   *
+   * `renderMobileRow` keeps the corner: that callback owns the whole row's
+   * layout, so where its fields sit is not something this can know.
+   */
+  removeBeside?: boolean;
   /**
    * EVERY COLUMN HEADING IS CENTRED, whatever its cells do (client, 2026-08-18:
    * "make all the heading in center, everything should look neat and clean").
@@ -3547,7 +3613,34 @@ export function ChildGrid<T extends { key: string }>({
             // thrown away on every render of every row.
             const summary = !listRows && rowSummary ? rowSummary(row, i) : null;
             const bandLine = !!summary;
-            const cornerRemove = !listRows && !summary && !locked(row);
+            const canRemoveRow = !listRows && !summary && !locked(row);
+            /* Two renderings of ONE control — see `removeBeside` above. The
+               `renderMobileRow` half of the gate is stated there too: a caller
+               drawing its own row leaves nothing here to sit the chip beside.
+
+               `locked(row)` IS NOT IN THIS GATE, and that is the point of the
+               layout: a row that keeps no ✕ still takes the same shape, with a
+               spacer where the chip would be. In the corner that question does
+               not arise — an absolute chip occupies no width, so a locked row
+               and a removable one are already identical. In the flow it decides
+               how wide the FIELDS are, and without the spacer the first row of a
+               `lockExisting` grid comes out a chip-and-gap wider than every row
+               under it (client 2026-09-09, on this same Marking grid: "the first
+               row stretches wider than the rows with the ✕ button"). */
+            const besideRemove = removeBeside && !renderMobileRow && !listRows && !summary;
+            const cornerRemove = canRemoveRow && !besideRemove;
+            /* A FUNCTION, so a folded row (which renders `renderFoldedRow`
+               instead) never pays for cells it throws away. Written once because
+               both layouts below render the same cells — the only thing that
+               differs is what they are wrapped in. */
+            const cells = () =>
+              columns.map((c, ci) => (
+                <div key={ci}>
+                  <RequiredScope required={c.required} label={c.header}>
+                    {c.cell(row, i)}
+                  </RequiredScope>
+                </div>
+              ));
             return (
             <div
               key={row.key}
@@ -3708,13 +3801,27 @@ export function ChildGrid<T extends { key: string }>({
               )}
               {folded ? (
                 renderFoldedRow!(row, i)
-              ) : renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (
-                      <div key={ci}>
-                        <RequiredScope required={c.required} label={c.header}>
-                          {c.cell(row, i)}
-                        </RequiredScope>
-                      </div>
-                    ))}
+              ) : renderMobileRow ? (
+                renderMobileRow(row, i)
+              ) : besideRemove ? (
+                /* THE ✕ IN THE ROW, not over it — see `removeBeside` above for
+                   which shape of grid asks for this and why the corner cannot
+                   answer it. `min-w-0` is what lets the fields shrink instead of
+                   pushing the chip off the pane; `flex-1` is what keeps them
+                   growing when it is the field that is narrow. */
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1 space-y-2">{cells()}</div>
+                  {locked(row) ? (
+                    /* The chip's own box, empty — see `besideRemove` above for
+                       why a locked row reserves it rather than closing up. */
+                    <span aria-hidden className="h-7 w-7 shrink-0" />
+                  ) : (
+                    <RowRemoveChip inFlow label="Remove row" onClick={() => onRemove(row)} />
+                  )}
+                </div>
+              ) : (
+                cells()
+              )}
               {cornerRemove && (
                 /* THE SAME BUTTON, OUT OF THE FLOW — not a second one and not a
                    lesser one. `data-row-remove` is what Ctrl+Del drives and the

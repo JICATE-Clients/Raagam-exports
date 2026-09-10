@@ -343,9 +343,16 @@ export const Input = forwardRef<
       // Container query, not `md:`, so a control inside a ~440px nested picker
       // dialog — or on a phone — keeps the full 36px touch target. The editor
       // content wrappers in sheet.tsx / master-full-screen.tsx declare the
-      // container. Keep this in step with select.tsx, combobox.tsx and
-      // masters/picker-classes.ts or fields stop lining up.
-      "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+      // container.
+      //
+      // KEEP THIS IN STEP WITH THE OTHER FIVE OR FIELDS STOP LINING UP:
+      // select.tsx, combobox.tsx, data-picker.tsx, multi-select.tsx (which
+      // splits it as `pl-2.5 pr-9` — the `pr` is chevron clearance, not
+      // padding) and textarea.tsx (no height, so `px` only). This list used to
+      // name `masters/picker-classes.ts`, which no longer exists, and omitted
+      // the last three — so the note read as authoritative while covering half
+      // the set. `px-3` -> `px-2.5` on 2026-09-08 went to all six.
+      "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-2.5 text-base md:text-sm",
       "placeholder:text-muted-foreground",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",

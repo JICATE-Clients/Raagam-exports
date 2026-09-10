@@ -66,6 +66,7 @@ import type { Currency } from "@/lib/masters/types";
 import type { Bank } from "@/lib/masters/bank-types";
 import type { Notify } from "@/lib/masters/notify-types";
 import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
+import { Toggle } from "@/components/ui/toggle";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -1374,23 +1375,30 @@ export function ConsigneeMasterScreen({
                         empty: the "extra space in the edit form" the client
                         reported (2026-07-31).
 
-                        `min-h-9` is what makes a grid cell work here. The
-                        objection to putting it in the track was real — a bare
-                        checkbox has no <Label> above it, so it would align to
-                        its neighbours' LABELS rather than their controls —
-                        and matching an input's height is the answer, the same
-                        one applicant-master-screen already shipped. */}
+                        The objection to putting it in the track was real — a
+                        bare switch has no <Label> above it, so it would align
+                        to its neighbours' LABELS rather than their controls.
+                        `Toggle`'s own `min-h-9` and the `label=""` below are
+                        the two halves of the answer. */}
+                    {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
+                        Entry uses) — the identical swap Country, Destination and Notify
+                        made, and from the SAME component, so no two masters can drift
+                        apart. It is still a real `<input type="checkbox">` underneath
+                        (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
+                        still counts it and Tab, Enter-advance and the arrows all reach it.
+
+                        `label=""` RESERVES the label row rather than drawing one: a cell
+                        with no label at all collapses it and lifts the switch ~16px above
+                        the labelled fields beside it. The switch renders its own word, so
+                        a `label="Inactive"` here would draw the name twice. */}
                     {editId && (
-                      <Field size={FIELD_SIZE.inactive}>
-                        <label className="flex min-h-9 cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 cursor-pointer accent-primary"
-                            checked={form.inactive}
-                            onChange={(e) => set({ inactive: e.target.checked })}
-                          />
-                          <span className="text-sm text-foreground">Inactive</span>
-                        </label>
+                      <Field label="" size={FIELD_SIZE.inactive}>
+                        <Toggle
+                          id="cn-inactive"
+                          label="Inactive"
+                          checked={form.inactive}
+                          onChange={(inactive) => set({ inactive })}
+                        />
                       </Field>
                     )}
                     {/* Second cell of that same short row. Unlabelled: the

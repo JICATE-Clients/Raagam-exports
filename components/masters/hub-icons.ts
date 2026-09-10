@@ -1,15 +1,30 @@
 import {
+  Anchor,
   BadgeCheck,
+  Banknote,
   BedDouble,
+  Bell,
   Building2,
   CalendarDays,
   CalendarOff,
   Clock,
+  CreditCard,
+  FileSignature,
+  Globe2,
   HandCoins,
+  Handshake,
+  IdCard,
+  Landmark,
+  Map,
+  MapPin,
+  PackageCheck,
   Percent,
+  PiggyBank,
+  ScanSearch,
   Stamp,
   Timer,
   TrendingDown,
+  Truck,
   Users,
   Wallet,
   type LucideIcon,
@@ -82,6 +97,53 @@ export const MASTER_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // icons, wanting the new TA Approvals tile to match rather than draw the
   // generic `Tag`). A rubber stamp for a dictionary of technical sign-offs.
   "ta-approvals": { icon: Stamp, tone: "accent" },
+
+  /**
+   * ASSOCIATES (client 2026-09-08, "all items in Associates use the same blue
+   * tag icon" — match the HR page).
+   *
+   * NOTHING ABOUT THE CARD ITSELF CHANGED, and that is worth stating because
+   * the request asked for HR's "card container styling, padding, font weights
+   * and layout structure" to be copied across. There is nothing to copy:
+   * `/masters/associates` and `/masters/hr` are the SAME route
+   * (`app/(app)/masters/[submodule]/page.tsx` → `HubPage` → `HubCard`), so the
+   * grid, padding, weights and rhythm were already identical to the pixel. The
+   * only thing HR had and Associates did not was an `icon` name on each
+   * registry entry — without one `hubMark()` returns undefined and the card
+   * keeps its default `Tag`, which is exactly the "same blue tag" reported.
+   *
+   * TONES FOLLOW THE ADJACENCY RULE ABOVE, over five rows rather than four:
+   *
+   *   info     accent   warning     country · port · destination
+   *   primary  danger   success     bank · applicant · receivable-term
+   *   warning  info     accent      customer · notify · consignee
+   *   danger   primary  info        payment-term · vendor · employee
+   *   accent   success  warning     gst-number-check · our-banks · zones
+   *
+   * No tile touches another of its own tone across or down. Where the subject
+   * has a natural reading it keeps it, the same way Allowance/Deduction do:
+   * Receivable Term is money coming in (success) and Payment Term is money
+   * going out (danger). The rest are simply distinct.
+   */
+  country: { icon: Globe2, tone: "info" },
+  port: { icon: Anchor, tone: "accent" },
+  destination: { icon: MapPin, tone: "warning" },
+  bank: { icon: Landmark, tone: "primary" },
+  applicant: { icon: FileSignature, tone: "danger" },
+  "receivable-term": { icon: Banknote, tone: "success" },
+  customer: { icon: Handshake, tone: "warning" },
+  notify: { icon: Bell, tone: "info" },
+  consignee: { icon: PackageCheck, tone: "accent" },
+  "payment-term": { icon: CreditCard, tone: "danger" },
+  vendor: { icon: Truck, tone: "primary" },
+  employee: { icon: IdCard, tone: "info" },
+  // A test bench, not a master — it saves nothing and owns no table, so it gets
+  // a magnifying glass rather than a document.
+  "gst-number-check": { icon: ScanSearch, tone: "accent" },
+  // OUR accounts, as against `bank` (the master of everyone else's) — a
+  // different mark on purpose, since two Landmarks would undo the point.
+  "our-banks": { icon: PiggyBank, tone: "success" },
+  zones: { icon: Map, tone: "warning" },
 };
 
 /** The mark for a name, or `undefined` so the card keeps its own defaults. */
