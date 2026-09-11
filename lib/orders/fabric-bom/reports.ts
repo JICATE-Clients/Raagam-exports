@@ -4,6 +4,7 @@ import { getOrderProduction } from "@/lib/orders/bom-order-basis";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
 import type { ApprovalRow, OrderProductionInput } from "@/lib/orders/material-bom/requirement";
 import { comboUpliftBreakdown } from "./yarn-process";
+import { layoutTypeLabel } from "./component-map";
 import { isReportRefusal, type ReportRefusal } from "./report-refusal";
 
 /**
@@ -80,6 +81,10 @@ export type QtyBreakdown = {
 
 export type BomDocHeader = {
   bomId: string;
+  /** The order this BOM is keyed to — carried through so a report can resolve
+   *  order-level facts (e.g. a structure's GSM) without a second lookup of
+   *  something `loadBomDocHeader` already read. */
+  garmentOrderId: string;
   bomCode: string | null;
   bomDate: string | null;
   computedAt: string | null;
@@ -163,6 +168,7 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
 
   return {
     bomId: bomRow.id,
+    garmentOrderId: bomRow.garment_order_id,
     bomCode: bomRow.code,
     bomDate: bomRow.bom_date,
     computedAt: bomRow.computed_at,
@@ -268,6 +274,22 @@ export type EntryRegisterLine = {
   uomCode: string | null;
   components: string[];
   styleRefNo: string | null;
+  /** "Open Width" / "Tubular" — the entry's own `width_form` (0495), labelled.
+   *  Null when the entry never declared one. */
+  itemForm: string | null;
+  /** The knitting/finishing diameter or flat/woven width for this line's own
+   *  size, from the Manual entry's size row (`order_fabric_bom_manual_sizes`,
+   *  0494) — never re-typed here. */
+  dia: number | null;
+  /** The commercial purchase width for the same size row — a second, distinct
+   *  figure from `dia` (cloth is knitted at one width and invoiced at another). */
+  purchaseWidth: number | null;
+  /** The order's own GSM for this line's structure, resolved for this line's
+   *  OWN combo — same "one distinct answer or nothing" abstain rule the
+   *  header's Style Ref No already uses: a structure whose GSM disagrees
+   *  across combos (and this line names none in particular) prints blank
+   *  rather than picking one combo's figure at random. */
+  gsm: number | null;
 };
 
 export type EntryRegisterGroup = {
@@ -310,7 +332,9 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     s
       .from("order_fabric_bom_manual_entries")
       .select(
-        "id, style_ref_no, item_id, components:order_fabric_bom_manual_components(component:components(name))",
+        "id, style_ref_no, item_id, width_form, structure_id, " +
+          "components:order_fabric_bom_manual_components(component:components(short_name)), " +
+          "sizes:order_fabric_bom_manual_sizes(size_id, dia, purchase_width)",
       )
       .eq("bom_id", bomId),
     // THE YARN LEDGER'S OWN STAGES, for the Class=Yarn rows below — separate
@@ -344,30 +368,57 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
   };
   const reqRows = (reqRes.data ?? []) as unknown as ReqRow[];
 
+  type EntryRow = {
+    id: string;
+    style_ref_no: string | null;
+    width_form: string | null;
+    structure_id: string | null;
+    components: { component: { short_name: string } | null }[] | null;
+    sizes: { size_id: string | null; dia: number | string | null; purchase_width: number | string | null }[] | null;
+  };
+  const entryRows = (entryRes.data ?? []) as unknown as EntryRow[];
+
   const itemIds = [...new Set(reqRows.map((r) => r.item_id).filter(Boolean))] as string[];
   const uomIds = [...new Set(reqRows.map((r) => r.consumption_uom_id).filter(Boolean))] as string[];
+  const structureIds = [...new Set(entryRows.map((e) => e.structure_id).filter(Boolean))] as string[];
 
   // `order_fabric_bom_processes` (Class=Fabric of the ledger) DOES carry its
   // own `bom_id` (0492 keys a route to the FABRIC only *within* one BOM,
   // never across documents) — scoped on BOTH, or the same fabric declared on
   // a second, unrelated order's BOM would leak its stages into this ledger.
-  const [itemRes, uomRes, stageLookupRes, processLookupRes, processesRes] = await Promise.all([
-    itemIds.length ? s.from("items").select("id, name").in("id", itemIds) : Promise.resolve({ data: [], error: null }),
-    uomIds.length
-      ? s.from("uoms").select("id, code").in("id", uomIds)
-      : Promise.resolve({ data: [], error: null }),
-    s.from("config_lookups").select("id, name").eq("kind", "fabric_stage"),
-    s.from("processes").select("id, name"),
-    itemIds.length
-      ? s
-          .from("order_fabric_bom_processes")
-          .select("item_id, stage_id, process_id, loss_pct")
-          .eq("bom_id", bomId)
-          .in("item_id", itemIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
+  const [itemRes, uomRes, stageLookupRes, processLookupRes, processesRes, comboStructuresRes] =
+    await Promise.all([
+      itemIds.length ? s.from("items").select("id, name").in("id", itemIds) : Promise.resolve({ data: [], error: null }),
+      uomIds.length
+        ? s.from("uoms").select("id, code").in("id", uomIds)
+        : Promise.resolve({ data: [], error: null }),
+      s.from("config_lookups").select("id, name").eq("kind", "fabric_stage"),
+      s.from("processes").select("id, name"),
+      itemIds.length
+        ? s
+            .from("order_fabric_bom_processes")
+            .select("item_id, stage_id, process_id, loss_pct")
+            .eq("bom_id", bomId)
+            .in("item_id", itemIds)
+        : Promise.resolve({ data: [], error: null }),
+      // THE ORDER'S OWN GSM, per (structure, combo) — same route
+      // `getOrderFabricSeed` (service.ts) already reads it by, so this can
+      // never disagree with what the order itself declares. Only fetched when
+      // this document actually names a structure, and only this order's rows.
+      structureIds.length
+        ? s
+            .from("garment_order_amendment_combos")
+            .select(
+              "combo, structures:garment_order_amendment_combo_structures(structure_id, gsm)",
+            )
+            .eq("amendment_id", header.garmentOrderId)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
   if (processesRes.error) {
     return { refused: `Could not read the process ledger: ${processesRes.error.message}` };
+  }
+  if (comboStructuresRes.error) {
+    return { refused: `Could not read the order's GSM: ${comboStructuresRes.error.message}` };
   }
 
   const itemNames = new Map<string, string>(
@@ -383,21 +434,60 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     ((processLookupRes.data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]),
   );
 
+  // structure_id -> combo -> gsm. A combo naming no gsm for a structure is
+  // simply absent, never a stored zero.
+  const gsmByStructure = new Map<string, Map<string, number>>();
+  for (const c of (comboStructuresRes.data ?? []) as unknown as {
+    combo: string | null;
+    structures: { structure_id: string | null; gsm: number | string | null }[] | null;
+  }[]) {
+    for (const st of c.structures ?? []) {
+      if (!st.structure_id || st.gsm == null) continue;
+      const byCombo = gsmByStructure.get(st.structure_id) ?? new Map<string, number>();
+      byCombo.set(c.combo ?? "", Number(st.gsm));
+      gsmByStructure.set(st.structure_id, byCombo);
+    }
+  }
+  /** One combo's declared value if this line names that combo; otherwise the
+   *  structure's value ONLY if every combo declaring it agrees — the same
+   *  "one distinct answer or nothing" rule `soleStyleRefNo` uses above, so an
+   *  unscoped line never prints one combo's figure as if it were universal. */
+  function resolveGsm(structureId: string | null, combo: string | null): number | null {
+    if (!structureId) return null;
+    const byCombo = gsmByStructure.get(structureId);
+    if (!byCombo || byCombo.size === 0) return null;
+    if (combo && byCombo.has(combo)) return byCombo.get(combo)!;
+    const distinct = [...new Set(byCombo.values())];
+    return distinct.length === 1 ? distinct[0] : null;
+  }
+
   const entriesById = new Map<
     string,
-    { style_ref_no: string | null; components: string[] }
+    {
+      style_ref_no: string | null;
+      components: string[];
+      itemForm: string | null;
+      structureId: string | null;
+      sizes: Map<string, { dia: number | null; purchaseWidth: number | null }>;
+    }
   >();
-  for (const e of (entryRes.data ?? []) as unknown as {
-    id: string;
-    style_ref_no: string | null;
-    components: { component: { name: string } | null }[] | null;
-  }[]) {
+  for (const e of entryRows) {
+    const sizes = new Map<string, { dia: number | null; purchaseWidth: number | null }>();
+    for (const sz of e.sizes ?? []) {
+      sizes.set(sz.size_id ?? "", {
+        dia: sz.dia == null ? null : Number(sz.dia),
+        purchaseWidth: sz.purchase_width == null ? null : Number(sz.purchase_width),
+      });
+    }
     entriesById.set(e.id, {
       style_ref_no: e.style_ref_no,
       components: (e.components ?? [])
-        .map((c) => c.component?.name ?? "")
+        .map((c) => c.component?.short_name ?? "")
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b)),
+      itemForm: layoutTypeLabel(e.width_form) || null,
+      structureId: e.structure_id,
+      sizes,
     });
   }
 
@@ -414,6 +504,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     }
 
     const entry = r.entry_id ? entriesById.get(r.entry_id) : undefined;
+    const sizeInfo = entry?.sizes.get(r.size_id ?? "");
     const gross = r.required_qty ?? 0;
     const sq = r.basis_qty ?? 0;
     // NET is not stored separately from GROSS on the requirement row — only
@@ -435,6 +526,10 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       uomCode: r.consumption_uom_id ? (uomCodes.get(r.consumption_uom_id) ?? null) : null,
       components: entry?.components ?? [],
       styleRefNo: r.style_ref_no ?? entry?.style_ref_no ?? null,
+      itemForm: entry?.itemForm ?? null,
+      dia: sizeInfo?.dia ?? null,
+      purchaseWidth: sizeInfo?.purchaseWidth ?? null,
+      gsm: resolveGsm(entry?.structureId ?? null, r.combo),
     };
     group.lines.push(line);
     group.subtotal.sqQty += sq;

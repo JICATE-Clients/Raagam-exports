@@ -291,7 +291,11 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
                 <tr>
                   <Th>Assort Colour</Th>
                   <Th>Component</Th>
+                  <Th>Item Form</Th>
+                  <Th right>GSM</Th>
                   <Th>Size</Th>
+                  <Th right>Dia/Size</Th>
+                  <Th right>Width</Th>
                   <Th right>SQ Qty</Th>
                   <Th right>Piece Wt</Th>
                   <Th right>Wastage %</Th>
@@ -305,7 +309,11 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
                   <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
                     <Td>{l.combo || "—"}</Td>
                     <Td>{l.components.join(", ") || "—"}</Td>
+                    <Td>{l.itemForm ?? "—"}</Td>
+                    <Td right mono>{l.gsm != null ? fmtNumber(l.gsm) : "—"}</Td>
                     <Td>{l.sizeLabel}</Td>
+                    <Td right mono>{l.dia != null ? fmtNumber(l.dia) : "—"}</Td>
+                    <Td right mono>{l.purchaseWidth != null ? fmtNumber(l.purchaseWidth) : "—"}</Td>
                     <Td right mono>{fmtNumber(l.sqQty)}</Td>
                     <Td right mono>{l.pieceWt != null ? fmtNumber(l.pieceWt) : "—"}</Td>
                     <Td right mono>{l.wastagePct != null ? `${l.wastagePct}%` : "—"}</Td>
@@ -315,7 +323,7 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
                   </tr>
                 ))}
                 <tr className="bg-[#f1f3f5] font-semibold">
-                  <Td className="font-semibold" colSpan={3}>
+                  <Td className="font-semibold" colSpan={7}>
                     Subtotal
                   </Td>
                   <Td right mono className="font-semibold">
