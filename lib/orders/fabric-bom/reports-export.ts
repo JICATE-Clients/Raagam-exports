@@ -54,9 +54,47 @@ function download(filename: string, text: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** The default facts line — every report except the Yarn & Fabric
+ *  Requirement (which has its own exact five-field spec, see `YARN_FACTS`
+ *  below). Widened for Report 1's SQ No; kept here rather than duplicated so
+ *  that report's own header can still grow without a second copy to update. */
+function defaultFacts(header: BomDocHeader): string[] {
+  return [
+    header.customer ? `Customer: ${header.customer}` : null,
+    header.scNo ? `SC No: ${header.scNo}` : null,
+    header.sqNo ? `SQ No: ${header.sqNo}` : null,
+    header.orderNo ? `Order No: ${header.orderNo}` : null,
+    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
+    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
+  ].filter(Boolean) as string[];
+}
+
+/** The Yarn & Fabric Requirement Report's OWN header line (client spec,
+ *  2026-09-11): Customer / SC No / Order No / Style Ref No / Delivery, in
+ *  this order, and NOTHING ELSE — never `defaultFacts`, which now also
+ *  carries Report 1's SQ No. Widening one shared facts line for one report's
+ *  spec is exactly how the two came to need separating in the first place;
+ *  see `YarnReportFactsRow`'s identical note on the on-screen Sheet. */
+function yarnReportFacts(header: BomDocHeader): string[] {
+  return [
+    header.customer ? `Customer: ${header.customer}` : null,
+    header.scNo ? `SC No: ${header.scNo}` : null,
+    header.orderNo ? `Order No: ${header.orderNo}` : null,
+    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
+    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
+  ].filter(Boolean) as string[];
+}
+
 /** The letterhead + facts strip, drawn once per document and returned as the
- *  Y position the first table should start below. */
-function drawLetterhead(doc: jsPDF, header: BomDocHeader, title: string): number {
+ *  Y position the first table should start below. `facts` defaults to
+ *  `defaultFacts`; pass `yarnReportFacts(header)` for the one report with its
+ *  own exact spec. */
+function drawLetterhead(
+  doc: jsPDF,
+  header: BomDocHeader,
+  title: string,
+  facts: string[] = defaultFacts(header),
+): number {
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   let y = 46;
@@ -80,13 +118,6 @@ function drawLetterhead(doc: jsPDF, header: BomDocHeader, title: string): number
 
   y += 18;
   doc.setFontSize(9);
-  const facts = [
-    header.customer ? `Customer: ${header.customer}` : null,
-    header.scNo ? `SC No: ${header.scNo}` : null,
-    header.orderNo ? `Order No: ${header.orderNo}` : null,
-    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
-    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
-  ].filter(Boolean) as string[];
   if (facts.length) doc.text(facts.join("    "), M, y);
 
   if (!isReportRefusal(header.qty)) {
@@ -94,7 +125,7 @@ function drawLetterhead(doc: jsPDF, header: BomDocHeader, title: string): number
     doc.setFontSize(8);
     doc.setTextColor(70);
     doc.text(
-      `Order Qty ${fmtNumber(header.qty.orderQty)}    Excess ${fmtNumber(header.qty.excessQty)}` +
+      `Order Qty ${fmtNumber(header.qty.orderQty)}    Excess Qty ${fmtNumber(header.qty.excessQty)}` +
         `    Rejection Allowance ${fmtNumber(header.qty.rejectionQty)}    Approval Allowance ${fmtNumber(header.qty.approvalQty)}` +
         `    SQ Qty ${fmtNumber(header.qty.sqQty)}`,
       M,
@@ -127,10 +158,15 @@ function pageFooter(doc: jsPDF, header: BomDocHeader): void {
 // Fabric BOM Entry Register
 // ---------------------------------------------------------------------------
 
+// GROUPED BY ASSORT COLOUR then by (fabric, component set) — the Manual tab's
+// own counting unit (0494) — with one row per size within each component
+// group. Colour and component-level facts (Assort Colour, Component, Fabric,
+// Item Form, GSM) are repeated on every size row, the same denormalization
+// convention this file already used when the grouping was fabric-only.
 const REGISTER_COLUMNS = [
-  "Fabric",
   "Assort Colour",
   "Component",
+  "Fabric",
   "Item Form",
   "GSM",
   "Size",
@@ -140,35 +176,58 @@ const REGISTER_COLUMNS = [
   "Piece Wt",
   "Wastage %",
   "Net Req Wt",
-  "Total Wt",
+  "Loss %",
+  "Total (Gross) Wt",
   "Unit",
 ];
 
 function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[] } {
   const body: string[][] = [];
   const totalAt: number[] = [];
-  for (const g of data.groups) {
-    for (const l of g.lines) {
+  for (const cg of data.groups) {
+    for (const comp of cg.components) {
+      const componentLabel = comp.componentNames.join(", ");
+      for (const sz of comp.sizes) {
+        body.push([
+          cg.combo || "",
+          componentLabel,
+          comp.fabricName,
+          comp.itemForm ?? "",
+          comp.gsm != null ? fmtNumber(comp.gsm) : "",
+          sz.sizeLabel,
+          sz.dia != null ? fmtNumber(sz.dia) : "",
+          sz.purchaseWidth != null ? fmtNumber(sz.purchaseWidth) : "",
+          fmtNumber(sz.sqQty),
+          sz.pieceWt != null ? fmtNumber(sz.pieceWt) : "",
+          sz.wastagePct != null ? `${sz.wastagePct}%` : "",
+          fmtNumber(sz.netReqWt),
+          sz.lossPct != null ? `${sz.lossPct.toFixed(2)}%` : "",
+          fmtNumber(sz.grossWt),
+          sz.uomCode ?? "",
+        ]);
+      }
+      totalAt.push(body.length);
       body.push([
-        l.fabricName,
-        l.combo || "",
-        l.components.join(", "),
-        l.itemForm ?? "",
-        l.gsm != null ? fmtNumber(l.gsm) : "",
-        l.sizeLabel,
-        l.dia != null ? fmtNumber(l.dia) : "",
-        l.purchaseWidth != null ? fmtNumber(l.purchaseWidth) : "",
-        fmtNumber(l.sqQty),
-        l.pieceWt != null ? fmtNumber(l.pieceWt) : "",
-        l.wastagePct != null ? `${l.wastagePct}%` : "",
-        fmtNumber(l.netReqWt),
-        fmtNumber(l.grossWt),
-        l.uomCode ?? "",
+        "",
+        `${componentLabel || comp.fabricName} — subtotal`,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        fmtNumber(comp.subtotal.sqQty),
+        "",
+        "",
+        fmtNumber(comp.subtotal.netReqWt),
+        "",
+        fmtNumber(comp.subtotal.grossWt),
+        "",
       ]);
     }
     totalAt.push(body.length);
     body.push([
-      `${g.fabricName} — subtotal`,
+      `${cg.combo || "(no colour)"} — subtotal`,
       "",
       "",
       "",
@@ -176,11 +235,12 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
       "",
       "",
       "",
-      fmtNumber(g.subtotal.sqQty),
+      fmtNumber(cg.subtotal.sqQty),
       "",
       "",
-      fmtNumber(g.subtotal.netReqWt),
-      fmtNumber(g.subtotal.grossWt),
+      fmtNumber(cg.subtotal.netReqWt),
+      "",
+      fmtNumber(cg.subtotal.grossWt),
       "",
     ]);
   }
@@ -198,6 +258,7 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
     "",
     "",
     fmtNumber(data.grandTotal.netReqWt),
+    "",
     fmtNumber(data.grandTotal.grossWt),
     "",
   ]);
@@ -221,6 +282,9 @@ export function exportEntryRegisterPdf(data: EntryRegister): void {
     headStyles: monoHead(),
     alternateRowStyles: { fillColor: [250, 250, 251] },
     columnStyles: {
+      // GSM(4), Dia/Size(6), Width(7), SQ Qty(8), Piece Wt(9), Wastage %(10),
+      // Net Req Wt(11), Loss %(12), Total (Gross) Wt(13) — every numeric
+      // column in REGISTER_COLUMNS; Size(5) is a label, not a figure.
       4: { halign: "right" },
       6: { halign: "right" },
       7: { halign: "right" },
@@ -229,6 +293,7 @@ export function exportEntryRegisterPdf(data: EntryRegister): void {
       10: { halign: "right" },
       11: { halign: "right" },
       12: { halign: "right" },
+      13: { halign: "right" },
     },
     didParseCell: (d) => {
       if (d.section === "body" && bold.has(d.row.index)) {
@@ -266,45 +331,32 @@ export function exportEntryRegisterPdf(data: EntryRegister): void {
 }
 
 export function exportEntryRegisterCsv(data: EntryRegister): void {
-  const rows: string[][] = [
-    [
-      "Fabric",
-      "Assort Colour",
-      "Component",
-      "Item Form",
-      "GSM",
-      "Size",
-      "Dia/Size",
-      "Width",
-      "SQ Qty",
-      "Piece Wt",
-      "Wastage %",
-      "Net Req Wt",
-      "Total Wt",
-      "Unit",
-    ],
-  ];
+  const rows: string[][] = [REGISTER_COLUMNS];
   // A total row is dropped here, same reason `fabricRequirementCsv` drops one:
   // a spreadsheet sums its own column, and a stored total among the rows would
   // be double-counted by anyone who does.
-  for (const g of data.groups) {
-    for (const l of g.lines) {
-      rows.push([
-        l.fabricName,
-        l.combo ?? "",
-        l.components.join(", "),
-        l.itemForm ?? "",
-        l.gsm != null ? String(l.gsm) : "",
-        l.sizeLabel,
-        l.dia != null ? String(l.dia) : "",
-        l.purchaseWidth != null ? String(l.purchaseWidth) : "",
-        String(l.sqQty),
-        l.pieceWt != null ? String(l.pieceWt) : "",
-        l.wastagePct != null ? String(l.wastagePct) : "",
-        String(l.netReqWt),
-        String(l.grossWt),
-        l.uomCode ?? "",
-      ]);
+  for (const cg of data.groups) {
+    for (const comp of cg.components) {
+      const componentLabel = comp.componentNames.join(", ");
+      for (const sz of comp.sizes) {
+        rows.push([
+          cg.combo ?? "",
+          componentLabel,
+          comp.fabricName,
+          comp.itemForm ?? "",
+          comp.gsm != null ? String(comp.gsm) : "",
+          sz.sizeLabel,
+          sz.dia != null ? String(sz.dia) : "",
+          sz.purchaseWidth != null ? String(sz.purchaseWidth) : "",
+          String(sz.sqQty),
+          sz.pieceWt != null ? String(sz.pieceWt) : "",
+          sz.wastagePct != null ? String(sz.wastagePct) : "",
+          String(sz.netReqWt),
+          sz.lossPct != null ? String(sz.lossPct) : "",
+          String(sz.grossWt),
+          sz.uomCode ?? "",
+        ]);
+      }
     }
   }
   download(`${stem("FabricBomEntryRegister", data.header)}.csv`, toCsv(rows), "text/csv");
@@ -317,21 +369,47 @@ export function exportEntryRegisterCsv(data: EntryRegister): void {
 export function exportYarnRequirementPdf(data: YarnFabricRequirementReport): void {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const y = drawLetterhead(doc, data.header, "Yarn & Fabric Requirement Report");
+  const y = drawLetterhead(doc, data.header, "Yarn & Fabric Requirement Report", yarnReportFacts(data.header));
 
+  // COLUMN-FOR-COLUMN WITH THE LEGACY PRINTOUT — Stage | Type | Yarn | Color |
+  // Plan Wt | Loss % | To Ordered Wt, ending in a Total row. Loss % is always
+  // blank here: the legacy PDF's own Yarn Requirement table leaves it blank
+  // on every row too (the loss already lives in the Process Stage Ledger
+  // below, applied to the FABRIC, never re-charged to the yarn a second time).
   autoTable(doc, {
-    head: [["Yarn", "Purchase Wt", "Unit", "Note"]],
-    body: data.yarns.map((r) => [
-      r.yarnName,
-      r.purchaseQty != null ? fmtNumber(r.purchaseQty) : "",
-      r.uomCode ?? "",
-      r.refusalReason ?? "",
-    ]),
+    head: [["Stage", "Type", "Yarn Description", "Color", "Plan Wt", "Loss %", "To Ordered Wt"]],
+    body: [
+      ...data.yarns.map((r) => [
+        r.stageState,
+        r.itemType,
+        r.yarnName,
+        r.color ?? "",
+        r.purchaseQty != null ? fmtNumber(r.purchaseQty) : "",
+        "",
+        r.purchaseQty != null ? fmtNumber(r.purchaseQty) : (r.refusalReason ?? ""),
+      ]),
+      ...(data.yarnGrandTotal
+        ? [[
+            "",
+            "",
+            "TOTAL YARN PURCHASE REQUIREMENT",
+            "",
+            fmtNumber(data.yarnGrandTotal.qty),
+            "",
+            fmtNumber(data.yarnGrandTotal.qty),
+          ]]
+        : []),
+    ],
     startY: y,
     margin: { left: M, right: M },
     styles: monoStyles(),
     headStyles: monoHead(),
-    columnStyles: { 1: { halign: "right" } },
+    columnStyles: { 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
+    didParseCell: (d) => {
+      if (d.section === "body" && d.row.index === data.yarns.length && data.yarnGrandTotal) {
+        d.cell.styles.fontStyle = "bold";
+      }
+    },
   });
 
   for (const g of data.stageBreakdown) {
@@ -371,13 +449,15 @@ export function exportYarnRequirementPdf(data: YarnFabricRequirementReport): voi
 
 export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): void {
   const rows: string[][] = [
-    ["Section", "Fabric / Yarn", "Colour", "Planned Wt", "Loss %", "To Ordered Wt", "Unit", "Note"],
+    ["Section", "Stage", "Type", "Yarn / Fabric", "Color", "Planned Wt", "Loss %", "To Ordered Wt", "Unit", "Note"],
   ];
   for (const y of data.yarns) {
     rows.push([
       "Yarn Purchase",
+      y.stageState,
+      y.itemType,
       y.yarnName,
-      "",
+      y.color ?? "",
       "",
       "",
       y.purchaseQty != null ? String(y.purchaseQty) : "",
@@ -385,10 +465,26 @@ export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): voi
       y.refusalReason ?? "",
     ]);
   }
+  if (data.yarnGrandTotal) {
+    rows.push([
+      "Yarn Purchase",
+      "",
+      "",
+      "TOTAL YARN PURCHASE REQUIREMENT",
+      "",
+      "",
+      "",
+      String(data.yarnGrandTotal.qty),
+      data.yarnGrandTotal.uomCode ?? "",
+      "",
+    ]);
+  }
   for (const g of data.stageBreakdown) {
     for (const l of g.lines) {
       rows.push([
         g.processName,
+        "",
+        "",
         l.fabricName,
         l.combo ?? "",
         String(l.plannedWt),

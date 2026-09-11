@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
+import { Truncated } from "@/components/ui/truncated";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import {
   loadFabricBomEntryRegister,
   loadYarnFabricRequirementReport,
 } from "@/lib/orders/fabric-bom/actions";
-import type { BomDocHeader, EntryRegister, YarnFabricRequirementReport } from "@/lib/orders/fabric-bom/reports";
+import type {
+  BomDocHeader,
+  EntryRegister,
+  EntryRegisterComponentGroup,
+  YarnFabricRequirementReport,
+} from "@/lib/orders/fabric-bom/reports";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import {
   exportEntryRegisterCsv,
@@ -142,29 +149,35 @@ function Letterhead({ title, docNo }: { title: string; docNo: string | null }) {
   );
 }
 
-function IdentityStrip({ header }: { header: BomDocHeader }) {
+/**
+ * Row 1 of the Yarn & Fabric Requirement Report's header — Customer / SC No /
+ * Order No / Style Ref No / Delivery, ONE LINE (client spec, 2026-09-11).
+ * `EntryRegisterFactsRow` below renders the identical five facts for Report
+ * 1 — kept as two components, one per report, rather than merged into one
+ * shared row: each report's own title sits beside it, and the two are free
+ * to diverge again the moment either report's spec does. `QuantityBand`
+ * right below IS still shared — its five facts
+ * (Order/Excess/Rejection/Approval/SQ Qty) are the client's Row 2 verbatim
+ * for BOTH reports, so there was nothing to fork there.
+ */
+function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
   return (
-    <dl className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] border border-t-0 border-border bg-white">
-      <Fact label="SC No" value={header.scNo} mono />
-      <Fact label="Order No" value={header.orderNo} mono />
-      <Fact label="Style Ref No" value={header.styleRefNo} mono />
-      <Fact label="Style No" value={header.styleNo} />
-      <Fact label="Customer" value={header.customer} />
-      <Fact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
-      <Fact label="BOM Dt" value={fmtDate(header.bomDate)} mono />
-      <Fact label="Computed" value={header.computedAt ? fmtDateTime(header.computedAt) : "—"} mono />
-    </dl>
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+      <YarnFact label="Customer" value={header.customer} />
+      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="Order No" value={header.orderNo} mono />
+      <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
+      <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
+    </div>
   );
 }
 
-function Fact({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
+function YarnFact({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
   return (
-    <div className="border-b border-r border-border px-3 py-2 last:border-r-0">
-      <dt className="text-[10px] uppercase tracking-wide text-[#8b95a3]">{label}</dt>
-      <dd className={`truncate text-[12.5px] text-[#16181d] ${mono ? "font-mono" : ""}`}>
-        {value || "—"}
-      </dd>
-    </div>
+    <span>
+      <span className="text-[#8b95a3]">{label}: </span>
+      <span className={mono ? "font-mono" : ""}>{value || "—"}</span>
+    </span>
   );
 }
 
@@ -183,11 +196,15 @@ function QuantityBand({ header }: { header: BomDocHeader }) {
         <span className="text-[#8b95a3]">Order Qty</span> {fmtNumber(qty.orderQty)}
       </span>
       <span>
-        <span className="text-[#8b95a3]">Excess{header.excessPct != null ? ` ${header.excessPct}%` : ""}</span>{" "}
+        <span className="text-[#8b95a3]">Excess Qty{header.excessPct != null ? ` ${header.excessPct}%` : ""}</span>{" "}
         {fmtNumber(qty.excessQty)}
       </span>
       <span>
-        <span className="text-[#8b95a3]">Rejection Allowance</span> {fmtNumber(qty.rejectionQty)}
+        <span className="text-[#8b95a3]">
+          Rejection Allowance
+          {qty.orderQty > 0 ? ` ${((qty.rejectionQty / qty.orderQty) * 100).toFixed(2)}%` : ""}
+        </span>{" "}
+        {fmtNumber(qty.rejectionQty)}
       </span>
       <span>
         <span className="text-[#8b95a3]">Approval Allowance</span> {fmtNumber(qty.approvalQty)}
@@ -208,11 +225,20 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 /** The bordered table shell every section uses — one border language, so a
- *  table never reads as a different document from the letterhead above it. */
-function ReportTable({ children }: { children: React.ReactNode }) {
+ *  table never reads as a different document from the letterhead above it.
+ *  `fixed` opts a table into `table-fixed` + explicit `<colgroup>` widths
+ *  (via `EntryRegisterGridCols` below) instead of the default auto-sized
+ *  `min-w-max` — the Entry Register grid's own long Fabric description was
+ *  otherwise stretching every numeric column, including every subtotal and
+ *  the Grand Total row, off the right edge of the Sheet (client screenshot
+ *  2847, 2026-09-11: "not that much a professional report look"). Every
+ *  other table using this shell keeps its old auto-sized behaviour. */
+function ReportTable({ children, fixed }: { children: React.ReactNode; fixed?: boolean }) {
   return (
     <div className="overflow-x-auto border-x border-b border-border bg-white">
-      <table className="w-full min-w-max border-collapse text-[12px]">{children}</table>
+      <table className={`w-full border-collapse text-[12px] ${fixed ? "table-fixed" : "min-w-max"}`}>
+        {children}
+      </table>
     </div>
   );
 }
@@ -220,7 +246,7 @@ function ReportTable({ children }: { children: React.ReactNode }) {
 function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
   return (
     <th
-      className={`border-b border-border bg-[#f6f7f9] px-3 py-1.5 font-semibold text-[#5b6472] ${right ? "text-right" : "text-left"}`}
+      className={`border-b border-border bg-[#f6f7f9] px-2 py-1 font-semibold text-[#5b6472] ${right ? "text-right" : "text-left"}`}
     >
       {children}
     </th>
@@ -243,7 +269,7 @@ function Td({
   return (
     <td
       colSpan={colSpan}
-      className={`border-b border-border/60 px-3 py-1.5 ${right ? "text-right" : "text-left"} ${mono ? "font-mono" : ""} ${className}`}
+      className={`border-b border-border/60 px-2 py-1 ${right ? "text-right" : "text-left"} ${mono ? "font-mono" : ""} ${className}`}
     >
       {children}
     </td>
@@ -269,85 +295,148 @@ function ExportBar({ onCsv, onPdf }: { onCsv: () => void; onPdf: () => void }) {
 // Report 1 — Fabric BOM Entry Register
 // ---------------------------------------------------------------------------
 
+/**
+ * Row 1 of the Entry Register's header — Customer / SC No / Order No / Style
+ * Ref No / Delivery, ONE LINE (client spec, 2026-09-11), the same five facts
+ * in the same order the reference PDF `FabricBomEntryRegister_*.pdf` prints
+ * and `YarnReportFactsRow` above already gives Report 2. Style No / BOM Dt /
+ * Computed / SQ No / SQ Description never appear in that printed letterhead
+ * either, so this row doesn't carry them on screen — see the note beside
+ * `YarnReportFactsRow` for why the two reports each get their own copy of
+ * this row rather than a single shared one.
+ */
+function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+      <YarnFact label="Customer" value={header.customer} />
+      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="Order No" value={header.orderNo} mono />
+      <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
+      <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
+    </div>
+  );
+}
+
+/** Fixed pixel widths, not `min-w-max` guesses — the whole point of this
+ *  table being `table-fixed` (see `ReportTable`). Every width was chosen to
+ *  fit BOTH modes' full column set inside a `size="lg"` Sheet without a
+ *  horizontal scrollbar on an ordinary desktop viewport; only Fabric is wide
+ *  enough to need `Truncated` inside it. */
+const ENTRY_GRID_DETAILED_COLS = [
+  { label: "Assort Colour", width: 100 },
+  { label: "Component", width: 100 },
+  { label: "Fabric", width: 260 },
+  { label: "Item Form", width: 90 },
+  { label: "GSM", width: 55 },
+  { label: "Size", width: 110 },
+  { label: "Dia/Size", width: 65 },
+  { label: "Width", width: 60 },
+  { label: "SQ Qty", width: 60 },
+  { label: "Piece Wt", width: 65 },
+  { label: "Wastage %", width: 70 },
+  { label: "Net Req Wt", width: 75 },
+  { label: "Loss %", width: 75 },
+  { label: "Total (Gross) Wt", width: 85 },
+  { label: "Unit", width: 55 },
+] as const;
+
+const ENTRY_GRID_SUMMARY_COLS = [
+  { label: "Assort Colour", width: 100 },
+  { label: "Component", width: 100 },
+  { label: "Fabric", width: 260 },
+  { label: "Item Form", width: 90 },
+  { label: "GSM", width: 55 },
+  { label: "SQ Qty", width: 70 },
+  { label: "Avg Piece Wt", width: 90 },
+  { label: "Net Req Wt", width: 85 },
+  { label: "Loss %", width: 75 },
+  { label: "Total (Gross) Wt", width: 90 },
+  { label: "Unit", width: 60 },
+] as const;
+
+/** `<colgroup>` for whichever column set is active — `table-fixed` reads
+ *  widths from here, not from `<th>`/`<td>` content, so this is the ONE
+ *  place a column's width is declared. */
+function EntryRegisterGridCols({ cols }: { cols: readonly { label: string; width: number }[] }) {
+  return (
+    <colgroup>
+      {cols.map((c) => (
+        <col key={c.label} style={{ width: c.width }} />
+      ))}
+    </colgroup>
+  );
+}
+
 function EntryRegisterView({ data }: { data: EntryRegister | { refused: string } | null }) {
+  const [viewMode, setViewMode] = useState<"detailed" | "summary">("detailed");
+
   if (!data) return null;
   if (isReportRefusal(data)) {
     return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
   }
+
   return (
     <div>
       <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => exportEntryRegisterPdf(data)} />
 
       <Letterhead title="Fabric BOM Entry Register" docNo={data.header.bomCode} />
-      <IdentityStrip header={data.header} />
+      <EntryRegisterFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
-      <div className="mb-6">
-        {data.groups.map((g) => (
-          <div key={g.itemId}>
-            <SectionHeader>{g.fabricName}</SectionHeader>
-            <ReportTable>
-              <thead>
-                <tr>
-                  <Th>Assort Colour</Th>
-                  <Th>Component</Th>
-                  <Th>Item Form</Th>
-                  <Th right>GSM</Th>
-                  <Th>Size</Th>
-                  <Th right>Dia/Size</Th>
-                  <Th right>Width</Th>
-                  <Th right>SQ Qty</Th>
-                  <Th right>Piece Wt</Th>
-                  <Th right>Wastage %</Th>
-                  <Th right>Net Req Wt</Th>
-                  <Th right>Total Wt</Th>
-                  <Th>Unit</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.lines.map((l, i) => (
-                  <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-                    <Td>{l.combo || "—"}</Td>
-                    <Td>{l.components.join(", ") || "—"}</Td>
-                    <Td>{l.itemForm ?? "—"}</Td>
-                    <Td right mono>{l.gsm != null ? fmtNumber(l.gsm) : "—"}</Td>
-                    <Td>{l.sizeLabel}</Td>
-                    <Td right mono>{l.dia != null ? fmtNumber(l.dia) : "—"}</Td>
-                    <Td right mono>{l.purchaseWidth != null ? fmtNumber(l.purchaseWidth) : "—"}</Td>
-                    <Td right mono>{fmtNumber(l.sqQty)}</Td>
-                    <Td right mono>{l.pieceWt != null ? fmtNumber(l.pieceWt) : "—"}</Td>
-                    <Td right mono>{l.wastagePct != null ? `${l.wastagePct}%` : "—"}</Td>
-                    <Td right mono>{fmtNumber(l.netReqWt)}</Td>
-                    <Td right mono>{fmtNumber(l.grossWt)}</Td>
-                    <Td>{l.uomCode ?? "—"}</Td>
-                  </tr>
-                ))}
-                <tr className="bg-[#f1f3f5] font-semibold">
-                  <Td className="font-semibold" colSpan={7}>
-                    Subtotal
-                  </Td>
-                  <Td right mono className="font-semibold">
-                    {fmtNumber(g.subtotal.sqQty)}
-                  </Td>
-                  <Td colSpan={2}>{""}</Td>
-                  <Td right mono className="font-semibold">
-                    {fmtNumber(g.subtotal.netReqWt)}
-                  </Td>
-                  <Td right mono className="font-semibold">
-                    {fmtNumber(g.subtotal.grossWt)}
-                  </Td>
-                  <Td>{""}</Td>
-                </tr>
-              </tbody>
-            </ReportTable>
-          </div>
+      {/* DETAILED VS SUMMARY — a floor operator wants every size row, a
+          reviewer wants one line per component averaging piece consumption
+          weight (client spec, 2026-09-11). Same toggle shape as the Yarn &
+          Fabric Requirement tab's Procurement/Production switch below it in
+          this file; scoped to local state because nothing here needs to
+          persist across a re-open of the Sheet. */}
+      <div className="my-3 flex items-center gap-1 rounded-md border border-border bg-white p-1 text-[12.5px] font-medium">
+        {(["detailed", "summary"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setViewMode(v)}
+            className={`flex-1 rounded px-3 py-1.5 ${viewMode === v ? "bg-[#037bb8] text-white" : "text-[#5b6472] hover:bg-[#f1f3f5]"}`}
+          >
+            {v === "detailed" ? "Detailed Size View" : "Summary Component View"}
+          </button>
         ))}
-        <div className="flex justify-end gap-6 border-x border-b border-border bg-[#eaf7fd] px-4 py-2 text-[12.5px] font-semibold text-[#037bb8]">
-          <span>Grand Total</span>
-          <span className="font-mono">SQ {fmtNumber(data.grandTotal.sqQty)}</span>
-          <span className="font-mono">Wt {fmtNumber(data.grandTotal.grossWt)}</span>
-        </div>
       </div>
+
+      {/* A FLAT TABLE, COLUMN-FOR-COLUMN WITH THE REFERENCE PDF — Assort
+          Colour / Component / Fabric repeat on every row rather than reading
+          as section headers, because that is what the legacy printout and
+          this app's own PDF/CSV export already render (see
+          `lib/orders/fabric-bom/reports-export.ts`'s `registerBody`); a
+          nested accordion here would be a second layout for one document. */}
+      <ReportTable fixed>
+        <EntryRegisterGridCols cols={viewMode === "detailed" ? ENTRY_GRID_DETAILED_COLS : ENTRY_GRID_SUMMARY_COLS} />
+        <thead>
+          <tr>
+            {(viewMode === "detailed" ? ENTRY_GRID_DETAILED_COLS : ENTRY_GRID_SUMMARY_COLS).map((c) => (
+              <Th key={c.label} right={NUMERIC_ENTRY_COLS.has(c.label)}>
+                {c.label}
+              </Th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.groups.map((group) => (
+            <EntryColourRows key={group.combo ?? "unassigned"} group={group} viewMode={viewMode} />
+          ))}
+          <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+            <Td colSpan={3} className="truncate font-semibold">GRAND TOTAL</Td>
+            <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
+            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.sqQty)}</Td>
+            <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
+            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.netReqWt)}</Td>
+            <Td>{""}</Td>
+            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.grossWt)}</Td>
+            <Td>{""}</Td>
+          </tr>
+        </tbody>
+      </ReportTable>
+
+      <div className="mb-6" />
 
       <SectionHeader>Process Sequence &amp; Stage Loss Ledger</SectionHeader>
       <ReportTable>
@@ -376,19 +465,280 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
   );
 }
 
+const NUMERIC_ENTRY_COLS = new Set([
+  "GSM",
+  "Dia/Size",
+  "Width",
+  "SQ Qty",
+  "Piece Wt",
+  "Avg Piece Wt",
+  "Wastage %",
+  "Net Req Wt",
+  "Loss %",
+  "Total (Gross) Wt",
+]);
+
+/** One ASSORT COLOUR's rows — every (component, size) row in Detailed mode
+ *  or one row per component in Summary mode, a `— subtotal` row per
+ *  component (Detailed only — a Summary row already IS the component's
+ *  total, so a second row under it would double it up), and a colour-level
+ *  `— subtotal` row, matching the reference PDF's own hierarchy verbatim. */
+function EntryColourRows({
+  group,
+  viewMode,
+}: {
+  group: EntryRegister["groups"][number];
+  viewMode: "detailed" | "summary";
+}) {
+  const label = group.combo || "Unassigned";
+  return (
+    <>
+      {group.components.map((comp) =>
+        viewMode === "detailed" ? (
+          <EntryComponentDetailedRows key={comp.key} colour={label} comp={comp} />
+        ) : (
+          <EntryComponentSummaryRow key={comp.key} colour={label} comp={comp} />
+        ),
+      )}
+      {/* THE COLOUR SUBTOTAL IS THE COARSER LEVEL, and has to read as one —
+          `border-y-2` plus a darker tint than the component subtotal beneath
+          it, so a reader scanning down the table feels the grouping change
+          rather than seeing one undifferentiated grey band repeated at every
+          level (found 2026-09-11: component- and colour-level subtotals were
+          sharing one flat tint, which is what "needs a professional look"
+          was pointing at — a hierarchy that looks the same at every level
+          reads as no hierarchy at all). */}
+      <tr className="border-y-2 border-[#c7cdd4] bg-[#e9ecef] font-semibold uppercase tracking-wide">
+        <Td colSpan={3} className="truncate font-semibold text-[#3a4250]">{label} — subtotal</Td>
+        <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
+        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.sqQty)}</Td>
+        <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
+        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.netReqWt)}</Td>
+        <Td>{""}</Td>
+        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.grossWt)}</Td>
+        <Td>{""}</Td>
+      </tr>
+    </>
+  );
+}
+
+function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: EntryRegisterComponentGroup }) {
+  const componentLabel = comp.componentNames.join(", ") || "—";
+  return (
+    <>
+      {comp.sizes.map((s, i) => (
+        <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+          <Td><Truncated text={colour} /></Td>
+          <Td><Truncated text={componentLabel} /></Td>
+          <Td><Truncated text={comp.fabricName} /></Td>
+          <Td><ItemFormBadge form={comp.itemForm} /></Td>
+          <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
+          <Td>{s.sizeLabel}</Td>
+          <Td right mono>{s.dia != null ? fmtNumber(s.dia) : "—"}</Td>
+          <Td right mono>{s.purchaseWidth != null ? fmtNumber(s.purchaseWidth) : "—"}</Td>
+          <Td right mono>{fmtNumber(s.sqQty)}</Td>
+          <Td right mono>{s.pieceWt != null ? fmtNumber(s.pieceWt) : "—"}</Td>
+          <Td right mono>{s.wastagePct != null ? `${s.wastagePct}%` : "—"}</Td>
+          <Td right mono>{fmtNumber(s.netReqWt)}</Td>
+          <Td right mono>
+            <span className="inline-flex items-center">
+              {s.lossPct != null ? `${s.lossPct.toFixed(2)}%` : "—"}
+              {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
+            </span>
+          </Td>
+          <Td right mono>{fmtNumber(s.grossWt)}</Td>
+          <Td>{s.uomCode ?? "—"}</Td>
+        </tr>
+      ))}
+      {/* THE FINER LEVEL — lighter than the colour subtotal below it in
+          `EntryColourRows` on purpose, italic rather than uppercase, so the
+          two subtotal levels read as a hierarchy rather than one repeated
+          band. See that row's own note. */}
+      <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
+        <Td colSpan={3} className="truncate italic">{componentLabel} — subtotal</Td>
+        <Td colSpan={5}>{""}</Td>
+        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.sqQty)}</Td>
+        <Td colSpan={2}>{""}</Td>
+        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.netReqWt)}</Td>
+        <Td>{""}</Td>
+        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.grossWt)}</Td>
+        <Td>{""}</Td>
+      </tr>
+    </>
+  );
+}
+
+/** One component, collapsed to a single row — "component summary rows
+ *  showing average piece consumption weight" (client spec, 2026-09-11). Loss
+ *  % is not a second stored figure: every size within one component shares
+ *  the same backward-markup ladder, so `comp.subtotal`'s own ratio already
+ *  IS the component's compounded loss — never re-derived from one size row. */
+function EntryComponentSummaryRow({ colour, comp }: { colour: string; comp: EntryRegisterComponentGroup }) {
+  const pieceWts = comp.sizes.map((s) => s.pieceWt).filter((w): w is number => w != null);
+  const avgPieceWt = pieceWts.length > 0 ? pieceWts.reduce((a, b) => a + b, 0) / pieceWts.length : null;
+  const lossPct = comp.subtotal.netReqWt !== 0 ? (comp.subtotal.grossWt / comp.subtotal.netReqWt - 1) * 100 : null;
+  const uomCode = comp.sizes.find((s) => s.uomCode)?.uomCode ?? null;
+  return (
+    <tr className="odd:bg-white even:bg-[#fafbfc]">
+      <Td><Truncated text={colour} /></Td>
+      <Td><Truncated text={comp.componentNames.join(", ") || "—"} /></Td>
+      <Td><Truncated text={comp.fabricName} /></Td>
+      <Td><ItemFormBadge form={comp.itemForm} /></Td>
+      <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
+      <Td right mono>{fmtNumber(comp.subtotal.sqQty)}</Td>
+      <Td right mono>{avgPieceWt != null ? fmtNumber(avgPieceWt) : "—"}</Td>
+      <Td right mono>{fmtNumber(comp.subtotal.netReqWt)}</Td>
+      <Td right mono>
+        <span className="inline-flex items-center">
+          {lossPct != null ? `${lossPct.toFixed(2)}%` : "—"}
+          {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
+        </span>
+      </Td>
+      <Td right mono>{fmtNumber(comp.subtotal.grossWt)}</Td>
+      <Td>{uomCode ?? "—"}</Td>
+    </tr>
+  );
+}
+
+/** Open Width / Tubular pill. This app's own green accent (`#85c227`, already
+ *  the Letterhead's left bar) for Tubular rather than an arbitrary green —
+ *  Open Width borrows the report's existing blue. Renders nothing for a null
+ *  `itemForm`, which is also how a stray badge never appears next to a
+ *  fabric whose form was never recorded. */
+function ItemFormBadge({ form }: { form: string | null }) {
+  if (!form) return null;
+  const isOpenWidth = form === "Open Width";
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+        isOpenWidth ? "bg-[#037bb8]/15 text-[#037bb8]" : "bg-[#85c227]/20 text-[#4f7a17]"
+      }`}
+    >
+      {form}
+    </span>
+  );
+}
+
+/** The Loss % ℹ affordance. Click, not hover — this has to work on touch,
+ *  and `Tooltip` above is a hover/press-and-hold LABEL, not a click-toggled
+ *  panel with structured content, so this is the "smallest thing that works"
+ *  the brief calls for rather than a misuse of that primitive. Portaled to
+ *  `document.body` for the same reason `Tooltip` is: `ReportTable` wraps its
+ *  `<table>` in `overflow-x-auto`, which would clip a plain absolutely-
+ *  positioned panel sitting inside a right-hand column. */
+function LossChainInfo({ chain }: { chain: { processName: string; lossPct: number }[] }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    document.addEventListener("pointerdown", close, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, left: r.left });
+    setOpen(true);
+  };
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-label="Show loss % breakdown by process"
+        className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#037bb8]/15 text-[9px] font-bold leading-none text-[#037bb8]"
+      >
+        i
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            role="status"
+            style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 400 }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="max-w-xs whitespace-nowrap rounded-md border border-border bg-white px-2.5 py-1.5 font-mono text-[11px] text-[#16181d] shadow-md"
+          >
+            {chain.map((c, i) => (
+              <span key={i}>
+                {i > 0 && <span className="text-[#8b95a3]"> {"→"} </span>}
+                {c.processName} ({c.lossPct.toFixed(2)}%)
+              </span>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Report 2 — Yarn & Fabric Requirement Report
 // ---------------------------------------------------------------------------
+
+const STAGE_BADGE_TONE: Record<string, string> = {
+  GREY: "bg-[#e4e6ea] text-[#4a5261]",
+  RFD: "bg-[#fde8cc] text-[#8a5a15]",
+  DYED: "bg-[#dbeafe] text-[#1e5a9c]",
+};
+
+/** GREY / RFD / DYED, coloured — so a warehouse or mill supervisor reads the
+ *  state at a glance rather than parsing a word in a dense table. Falls back
+ *  to a neutral tone for any other stage-state word rather than refusing to
+ *  render one this app hasn't seen yet. */
+function StageBadge({ state }: { state: string }) {
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE_TONE[state] ?? "bg-[#e4e6ea] text-[#4a5261]"}`}
+    >
+      {state}
+    </span>
+  );
+}
 
 function RequirementReportView({
   data,
 }: {
   data: YarnFabricRequirementReport | { refused: string } | null;
 }) {
+  /* HOOKS ABOVE THE EARLY RETURN BELOW, ALWAYS (AGENTS.md's standing rule —
+     this exact file's sibling screen has taken production down five times
+     over this). `data` starts null while the fetch is in flight and can
+     resolve to a refusal, so every piece of view state this component owns
+     has to exist before either of those branches, not after. */
+  const [view, setView] = useState<"procurement" | "production">("production");
+  const [openYarn, setOpenYarn] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+
   if (!data) return null;
   if (isReportRefusal(data)) {
     return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
   }
+
+  const openYarnLine = data.yarns.find((y) => y.itemId === openYarn) ?? null;
+  const toggleStage = (name: string) => {
+    const next = new Set(collapsed);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setCollapsed(next);
+  };
+
   return (
     <div>
       <ExportBar
@@ -397,73 +747,166 @@ function RequirementReportView({
       />
 
       <Letterhead title="Yarn &amp; Fabric Requirement" docNo={data.header.bomCode} />
-      <IdentityStrip header={data.header} />
+      <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
+
+      {/* PROCUREMENT VS PRODUCTION — sourcing wants a purchase list, a mill
+          supervisor wants the full stage-by-stage ledger; nobody at either
+          desk wants to scroll past the other's section to find their own.
+          Neither table is destroyed by the toggle — this only hides the one
+          not being read, so switching back costs nothing. */}
+      <div className="my-3 flex items-center gap-1 rounded-md border border-border bg-white p-1 text-[12.5px] font-medium">
+        {(["procurement", "production"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setView(v)}
+            className={`flex-1 rounded px-3 py-1.5 ${view === v ? "bg-[#037bb8] text-white" : "text-[#5b6472] hover:bg-[#f1f3f5]"}`}
+          >
+            {v === "procurement" ? "Procurement View — Yarn Summary" : "Production View — Full Stage Ledger"}
+          </button>
+        ))}
+      </div>
 
       <div className="mb-6">
         <SectionHeader>Yarn Purchase Requirement</SectionHeader>
         <ReportTable>
           <thead>
             <tr>
-              <Th>Yarn</Th>
-              <Th right>Purchase Wt</Th>
-              <Th>Unit</Th>
-              <Th>Note</Th>
+              <Th>Stage</Th>
+              <Th>Type</Th>
+              <Th>Yarn Description</Th>
+              <Th>Color</Th>
+              <Th right>Plan Wt</Th>
+              <Th right>Loss %</Th>
+              <Th right>To Ordered Wt</Th>
             </tr>
           </thead>
           <tbody>
             {data.yarns.map((y) => (
-              <tr key={y.itemId} className="odd:bg-white even:bg-[#fafbfc]">
-                <Td>{y.yarnName}</Td>
+              <tr
+                key={y.itemId}
+                onClick={() => y.byFabric.length > 0 && setOpenYarn(y.itemId)}
+                className={`odd:bg-white even:bg-[#fafbfc] ${y.byFabric.length > 0 ? "cursor-pointer hover:bg-[#eaf7fd]" : ""}`}
+                title={y.byFabric.length > 0 ? "Click to see which fabrics contributed to this total" : undefined}
+              >
+                <Td><StageBadge state={y.stageState} /></Td>
+                <Td>{y.itemType}</Td>
+                <Td>
+                  {y.yarnName}
+                  {y.byFabric.length > 0 && <span className="ml-1 text-[#037bb8]">▸</span>}
+                </Td>
+                <Td>{y.color ?? "—"}</Td>
                 <Td right mono>{y.purchaseQty != null ? fmtNumber(y.purchaseQty) : "—"}</Td>
-                <Td>{y.uomCode ?? "—"}</Td>
-                <Td className="text-destructive">{y.refusalReason ?? ""}</Td>
+                <Td right mono>—</Td>
+                <Td right mono className={y.refusalReason ? "text-destructive" : ""}>
+                  {y.purchaseQty != null ? fmtNumber(y.purchaseQty) : (y.refusalReason ?? "—")}
+                </Td>
               </tr>
             ))}
+            {data.yarnGrandTotal && (
+              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                <Td colSpan={4}>Total Yarn Purchase Requirement</Td>
+                <Td right mono className="font-semibold">{fmtNumber(data.yarnGrandTotal.qty)}</Td>
+                <Td>{""}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(data.yarnGrandTotal.qty)}</Td>
+              </tr>
+            )}
           </tbody>
         </ReportTable>
       </div>
 
-      <div>
-        <SectionHeader>Process Stage Ledger</SectionHeader>
-        {data.stageBreakdown.map((g, gi) => (
-          <div key={g.processName}>
-            <div
-              className={`border-x border-border bg-[#f6f7f9] px-4 py-1 text-[11px] font-bold uppercase tracking-wide text-[#5b6472] ${gi === 0 ? "" : "border-t"}`}
-            >
-              {g.processName}
+      {/* THE DRILL-DOWN DRAWER — which fabrics fed one aggregated yarn row.
+          A plain inline panel rather than a portal: it is scoped to ONE row
+          of the table above it, so it reads as that row's own expansion,
+          not a second surface competing with the Sheet it lives inside. */}
+      {openYarnLine && (
+        <div className="mb-6 rounded-md border border-[#037bb8]/30 bg-[#eaf7fd] p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[12.5px] font-bold text-[#037bb8]">
+              {openYarnLine.yarnName} — by fabric
             </div>
-            <ReportTable>
-              <thead>
-                <tr>
-                  <Th>Details</Th>
-                  <Th>Colour</Th>
-                  <Th right>Planned Wt</Th>
-                  <Th right>Loss %</Th>
-                  <Th right>To Ordered Wt</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.lines.map((l, i) => (
-                  <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-                    <Td>{l.fabricName}</Td>
-                    <Td>{l.combo ?? "—"}</Td>
-                    <Td right mono>{fmtNumber(l.plannedWt)}</Td>
-                    <Td right mono>{l.lossPct.toFixed(2)}%</Td>
-                    <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
-                  </tr>
-                ))}
-                <tr className="bg-[#f1f3f5] font-semibold">
-                  <Td colSpan={2}>Grand Total</Td>
-                  <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
-                  <Td>{""}</Td>
-                  <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
-                </tr>
-              </tbody>
-            </ReportTable>
+            <button
+              type="button"
+              onClick={() => setOpenYarn(null)}
+              className="text-[11px] font-medium text-[#5b6472] hover:text-foreground"
+            >
+              Close ✕
+            </button>
           </div>
-        ))}
-      </div>
+          <ReportTable>
+            <thead>
+              <tr>
+                <Th>Fabric</Th>
+                <Th>Colour</Th>
+                <Th right>Contribution</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {openYarnLine.byFabric.map((c, i) => (
+                <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+                  <Td>{c.fabricName}</Td>
+                  <Td>{c.combo ?? "—"}</Td>
+                  <Td right mono>{fmtNumber(c.wt)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </ReportTable>
+        </div>
+      )}
+
+      {view === "production" && (
+        <div>
+          <SectionHeader>Process Stage Ledger</SectionHeader>
+          {data.stageBreakdown.map((g, gi) => {
+            const isOpen = !collapsed.has(g.processName);
+            return (
+              <div key={g.processName}>
+                <button
+                  type="button"
+                  onClick={() => toggleStage(g.processName)}
+                  className={`flex w-full items-center justify-between border-x border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-[#5b6472] hover:bg-[#eef0f2] ${gi === 0 ? "" : "border-t"}`}
+                >
+                  <span>{g.processName}</span>
+                  <span className="font-mono text-[10px] normal-case tracking-normal text-[#8b95a3]">
+                    {fmtNumber(g.toOrderedTotal)} · {isOpen ? "▾ collapse" : "▸ expand"}
+                  </span>
+                </button>
+                {isOpen && (
+                  <ReportTable>
+                    <thead>
+                      <tr>
+                        <Th>Details</Th>
+                        <Th>Colour</Th>
+                        <Th right>Planned Wt</Th>
+                        <Th right>Loss %</Th>
+                        <Th right>To Ordered Wt</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.lines.map((l, i) => (
+                        <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+                          <Td>{l.fabricName}</Td>
+                          <Td>{l.combo ?? "—"}</Td>
+                          <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                          <Td right mono>{l.lossPct.toFixed(2)}%</Td>
+                          <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+                        </tr>
+                      ))}
+                      <tr className="bg-[#f1f3f5] font-semibold">
+                        <Td colSpan={2}>Grand Total</Td>
+                        <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
+                        <Td>{""}</Td>
+                        <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
+                      </tr>
+                    </tbody>
+                  </ReportTable>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
