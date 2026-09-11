@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { today } from "@/lib/calendar";
+import { today, addDays } from "@/lib/calendar";
 
 /**
  * Writes for the Approvals Worklist (doc/approval.md §4). Same shape as
@@ -29,32 +29,84 @@ const HISTORY_TABLE = "garment_order_amendment_ta_approval_history";
  * guard"). Re-read `requires_proof` from the row's own approval here rather
  * than trusting a client-passed flag, so a stale or tampered client can't
  * skip it.
+ *
+ * A FILE OR A TYPED REFERENCE BOTH SATISFY THE GATE (doc/ui/order/
+ * tafollowup.md §2: "waybill scans, courier receipts, or tracking numbers").
+ * A courier tracking number told over the phone is proof of dispatch as much
+ * as a scanned slip is; refusing one because there is no file would make the
+ * gate stricter than the spec that created it.
+ *
+ * EXPECTED APPROVAL DATE (§3B): `target_date` is recomputed HERE, from the
+ * ACTUAL send date, never the originally planned one — `target_date =
+ * sendDate + masterLeadDays`, the buyer's own Customer Master override
+ * (`customer_approval_defaults`) falling back to the approval's own
+ * `standard_days`, the exact same resolution `getApprovalsWorklist` already
+ * uses for the read side. This is also what makes a REWORKED (V2) row's
+ * resubmission target correct with no separate formula: `markApprovalRework`
+ * leaves the stale `target_date` alone (so a reworked sample shows as
+ * immediately due), and the moment it is marked Sent again THIS function
+ * recomputes it from the new send date.
  */
 export async function markApprovalSent(
   id: string,
   sentDate?: string,
+  sentTime?: string,
+  proofReference?: string,
   proof?: { path: string; mimeType: string | null; sizeBytes: number | null },
 ): Promise<Result> {
   if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
   if (!id) return { ok: false, error: "No approval given" };
   const date = sentDate?.trim() || today();
+  const reference = proofReference?.trim() || null;
 
   const s = await createClient();
 
-  if (!proof) {
-    const { data: row, error: readError } = await s
-      .from(TABLE)
-      .select("approval:ta_approvals(requires_proof)")
-      .eq("id", id)
-      .maybeSingle();
-    if (readError) return { ok: false, error: readError.message };
-    const requiresProof = !!(Array.isArray(row?.approval) ? row?.approval[0] : row?.approval)?.requires_proof;
-    if (requiresProof) {
-      return { ok: false, error: "A proof file is required before this approval can be marked sent" };
-    }
+  const { data: row, error: readError } = await s
+    .from(TABLE)
+    // ONE literal, not `+`-concatenated: supabase-js infers this query's
+    // return shape by parsing the select STRING at the type level, and a
+    // widened (non-literal) `string` from concatenation degrades that
+    // inference to `GenericStringError` for the whole row — see the other
+    // reads in this file for the same discipline.
+    .select(
+      "approval_id, approval:ta_approvals(requires_proof, standard_days), amendment:garment_order_amendments(customer_id)",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (readError) return { ok: false, error: readError.message };
+  if (!row) return { ok: false, error: "That approval row no longer exists" };
+  const appr = Array.isArray(row.approval) ? row.approval[0] : row.approval;
+  const amendment = Array.isArray(row.amendment) ? row.amendment[0] : row.amendment;
+
+  if (!proof && !reference && appr?.requires_proof) {
+    return {
+      ok: false,
+      error: "A proof file or courier reference is required before this approval can be marked sent",
+    };
   }
 
-  const patch: Record<string, unknown> = { actual_sent_date: date, status: "sent" };
+  // §3B: same (customer, approval) override lookup `getApprovalsWorklist`
+  // does on read, done here as a single-pair query since only one row is
+  // being sent.
+  const approvalId = row.approval_id;
+  let leadDays = appr?.standard_days ?? 0;
+  if (amendment?.customer_id && approvalId) {
+    const { data: override } = await s
+      .from("customer_approval_defaults")
+      .select("lead_time_days")
+      .eq("customer_id", amendment.customer_id)
+      .eq("approval_id", approvalId)
+      .maybeSingle();
+    if (override) leadDays = override.lead_time_days;
+  }
+
+  const patch: Record<string, unknown> = {
+    actual_sent_date: date,
+    actual_sent_time: sentTime?.trim() || null,
+    proof_reference: reference,
+    target_date: addDays(date, leadDays),
+    status: "sent",
+  };
   if (proof) {
     patch.proof_path = proof.path;
     patch.mime_type = proof.mimeType;
@@ -112,8 +164,9 @@ export async function markApprovalRework(
   const s = await createClient();
   const { data: liveRow, error: readError } = await s
     .from(TABLE)
+    // ONE literal — see the note on markApprovalSent's own select above.
     .select(
-      "id, amendment_id, approval_id, active_version, target_date, actual_sent_date, proof_path, mime_type, size_bytes",
+      "id, amendment_id, approval_id, active_version, target_date, actual_sent_date, actual_sent_time, proof_path, proof_reference, mime_type, size_bytes",
     )
     .eq("id", id)
     .maybeSingle();
@@ -127,8 +180,10 @@ export async function markApprovalRework(
     version: liveRow.active_version,
     target_date: liveRow.target_date,
     actual_sent_date: liveRow.actual_sent_date,
+    actual_sent_time: liveRow.actual_sent_time,
     actual_received_date: date,
     proof_path: liveRow.proof_path,
+    proof_reference: liveRow.proof_reference,
     mime_type: liveRow.mime_type,
     size_bytes: liveRow.size_bytes,
     status: "rework",
@@ -136,13 +191,20 @@ export async function markApprovalRework(
   });
   if (historyError) return { ok: false, error: historyError.message };
 
+  // target_date is DELIBERATELY left as-is — see this function's own header.
+  // It is already in the past (a rejection cannot happen before its send
+  // date, and Approved/Rework both land no earlier than the original
+  // target), so the reworked row surfaces as immediately due; markApprovalSent
+  // recomputes it from the new send date the moment V2 goes out.
   const { error: updateError } = await s
     .from(TABLE)
     .update({
       active_version: liveRow.active_version + 1,
       actual_sent_date: null,
+      actual_sent_time: null,
       actual_received_date: null,
       proof_path: null,
+      proof_reference: null,
       mime_type: null,
       size_bytes: null,
       status: "pending",
@@ -158,6 +220,8 @@ export interface ApprovalHistoryEntry {
   version: number;
   targetDate: string | null;
   actualSentDate: string | null;
+  actualSentTime: string | null;
+  proofReference: string | null;
   actualReceivedDate: string | null;
   remarks: string | null;
   archivedAt: string;
@@ -169,13 +233,17 @@ export async function getApprovalHistory(sourceRowId: string): Promise<ApprovalH
   const s = await createClient();
   const { data } = await s
     .from(HISTORY_TABLE)
-    .select("version, target_date, actual_sent_date, actual_received_date, remarks, archived_at")
+    .select(
+      "version, target_date, actual_sent_date, actual_sent_time, proof_reference, actual_received_date, remarks, archived_at",
+    )
     .eq("source_row_id", sourceRowId)
     .order("version", { ascending: true });
   return (data ?? []).map((r) => ({
     version: r.version,
     targetDate: r.target_date,
     actualSentDate: r.actual_sent_date,
+    actualSentTime: r.actual_sent_time,
+    proofReference: r.proof_reference,
     actualReceivedDate: r.actual_received_date,
     remarks: r.remarks,
     archivedAt: r.archived_at,

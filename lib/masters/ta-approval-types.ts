@@ -11,6 +11,25 @@ import { z } from "zod";
 // table's SHAPE changes for the screen's sake beyond `department` (0542) and
 // the `short_name` uniqueness the screen's own dup-check now has something
 // real to answer to.
+//
+// `short_name`, `department` and `sequence` were REMOVED FROM THIS SCREEN'S
+// FORM (2026-09-11 spec): the approval Name already identifies the row,
+// every approval is Merchandising in practice, and ordering is computed
+// dynamically from T&A lead times rather than a static number. The COLUMNS
+// stay — `short_name` is still what `lib/orders/amendments/service.ts`
+// matches `ILIKE 'PPSAMPLE'` against to bridge PP Sample into the production
+// ladder (see that file and `ta-approval-master-screen.tsx`'s own header),
+// so it cannot become nullable or drop out of the row. `taApprovalInput` is
+// now only the fields the operator actually enters; `createTaApproval` /
+// `updateTaApproval` in `ta-approval-actions.ts` derive `short_name` from
+// `name` and hardcode `department`/`sequence` server-side.
+//
+// `requires_proof` left the form too (2026-09-11, same client pass). The
+// COLUMN stays for the same reason: `lib/ta/approvals-worklist-actions.ts`
+// (`markApprovalSent`) reads it server-side to refuse "Mark Sent" without an
+// attached proof file — a real enforcement gate, not a display flag. Every
+// seeded row is `true`; `createTaApproval` hardcodes new rows the same way,
+// and `updateTaApproval` never touches it on an existing row.
 // ============================================================================
 
 export const TA_APPROVAL_CONDITIONS = ["AFTER_ORDER_DATE", "BEFORE_SHIPMENT_DATE"] as const;
@@ -30,13 +49,9 @@ export interface TaApproval {
 }
 
 export const taApprovalInput = z.object({
-  short_name: z.string().min(1, "Short name is required"),
   name: z.string().min(1, "Name is required"),
-  department: z.string().min(1, "Department is required").default("MERCHANDISING"),
   apply_condition: z.enum(TA_APPROVAL_CONDITIONS),
   standard_days: z.coerce.number().int().min(0).default(0),
-  sequence: z.coerce.number().int().min(0).default(0),
-  requires_proof: z.boolean().default(true),
   is_active: z.boolean().default(true),
 });
 export type TaApprovalInput = z.infer<typeof taApprovalInput>;

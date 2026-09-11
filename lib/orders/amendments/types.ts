@@ -1379,9 +1379,13 @@ export interface AmendmentTaApproval {
   approval_id: string | null;
   target_date: string | null;
   actual_sent_date: string | null;
+  /** `HH:MM:SS` off Postgres `time`, or null (0555, doc/ui/order/tafollowup.md §2). */
+  actual_sent_time: string | null;
   actual_received_date: string | null;
   /** Storage path inside the PRIVATE `order-approval-docs` bucket — never a URL. */
   proof_path: string | null;
+  /** A typed courier/waybill/tracking reference, independent of proof_path (0555). */
+  proof_reference: string | null;
   /** `pending` | `sent` | `approved` | `rework`. */
   status: string;
   /** Bumped by `markApprovalRework` on every rejection — `> 1` is what tells

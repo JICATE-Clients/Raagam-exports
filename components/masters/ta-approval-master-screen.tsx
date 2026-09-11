@@ -31,24 +31,16 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 const blankForm = () => ({
-  short_name: "",
   name: "",
-  department: "MERCHANDISING",
   apply_condition: "BEFORE_SHIPMENT_DATE" as TaApprovalCondition,
   standard_days: "0",
-  sequence: "0",
-  requires_proof: true,
   is_active: true,
 });
 
 const FIELD_SIZE = {
-  short_name: "sm",
   name: "md",
-  department: "sm",
   apply_condition: "md",
   standard_days: "sm",
-  sequence: "sm",
-  requires_proof: "sm",
   inactive: "sm",
 } satisfies Record<string, FieldSize>;
 
@@ -64,11 +56,22 @@ const CONDITION_LABEL: Record<TaApprovalCondition, string> = {
  * the T&A tab's Approvals grid and the T&A Worklist before this screen
  * existed, seeded only by migration.
  *
- * `short_name` MATTERS BEYOND THIS SCREEN. It is what
- * `lib/orders/amendments/actions.ts` matches "PPSAMPLE" against to bridge PP
- * Sample into the production ladder, and what the Cutting Room hardlock
- * matches to find that same row — by convention, never a foreign key (see
- * that file's own comment). Renaming a short_name here silently breaks both.
+ * Short Name, Department and Sequence are gone from this form (2026-09-11
+ * spec): the Name already identifies the row, every approval is Merchandising
+ * in practice, and ordering is computed dynamically from T&A lead times
+ * rather than a static number. The columns still exist on the row — see
+ * `deriveShortName` in `ta-approval-actions.ts` — because `short_name`
+ * MATTERS BEYOND THIS SCREEN: `lib/orders/amendments/service.ts` matches
+ * "PPSAMPLE" against it to bridge PP Sample into the production ladder, by
+ * convention, never a foreign key. The action derives it from Name on create
+ * and never touches it on update, so renaming an approval here cannot break
+ * that bridge.
+ *
+ * Requires Proof is gone from this form too (2026-09-11, same pass). Its
+ * column also stays — `lib/ta/approvals-worklist-actions.ts` reads it
+ * server-side to refuse "Mark Sent" without an attached proof file, a real
+ * enforcement gate. New approvals are created with it `true` (every seeded
+ * row already is); an existing row's flag is never touched by an edit here.
  */
 export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; perms: Perms }) {
   const router = useRouter();
@@ -99,13 +102,9 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
   function openEdit(r: TaApproval) {
     setEditId(r.id);
     setForm({
-      short_name: r.short_name,
       name: r.name,
-      department: r.department,
       apply_condition: r.apply_condition,
       standard_days: String(r.standard_days),
-      sequence: String(r.sequence),
-      requires_proof: r.requires_proof,
       is_active: r.is_active,
     });
     setOpen(true);
@@ -114,13 +113,9 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
   function submit() {
     startTransition(async () => {
       const payload: TaApprovalInput = {
-        short_name: form.short_name.trim().toUpperCase(),
         name: form.name.trim(),
-        department: form.department.trim() || "MERCHANDISING",
         apply_condition: form.apply_condition,
         standard_days: Number(form.standard_days) || 0,
-        sequence: Number(form.sequence) || 0,
-        requires_proof: form.requires_proof,
         is_active: form.is_active,
       };
       const res = editId
@@ -151,22 +146,15 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
   const columns: Column<TaApproval>[] = [
     {
       // font-semibold (client 2026-09-07, Archivo weight spec) — this
-      // master's identifying column; Name/Department/etc. beside it stay at
-      // their existing weight.
-      header: "Short Name",
-      cell: (r) => <span className="font-mono text-xs font-semibold">{r.short_name}</span>,
+      // master's identifying column now that Short Name is gone from the grid.
+      header: "Name",
+      cell: (r) => <span className="text-sm font-semibold">{r.name}</span>,
     },
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
-    { header: "Department", cell: (r) => <span className="text-sm text-muted-foreground">{r.department}</span> },
     {
       header: "Applies",
       cell: (r) => <span className="text-sm text-muted-foreground">{CONDITION_LABEL[r.apply_condition]}</span>,
     },
     { header: "Std Days", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.standard_days}</span> },
-    {
-      header: "Proof",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.requires_proof ? "Required" : "Optional"}</span>,
-    },
     {
       header: "Status",
       cell: (r) => (
@@ -181,7 +169,7 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
         rows={rows}
         getKey={(r) => r.id}
         perms={perms}
-        searchText={(r) => [r.short_name, r.name, r.department].filter(Boolean).join(" ")}
+        searchText={(r) => r.name}
         searchPlaceholder="Search approval…"
         statusOf={(r) => (r.is_active ? "active" : "inactive")}
         addLabel="+ Add Approval"
@@ -191,7 +179,7 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
         empty="No approval milestones yet."
         mobile={{
           title: (r) => r.name,
-          meta: (r) => `${r.department} · ${CONDITION_LABEL[r.apply_condition]}`,
+          meta: (r) => CONDITION_LABEL[r.apply_condition],
           pill: (r) => (
             <StatusPill tone={r.is_active ? "success" : "danger"}>
               {r.is_active ? "Active" : "Inactive"}
@@ -214,7 +202,7 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
             </Button>
             <Button
               size="md"
-              disabled={isPending || !!dupError || !form.short_name.trim() || !form.name.trim()}
+              disabled={isPending || !!dupError || !form.name.trim()}
               onClick={submit}
             >
               {isPending ? "Saving…" : "Save"}
@@ -224,13 +212,6 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
       >
         <SectionGrid>
           <DetailSection label="Details" cols={12}>
-            <Field label="Short Name" required size={FIELD_SIZE.short_name} htmlFor="ta-appr-short">
-              <Input
-                id="ta-appr-short"
-                value={form.short_name}
-                onChange={(e) => set({ short_name: e.target.value })}
-              />
-            </Field>
             <Field label="Name" required size={FIELD_SIZE.name} htmlFor="ta-appr-name">
               <Input
                 id="ta-appr-name"
@@ -239,13 +220,6 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
                 {...dupFieldProps(dupError, "ta-appr-name")}
               />
               <DuplicateError error={dupError} id="ta-appr-name" />
-            </Field>
-            <Field label="Department" size={FIELD_SIZE.department} htmlFor="ta-appr-dept">
-              <Input
-                id="ta-appr-dept"
-                value={form.department}
-                onChange={(e) => set({ department: e.target.value })}
-              />
             </Field>
             <Field label="Applies" size={FIELD_SIZE.apply_condition} htmlFor="ta-appr-cond">
               <Select
@@ -268,26 +242,6 @@ export function TaApprovalMasterScreen({ rows, perms }: { rows: TaApproval[]; pe
                 value={form.standard_days}
                 onChange={(e) => set({ standard_days: e.target.value })}
               />
-            </Field>
-            <Field label="Sequence" size={FIELD_SIZE.sequence} htmlFor="ta-appr-seq">
-              <Input
-                id="ta-appr-seq"
-                type="number"
-                min="0"
-                value={form.sequence}
-                onChange={(e) => set({ sequence: e.target.value })}
-              />
-            </Field>
-            <Field size={FIELD_SIZE.requires_proof}>
-              <label className="flex h-8 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.requires_proof}
-                  onChange={(e) => set({ requires_proof: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Requires Proof</span>
-              </label>
             </Field>
             {editId && (
               <Field size={FIELD_SIZE.inactive}>
