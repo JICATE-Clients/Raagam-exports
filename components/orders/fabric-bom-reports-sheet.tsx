@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Tabs } from "@/components/ui/tabs";
@@ -10,7 +11,12 @@ import {
   loadFabricBomEntryRegister,
   loadYarnFabricRequirementReport,
 } from "@/lib/orders/fabric-bom/actions";
-import type { BomDocHeader, EntryRegister, YarnFabricRequirementReport } from "@/lib/orders/fabric-bom/reports";
+import type {
+  BomDocHeader,
+  EntryRegister,
+  EntryRegisterComponentGroup,
+  YarnFabricRequirementReport,
+} from "@/lib/orders/fabric-bom/reports";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import {
   exportEntryRegisterCsv,
@@ -146,6 +152,8 @@ function IdentityStrip({ header }: { header: BomDocHeader }) {
   return (
     <dl className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] border border-t-0 border-border bg-white">
       <Fact label="SC No" value={header.scNo} mono />
+      <Fact label="SQ No" value={header.sqNo} mono />
+      <Fact label="SQ Description" value={header.sqDescription} />
       <Fact label="Order No" value={header.orderNo} mono />
       <Fact label="Style Ref No" value={header.styleRefNo} mono />
       <Fact label="Style No" value={header.styleNo} />
@@ -187,7 +195,11 @@ function QuantityBand({ header }: { header: BomDocHeader }) {
         {fmtNumber(qty.excessQty)}
       </span>
       <span>
-        <span className="text-[#8b95a3]">Rejection Allowance</span> {fmtNumber(qty.rejectionQty)}
+        <span className="text-[#8b95a3]">
+          Rejection Allowance
+          {qty.orderQty > 0 ? ` ${((qty.rejectionQty / qty.orderQty) * 100).toFixed(2)}%` : ""}
+        </span>{" "}
+        {fmtNumber(qty.rejectionQty)}
       </span>
       <span>
         <span className="text-[#8b95a3]">Approval Allowance</span> {fmtNumber(qty.approvalQty)}
@@ -270,10 +282,29 @@ function ExportBar({ onCsv, onPdf }: { onCsv: () => void; onPdf: () => void }) {
 // ---------------------------------------------------------------------------
 
 function EntryRegisterView({ data }: { data: EntryRegister | { refused: string } | null }) {
+  /* HOOKS ABOVE THE EARLY RETURN BELOW, ALWAYS (AGENTS.md's standing rule) —
+     `data` starts null while the fetch is in flight, so both view-state hooks
+     have to exist before the null/refusal branches below, not after.
+     `collapsedComponentKeys` tracks what is COLLAPSED, not what is open, the
+     same inversion `RequirementReportView`'s `collapsed` state already uses
+     for its stage ledger: a key absent from the set reads as expanded, which
+     is what makes "every component starts expanded" free — nothing has to be
+     seeded from data that has not loaded yet. */
+  const [viewMode, setViewMode] = useState<"detailed" | "summary">("detailed");
+  const [collapsedComponentKeys, setCollapsedComponentKeys] = useState<ReadonlySet<string>>(new Set());
+
   if (!data) return null;
   if (isReportRefusal(data)) {
     return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
   }
+
+  const toggleComponent = (key: string) => {
+    const next = new Set(collapsedComponentKeys);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setCollapsedComponentKeys(next);
+  };
+
   return (
     <div>
       <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => exportEntryRegisterPdf(data)} />
@@ -282,70 +313,50 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
       <IdentityStrip header={data.header} />
       <QuantityBand header={data.header} />
 
+      {/* DETAILED VS SUMMARY — a floor operator wants every size row, a
+          reviewer wants one line per component. Same toggle shape as the
+          Yarn & Fabric Requirement tab's Procurement/Production switch below
+          it in this file; scoped to local state because nothing here needs
+          to persist across a re-open of the Sheet. */}
+      <div className="my-3 flex items-center gap-1 rounded-md border border-border bg-white p-1 text-[12.5px] font-medium">
+        {(["detailed", "summary"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setViewMode(v)}
+            className={`flex-1 rounded px-3 py-1.5 ${viewMode === v ? "bg-[#037bb8] text-white" : "text-[#5b6472] hover:bg-[#f1f3f5]"}`}
+          >
+            {v === "detailed" ? "Detailed Size View" : "Summary Component View"}
+          </button>
+        ))}
+      </div>
+
       <div className="mb-6">
-        {data.groups.map((g) => (
-          <div key={g.itemId}>
-            <SectionHeader>{g.fabricName}</SectionHeader>
-            <ReportTable>
-              <thead>
-                <tr>
-                  <Th>Assort Colour</Th>
-                  <Th>Component</Th>
-                  <Th>Item Form</Th>
-                  <Th right>GSM</Th>
-                  <Th>Size</Th>
-                  <Th right>Dia/Size</Th>
-                  <Th right>Width</Th>
-                  <Th right>SQ Qty</Th>
-                  <Th right>Piece Wt</Th>
-                  <Th right>Wastage %</Th>
-                  <Th right>Net Req Wt</Th>
-                  <Th right>Total Wt</Th>
-                  <Th>Unit</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.lines.map((l, i) => (
-                  <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-                    <Td>{l.combo || "—"}</Td>
-                    <Td>{l.components.join(", ") || "—"}</Td>
-                    <Td>{l.itemForm ?? "—"}</Td>
-                    <Td right mono>{l.gsm != null ? fmtNumber(l.gsm) : "—"}</Td>
-                    <Td>{l.sizeLabel}</Td>
-                    <Td right mono>{l.dia != null ? fmtNumber(l.dia) : "—"}</Td>
-                    <Td right mono>{l.purchaseWidth != null ? fmtNumber(l.purchaseWidth) : "—"}</Td>
-                    <Td right mono>{fmtNumber(l.sqQty)}</Td>
-                    <Td right mono>{l.pieceWt != null ? fmtNumber(l.pieceWt) : "—"}</Td>
-                    <Td right mono>{l.wastagePct != null ? `${l.wastagePct}%` : "—"}</Td>
-                    <Td right mono>{fmtNumber(l.netReqWt)}</Td>
-                    <Td right mono>{fmtNumber(l.grossWt)}</Td>
-                    <Td>{l.uomCode ?? "—"}</Td>
-                  </tr>
-                ))}
-                <tr className="bg-[#f1f3f5] font-semibold">
-                  <Td className="font-semibold" colSpan={7}>
-                    Subtotal
-                  </Td>
-                  <Td right mono className="font-semibold">
-                    {fmtNumber(g.subtotal.sqQty)}
-                  </Td>
-                  <Td colSpan={2}>{""}</Td>
-                  <Td right mono className="font-semibold">
-                    {fmtNumber(g.subtotal.netReqWt)}
-                  </Td>
-                  <Td right mono className="font-semibold">
-                    {fmtNumber(g.subtotal.grossWt)}
-                  </Td>
-                  <Td>{""}</Td>
-                </tr>
-              </tbody>
-            </ReportTable>
+        {data.groups.map((group, gi) => (
+          <div key={group.combo ?? `unassigned-${gi}`}>
+            <SectionHeader>Assort Colour: {group.combo || "Unassigned"}</SectionHeader>
+            {group.components.map((comp) => (
+              <ComponentGroupBlock
+                key={comp.key}
+                comp={comp}
+                viewMode={viewMode}
+                collapsed={collapsedComponentKeys.has(comp.key)}
+                onToggle={() => toggleComponent(comp.key)}
+              />
+            ))}
+            <div className="flex justify-end gap-6 border-x border-b border-border bg-[#f1f3f5] px-4 py-2 text-[12px] font-semibold text-[#5b6472]">
+              <span>Colour Subtotal</span>
+              <span className="font-mono">SQ {fmtNumber(group.subtotal.sqQty)}</span>
+              <span className="font-mono">Net {fmtNumber(group.subtotal.netReqWt)}</span>
+              <span className="font-mono">Gross {fmtNumber(group.subtotal.grossWt)}</span>
+            </div>
           </div>
         ))}
         <div className="flex justify-end gap-6 border-x border-b border-border bg-[#eaf7fd] px-4 py-2 text-[12.5px] font-semibold text-[#037bb8]">
           <span>Grand Total</span>
           <span className="font-mono">SQ {fmtNumber(data.grandTotal.sqQty)}</span>
-          <span className="font-mono">Wt {fmtNumber(data.grandTotal.grossWt)}</span>
+          <span className="font-mono">Net {fmtNumber(data.grandTotal.netReqWt)}</span>
+          <span className="font-mono">Gross {fmtNumber(data.grandTotal.grossWt)}</span>
         </div>
       </div>
 
@@ -376,19 +387,270 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
   );
 }
 
+/** One ASSORT COLOUR ▸ COMPONENT block. Detailed mode renders the collapsible
+ *  sub-header plus its size rows; Summary mode has no size rows to collapse,
+ *  so it renders the component as a single table row instead — the chevron
+ *  only appears where there is something under it to hide. */
+function ComponentGroupBlock({
+  comp,
+  viewMode,
+  collapsed,
+  onToggle,
+}: {
+  comp: EntryRegisterComponentGroup;
+  viewMode: "detailed" | "summary";
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const identity = (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span>{comp.componentNames.join(", ")}</span>
+      <span className="font-normal normal-case text-[#5b6472]">
+        ({comp.fabricName}
+        {comp.gsm != null ? ` — ${fmtNumber(comp.gsm)} GSM` : ""})
+      </span>
+      <ItemFormBadge form={comp.itemForm} />
+    </span>
+  );
+
+  if (viewMode === "summary") {
+    const pieceWts = comp.sizes.map((s) => s.pieceWt).filter((w): w is number => w != null);
+    const avgPieceWt = pieceWts.length > 0 ? pieceWts.reduce((a, b) => a + b, 0) / pieceWts.length : null;
+    return (
+      <ReportTable>
+        <thead>
+          <tr>
+            <Th>Component</Th>
+            <Th right>Avg Piece Wt</Th>
+            <Th right>Net Req Wt</Th>
+            <Th right>Gross Wt</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="odd:bg-white even:bg-[#fafbfc]">
+            <Td>{identity}</Td>
+            <Td right mono>{avgPieceWt != null ? fmtNumber(avgPieceWt) : "—"}</Td>
+            <Td right mono>{fmtNumber(comp.subtotal.netReqWt)}</Td>
+            <Td right mono>{fmtNumber(comp.subtotal.grossWt)}</Td>
+          </tr>
+        </tbody>
+      </ReportTable>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between border-x border-t border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11.5px] font-semibold text-[#37414f] hover:bg-[#eef0f2]"
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 text-[10px] text-[#8b95a3]">{collapsed ? "▸" : "▾"}</span>
+          {identity}
+        </span>
+      </button>
+      {!collapsed && (
+        <ReportTable>
+          <thead>
+            <tr>
+              <Th>Size</Th>
+              <Th>Style Ref</Th>
+              <Th right>Dia</Th>
+              <Th right>Width</Th>
+              <Th right>Piece Wt</Th>
+              <Th right>SQ Qty</Th>
+              <Th right>Wastage %</Th>
+              <Th right>Net Req Wt</Th>
+              <Th right>Loss %</Th>
+              <Th right>Gross Wt</Th>
+              <Th>Unit</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {comp.sizes.map((s, i) => (
+              <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+                <Td>{s.sizeLabel}</Td>
+                <Td mono>{s.styleRefNo ?? "—"}</Td>
+                <Td right mono>{s.dia != null ? fmtNumber(s.dia) : "—"}</Td>
+                <Td right mono>{s.purchaseWidth != null ? fmtNumber(s.purchaseWidth) : "—"}</Td>
+                <Td right mono>{s.pieceWt != null ? fmtNumber(s.pieceWt) : "—"}</Td>
+                <Td right mono>{fmtNumber(s.sqQty)}</Td>
+                <Td right mono>{s.wastagePct != null ? `${s.wastagePct}%` : "—"}</Td>
+                <Td right mono>{fmtNumber(s.netReqWt)}</Td>
+                <Td right mono>
+                  <span className="inline-flex items-center">
+                    {s.lossPct != null ? `${s.lossPct.toFixed(2)}%` : "—"}
+                    {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
+                  </span>
+                </Td>
+                <Td right mono>{fmtNumber(s.grossWt)}</Td>
+                <Td>{s.uomCode ?? "—"}</Td>
+              </tr>
+            ))}
+            <tr className="bg-[#f1f3f5] font-semibold">
+              <Td className="font-semibold" colSpan={5}>
+                Subtotal
+              </Td>
+              <Td right mono className="font-semibold">
+                {fmtNumber(comp.subtotal.sqQty)}
+              </Td>
+              <Td>{""}</Td>
+              <Td right mono className="font-semibold">
+                {fmtNumber(comp.subtotal.netReqWt)}
+              </Td>
+              <Td>{""}</Td>
+              <Td right mono className="font-semibold">
+                {fmtNumber(comp.subtotal.grossWt)}
+              </Td>
+              <Td>{""}</Td>
+            </tr>
+          </tbody>
+        </ReportTable>
+      )}
+    </div>
+  );
+}
+
+/** Open Width / Tubular pill. This app's own green accent (`#85c227`, already
+ *  the Letterhead's left bar) for Tubular rather than an arbitrary green —
+ *  Open Width borrows the report's existing blue. Renders nothing for a null
+ *  `itemForm`, which is also how a stray badge never appears next to a
+ *  fabric whose form was never recorded. */
+function ItemFormBadge({ form }: { form: string | null }) {
+  if (!form) return null;
+  const isOpenWidth = form === "Open Width";
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+        isOpenWidth ? "bg-[#037bb8]/15 text-[#037bb8]" : "bg-[#85c227]/20 text-[#4f7a17]"
+      }`}
+    >
+      {form}
+    </span>
+  );
+}
+
+/** The Loss % ℹ affordance. Click, not hover — this has to work on touch,
+ *  and `Tooltip` above is a hover/press-and-hold LABEL, not a click-toggled
+ *  panel with structured content, so this is the "smallest thing that works"
+ *  the brief calls for rather than a misuse of that primitive. Portaled to
+ *  `document.body` for the same reason `Tooltip` is: `ReportTable` wraps its
+ *  `<table>` in `overflow-x-auto`, which would clip a plain absolutely-
+ *  positioned panel sitting inside a right-hand column. */
+function LossChainInfo({ chain }: { chain: { processName: string; lossPct: number }[] }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    document.addEventListener("pointerdown", close, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, left: r.left });
+    setOpen(true);
+  };
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-label="Show loss % breakdown by process"
+        className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#037bb8]/15 text-[9px] font-bold leading-none text-[#037bb8]"
+      >
+        i
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            role="status"
+            style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 400 }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="max-w-xs whitespace-nowrap rounded-md border border-border bg-white px-2.5 py-1.5 font-mono text-[11px] text-[#16181d] shadow-md"
+          >
+            {chain.map((c, i) => (
+              <span key={i}>
+                {i > 0 && <span className="text-[#8b95a3]"> {"→"} </span>}
+                {c.processName} ({c.lossPct.toFixed(2)}%)
+              </span>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Report 2 — Yarn & Fabric Requirement Report
 // ---------------------------------------------------------------------------
+
+const STAGE_BADGE_TONE: Record<string, string> = {
+  GREY: "bg-[#e4e6ea] text-[#4a5261]",
+  RFD: "bg-[#fde8cc] text-[#8a5a15]",
+  DYED: "bg-[#dbeafe] text-[#1e5a9c]",
+};
+
+/** GREY / RFD / DYED, coloured — so a warehouse or mill supervisor reads the
+ *  state at a glance rather than parsing a word in a dense table. Falls back
+ *  to a neutral tone for any other stage-state word rather than refusing to
+ *  render one this app hasn't seen yet. */
+function StageBadge({ state }: { state: string }) {
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${STAGE_BADGE_TONE[state] ?? "bg-[#e4e6ea] text-[#4a5261]"}`}
+    >
+      {state}
+    </span>
+  );
+}
 
 function RequirementReportView({
   data,
 }: {
   data: YarnFabricRequirementReport | { refused: string } | null;
 }) {
+  /* HOOKS ABOVE THE EARLY RETURN BELOW, ALWAYS (AGENTS.md's standing rule —
+     this exact file's sibling screen has taken production down five times
+     over this). `data` starts null while the fetch is in flight and can
+     resolve to a refusal, so every piece of view state this component owns
+     has to exist before either of those branches, not after. */
+  const [view, setView] = useState<"procurement" | "production">("production");
+  const [openYarn, setOpenYarn] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+
   if (!data) return null;
   if (isReportRefusal(data)) {
     return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
   }
+
+  const openYarnLine = data.yarns.find((y) => y.itemId === openYarn) ?? null;
+  const toggleStage = (name: string) => {
+    const next = new Set(collapsed);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setCollapsed(next);
+  };
+
   return (
     <div>
       <ExportBar
@@ -400,70 +662,163 @@ function RequirementReportView({
       <IdentityStrip header={data.header} />
       <QuantityBand header={data.header} />
 
+      {/* PROCUREMENT VS PRODUCTION — sourcing wants a purchase list, a mill
+          supervisor wants the full stage-by-stage ledger; nobody at either
+          desk wants to scroll past the other's section to find their own.
+          Neither table is destroyed by the toggle — this only hides the one
+          not being read, so switching back costs nothing. */}
+      <div className="my-3 flex items-center gap-1 rounded-md border border-border bg-white p-1 text-[12.5px] font-medium">
+        {(["procurement", "production"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setView(v)}
+            className={`flex-1 rounded px-3 py-1.5 ${view === v ? "bg-[#037bb8] text-white" : "text-[#5b6472] hover:bg-[#f1f3f5]"}`}
+          >
+            {v === "procurement" ? "Procurement View — Yarn Summary" : "Production View — Full Stage Ledger"}
+          </button>
+        ))}
+      </div>
+
       <div className="mb-6">
         <SectionHeader>Yarn Purchase Requirement</SectionHeader>
         <ReportTable>
           <thead>
             <tr>
-              <Th>Yarn</Th>
-              <Th right>Purchase Wt</Th>
-              <Th>Unit</Th>
-              <Th>Note</Th>
+              <Th>Stage</Th>
+              <Th>Type</Th>
+              <Th>Yarn Description</Th>
+              <Th>Color</Th>
+              <Th right>Plan Wt</Th>
+              <Th right>Loss %</Th>
+              <Th right>To Ordered Wt</Th>
             </tr>
           </thead>
           <tbody>
             {data.yarns.map((y) => (
-              <tr key={y.itemId} className="odd:bg-white even:bg-[#fafbfc]">
-                <Td>{y.yarnName}</Td>
+              <tr
+                key={y.itemId}
+                onClick={() => y.byFabric.length > 0 && setOpenYarn(y.itemId)}
+                className={`odd:bg-white even:bg-[#fafbfc] ${y.byFabric.length > 0 ? "cursor-pointer hover:bg-[#eaf7fd]" : ""}`}
+                title={y.byFabric.length > 0 ? "Click to see which fabrics contributed to this total" : undefined}
+              >
+                <Td><StageBadge state={y.stageState} /></Td>
+                <Td>{y.itemType}</Td>
+                <Td>
+                  {y.yarnName}
+                  {y.byFabric.length > 0 && <span className="ml-1 text-[#037bb8]">▸</span>}
+                </Td>
+                <Td>{y.color ?? "—"}</Td>
                 <Td right mono>{y.purchaseQty != null ? fmtNumber(y.purchaseQty) : "—"}</Td>
-                <Td>{y.uomCode ?? "—"}</Td>
-                <Td className="text-destructive">{y.refusalReason ?? ""}</Td>
+                <Td right mono>—</Td>
+                <Td right mono className={y.refusalReason ? "text-destructive" : ""}>
+                  {y.purchaseQty != null ? fmtNumber(y.purchaseQty) : (y.refusalReason ?? "—")}
+                </Td>
               </tr>
             ))}
+            {data.yarnGrandTotal && (
+              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                <Td colSpan={4}>Total Yarn Purchase Requirement</Td>
+                <Td right mono className="font-semibold">{fmtNumber(data.yarnGrandTotal.qty)}</Td>
+                <Td>{""}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(data.yarnGrandTotal.qty)}</Td>
+              </tr>
+            )}
           </tbody>
         </ReportTable>
       </div>
 
-      <div>
-        <SectionHeader>Process Stage Ledger</SectionHeader>
-        {data.stageBreakdown.map((g, gi) => (
-          <div key={g.processName}>
-            <div
-              className={`border-x border-border bg-[#f6f7f9] px-4 py-1 text-[11px] font-bold uppercase tracking-wide text-[#5b6472] ${gi === 0 ? "" : "border-t"}`}
-            >
-              {g.processName}
+      {/* THE DRILL-DOWN DRAWER — which fabrics fed one aggregated yarn row.
+          A plain inline panel rather than a portal: it is scoped to ONE row
+          of the table above it, so it reads as that row's own expansion,
+          not a second surface competing with the Sheet it lives inside. */}
+      {openYarnLine && (
+        <div className="mb-6 rounded-md border border-[#037bb8]/30 bg-[#eaf7fd] p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[12.5px] font-bold text-[#037bb8]">
+              {openYarnLine.yarnName} — by fabric
             </div>
-            <ReportTable>
-              <thead>
-                <tr>
-                  <Th>Details</Th>
-                  <Th>Colour</Th>
-                  <Th right>Planned Wt</Th>
-                  <Th right>Loss %</Th>
-                  <Th right>To Ordered Wt</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.lines.map((l, i) => (
-                  <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-                    <Td>{l.fabricName}</Td>
-                    <Td>{l.combo ?? "—"}</Td>
-                    <Td right mono>{fmtNumber(l.plannedWt)}</Td>
-                    <Td right mono>{l.lossPct.toFixed(2)}%</Td>
-                    <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
-                  </tr>
-                ))}
-                <tr className="bg-[#f1f3f5] font-semibold">
-                  <Td colSpan={2}>Grand Total</Td>
-                  <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
-                  <Td>{""}</Td>
-                  <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
-                </tr>
-              </tbody>
-            </ReportTable>
+            <button
+              type="button"
+              onClick={() => setOpenYarn(null)}
+              className="text-[11px] font-medium text-[#5b6472] hover:text-foreground"
+            >
+              Close ✕
+            </button>
           </div>
-        ))}
-      </div>
+          <ReportTable>
+            <thead>
+              <tr>
+                <Th>Fabric</Th>
+                <Th>Colour</Th>
+                <Th right>Contribution</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {openYarnLine.byFabric.map((c, i) => (
+                <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+                  <Td>{c.fabricName}</Td>
+                  <Td>{c.combo ?? "—"}</Td>
+                  <Td right mono>{fmtNumber(c.wt)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </ReportTable>
+        </div>
+      )}
+
+      {view === "production" && (
+        <div>
+          <SectionHeader>Process Stage Ledger</SectionHeader>
+          {data.stageBreakdown.map((g, gi) => {
+            const isOpen = !collapsed.has(g.processName);
+            return (
+              <div key={g.processName}>
+                <button
+                  type="button"
+                  onClick={() => toggleStage(g.processName)}
+                  className={`flex w-full items-center justify-between border-x border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-[#5b6472] hover:bg-[#eef0f2] ${gi === 0 ? "" : "border-t"}`}
+                >
+                  <span>{g.processName}</span>
+                  <span className="font-mono text-[10px] normal-case tracking-normal text-[#8b95a3]">
+                    {fmtNumber(g.toOrderedTotal)} · {isOpen ? "▾ collapse" : "▸ expand"}
+                  </span>
+                </button>
+                {isOpen && (
+                  <ReportTable>
+                    <thead>
+                      <tr>
+                        <Th>Details</Th>
+                        <Th>Colour</Th>
+                        <Th right>Planned Wt</Th>
+                        <Th right>Loss %</Th>
+                        <Th right>To Ordered Wt</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.lines.map((l, i) => (
+                        <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+                          <Td>{l.fabricName}</Td>
+                          <Td>{l.combo ?? "—"}</Td>
+                          <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                          <Td right mono>{l.lossPct.toFixed(2)}%</Td>
+                          <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+                        </tr>
+                      ))}
+                      <tr className="bg-[#f1f3f5] font-semibold">
+                        <Td colSpan={2}>Grand Total</Td>
+                        <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
+                        <Td>{""}</Td>
+                        <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
+                      </tr>
+                    </tbody>
+                  </ReportTable>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

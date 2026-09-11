@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getOrderProduction } from "@/lib/orders/bom-order-basis";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
 import type { ApprovalRow, OrderProductionInput } from "@/lib/orders/material-bom/requirement";
-import { comboUpliftBreakdown } from "./yarn-process";
+import { comboKey, comboUpliftBreakdown } from "./yarn-process";
 import { layoutTypeLabel } from "./component-map";
 import { isReportRefusal, type ReportRefusal } from "./report-refusal";
 
@@ -62,6 +62,49 @@ import { isReportRefusal, type ReportRefusal } from "./report-refusal";
  * order LIVE (`getOrderProduction`), same as the header identity fields
  * (customer/delivery/etc) already do in the Fabric Requirement Sheet — this is
  * CONTEXT explaining a stored figure, not a figure a purchase depends on.
+ *
+ * IT IS HEADER-LEVEL ONLY, AND STAYS THAT WAY — `ApprovalRow` (from
+ * `lib/orders/material-bom/requirement.ts`, fed by `bom-order-basis.ts`'s
+ * `approval_qtys:garment_order_amendment_approval_qtys(style_ref_no,combo,qty,
+ * approval_qty)` select) carries no `size_id`, even though the underlying
+ * table has held one, nullable, since 0435 ("Approval Qty is typed at SIZE
+ * level only"). Widening that shared select to expose it would ripple into
+ * every OTHER reader of `OrderProductionInput` (`materialTarget`,
+ * `fullTarget`, the Approval Qty tab itself) for this one report's benefit,
+ * and a pre-0435 order's rows carry `size_id` NULL regardless — so a per-size
+ * Order/Excess/Rejection/Approval Qty column on `EntryRegisterSizeRow` was
+ * investigated (2026-09-11) and NOT added: the size axis this report would
+ * need to join on does not reach this file today, and guessing how one
+ * style+combo total splits across its sizes is exactly the invented figure
+ * this file's own rule above forbids. `EntryRegisterSizeRow` carries `sqQty`
+ * only.
+ *
+ * ## GROSS WEIGHT IS `netReqWt` RUN BACKWARD THROUGH THE FABRIC'S OWN ROUTE
+ *
+ * `netReqWt` is unchanged — the stored `required_qty`, which already includes
+ * the line's own cutting-room `wastage_pct`. `grossWt` (2026-09-11) is that
+ * figure marked up by `comboUpliftBreakdown` (`./yarn-process`) over the SAME
+ * fabric+combo route `yarnFabricRequirementReport` below already walks for its
+ * own stage ledger — one implementation of the backward-markup chain, read by
+ * both reports, never a second one written here. `lossPct` is the compounded
+ * `(grossWt/netReqWt - 1) x 100` this produces, and `lossChain` carries the
+ * per-stage percentages behind it. A fabric+combo with no declared route, or
+ * one `comboUpliftBreakdown` refuses, abstains exactly as everywhere else in
+ * this file: `grossWt = netReqWt`, `lossPct = null`, `lossChain = []` — never
+ * a fabricated zero loss standing in for "nothing was computed".
+ *
+ * ## GROUPED BY ASSORT COLOUR, THEN BY MANUAL ENTRY (2026-09-11)
+ *
+ * The client's wireframe reads Assort Colour as the primary section and, under
+ * it, one block per component-set with its size rows nested inside. An entry
+ * (`order_fabric_bom_manual_entries`, 0494) already IS one fabric structure
+ * plus one set of components — "THE ENTRY IS THE COUNTING UNIT" is that
+ * migration's own heading — so `(combo, entry_id)` is the natural key rather
+ * than a second one re-derived from fabric name + component list + item form.
+ * A requirement row with `entry_id = null` (`chk_ofbr_one_parent`: exactly one
+ * of `line_id`/`entry_id` is set — a line-based, non-Manual requirement) has no
+ * component-set identity to key on, so it groups under a synthetic
+ * `combo + "::" + item_id` bucket instead of crashing.
  */
 
 export type { ReportRefusal };
@@ -89,6 +132,11 @@ export type BomDocHeader = {
   bomDate: string | null;
   computedAt: string | null;
   scNo: string | null;
+  /** `sq_details.code` via `garment_order_amendments.sq_detail_id` (0511) —
+   *  null for the ordinary case of an order booked straight off a customer
+   *  PO, never a refusal: most orders carry no SQ link at all. */
+  sqNo: string | null;
+  sqDescription: string | null;
   customer: string | null;
   orderNo: string | null;
   styleRefNo: string | null;
@@ -122,7 +170,8 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     .from("garment_order_amendments")
     .select(
       "id, po_no, delivery_date, excess_pct, customer:customers(name), " +
-        "sales_order:sales_orders(order_number)",
+        "sales_order:sales_orders(order_number), " +
+        "sq_detail:sq_details!sq_detail_id(code, sq_description)",
     )
     .eq("id", bomRow.garment_order_id)
     .maybeSingle();
@@ -137,6 +186,7 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     excess_pct: number | null;
     customer: { name: string } | null;
     sales_order: { order_number: string | null } | null;
+    sq_detail: { code: string | null; sq_description: string | null } | null;
   };
 
   /* THERE IS NO SINGLE "Style Ref No" ON THE ORDER — `style_ref_no` lives on
@@ -173,6 +223,8 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     bomDate: bomRow.bom_date,
     computedAt: bomRow.computed_at,
     scNo: go.sales_order?.order_number ?? null,
+    sqNo: go.sq_detail?.code ?? null,
+    sqDescription: go.sq_detail?.sq_description ?? null,
     customer: go.customer?.name ?? null,
     company: {
       name: str("name") ?? str("company_name"),
@@ -248,10 +300,8 @@ function qtyBreakdownOf(order: OrderProductionInput): QtyBreakdown | ReportRefus
 // Report 1 — Fabric BOM Entry Register
 // ---------------------------------------------------------------------------
 
-export type EntryRegisterLine = {
-  itemId: string;
-  fabricName: string;
-  combo: string | null;
+/** One size of one (combo, entry) block. */
+export type EntryRegisterSizeRow = {
   sizeLabel: string;
   sqQty: number;
   /** The per-garment consumption this line was multiplied by — stored on the
@@ -261,41 +311,62 @@ export type EntryRegisterLine = {
   pieceWt: number | null;
   /** The line's OWN wastage % (EndBit / cutting-room buffer) — the ONE loss
    *  this requirement row's `required_qty` already includes. Not the same
-   *  thing as the Process Sequence ledger's `loss_pct`: `processes.ts`'s own
-   *  header forbids compounding that in here too ("one number, one author,
-   *  two readers") — see `lossPct` below. */
+   *  thing as the process-stage `lossPct` below. */
   wastagePct: number | null;
   netReqWt: number;
+  /** `netReqWt` run BACKWARD through the fabric's own process-stage ladder —
+   *  see the file header, "GROSS WEIGHT IS `netReqWt` RUN BACKWARD…". Equal
+   *  to `netReqWt` when the group's `lossChain` is empty. */
   grossWt: number;
-  /** `(grossWt/netReqWt - 1) x 100`, the COMBINED compounded loss the two
-   *  figures already imply — never a second stored percentage. Null when
-   *  netReqWt is 0 (nothing to divide by). */
+  /** `(grossWt/netReqWt - 1) x 100`, the COMPOUNDED loss the ladder already
+   *  implies — never a second stored percentage. Null when netReqWt is 0
+   *  (nothing to divide by) or the group's `lossChain` is empty. */
   lossPct: number | null;
-  uomCode: string | null;
-  components: string[];
-  styleRefNo: string | null;
-  /** "Open Width" / "Tubular" — the entry's own `width_form` (0495), labelled.
-   *  Null when the entry never declared one. */
-  itemForm: string | null;
-  /** The knitting/finishing diameter or flat/woven width for this line's own
-   *  size, from the Manual entry's size row (`order_fabric_bom_manual_sizes`,
+  /** The knitting/finishing diameter or flat/woven width for this size row,
+   *  from the Manual entry's size row (`order_fabric_bom_manual_sizes`,
    *  0494) — never re-typed here. */
   dia: number | null;
   /** The commercial purchase width for the same size row — a second, distinct
    *  figure from `dia` (cloth is knitted at one width and invoiced at another). */
   purchaseWidth: number | null;
-  /** The order's own GSM for this line's structure, resolved for this line's
-   *  OWN combo — same "one distinct answer or nothing" abstain rule the
-   *  header's Style Ref No already uses: a structure whose GSM disagrees
-   *  across combos (and this line names none in particular) prints blank
-   *  rather than picking one combo's figure at random. */
-  gsm: number | null;
+  uomCode: string | null;
+  styleRefNo: string | null;
 };
 
-export type EntryRegisterGroup = {
-  itemId: string;
+/** One (combo, entry) block — a fabric structure plus one set of components,
+ *  the Manual tab's own counting unit (0494) — with its size rows nested
+ *  under it. See the file header, "GROUPED BY ASSORT COLOUR…". */
+export type EntryRegisterComponentGroup = {
+  /** `entry_id`, or the synthetic `combo + "::" + item_id` fallback for a
+   *  line-based requirement row that names no entry. */
+  key: string;
+  /** e.g. `["BACK", "FRONT BODY", "SLEEVES"]`, already sorted. Empty for the
+   *  synthetic-key fallback, which names a fabric but no component set. */
+  componentNames: string[];
   fabricName: string;
-  lines: EntryRegisterLine[];
+  itemId: string;
+  /** The order's own GSM for this group's structure, resolved for this
+   *  group's OWN combo — same "one distinct answer or nothing" abstain rule
+   *  the header's Style Ref No already uses. */
+  gsm: number | null;
+  /** "Open Width" / "Tubular" — the entry's own `width_form` (0495), labelled.
+   *  Null when the entry never declared one, or there is no entry. */
+  itemForm: string | null;
+  /** One entry per stage of this group's own fabric+combo route, e.g.
+   *  `[{processName:"Knitting",lossPct:5}, {processName:"Dyeing",lossPct:10}]`.
+   *  Empty when no route was declared, or every declared stage refused this
+   *  combo — see the file header. */
+  lossChain: { processName: string; lossPct: number }[];
+  sizes: EntryRegisterSizeRow[];
+  subtotal: { sqQty: number; netReqWt: number; grossWt: number };
+};
+
+/** One Assort Colour section — the register's primary grouping (2026-09-11). */
+export type EntryRegisterColourGroup = {
+  /** `null`/`""` both mean "no colourway declared" — passed through as read;
+   *  the UI labels it. */
+  combo: string | null;
+  components: EntryRegisterComponentGroup[];
   subtotal: { sqQty: number; netReqWt: number; grossWt: number };
 };
 
@@ -309,7 +380,7 @@ export type StageLedgerRow = {
 
 export type EntryRegister = {
   header: BomDocHeader;
-  groups: EntryRegisterGroup[];
+  groups: EntryRegisterColourGroup[];
   grandTotal: { sqQty: number; netReqWt: number; grossWt: number };
   stageLedger: StageLedgerRow[];
 };
@@ -397,9 +468,10 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       itemIds.length
         ? s
             .from("order_fabric_bom_processes")
-            .select("item_id, stage_id, process_id, loss_pct")
+            .select("item_id, combo, sno, stage_id, process_id, loss_pct")
             .eq("bom_id", bomId)
             .in("item_id", itemIds)
+            .order("sno", { ascending: true })
         : Promise.resolve({ data: [], error: null }),
       // THE ORDER'S OWN GSM, per (structure, combo) — same route
       // `getOrderFabricSeed` (service.ts) already reads it by, so this can
@@ -433,6 +505,74 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
   const processNames = new Map<string, string>(
     ((processLookupRes.data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]),
   );
+
+  /* THE FABRIC'S OWN ROUTE, ONE PER ITEM, IN ASCENDING `sno` (fetch order) —
+     the same rows Report 2's stage ledger reads. `comboUpliftBreakdown`'s
+     backward-markup walk needs the OPPOSITE, PHYSICAL-REVERSE direction (the
+     net cutting-room figure belongs to the LAST stage and grows backward
+     toward Knitting) — see `yarnFabricRequirementReport`'s own header on why
+     feeding it un-reversed would label the wrong stage with the wrong
+     weight. Reversed once, in `ladderFor` below, not here — this map stays in
+     fetch order so a caller that ever wants the forward reading (none today)
+     is not handed a pre-reversed array under a name that doesn't say so. */
+  const routeByFabric = new Map<
+    string,
+    { combo: string | null; loss_pct: number | null; stage_id: string | null; process_id: string | null }[]
+  >();
+  for (const p of (processesRes.data ?? []) as unknown as {
+    item_id: string;
+    combo: string | null;
+    stage_id: string | null;
+    process_id: string | null;
+    loss_pct: string | number | null;
+  }[]) {
+    const list = routeByFabric.get(p.item_id) ?? [];
+    list.push({
+      combo: p.combo,
+      loss_pct: p.loss_pct == null ? null : Number(p.loss_pct),
+      stage_id: p.stage_id,
+      process_id: p.process_id,
+    });
+    routeByFabric.set(p.item_id, list);
+  }
+
+  /** `netReqWt` marked up by ONE (fabric, combo)'s own route — see the file
+   *  header, "GROSS WEIGHT IS `netReqWt` RUN BACKWARD…". Cached per
+   *  (item, combo) since every size row of one (combo, entry) group shares
+   *  both. `null` — never a stored zero-loss ladder — when the fabric
+   *  declares no route, or none of its declared stages cover this combo
+   *  (`comboUpliftBreakdown` returning zero steps, or refusing outright). */
+  const ladderCache = new Map<
+    string,
+    { factor: number; lossChain: { processName: string; lossPct: number }[] } | null
+  >();
+  function ladderFor(
+    itemId: string,
+    comboMapKey: string,
+  ): { factor: number; lossChain: { processName: string; lossPct: number }[] } | null {
+    const cacheKey = `${itemId}::${comboMapKey}`;
+    const cached = ladderCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const route = [...(routeByFabric.get(itemId) ?? [])].reverse();
+    let result: { factor: number; lossChain: { processName: string; lossPct: number }[] } | null = null;
+    if (route.length > 0) {
+      const ladder = comboUpliftBreakdown(route, comboMapKey);
+      if (!isReportRefusal(ladder) && ladder.steps.length > 0) {
+        result = {
+          factor: ladder.factor,
+          lossChain: ladder.steps.map((step) => ({
+            processName: step.process_id
+              ? (processNames.get(step.process_id) ?? "(process not found)")
+              : "(process not found)",
+            lossPct: step.loss_pct,
+          })),
+        };
+      }
+    }
+    ladderCache.set(cacheKey, result);
+    return result;
+  }
 
   // structure_id -> combo -> gsm. A combo naming no gsm for a structure is
   // simply absent, never a stored zero.
@@ -491,53 +631,79 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     });
   }
 
-  const byFabric = new Map<string, EntryRegisterGroup>();
+  // Built with `components` as a Map (keyed for lookup while grouping) and
+  // flattened to the exported array shape in the return statement below.
+  type ColourGroupBuild = Omit<EntryRegisterColourGroup, "components"> & {
+    components: Map<string, EntryRegisterComponentGroup>;
+  };
+  const byCombo = new Map<string, ColourGroupBuild>();
   const grandTotal = { sqQty: 0, netReqWt: 0, grossWt: 0 };
 
   for (const r of reqRows) {
     if (!r.item_id) continue;
     const fabricName = itemNames.get(r.item_id) ?? "(fabric not found)";
-    let group = byFabric.get(r.item_id);
-    if (!group) {
-      group = { itemId: r.item_id, fabricName, lines: [], subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 } };
-      byFabric.set(r.item_id, group);
+    const comboMapKey = comboKey(r.combo);
+
+    let colourGroup = byCombo.get(comboMapKey);
+    if (!colourGroup) {
+      colourGroup = { combo: r.combo, components: new Map(), subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 } };
+      byCombo.set(comboMapKey, colourGroup);
     }
 
+    // THE MANUAL ENTRY IS THE COUNTING UNIT (0494) — see the file header. A
+    // line-based row (`entry_id` null, `chk_ofbr_one_parent`) has no
+    // component-set identity, so it gets a synthetic per-(combo, fabric)
+    // bucket instead.
+    const componentKey = r.entry_id ?? `${comboMapKey}::${r.item_id}`;
     const entry = r.entry_id ? entriesById.get(r.entry_id) : undefined;
+
+    let compGroup = colourGroup.components.get(componentKey);
+    if (!compGroup) {
+      const ladder = ladderFor(r.item_id, comboMapKey);
+      compGroup = {
+        key: componentKey,
+        componentNames: entry?.components ?? [],
+        fabricName,
+        itemId: r.item_id,
+        gsm: resolveGsm(entry?.structureId ?? null, r.combo),
+        itemForm: entry?.itemForm ?? null,
+        lossChain: ladder?.lossChain ?? [],
+        sizes: [],
+        subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 },
+      };
+      colourGroup.components.set(componentKey, compGroup);
+    }
+
     const sizeInfo = entry?.sizes.get(r.size_id ?? "");
-    const gross = r.required_qty ?? 0;
+    const netReqWt = r.required_qty ?? 0;
     const sq = r.basis_qty ?? 0;
-    // NET is not stored separately from GROSS on the requirement row — only
-    // the post-loss `required_qty` is. Printing a net figure here would
-    // invent one; the doc's "Net Req Wt" and "Total Wt" collapse to the same
-    // stored figure until a net column exists, and `lossPct` is left null
-    // (never a fabricated 0.00%) to say so rather than implying no loss.
-    const line: EntryRegisterLine = {
-      itemId: r.item_id,
-      fabricName,
-      combo: r.combo,
+    const ladder = ladderFor(r.item_id, comboMapKey);
+    const grossWt = ladder ? netReqWt * ladder.factor : netReqWt;
+    const lossPct = ladder && netReqWt !== 0 ? Number(((grossWt / netReqWt - 1) * 100).toFixed(6)) : null;
+
+    const sizeRow: EntryRegisterSizeRow = {
       sizeLabel: r.slice_label ?? "—",
       sqQty: sq,
       pieceWt: r.consumption,
       wastagePct: r.wastage_pct,
-      netReqWt: gross,
-      grossWt: gross,
-      lossPct: null,
-      uomCode: r.consumption_uom_id ? (uomCodes.get(r.consumption_uom_id) ?? null) : null,
-      components: entry?.components ?? [],
-      styleRefNo: r.style_ref_no ?? entry?.style_ref_no ?? null,
-      itemForm: entry?.itemForm ?? null,
+      netReqWt,
+      grossWt,
+      lossPct,
       dia: sizeInfo?.dia ?? null,
       purchaseWidth: sizeInfo?.purchaseWidth ?? null,
-      gsm: resolveGsm(entry?.structureId ?? null, r.combo),
+      uomCode: r.consumption_uom_id ? (uomCodes.get(r.consumption_uom_id) ?? null) : null,
+      styleRefNo: r.style_ref_no ?? entry?.style_ref_no ?? null,
     };
-    group.lines.push(line);
-    group.subtotal.sqQty += sq;
-    group.subtotal.netReqWt += gross;
-    group.subtotal.grossWt += gross;
+    compGroup.sizes.push(sizeRow);
+    compGroup.subtotal.sqQty += sq;
+    compGroup.subtotal.netReqWt += netReqWt;
+    compGroup.subtotal.grossWt += grossWt;
+    colourGroup.subtotal.sqQty += sq;
+    colourGroup.subtotal.netReqWt += netReqWt;
+    colourGroup.subtotal.grossWt += grossWt;
     grandTotal.sqQty += sq;
-    grandTotal.netReqWt += gross;
-    grandTotal.grossWt += gross;
+    grandTotal.netReqWt += netReqWt;
+    grandTotal.grossWt += grossWt;
   }
 
   const stageLedger: StageLedgerRow[] = [];
@@ -572,7 +738,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
 
   return {
     header,
-    groups: [...byFabric.values()],
+    groups: [...byCombo.values()].map((g) => ({ ...g, components: [...g.components.values()] })),
     grandTotal,
     stageLedger,
   };
@@ -582,12 +748,41 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
 // Report 2 — Yarn & Fabric Requirement Report
 // ---------------------------------------------------------------------------
 
+/** One fabric's contribution to one yarn's total — the drill-down drawer's
+ *  own rows. Computed LIVE from the same declared inputs the stage ladder
+ *  already walks (never stored — see the file header on why the ladder
+ *  itself is live), so it can drift from the summed `purchaseQty` only if
+ *  the order's fabrics/routes changed since the BOM was last saved. */
+export type YarnFabricContribution = {
+  fabricName: string;
+  combo: string | null;
+  wt: number;
+};
+
 export type YarnRequirementLine = {
   itemId: string;
   yarnName: string;
+  /** GREY on every live row today — yarn is bought undyed, and dyeing is the
+   *  fabric's own later stage (see the Process Stage Ledger). Not a stored
+   *  column: `order_fabric_bom_yarns` names no stage of its own, so this is
+   *  the one state every row is actually in, stated rather than invented. */
+  stageState: "GREY";
+  /** Always "YARN" — the legacy PDF's own Type column, constant on every
+   *  yarn row (Type varies only in the FABRIC ledger, where it distinguishes
+   *  Solid/Melange/Yarn Dyed). */
+  itemType: "YARN";
+  /** `material_mixings.shade` where every mixing row naming this yarn (across
+   *  every fabric on THIS bom) agrees — the same "one distinct answer or
+   *  nothing" abstain rule `resolveGsm` uses above. Most yarn is undyed and
+   *  carries no shade at all, which is the ordinary `null` case, not a gap. */
+  color: string | null;
   purchaseQty: number | null;
   uomCode: string | null;
   refusalReason: string | null;
+  /** Which fabrics fed this total, unmerged — the drill-down drawer's data.
+   *  Empty when nothing could be computed (e.g. a fabric's own share
+   *  refused); never partial silently. */
+  byFabric: YarnFabricContribution[];
 };
 
 /** One FABRIC's own step within one process section — legacy's "Details /
@@ -615,6 +810,16 @@ export type StageBreakdownGroup = {
 export type YarnFabricRequirementReport = {
   header: BomDocHeader;
   yarns: YarnRequirementLine[];
+  /** Sum of `purchaseQty` across every yarn sharing ONE unit — null (never a
+   *  guess) the moment two yarns are stored in different units, the same
+   *  "cannot be added" refusal `yarnPurchase` itself makes one level down. */
+  yarnGrandTotal: { qty: number; uomCode: string | null } | null;
+  /** CHRONOLOGICAL — Knitting first, the last-declared finishing stage last,
+   *  by each process's own lowest `sno` on `order_fabric_bom_processes`
+   *  (the order the Fabric Process tab was typed in, and the legacy PDF's own
+   *  section order: KNITTING, DYEING, BRUSHING, COMPACTING, STENTERING).
+   *  Never alphabetical and never Map insertion order, both of which would
+   *  scatter the sections a mill supervisor reads top-to-bottom. */
   stageBreakdown: StageBreakdownGroup[];
 };
 
@@ -700,15 +905,54 @@ export async function yarnFabricRequirementReport(
   const routeRows = (processesRes.data ?? []) as unknown as {
     item_id: string;
     combo: string | null;
+    sno: number;
     loss_pct: string | number | null;
     process_id: string | null;
   }[];
-  const routeByFabric = new Map<string, { combo: string | null; loss_pct: number | null; process_id: string | null }[]>();
+  /* KEPT IN ASCENDING `sno` (fetch order) — CHRONOLOGICAL, Knitting first.
+     `sno` is also how `minSnoByProcess` (below) orders the display groups. */
+  const routeByFabric = new Map<
+    string,
+    { combo: string | null; loss_pct: number | null; process_id: string | null; sno: number }[]
+  >();
+  const minSnoByProcess = new Map<string, number>();
   for (const p of routeRows) {
     if (!p.process_id) continue;
     const list = routeByFabric.get(p.item_id) ?? [];
-    list.push({ combo: p.combo, loss_pct: p.loss_pct == null ? null : Number(p.loss_pct), process_id: p.process_id });
+    list.push({ combo: p.combo, loss_pct: p.loss_pct == null ? null : Number(p.loss_pct), process_id: p.process_id, sno: p.sno });
     routeByFabric.set(p.item_id, list);
+    minSnoByProcess.set(p.process_id, Math.min(minSnoByProcess.get(p.process_id) ?? Infinity, p.sno));
+  }
+
+  /* THE DRILL-DOWN'S OWN INPUT — `material_mixings`, fetched directly rather
+     than through `getBomYarnComposition` (service.ts) so `shade` can ride
+     along in the same query; that helper's own callers don't need it and
+     widening its shape for one reader risks it drifting for the others. */
+  const mixRes = fabricItemIds.length
+    ? await s.from("material_mixings").select("item_id, component_item_id, blend_pct, shade").in("item_id", fabricItemIds)
+    : { data: [] as unknown[], error: null };
+  const mixRows = (mixRes.data ?? []) as unknown as {
+    item_id: string | null;
+    component_item_id: string | null;
+    blend_pct: number | null;
+    shade: string | null;
+  }[];
+  const compositionByFabric = new Map<string, { fabric_id: string; fabric_name: string; components: { yarn_id: string; blend_pct: number | null }[] }>();
+  const shadesByYarn = new Map<string, Set<string>>();
+  for (const m of mixRows) {
+    if (!m.item_id || !m.component_item_id) continue;
+    const comp = compositionByFabric.get(m.item_id) ?? {
+      fabric_id: m.item_id,
+      fabric_name: "", // filled in below, once `itemNames` exists
+      components: [],
+    };
+    comp.components.push({ yarn_id: m.component_item_id, blend_pct: m.blend_pct });
+    compositionByFabric.set(m.item_id, comp);
+    if (m.shade) {
+      const set = shadesByYarn.get(m.component_item_id) ?? new Set<string>();
+      set.add(m.shade);
+      shadesByYarn.set(m.component_item_id, set);
+    }
   }
 
   const allItemIds = [...new Set([...yarnItemIds, ...fabricItemIds])];
@@ -723,23 +967,31 @@ export async function yarnFabricRequirementReport(
   const processNames = new Map<string, string>(
     ((processRes.data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]),
   );
-
-  const yarns: YarnRequirementLine[] = rows.map((r) => ({
-    itemId: r.item_id,
-    yarnName: itemNames.get(r.item_id) ?? "(yarn not found)",
-    purchaseQty: r.purchase_qty,
-    uomCode: r.uom_id ? (uomCodes.get(r.uom_id) ?? null) : null,
-    refusalReason: r.refusal_reason,
-  }));
+  // Real fabric names into the compositions built above, now that they exist.
+  for (const comp of compositionByFabric.values()) comp.fabric_name = itemNames.get(comp.fabric_id) ?? "(fabric not found)";
 
   /* THE LADDER, PER (FABRIC, COMBO) — `comboUpliftBreakdown` is the SAME
      function `yarnPurchase` calls internally per fabric (see its 2026-09-11
      header), so this walk cannot disagree with the stored `purchase_qty`
-     as long as the order's declared route hasn't changed since Save. */
+     as long as the order's declared route hasn't changed since Save.
+     REVERSED before walking: `order_fabric_bom_processes.sno` is the
+     PHYSICAL/chronological order (Knitting=1, ..., the last finishing stage
+     highest) — the same order the Fabric Process tab was typed in and Report
+     1's ledger displays. The backward-markup walk needs the OPPOSITE
+     direction: `net` (the Manual tab's cutting requirement) is the smallest
+     figure and belongs to the LAST physical stage, growing backward toward
+     Knitting's own gross-yarn-equivalent figure — proven against the legacy
+     PDF's own numbers in `check-fabric-bom-reports.mts` ("Dyeing's own step
+     alone, 1460.029 -> 1536.873" only holds with Dyeing walked before
+     Knitting). Feeding the ascending-`sno` array in unreversed would label
+     KNITTING's row with the tiny cutting-floor figure and STENTERING's with
+     the full yarn weight — exactly backwards from the legacy printout. */
   const byProcess = new Map<string, StageBreakdownGroup>();
+  const byYarnFabricWt = new Map<string, Map<string, YarnFabricContribution[]>>(); // yarnId -> fabricId -> contributions
   for (const [fabricId, byCombo] of netByFabricCombo) {
     const fabricName = itemNames.get(fabricId) ?? "(fabric not found)";
-    const route = routeByFabric.get(fabricId) ?? [];
+    const route = [...(routeByFabric.get(fabricId) ?? [])].reverse();
+    const composition = compositionByFabric.get(fabricId);
     for (const [combo, net] of byCombo) {
       const ladder = comboUpliftBreakdown(route, combo);
       if (isReportRefusal(ladder)) continue; // an out-of-range loss: nothing to ladder, not a report crash
@@ -757,12 +1009,67 @@ export async function yarnFabricRequirementReport(
         group.plannedTotal += plannedWt;
         group.toOrderedTotal += toOrderedWt;
       }
+
+      // THE DRILL-DOWN: the fabric's own GROSS-AT-KNITTING for this combo —
+      // the ladder's final factor, i.e. exactly what `yarnPurchase` grosses
+      // this fabric's net by before splitting it across its yarns — split by
+      // each yarn's declared blend share, same rule (`yarnShareOf`'s own
+      // logic) reused inline so this drawer can never invent a split its own
+      // save path would refuse.
+      if (composition) {
+        const gross = net * ladder.factor;
+        for (const comp of composition.components) {
+          const declared = composition.components.filter((c) => c.yarn_id === comp.yarn_id);
+          if (declared[0] !== comp) continue; // one contribution per yarn per (fabric, combo), not one per mixing row
+          const everyPctKnown = declared.every((c) => c.blend_pct != null);
+          const share = everyPctKnown
+            ? declared.reduce((sum, c) => sum + (c.blend_pct ?? 0), 0) / 100
+            : composition.components.length === declared.length
+              ? 1
+              : null;
+          if (share == null) continue; // an undeclared multi-yarn blend: the drawer omits it rather than guessing
+          const byFabricMap = byYarnFabricWt.get(comp.yarn_id) ?? new Map<string, YarnFabricContribution[]>();
+          const list = byFabricMap.get(fabricId) ?? [];
+          list.push({ fabricName, combo: combo || null, wt: Number((gross * share).toFixed(6)) });
+          byFabricMap.set(fabricId, list);
+          byYarnFabricWt.set(comp.yarn_id, byFabricMap);
+        }
+      }
     }
   }
   for (const group of byProcess.values()) {
     group.plannedTotal = Number(group.plannedTotal.toFixed(6));
     group.toOrderedTotal = Number(group.toOrderedTotal.toFixed(6));
   }
+  // CHRONOLOGICAL — see the type's own doc.
+  const stageBreakdown = [...byProcess.entries()]
+    .sort((a, b) => (minSnoByProcess.get(a[0]) ?? 0) - (minSnoByProcess.get(b[0]) ?? 0))
+    .map(([, g]) => g);
 
-  return { header, yarns, stageBreakdown: [...byProcess.values()] };
+  const yarns: YarnRequirementLine[] = rows.map((r) => {
+    const shades = shadesByYarn.get(r.item_id);
+    const byFabric = [...(byYarnFabricWt.get(r.item_id)?.values() ?? [])].flat();
+    return {
+      itemId: r.item_id,
+      yarnName: itemNames.get(r.item_id) ?? "(yarn not found)",
+      stageState: "GREY",
+      itemType: "YARN",
+      color: shades && shades.size === 1 ? [...shades][0] : null,
+      purchaseQty: r.purchase_qty,
+      uomCode: r.uom_id ? (uomCodes.get(r.uom_id) ?? null) : null,
+      refusalReason: r.refusal_reason,
+      byFabric,
+    };
+  });
+
+  const uomSet = new Set(yarns.map((y) => y.uomCode).filter(Boolean));
+  const yarnGrandTotal =
+    uomSet.size <= 1
+      ? {
+          qty: Number(yarns.reduce((sum, y) => sum + (y.purchaseQty ?? 0), 0).toFixed(6)),
+          uomCode: [...uomSet][0] ?? null,
+        }
+      : null; // mixed units really do exist across yarns — never sum kg onto metres
+
+  return { header, yarns, yarnGrandTotal, stageBreakdown };
 }
