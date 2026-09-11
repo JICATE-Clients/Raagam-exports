@@ -158,7 +158,7 @@ export async function getFabricRequirementSheet(
       .from("order_fabric_bom_manual_entries")
       .select(
         "id, sno, style_ref_no, width_form, structure:categories(name), " +
-          "components:order_fabric_bom_manual_components(component:components(name))",
+          "components:order_fabric_bom_manual_components(component:components(short_name))",
       )
       .eq("bom_id", bom.id),
     s.from("sales_orders").select("order_number").eq("id", salesOrderId).maybeSingle(),
@@ -224,7 +224,7 @@ export async function getFabricRequirementSheet(
     style_ref_no: string | null;
     width_form: string | null;
     structure: { name: string } | null;
-    components: { component: { name: string } | null }[] | null;
+    components: { component: { short_name: string } | null }[] | null;
   }[]) {
     const facts: EntryFacts = {
       sno: e.sno,
@@ -235,7 +235,7 @@ export async function getFabricRequirementSheet(
          could read `NECK · BODY` on one print and `BODY · NECK` on the next, and
          two prints of one document that differ are two documents. */
       components: (e.components ?? [])
-        .map((c) => c.component?.name ?? "")
+        .map((c) => c.component?.short_name ?? "")
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b)),
       widthForm: e.width_form,
