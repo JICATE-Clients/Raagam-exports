@@ -1479,10 +1479,13 @@ export function FabricBomScreen({
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const detailLine = lines.find((l) => l.key === detailKey) ?? null;
   /** The Fabric BOM Entry Register / Yarn & Fabric Requirement reports —
-   *  read-only, so a single flag is enough (no origin rect, no unsaved guard:
-   *  see `FabricBomReportsSheet`'s own header). Reachable only once a BOM is
-   *  saved, since both reports read stored rows keyed on `bom_id`. */
-  const [reportsOpen, setReportsOpen] = useState(false);
+   *  read-only, so the BOM id it is open FOR is the only state needed (no
+   *  origin rect, no unsaved guard: see `FabricBomReportsSheet`'s own
+   *  header). Holds a bom_id rather than a bare flag because it is now
+   *  reachable two ways — the editor's own "Reports" button (`editId`) and
+   *  the queue card's Reports action, straight off the list, with no editor
+   *  open at all. */
+  const [reportsBomId, setReportsBomId] = useState<string | null>(null);
   /** The [Detail] button's own rect, so its sheet grows out of that button —
    *  same mechanism as `componentsOrigin` below (AGENTS.md,
    *  "A sub-detail Sheet's size"). */
@@ -8775,6 +8778,10 @@ export function FabricBomScreen({
           /* `bom_id` is non-null here by `canDeleteRow` — a Pending row has no
              document, and the card hides the ✕ on exactly those. */
           onDelete={(t) => remove(t.bom_id as string)}
+          /* SAME GUARD, ONE LEVEL UP (`BomQueue`'s own `canReportsRow`) — a
+             Pending row has no `bom_id` and the button never renders on one.
+             Opens straight off the queue, no editor round trip. */
+          onReports={(t) => setReportsBomId(t.bom_id as string)}
           isPending={isPending}
         />
       </div>
@@ -8847,7 +8854,7 @@ export function FabricBomScreen({
               type="button"
               variant="outline"
               size="md"
-              onClick={() => setReportsOpen(true)}
+              onClick={() => setReportsBomId(editId)}
             >
               Reports
             </Button>
@@ -8874,9 +8881,9 @@ export function FabricBomScreen({
           a grid cell — moot for a read-only document, but the established
           mounting point for every sub-detail this screen opens. */}
       <FabricBomReportsSheet
-        bomId={editId}
-        open={reportsOpen}
-        onClose={() => setReportsOpen(false)}
+        bomId={reportsBomId}
+        open={!!reportsBomId}
+        onClose={() => setReportsBomId(null)}
       />
 
       {/**

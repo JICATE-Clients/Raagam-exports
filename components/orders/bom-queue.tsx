@@ -162,6 +162,7 @@ export function BomQueue({
   onOpen,
   canDelete = false,
   onDelete,
+  onReports,
   isPending = false,
 }: {
   tasks: BomTaskRow[];
@@ -179,6 +180,11 @@ export function BomQueue({
   onOpen: (t: BomTaskRow) => void;
   canDelete?: boolean;
   onDelete?: (t: BomTaskRow) => void;
+  /** A document report reachable straight off the card, without opening the
+   *  editor — opt-in (Material BOM's caller passes nothing and is unchanged).
+   *  Gated the same way `onDelete` already is: only a row that HAS a document
+   *  gets the button. */
+  onReports?: (t: BomTaskRow) => void;
   isPending?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -406,6 +412,8 @@ export function BomQueue({
            pressed. */
         canDeleteRow={(t) => !!t.bom_id}
         onDelete={onDelete}
+        onReports={onReports}
+        canReportsRow={(t) => !!t.bom_id}
         isPending={isPending}
         empty={`No confirmed garment orders yet. A ${noun} BOM is planned against an order.`}
       />
