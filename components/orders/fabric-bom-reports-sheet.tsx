@@ -6,7 +6,7 @@ import { Download, FileSpreadsheet } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import {
   loadFabricBomEntryRegister,
   loadYarnFabricRequirementReport,
@@ -148,31 +148,35 @@ function Letterhead({ title, docNo }: { title: string; docNo: string | null }) {
   );
 }
 
-function IdentityStrip({ header }: { header: BomDocHeader }) {
+/**
+ * Row 1 of the Yarn & Fabric Requirement Report's header — Customer / SC No /
+ * Order No / Style Ref No / Delivery, ONE LINE (client spec, 2026-09-11).
+ * `EntryRegisterFactsRow` below renders the identical five facts for Report
+ * 1 — kept as two components, one per report, rather than merged into one
+ * shared row: each report's own title sits beside it, and the two are free
+ * to diverge again the moment either report's spec does. `QuantityBand`
+ * right below IS still shared — its five facts
+ * (Order/Excess/Rejection/Approval/SQ Qty) are the client's Row 2 verbatim
+ * for BOTH reports, so there was nothing to fork there.
+ */
+function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
   return (
-    <dl className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] border border-t-0 border-border bg-white">
-      <Fact label="SC No" value={header.scNo} mono />
-      <Fact label="SQ No" value={header.sqNo} mono />
-      <Fact label="SQ Description" value={header.sqDescription} />
-      <Fact label="Order No" value={header.orderNo} mono />
-      <Fact label="Style Ref No" value={header.styleRefNo} mono />
-      <Fact label="Style No" value={header.styleNo} />
-      <Fact label="Customer" value={header.customer} />
-      <Fact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
-      <Fact label="BOM Dt" value={fmtDate(header.bomDate)} mono />
-      <Fact label="Computed" value={header.computedAt ? fmtDateTime(header.computedAt) : "—"} mono />
-    </dl>
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+      <YarnFact label="Customer" value={header.customer} />
+      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="Order No" value={header.orderNo} mono />
+      <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
+      <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
+    </div>
   );
 }
 
-function Fact({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
+function YarnFact({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
   return (
-    <div className="border-b border-r border-border px-3 py-2 last:border-r-0">
-      <dt className="text-[10px] uppercase tracking-wide text-[#8b95a3]">{label}</dt>
-      <dd className={`truncate text-[12.5px] text-[#16181d] ${mono ? "font-mono" : ""}`}>
-        {value || "—"}
-      </dd>
-    </div>
+    <span>
+      <span className="text-[#8b95a3]">{label}: </span>
+      <span className={mono ? "font-mono" : ""}>{value || "—"}</span>
+    </span>
   );
 }
 
@@ -191,7 +195,7 @@ function QuantityBand({ header }: { header: BomDocHeader }) {
         <span className="text-[#8b95a3]">Order Qty</span> {fmtNumber(qty.orderQty)}
       </span>
       <span>
-        <span className="text-[#8b95a3]">Excess{header.excessPct != null ? ` ${header.excessPct}%` : ""}</span>{" "}
+        <span className="text-[#8b95a3]">Excess Qty{header.excessPct != null ? ` ${header.excessPct}%` : ""}</span>{" "}
         {fmtNumber(qty.excessQty)}
       </span>
       <span>
@@ -281,43 +285,82 @@ function ExportBar({ onCsv, onPdf }: { onCsv: () => void; onPdf: () => void }) {
 // Report 1 — Fabric BOM Entry Register
 // ---------------------------------------------------------------------------
 
+/**
+ * Row 1 of the Entry Register's header — Customer / SC No / Order No / Style
+ * Ref No / Delivery, ONE LINE (client spec, 2026-09-11), the same five facts
+ * in the same order the reference PDF `FabricBomEntryRegister_*.pdf` prints
+ * and `YarnReportFactsRow` above already gives Report 2. Style No / BOM Dt /
+ * Computed / SQ No / SQ Description never appear in that printed letterhead
+ * either, so this row doesn't carry them on screen — see the note beside
+ * `YarnReportFactsRow` for why the two reports each get their own copy of
+ * this row rather than a single shared one.
+ */
+function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
+      <YarnFact label="Customer" value={header.customer} />
+      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="Order No" value={header.orderNo} mono />
+      <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
+      <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
+    </div>
+  );
+}
+
+const ENTRY_GRID_DETAILED_COLS = [
+  "Assort Colour",
+  "Component",
+  "Fabric",
+  "Item Form",
+  "GSM",
+  "Size",
+  "Dia/Size",
+  "Width",
+  "SQ Qty",
+  "Piece Wt",
+  "Wastage %",
+  "Net Req Wt",
+  "Loss %",
+  "Total (Gross) Wt",
+  "Unit",
+] as const;
+
+const ENTRY_GRID_SUMMARY_COLS = [
+  "Assort Colour",
+  "Component",
+  "Fabric",
+  "Item Form",
+  "GSM",
+  "SQ Qty",
+  "Avg Piece Wt",
+  "Net Req Wt",
+  "Loss %",
+  "Total (Gross) Wt",
+  "Unit",
+] as const;
+
 function EntryRegisterView({ data }: { data: EntryRegister | { refused: string } | null }) {
-  /* HOOKS ABOVE THE EARLY RETURN BELOW, ALWAYS (AGENTS.md's standing rule) —
-     `data` starts null while the fetch is in flight, so both view-state hooks
-     have to exist before the null/refusal branches below, not after.
-     `collapsedComponentKeys` tracks what is COLLAPSED, not what is open, the
-     same inversion `RequirementReportView`'s `collapsed` state already uses
-     for its stage ledger: a key absent from the set reads as expanded, which
-     is what makes "every component starts expanded" free — nothing has to be
-     seeded from data that has not loaded yet. */
   const [viewMode, setViewMode] = useState<"detailed" | "summary">("detailed");
-  const [collapsedComponentKeys, setCollapsedComponentKeys] = useState<ReadonlySet<string>>(new Set());
 
   if (!data) return null;
   if (isReportRefusal(data)) {
     return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
   }
 
-  const toggleComponent = (key: string) => {
-    const next = new Set(collapsedComponentKeys);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setCollapsedComponentKeys(next);
-  };
-
   return (
     <div>
       <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => exportEntryRegisterPdf(data)} />
 
       <Letterhead title="Fabric BOM Entry Register" docNo={data.header.bomCode} />
-      <IdentityStrip header={data.header} />
+      <EntryRegisterFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
       {/* DETAILED VS SUMMARY — a floor operator wants every size row, a
-          reviewer wants one line per component. Same toggle shape as the
-          Yarn & Fabric Requirement tab's Procurement/Production switch below
-          it in this file; scoped to local state because nothing here needs
-          to persist across a re-open of the Sheet. */}
+          reviewer wants one line per component averaging piece consumption
+          weight (client spec, 2026-09-11). Same toggle shape as the Yarn &
+          Fabric Requirement tab's Procurement/Production switch below it in
+          this file; scoped to local state because nothing here needs to
+          persist across a re-open of the Sheet. */}
       <div className="my-3 flex items-center gap-1 rounded-md border border-border bg-white p-1 text-[12.5px] font-medium">
         {(["detailed", "summary"] as const).map((v) => (
           <button
@@ -331,34 +374,40 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
         ))}
       </div>
 
-      <div className="mb-6">
-        {data.groups.map((group, gi) => (
-          <div key={group.combo ?? `unassigned-${gi}`}>
-            <SectionHeader>Assort Colour: {group.combo || "Unassigned"}</SectionHeader>
-            {group.components.map((comp) => (
-              <ComponentGroupBlock
-                key={comp.key}
-                comp={comp}
-                viewMode={viewMode}
-                collapsed={collapsedComponentKeys.has(comp.key)}
-                onToggle={() => toggleComponent(comp.key)}
-              />
+      {/* A FLAT TABLE, COLUMN-FOR-COLUMN WITH THE REFERENCE PDF — Assort
+          Colour / Component / Fabric repeat on every row rather than reading
+          as section headers, because that is what the legacy printout and
+          this app's own PDF/CSV export already render (see
+          `lib/orders/fabric-bom/reports-export.ts`'s `registerBody`); a
+          nested accordion here would be a second layout for one document. */}
+      <ReportTable>
+        <thead>
+          <tr>
+            {(viewMode === "detailed" ? ENTRY_GRID_DETAILED_COLS : ENTRY_GRID_SUMMARY_COLS).map((c) => (
+              <Th key={c} right={NUMERIC_ENTRY_COLS.has(c)}>
+                {c}
+              </Th>
             ))}
-            <div className="flex justify-end gap-6 border-x border-b border-border bg-[#f1f3f5] px-4 py-2 text-[12px] font-semibold text-[#5b6472]">
-              <span>Colour Subtotal</span>
-              <span className="font-mono">SQ {fmtNumber(group.subtotal.sqQty)}</span>
-              <span className="font-mono">Net {fmtNumber(group.subtotal.netReqWt)}</span>
-              <span className="font-mono">Gross {fmtNumber(group.subtotal.grossWt)}</span>
-            </div>
-          </div>
-        ))}
-        <div className="flex justify-end gap-6 border-x border-b border-border bg-[#eaf7fd] px-4 py-2 text-[12.5px] font-semibold text-[#037bb8]">
-          <span>Grand Total</span>
-          <span className="font-mono">SQ {fmtNumber(data.grandTotal.sqQty)}</span>
-          <span className="font-mono">Net {fmtNumber(data.grandTotal.netReqWt)}</span>
-          <span className="font-mono">Gross {fmtNumber(data.grandTotal.grossWt)}</span>
-        </div>
-      </div>
+          </tr>
+        </thead>
+        <tbody>
+          {data.groups.map((group) => (
+            <EntryColourRows key={group.combo ?? "unassigned"} group={group} viewMode={viewMode} />
+          ))}
+          <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+            <Td className="font-semibold">GRAND TOTAL</Td>
+            <Td colSpan={viewMode === "detailed" ? 7 : 4}>{""}</Td>
+            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.sqQty)}</Td>
+            <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
+            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.netReqWt)}</Td>
+            <Td>{""}</Td>
+            <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.grossWt)}</Td>
+            <Td>{""}</Td>
+          </tr>
+        </tbody>
+      </ReportTable>
+
+      <div className="mb-6" />
 
       <SectionHeader>Process Sequence &amp; Stage Loss Ledger</SectionHeader>
       <ReportTable>
@@ -387,128 +436,127 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
   );
 }
 
-/** One ASSORT COLOUR ▸ COMPONENT block. Detailed mode renders the collapsible
- *  sub-header plus its size rows; Summary mode has no size rows to collapse,
- *  so it renders the component as a single table row instead — the chevron
- *  only appears where there is something under it to hide. */
-function ComponentGroupBlock({
-  comp,
+const NUMERIC_ENTRY_COLS = new Set([
+  "GSM",
+  "Dia/Size",
+  "Width",
+  "SQ Qty",
+  "Piece Wt",
+  "Avg Piece Wt",
+  "Wastage %",
+  "Net Req Wt",
+  "Loss %",
+  "Total (Gross) Wt",
+]);
+
+/** One ASSORT COLOUR's rows — every (component, size) row in Detailed mode
+ *  or one row per component in Summary mode, a `— subtotal` row per
+ *  component (Detailed only — a Summary row already IS the component's
+ *  total, so a second row under it would double it up), and a colour-level
+ *  `— subtotal` row, matching the reference PDF's own hierarchy verbatim. */
+function EntryColourRows({
+  group,
   viewMode,
-  collapsed,
-  onToggle,
 }: {
-  comp: EntryRegisterComponentGroup;
+  group: EntryRegister["groups"][number];
   viewMode: "detailed" | "summary";
-  collapsed: boolean;
-  onToggle: () => void;
 }) {
-  const identity = (
-    <span className="inline-flex flex-wrap items-center gap-1">
-      <span>{comp.componentNames.join(", ")}</span>
-      <span className="font-normal normal-case text-[#5b6472]">
-        ({comp.fabricName}
-        {comp.gsm != null ? ` — ${fmtNumber(comp.gsm)} GSM` : ""})
-      </span>
-      <ItemFormBadge form={comp.itemForm} />
-    </span>
-  );
-
-  if (viewMode === "summary") {
-    const pieceWts = comp.sizes.map((s) => s.pieceWt).filter((w): w is number => w != null);
-    const avgPieceWt = pieceWts.length > 0 ? pieceWts.reduce((a, b) => a + b, 0) / pieceWts.length : null;
-    return (
-      <ReportTable>
-        <thead>
-          <tr>
-            <Th>Component</Th>
-            <Th right>Avg Piece Wt</Th>
-            <Th right>Net Req Wt</Th>
-            <Th right>Gross Wt</Th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr className="odd:bg-white even:bg-[#fafbfc]">
-            <Td>{identity}</Td>
-            <Td right mono>{avgPieceWt != null ? fmtNumber(avgPieceWt) : "—"}</Td>
-            <Td right mono>{fmtNumber(comp.subtotal.netReqWt)}</Td>
-            <Td right mono>{fmtNumber(comp.subtotal.grossWt)}</Td>
-          </tr>
-        </tbody>
-      </ReportTable>
-    );
-  }
-
+  const label = group.combo || "Unassigned";
   return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between border-x border-t border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11.5px] font-semibold text-[#37414f] hover:bg-[#eef0f2]"
-      >
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 text-[10px] text-[#8b95a3]">{collapsed ? "▸" : "▾"}</span>
-          {identity}
-        </span>
-      </button>
-      {!collapsed && (
-        <ReportTable>
-          <thead>
-            <tr>
-              <Th>Size</Th>
-              <Th>Style Ref</Th>
-              <Th right>Dia</Th>
-              <Th right>Width</Th>
-              <Th right>Piece Wt</Th>
-              <Th right>SQ Qty</Th>
-              <Th right>Wastage %</Th>
-              <Th right>Net Req Wt</Th>
-              <Th right>Loss %</Th>
-              <Th right>Gross Wt</Th>
-              <Th>Unit</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {comp.sizes.map((s, i) => (
-              <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-                <Td>{s.sizeLabel}</Td>
-                <Td mono>{s.styleRefNo ?? "—"}</Td>
-                <Td right mono>{s.dia != null ? fmtNumber(s.dia) : "—"}</Td>
-                <Td right mono>{s.purchaseWidth != null ? fmtNumber(s.purchaseWidth) : "—"}</Td>
-                <Td right mono>{s.pieceWt != null ? fmtNumber(s.pieceWt) : "—"}</Td>
-                <Td right mono>{fmtNumber(s.sqQty)}</Td>
-                <Td right mono>{s.wastagePct != null ? `${s.wastagePct}%` : "—"}</Td>
-                <Td right mono>{fmtNumber(s.netReqWt)}</Td>
-                <Td right mono>
-                  <span className="inline-flex items-center">
-                    {s.lossPct != null ? `${s.lossPct.toFixed(2)}%` : "—"}
-                    {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
-                  </span>
-                </Td>
-                <Td right mono>{fmtNumber(s.grossWt)}</Td>
-                <Td>{s.uomCode ?? "—"}</Td>
-              </tr>
-            ))}
-            <tr className="bg-[#f1f3f5] font-semibold">
-              <Td className="font-semibold" colSpan={5}>
-                Subtotal
-              </Td>
-              <Td right mono className="font-semibold">
-                {fmtNumber(comp.subtotal.sqQty)}
-              </Td>
-              <Td>{""}</Td>
-              <Td right mono className="font-semibold">
-                {fmtNumber(comp.subtotal.netReqWt)}
-              </Td>
-              <Td>{""}</Td>
-              <Td right mono className="font-semibold">
-                {fmtNumber(comp.subtotal.grossWt)}
-              </Td>
-              <Td>{""}</Td>
-            </tr>
-          </tbody>
-        </ReportTable>
+    <>
+      {group.components.map((comp) =>
+        viewMode === "detailed" ? (
+          <EntryComponentDetailedRows key={comp.key} colour={label} comp={comp} />
+        ) : (
+          <EntryComponentSummaryRow key={comp.key} colour={label} comp={comp} />
+        ),
       )}
-    </div>
+      <tr className="bg-[#f1f3f5] font-semibold">
+        <Td className="font-semibold">{label} — subtotal</Td>
+        <Td colSpan={viewMode === "detailed" ? 7 : 4}>{""}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.sqQty)}</Td>
+        <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.netReqWt)}</Td>
+        <Td>{""}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.grossWt)}</Td>
+        <Td>{""}</Td>
+      </tr>
+    </>
+  );
+}
+
+function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: EntryRegisterComponentGroup }) {
+  const componentLabel = comp.componentNames.join(", ") || "—";
+  return (
+    <>
+      {comp.sizes.map((s, i) => (
+        <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
+          <Td>{colour}</Td>
+          <Td>{componentLabel}</Td>
+          <Td>{comp.fabricName}</Td>
+          <Td><ItemFormBadge form={comp.itemForm} /></Td>
+          <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
+          <Td>{s.sizeLabel}</Td>
+          <Td right mono>{s.dia != null ? fmtNumber(s.dia) : "—"}</Td>
+          <Td right mono>{s.purchaseWidth != null ? fmtNumber(s.purchaseWidth) : "—"}</Td>
+          <Td right mono>{fmtNumber(s.sqQty)}</Td>
+          <Td right mono>{s.pieceWt != null ? fmtNumber(s.pieceWt) : "—"}</Td>
+          <Td right mono>{s.wastagePct != null ? `${s.wastagePct}%` : "—"}</Td>
+          <Td right mono>{fmtNumber(s.netReqWt)}</Td>
+          <Td right mono>
+            <span className="inline-flex items-center">
+              {s.lossPct != null ? `${s.lossPct.toFixed(2)}%` : "—"}
+              {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
+            </span>
+          </Td>
+          <Td right mono>{fmtNumber(s.grossWt)}</Td>
+          <Td>{s.uomCode ?? "—"}</Td>
+        </tr>
+      ))}
+      <tr className="bg-[#f1f3f5] font-semibold">
+        <Td className="font-semibold">{""}</Td>
+        <Td className="font-semibold">{componentLabel} — subtotal</Td>
+        <Td colSpan={6}>{""}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(comp.subtotal.sqQty)}</Td>
+        <Td colSpan={2}>{""}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(comp.subtotal.netReqWt)}</Td>
+        <Td>{""}</Td>
+        <Td right mono className="font-semibold">{fmtNumber(comp.subtotal.grossWt)}</Td>
+        <Td>{""}</Td>
+      </tr>
+    </>
+  );
+}
+
+/** One component, collapsed to a single row — "component summary rows
+ *  showing average piece consumption weight" (client spec, 2026-09-11). Loss
+ *  % is not a second stored figure: every size within one component shares
+ *  the same backward-markup ladder, so `comp.subtotal`'s own ratio already
+ *  IS the component's compounded loss — never re-derived from one size row. */
+function EntryComponentSummaryRow({ colour, comp }: { colour: string; comp: EntryRegisterComponentGroup }) {
+  const pieceWts = comp.sizes.map((s) => s.pieceWt).filter((w): w is number => w != null);
+  const avgPieceWt = pieceWts.length > 0 ? pieceWts.reduce((a, b) => a + b, 0) / pieceWts.length : null;
+  const lossPct = comp.subtotal.netReqWt !== 0 ? (comp.subtotal.grossWt / comp.subtotal.netReqWt - 1) * 100 : null;
+  const uomCode = comp.sizes.find((s) => s.uomCode)?.uomCode ?? null;
+  return (
+    <tr className="odd:bg-white even:bg-[#fafbfc]">
+      <Td>{colour}</Td>
+      <Td>{comp.componentNames.join(", ") || "—"}</Td>
+      <Td>{comp.fabricName}</Td>
+      <Td><ItemFormBadge form={comp.itemForm} /></Td>
+      <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
+      <Td right mono>{fmtNumber(comp.subtotal.sqQty)}</Td>
+      <Td right mono>{avgPieceWt != null ? fmtNumber(avgPieceWt) : "—"}</Td>
+      <Td right mono>{fmtNumber(comp.subtotal.netReqWt)}</Td>
+      <Td right mono>
+        <span className="inline-flex items-center">
+          {lossPct != null ? `${lossPct.toFixed(2)}%` : "—"}
+          {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
+        </span>
+      </Td>
+      <Td right mono>{fmtNumber(comp.subtotal.grossWt)}</Td>
+      <Td>{uomCode ?? "—"}</Td>
+    </tr>
   );
 }
 
@@ -659,7 +707,7 @@ function RequirementReportView({
       />
 
       <Letterhead title="Yarn &amp; Fabric Requirement" docNo={data.header.bomCode} />
-      <IdentityStrip header={data.header} />
+      <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
       {/* PROCUREMENT VS PRODUCTION — sourcing wants a purchase list, a mill

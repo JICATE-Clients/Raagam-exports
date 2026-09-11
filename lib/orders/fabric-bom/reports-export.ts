@@ -54,9 +54,47 @@ function download(filename: string, text: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** The default facts line — every report except the Yarn & Fabric
+ *  Requirement (which has its own exact five-field spec, see `YARN_FACTS`
+ *  below). Widened for Report 1's SQ No; kept here rather than duplicated so
+ *  that report's own header can still grow without a second copy to update. */
+function defaultFacts(header: BomDocHeader): string[] {
+  return [
+    header.customer ? `Customer: ${header.customer}` : null,
+    header.scNo ? `SC No: ${header.scNo}` : null,
+    header.sqNo ? `SQ No: ${header.sqNo}` : null,
+    header.orderNo ? `Order No: ${header.orderNo}` : null,
+    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
+    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
+  ].filter(Boolean) as string[];
+}
+
+/** The Yarn & Fabric Requirement Report's OWN header line (client spec,
+ *  2026-09-11): Customer / SC No / Order No / Style Ref No / Delivery, in
+ *  this order, and NOTHING ELSE — never `defaultFacts`, which now also
+ *  carries Report 1's SQ No. Widening one shared facts line for one report's
+ *  spec is exactly how the two came to need separating in the first place;
+ *  see `YarnReportFactsRow`'s identical note on the on-screen Sheet. */
+function yarnReportFacts(header: BomDocHeader): string[] {
+  return [
+    header.customer ? `Customer: ${header.customer}` : null,
+    header.scNo ? `SC No: ${header.scNo}` : null,
+    header.orderNo ? `Order No: ${header.orderNo}` : null,
+    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
+    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
+  ].filter(Boolean) as string[];
+}
+
 /** The letterhead + facts strip, drawn once per document and returned as the
- *  Y position the first table should start below. */
-function drawLetterhead(doc: jsPDF, header: BomDocHeader, title: string): number {
+ *  Y position the first table should start below. `facts` defaults to
+ *  `defaultFacts`; pass `yarnReportFacts(header)` for the one report with its
+ *  own exact spec. */
+function drawLetterhead(
+  doc: jsPDF,
+  header: BomDocHeader,
+  title: string,
+  facts: string[] = defaultFacts(header),
+): number {
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   let y = 46;
@@ -80,14 +118,6 @@ function drawLetterhead(doc: jsPDF, header: BomDocHeader, title: string): number
 
   y += 18;
   doc.setFontSize(9);
-  const facts = [
-    header.customer ? `Customer: ${header.customer}` : null,
-    header.scNo ? `SC No: ${header.scNo}` : null,
-    header.sqNo ? `SQ No: ${header.sqNo}` : null,
-    header.orderNo ? `Order No: ${header.orderNo}` : null,
-    header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
-    header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
-  ].filter(Boolean) as string[];
   if (facts.length) doc.text(facts.join("    "), M, y);
 
   if (!isReportRefusal(header.qty)) {
@@ -95,7 +125,7 @@ function drawLetterhead(doc: jsPDF, header: BomDocHeader, title: string): number
     doc.setFontSize(8);
     doc.setTextColor(70);
     doc.text(
-      `Order Qty ${fmtNumber(header.qty.orderQty)}    Excess ${fmtNumber(header.qty.excessQty)}` +
+      `Order Qty ${fmtNumber(header.qty.orderQty)}    Excess Qty ${fmtNumber(header.qty.excessQty)}` +
         `    Rejection Allowance ${fmtNumber(header.qty.rejectionQty)}    Approval Allowance ${fmtNumber(header.qty.approvalQty)}` +
         `    SQ Qty ${fmtNumber(header.qty.sqQty)}`,
       M,
@@ -339,7 +369,7 @@ export function exportEntryRegisterCsv(data: EntryRegister): void {
 export function exportYarnRequirementPdf(data: YarnFabricRequirementReport): void {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const y = drawLetterhead(doc, data.header, "Yarn & Fabric Requirement Report");
+  const y = drawLetterhead(doc, data.header, "Yarn & Fabric Requirement Report", yarnReportFacts(data.header));
 
   // COLUMN-FOR-COLUMN WITH THE LEGACY PRINTOUT — Stage | Type | Yarn | Color |
   // Plan Wt | Loss % | To Ordered Wt, ending in a Total row. Loss % is always
