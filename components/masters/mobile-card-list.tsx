@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Eye } from "lucide-react";
+import { Eye, FileText } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -96,6 +96,8 @@ export function MobileCardList<Row>({
   canDelete = false,
   canDeleteRow,
   onDelete,
+  onReports,
+  canReportsRow,
   isPending = false,
   empty = "No records yet.",
   stats,
@@ -136,6 +138,14 @@ export function MobileCardList<Row>({
    */
   canDeleteRow?: (r: Row) => boolean;
   onDelete?: (r: Row) => void;
+  /**
+   * A document action reachable WITHOUT opening the row for edit — a printed
+   * report, an export — beside View and Delete in the footer. Same shape as
+   * `canDeleteRow`: only a row that already HAS the document behind it gets
+   * the button, same guard, so nothing renders that opens on nothing.
+   */
+  onReports?: (r: Row) => void;
+  canReportsRow?: (r: Row) => boolean;
   isPending?: boolean;
   empty?: ReactNode;
   /**
@@ -253,7 +263,7 @@ export function MobileCardList<Row>({
   }
 
   const showDelete = canDelete && !!onDelete;
-  const showFooter = showDelete || !!onView || !!footerNote || !!hint;
+  const showFooter = showDelete || !!onView || !!onReports || !!footerNote || !!hint;
   const grid = columns > 1;
 
   return (
@@ -490,6 +500,17 @@ export function MobileCardList<Row>({
               {onView && (
                 <Button variant="ghost" size="sm" aria-label="View" title="View" onClick={() => onView(r)}>
                   <Eye className="h-4 w-4" />
+                </Button>
+              )}
+              {onReports && (canReportsRow?.(r) ?? true) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Reports"
+                  title="Reports"
+                  onClick={() => onReports(r)}
+                >
+                  <FileText className="h-4 w-4" />
                 </Button>
               )}
               {showDelete && (canDeleteRow?.(r) ?? true) && (
