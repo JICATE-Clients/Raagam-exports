@@ -44,19 +44,64 @@
  * arithmetic reads `combo` alone, exactly as before 0520, so a lookup renamed on
  * the master degrades the FIELD's visibility and never the purchase figure.
  *
- * ## TWO ARITHMETIC DECISIONS, BOTH THE CLIENT'S, BOTH DELIBERATELY UNUSUAL
+ * ## THE FORMULA REVERSED, 2026-09-11 — THIS IS THE SECOND TIME, AND THIS TIME
+ *   IT IS SETTLED BY THE LEGACY SYSTEM'S OWN OUTPUT, NOT A SPEC DOCUMENT
  *
- * **The per-stage form is `x (1 + loss/100)`**, not `order_fabric_plan_stages`'
- * backward solve `/ (1 - loss/100)`. 0427's header argues at length that the
- * uplift under-buys; the client was shown both figures against their own example
- * and chose this one (2026-09-01).
+ * **The per-stage form is now `/ (1 - loss/100)`** — `order_fabric_plan_stages`'
+ * (0427) backward solve, the SAME formula this file spent from 2026-09-01 to
+ * 2026-09-11 explicitly refusing. Two prior attempts to make this exact change
+ * were declined (2026-09-01's own client choice, then a 2026-09-04 business
+ * requirements document re-raised it and was told "needs a fresh client call
+ * naming THIS function, not an inference from a document written without it in
+ * view" — see git history on this file for that reasoning in full).
  *
- * **Stages compound sequentially**: 3% then 2% is `x 1.03 x 1.02` = 5.06%, not
- * 5.00%. Confirmed against that exact pair.
+ * What changed: the client supplied the LEGACY RP-SOFTWARE SYSTEM'S OWN PDF
+ * EXPORT ("Yarn & fabric requirement.pdf") rather than a redrafted spec, and its
+ * numbers were checked arithmetically, not read as an assertion — Knitting's
+ * `1536.873 -> 1552.397` at 1% loss is exactly `1536.873 / (1 - 0.01)`,
+ * Dyeing's `1460.029 -> 1536.873` at 5% is exactly `1460.029 / (1 - 0.05)`. That
+ * is a fresh client call naming this function, over real production numbers,
+ * and it is what this reversal rests on — never re-derive the OLD uplift
+ * formula from this file's earlier comments without checking whether a newer
+ * decision has already overtaken them, which is exactly the mistake this
+ * paragraph exists to prevent one direction further on.
  *
- * Both are decisions to re-open with the client, never bugs to quietly correct.
- * `scripts/check-yarn-process.mts` REFUTES the alternative answer for each —
- * 111.12 for the first, 1050.00 for the second — so a "tidy-up" fails loudly.
+ * **Stages still compound sequentially**: 3% then 2% is `/ 0.97 / 0.98`, not a
+ * single 5% divisor. Order does not change the product (division composes the
+ * same way multiplication did) — unchanged from the uplift form.
+ *
+ * `scripts/check-yarn-process.mts` now REFUTES the uplift answers it used to
+ * pin (1050.00 for two compounding stages, 918/927 for the colourway-split
+ * examples) and pins the backward-markup figures instead, several of them
+ * taken directly from the legacy PDF's own worked numbers rather than
+ * hand-computed — so a "tidy-up" back to `x(1+L)` fails loudly, the same
+ * protection the old formula had, now guarding the new one.
+ *
+ * ## THE STAGE SOURCE MOVED WITH IT: PER-FABRIC ROUTE, NOT PER-YARN TYPING
+ *
+ * `order_fabric_bom_yarn_stages` (the per-YARN stage grid this tab used to
+ * read exclusively) held ZERO rows across the entire live database when this
+ * was checked (2026-09-11) — no BOM, ever, had a stage typed on it. Meanwhile
+ * `order_fabric_bom_processes` (the Fabric Process tab's per-FABRIC declared
+ * route) held 19 real rows, and the legacy PDF's own KNITTING/DYEING/BRUSHING/
+ * COMPACTING/STENTERING sections are keyed to the FABRIC ("SOLID 3T FLEECE
+ * BRUSHED... / Open Width"), not to a yarn — different fabrics on one BOM
+ * plainly run different stage sequences with different losses (fleece alone
+ * goes through Brushing).
+ *
+ * So `yarnPurchase` now applies EACH FABRIC's OWN route BEFORE merging its
+ * share into a yarn's combo total, not one flat stage list applied AFTER
+ * merging — a yarn shared by two fabrics (32'S BCI COTTON, both a fleece and a
+ * single jersey in the legacy example) now correctly grosses up each fabric's
+ * contribution by that fabric's own losses before summing. `yarnNetByCombo`
+ * (below) is UNCHANGED and still answers a different, still-valid question —
+ * the yarn's pure net, no markup — it is simply no longer what `yarnPurchase`
+ * builds its total from. The per-yarn stage grid on the Yarn Process screen is
+ * UNTOUCHED and still typeable; a stage entered there now COMPOUNDS onto
+ * whatever the yarn's fabrics' own routes already contribute (concatenated
+ * into one stage list per fabric before the single `comboUplift` call), rather
+ * than replacing them — forward-compatible with a real per-yarn treatment
+ * (e.g. a yarn dip) that happens in addition to what its cloth goes through.
  *
  * ## IT COMPUTES ONCE AND IS READ TWICE
  *
@@ -395,34 +440,21 @@ export const stageCoversCombo = (stageCombo: string | null, combo: string): bool
   comboKey(stageCombo) === "" || comboKey(stageCombo) === combo;
 
 /**
- * One colourway's gross-up factor: the SEQUENTIAL product of the stages
- * treating it.
+ * One colourway's gross-up factor: the SEQUENTIAL backward-markup product of
+ * the stages treating it.
  *
- * `x 1.03 x 1.02`, NOT `x 1.05`. Each stage's loss applies to what came out of
- * the one before it, which is the client's confirmed reading (2026-09-01) and
- * what "compounding" means physically. The additive alternative under-buys by a
- * little on every yarn, always in the same direction, and each line still looks
- * right — the shape 0427's header describes for its own formula.
+ * `/ 0.97 / 0.98`, NOT `/ 0.95`. Each stage's loss is a fraction of that
+ * stage's OWN OUTPUT (the physical reading — a knitting machine that loses 1%
+ * loses 1% of what it produces, not 1% of the yarn fed in), so solving for the
+ * required INPUT divides by `(1 - loss/100)` rather than multiplying by
+ * `(1 + loss/100)`. This is `order_fabric_plan_stages`' (0427) formula,
+ * reversed onto this file 2026-09-11 after two declined attempts — see the
+ * file header for the full history and why THIS attempt is the one that
+ * stuck (the legacy system's own PDF export, checked arithmetically).
  *
- * ORDER DOES NOT CHANGE THE PRODUCT, and that is worth stating rather than
- * relying on: multiplication commutes, so re-ordering the stages moves nothing.
- * `sno` orders what the planner READS, not what the arithmetic does.
- *
- * RE-RAISED AND REAFFIRMED, NOT RECONCILED (2026-09-04). A backend
- * calculation spec sent this same day independently re-derives the
- * backward-solve side of this exact tension — its own worked example is
- * 0427's `100 / (1 - 0.05) = 105.26`, not this file's `100 x 1.05 = 105`.
- * It was reviewed against the 2026-09-01 client decision recorded above
- * rather than applied here: the two computations are not actually the same
- * question (this is a per-stage yarn uplift inside ONE fabric BOM document;
- * `lib/orders/fabric-plan/route.ts`'s `routeQuantities()` solves a whole
- * process ROUTE's input from its output on a separate document, and IS the
- * backward form — see that file), and reversing an explicit, tested,
- * client-approved formula on the strength of a spec document that was not
- * shown the 2026-09-01 decision is not a fix, it is a second, unreviewed
- * decision wearing the first one's clothes. If this is genuinely meant to
- * change, it needs a fresh client call naming THIS function, not an
- * inference from a document written without it in view.
+ * ORDER DOES NOT CHANGE THE PRODUCT: division by a sequence of factors
+ * commutes the same way multiplication did. `sno` orders what the planner
+ * READS, not what the arithmetic does.
  */
 export function comboUplift(
   stages: readonly { combo: string | null; loss_pct: number | null }[],
@@ -435,13 +467,92 @@ export function comboUplift(
     if (loss < 0 || loss >= 100) {
       return { refused: "Process loss must be 0 or more and below 100" };
     }
-    factor *= 1 + loss / 100;
+    factor *= 1 / (1 - loss / 100);
   }
   return factor;
 }
 
-/** One colourway's line of the answer. */
+/**
+ * `comboUplift`'s own ladder, ADDITIVE and read-only — for the Yarn &
+ * Fabric Requirement Report's stage-by-stage breakdown (Planned Wt entering a
+ * stage, To Ordered Wt leaving it, e.g. KNITTING then DYEING then COMPACTING).
+ *
+ * `comboUplift` only ever returns the FINAL product, by design — the file
+ * header's "IT COMPUTES ONCE AND IS READ TWICE" is about the preview and the
+ * stored `purchase_qty` staying one computation, and a caller that wants the
+ * ladder underneath that number has had nowhere to read it. This walks the
+ * IDENTICAL loop, in the IDENTICAL order, over the IDENTICAL inputs, and
+ * records each stage's factor before and after instead of discarding it. It
+ * changes NOTHING about what `comboUplift`/`yarnPurchase` compute, store, or
+ * refuse on — same filter (`stageCoversCombo`), same loss validation, same
+ * refusal message, same arithmetic.
+ *
+ * `check-fabric-bom-reports.mts` proves the two can never disagree: for every
+ * input, this function's final `factor` equals `comboUplift`'s return
+ * (success mirrors success, refusal mirrors refusal with the same message),
+ * and the ladder chains — `steps[i].factorAfter === steps[i+1].factorBefore`
+ * for every adjacent pair, `steps[0].factorBefore === 1`, and the last step's
+ * `factorAfter === factor`. Demonstrated failing first against a mutation
+ * that drops a stage from the ladder while leaving `factor` alone.
+ */
+export type StageUpliftStep = {
+  stage_id: string | null;
+  process_id: string | null;
+  loss_pct: number;
+  /** The running factor BEFORE this stage is applied (1 for the first stage
+   *  that treats this colourway). */
+  factorBefore: number;
+  /** The running factor AFTER — `factorBefore / (1 - loss_pct/100)`. */
+  factorAfter: number;
+};
+
+export function comboUpliftBreakdown(
+  stages: readonly {
+    combo: string | null;
+    loss_pct: number | null;
+    stage_id?: string | null;
+    process_id?: string | null;
+  }[],
+  combo: string,
+): { factor: number; steps: StageUpliftStep[] } | Refusal {
+  let factor = 1;
+  const steps: StageUpliftStep[] = [];
+  for (const s of stages) {
+    if (!stageCoversCombo(s.combo, combo)) continue;
+    const loss = s.loss_pct ?? 0;
+    if (loss < 0 || loss >= 100) {
+      return { refused: "Process loss must be 0 or more and below 100" };
+    }
+    const factorBefore = factor;
+    factor *= 1 / (1 - loss / 100);
+    steps.push({
+      stage_id: s.stage_id ?? null,
+      process_id: s.process_id ?? null,
+      loss_pct: loss,
+      factorBefore,
+      factorAfter: factor,
+    });
+  }
+  return { factor, steps };
+}
+
+/** One colourway's line of the answer. `net` is the SUM of pre-markup net
+ *  across every fabric feeding this combo — informational (Report 1's "Net
+ *  Req Wt" column), never itself grossed, since each fabric that fed it may
+ *  have been marked up by a different factor before this sum was taken. */
 export type YarnComboWeight = { combo: string; net: number; gross: number };
+
+/** One fabric's own contribution to a yarn — the row `byFabric` carries so a
+ *  report can show WHICH cloth's route produced which share, and so the
+ *  per-fabric markup (route can differ per fabric) is never lost by summing
+ *  too early. */
+export type YarnFabricWeight = {
+  fabric_id: string;
+  combo: string;
+  net: number;
+  gross: number;
+  factor: number;
+};
 
 /**
  * The yarn to buy, and the breakdown that produced it.
@@ -454,33 +565,99 @@ export type YarnComboWeight = { combo: string; net: number; gross: number };
  * REFUSALS PROPAGATE AND ARE NOT SWALLOWED. A yarn whose share cannot be worked
  * out for one of its fabrics has no total worth printing: two thirds of an answer
  * that looks like a whole one is exactly the shape a buyer would act on.
+ *
+ * EACH FABRIC APPLIES ITS OWN ROUTE BEFORE THE MERGE (2026-09-11). A yarn
+ * shared by two fabrics with different process sequences and losses — the
+ * legacy example's 32'S BCI COTTON, used in both a fleece (through Brushing)
+ * and a plain single jersey (skipping it) — cannot be correct if the two
+ * fabrics' nets are summed FIRST and one stage list applied to the total: that
+ * would charge one fabric's losses onto the other's cloth. So the loop below
+ * grosses each (fabric, combo) contribution with THAT FABRIC's OWN declared
+ * route (`routesByFabric.get(f.fabric_id)`) — from `order_fabric_bom_processes`,
+ * the Fabric Process tab, the only place this data is actually declared today
+ * (see the file header) — CONCATENATED with `yarnOwnStages` (whatever is still
+ * typed on this yarn's OWN Yarn Process row, forward-compatible with a real
+ * per-yarn treatment on top of what its cloth already goes through), and only
+ * THEN merges into the yarn's per-combo total. `yarnNetByCombo` above answers
+ * a genuinely different, still-valid question — the yarn's pure net, no
+ * markup at all — and is kept for whatever wants that; this function no
+ * longer builds its own total from it.
  */
 export function yarnPurchase(
   yarnId: string,
   fabrics: readonly FabricGross[],
   compositions: ReadonlyMap<string, FabricComposition>,
-  stages: readonly { combo: string | null; loss_pct: number | null }[],
+  routesByFabric: ReadonlyMap<
+    string,
+    readonly { combo: string | null; loss_pct: number | null; stage_id?: string | null; process_id?: string | null }[]
+  >,
+  yarnOwnStages: readonly { combo: string | null; loss_pct: number | null }[],
   decimals: number | null,
-): { qty: number; uom_id: string | null; byCombo: YarnComboWeight[] } | Refusal {
-  const base = yarnNetByCombo(yarnId, fabrics, compositions);
-  if (isRefusal(base)) return base;
-
+): { qty: number; uom_id: string | null; byCombo: YarnComboWeight[]; byFabric: YarnFabricWeight[] } | Refusal {
   const dp = uomPrecision(decimals);
+  let uomId: string | null = null;
+  let used = 0;
+  const byFabric: YarnFabricWeight[] = [];
+  const comboNet = new Map<string, number>();
+  const comboGross = new Map<string, number>();
+
+  for (const f of fabrics) {
+    const comp = compositions.get(f.fabric_id);
+    if (!comp) continue;
+
+    const share = yarnShareOf(comp, yarnId);
+    if (isRefusal(share)) return share;
+    if (share === 0) continue;
+
+    if (f.gross == null) {
+      const fabric = comp.fabric_name || "One fabric";
+      /* THE ENGINE'S OWN SENTENCE WINS — see `yarnNetByCombo`'s identical
+         guard, which this loop otherwise mirrors exactly. */
+      return {
+        refused: f.refusal
+          ? `${fabric}: ${f.refusal}`
+          : `${fabric} has no calculated requirement yet, so its yarn cannot be ` +
+            "worked out — answer its weight on Manual",
+      };
+    }
+
+    if (f.uom_id && uomId && f.uom_id !== uomId) {
+      return {
+        refused:
+          "The fabrics using this yarn are measured in different units, so their " +
+          "requirements cannot be added — give them one unit on Fabric Lines",
+      };
+    }
+    if (f.uom_id) uomId = f.uom_id;
+
+    const combo = comboKey(f.combo);
+    const net = f.gross * share;
+    const route = routesByFabric.get(f.fabric_id) ?? [];
+    const factor = comboUplift([...route, ...yarnOwnStages], combo);
+    if (isRefusal(factor)) return factor;
+
+    const gross = net * factor;
+    byFabric.push({ fabric_id: f.fabric_id, combo, net, gross, factor });
+    comboNet.set(combo, (comboNet.get(combo) ?? 0) + net);
+    comboGross.set(combo, (comboGross.get(combo) ?? 0) + gross);
+    used++;
+  }
+
+  if (used === 0) return { refused: "No fabric on this BOM uses this yarn" };
+
   const byCombo: YarnComboWeight[] = [];
   let qty = 0;
 
-  /* THE UPLIFT IS PER COLOURWAY AGAIN (0529) — a stage naming one combo grosses
-     up that lot alone, so the factor cannot be hoisted out of the loop the way
-     0520 hoisted it. */
-  for (const [combo, net] of [...base.net].sort((a, b) => a[0].localeCompare(b[0]))) {
-    const uplift = comboUplift(stages, combo);
-    if (isRefusal(uplift)) return uplift;
-    const gross = ceilToPrecision(net * uplift, dp);
-    byCombo.push({ combo, net, gross });
-    qty += gross;
+  /* ROUNDED PER COLOURWAY, still — a purchase per colour is a real lot, and
+     rounding a total DOWN buys less yarn than the order needs. Unchanged from
+     before the restructure. */
+  for (const [combo, gross] of [...comboGross].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const rounded = ceilToPrecision(gross, dp);
+    byCombo.push({ combo, net: comboNet.get(combo) ?? 0, gross: rounded });
+    qty += rounded;
   }
 
-  return { qty: ceilToPrecision(qty, dp), uom_id: base.uom_id, byCombo };
+  return { qty: ceilToPrecision(qty, dp), uom_id: uomId, byCombo, byFabric };
 }
 
 /**
@@ -498,14 +675,22 @@ export function yarnPurchase(
  * purchase weight are summed from the same rounded-up lots. Reading `qty` back
  * off `yarnPurchase` would be a second route to one figure, and the two would
  * part company in the last decimal the moment a colourway's lot rounded up.
+ *
+ * `toFixed(6)` BEFORE RETURNING, same reason `ceilToPrecision` already carries
+ * it: summing two already-rounded decimals in IEEE754 can print `927.84` as
+ * `927.8399999999999` (found 2026-09-11, once the backward-markup reversal
+ * gave this a real two-fabric example to sum). This value is stored straight
+ * to a Budget column — nothing downstream re-ceils it — so the noise has to
+ * be cleaned HERE, not wherever it is next read.
  */
 export function stageProcessQty(
   stageCombo: string | null,
   byCombo: readonly YarnComboWeight[],
 ): number {
-  return byCombo
+  const sum = byCombo
     .filter((c) => stageCoversCombo(stageCombo, c.combo))
     .reduce((sum, c) => sum + c.gross, 0);
+  return Number(sum.toFixed(6));
 }
 
 /**

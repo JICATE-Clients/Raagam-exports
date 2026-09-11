@@ -60,6 +60,7 @@
     "scripts/check-search-match.mts",
     "scripts/check-fabric-plan.mts",
     "scripts/check-yarn-process.mts",
+    "scripts/check-fabric-bom-reports.mts",
     "scripts/check-fabric-components.mts",
     "scripts/check-budget-totals.mts",
     "scripts/check-gstin.mts",

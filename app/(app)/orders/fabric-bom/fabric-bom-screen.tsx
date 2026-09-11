@@ -191,6 +191,7 @@ import {
    for the Fabric Process row rather than redefined (2026-09-03). */
 import { ClothText, ComponentMapBody } from "@/components/orders/component-map-sheet";
 import { YarnDyedSheet, type YdCombinationRow } from "@/components/orders/yarn-dyed-panels";
+import { FabricBomReportsSheet } from "@/components/orders/fabric-bom-reports-sheet";
 import type { YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
   isYarnDyed,
@@ -1477,6 +1478,11 @@ export function FabricBomScreen({
    *  Components rail section now, and this popup is legacy's own [Detail]. */
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const detailLine = lines.find((l) => l.key === detailKey) ?? null;
+  /** The Fabric BOM Entry Register / Yarn & Fabric Requirement reports —
+   *  read-only, so a single flag is enough (no origin rect, no unsaved guard:
+   *  see `FabricBomReportsSheet`'s own header). Reachable only once a BOM is
+   *  saved, since both reports read stored rows keyed on `bom_id`. */
+  const [reportsOpen, setReportsOpen] = useState(false);
   /** The [Detail] button's own rect, so its sheet grows out of that button —
    *  same mechanism as `componentsOrigin` below (AGENTS.md,
    *  "A sub-detail Sheet's size"). */
@@ -6124,6 +6130,30 @@ export function FabricBomScreen({
   );
 
   /**
+   * Each declared fabric's OWN process route, straight off the SCREEN's own
+   * `procs` state — the same rows `weightFor` (below) needs and the same rows
+   * `normalizeProcesses`/`routesByFabricOf` (actions.ts) group on Save, so the
+   * preview an operator sees while typing a Fabric Process loss % and the
+   * figure the yarn purchase is stored against read the identical stage list
+   * (2026-09-11 — see `yarnPurchase`'s own header on why this replaced the
+   * per-yarn stage grid as the primary source).
+   */
+  const routesByFabric = useMemo(() => {
+    const out = new Map<
+      string,
+      { combo: string | null; loss_pct: number | null; stage_id: string | null; process_id: string | null }[]
+    >();
+    for (const p of procs) {
+      if (!p.process_id) continue;
+      const loss = numOrNull(p.loss_pct);
+      const list = out.get(p.item_id) ?? [];
+      list.push({ combo: p.combo ?? null, loss_pct: loss, stage_id: p.stage_id, process_id: p.process_id });
+      out.set(p.item_id, list);
+    }
+    return out;
+  }, [procs]);
+
+  /**
    * EVERYTHING ONE FABRIC GROUP'S YARN DYED TABS NEED (0512), from an ANCHOR
    * LINE — the rows, the option lists, the composition and the handlers.
    *
@@ -6250,9 +6280,11 @@ export function FabricBomScreen({
       r.item_id,
       fabricGross,
       compositionById,
+      routesByFabric,
       /* `combo` SCOPES THE LOSS AGAIN (0504, restored 0529) — the same call the
          action's `normalizeYarns` makes, so the preview and the stored figure
-         stay one computation. */
+         stay one computation. This is now the YARN'S OWN stages on top of
+         whatever its fabric(s) already contribute via `routesByFabric`. */
       r.stages.map((st) => ({ combo: st.combo || null, loss_pct: numOrNull(st.loss_pct) })),
       uom?.decimal_places_allowed ?? null,
     );
@@ -8805,6 +8837,21 @@ export function FabricBomScreen({
               </span>
             </>
           ),
+          /* THE TWO PER-BOM REPORTS (Entry Register / Yarn & Fabric
+             Requirement) — reachable once the document is saved, since both
+             read stored rows keyed on `bom_id`. `editId` rather than `dirty`:
+             a SAVED BOM being re-opened with unrelated edits pending still has
+             a real, printable requirement on file. */
+          right: editId ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              onClick={() => setReportsOpen(true)}
+            >
+              Reports
+            </Button>
+          ) : null,
         }}
         sections={sections}
         footer={{
@@ -8819,6 +8866,18 @@ export function FabricBomScreen({
         }}
       />
 
+      {/* THE TWO PER-BOM REPORTS — read-only, no fields, no Save; see
+          `FabricBomReportsSheet`'s own header for why it needs no unsaved
+          guard. Mounted at the editor root for the same reason the Components
+          [Detail] sheet below is: a portal boundary resets `RequiredScope`,
+          which only helps a Sheet rendered from here rather than from inside
+          a grid cell — moot for a read-only document, but the established
+          mounting point for every sub-detail this screen opens. */}
+      <FabricBomReportsSheet
+        bomId={editId}
+        open={reportsOpen}
+        onClose={() => setReportsOpen(false)}
+      />
 
       {/**
        * THE COMPONENTS [Detail] SHEET (0495) — legacy's third tab, minus the two
