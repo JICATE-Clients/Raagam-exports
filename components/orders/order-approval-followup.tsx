@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { acquireBusy } from "@/lib/reload-guard";
 import { fmtDate } from "@/lib/format";
+import { today } from "@/lib/calendar";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -66,8 +67,10 @@ export interface OrderApprovalRow {
    *  write, so it is never actually read back as a resting status. */
   status: string;
   actualSentDate: string | null;
+  actualSentTime: string | null;
   actualReceivedDate: string | null;
   proofPath: string | null;
+  proofReference: string | null;
   activeVersion: number;
 }
 
@@ -90,6 +93,7 @@ export function OrderApprovalFollowup({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reworkId, setReworkId] = useState<string | null>(null);
   const [historyRow, setHistoryRow] = useState<OrderApprovalRow | null>(null);
+  const [dispatchRow, setDispatchRow] = useState<OrderApprovalRow | null>(null);
   const { success, error } = useToast();
 
   useEffect(() => {
@@ -111,34 +115,36 @@ export function OrderApprovalFollowup({
     });
   };
 
-  async function sendWithOptionalProof(row: OrderApprovalRow, file: File | null) {
+  /** The Dispatch modal's confirm handler — same shape as the standalone
+   *  board's own `dispatch` (approvals-worklist-board.tsx), which this
+   *  component's own header commits to mirroring. */
+  async function dispatch(
+    row: OrderApprovalRow,
+    opts: { sentDate: string; sentTime: string; proofReference: string; file: File | null },
+  ) {
     if (!row.id) return;
     const id = row.id;
-    if (!file) {
-      run(id, () => markApprovalSent(id), "Marked sent");
-      return;
-    }
     setBusyId(id);
     startTransition(async () => {
-      const supabase = createClient();
-      const ext = file.name.split(".").pop() ?? "bin";
-      const path = `${amendmentId ?? "unknown"}/${row.approvalId ?? "unknown"}/${crypto.randomUUID()}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, file, { upsert: false, contentType: file.type });
-      if (upErr) {
-        setBusyId(null);
-        error(`Upload failed: ${upErr.message}`);
-        return;
+      let proof: { path: string; mimeType: string | null; sizeBytes: number | null } | undefined;
+      if (opts.file) {
+        const supabase = createClient();
+        const ext = opts.file.name.split(".").pop() ?? "bin";
+        const path = `${amendmentId ?? "unknown"}/${row.approvalId ?? "unknown"}/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET)
+          .upload(path, opts.file, { upsert: false, contentType: opts.file.type });
+        if (upErr) {
+          setBusyId(null);
+          error(`Upload failed: ${upErr.message}`);
+          return;
+        }
+        proof = { path, mimeType: opts.file.type || null, sizeBytes: opts.file.size };
       }
-      const res = await markApprovalSent(id, undefined, {
-        path,
-        mimeType: file.type || null,
-        sizeBytes: file.size,
-      });
+      const res = await markApprovalSent(id, opts.sentDate, opts.sentTime, opts.proofReference, proof);
       setBusyId(null);
       if (res.ok) {
-        success("Marked sent, proof attached");
+        success(proof ? "Marked sent, proof attached" : "Marked sent");
         router.refresh();
       } else {
         error(res.error ?? "Could not save");
@@ -248,6 +254,16 @@ export function OrderApprovalFollowup({
                     )}
                     {row.requiresProof && <span> · Proof required</span>}
                     {row.proofPath && <span className="text-foreground"> · Proof attached</span>}
+                    {row.proofReference && (
+                      <span className="text-foreground"> · Ref: {row.proofReference}</span>
+                    )}
+                    {row.actualSentDate && (
+                      <span>
+                        {" "}
+                        · Sent {fmtDate(row.actualSentDate)}
+                        {row.actualSentTime && ` ${row.actualSentTime.slice(0, 5)}`}
+                      </span>
+                    )}
                   </p>
 
                   {row.activeVersion > 1 && (
@@ -262,7 +278,14 @@ export function OrderApprovalFollowup({
 
                   {canAct && row.id && row.status === "pending" && (
                     <div className="mt-2">
-                      <SendControl row={row} disabled={busyId === row.id} onSend={sendWithOptionalProof} />
+                      <Button
+                        variant={row.requiresProof ? "primary" : "outline"}
+                        size="sm"
+                        disabled={busyId === row.id}
+                        onClick={() => setDispatchRow(row)}
+                      >
+                        <Send aria-hidden /> Mark Sent
+                      </Button>
                     </div>
                   )}
 
@@ -310,51 +333,118 @@ export function OrderApprovalFollowup({
       {historyRow && (
         <HistorySheet row={historyRow} onClose={() => setHistoryRow(null)} />
       )}
+
+      {dispatchRow && (
+        <DispatchModal
+          row={dispatchRow}
+          disabled={busyId === dispatchRow.id}
+          onClose={() => setDispatchRow(null)}
+          onConfirm={(opts) => {
+            setDispatchRow(null);
+            void dispatch(dispatchRow, opts);
+          }}
+        />
+      )}
     </>
   );
 }
 
-/** "Mark Sent", with an optional file attached in the same click — same
- *  Dispatch Proof enforcement as the standalone board's own `SendControl`:
- *  a `requiresProof` approval drops the no-file button entirely, and
- *  `markApprovalSent` re-checks this server-side regardless. */
-function SendControl({
+/**
+ * The dispatch modal — Send Date (defaults to today, editable), Send Time
+ * (optional), and a Courier Proof/Reference that is EITHER a typed tracking
+ * number OR an uploaded file. Kept identical to the standalone board's own
+ * `DispatchModal` (`app/(app)/orders/ta-followup/approvals-worklist-board.tsx`)
+ * per this file's own header commitment to matching interaction shapes —
+ * two copies rather than a shared import because `ApprovalWorklistRow` and
+ * `OrderApprovalRow` are deliberately different row shapes (see that file's
+ * own note on why this component isn't shared).
+ */
+function DispatchModal({
   row,
   disabled,
-  onSend,
+  onClose,
+  onConfirm,
 }: {
   row: OrderApprovalRow;
   disabled: boolean;
-  onSend: (row: OrderApprovalRow, file: File | null) => void;
+  onClose: () => void;
+  onConfirm: (opts: { sentDate: string; sentTime: string; proofReference: string; file: File | null }) => void;
 }) {
+  const [sentDate, setSentDate] = useState(today());
+  const [sentTime, setSentTime] = useState("");
+  const [proofReference, setProofReference] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const proofSatisfied = !row.requiresProof || !!file || !!proofReference.trim();
+
   return (
-    <div className="flex items-center gap-1.5">
-      <input
-        ref={fileRef}
-        type="file"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0] ?? null;
-          e.target.value = "";
-          onSend(row, file);
-        }}
-      />
-      <Button
-        variant={row.requiresProof ? "primary" : "outline"}
-        size="sm"
-        disabled={disabled}
-        onClick={() => fileRef.current?.click()}
-        title="Attach a proof file and mark sent"
-      >
-        <Upload aria-hidden /> Attach &amp; Send
-      </Button>
-      {!row.requiresProof && (
-        <Button size="sm" disabled={disabled} onClick={() => onSend(row, null)}>
-          <Send aria-hidden /> Mark Sent
-        </Button>
-      )}
-    </div>
+    <Sheet open onClose={onClose} title={`Mark Sent — ${row.approvalName}`} size="sm">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block space-y-1 text-xs font-medium text-foreground" htmlFor="oaf-dispatch-date">
+            Send Date
+            <Input
+              id="oaf-dispatch-date"
+              type="date"
+              value={sentDate}
+              onChange={(e) => setSentDate(e.target.value)}
+            />
+          </label>
+          <label className="block space-y-1 text-xs font-medium text-foreground" htmlFor="oaf-dispatch-time">
+            Send Time (optional)
+            <Input
+              id="oaf-dispatch-time"
+              type="time"
+              value={sentTime}
+              onChange={(e) => setSentTime(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <label className="block space-y-1 text-xs font-medium text-foreground" htmlFor="oaf-dispatch-ref">
+          Courier Reference / Tracking No. {!row.requiresProof && "(optional)"}
+          <Input
+            id="oaf-dispatch-ref"
+            value={proofReference}
+            onChange={(e) => setProofReference(e.target.value)}
+            placeholder="e.g. waybill or tracking number"
+          />
+        </label>
+
+        <div className="space-y-1">
+          <input
+            ref={fileRef}
+            type="file"
+            hidden
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+            <Upload aria-hidden /> {file ? file.name : "Attach a proof file"}
+          </Button>
+          {row.requiresProof && (
+            <p className="text-xs text-muted-foreground">
+              A proof file or a typed reference is required before this approval can be marked sent.
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-1.5 pt-1">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={disabled || !sentDate || !proofSatisfied}
+            onClick={() =>
+              onConfirm({ sentDate, sentTime, proofReference: proofReference.trim(), file })
+            }
+          >
+            <Send aria-hidden /> Mark Sent
+          </Button>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -424,9 +514,13 @@ function HistorySheet({ row, onClose }: { row: OrderApprovalRow; onClose: () => 
             <li key={e.version} className={cn("rounded-md border border-border p-2.5 text-sm")}>
               <p className="font-medium">Version {e.version} — rejected</p>
               <p className="text-xs text-muted-foreground">
-                Sent {e.actualSentDate ? fmtDate(e.actualSentDate) : "—"} · Rejected{" "}
+                Sent {e.actualSentDate ? fmtDate(e.actualSentDate) : "—"}
+                {e.actualSentTime && ` ${e.actualSentTime.slice(0, 5)}`} · Rejected{" "}
                 {e.actualReceivedDate ? fmtDate(e.actualReceivedDate) : "—"}
               </p>
+              {e.proofReference && (
+                <p className="text-xs text-muted-foreground">Ref: {e.proofReference}</p>
+              )}
               {e.remarks && <p className="mt-1 text-xs text-foreground">{e.remarks}</p>}
             </li>
           ))}

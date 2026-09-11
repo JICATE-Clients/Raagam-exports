@@ -9359,8 +9359,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       targetDate: d?.target_date ?? null,
       status: saved?.status ?? "pending",
       actualSentDate: saved?.actual_sent_date ?? null,
+      actualSentTime: saved?.actual_sent_time ?? null,
       actualReceivedDate: saved?.actual_received_date ?? null,
       proofPath: saved?.proof_path ?? null,
+      proofReference: saved?.proof_reference ?? null,
       activeVersion: saved?.active_version ?? 1,
     };
   });

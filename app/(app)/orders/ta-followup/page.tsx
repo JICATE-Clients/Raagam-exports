@@ -37,19 +37,81 @@ export const metadata = { title: "Approvals Worklist" };
 const BUCKETS = ["backlog", "today", "upcoming"] as const;
 type Bucket = (typeof BUCKETS)[number];
 
+const STATUSES = ["all", "pending", "sent", "approved", "rework"] as const;
+type StatusFilter = (typeof STATUSES)[number];
+const STATUS_LABEL: Record<StatusFilter, string> = {
+  all: "All",
+  pending: "Pending",
+  sent: "Sent",
+  approved: "Approved",
+  rework: "Rework",
+};
+
+/**
+ * Filters (doc/ui/order/tafollowup.md §1). `rework` is not a status the live
+ * row ever actually rests at — `markApprovalRework` archives the rejected
+ * attempt and resets the live row straight to `pending` for the next try
+ * (see approvals-worklist-actions.ts) — so "Rework" here means a `pending`
+ * row that has been through at least one rejection (`activeVersion > 1`),
+ * and "Pending" means the FIRST attempt. Together the two partition today's
+ * `pending` rows with nothing double-counted against Sent/Approved, matching
+ * the spec's single ALL/PENDING/SENT/APPROVED/REWORK toggle.
+ */
+function matchesStatus(row: ApprovalWorklistRow, status: StatusFilter): boolean {
+  if (status === "all") return true;
+  if (status === "rework") return row.status === "pending" && row.activeVersion > 1;
+  if (status === "pending") return row.status === "pending" && row.activeVersion === 1;
+  return row.status === status;
+}
+
+type Filters = { buyer: string; owner: string; ref: string; status: StatusFilter };
+
+function matchesFilters(row: ApprovalWorklistRow, f: Filters): boolean {
+  if (f.buyer && row.buyer !== f.buyer) return false;
+  if (f.owner && row.merchandiserId !== f.owner) return false;
+  if (f.ref) {
+    const needle = f.ref.trim().toLowerCase();
+    const hit =
+      (row.orderRef?.toLowerCase().includes(needle) ?? false) ||
+      (row.amendmentCode?.toLowerCase().includes(needle) ?? false);
+    if (!hit) return false;
+  }
+  if (!matchesStatus(row, f.status)) return false;
+  return true;
+}
+
 export default async function ApprovalsWorklistPage({
   searchParams,
 }: {
-  searchParams: Promise<{ bucket?: string }>;
+  searchParams: Promise<{ bucket?: string; buyer?: string; owner?: string; ref?: string; status?: string }>;
 }) {
   await requirePermission("orders", "view");
-  const { bucket } = await searchParams;
+  const sp = await searchParams;
+  const bucket = sp.bucket;
+  const filters: Filters = {
+    buyer: sp.buyer ?? "",
+    owner: sp.owner ?? "",
+    ref: sp.ref ?? "",
+    status: (STATUSES as readonly string[]).includes(sp.status ?? "") ? (sp.status as StatusFilter) : "all",
+  };
   const wl = await getApprovalsWorklist();
 
-  const backlog = wl.rows.filter((r) => r.bucket === "backlog");
-  const dueToday = wl.rows.filter((r) => r.bucket === "today");
-  const upcoming = wl.rows.filter((r) => r.bucket === "upcoming");
-  const resolved = wl.rows.filter((r) => r.bucket === "resolved");
+  // Option lists come off the FULL unfiltered set — narrowing them to the
+  // current filter would make a buyer disappear from its own dropdown the
+  // moment it was selected.
+  const buyerOptions = [...new Set(wl.rows.map((r) => r.buyer).filter((v): v is string => !!v))].sort();
+  const ownerMap = new Map<string, string>();
+  for (const r of wl.rows) if (r.merchandiserId && r.merchandiserName) ownerMap.set(r.merchandiserId, r.merchandiserName);
+  const ownerOptions = [...ownerMap.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+
+  const filteredRows = wl.rows.filter((r) => matchesFilters(r, filters));
+  const filtering = !!(filters.buyer || filters.owner || filters.ref || filters.status !== "all");
+
+  const backlog = filteredRows.filter((r) => r.bucket === "backlog");
+  const dueToday = filteredRows.filter((r) => r.bucket === "today");
+  const upcoming = filteredRows.filter((r) => r.bucket === "upcoming");
+  const resolved = filteredRows.filter((r) => r.bucket === "resolved");
+  const escalatedCount = filteredRows.filter((r) => r.escalated).length;
 
   // TABS, same reasoning and shape as `ta-worklist/page.tsx` — one bucket
   // renders at a time, defaulting to the most urgent non-empty one, reached
@@ -85,8 +147,15 @@ export default async function ApprovalsWorklistPage({
       ? (bucket as Bucket)
       : (BUCKETS.find((b) => sections[b].rows.length > 0) ?? "backlog");
 
+  // Carries the active filters along with a bucket switch — losing them on
+  // every tab click would make "filter, then look at Today" a one-shot deal.
   function tabHref(b: Bucket) {
-    return `/orders/ta-followup?bucket=${b}`;
+    const params = new URLSearchParams({ bucket: b });
+    if (filters.buyer) params.set("buyer", filters.buyer);
+    if (filters.owner) params.set("owner", filters.owner);
+    if (filters.ref) params.set("ref", filters.ref);
+    if (filters.status !== "all") params.set("status", filters.status);
+    return `/orders/ta-followup?${params.toString()}`;
   }
 
   return (
@@ -97,21 +166,25 @@ export default async function ApprovalsWorklistPage({
       />
 
       <div className="space-y-3">
+        {/* Every tile but "Scanned" reflects the ACTIVE filters — "Scanned"
+            stays the total, unfiltered count on purpose (its own hint has
+            said "Before any filtering" since before this filter bar existed:
+            it is a data-health figure, not a view of the current filter). */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <Stat label="Due today" value={wl.counts.today} tone={wl.counts.today > 0 ? "info" : "neutral"} />
+          <Stat label="Due today" value={dueToday.length} tone={dueToday.length > 0 ? "info" : "neutral"} />
           <Stat
             label="Backlog"
-            value={wl.counts.backlog}
+            value={backlog.length}
             hint="Past target, not resolved"
-            tone={wl.counts.backlog > 0 ? "warning" : "neutral"}
+            tone={backlog.length > 0 ? "warning" : "neutral"}
           />
           <Stat
             label="Escalate"
-            value={wl.counts.escalated}
+            value={escalatedCount}
             hint="3+ days late"
-            tone={wl.counts.escalated > 0 ? "danger" : "neutral"}
+            tone={escalatedCount > 0 ? "danger" : "neutral"}
           />
-          <Stat label="Next 7 days" value={wl.counts.upcoming} tone="neutral" />
+          <Stat label="Next 7 days" value={upcoming.length} tone="neutral" />
           <Stat label="Scanned" value={wl.counts.scanned} hint="Before any filtering" tone="neutral" />
         </div>
 
@@ -123,6 +196,14 @@ export default async function ApprovalsWorklistPage({
           </div>
         )}
       </div>
+
+      <FilterBar buyers={buyerOptions} owners={ownerOptions} filters={filters} bucket={activeBucket} />
+
+      {filtering && filteredRows.length === 0 && wl.rows.length > 0 && (
+        <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+          No approvals match this filter. {wl.rows.length} total, before filtering.
+        </p>
+      )}
 
       <nav aria-label="Bucket" className="flex items-center gap-1 border-b border-border">
         {BUCKETS.map((b) => {
@@ -198,6 +279,143 @@ function Section({
         <ApprovalsWorklistBoard rows={rows} canComplete={canComplete} />
       )}
     </section>
+  );
+}
+
+/**
+ * Filters (doc/ui/order/tafollowup.md §1) — Buyer, Order/ARI Ref, Merchandiser,
+ * Status. A plain `<form method="get">`, no client JS: this page is a server
+ * component by design (see `tabHref`'s own note above), and a GET form to its
+ * own URL is the native-HTML way to keep that true while still taking
+ * multiple filter inputs at once. Date range is deliberately NOT a fifth
+ * control here — the bucket tabs below already ARE "Due Today / Due This
+ * Week (Next 7 days) / Overdue (Backlog)".
+ */
+function FilterBar({
+  buyers,
+  owners,
+  filters,
+  bucket,
+}: {
+  buyers: string[];
+  owners: [string, string][];
+  filters: Filters;
+  bucket: Bucket;
+}) {
+  const active = filters.buyer || filters.owner || filters.ref || filters.status !== "all";
+  return (
+    <form
+      method="get"
+      action="/orders/ta-followup"
+      className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-surface p-2.5"
+    >
+      <input type="hidden" name="bucket" value={bucket} />
+      {/* Raw <select>s, deliberately — components/ui/select.tsx is a client
+          component built for controlled value/onChange, and this bar is a
+          plain GET <form> so the page stays server-only (see tabHref's own
+          note). AGENTS.md's autofill rule covers exactly this case: hand-
+          rolled is fine as long as it sets the opt-out attributes itself, so
+          both get autoComplete="off" + the password-manager trio by hand —
+          a Buyer/Merchandiser list is master data, not something Chrome
+          should ever be re-offering from a saved profile. */}
+      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-buyer">
+        Buyer
+        <select
+          id="wl-buyer"
+          name="buyer"
+          defaultValue={filters.buyer}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-form-type="other"
+          className="block h-8 w-40 rounded-md border border-border bg-surface px-2 text-sm"
+        >
+          <option value="">All buyers</option>
+          {buyers.map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-owner">
+        Merchandiser
+        <select
+          id="wl-owner"
+          name="owner"
+          defaultValue={filters.owner}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-form-type="other"
+          className="block h-8 w-40 rounded-md border border-border bg-surface px-2 text-sm"
+        >
+          <option value="">All merchandisers</option>
+          {owners.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-ref">
+        Order / ARI Ref No.
+        {/* Raw <input>, not the shared `Input` primitive — `Input` pulls in
+            `field.tsx`'s `useRequiredHold`, which uses React context and
+            forces a client boundary; importing it here broke this page's
+            server-only build (`createContext` in a Server Component module).
+            caps-input: exempt -- a search box, not a stored value (AGENTS.md,
+            CAPS §"Exempt": "a search box ... including the one in
+            data-picker.tsx"), so no uppercase transform is needed by hand
+            either. */}
+        <input
+          id="wl-ref"
+          name="ref"
+          defaultValue={filters.ref}
+          placeholder="Search…"
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-form-type="other"
+          className="block h-8 w-36 rounded-md border border-border bg-surface px-2 text-sm"
+        />
+      </label>
+      <label className="space-y-1 text-xs font-medium text-muted-foreground" htmlFor="wl-status">
+        Status
+        <select
+          id="wl-status"
+          name="status"
+          defaultValue={filters.status}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-form-type="other"
+          className="block h-8 w-32 rounded-md border border-border bg-surface px-2 text-sm"
+        >
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="submit"
+          className="h-8 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground"
+        >
+          Apply
+        </button>
+        {active && (
+          <Link
+            href={`/orders/ta-followup?bucket=${bucket}`}
+            className="h-8 rounded-md border border-border px-3 text-sm leading-8 text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </Link>
+        )}
+      </div>
+    </form>
   );
 }
 

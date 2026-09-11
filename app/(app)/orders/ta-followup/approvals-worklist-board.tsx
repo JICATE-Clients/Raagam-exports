@@ -19,6 +19,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { acquireBusy } from "@/lib/reload-guard";
 import { fmtDate } from "@/lib/format";
+import { today } from "@/lib/calendar";
 import { cn } from "@/lib/utils";
 import type { StatusTone } from "@/lib/ui/tone";
 import { createClient } from "@/lib/supabase/client";
@@ -108,6 +109,7 @@ export function ApprovalsWorklistBoard({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reworkId, setReworkId] = useState<string | null>(null);
   const [historyRow, setHistoryRow] = useState<ApprovalWorklistRow | null>(null);
+  const [dispatchRow, setDispatchRow] = useState<ApprovalWorklistRow | null>(null);
   const { success, error } = useToast();
 
   useEffect(() => {
@@ -125,31 +127,36 @@ export function ApprovalsWorklistBoard({
     });
   };
 
-  async function sendWithOptionalProof(row: ApprovalWorklistRow, file: File | null) {
-    if (!file) {
-      run(row.id, () => markApprovalSent(row.id), "Marked sent");
-      return;
-    }
+  /**
+   * The Dispatch modal's confirm handler (doc/ui/order/tafollowup.md §2).
+   * The file upload happens first, same as before this modal existed —
+   * `markApprovalSent` only ever needs the storage PATH, never the file
+   * itself, and a failed upload must not still flip the row to `sent`.
+   */
+  async function dispatch(
+    row: ApprovalWorklistRow,
+    opts: { sentDate: string; sentTime: string; proofReference: string; file: File | null },
+  ) {
     setBusyId(row.id);
     startTransition(async () => {
-      const supabase = createClient();
-      const ext = file.name.split(".").pop() ?? "bin";
-      const path = `${row.amendmentId}/${row.approvalId ?? "unknown"}/${crypto.randomUUID()}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, file, { upsert: false, contentType: file.type });
-      if (upErr) {
-        setBusyId(null);
-        error(`Upload failed: ${upErr.message}`);
-        return;
+      let proof: { path: string; mimeType: string | null; sizeBytes: number | null } | undefined;
+      if (opts.file) {
+        const supabase = createClient();
+        const ext = opts.file.name.split(".").pop() ?? "bin";
+        const path = `${row.amendmentId}/${row.approvalId ?? "unknown"}/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET)
+          .upload(path, opts.file, { upsert: false, contentType: opts.file.type });
+        if (upErr) {
+          setBusyId(null);
+          error(`Upload failed: ${upErr.message}`);
+          return;
+        }
+        proof = { path, mimeType: opts.file.type || null, sizeBytes: opts.file.size };
       }
-      const res = await markApprovalSent(row.id, undefined, {
-        path,
-        mimeType: file.type || null,
-        sizeBytes: file.size,
-      });
+      const res = await markApprovalSent(row.id, opts.sentDate, opts.sentTime, opts.proofReference, proof);
       setBusyId(null);
-      if (res.ok) success("Marked sent, proof attached");
+      if (res.ok) success(proof ? "Marked sent, proof attached" : "Marked sent");
       else error(res.error ?? "Could not save");
     });
   }
@@ -199,7 +206,7 @@ export function ApprovalsWorklistBoard({
                 </p>
                 {/* Chips, not a "·"-joined sentence — same reasoning as the
                     qty/style/department chips on `ta-worklist`. */}
-                {(row.department || row.requiresProof || row.proofPath) && (
+                {(row.department || row.requiresProof || row.proofPath || row.proofReference || row.actualSentDate) && (
                   <div className="flex flex-wrap items-center gap-1">
                     {row.department && (
                       <StatusPill tone="neutral" className="border border-border/60 px-1.5 py-0.5">
@@ -215,6 +222,20 @@ export function ApprovalsWorklistBoard({
                       <StatusPill tone="success" className="border border-success/30 px-1.5 py-0.5">
                         Proof attached
                       </StatusPill>
+                    )}
+                    {/* File and reference are independent (either satisfies
+                        Dispatch Proof Enforcement) — both chips can show
+                        together, one, or neither. */}
+                    {row.proofReference && (
+                      <StatusPill tone="success" className="border border-success/30 px-1.5 py-0.5">
+                        Ref: {row.proofReference}
+                      </StatusPill>
+                    )}
+                    {row.actualSentDate && (
+                      <span className="text-xs text-muted-foreground">
+                        Sent {fmtDate(row.actualSentDate)}
+                        {row.actualSentTime && ` · ${row.actualSentTime.slice(0, 5)}`}
+                      </span>
                     )}
                   </div>
                 )}
@@ -256,7 +277,14 @@ export function ApprovalsWorklistBoard({
                 </div>
 
                 {canComplete && row.status === "pending" && (
-                  <SendControl row={row} disabled={busyId === row.id} onSend={sendWithOptionalProof} />
+                  <Button
+                    variant={row.requiresProof ? "primary" : "outline"}
+                    size="sm"
+                    disabled={busyId === row.id}
+                    onClick={() => setDispatchRow(row)}
+                  >
+                    <Send aria-hidden /> Mark Sent
+                  </Button>
                 )}
 
                 {canComplete && row.status === "sent" && (
@@ -300,55 +328,124 @@ export function ApprovalsWorklistBoard({
       {historyRow && (
         <HistorySheet row={historyRow} onClose={() => setHistoryRow(null)} />
       )}
+
+      {dispatchRow && (
+        <DispatchModal
+          row={dispatchRow}
+          disabled={busyId === dispatchRow.id}
+          onClose={() => setDispatchRow(null)}
+          onConfirm={(opts) => {
+            setDispatchRow(null);
+            void dispatch(dispatchRow, opts);
+          }}
+        />
+      )}
     </>
   );
 }
 
-/** "Mark Sent", with an optional file attached in the same click. */
 /**
- * Dispatch Proof Enforcement (spec §4.1). `requiresProof` approvals drop the
- * no-file "Mark Sent" button entirely — the file input opens on the SAME
- * click as "Attach & Send", so there is no keystroke that reaches SENT
- * without a file chosen. `markApprovalSent` re-checks this server-side (see
- * its own header); this is the courtesy half, not the guard.
+ * The dispatch modal (doc/ui/order/tafollowup.md §2) — Send Date (defaults to
+ * today, editable), Send Time (optional — courier dispatch is often only
+ * known to the day), and a Courier Proof/Reference that is EITHER a typed
+ * tracking number OR an uploaded file, never both required.
+ *
+ * Dispatch Proof Enforcement (spec §4.1) still stands: when the approval
+ * `requiresProof`, Confirm stays disabled until a file OR a reference is
+ * given. `markApprovalSent` re-checks this server-side (see its own header);
+ * this is the courtesy half, not the guard.
+ *
+ * `Sheet size="sm"`, matching this same file's `HistorySheet` — a small
+ * action popup on a top-level worklist screen, not a master-detail editor,
+ * so it skips `Field`/`DetailSection` for the same plain `<label>` + `<Input>`
+ * shape `ReworkForm` already uses a few lines up.
  */
-function SendControl({
+function DispatchModal({
   row,
   disabled,
-  onSend,
+  onClose,
+  onConfirm,
 }: {
   row: ApprovalWorklistRow;
   disabled: boolean;
-  onSend: (row: ApprovalWorklistRow, file: File | null) => void;
+  onClose: () => void;
+  onConfirm: (opts: { sentDate: string; sentTime: string; proofReference: string; file: File | null }) => void;
 }) {
+  const [sentDate, setSentDate] = useState(today());
+  const [sentTime, setSentTime] = useState("");
+  const [proofReference, setProofReference] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const proofSatisfied = !row.requiresProof || !!file || !!proofReference.trim();
+
   return (
-    <div className="flex items-center gap-1.5">
-      <input
-        ref={fileRef}
-        type="file"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0] ?? null;
-          e.target.value = "";
-          onSend(row, file);
-        }}
-      />
-      <Button
-        variant={row.requiresProof ? "primary" : "outline"}
-        size="sm"
-        disabled={disabled}
-        onClick={() => fileRef.current?.click()}
-        title="Attach a proof file and mark sent"
-      >
-        <Upload aria-hidden /> Attach & Send
-      </Button>
-      {!row.requiresProof && (
-        <Button size="sm" disabled={disabled} onClick={() => onSend(row, null)}>
-          <Send aria-hidden /> Mark Sent
-        </Button>
-      )}
-    </div>
+    <Sheet open onClose={onClose} title={`Mark Sent — ${row.approval}`} size="sm">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block space-y-1 text-xs font-medium text-foreground" htmlFor="dispatch-date">
+            Send Date
+            <Input
+              id="dispatch-date"
+              type="date"
+              value={sentDate}
+              onChange={(e) => setSentDate(e.target.value)}
+            />
+          </label>
+          <label className="block space-y-1 text-xs font-medium text-foreground" htmlFor="dispatch-time">
+            Send Time (optional)
+            <Input
+              id="dispatch-time"
+              type="time"
+              value={sentTime}
+              onChange={(e) => setSentTime(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <label className="block space-y-1 text-xs font-medium text-foreground" htmlFor="dispatch-ref">
+          Courier Reference / Tracking No. {!row.requiresProof && "(optional)"}
+          <Input
+            id="dispatch-ref"
+            value={proofReference}
+            onChange={(e) => setProofReference(e.target.value)}
+            placeholder="e.g. waybill or tracking number"
+          />
+        </label>
+
+        <div className="space-y-1">
+          <input
+            ref={fileRef}
+            type="file"
+            hidden
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+            <Upload aria-hidden /> {file ? file.name : "Attach a proof file"}
+          </Button>
+          {row.requiresProof && (
+            <p className="text-xs text-muted-foreground">
+              A proof file or a typed reference is required before this approval can be marked sent.
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-1.5 pt-1">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={disabled || !sentDate || !proofSatisfied}
+            onClick={() =>
+              onConfirm({ sentDate, sentTime, proofReference: proofReference.trim(), file })
+            }
+          >
+            <Send aria-hidden /> Mark Sent
+          </Button>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -441,9 +538,13 @@ function HistorySheet({ row, onClose }: { row: ApprovalWorklistRow; onClose: () 
             <li key={e.version} className="rounded-md border border-border p-2.5 text-sm">
               <p className="font-medium">Version {e.version} — rejected</p>
               <p className="text-xs text-muted-foreground">
-                Sent {e.actualSentDate ? fmtDate(e.actualSentDate) : "—"} · Rejected{" "}
+                Sent {e.actualSentDate ? fmtDate(e.actualSentDate) : "—"}
+                {e.actualSentTime && ` · ${e.actualSentTime.slice(0, 5)}`} · Rejected{" "}
                 {e.actualReceivedDate ? fmtDate(e.actualReceivedDate) : "—"}
               </p>
+              {e.proofReference && (
+                <p className="text-xs text-muted-foreground">Ref: {e.proofReference}</p>
+              )}
               {e.remarks && <p className="mt-1 text-xs text-foreground">{e.remarks}</p>}
             </li>
           ))}

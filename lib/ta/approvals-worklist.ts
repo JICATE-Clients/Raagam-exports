@@ -43,6 +43,13 @@ export interface ApprovalWorklistRow {
   proofPath: string | null;
   mimeType: string | null;
   sizeBytes: number | null;
+  /** `HH:MM:SS` off Postgres `time`, or null — courier dispatch time (doc/ui/order/tafollowup.md §2). */
+  actualSentTime: string | null;
+  /** A typed courier/waybill/tracking reference, independent of proofPath. */
+  proofReference: string | null;
+  /** `garment_order_amendments.merchandiser_id` → `employees` — the order's own merchandiser, for the Merchandiser filter. */
+  merchandiserId: string | null;
+  merchandiserName: string | null;
   daysLate: number;
   bucket: ApprovalWorklistBucket;
   escalated: boolean;
@@ -136,11 +143,13 @@ export async function getApprovalsWorklist(): Promise<ApprovalWorklist> {
     .from("garment_order_amendment_ta_approvals")
     .select(
       "id, row_uid, amendment_id, approval_id, target_date, actual_sent_date, actual_received_date, " +
+        "actual_sent_time, proof_reference, " +
         "status, active_version, proof_path, mime_type, size_bytes, " +
         "approval:ta_approvals(id, short_name, name, department, requires_proof, standard_days), " +
         "amendment:garment_order_amendments!inner(" +
-        "id, code, is_draft, customer_id, " +
-        "customer:customers(id, name), sales_order:sales_orders(id, order_number))",
+        "id, code, is_draft, customer_id, merchandiser_id, " +
+        "customer:customers(id, name), sales_order:sales_orders(id, order_number), " +
+        "merchandiser:employees(id, name))",
     )
     .order("target_date", { ascending: true });
 
@@ -248,6 +257,10 @@ export async function getApprovalsWorklist(): Promise<ApprovalWorklist> {
       proofPath: str(r.proof_path),
       mimeType: str(r.mime_type),
       sizeBytes: r.size_bytes == null ? null : num(r.size_bytes),
+      actualSentTime: str(r.actual_sent_time),
+      proofReference: str(r.proof_reference),
+      merchandiserId: str(a?.merchandiser_id),
+      merchandiserName: str(one(a ?? {}, "merchandiser")?.name),
       daysLate,
       bucket,
       escalated: !resolved && daysLate >= ESCALATE_AFTER_DAYS,
