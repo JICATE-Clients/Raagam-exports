@@ -27,6 +27,7 @@ import {
   type Refusal,
 } from "./requirement";
 import { consumptionMap } from "./manual";
+import { fabricBomEntryRegister, yarnFabricRequirementReport } from "./reports";
 /* Color/Print Details' three panels write the ORDER's palette (client
    2026-09-02). The diff and the citation guard are pure and shared with the
    screen, so the warning an operator sees while typing and the refusal the
@@ -675,6 +676,44 @@ type NormalizedYarn = {
   stages: Record<string, unknown>[];
 };
 
+/**
+ * Each declared fabric's OWN process route, for `yarnPurchase`'s per-fabric
+ * markup (2026-09-11) — grouped straight off the FORM's `data.processes`
+ * (the same rows `normalizeProcesses` is about to write to
+ * `order_fabric_bom_processes`), not a second fetch: the yarn total and the
+ * route it was grossed by must come from the SAME save, or a Save that
+ * changes both a loss % and a yarn's blend in one go could price the yarn
+ * against the route it is about to replace.
+ *
+ * ONLY `process_id` SET, matching `normalizeProcesses`' own minimal filter —
+ * deliberately NOT also matching the current assort/component-wise SCOPE
+ * toggle the way that function does: a route the operator is mid-editing
+ * (toggle flipped, rows not yet re-entered) should still gross up the yarn
+ * with whatever loss was last declared, not silently drop to zero loss the
+ * moment a toggle changes before its rows are retyped.
+ */
+function routesByFabricOf(
+  data: FabricBomInput,
+  fabricIds: ReadonlySet<string>,
+): Map<string, { combo: string | null; loss_pct: number | null; stage_id: string | null; process_id: string | null }[]> {
+  const out = new Map<
+    string,
+    { combo: string | null; loss_pct: number | null; stage_id: string | null; process_id: string | null }[]
+  >();
+  for (const p of data.processes) {
+    if (!p.process_id || !fabricIds.has(p.item_id)) continue;
+    const list = out.get(p.item_id) ?? [];
+    list.push({
+      combo: p.combo ?? null,
+      loss_pct: p.loss_pct ?? null,
+      stage_id: p.stage_id ?? null,
+      process_id: p.process_id,
+    });
+    out.set(p.item_id, list);
+  }
+  return out;
+}
+
 function normalizeYarns(
   data: FabricBomInput,
   fabrics: readonly FabricGross[],
@@ -683,6 +722,7 @@ function normalizeYarns(
 ): NormalizedYarn[] {
   const seen = new Set<string>();
   const out: NormalizedYarn[] = [];
+  const routesByFabric = routesByFabricOf(data, new Set(fabrics.map((f) => f.fabric_id)));
 
   for (const y of data.yarns) {
     if (!y.item_id || seen.has(y.item_id)) continue;
@@ -711,9 +751,12 @@ function normalizeYarns(
       y.item_id,
       fabrics,
       compositions,
+      routesByFabric,
       /* `combo` SCOPES THE LOSS AGAIN (0504, restored 0529) — the same call the
          screen's `weightFor` makes, deliberately, so the preview and the stored
-         figure stay one computation. */
+         figure stay one computation. This is now the YARN'S OWN stages, which
+         compound onto whatever its fabric(s) already contribute (see
+         `yarnPurchase`'s 2026-09-11 header) — not the sole source any more. */
       kept.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
     );
@@ -1690,4 +1733,21 @@ export async function loadBomYarnComposition(
 ): Promise<BomYarnCompositionResult> {
   if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
   return { ok: true, data: await getBomYarnComposition(fabricItemIds) };
+}
+
+/**
+ * The two per-BOM printable reports (see `./reports.ts`'s own header for what
+ * each reads and why neither recomputes a figure a purchase depends on).
+ * Thin permission-gated wrappers, the same shape `loadBomYarnComposition`
+ * above already uses — the client component that renders them never talks to
+ * Supabase directly.
+ */
+export async function loadFabricBomEntryRegister(bomId: string) {
+  if (!(await can("orders", "view"))) return { refused: "Forbidden" };
+  return fabricBomEntryRegister(bomId);
+}
+
+export async function loadYarnFabricRequirementReport(bomId: string) {
+  if (!(await can("orders", "view"))) return { refused: "Forbidden" };
+  return yarnFabricRequirementReport(bomId);
 }
