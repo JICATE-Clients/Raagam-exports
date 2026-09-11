@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
+import { dropdownPanelStyle, type PanelAnchor } from "@/components/ui/dropdown-panel";
 
 /**
  * TYPE **OR** PICK — a field whose value may be a master row OR whatever the
@@ -98,7 +99,7 @@ export function TypeOrPick({
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<PanelAnchor | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   /* `useOverflow` owns its own ref — the two are joined on the element below,
@@ -131,7 +132,7 @@ export function TypeOrPick({
     const el = inputRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    setRect({ top: r.bottom + 4, left: r.left, width: r.width, vw: window.innerWidth });
   }, []);
   useEffect(() => {
     if (!open) return;
@@ -294,8 +295,15 @@ export function TypeOrPick({
             ref={listRef}
             role="listbox"
             aria-label={label}
-            className="fixed z-[70] max-h-64 overflow-auto rounded-md border border-border bg-surface py-1 shadow-lg"
-            style={{ top: rect.top, left: rect.left, width: rect.width }}
+            // Sized by its OPTIONS, not by this cell's own (often very narrow —
+            // 7.5rem on the Colour/Print Details dyeing grids) trigger width.
+            // Same shared floor/ceiling `combobox.tsx` and `data-picker.tsx`
+            // use — see components/ui/dropdown-panel.ts. Before this, a name
+            // like "GREY MELANGE" wrapped onto two lines inside a ~120px list
+            // (client 2026-09-11, screenshot 2850: "dropdown value area
+            // squeezed").
+            className="max-h-64 overflow-auto rounded-md border border-border bg-surface py-1 shadow-lg"
+            style={dropdownPanelStyle(rect)}
           >
             {rows.map((row, i) => (
               <li
