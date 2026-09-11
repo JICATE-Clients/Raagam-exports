@@ -1616,6 +1616,17 @@ export interface GarmentOrderAmendment {
    * tracker are unaffected either way, only the cutting gate reads it.
    */
   production_based_pp_approval: boolean;
+  /**
+   * PP APPROVAL TRIGGER MODE (0554, doc/ui/order/taupdate.md §2-3) — which
+   * physical step waits on PP Sample approval, consulted only while
+   * `production_based_pp_approval` is true. `CUTTING_BASED` (default) is the
+   * Cutting Room Safety Lock above, unchanged. `YARN_PURCHASE_BASED` leaves
+   * that lock alone and instead blocks a Bulk Yarn PO line against this
+   * order until PP Sample is Approved (`lib/purchase/pp-approval-gate.ts`) —
+   * for a long-lead order where buying bulk yarn upfront eats the supplier's
+   * credit window before the sample is even approved.
+   */
+  pp_approval_trigger_mode: "CUTTING_BASED" | "YARN_PURCHASE_BASED";
   // logistic scalars
   department_id: string | null;
   ship_type_id: string | null;
@@ -2421,6 +2432,10 @@ export const amendmentInput = z.object({
   multi_order: z.boolean().default(false),
   /** PRODUCTION-BASED PP APPROVAL (§3) — see the row type for what it gates. */
   production_based_pp_approval: z.boolean().default(true),
+  /** PP APPROVAL TRIGGER MODE (0554) — see the row type for what it gates. */
+  pp_approval_trigger_mode: z
+    .enum(["CUTTING_BASED", "YARN_PURCHASE_BASED"])
+    .default("CUTTING_BASED"),
   /**
    * WITHDRAWN FROM THE FORM (client), and therefore from this schema.
    *
