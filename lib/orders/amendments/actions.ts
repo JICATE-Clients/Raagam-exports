@@ -1936,6 +1936,17 @@ function headerOnly(data: AmendmentInput) {
     // 0481 — the order's Time & Action ladder, a child table like every name
     // above it. See `taActivityRows`: its rows are merged rather than replaced.
     ta_activities: _ta,
+    // 0537 — the order's declared customer approvals
+    // (`garment_order_amendment_ta_approvals`), the sixth member of the same
+    // family and the one that was MISSING here: with no destructure entry it
+    // fell into `...header` below and was sent straight to
+    // `garment_order_amendments.update()`, which has no `ta_approvals`
+    // column — "Could not find the 'ta_approvals' column ... in the schema
+    // cache", on every save once the Approvals grid held a row. `writeChildren`
+    // already writes it to its own child table (`["garment_order_amendment_ta_
+    // approvals", approvals.rows]`); this only needed to stop it being sent
+    // twice, once to a table that cannot take it.
+    ta_approvals: _taa,
     quantities: _qt,
     files: _files,
     // NOT A COLUMN HERE. `location_id` belongs to the `sales_orders` row this
@@ -1959,6 +1970,7 @@ function headerOnly(data: AmendmentInput) {
   void _pt;
   void _ptl;
   void _ta;
+  void _taa;
   void _qt;
   return header;
 }

@@ -23,12 +23,8 @@ import {
   Truck,
   FileText,
   ClipboardList,
-  Puzzle,
-  Disc3,
-  WavesHorizontal,
-  Droplet,
-  Scissors,
-  Search,
+  AlertTriangle,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -4742,6 +4738,23 @@ export function GarmentOrderScreen({
    * the early return, the same split `taDates` (fetched/computed up here) and
    * `taApprovalDates` (looked up per row down there) already draw.
    */
+  /**
+   * "T&A" AND "TA FOLLOWUP" ARE ONE SECTION NOW, NOT TWO (2026-09-10,
+   * operator: "but already we did it in single page with b option no?").
+   * The redesign the operator approved was always ONE rail row with an
+   * internal Activity/Approval switch — the artifact's own two-tabs-one-page
+   * shape — and the first cut of this got that wrong: it kept "T&A" and
+   * "TA Followup" as two separate rail sections and added the segmented pill
+   * nav ON TOP as a second way to move between them, reasoning that a real
+   * merge was the bigger, riskier change. That reasoning produced exactly
+   * the duplicate-navigation complaint it was trying to avoid — two controls
+   * doing the same job, `goToSection` and this pill nav both switching
+   * between sections that were never meant to be two. Plain component state,
+   * same as any other conditionally-rendered content within one section; no
+   * second navigation model, because there is now only one section to
+   * navigate within. */
+  const [taView, setTaView] = useState<"activity" | "approval">("activity");
+
   const [taBypassByStage, setTaBypassByStage] = useState<Partial<Record<ProductionStage, StageWip>>>({});
   useEffect(() => {
     if (!editId || !taFloorStagesKey) {
@@ -4759,36 +4772,15 @@ export function GarmentOrderScreen({
   }, [editId, taFloorStagesKey]);
 
   /**
-   * THE ROAD LINE — a decorative connector behind the T&A cards, drawn between
-   * their icon badges (client, after a road-map mockup: "make 3 card per row
-   * and that line"). Hooks, above the early return like every other one on
-   * this screen (AGENTS.md "Hooks above every early return" — this file has
-   * shipped that bug five times, so nothing here is exempt).
+   * THE ROAD LINE IS GONE (2026-09-10, replacing the icon-timeline with the
+   * compact phase-grouped table below). It was a decorative connector behind
+   * the cards' icon badges, measured off DOM refs via `ResizeObserver` — real
+   * code, not a stub, but load-bearing for nothing: the grid underneath was
+   * always the same `ChildGrid`, one `TaRow` per `[data-grid-row]`, Tab and
+   * Ctrl+Del untouched either way. A future reader looking for `taTrack` /
+   * `taNodeRefs` / `taDraw` should know they were removed on purpose, not
+   * missed — `git log` has the mechanism if the timeline look ever returns.
    *
-   * MEASURED, NEVER GUESSED, for the same reason the mockup's own version was:
-   * `taRenderMobileRow` alternates each activity left/right (see `side` in
-   * that function), so a card's real on-screen position depends on the
-   * viewport width, how many activities
-   * exist, and how long an activity's own name wrapped to — none of which this
-   * component can compute in advance. `ResizeObserver` + a plain DOM Map keyed
-   * by React `key` (never `row_uid`, which the operator never sees and which
-   * survives a save the DOM node does not) is what stays correct through an
-   * add, a remove, or the window simply resizing.
-   *
-   * ONLY EVER A DECORATION. Nothing here reads from or writes to `taRows`,
-   * carries a `data-grid-row`/`data-grid-body` marker, or touches
-   * `gridKeyNav`/`tabAlongRow` — the grid underneath is the exact same
-   * `ChildGrid` with the exact same one-TaRow-per-row model Tab and Ctrl+Del
-   * already walk. If this measurement ever came back empty the cards would
-   * simply render with no line behind them; nothing about entering the ladder
-   * depends on it.
-   */
-  const taNodeRefs = useRef(new Map<string, HTMLDivElement>());
-  const taWrapRef = useRef<HTMLDivElement | null>(null);
-  const taRoRef = useRef<ResizeObserver | null>(null);
-  const [taTrack, setTaTrack] = useState({ d: "", w: 0, h: 0 });
-
-  /**
    * THE TAB READS BACK TO FRONT — DISPLAY ONLY (client, 2026-09-07: "Inspection,
    * Packing, Ironing, Checking, Sewing, Cutting, PP Approval, PP Send, Material
    * Inhouse" as the on-screen order, i.e. nearest-to-shipment first). `taRows`
@@ -4797,7 +4789,7 @@ export function GarmentOrderScreen({
    * `orderTaLadder` chains `backwardSchedule` from, and reversing THAT array
    * would compute a complete, plausible ladder of WRONG dates, which is the
    * exact failure that comment exists to prevent. This is a second, derived
-   * array that only `ChildGrid`'s `rows` prop and the road-line ever see.
+   * array that only `ChildGrid`'s `rows` prop sees.
    *
    * `onAdd` prepends to the REAL `taRows` for the same reason: prepending the
    * real array is what lands the new row at the END of THIS reversed one,
@@ -4805,76 +4797,6 @@ export function GarmentOrderScreen({
    * have put it at the top of the screen, nowhere near the click.
    */
   const taRowsDisplay = useMemo(() => [...taRows].reverse(), [taRows]);
-
-  const taDraw = useCallback(() => {
-    const wrap = taWrapRef.current;
-    if (!wrap) return;
-    const wrapRect = wrap.getBoundingClientRect();
-    const pts = taRowsDisplay
-      .map((r) => taNodeRefs.current.get(r.key))
-      .filter((el): el is HTMLDivElement => !!el)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        return [
-          rect.left + rect.width / 2 - wrapRect.left,
-          rect.top + rect.height / 2 - wrapRect.top,
-        ] as const;
-      });
-    if (pts.length < 2) {
-      setTaTrack({ d: "", w: wrapRect.width, h: wrapRect.height });
-      return;
-    }
-    /* THE SAME "LEAVE STRAIGHT DOWN, ARRIVE STRAIGHT DOWN" CURVE the mockup
-       settled on, so a hop across three grid columns eases round a bend
-       instead of cutting a diagonal — see that file's own note on why a
-       plain `L` read as "slanting" to the client. */
-    let d = `M ${pts[0][0]} ${pts[0][1]} `;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const [x0, y0] = pts[i];
-      const [x1, y1] = pts[i + 1];
-      const midY = (y0 + y1) / 2;
-      d += `C ${x0} ${midY}, ${x1} ${midY}, ${x1} ${y1} `;
-    }
-    setTaTrack({ d, w: wrapRect.width, h: wrapRect.height });
-  }, [taRowsDisplay]);
-
-  /**
-   * A CALLBACK REF, NOT A PLAIN ONE — THE SECOND BUG THIS LINE SHIPPED WITH.
-   * The first was the `-z-10` that painted it behind the tab's own opaque
-   * background (fixed, see the svg's own note). This one is why it still did
-   * not show up after that fix: a plain `useRef` + `useEffect([taRows])` only
-   * MEASURES when `taRows` changes — and the T&A pane's wrapper div does not
-   * exist in the DOM until the operator actually clicks into the T&A tab. On
-   * a screen that opens on Order Info, the effect had already run once,
-   * found `taWrapRef.current` null, and given up — nothing about switching
-   * tabs LATER touches `taRows`, so it never ran again. The line was being
-   * computed against a node that was not there yet, for the entire life of
-   * the component.
-   *
-   * A callback ref fires exactly when React attaches or detaches the DOM
-   * node, whichever tab that happens on, so the very act of opening T&A is
-   * what (re)creates the `ResizeObserver` and draws the line for the first
-   * time. `taDraw` changing (new `taRows`) still redraws it thereafter via
-   * the plain `useEffect` below, using whatever wrap is CURRENTLY attached.
-   */
-  const taWrapCallbackRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      taRoRef.current?.disconnect();
-      taRoRef.current = null;
-      taWrapRef.current = node;
-      if (node) {
-        const ro = new ResizeObserver(() => taDraw());
-        ro.observe(node);
-        taRoRef.current = ro;
-        taDraw();
-      }
-    },
-    [taDraw],
-  );
-
-  useEffect(() => {
-    taDraw();
-  }, [taDraw]);
 
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
@@ -8901,6 +8823,24 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   }
 
   /**
+   * ROWS THAT NEED A LOOK, COUNTED FROM THE SAME TWO SIGNALS THE STATUS
+   * STRIP BELOW ALREADY HAS — never a third opinion. This screen has no
+   * `status`/`actual_date` (see `taRenderMobileRow`'s own note), so "needs
+   * attention" is limited to what it can honestly see for itself: a row
+   * whose OWN target date has already passed (`taDates`' float, the same
+   * figure that tones the row's icon), and a row the operator has actually
+   * started — picked an Activity, answered Days — with nobody named to it
+   * yet (the same `rowFilled` test `taColumns`' Task Owner cell uses to
+   * decide whether that cell is `required`).
+   */
+  const taAttentionCount = taRows.filter((r) => {
+    const d = taDates.get(r.row_uid);
+    if (d && d.float < 0) return true;
+    const rowFilled = !!r.activity_id && !!r.days_required;
+    return rowFilled && !r.assigned_staff_id;
+  }).length;
+
+  /**
    * The five columns. Days is the only one the operator types into: Target
    * Date and Bypass come out of the ladder / the floor ledger, Dept comes off
    * the activity, and Activity is PICKED rather than typed.
@@ -9321,23 +9261,45 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * to its own two fields (a name and a date) rather than to a 512px
    * threshold that has nothing to do with how much space they need.
    */
-  const taApprovalRenderMobileRow = (r: TaApprovalRow, i: number) => (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-surface p-1.5 text-left shadow-sm">
-      <span className="w-4 flex-none text-[10px] font-medium text-muted-foreground">
-        {String(i + 1).padStart(2, "0")}
-      </span>
-      <div className="min-w-0 flex-1">
-        <RequiredScope required={taApprovalColumns[0].required} label={taApprovalColumns[0].header}>
-          {taApprovalColumns[0].cell(r, i)}
-        </RequiredScope>
+  /**
+   * SAME LEFT-EDGE LANGUAGE AS THE LADDER (2026-09-10) — a plain
+   * `rounded-lg … shadow-sm` card here was the one place on this tab still
+   * drawing the OLD look after `taRenderMobileRow` was rebuilt beside it,
+   * which is exactly the "still updating only on this old UI" complaint: two
+   * panels sharing one tab, one restyled and one not. `border-l` carries the
+   * same signal the ladder's status chip carries for a row — RED for a
+   * genuinely conflicted date (`isConflicted`, unchanged logic), the neutral
+   * `border-strong` otherwise. No status word is invented here, unlike the
+   * ladder's chip: this panel only DECLARES which approvals apply and by
+   * when, it does not track Sent/Approved/Rework — that lifecycle is the TA
+   * Followup tab's, and a status word here would be a second, competing
+   * answer to a question that tab already owns.
+   */
+  const taApprovalRenderMobileRow = (r: TaApprovalRow, i: number) => {
+    const d = taApprovalDates.get(r.row_uid);
+    return (
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-2 border-l-[3px] bg-surface px-2 py-1.5 text-left",
+          d?.isConflicted ? "border-l-danger" : "border-l-border-strong",
+        )}
+      >
+        <span className="w-4 flex-none text-[10px] font-medium text-muted-foreground">
+          {String(i + 1).padStart(2, "0")}
+        </span>
+        <div className="min-w-0 flex-1">
+          <RequiredScope required={taApprovalColumns[0].required} label={taApprovalColumns[0].header}>
+            {taApprovalColumns[0].cell(r, i)}
+          </RequiredScope>
+        </div>
+        <div className="w-24 flex-none">
+          <RequiredScope required={taApprovalColumns[1].required} label={taApprovalColumns[1].header}>
+            {taApprovalColumns[1].cell(r, i)}
+          </RequiredScope>
+        </div>
       </div>
-      <div className="w-24 flex-none">
-        <RequiredScope required={taApprovalColumns[1].required} label={taApprovalColumns[1].header}>
-          {taApprovalColumns[1].cell(r, i)}
-        </RequiredScope>
-      </div>
-    </div>
-  );
+    );
+  };
 
   /**
    * EVERY APPROVAL ROW CURRENTLY CONFLICTED, SAID IN ONE PLACE — the
@@ -9390,103 +9352,161 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   });
 
   /**
-   * A pictogram per seeded activity, keyed by `short_name` — purely a wayfinding
-   * aid for the timeline card below, never a source of truth. `ta_activities` is
-   * an editable master (0266), so an operator can add an eleventh activity with
-   * no entry here; `ClipboardList` is what every unmapped `short_name` gets,
-   * exactly the same "seed maps what it knows, everything else falls through"
-   * shape `categoryNameSeed` uses for a vocabulary keyed by class code.
+   * "NEEDS A LOOK" ON THE APPROVAL SIDE, mirroring `taAttentionCount` below —
+   * a SENT approval whose own target date has already passed with nobody
+   * having recorded the buyer's decision yet, plus every genuine scheduling
+   * conflict `taApprovalProblems` already counts. Added rather than
+   * deduplicated: a row can be both overdue and conflicted, and each is
+   * worth a look on its own.
    */
-  const TA_ICONS: Record<string, LucideIcon> = {
-    FABPLAN: Layers,
-    ACCBOM: Puzzle,
-    YRNPUR: Disc3,
-    KNIT: WavesHorizontal,
-    DYE: Droplet,
-    CUT: Scissors,
-    SEW: Shirt,
-    PACK: Package,
-    INSP: Search,
-    SHIP: Truck,
-  };
+  const taApprovalAttentionCount =
+    approvalFollowupRows.filter(
+      (r) => r.status === "sent" && r.targetDate != null && r.targetDate < today(),
+    ).length + taApprovalProblems.length;
 
   /**
-   * THE T&A GRID AS A SCHEDULE, NOT A TABLE (client request, after reviewing a
-   * timeline mockup). `forceCards` + this function replace the four-column table
-   * with one card per activity — a status-toned icon, the row's own Target Date
-   * pulled forward beside it, and the Activity / Days controls stacked below.
+   * THE SEGMENTED ACTIVITY/APPROVAL SWITCHER — now the ONLY way this one
+   * section moves between its two halves (2026-09-10, correcting the first
+   * cut, which kept "T&A" and "TA Followup" as two rail sections and added
+   * this nav on top as a second, redundant way to move between them — see
+   * `taView`'s own comment). Reads and sets that plain component state
+   * directly rather than taking an `active` prop, since there is only one
+   * caller now: the merged "ta" section's own content, below.
+   */
+  const taSegNav = () => (
+    <div className="mb-1 flex flex-wrap items-center gap-2">
+      <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-surface-muted p-0.5">
+        <button
+          type="button"
+          onClick={() => setTaView("activity")}
+          className={cn(
+            "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold",
+            taView === "activity" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
+          )}
+        >
+          <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+          Activity
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+              taView === "activity" ? "bg-primary-soft text-primary" : "bg-surface text-muted-foreground",
+            )}
+          >
+            {taRows.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTaView("approval")}
+          className={cn(
+            "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold",
+            taView === "approval" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
+          )}
+        >
+          <CheckCheck className="h-3.5 w-3.5" aria-hidden />
+          Approval
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+              taApprovalAttentionCount > 0
+                ? "bg-danger-soft text-danger"
+                : taView === "approval"
+                  ? "bg-primary-soft text-primary"
+                  : "bg-surface text-muted-foreground",
+            )}
+          >
+            {approvalFollowupRows.length}
+          </span>
+        </button>
+      </div>
+      {/**
+        * DATE AND REF NO LIVE HERE NOW (2026-09-10), NOT IN A HINT SENTENCE
+        * BELOW THEM — the row used to spend its remaining width on prose
+        * ("The production ladder — Sourcing → Floor → Ship"), which said
+        * less than the two fields the tab opened with. `taSegNav` renders
+        * before either tab's own content, so these stay first in DOM order —
+        * the same position they always held — and the "cursor skips them"
+        * mechanism doesn't move with them: `Input readOnly` sets its own
+        * `tabIndex={-1}` (the standing auto-field rule), so `focusFirstField`
+        * still lands the cursor on the first REAL field below regardless of
+        * where in the header these two sit. Rendered on BOTH tabs — the
+        * order's own Date and Ref No are not an "Activity" fact, and
+        * repeating two read-only values costs nothing.
+        */}
+      <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-medium text-muted-foreground">Date</span>
+          <Input
+            id="ta-date"
+            readOnly
+            value={fmtDate(form.amend_date) || ""}
+            className="h-7 w-24 px-2 text-xs"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-medium text-muted-foreground">Ref No</span>
+          <Input
+            id="ta-refno"
+            readOnly
+            value={savedOrderNo ?? previewNo ?? ""}
+            className="h-7 w-32 px-2 text-xs"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  /**
+   * THE T&A GRID AS A COMPACT, PHASE-GROUPED TABLE (2026-09-10, replacing the
+   * icon-timeline cards above against a redesign mockup the operator
+   * approved — "still not yet updated" after the risk strip and the PP
+   * Sample link alone landed, so this is the rest of it: the row itself).
    *
-   * REUSES `taColumns[0].cell` AND `taColumns[1].cell` VERBATIM — this is not a
-   * second Activity picker or a second Days box, it is the SAME closures the
-   * table row would have called, just placed somewhere else. `renderMobileRow`
-   * bypasses `columns.map()` (see `ChildGridColumn.required`'s own warning), so
-   * calling anything other than the real cell here would fork the Activity
-   * picker's `usedIds` / `data-focus-optional` wiring and the Days input's
-   * `onChange` into a second copy that WILL drift from the table's.
+   * REUSES `taColumns[0].cell` / `[1].cell` / `[4].cell` VERBATIM, same as
+   * the design this replaces — see that version's own note, still true here:
+   * calling anything other than the real closures would fork the Activity
+   * picker's `usedIds` / `data-focus-optional` wiring and the Days/Task
+   * Owner controls into a second copy that WILL drift from the table's.
+   * `RequiredScope` wraps each for the same reason — no column declares
+   * `required` today (withdrawn 2026-08-31), but the day it returns this is
+   * the one place that would otherwise draw a hold with no star, or a star
+   * with no hold, behind nobody's back.
    *
-   * `RequiredScope` IS STILL HERE, WITH NOTHING TO GUARD TODAY. Neither column
-   * declares `required` right now (withdrawn 2026-08-31, "make it optional …
-   * will implement it later as required") — but the day it comes back, this is
-   * the exact trap the column's own doc comment names: a `renderMobileRow` that
-   * skips `RequiredScope` draws the header's `*` from nowhere (there is no
-   * header here) while silently dropping the hold. Wrapping now means that day
-   * costs nothing here.
+   * A PHASE HEADER IS A SIBLING OF THE ROW, NOT A REPLACEMENT FOR ONE.
+   * `ChildGrid` still renders exactly one `TaRow` per `[data-grid-row]` —
+   * this function still returns ONE thing per call, a `<>` fragment whose
+   * first child is the optional heading and whose second is that same one
+   * row. Tab, Ctrl+Del and Enter-adds-a-row all still walk the unchanged
+   * one-activity-per-row model; nothing here is a second grid.
    *
-   * TARGET DATE AND DEPT ARE NOT `taColumns[2]`/`taColumns[3]` CALLED AGAIN —
-   * both are derived, read-only text with no control behind them (a `readOnly`
-   * `<Input>` whose only job on the table is to line up under a `<th>`), so
-   * showing them as plain text here is not a second answer, only a different
-   * rendering of the one `taDates` / `taActivityById` lookup the table cells
-   * already make. Neither is on the Tab path either way.
-   *
-   * ONE STRAIGHT COLUMN, DATE-LEFT / ICON-CENTRE / CARD-RIGHT — the actual
-   * artifact "Version 3" (client, 2026-09-07: "I told as version three",
-   * against a screenshot of that link's PINNED version — reading the
-   * artifact live gave a LATER, different-looking revision, which is what
-   * the first pass of this got wrong). No alternating side, no 3-per-row
-   * grid: every row lays out the same way, one after another. `ChildGrid`
-   * still renders exactly one `TaRow` per `[data-grid-row]`; Tab, Ctrl+Del
-   * and Enter-adds-a-row all still walk that same one-activity-per-row
-   * model unchanged.
-   *
-   * THE CONNECTING LINE IS MEASURED, DRAWN OUTSIDE THIS FUNCTION, AND DOES
-   * NOT NEED TO CHANGE FOR THIS. See the `taNodeRefs` / `taTrack` hooks above
-   * the early return: this function only hands one ref per card
-   * (`taNodeRefs.current.set(r.key, el)`) to the icon badge; with every
-   * badge now stacked at the same x, the same "leave straight down, arrive
-   * straight down" bezier the mockup used just draws a plain vertical line.
+   * TONE IS SCHEDULE PROXIMITY, NEVER COMPLETION — carried over unchanged
+   * from the row this replaces. This screen has no idea whether a step is
+   * done: `status` / `actual_date` are entered on the dashboard and never
+   * loaded here (see `TaRow`'s own note). `d.float` is the one honest signal
+   * available, so the status chip says "Overdue" / "Due today" / "Due soon"
+   * / "Scheduled" — never "Done", a claim this screen's own data cannot back.
    */
   const taRenderMobileRow = (r: TaRow, i: number) => {
     const d = taDates.get(r.row_uid);
-    const activity = taActivityById.get(r.activity_id ?? "");
-    const Icon = TA_ICONS[activity?.short_name ?? ""] ?? ClipboardList;
 
-    /**
-     * TONE IS SCHEDULE PROXIMITY, NEVER COMPLETION. This screen has no idea
-     * whether a step is done — `status` / `actual_date` are entered on the
-     * dashboard and never loaded here (see `TaRow`'s own note on why they are
-     * not in this shape). `d.float` is the one honest signal available: calendar
-     * days from today to this step's OWN target date, negative once it has
-     * passed (`lib/ta/schedule.ts`). So the colour says "this date has gone by"
-     * or "this date is close", never "nobody has finished this" — a claim the
-     * data cannot back up from this screen.
-     */
     const tone: "danger" | "warning" | "info" | "muted" =
       !d ? "muted" : d.float < 0 ? "danger" : d.float === 0 ? "warning" : d.float <= 3 ? "info" : "muted";
-    const toneNode: Record<typeof tone, string> = {
-      danger: "bg-danger-soft text-danger",
-      warning: "bg-warning-soft text-warning",
-      info: "bg-info-soft text-info",
-      muted: "bg-surface-muted text-muted-foreground",
+    const toneBorder: Record<typeof tone, string> = {
+      danger: "border-l-danger",
+      warning: "border-l-warning",
+      info: "border-l-info",
+      muted: "border-l-border-strong",
     };
-    /* THE RING, NOT THE FILL, CARRIES THE TONE HERE — `toneNode` already sets
-       the badge's own soft fill; this is the OUTER ring the mockup's thicker
-       "road" medallions had, in the same tone rather than a new colour. */
-    const toneRing: Record<typeof tone, string> = {
-      danger: "ring-danger",
-      warning: "ring-warning",
-      info: "ring-info",
-      muted: "ring-border-strong",
+    /* THE SAME TINTED-BOX SHAPE `/orders/ta-worklist` ALREADY USES
+       (`STATUS_BOX` in `worklist-board.tsx`) — border at 30% + soft fill at
+       60%, so a date-and-status chip on this screen reads as the same KIND
+       of fact as the identical chip on that one, not a fourth invented
+       style. `muted` here is that file's `neutral`. */
+    const toneBox: Record<typeof tone, string> = {
+      danger: "border-danger/30 bg-danger-soft/60",
+      warning: "border-warning/30 bg-warning-soft/60",
+      info: "border-info/30 bg-info-soft/60",
+      muted: "border-border bg-surface-muted/60",
     };
     const toneText: Record<typeof tone, string> = {
       danger: "text-danger",
@@ -9494,122 +9514,121 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       info: "text-info",
       muted: "text-muted-foreground",
     };
-    const caption =
-      !d
-        ? null
-        : d.float < 0
-          ? `${Math.abs(d.float)} day${Math.abs(d.float) === 1 ? "" : "s"} past target`
-          : d.float === 0
-            ? "Target date is today"
-            : d.float <= 3
-              ? `Target in ${d.float} day${d.float === 1 ? "" : "s"}`
-              : null;
+    /* THE SAME WORDING RULE `slipLabel()` IN `worklist-board.tsx` USES —
+       the exact day count, not a generic bucket word, because "2 days
+       late" is the figure an operator actually needs and "Overdue" made
+       them do the subtraction themselves from the date beside it. `!d`
+       (no date at all — the ladder is incomplete, or refused) is this
+       screen's own case that file's `slipLabel` never has to answer, since
+       every row it draws already has a real float. */
+    const statusText = !d
+      ? "Scheduled"
+      : d.float < 0
+        ? `${Math.abs(d.float)} day${Math.abs(d.float) === 1 ? "" : "s"} late`
+        : d.float === 0
+          ? "Due today"
+          : d.float <= 3
+            ? `in ${d.float} day${d.float === 1 ? "" : "s"}`
+            : "Scheduled";
+    /* SAME GLYPH CHOICE AS `StatusIcon` IN `worklist-board.tsx` — alert
+       triangle once it has slipped or is due today, a clock while it is
+       close, a plain calendar otherwise. Kept as a local pick rather than
+       importing that file's own component: this row's tones are a 4-way
+       split (`danger`/`warning`/`info`/`muted`), that screen's are a 5-way
+       `StatusTone`, and the two are close enough to invite reuse but not
+       equal enough to safely share one function. */
+    const ToneIcon = tone === "danger" || tone === "warning" ? AlertTriangle : tone === "info" ? Clock : CalendarClock;
 
-    /* `inline-flex`, NOT `flex` — client: "add some padding for that close
-       option, see it's appearing above the working days words". A block
-       `flex` here sizes to whatever width `[data-grid-row]`'s own `w-fit`
-       override resolves to, which is one more layer between this content and
-       the row's actual edge than is worth trusting; `inline-flex` makes THIS
-       element shrink-wrap to its own content unconditionally, so the row
-       never reports a width wider than what is actually drawn. `mr-8` then
-       guarantees real clearance from `cornerRemove`'s ✕ (`child-grid.tsx`,
-       floated at the row's own top-right corner) — belt-and-braces alongside
-       that fit, not instead of it. */
+    /* PHASE HEADINGS WITHDRAWN (2026-09-10, operator: "Sample & Sourcing
+       Gate, Production Floor — remove this headings also"). The grouping
+       map that named them (`TA_PHASE`) went with them; the "ta" tab's own
+       PP Approval Gate bar checks a row's `short_name` directly instead of
+       going through a phase name for a heading that no longer exists. */
+
     return (
-      /* `gap-3` (was `gap-2`) and the date column at `w-16` (was `w-11`) —
-         client: "add gap between that icon and date". `w-11` (44px) was
-         narrower than a full DD/MM/YYYY at this font size (~60px, tabular
-         digits), so the date OVERFLOWED past its own right-aligned box with
-         nothing clipping it — invisible while the icon beside it was still
-         far enough away, and NOT invisible once "compact it more" pulled
-         that icon in close: the overflowing tail of the date (the last
-         digit or two) painted UNDER the icon's own solid circle, which is
-         drawn after it in DOM order and so covers it. Same failure the
-         user's "move the line backward" describes from the other side — the
-         connecting line's endpoint is this icon's own measured centre, so an
-         icon sitting hard against clipped text reads as the line running
-         into the date instead of stopping cleanly short of it. Widening the
-         box removes the overflow outright; the wider gap is the second, more
-         visible half of the same fix. */
-      <div className="inline-flex items-start gap-3 py-0.5 mr-8">
-        <div className="w-16 flex-none pt-0.5 text-right">
-          <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
-            {String(i + 1).padStart(2, "0")}
-          </div>
-          <div className="text-[11px] font-semibold tabular-nums text-foreground">
-            {d ? fmtDate(d.target_date) : "—"}
-          </div>
-        </div>
-
         <div
-          ref={(el) => {
-            if (el) taNodeRefs.current.set(r.key, el);
-            else taNodeRefs.current.delete(r.key);
-          }}
           className={cn(
-            "flex h-7 w-7 flex-none items-center justify-center rounded-full ring-1 ring-offset-1 ring-offset-surface",
-            toneNode[tone],
-            toneRing[tone],
+            "flex flex-wrap items-center gap-x-3 gap-y-1 border-l-[3px] bg-surface px-2 py-1.5",
+            toneBorder[tone],
           )}
         >
-          <Icon className="h-3.5 w-3.5" />
-        </div>
-
-        {/* ONE OUTLINE PER ROW, NOT TWO (client: "two border per one
-           progress, make as single and compact") — the icon badge's own
-           ring already carries the status tone, so the card beside it drops
-           its border rather than drawing a second, redundant one; `bg-surface`
-           + a resting `shadow-sm` still separate it from the page without a
-           visible line. */}
-        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-surface p-1.5 text-left shadow-sm">
-          {/* ONE ROW, TIGHTENED, NOT TWO (operator, 2026-09-09: "no more
-             second row, I mean single row" — reversing the same day's
-             earlier two-row split). That split fixed the wrap by FORCING it
-             in the same place every time; this fixes it a second way —
-             narrowing Activity and Task Owner so the whole row is more
-             likely to fit as ONE line in the first place, now that the T&A
-             tab shares its pane with the Approvals panel beside it. Still
-             `flex-wrap`, so an unusually long Activity name on a very narrow
-             pane still wraps rather than overflowing — that is the safety
-             net, not the design. */}
-          <div className="w-36 flex-none">
+          <div className="w-40 min-w-0 flex-none">
             <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
               {taColumns[0].cell(r, i)}
             </RequiredScope>
+            {/* BYPASS AND THE PP SAMPLE LINK — one meta line under the
+                Activity picker rather than more columns, so the row stays
+                one visual line at any width above ~360px.
+                DEPARTMENT DELIBERATELY DROPPED (2026-09-10) — it was here as
+                plain text and, because only a handful of activities carry
+                one (Checking/Ironing/Materials In-House/PP Send/PP Approval;
+                most are null), it made exactly those rows taller than their
+                neighbours with nothing visually tying the caption to its own
+                row — the ragged, "floating label" look the phase headers
+                exist to prevent in the first place. The phase heading above
+                each group already says which area a row belongs to; a
+                second, inconsistently-populated answer to the same question
+                cost more in row-height jitter than it told the operator. */}
+            {/* THE PP SAMPLE CROSS-LINK IS WITHDRAWN (2026-09-10, operator:
+                "PP Sample, on TA Followup — I think no need this indication
+                too"), both directions — the reciprocal button and its
+                `onJumpToLadder` prop are gone from
+                `order-approval-followup.tsx` too. The segmented
+                Activity/Approval nav (`taSegNav`) already gets the operator
+                to the other tab in one click, so the per-row link was a
+                second way to do the same thing. */}
+            {taBypass.get(r.row_uid) && (
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+                <span
+                  className="rounded-full bg-info-soft px-1.5 py-0.5 font-semibold text-info"
+                  title={`${fmtNumber(taBypass.get(r.row_uid)!.qty)} good pieces recorded on Production`}
+                >
+                  {fmtNumber(taBypass.get(r.row_uid)!.qty)} pcs
+                </span>
+              </div>
+            )}
           </div>
+
           <div className="flex flex-none items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2 pr-1">
             <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
               {taColumns[1].cell(r, i)}
             </RequiredScope>
             <span className="text-[10px] font-medium text-muted-foreground">days</span>
           </div>
-          {/* TASK OWNER (0547) — same `RequiredScope`-only pattern as Activity/
-             Days above, not `<Field>`: this card never gives either of those a
-             visible star (confirmed accepted trade-off, since a `compact`
-             RecordPicker draws none of its own), so a one-off star here would
-             make the three controls disagree about their own convention. The
-             hold still works regardless — `useRequiredHold` inside
-             `RecordPicker` does not depend on a star being drawn anywhere.
-             `w-32` (was `w-40`) — same tightening as Activity above. */}
-          <div className="w-32 flex-none">
+
+          {/* TASK OWNER (0547) — same `RequiredScope`-only pattern as
+             Activity/Days above; this card never gives either a visible
+             star (confirmed accepted trade-off, since a `compact`
+             RecordPicker draws none of its own). The hold still works
+             regardless — `useRequiredHold` inside `RecordPicker` does not
+             depend on a star being drawn anywhere. */}
+          <div className="w-32 min-w-0 flex-none">
             <RequiredScope required={taColumns[4].required} label={taColumns[4].header}>
               {taColumns[4].cell(r, i)}
             </RequiredScope>
           </div>
-          {caption && <span className={cn("text-[10px] font-medium", toneText[tone])}>{caption}</span>}
-          {/* DERIVED, same figure `taColumns`' own "Bypass" cell shows — see
-             its comment. Only rendered when there is something to show, same
-             "0 reads as nothing" rule the worklist's own pill follows. */}
-          {taBypass.get(r.row_uid) && (
-            <span
-              className="rounded-full bg-info-soft px-1.5 py-0.5 text-[9px] font-semibold text-info"
-              title={`${fmtNumber(taBypass.get(r.row_uid)!.qty)} good pieces recorded on Production`}
-            >
-              {fmtNumber(taBypass.get(r.row_uid)!.qty)} pcs
+
+          {/* DATE AND STATUS, ONE CHIP (2026-09-10, matching `/orders/ta-
+              worklist`'s own `STATUS_BOX` — operator: "I am expecting like
+              this, compare it both"). Two separate elements — a plain
+              Target date and a status pill off at the row's far edge — used
+              to answer "when" and "how urgent" as two facts an eye had to
+              connect itself; the worklist screen already solved this once,
+              so this reads it rather than re-inventing a fifth status
+              treatment for one app. */}
+          <div
+            className={cn(
+              "ml-auto flex flex-none items-center gap-1.5 rounded-md border px-2 py-1",
+              toneBox[tone],
+            )}
+          >
+            <ToneIcon className={cn("size-3.5 shrink-0", toneText[tone])} aria-hidden />
+            <span className="tabular-nums text-xs text-muted-foreground">
+              {d ? fmtDate(d.target_date) : "—"}
             </span>
-          )}
+            <span className={cn("text-xs font-semibold", toneText[tone])}>{statusText}</span>
+          </div>
         </div>
-      </div>
     );
   };
 
@@ -19032,39 +19051,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       label: "T&A",
       content: (
         <div className="space-y-4">
-          {/* THE TWO FIELDS THE CURSOR MUST BYPASS (client).
-              Both are `<Input readOnly>`, which is the entire mechanism: `Input`
-              sets `tabIndex={-1}` on a readOnly box itself (the standing
-              auto-field rule, 2026-07-29), `FOCUSABLE_SELECTOR` in
-              `lib/focus.ts` excludes `[tabindex="-1"]`, and `MasterFullScreen`
-              calls `focusFirstField` on every section switch. So the cursor
-              skips them and lands in the grid because they are not fields, not
-              because anything here pushed it past them.
+          {taSegNav()}
 
-              They are here rather than left to the Order Info tab because a T&A
-              ladder is read AGAINST them: a plan is checked by asking "as of
-              when, and for which order". Repeating two read-only values is
-              cheaper than making the operator navigate three rail stops back to
-              see what they are scheduling. */}
-          <FieldRow>
-            <Field label="Date" w="code" htmlFor="ta-date">
-              {/* THE LOG DATE — the order's own entry date, the same
-                  `form.amend_date` Order Info shows. Not a second copy of the
-                  field: it is readOnly here, so there is no control that could
-                  write a different value, and the one place it is answered
-                  stays Order Info. */}
-              <Input id="ta-date" readOnly value={fmtDate(form.amend_date) || ""} />
-            </Field>
-            <Field label="Ref No" w="code" htmlFor="ta-refno">
-              {/* THE SAME EXPRESSION `hd-scno` USES — a saved order shows its
-                  stamped RE No, a new one the prediction. Written out rather
-                  than lifted into a variable because both sites are two tokens
-                  long and a shared `refNo` would read as a third source of a
-                  number that has exactly two. */}
-              <Input id="ta-refno" readOnly value={savedOrderNo ?? previewNo ?? ""} />
-            </Field>
-          </FieldRow>
-
+          {/* ACTIVITY — the ladder. Conditionally rendered, not `hidden`:
+             both `taRows` and `taApprovalRows` live in this component's own
+             `useState`, above the early return, so nothing is lost by
+             unmounting one half while the operator looks at the other — the
+             same reasoning `MasterFullScreen` already relies on for mounting
+             one section at a time. */}
+          {taView === "activity" && (
+          <div className="space-y-4">
           {/**
             * WHAT THE LADDER HANGS OFF, AND WHETHER IT REACHES.
             *
@@ -19118,31 +19114,107 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             * this row, so nothing here restates it — it just stands down
             * until there is a real start date to report.
             */}
-          {!isRefusal(taLadder) && taLadder.startDate != null && (
-            <p className="rounded-md border border-border bg-surface-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">
-                Scheduled back from {fmtDate(taLadder.anchor.date)}
-              </span>{" "}
-              —{" "}
-              {taLadder.anchor.source === "earlier_shipment"
-                ? "the earliest Earlier Shipment Dt on Quantities"
-                : "the order's Delivery Date, as no Quantities row carries an Earlier Shipment Dt"}
-              . Work starts{" "}
-              <span className="font-medium text-foreground">
-                {fmtDate(taLadder.startDate)}
-              </span>
-              {taLadder.float! < 0 ? (
-                <span className="font-medium text-danger">
-                  {" "}
-                  — {Math.abs(taLadder.float!)} days late already
-                </span>
-              ) : taLadder.float === 0 ? (
-                <span className="font-medium text-warning"> — starting today</span>
+          {/**
+            * THE SAME FACTS, AS TILES RATHER THAN A SENTENCE (2026-09-10 UI
+            * pass, against a redesign mockup the operator approved — "read a
+            * paragraph to learn the plan is late" was the complaint). Every
+            * value and every branch below is unchanged from the prose this
+            * replaces: `taLadder.anchor.date` / `.source`, `taLadder.
+            * startDate`, `taLadder.float`'s three-way split, all read
+            * verbatim. `taAttentionCount` is the one new figure, and it is
+            * additive — a fourth tile that appears only when there is
+            * something to name, never a gate on the first two.
+            */}
+          {/**
+            * THE ANCHOR SHOWS EVEN WHILE THE LADDER IS INCOMPLETE (2026-09-10
+            * fix) — the strip's first cut gated ALL THREE tiles on
+            * `taLadder.startDate != null`, which is null the moment even ONE
+            * row's Days is blank (see the "NOW ALSO TRUE WHILE THE LADDER IS
+            * MERELY INCOMPLETE" note above). That made the strip invisible on
+            * exactly the order this was screenshotted against — a real order
+            * mid-entry, several rows still blank, which is the ORDINARY state
+            * for a ladder, not an edge case. The anchor never depended on
+            * `startDate`; only "Work starts" and "Needs attention" do, so
+            * only those two stand down, and the incomplete tile SAYS why
+            * (`taLadder.incomplete.reason`) rather than the strip vanishing
+            * with no explanation of its own absence.
+            */}
+          {!isRefusal(taLadder) && (
+            <div className="flex flex-wrap overflow-hidden rounded-md border border-border">
+              <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 px-3 py-2 last:border-r-0">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Anchor
+                </div>
+                <div className="text-xs font-semibold tabular-nums text-foreground">
+                  {fmtDate(taLadder.anchor.date)}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {taLadder.anchor.source === "earlier_shipment"
+                    ? "Earliest Earlier Shipment Dt"
+                    : "Order's Delivery Date"}
+                </div>
+              </div>
+              {taLadder.startDate != null ? (
+                <>
+                  <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 px-3 py-2 last:border-r-0">
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Work starts
+                    </div>
+                    <div
+                      className={cn(
+                        "text-xs font-semibold tabular-nums",
+                        taLadder.float! < 0
+                          ? "text-danger"
+                          : taLadder.float === 0
+                            ? "text-warning"
+                            : "text-foreground",
+                      )}
+                    >
+                      {fmtDate(taLadder.startDate)}
+                    </div>
+                    <div
+                      className={cn(
+                        "text-[10px] font-medium",
+                        taLadder.float! < 0
+                          ? "text-danger"
+                          : taLadder.float === 0
+                            ? "text-warning"
+                            : "text-muted-foreground",
+                      )}
+                    >
+                      {taLadder.float! < 0
+                        ? `${Math.abs(taLadder.float!)} day${Math.abs(taLadder.float!) === 1 ? "" : "s"} late already`
+                        : taLadder.float === 0
+                          ? "Starting today"
+                          : `${taLadder.float} day${taLadder.float === 1 ? "" : "s"} from today`}
+                    </div>
+                  </div>
+                  {taAttentionCount > 0 && (
+                    <div className="min-w-[9rem] flex-1 bg-surface-muted/40 px-3 py-2">
+                      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Needs attention
+                      </div>
+                      <div className="text-xs font-semibold text-warning">
+                        {taAttentionCount} row{taAttentionCount === 1 ? "" : "s"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        Past its target date, or no Task Owner yet
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
-                <> — {taLadder.float} days from today</>
+                <div className="min-w-[9rem] flex-1 bg-surface-muted/40 px-3 py-2">
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Work starts
+                  </div>
+                  <div className="text-xs font-semibold text-muted-foreground">Not yet known</div>
+                  <div className="text-[10px] text-warning">
+                    {taLadder.incomplete?.reason ?? "Enter Days on every row to compute this"}
+                  </div>
+                </div>
               )}
-              .
-            </p>
+            </div>
           )}
 
           {/**
@@ -19204,167 +19276,102 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             */}
 
           {/**
-            * ONE COLUMN, WITH A ROAD LINE BEHIND THE ICONS (client, pointing at
-            * the actual pinned "Version 3" of the road-map artifact — an
-            * earlier read of that same link had returned its LIVE content
-            * instead, which is a different, later revision; the screenshot of
-            * the pinned page is what this now matches). Both the line and the
-            * stacking are layered OUTSIDE `ChildGrid` rather than built into
-            * it:
-            *
-            * - `taWrapCallbackRef` is the coordinate space `taTrack`'s path was
-            *   measured in (see the hooks above the early return, and that
-            *   callback ref's own note on why a plain `useRef` missed every
-            *   tab switch) — the `<svg>` below is an absolutely-positioned
-            *   sibling of `ChildGrid`, painted first so it sits BEHIND the
-            *   cards, sized to the exact pixel box that was measured so the
-            *   path's raw coordinates need no `viewBox` scaling.
-            * - `ChildGrid` needs no CSS-grid override for this: with
-            *   `flatRows` it already stacks one `[data-grid-row]` per line,
-            *   which is exactly what a single column wants. `ChildGrid` still
-            *   renders exactly one `TaRow` per `[data-grid-row]`; Tab,
-            *   Ctrl+Del and Enter-adds-a-row all still walk that same
-            *   one-row-per-activity model unchanged.
-            * - `!border-t-0` / `!py-0` cancel `flatRows`'s own single-column
-            *   rhythm (a top divider and asymmetric top/bottom padding meant
-            *   for a plain stacked list), since `taRenderMobileRow` draws its
-            *   own card with its own `py-1` instead.
+            * THE ICON-TIMELINE IS GONE (2026-09-10, against a redesign mockup
+            * the operator approved). `taRenderMobileRow` now draws a compact,
+            * phase-grouped table row rather than a road-map card, so the
+            * wrapper that used to hold the measured connecting-line `<svg>`
+            * and the side "SHIP" date label (now said once, in the stat strip
+            * above) collapses to a plain column header over the same
+            * `ChildGrid`. Nothing about the DATA model changed — same
+            * `columns`, same `onAdd`/`onRemove`/`lockRow`, same keyboard
+            * contract (`data-grid-row`, Ctrl+Del, Tab-lands-on-fields all
+            * still come from `ChildGrid` itself); only what draws inside each
+            * row, and what sits above them.
             */}
-          {/* NO START/FINISH CAP (client 2026-09-07: "remove those order
-             enter and ship icon and wordings"). The rocket/"Order entered"
-             and flag/"Ready to ship" bookends the artifact mockup drew
-             around the ladder are gone; the ladder is now just its own
-             activities, top to bottom. THE DATE ITSELF IS BACK, though — a
-             plain label in the SAME column the rows' own date sits in
-             (client, same day: "that earlier ship date field also list near
-             [the row] number"), never an icon or a word like "Order entered".
-             `w-16` matches `taRenderMobileRow`'s own date-column width
-             exactly (widened from `w-11` the same day — that width let a full
-             DD/MM/YYYY overflow into the icon beside it), so this reads as
-             one continuous column with "01" beneath it rather than a second,
-             disconnected label. */}
           {/**
-            * LADDER LEFT, APPROVALS RIGHT (2026-09-09 UI pass, operator
-            * request against a screenshot of the two stacked vertically:
-            * "looks unaligned... move the approval to the right side"). A
-            * CSS-grid pair around the two existing blocks, nothing inside
-            * either one — the ladder's own `max-w-2xl` / left-align and the
-            * Approvals panel's own header/table are both untouched, so the
-            * road-line `<svg>` (measured off `taWrapCallbackRef`, below)
-            * keeps drawing exactly as it did full-width.
-            *
-            * `@3xl/editor`, NOT `lg:` — this screen's content pane is the
-            * `@container/editor` `MasterFullScreen` already declares (see
-            * `master-full-screen.tsx`), and every other width decision on
-            * this tab (`@2xl/editor` elsewhere in this file, the compact
-            * density switch) reads that same named container rather than
-            * the viewport. A viewport breakpoint answers "is the WINDOW wide
-            * enough", which can stay true while the editor pane itself
-            * (beside the SECTIONS rail, inside whatever the pane is mounted
-            * in) is nowhere near that width — the first cut of this used
-            * `lg:` and stayed stacked at a window comfortably past 1024px
-            * wide. Single column below `@3xl` (768px of PANE, not window),
-            * side by side above it — the ladder gets the wider track (`2fr`)
-            * since it is the one with up to nine rows; Approvals rarely
-            * holds more than a handful.
+            * THE APPROVALS PANEL MOVED TO THE APPROVAL TAB (2026-09-10) — see
+            * that tab's own comment for why. What is left here is just the
+            * ladder, so the two-column `@3xl/editor` split this used to
+            * share with that panel is gone with it; a single `max-w-2xl`
+            * column is the whole tab now.
             */}
-          <div className="grid grid-cols-1 items-start gap-4 @3xl/editor:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div>
-          {!isRefusal(taLadder) ? (
-            <div className="w-16 pb-1 text-right">
-              <div className="text-[9px] font-medium tracking-wide text-muted-foreground">
-                SHIP
-              </div>
-              <div className="text-[11px] font-semibold tabular-nums text-foreground">
-                {fmtDate(taLadder.anchor.date)}
-              </div>
-            </div>
-          ) : (
+          {isRefusal(taLadder) && (
             <p className="pb-1 text-[11px] font-medium text-warning">{taLadder.refused}</p>
           )}
           {/* `max-w-2xl`, LEFT-ALIGNED (client: "left align it and compact it
              more") — no `mx-auto`, so the column hugs the pane's own left
              edge instead of centring in whatever width the pane happens to
-             be. */}
-          <div ref={taWrapCallbackRef} className="relative isolate max-w-2xl">
-            <svg
-              /* `-z-10`, AND `isolate` ON THE WRAPPER ABOVE — the DOM-order
-                 claim this comment used to make here was wrong, which is why
-                 the line kept drawing through the icons no matter how thin or
-                 pale it was made (client, twice: "that green line hiding the
-                 icons", then "still that line is above the icon").
-                 `position: absolute` takes an element OUT of normal flow, and
-                 the CSS paint order for a stacking context always paints its
-                 POSITIONED descendants (even at the default z-index:auto)
-                 AFTER its plain in-flow ones — the icon badges below are
-                 ordinary flex children with no position of their own, so this
-                 absolutely-positioned `<svg>` painted on top of them
-                 regardless of appearing earlier in the JSX. DOM order only
-                 breaks ties WITHIN one paint step, never between "positioned"
-                 and "static".
-                 A literal negative z-index is the fix for THAT — but tried
-                 alone (as a much earlier pass here found) it escapes to
-                 whichever ANCESTOR happens to establish the nearest stacking
-                 context, which on this screen is the tab pane's own opaque
-                 background, and the line vanishes completely behind it.
-                 `isolate` on the wrapper is what contains the escape: it
-                 forces THIS div to be that nearest context, so `-z-10` only
-                 has to outrank this wrapper's own children (the line and the
-                 grid), never the app chrome around it. */
-              className="pointer-events-none absolute left-0 top-0 -z-10"
-              width={taTrack.w}
-              height={taTrack.h}
-              aria-hidden="true"
-            >
-              {/* THIN, AND `--border` NOT `--border-strong` (client: "that
-                 green line hiding the icons") — the Orders skin tints
-                 `--border-strong` olive (`#b9c9a6`), and at the old 5px width,
-                 drawn straight through each icon's own centre, it read as a
-                 thick green bar cutting the glyph in half rather than a line
-                 behind it. `--border` is the same skin's much paler tint
-                 (`#dde5d3`) and 2px leaves the icon plainly on top. */}
-              <path
-                d={taTrack.d}
-                fill="none"
-                stroke="var(--border)"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+             be. The header row's five labels line up loosely over
+             `taRenderMobileRow`'s own grid — "loosely" because a compact card
+             flexes its own widths (a two-digit Days pill vs. a name that
+             wraps), and a header pinned to pixel-exact columns would drift
+             the first time either did. */}
+          <div className="max-w-2xl">
+            {/* THE GATE, STANDALONE (2026-09-10) — it lived on the "Sample &
+                Sourcing Gate" phase heading for exactly one revision; the
+                operator withdrew every phase heading the same day
+                ("Sample & Sourcing Gate, Production Floor — remove this
+                headings also"), which took the toggle's home with it. Rather
+                than re-attach it to a row it does not belong to, it gets its
+                own slim bar — shown only when this order's ladder actually
+                names PP Send, PP Approval or Materials In-House, since a
+                chain with none of the three has nothing for the toggle to
+                gate. */}
+            {taRows.some((r) => {
+              const sn = taActivityById.get(r.activity_id ?? "")?.short_name;
+              return sn === "PPSEND" || sn === "PPAPPR" || sn === "MATIH";
+            }) && (
+              <div className="mb-2 flex items-center gap-2 rounded-md border border-border bg-surface-muted px-2.5 py-1.5">
+                <span className="text-[10.5px] font-semibold text-muted-foreground">
+                  PP Approval Gate
+                </span>
+                <Toggle
+                  id="ta-pp-hardlock"
+                  checked={!!form.production_based_pp_approval}
+                  onChange={(production_based_pp_approval) => set({ production_based_pp_approval })}
+                  ariaLabel="Production-Based PP Approval"
+                />
+                <span className="text-[10.5px] text-muted-foreground">
+                  {form.production_based_pp_approval
+                    ? "Cutting waits until PP Sample is Approved."
+                    : "Cutting and material buying proceed without waiting on PP Sample."}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center gap-x-3 border-b border-border-strong px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="w-40 flex-none">Activity</span>
+              <span className="flex-none">Days</span>
+              <span className="w-32 flex-none">Owner</span>
+              {/* Target and Status merged into one chip on the row itself
+                  (`taRenderMobileRow`) — one header word for the one thing
+                  the operator now sees as one fact. */}
+              <span className="ml-auto flex-none">Status</span>
+            </div>
             <div
-              /* NO GRID OVERRIDE — a single stacked column is `flatRows`'s own
-                 default shape, so nothing needs turning into a CSS grid from
-                 the outside here. `!border-t-0` / `!py-0` stay: they cancel
-                 `flatRows`'s own divider/padding rhythm, which
-                 `taRenderMobileRow` supplies its own version of instead.
-                 `w-fit`, added on top (client: the ✕ "still appearing
-                 orphaned" once the card itself stopped stretching — a
-                 `[data-grid-row]` is a plain block, and a block's own width
-                 is auto/100% of `[data-grid-body]` regardless of how wide
-                 the CARD inside it draws itself. Shrinking the row to its
-                 own content is what pulls `cornerRemove`'s `✕` — positioned
-                 off THIS element's corner, not the card's — back next to it. */
-              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0 [&_[data-grid-row]]:w-fit"
+              /* `!border-t-0` / `!py-0` cancel `flatRows`'s own hairline/
+                 padding rhythm — `taRenderMobileRow` draws its own left-edge
+                 status border and padding instead, and stacking both would
+                 double the space between rows on a tab whose whole point,
+                 today, is being more compact than it was. NO `w-fit`, unlike
+                 the icon-timeline version this replaces: that design needed
+                 the row to shrink to its own content so the ✕ sat next to it;
+                 this one needs the row to fill the column's width so the
+                 Status chip's `ml-auto` has somewhere to push to. */
+              className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0"
             >
               <ChildGrid<TaRow>
                 columns={taColumns}
                 rows={taRowsDisplay}
-                /* THE LADDER READS AS A SCHEDULE, NOT A TABLE (client, after
-                   reviewing a timeline mockup): `forceCards` renders every width
-                   as the stacked-card layout, and `renderMobileRow` swaps the
-                   default "stack every column" body for `taRenderMobileRow`'s
-                   status-toned card. Nothing about the DATA changed — same
-                   `columns`, same `onAdd`/`onRemove`, same keyboard contract
-                   (`data-grid-row`, Ctrl+Del, Tab-lands-on-fields all still come
-                   from `ChildGrid` itself); only which JSX draws inside each row,
-                   and how the wrapper above arranges those rows on screen. */
+                /* `forceCards` + `renderMobileRow` still swap the default
+                   "stack every column" body for `taRenderMobileRow`'s own
+                   JSX at every width — a deliberate choice, not merely a
+                   narrow-screen fallback, since the table beneath this
+                   already has more columns than the compact row needs. */
                 forceCards
                 /* `flatRows` drops `ChildGrid`'s own "rounded-lg border p-2.5"
-                   box around each row — `taRenderMobileRow` draws its OWN card,
-                   and without this the two would nest. Its divider and padding
-                   are then cancelled by the wrapper's own override above, since
-                   both assume a single stacked column. */
+                   box around each row — `taRenderMobileRow` draws its OWN
+                   left-edge border instead, and without this the two would
+                   nest. */
                 flatRows
                 renderMobileRow={taRenderMobileRow}
                 /* THE CLIENT-NAMED 9-STEP CHAIN IS FIXED, NOT JUST DEFAULT
@@ -19393,68 +19400,43 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             </div>
           </div>
           </div>
+          )}
 
           {/**
-            * T&A ▸ APPROVALS — beside the ladder now, not below it (see the
-            * grid opened above). PLAIN TABLE, deliberately not `forceCards`
-            * — the ladder is already the one place on this tab that reads as
-            * a schedule rather than a grid, and a narrow right-hand column is
-            * the wrong width for cards anyway.
+            * APPROVAL — this order's whole customer-approval story, DECLARE
+            * and ACT together (2026-09-10, reversing the 09-10-earlier split
+            * the moment it was reported as a duplicate: "the Approvals
+            * section in the Activity page — move it to the actual Approval
+            * tab"). `T&A` used to carry its own mini "Approvals" panel — pick
+            * which milestones apply, read the computed date — beside a
+            * SECOND, fuller one for acting on them (Send / Approve /
+            * Rework). Two panels both named "Approvals" was never two
+            * features, it was one feature the first pass split down the
+            * wrong seam. Now there is exactly one: declare a milestone here,
+            * and its card appears in whichever of the three columns below
+            * matches its live status.
             *
-            * A REAL PANEL, NOT A BARE `<h4>` (2026-09-09 UI pass) — framing
-            * only: the header bar says what this table is FOR (declaring
-            * which approvals apply, not acting on them — see the TA Followup
-            * tab below for that half), so it reads as its own concern rather
-            * than a continuation of the ladder beside it. No column, field or
-            * behaviour changed.
+            * SAME "conditionally rendered, not hidden" REASONING AS ACTIVITY
+            * ABOVE — `taApprovalRows` is this component's own state too.
             */}
-          <div>
+          {taView === "approval" && (
+          <div className="space-y-4">
           <div className="overflow-hidden rounded-lg border border-border">
             <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-2">
               <CheckCheck className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
               <div>
-                <div className="text-sm font-semibold text-foreground">Approvals</div>
+                <div className="text-sm font-semibold text-foreground">Declare approvals</div>
                 <div className="text-xs text-muted-foreground">
-                  Declared approvals and their computed review windows
+                  Which milestones this order tracks, and their computed review windows
                 </div>
               </div>
             </div>
             <div className="space-y-2 bg-surface p-3">
-              {/* PRODUCTION-BASED PP APPROVAL (0552, §3) — sits with what it
-                  gates, same principle as Multi Order above: this switch is
-                  the on/off for the Cutting Room Safety Lock the rows below
-                  declare, so it lives in the panel that owns those rows
-                  rather than in Order Info, two sections away. YES (default)
-                  changes nothing an order does today; only turning it OFF is
-                  a new behaviour. */}
-              <div className="mb-1 flex items-center gap-3">
-                <Toggle
-                  id="ta-pp-hardlock"
-                  // `!!` — `BLANK` and `openEdit` both always set this field,
-                  // but a `checked` prop that is ever `undefined` (a stale
-                  // client on an order saved before 0552, or a dev bundle
-                  // caught mid hot-reload) trips React's uncontrolled→
-                  // controlled warning permanently for this input's lifetime.
-                  // Coercing to a real boolean is cheap insurance against that
-                  // whole class, not a fix for a specific cause.
-                  checked={!!form.production_based_pp_approval}
-                  onChange={(production_based_pp_approval) => set({ production_based_pp_approval })}
-                  label="Production-Based PP Approval"
-                />
-                <span className="text-xs text-muted-foreground">
-                  {form.production_based_pp_approval
-                    ? "Cutting waits until PP Sample below is Approved."
-                    : "Cutting and material buying proceed without waiting on PP Sample."}
-                </span>
-              </div>
               <ChildGrid<TaApprovalRow>
                 columns={taApprovalColumns}
                 rows={taApprovalRows}
                 /* See `taApprovalRenderMobileRow`'s own comment — forced so a
-                   narrow Approvals column never drops Target Date onto its
-                   own line. `flatRows` drops `ChildGrid`'s own card box, the
-                   same pairing `taColumns` uses, since the hand-drawn row
-                   above already draws one. */
+                   narrow pane never drops Target Date onto its own line. */
                 forceCards
                 flatRows
                 renderMobileRow={taApprovalRenderMobileRow}
@@ -19475,36 +19457,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               )}
             </div>
           </div>
+
+          <OrderApprovalFollowup
+            amendmentId={editId}
+            rows={approvalFollowupRows}
+            canAct={perms.canEdit}
+          />
           </div>
-          </div>
+          )}
         </div>
-      ),
-    },
-    /**
-     * TA FOLLOWUP — this order's customer-approval lifecycle, acted on in
-     * place (operator request, 2026-09-10). A separate rail tab from "T&A"
-     * rather than a third grid inside it: that tab is about DECLARING which
-     * approvals apply and reading their computed dates; this one is about
-     * ACTING on a declared approval (Send / Approve / Rework), which needs
-     * room for a file picker and a mandatory-remarks form that a table cell
-     * has none of.
-     *
-     * `OrderApprovalFollowup` (components/orders/order-approval-followup.tsx)
-     * owns the actions and the interaction — this tab only builds the rows
-     * (`approvalFollowupRows`, above) and hands over `editId` for the upload
-     * path. Not part of `canSubmitSurface`/blocked-Save problems: nothing
-     * here can block Save, the same reason Approvals' own conflict list is
-     * advisory rather than a hold.
-     */
-    {
-      key: "ta-followup",
-      label: "TA Followup",
-      content: (
-        <OrderApprovalFollowup
-          amendmentId={editId}
-          rows={approvalFollowupRows}
-          canAct={perms.canEdit}
-        />
       ),
     },
     {
