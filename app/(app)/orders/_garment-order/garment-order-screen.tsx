@@ -1278,6 +1278,9 @@ type HeaderForm = {
    * of them, for a buyer whose rotation depends on not waiting.
    */
   production_based_pp_approval: boolean;
+  /** PP APPROVAL TRIGGER MODE (0554) — which step the gate above applies to;
+   *  see `lib/orders/amendments/types.ts`'s row type for the full reasoning. */
+  pp_approval_trigger_mode: "CUTTING_BASED" | "YARN_PURCHASE_BASED";
   // logistic scalars
   department_id: string | null;
   ship_type_id: string | null;
@@ -1339,6 +1342,7 @@ const BLANK: HeaderForm = {
   mult_ord: false,
   multi_order: false,
   production_based_pp_approval: true,
+  pp_approval_trigger_mode: "CUTTING_BASED",
   department_id: null,
   ship_type_id: null,
   contact_id: null,
@@ -3886,6 +3890,7 @@ export function GarmentOrderScreen({
       mult_ord: r.mult_ord,
       multi_order: r.multi_order,
       production_based_pp_approval: r.production_based_pp_approval ?? true,
+      pp_approval_trigger_mode: r.pp_approval_trigger_mode ?? "CUTTING_BASED",
       department_id: r.department_id,
       ship_type_id: r.ship_type_id,
       contact_id: r.contact_id,
@@ -4040,6 +4045,7 @@ export function GarmentOrderScreen({
       mult_ord: form.mult_ord,
       multi_order: form.multi_order,
       production_based_pp_approval: form.production_based_pp_approval,
+      pp_approval_trigger_mode: form.pp_approval_trigger_mode,
       department_id: form.department_id,
       ship_type_id: form.ship_type_id,
       contact_id: form.contact_id,
@@ -8982,14 +8988,22 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              overriding) lets the chip's own background show through; the
              focus ring still comes from `Input`'s own base classes, unopposed. */
           className="w-12 rounded-full border-transparent bg-transparent text-center"
+          min="0"
           value={fixedDays ?? r.days_required}
-          onChange={(e) =>
+          // A focused number input still eats mouse-wheel scroll as a
+          // spinner step even though no stepper is drawn here — with 15
+          // other rows below it, an operator scrolling the page decrements
+          // whichever Days cell the cursor happens to be sitting on into
+          // negative territory (doc/ui/order/taupdate.md §5A). Blurring on
+          // wheel hands the scroll back to the page instead of the input.
+          onWheel={(e) => e.currentTarget.blur()}
+          onChange={(e) => {
+            const raw = e.target.value;
+            const clamped = raw === "" ? "" : String(Math.max(0, Number(raw) || 0));
             setTaRows((xs) =>
-              xs.map((x) =>
-                x.key === r.key ? { ...x, days_required: e.target.value } : x,
-              ),
-            )
-          }
+              xs.map((x) => (x.key === r.key ? { ...x, days_required: clamped } : x)),
+            );
+          }}
         />
         );
       },
@@ -18355,24 +18369,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                         width: "10rem",
                         cell: (x) => priceModeCell(x, v.mode),
                       },
-                      ...(v.isOpen
-                        ? [
-                            {
-                              header: "Unit",
-                              width: "4.5rem",
-                              /* READ-ONLY FACT, not a field: it arrives with the
-                                 style line (its Order Unit) and there is nothing
-                                 to type. Rendered as text rather than a disabled
-                                 input so it neither invites a click nor sits in
-                                 the Tab path. */
-                              cell: (x: PriceGroup) => (
-                                <div className="flex min-h-8 items-center text-sm text-muted-foreground">
-                                  {x.rows[0]?.unit || "—"}
-                                </div>
-                              ),
-                            },
-                          ]
-                        : []),
+                      // Unit column removed (client 2026-09-11: "i think its no
+                      // need"). It was a read-only mirror of the style line's
+                      // own Order Unit (PCS/SET) — nothing computed off it here,
+                      // and `PriceGroup.unit` still carries the value for
+                      // whatever else reads it; only this display is gone.
                     ]}
                     /* THE GROUP IS THE ROW. `priceGroups` is the OUTER grid's
                        list; this table heads one of them, so its own list is a
@@ -19307,34 +19308,53 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              wraps), and a header pinned to pixel-exact columns would drift
              the first time either did. */}
           <div className="max-w-2xl">
-            {/* THE GATE, STANDALONE (2026-09-10) — it lived on the "Sample &
-                Sourcing Gate" phase heading for exactly one revision; the
-                operator withdrew every phase heading the same day
-                ("Sample & Sourcing Gate, Production Floor — remove this
-                headings also"), which took the toggle's home with it. Rather
-                than re-attach it to a row it does not belong to, it gets its
-                own slim bar — shown only when this order's ladder actually
-                names PP Send, PP Approval or Materials In-House, since a
-                chain with none of the three has nothing for the toggle to
-                gate. */}
+            {/* THE GATE, BACK ON THE ACTIVITY VIEW (operator, 2026-09-11:
+                "move the Cutting Start Based / Yarn Purchase Based mode
+                again same place just hide the pp gate toggle"). The ON/OFF
+                switch (`production_based_pp_approval`) is hidden per that
+                instruction — the state it drives stays at its default
+                (`true`), so the mode picker below keeps working exactly as
+                before; only the control that used to flip it off is gone
+                from the screen. The "PP Approval Gate" label that used to
+                sit beside the switch is withdrawn too (operator, same day)
+                — the mode picker's own two option labels (Cutting Start
+                Based / Yarn Purchase Based) say what the bar is for without
+                it. Shown only when this order's ladder actually names PP
+                Send, PP Approval or Materials In-House, since a chain with
+                none of the three has nothing for the mode to gate. */}
             {taRows.some((r) => {
               const sn = taActivityById.get(r.activity_id ?? "")?.short_name;
               return sn === "PPSEND" || sn === "PPAPPR" || sn === "MATIH";
             }) && (
-              <div className="mb-2 flex items-center gap-2 rounded-md border border-border bg-surface-muted px-2.5 py-1.5">
-                <span className="text-[10.5px] font-semibold text-muted-foreground">
-                  PP Approval Gate
-                </span>
+              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-muted px-2.5 py-1.5">
+                {/* HIDDEN (operator, 2026-09-11) — see the comment above.
+                    Left as dead code deliberately, not deleted: the state
+                    and its `set()` wiring are unchanged, so restoring this
+                    control later is "un-comment", not "re-invent".
                 <Toggle
                   id="ta-pp-hardlock"
                   checked={!!form.production_based_pp_approval}
                   onChange={(production_based_pp_approval) => set({ production_based_pp_approval })}
                   ariaLabel="Production-Based PP Approval"
                 />
+                */}
+                {form.production_based_pp_approval && (
+                  <Segmented
+                    name="ta-pp-trigger-mode"
+                    value={form.pp_approval_trigger_mode}
+                    onChange={(pp_approval_trigger_mode) => set({ pp_approval_trigger_mode })}
+                    options={[
+                      { value: "CUTTING_BASED", label: "Cutting Start Based" },
+                      { value: "YARN_PURCHASE_BASED", label: "Yarn Purchase Based" },
+                    ]}
+                  />
+                )}
                 <span className="text-[10.5px] text-muted-foreground">
-                  {form.production_based_pp_approval
-                    ? "Cutting waits until PP Sample is Approved."
-                    : "Cutting and material buying proceed without waiting on PP Sample."}
+                  {!form.production_based_pp_approval
+                    ? "Cutting and material buying proceed without waiting on PP Sample."
+                    : form.pp_approval_trigger_mode === "YARN_PURCHASE_BASED"
+                      ? "Bulk Yarn PO is locked until PP Sample is Approved; cutting is not gated by this toggle."
+                      : "Cutting waits until PP Sample is Approved."}
                 </span>
               </div>
             )}

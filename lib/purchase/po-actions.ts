@@ -43,6 +43,7 @@ import {
   refuseOverCeiling,
   refuseUnsettledMaterials,
 } from "./bom-ceiling-service";
+import { refuseUnapprovedYarnPurchase } from "./pp-approval-gate";
 import type {
   PoSizeDelivery,
   PoDeliverySize,
@@ -355,6 +356,14 @@ export async function createPurchaseOrder(
   const tba = await refuseUnsettledMaterials(parsed.data.lines);
   if (tba) return { ok: false, error: tba };
 
+  /*
+   * THE YARN PURCHASE BASED GATE (doc/ui/order/taupdate.md §3 Rule 2, 0554).
+   * Sibling of the TBA gate above — same four write paths, same reason: a
+   * control on one of them is a control on none.
+   */
+  const yarnGate = await refuseUnapprovedYarnPurchase(parsed.data.lines);
+  if (yarnGate) return { ok: false, error: yarnGate };
+
   const user = await getAppUser();
   const supabase = await createClient();
   const { lines, ...poFields } = parsed.data;
@@ -417,6 +426,9 @@ export async function addPoLine(
   const addTba = await refuseUnsettledMaterials([parsed.data]);
   if (addTba) return { ok: false, error: addTba };
 
+  const addYarnGate = await refuseUnapprovedYarnPurchase([parsed.data]);
+  if (addYarnGate) return { ok: false, error: addYarnGate };
+
   const { quantity, unit_price, ...rest } = parsed.data;
   const amount = lineAmount(quantity, unit_price);
 
@@ -462,6 +474,9 @@ export async function updatePoLine(
   // so the quantity in front of the operator is a guess whichever way it moved.
   const editTba = await refuseUnsettledMaterials([parsed.data]);
   if (editTba) return { ok: false, error: editTba };
+
+  const editYarnGate = await refuseUnapprovedYarnPurchase([parsed.data]);
+  if (editYarnGate) return { ok: false, error: editYarnGate };
 
   const { quantity, unit_price, ...rest } = parsed.data;
   const amount = lineAmount(quantity, unit_price);
@@ -540,6 +555,14 @@ export async function submitPo(poId: string): Promise<ActionResult> {
     (poLines ?? []) as { item_id: string | null; sales_order_id: string | null }[],
   );
   if (submitTba) return { ok: false, error: submitTba };
+
+  /* THE LAST YARN GATE — catches a draft whose order moved to Yarn Purchase
+   * Based mode, or whose PP Sample was reopened, after these lines were
+   * written. Same reasoning as the last TBA/ceiling gates above it. */
+  const submitYarnGate = await refuseUnapprovedYarnPurchase(
+    (poLines ?? []) as { item_id: string | null; sales_order_id: string | null }[],
+  );
+  if (submitYarnGate) return { ok: false, error: submitYarnGate };
 
   const { error } = await supabase
     .from("purchase_orders")

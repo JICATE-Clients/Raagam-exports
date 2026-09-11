@@ -126,12 +126,23 @@ export function Segmented<T extends string>({
                 The ring lands on this overlay because the input is `sr-only`
                 and has no box of its own to draw one on — `Toggle`'s track
                 plays the same part. `focus-visible`, not `focus`, so a mouse
-                click does not leave a ring behind. */}
+                click does not leave a ring behind.
+
+                COLORED, NOT MERELY SHADED (operator, 2026-09-11: "make
+                active tab more attractive now look not clean") — a plain
+                `bg-surface-muted` pill under plain `text-foreground` read as
+                flat next to `taSegNav`'s own Activity/Approval pills a few
+                lines above it in this same file, which colour their active
+                state (`text-primary` on a tinted pill). `bg-primary-soft` +
+                `text-primary` is that same convention, reused here rather
+                than invented — so every future caller of this shared
+                primitive gets the louder selected state for free, not just
+                the one screen that first asked for it. */}
             <span
               aria-hidden
               className={cn(
                 "pointer-events-none absolute inset-0 rounded transition-colors",
-                "peer-checked:bg-surface-muted peer-checked:shadow-sm",
+                "peer-checked:bg-primary-soft peer-checked:shadow-sm",
                 "peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40",
               )}
             />
@@ -141,7 +152,7 @@ export function Segmented<T extends string>({
                 // The selected segment. `peer-checked` rather than a className
                 // built from `value === o.value` so the whole control is one
                 // static string Tailwind's source scan can see.
-                "peer-checked:font-medium peer-checked:text-foreground",
+                "peer-checked:font-semibold peer-checked:text-primary",
               )}
             >
               {o.label}
