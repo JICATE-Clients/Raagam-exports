@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
+import { AlertTriangle, Info, OctagonAlert, type LucideIcon } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { getWorklist, type WorklistNote, type WorklistRow } from "@/lib/ta/worklist";
 import { getMyStaffTaKpi } from "@/lib/ta/kpi";
@@ -7,7 +7,8 @@ import { endOfMonth, startOfMonth, today } from "@/lib/calendar";
 import { PageHeader } from "@/components/ui/page-header";
 import { buttonClasses } from "@/components/ui/button";
 import { Stat } from "@/components/ui/stat";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill, StatusDot } from "@/components/ui/status-pill";
+import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { WorklistBoard } from "./worklist-board";
@@ -44,13 +45,16 @@ export const metadata = { title: "TA Worklist" };
  * is a server component and `getWorklist({ mineOnly })` runs the narrowing on
  * the server, the same way every other scoping decision here already does.
  */
+const BUCKETS = ["backlog", "today", "upcoming"] as const;
+type Bucket = (typeof BUCKETS)[number];
+
 export default async function TaWorklistPage({
   searchParams,
 }: {
-  searchParams: Promise<{ scope?: string }>;
+  searchParams: Promise<{ scope?: string; bucket?: string }>;
 }) {
   await requirePermission("orders", "view");
-  const { scope } = await searchParams;
+  const { scope, bucket } = await searchParams;
   const mineOnly = scope === "mine";
   const wl = await getWorklist({ mineOnly });
 
@@ -69,8 +73,60 @@ export default async function TaWorklistPage({
   const upcoming = wl.rows.filter((r) => r.bucket === "upcoming");
   const showDepartment = wl.scope.kind === "all_departments";
 
+  /**
+   * TABS, NOT STACKED SECTIONS (2026-09-10, operator: three fully-stacked
+   * sections meant every open activity in the factory rendered on one page
+   * — "it will more more scrolling", confirmed against a mockup of the
+   * alternatives before building this). One bucket renders at a time; the
+   * other two are reachable by their tab, badge-counted so nothing is
+   * silently hidden the way a collapsed/paginated section would risk.
+   *
+   * Still a URL search param, not client state — same reasoning as
+   * `?scope=`  below: the page stays a server component and switching tabs
+   * is a `Link`, matching the file's own "zero client JavaScript except the
+   * buttons" rule.
+   */
+  const sections: Record<Bucket, { title: string; subtitle: string; tone: StatusTone; rows: WorklistRow[]; empty: string }> = {
+    backlog: {
+      title: "Backlog",
+      subtitle: "Past its target date and not completed",
+      tone: "warning",
+      rows: backlog,
+      empty: "Nothing overdue.",
+    },
+    today: {
+      title: `Due today · ${fmtDate(wl.today)}`,
+      subtitle: "What must happen today for these orders to ship on time",
+      tone: "info",
+      rows: dueToday,
+      empty: "Nothing due today.",
+    },
+    upcoming: {
+      title: `Next ${wl.horizonDays} days`,
+      subtitle: "Coming up — not yet due",
+      tone: "neutral",
+      rows: upcoming,
+      empty: "Nothing scheduled in the next week.",
+    },
+  };
+  // Explicit `?bucket=` wins outright. Absent, land on whichever bucket is
+  // most urgent AND non-empty — backlog first (already late outranks due),
+  // then today, then upcoming — rather than always opening on Backlog and
+  // making an operator with a clean backlog click past an empty tab.
+  const activeBucket: Bucket =
+    bucket && (BUCKETS as readonly string[]).includes(bucket)
+      ? (bucket as Bucket)
+      : (BUCKETS.find((b) => sections[b].rows.length > 0) ?? "backlog");
+
+  function tabHref(b: Bucket) {
+    const params = new URLSearchParams();
+    if (mineOnly) params.set("scope", "mine");
+    params.set("bucket", b);
+    return `/orders/ta-worklist?${params.toString()}`;
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="TA Worklist"
         description={
@@ -86,87 +142,117 @@ export default async function TaWorklistPage({
         }
       />
 
-      {/* The tiles. `Scanned` earns its place by being the number that makes an
-          empty list legible: 0 of 0 is a quiet day, 0 of 43 is a scope. */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Stat
-          label="Due today"
-          value={wl.counts.today}
-          tone={wl.counts.today > 0 ? "info" : "neutral"}
-        />
-        <Stat
-          label="Backlog"
-          value={wl.counts.backlog}
-          hint="Past target, not completed"
-          tone={wl.counts.backlog > 0 ? "warning" : "neutral"}
-        />
-        <Stat
-          label="Escalate"
-          value={wl.counts.escalated}
-          hint={`${wl.escalateAfterDays}+ days late`}
-          tone={wl.counts.escalated > 0 ? "danger" : "neutral"}
-        />
-        <Stat
-          label={`Next ${wl.horizonDays} days`}
-          value={wl.counts.upcoming}
-          tone="neutral"
-        />
-        <Stat
-          label="Scanned"
-          value={wl.counts.scanned}
-          hint="Before any filtering"
-          tone="neutral"
-        />
+      {/* Status cluster — tiles, notes and the escalation banner read as one
+          group (tighter `space-y-3` than the page's own `space-y-6`) because
+          they are all the same kind of fact: a count or a caveat about what's
+          below, not content of their own. `Banner` gives the notes and the
+          escalation callout one shared shell instead of three hand-tuned
+          `rounded-lg border …` strings that drifted (text-xs vs text-sm,
+          icon size-3.5 vs size-4) despite meaning the same "info/warn/danger"
+          tone. */}
+      <div className="space-y-3">
+        {/* The tiles. `Scanned` earns its place by being the number that makes
+            an empty list legible: 0 of 0 is a quiet day, 0 of 43 is a scope. */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <Stat
+            label="Due today"
+            value={wl.counts.today}
+            tone={wl.counts.today > 0 ? "info" : "neutral"}
+          />
+          <Stat
+            label="Backlog"
+            value={wl.counts.backlog}
+            hint="Past target, not completed"
+            tone={wl.counts.backlog > 0 ? "warning" : "neutral"}
+          />
+          <Stat
+            label="Escalate"
+            value={wl.counts.escalated}
+            hint={`${wl.escalateAfterDays}+ days late`}
+            tone={wl.counts.escalated > 0 ? "danger" : "neutral"}
+          />
+          <Stat
+            label={`Next ${wl.horizonDays} days`}
+            value={wl.counts.upcoming}
+            tone="neutral"
+          />
+          <Stat
+            label="Scanned"
+            value={wl.counts.scanned}
+            hint="Before any filtering"
+            tone="neutral"
+          />
+        </div>
+
+        {wl.notes.length > 0 && (
+          <div className="space-y-2">
+            {wl.notes.map((note, i) => (
+              <NoteBanner key={i} note={note} />
+            ))}
+          </div>
+        )}
       </div>
 
-      {wl.notes.length > 0 && (
-        <div className="space-y-2">
-          {wl.notes.map((note, i) => (
-            <NoteBanner key={i} note={note} />
-          ))}
-        </div>
-      )}
+      {/* THE TAB BAR — one bucket on screen at a time. Underlined tabs, not
+          the segmented-pill style `ScopeToggle` uses above: the two controls
+          answer different questions (WHICH department's work vs WHICH
+          bucket of it) and sharing one visual language would read as one
+          choice with four options instead of two separate ones. Each tab
+          carries the same `StatusDot` tone its section heading always
+          used, so the color still agrees with the card accent bar under it. */}
+      {/* Plain links with `aria-current`, not `role="tablist"`/`role="tab"` —
+          those ARIA roles promise a JS-managed widget (arrow-key navigation
+          between tabs, a linked `tabpanel`) that a set of full-navigation
+          `Link`s doesn't provide; overclaiming them would tell a screen
+          reader to expect keys that do nothing. Same plain-`Link` pattern
+          `ScopeToggle` already uses above. */}
+      <nav aria-label="Bucket" className="flex items-center gap-1 border-b border-border">
+        {BUCKETS.map((b) => {
+          const active = b === activeBucket;
+          return (
+            <Link
+              key={b}
+              href={tabHref(b)}
+              aria-current={active ? "true" : undefined}
+              className={cn(
+                "flex items-center gap-2 rounded-t-md border-b-2 px-2 py-1.5 text-sm font-semibold transition-colors",
+                // A soft rounded FILL on hover/focus, not a `ring` box — a
+                // `ring` (box-shadow) draws a hard rectangle on all four
+                // sides regardless of which corners are rounded, so paired
+                // with this tab's own bottom-border indicator it read as an
+                // odd half-rounded box sitting on top of the underline
+                // (operator screenshot, 2026-09-10: the ring version still
+                // "look[ed] not coo[l]"). `bg-primary-soft` is the SAME
+                // "selected control" tint the app already uses elsewhere
+                // (the rail's selected pill, the footer/header bands — see
+                // the brand-colours note), so this reads as the app's own
+                // language instead of an ad hoc focus treatment, and a
+                // background-only indicator sidesteps the corner-rounding
+                // mismatch entirely.
+                "hover:bg-surface-muted focus-visible:bg-primary-soft focus-visible:outline-none",
+                active
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <StatusDot tone={sections[b].tone} />
+              {sections[b].title}
+              <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                ({sections[b].rows.length})
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
 
-      {wl.counts.escalated > 0 && (
-        <div className="rounded-lg border border-danger/50 bg-danger-soft px-3 py-2 text-sm text-danger">
-          <OctagonAlert className="mr-1.5 inline size-4 align-[-3px]" aria-hidden />
-          <strong className="font-semibold">
-            {wl.counts.escalated} {wl.counts.escalated === 1 ? "activity is" : "activities are"}{" "}
-            {wl.escalateAfterDays} or more days late.
-          </strong>{" "}
-          A slip this size is recovered with air freight, not with overtime — it needs a
-          decision today, not a column.
-        </div>
-      )}
-
-      {/* Backlog first: what is already late outranks what is due, and putting
-          "today" at the top would bury it under the fold on a bad week. */}
       <Section
-        title="Backlog"
-        subtitle="Past its target date and not completed"
-        rows={backlog}
+        title={sections[activeBucket].title}
+        subtitle={sections[activeBucket].subtitle}
+        rows={sections[activeBucket].rows}
+        empty={sections[activeBucket].empty}
         canComplete={wl.canComplete}
         showDepartment={showDepartment}
         viewerEmployeeId={wl.viewerEmployeeId}
-        empty="Nothing overdue."
-      />
-      <Section
-        title={`Due today · ${fmtDate(wl.today)}`}
-        subtitle="What must happen today for these orders to ship on time"
-        rows={dueToday}
-        canComplete={wl.canComplete}
-        showDepartment={showDepartment}
-        viewerEmployeeId={wl.viewerEmployeeId}
-        empty="Nothing due today."
-      />
-      <Section
-        title={`Next ${wl.horizonDays} days`}
-        subtitle="Coming up — not yet due"
-        rows={upcoming}
-        canComplete={wl.canComplete}
-        showDepartment={showDepartment}
-        viewerEmployeeId={wl.viewerEmployeeId}
-        empty="Nothing scheduled in the next week."
       />
     </div>
   );
@@ -190,11 +276,10 @@ function Section({
   empty: string;
 }) {
   return (
-    <section className="space-y-2">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <span className="text-xs text-muted-foreground">{subtitle}</span>
-      </div>
+    <section className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {subtitle} <span className="sr-only">— {title}</span>
+      </p>
       {rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
           {empty}
@@ -212,6 +297,36 @@ function Section({
 }
 
 /**
+ * The one shared shell for both the per-row diagnosis notes and the
+ * escalation callout — same rounded-lg border, same text-xs/icon-3.5 scale,
+ * so the two read as one visual language ("a banner has a tone") instead of
+ * two components that happened to end up looking similar. Content, tone
+ * semantics (info/warn/danger) and show/hide conditions are unchanged from
+ * before this pass — only the shared shell is new.
+ */
+function Banner({
+  tone,
+  icon: Icon,
+  children,
+}: {
+  tone: "info" | "warn" | "danger";
+  icon: LucideIcon;
+  children: React.ReactNode;
+}) {
+  const cls = {
+    info: "border-border bg-surface-muted text-muted-foreground",
+    warn: "border-warning/50 bg-warning-soft text-warning",
+    danger: "border-danger/50 bg-danger-soft text-danger",
+  }[tone];
+  return (
+    <div className={cn("rounded-lg border px-3 py-2 text-xs", cls)}>
+      <Icon className="mr-1.5 inline size-3.5 align-[-2px]" aria-hidden />
+      {children}
+    </div>
+  );
+}
+
+/**
  * One of the reader's diagnosis sentences.
  *
  * These are not decoration and they are not an error state — most of them fire
@@ -219,16 +334,10 @@ function Section({
  * otherwise see: which rows were removed and why, and where to go and change it.
  */
 function NoteBanner({ note }: { note: WorklistNote }) {
-  const tone = {
-    info: "border-border bg-surface-muted text-muted-foreground",
-    warn: "border-warning/50 bg-warning-soft text-warning",
-    danger: "border-danger/50 bg-danger-soft text-danger",
-  }[note.level];
   const Icon = note.level === "info" ? Info : note.level === "warn" ? AlertTriangle : OctagonAlert;
 
   return (
-    <div className={cn("rounded-lg border px-3 py-2 text-xs", tone)}>
-      <Icon className="mr-1.5 inline size-3.5 align-[-2px]" aria-hidden />
+    <Banner tone={note.level} icon={Icon}>
       {note.text}
       {note.href && (
         <>
@@ -238,7 +347,7 @@ function NoteBanner({ note }: { note: WorklistNote }) {
           </Link>
         </>
       )}
-    </div>
+    </Banner>
   );
 }
 

@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2, History, RotateCcw, Send, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  History,
+  RotateCcw,
+  Send,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -11,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { acquireBusy } from "@/lib/reload-guard";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { StatusTone } from "@/lib/ui/tone";
 import { createClient } from "@/lib/supabase/client";
 import {
   markApprovalSent,
@@ -35,6 +45,58 @@ const BUCKET = "order-approval-docs";
  * mistake to unclick), an optional file attached on Sent, and a History link
  * once `activeVersion > 1`.
  */
+/**
+ * Same tone/accent-bar/status-box treatment as `ta-worklist/worklist-board.tsx`
+ * (2026-09-10 port — operator: "same issue for ta followup"). One extra
+ * branch here: an `approved` row reads `success` outright, resolved rows
+ * having already left the daysLate question behind.
+ */
+function rowTone(row: ApprovalWorklistRow): StatusTone {
+  if (row.status === "approved") return "success";
+  if (row.daysLate > 0) return row.escalated ? "danger" : "warning";
+  if (row.daysLate === 0) return "info";
+  return "neutral";
+}
+
+const TONE_EDGE: Record<StatusTone, string> = {
+  success: "border-l-success",
+  warning: "border-l-warning",
+  danger: "border-l-danger",
+  info: "border-l-info",
+  neutral: "border-l-border-strong",
+};
+
+const STATUS_BOX: Record<StatusTone, string> = {
+  success: "border-success/30 bg-success-soft/60",
+  warning: "border-warning/30 bg-warning-soft/60",
+  danger: "border-danger/30 bg-danger-soft/60",
+  info: "border-info/30 bg-info-soft/60",
+  neutral: "border-border bg-surface-muted/60",
+};
+
+const STATUS_ICON_COLOR: Record<StatusTone, string> = {
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+  info: "text-info",
+  neutral: "text-muted-foreground",
+};
+
+function StatusIcon({ row, className }: { row: ApprovalWorklistRow; className?: string }) {
+  const tone = rowTone(row);
+  const cls = cn(STATUS_ICON_COLOR[tone], className);
+  if (tone === "success") return <CheckCircle2 className={cls} aria-hidden />;
+  if (tone === "danger" || tone === "warning") return <AlertTriangle className={cls} aria-hidden />;
+  if (tone === "info") return <Clock className={cls} aria-hidden />;
+  return <CalendarClock className={cls} aria-hidden />;
+}
+
+function slipLabel(row: ApprovalWorklistRow): string {
+  if (row.daysLate > 0) return `${row.daysLate} ${row.daysLate === 1 ? "day" : "days"} late`;
+  if (row.daysLate === 0) return "Due today";
+  return `in ${-row.daysLate} ${row.daysLate === -1 ? "day" : "days"}`;
+}
+
 export function ApprovalsWorklistBoard({
   rows,
   canComplete,
@@ -94,16 +156,21 @@ export function ApprovalsWorklistBoard({
 
   return (
     <>
-      <ul className="space-y-2">
+      <ul className="space-y-1.5">
         {rows.map((row) => (
           <li
             key={row.id}
             className={cn(
-              "rounded-lg border border-border bg-surface p-3 sm:p-4",
-              row.escalated && "border-danger/50",
+              // Same compact pass + left accent bar as `ta-worklist/worklist-
+              // board.tsx` (2026-09-10 port) — a full-card border only fired
+              // for `escalated`, so every other row looked unstated; now every
+              // bucket gets a consistent stripe off the same `rowTone()`.
+              "rounded-lg border border-border bg-surface p-2.5 sm:p-3",
+              "border-l-[3px]",
+              TONE_EDGE[rowTone(row)],
             )}
           >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1 space-y-1.5">
                 <p className="text-sm font-medium">
                   <span>{row.approval}</span>
@@ -130,17 +197,56 @@ export function ApprovalsWorklistBoard({
                     </button>
                   )}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {row.department && <span>{row.department}</span>}
-                  {row.requiresProof && <span> · Proof required</span>}
-                  {row.proofPath && <span className="text-foreground"> · Proof attached</span>}
-                </p>
+                {/* Chips, not a "·"-joined sentence — same reasoning as the
+                    qty/style/department chips on `ta-worklist`. */}
+                {(row.department || row.requiresProof || row.proofPath) && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {row.department && (
+                      <StatusPill tone="neutral" className="border border-border/60 px-1.5 py-0.5">
+                        {row.department}
+                      </StatusPill>
+                    )}
+                    {row.requiresProof && (
+                      <StatusPill tone="neutral" className="border border-border/60 px-1.5 py-0.5">
+                        Proof required
+                      </StatusPill>
+                    )}
+                    {row.proofPath && (
+                      <StatusPill tone="success" className="border border-success/30 px-1.5 py-0.5">
+                        Proof attached
+                      </StatusPill>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="tabular-nums text-xs text-muted-foreground">{fmtDate(row.targetDate)}</span>
-                  {row.bucket !== "resolved" && <SlipPill row={row} />}
+              <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {/* ONE tinted badge for date+lateness, same as
+                      `ta-worklist` — only for a row still being chased.
+                      A resolved row already says everything in its green
+                      "Approved" pill below; boxing a plain date next to it
+                      would be a second badge for the same fact. */}
+                  {row.bucket !== "resolved" ? (
+                    <div
+                      className={cn(
+                        "flex items-center gap-1 rounded-md border px-1.5 py-0.5",
+                        STATUS_BOX[rowTone(row)],
+                      )}
+                    >
+                      <StatusIcon row={row} className="size-3.5 shrink-0" />
+                      <span className="tabular-nums text-xs text-muted-foreground">
+                        {fmtDate(row.targetDate)}
+                      </span>
+                      <span className={cn("text-xs font-semibold", STATUS_ICON_COLOR[rowTone(row)])}>
+                        {slipLabel(row)}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="tabular-nums text-xs text-muted-foreground">
+                      {fmtDate(row.targetDate)}
+                    </span>
+                  )}
                   <StatusPill
                     tone={row.status === "sent" ? "info" : row.status === "approved" ? "success" : "neutral"}
                   >
@@ -154,7 +260,7 @@ export function ApprovalsWorklistBoard({
                 )}
 
                 {canComplete && row.status === "sent" && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -347,18 +453,3 @@ function HistorySheet({ row, onClose }: { row: ApprovalWorklistRow; onClose: () 
   );
 }
 
-function SlipPill({ row }: { row: ApprovalWorklistRow }) {
-  if (row.daysLate > 0) {
-    return (
-      <StatusPill tone={row.escalated ? "danger" : "warning"}>
-        {row.daysLate} {row.daysLate === 1 ? "day" : "days"} late
-      </StatusPill>
-    );
-  }
-  if (row.daysLate === 0) return <StatusPill tone="info">Due today</StatusPill>;
-  return (
-    <StatusPill tone="neutral">
-      in {-row.daysLate} {row.daysLate === -1 ? "day" : "days"}
-    </StatusPill>
-  );
-}

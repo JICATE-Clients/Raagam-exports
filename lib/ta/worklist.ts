@@ -648,23 +648,16 @@ export async function getWorklist(
   // `dept.id`, never on `dept` alone.
   const scopeToDept = Boolean(dept?.id && assignLines > 0);
 
-  if (!dept?.id) {
-    // NO `href` HERE, DELIBERATELY. The link would be to the Employee master,
-    // and `components/masters/employee-master-screen.tsx` is mounted at no
-    // route — it is the only screen that could set `profiles.employee_code`,
-    // and there is currently no way to reach it. A note pointing at a 404 is
-    // worse than a note that just states the fact; the fix is a route, not a
-    // link. Until then this branch is the NORMAL one and the worklist stays
-    // unscoped rather than empty.
-    notes.push({
-      level: "info",
-      text:
-        "Your login is not linked to an employee record with a department, so this is " +
-        "EVERY department's work rather than just yours. The link is " +
-        "profiles.employee_code → employees.code; until it is set, nothing here is hidden " +
-        "from you.",
-    });
-  } else if (assignLines === 0) {
+  // The unlinked-login note that used to sit here (`!dept?.id`, "Your login
+  // is not linked to an employee record with a department…") is removed
+  // (operator, 2026-09-10: "remove it"). The BEHAVIOUR it described is
+  // unchanged — `scopeToDept` above still falls back to every department's
+  // work exactly as before — only the on-screen explanation of why is gone.
+  // The equivalent note for an unlinked "My Tasks" view (5b below, where
+  // dropping every row without saying why would be a genuine silent-empty
+  // state) was deliberately left in place; ask to have that removed too if
+  // it should go as well.
+  if (dept?.id && assignLines === 0) {
     notes.push({
       level: "warn",
       text:

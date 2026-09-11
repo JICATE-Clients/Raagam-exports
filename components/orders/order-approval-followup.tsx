@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, History, RotateCcw, Send, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { acquireBusy } from "@/lib/reload-guard";
@@ -156,120 +155,157 @@ export function OrderApprovalFollowup({
     );
   }
 
-  /**
-   * ONE STATUS STRIP, over `rows` already in scope — no new data, just a
-   * count. TA Worklist earns five tiles for the same question asked across
-   * every order; this tab asks it for ONE order, so a single line of pills
-   * is the right scale rather than a copy of that screen's tiles
-   * (2026-09-09 UI pass).
-   */
-  const pendingCount = rows.filter((r) => r.status === "pending").length;
-  const sentCount = rows.filter((r) => r.status === "sent").length;
-  const approvedCount = rows.filter((r) => r.status === "approved").length;
   /* Either the whole order has never been saved (`amendmentId` null) or one
      row was just added to the grid and has no saved counterpart yet — both
      read as "nothing here can be acted on until a save happens". */
   const anyUnsaved = !amendmentId || rows.some((r) => !r.id);
 
+  /**
+   * THREE COLUMNS, NOT FOUR — Pending / Sent / Approved, GROUPED RATHER THAN
+   * LISTED (2026-09-10 UI pass, matching the redesign mockup the operator
+   * approved). No "Rework" column: `markApprovalRework` (`lib/ta/approvals-
+   * worklist-actions.ts`) never leaves a row resting at `status: 'rework'` —
+   * in the same write that archives the old attempt it resets the LIVE row
+   * to `'pending'` and bumps `activeVersion`, so a reworked approval is a
+   * `pending` row again, waiting to be re-sent. A fourth column keyed off a
+   * status this table never actually holds would be empty by construction;
+   * a `rework` group in a design mockup is a reasonable first guess at the
+   * state machine and the real one, checked here, says otherwise.
+   *
+   * WHAT MARKS A REWORKED ROW APART, THEN, IS `activeVersion > 1` — still a
+   * `pending` row, still in the Pending column, but flagged "Reopened" so it
+   * does not read identically to a milestone nobody has sent yet. The
+   * existing "vN · History" control (unchanged) is how the buyer's remark
+   * is actually read; this badge is only the "look here" signal.
+   */
+  const pendingRows = rows.filter((r) => r.status !== "sent" && r.status !== "approved");
+  const sentRows = rows.filter((r) => r.status === "sent");
+  const approvedRows = rows.filter((r) => r.status === "approved");
+  const columns: {
+    key: string;
+    label: string;
+    toneClass: string;
+    rows: OrderApprovalRow[];
+  }[] = [
+    { key: "pending", label: "Pending", toneClass: "text-muted-foreground", rows: pendingRows },
+    { key: "sent", label: "Sent", toneClass: "text-info", rows: sentRows },
+    { key: "approved", label: "Approved", toneClass: "text-success", rows: approvedRows },
+  ];
+
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          {rows.length} approval{rows.length === 1 ? "" : "s"}
-        </span>
-        {pendingCount > 0 && <span>{pendingCount} pending</span>}
-        {sentCount > 0 && <span>{sentCount} sent</span>}
-        {approvedCount > 0 && <span>{approvedCount} approved</span>}
-      </div>
-
       {anyUnsaved && (
         <div className="mb-3 rounded-md border border-warning/40 bg-warning-soft/60 px-3 py-2 text-xs text-warning">
           Save the order once to enable Send / Approve / Rework on these approvals.
         </div>
       )}
 
-      <ul className="space-y-2">
-        {rows.map((row) => (
-          <li
-            key={row.rowUid}
-            className="rounded-lg border border-border bg-surface p-3 sm:p-4"
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <p className="text-sm font-medium">
-                  <span>{row.approvalName}</span>
-                  {row.activeVersion > 1 && row.id && (
-                    <button
-                      type="button"
-                      className="ml-2 inline-flex items-center gap-1 text-xs text-primary underline-offset-2 hover:underline"
-                      onClick={() => setHistoryRow(row)}
-                    >
-                      <History className="size-3" aria-hidden /> v{row.activeVersion}
-                    </button>
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {row.department && <span>{row.department}</span>}
-                  {row.requiresProof && <span> · Proof required</span>}
-                  {row.proofPath && <span className="text-foreground"> · Proof attached</span>}
-                </p>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="tabular-nums text-xs text-muted-foreground">
-                    {row.targetDate ? fmtDate(row.targetDate) : "—"}
-                  </span>
-                  <StatusPill
-                    tone={row.status === "sent" ? "info" : row.status === "approved" ? "success" : "neutral"}
-                  >
-                    {row.status === "pending" ? "Pending" : row.status === "sent" ? "Sent" : row.status === "approved" ? "Approved" : row.status}
-                  </StatusPill>
-                </div>
-
-                {canAct && row.id && row.status === "pending" && (
-                  <SendControl row={row} disabled={busyId === row.id} onSend={sendWithOptionalProof} />
-                )}
-
-                {canAct && row.id && row.status === "sent" && (
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busyId === row.id}
-                      onClick={() => setReworkId(reworkId === row.id ? null : row.id)}
-                    >
-                      <RotateCcw aria-hidden /> Rework
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={busyId === row.id}
-                      onClick={() => {
-                        const id = row.id!;
-                        run(id, () => markApprovalApproved(id), "Marked approved");
-                      }}
-                    >
-                      <CheckCircle2 aria-hidden /> Approved
-                    </Button>
-                  </div>
-                )}
-              </div>
+      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg bg-border sm:grid-cols-3">
+        {columns.map((col) => (
+          <div key={col.key} className="flex flex-col gap-2 bg-surface p-2.5">
+            <div className="flex items-center justify-between">
+              <span className={cn("text-[10px] font-bold uppercase tracking-wide", col.toneClass)}>
+                {col.label}
+              </span>
+              <span className="rounded-full bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground">
+                {col.rows.length}
+              </span>
             </div>
 
-            {reworkId === row.id && row.id && (
-              <ReworkForm
-                disabled={busyId === row.id}
-                onCancel={() => setReworkId(null)}
-                onConfirm={(remarks) => {
-                  const id = row.id!;
-                  setReworkId(null);
-                  run(id, () => markApprovalRework(id, undefined, remarks), "Sent back for rework");
-                }}
-              />
+            {col.rows.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">Nothing here</p>
+            ) : (
+              col.rows.map((row) => (
+                <div
+                  key={row.rowUid}
+                  className={cn(
+                    "rounded-md border-l-[3px] bg-surface-muted p-2.5",
+                    col.key === "sent" && "border-l-info",
+                    col.key === "approved" && "border-l-success",
+                    col.key === "pending" && "border-l-border-strong",
+                  )}
+                >
+                  <p className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                    {row.approvalName}
+                    {row.activeVersion > 1 && (
+                      <span className="rounded border border-warning/40 bg-warning-soft px-1 py-0.5 text-[9px] font-semibold text-warning">
+                        Reopened · v{row.activeVersion}
+                      </span>
+                    )}
+                  </p>
+                  {row.department && (
+                    <p className="mt-0.5 text-[9.5px] uppercase tracking-wide text-muted-foreground">
+                      {row.department}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[10.5px] text-muted-foreground">
+                    {row.targetDate ? (
+                      <>
+                        Target <span className="tabular-nums">{fmtDate(row.targetDate)}</span>
+                      </>
+                    ) : (
+                      "No target date"
+                    )}
+                    {row.requiresProof && <span> · Proof required</span>}
+                    {row.proofPath && <span className="text-foreground"> · Proof attached</span>}
+                  </p>
+
+                  {row.activeVersion > 1 && (
+                    <button
+                      type="button"
+                      className="mt-1 inline-flex items-center gap-1 text-[10.5px] font-medium text-primary hover:underline"
+                      onClick={() => setHistoryRow(row)}
+                    >
+                      <History className="size-3" aria-hidden /> View history
+                    </button>
+                  )}
+
+                  {canAct && row.id && row.status === "pending" && (
+                    <div className="mt-2">
+                      <SendControl row={row} disabled={busyId === row.id} onSend={sendWithOptionalProof} />
+                    </div>
+                  )}
+
+                  {canAct && row.id && row.status === "sent" && (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        disabled={busyId === row.id}
+                        onClick={() => {
+                          const id = row.id!;
+                          run(id, () => markApprovalApproved(id), "Marked approved");
+                        }}
+                      >
+                        <CheckCircle2 aria-hidden /> Approve
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busyId === row.id}
+                        onClick={() => setReworkId(reworkId === row.id ? null : row.id)}
+                      >
+                        <RotateCcw aria-hidden /> Rework
+                      </Button>
+                    </div>
+                  )}
+
+                  {reworkId === row.id && row.id && (
+                    <ReworkForm
+                      disabled={busyId === row.id}
+                      onCancel={() => setReworkId(null)}
+                      onConfirm={(remarks) => {
+                        const id = row.id!;
+                        setReworkId(null);
+                        run(id, () => markApprovalRework(id, undefined, remarks), "Sent back for rework");
+                      }}
+                    />
+                  )}
+                </div>
+              ))
             )}
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
 
       {historyRow && (
         <HistorySheet row={historyRow} onClose={() => setHistoryRow(null)} />
