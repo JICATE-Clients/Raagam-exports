@@ -6,6 +6,7 @@ import { Download, FileSpreadsheet } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import {
   loadFabricBomEntryRegister,
@@ -224,11 +225,20 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 /** The bordered table shell every section uses — one border language, so a
- *  table never reads as a different document from the letterhead above it. */
-function ReportTable({ children }: { children: React.ReactNode }) {
+ *  table never reads as a different document from the letterhead above it.
+ *  `fixed` opts a table into `table-fixed` + explicit `<colgroup>` widths
+ *  (via `EntryRegisterGridCols` below) instead of the default auto-sized
+ *  `min-w-max` — the Entry Register grid's own long Fabric description was
+ *  otherwise stretching every numeric column, including every subtotal and
+ *  the Grand Total row, off the right edge of the Sheet (client screenshot
+ *  2847, 2026-09-11: "not that much a professional report look"). Every
+ *  other table using this shell keeps its old auto-sized behaviour. */
+function ReportTable({ children, fixed }: { children: React.ReactNode; fixed?: boolean }) {
   return (
     <div className="overflow-x-auto border-x border-b border-border bg-white">
-      <table className="w-full min-w-max border-collapse text-[12px]">{children}</table>
+      <table className={`w-full border-collapse text-[12px] ${fixed ? "table-fixed" : "min-w-max"}`}>
+        {children}
+      </table>
     </div>
   );
 }
@@ -236,7 +246,7 @@ function ReportTable({ children }: { children: React.ReactNode }) {
 function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
   return (
     <th
-      className={`border-b border-border bg-[#f6f7f9] px-3 py-1.5 font-semibold text-[#5b6472] ${right ? "text-right" : "text-left"}`}
+      className={`border-b border-border bg-[#f6f7f9] px-2 py-1 font-semibold text-[#5b6472] ${right ? "text-right" : "text-left"}`}
     >
       {children}
     </th>
@@ -259,7 +269,7 @@ function Td({
   return (
     <td
       colSpan={colSpan}
-      className={`border-b border-border/60 px-3 py-1.5 ${right ? "text-right" : "text-left"} ${mono ? "font-mono" : ""} ${className}`}
+      className={`border-b border-border/60 px-2 py-1 ${right ? "text-right" : "text-left"} ${mono ? "font-mono" : ""} ${className}`}
     >
       {children}
     </td>
@@ -307,37 +317,55 @@ function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
   );
 }
 
+/** Fixed pixel widths, not `min-w-max` guesses — the whole point of this
+ *  table being `table-fixed` (see `ReportTable`). Every width was chosen to
+ *  fit BOTH modes' full column set inside a `size="lg"` Sheet without a
+ *  horizontal scrollbar on an ordinary desktop viewport; only Fabric is wide
+ *  enough to need `Truncated` inside it. */
 const ENTRY_GRID_DETAILED_COLS = [
-  "Assort Colour",
-  "Component",
-  "Fabric",
-  "Item Form",
-  "GSM",
-  "Size",
-  "Dia/Size",
-  "Width",
-  "SQ Qty",
-  "Piece Wt",
-  "Wastage %",
-  "Net Req Wt",
-  "Loss %",
-  "Total (Gross) Wt",
-  "Unit",
+  { label: "Assort Colour", width: 100 },
+  { label: "Component", width: 100 },
+  { label: "Fabric", width: 260 },
+  { label: "Item Form", width: 90 },
+  { label: "GSM", width: 55 },
+  { label: "Size", width: 110 },
+  { label: "Dia/Size", width: 65 },
+  { label: "Width", width: 60 },
+  { label: "SQ Qty", width: 60 },
+  { label: "Piece Wt", width: 65 },
+  { label: "Wastage %", width: 70 },
+  { label: "Net Req Wt", width: 75 },
+  { label: "Loss %", width: 75 },
+  { label: "Total (Gross) Wt", width: 85 },
+  { label: "Unit", width: 55 },
 ] as const;
 
 const ENTRY_GRID_SUMMARY_COLS = [
-  "Assort Colour",
-  "Component",
-  "Fabric",
-  "Item Form",
-  "GSM",
-  "SQ Qty",
-  "Avg Piece Wt",
-  "Net Req Wt",
-  "Loss %",
-  "Total (Gross) Wt",
-  "Unit",
+  { label: "Assort Colour", width: 100 },
+  { label: "Component", width: 100 },
+  { label: "Fabric", width: 260 },
+  { label: "Item Form", width: 90 },
+  { label: "GSM", width: 55 },
+  { label: "SQ Qty", width: 70 },
+  { label: "Avg Piece Wt", width: 90 },
+  { label: "Net Req Wt", width: 85 },
+  { label: "Loss %", width: 75 },
+  { label: "Total (Gross) Wt", width: 90 },
+  { label: "Unit", width: 60 },
 ] as const;
+
+/** `<colgroup>` for whichever column set is active — `table-fixed` reads
+ *  widths from here, not from `<th>`/`<td>` content, so this is the ONE
+ *  place a column's width is declared. */
+function EntryRegisterGridCols({ cols }: { cols: readonly { label: string; width: number }[] }) {
+  return (
+    <colgroup>
+      {cols.map((c) => (
+        <col key={c.label} style={{ width: c.width }} />
+      ))}
+    </colgroup>
+  );
+}
 
 function EntryRegisterView({ data }: { data: EntryRegister | { refused: string } | null }) {
   const [viewMode, setViewMode] = useState<"detailed" | "summary">("detailed");
@@ -380,12 +408,13 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
           this app's own PDF/CSV export already render (see
           `lib/orders/fabric-bom/reports-export.ts`'s `registerBody`); a
           nested accordion here would be a second layout for one document. */}
-      <ReportTable>
+      <ReportTable fixed>
+        <EntryRegisterGridCols cols={viewMode === "detailed" ? ENTRY_GRID_DETAILED_COLS : ENTRY_GRID_SUMMARY_COLS} />
         <thead>
           <tr>
             {(viewMode === "detailed" ? ENTRY_GRID_DETAILED_COLS : ENTRY_GRID_SUMMARY_COLS).map((c) => (
-              <Th key={c} right={NUMERIC_ENTRY_COLS.has(c)}>
-                {c}
+              <Th key={c.label} right={NUMERIC_ENTRY_COLS.has(c.label)}>
+                {c.label}
               </Th>
             ))}
           </tr>
@@ -395,8 +424,8 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
             <EntryColourRows key={group.combo ?? "unassigned"} group={group} viewMode={viewMode} />
           ))}
           <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
-            <Td className="font-semibold">GRAND TOTAL</Td>
-            <Td colSpan={viewMode === "detailed" ? 7 : 4}>{""}</Td>
+            <Td colSpan={3} className="truncate font-semibold">GRAND TOTAL</Td>
+            <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
             <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.sqQty)}</Td>
             <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
             <Td right mono className="font-semibold">{fmtNumber(data.grandTotal.netReqWt)}</Td>
@@ -471,14 +500,22 @@ function EntryColourRows({
           <EntryComponentSummaryRow key={comp.key} colour={label} comp={comp} />
         ),
       )}
-      <tr className="bg-[#f1f3f5] font-semibold">
-        <Td className="font-semibold">{label} — subtotal</Td>
-        <Td colSpan={viewMode === "detailed" ? 7 : 4}>{""}</Td>
-        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.sqQty)}</Td>
+      {/* THE COLOUR SUBTOTAL IS THE COARSER LEVEL, and has to read as one —
+          `border-y-2` plus a darker tint than the component subtotal beneath
+          it, so a reader scanning down the table feels the grouping change
+          rather than seeing one undifferentiated grey band repeated at every
+          level (found 2026-09-11: component- and colour-level subtotals were
+          sharing one flat tint, which is what "needs a professional look"
+          was pointing at — a hierarchy that looks the same at every level
+          reads as no hierarchy at all). */}
+      <tr className="border-y-2 border-[#c7cdd4] bg-[#e9ecef] font-semibold uppercase tracking-wide">
+        <Td colSpan={3} className="truncate font-semibold text-[#3a4250]">{label} — subtotal</Td>
+        <Td colSpan={viewMode === "detailed" ? 5 : 2}>{""}</Td>
+        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.sqQty)}</Td>
         <Td colSpan={viewMode === "detailed" ? 2 : 1}>{""}</Td>
-        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.netReqWt)}</Td>
+        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.netReqWt)}</Td>
         <Td>{""}</Td>
-        <Td right mono className="font-semibold">{fmtNumber(group.subtotal.grossWt)}</Td>
+        <Td right mono className="font-semibold text-[#3a4250]">{fmtNumber(group.subtotal.grossWt)}</Td>
         <Td>{""}</Td>
       </tr>
     </>
@@ -491,9 +528,9 @@ function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: En
     <>
       {comp.sizes.map((s, i) => (
         <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-          <Td>{colour}</Td>
-          <Td>{componentLabel}</Td>
-          <Td>{comp.fabricName}</Td>
+          <Td><Truncated text={colour} /></Td>
+          <Td><Truncated text={componentLabel} /></Td>
+          <Td><Truncated text={comp.fabricName} /></Td>
           <Td><ItemFormBadge form={comp.itemForm} /></Td>
           <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
           <Td>{s.sizeLabel}</Td>
@@ -513,15 +550,18 @@ function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: En
           <Td>{s.uomCode ?? "—"}</Td>
         </tr>
       ))}
-      <tr className="bg-[#f1f3f5] font-semibold">
-        <Td className="font-semibold">{""}</Td>
-        <Td className="font-semibold">{componentLabel} — subtotal</Td>
-        <Td colSpan={6}>{""}</Td>
-        <Td right mono className="font-semibold">{fmtNumber(comp.subtotal.sqQty)}</Td>
+      {/* THE FINER LEVEL — lighter than the colour subtotal below it in
+          `EntryColourRows` on purpose, italic rather than uppercase, so the
+          two subtotal levels read as a hierarchy rather than one repeated
+          band. See that row's own note. */}
+      <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
+        <Td colSpan={3} className="truncate italic">{componentLabel} — subtotal</Td>
+        <Td colSpan={5}>{""}</Td>
+        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.sqQty)}</Td>
         <Td colSpan={2}>{""}</Td>
-        <Td right mono className="font-semibold">{fmtNumber(comp.subtotal.netReqWt)}</Td>
+        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.netReqWt)}</Td>
         <Td>{""}</Td>
-        <Td right mono className="font-semibold">{fmtNumber(comp.subtotal.grossWt)}</Td>
+        <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(comp.subtotal.grossWt)}</Td>
         <Td>{""}</Td>
       </tr>
     </>
@@ -540,9 +580,9 @@ function EntryComponentSummaryRow({ colour, comp }: { colour: string; comp: Entr
   const uomCode = comp.sizes.find((s) => s.uomCode)?.uomCode ?? null;
   return (
     <tr className="odd:bg-white even:bg-[#fafbfc]">
-      <Td>{colour}</Td>
-      <Td>{comp.componentNames.join(", ") || "—"}</Td>
-      <Td>{comp.fabricName}</Td>
+      <Td><Truncated text={colour} /></Td>
+      <Td><Truncated text={comp.componentNames.join(", ") || "—"} /></Td>
+      <Td><Truncated text={comp.fabricName} /></Td>
       <Td><ItemFormBadge form={comp.itemForm} /></Td>
       <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
       <Td right mono>{fmtNumber(comp.subtotal.sqQty)}</Td>
