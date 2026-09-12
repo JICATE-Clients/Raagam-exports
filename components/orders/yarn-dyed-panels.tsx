@@ -103,8 +103,10 @@ function dyedColourCount(rows: readonly YdRepeatRow[]): number {
 // ===========================================================================
 
 /**
- * `S No | Yarn | Type | Color | Uom | Value | Twisted Yarn` — legacy's order,
- * unchanged.
+ * `S No | Yarn | Type | Color | Uom | Value` — legacy's order. `Twisted Yarn`
+ * was on this row too; removed from the grid on client instruction
+ * (2026-09-12) — `twisted_yarn` stays on `order_fabric_bom_yd_repeats`,
+ * unrendered, same as `order_fabric_bom_lines.specification`.
  *
  * THE YARN LIST IS THE CLOTH'S OWN COMPOSITION, not the whole item master. Same
  * restriction the Structure picker on Fabric Lines carries and for the client's
@@ -225,17 +227,6 @@ export function RepeatsPanel({
         />
       ),
     },
-    {
-      header: "Twisted Yarn",
-      width: "8rem",
-      cell: (r) => (
-        <Input
-          className="h-8"
-          value={r.twisted_yarn}
-          onChange={(e) => onPatch(r.key, { twisted_yarn: e.target.value })}
-        />
-      ),
-    },
   ];
 
   return (
@@ -299,7 +290,8 @@ export function RepeatsPanel({
 // ===========================================================================
 
 /**
- * `Yarn | Type | Color | Uom | Value | Calculated % | Mixing % | Twisted Yarn`.
+ * `Yarn | Type | Color | Uom | Value | Calculated % | Mixing %` (`Twisted
+ * Yarn` removed alongside the Repeats cell, 2026-09-12 — see that panel).
  *
  * EVERY CELL IS COPIED OR COMPUTED — nothing here is stored, and the reason is
  * in yarn-dyed.ts's header: a figure the system can compute must not sit beside
@@ -394,11 +386,6 @@ export function MixingDetailsPanel({
         ) : (
           <NumCell value={r.net_weight} suffix={r.net_weight != null ? ` ${fabricUomName}` : ""} />
         ),
-    },
-    {
-      header: "Twisted Yarn",
-      width: "7rem",
-      cell: (r) => <Truncated>{r.twisted_yarn || "—"}</Truncated>,
     },
   ];
 

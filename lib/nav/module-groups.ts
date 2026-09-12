@@ -532,33 +532,24 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // one order per budget and is superseded.
           { href: "/orders/budgets", label: "Budgeting", description: "Cost a group of orders from their BOMs — rates, expenses and the profit position" },
           { href: "/orders/budget-approval", label: "Approval", description: "Approve or reject a submitted order budget — the last gate before purchase may act on it" },
+          // TA FOLLOWUP AND TA WORKLIST MOVE IN HERE (operator request,
+          // 2026-09-12). They stood as two standalone `kind: "link"` rows
+          // alongside this group from 2026-09-09/10 — see the git history on
+          // this block for the reasoning that put them there, which is
+          // unchanged: both are daily-use T&A screens, not the six
+          // configuration screens still sitting behind the hidden "ta"
+          // group below. What changed is only WHERE that pair of rows lives
+          // — nested under Order Management's own sidebar row instead of
+          // floating beside it — so they become `GroupChild` entries with a
+          // `description` (a `ModuleLink` carries none) rather than
+          // `kind: "link"` objects. Routes are unchanged; `cardOnly` on the
+          // TA Worklist entry inside the hidden "ta" group (below) still
+          // points here, since the row it defers to has only moved, not
+          // disappeared.
+          { href: "/orders/ta-followup", label: "TA Followup", description: "Mark PP and other T&A approvals Sent / Approved / Rework, and chase what is overdue" },
+          { href: "/orders/ta-worklist", label: "TA Worklist", description: "Your department's activities due today, and what is running late" },
         ],
       },
-      // TA FOLLOWUP — its own standalone row, alongside Order Management
-      // (operator request, 2026-09-09), not nested a level down under
-      // "Time & Action (TA)" the way the rest of that group's screens are.
-      // One screen, so `kind: "link"` rather than a `group`.
-      //
-      // Route renamed from `/orders/ta-approvals-worklist` to
-      // `/orders/ta-followup` in the same change — the feature was built
-      // this session and had no bookmarks or prose references yet, so this
-      // is the one moment a slug can be fixed for free. Renaming it LATER,
-      // after the route is load-bearing, is the `setup`/Order Management
-      // story this file already warns about above: "A rename is never just
-      // the registry."
-      { kind: "link", href: "/orders/ta-followup", label: "TA Followup" },
-      // TA WORKLIST JOINS IT (operator request, 2026-09-10) — this comment
-      // used to say TA Worklist deliberately STAYS nested under "Time &
-      // Action (TA)", unlike TA Followup. That was true only while the group
-      // still had a sidebar row of its own; the group was hidden the same
-      // day (see `hidden: true` on it, below), which made the ONE screen
-      // this whole file already singles out as "the only one that reads a
-      // schedule back" — the daily worklist, not a setup/admin screen —
-      // unreachable by menu at all. Promoted the same way TA Followup was,
-      // for the same reason: a screen that answers "what do I owe today"
-      // is not the same kind of thing as the six configuration screens
-      // still sitting behind the hidden group.
-      { kind: "link", href: "/orders/ta-worklist", label: "TA Worklist" },
       // THE REGISTER IS OFF THE MENU (client 2026-08-17). It is the fourth child
       // of `retired` at the bottom of this table, and the note there says why the
       // group now holds two different kinds of screen.

@@ -1571,18 +1571,41 @@ export function FabricBomScreen({
    * Guarded on the group already having rows, so reopening a line the planner
    * has worked on adds nothing and a line they opened and left keeps its single
    * blank rather than collecting one per visit.
+   *
+   * ## …OR ONE ROW PER DECLARED COLOUR (client 2026-09-12)
+   *
+   * When the LINE'S OWN `no_of_colors` (0513) is set, the seed is that many
+   * rows instead of one, each `color_name` pre-filled `Color 1` / `Color 2` /
+   * … — so a planner who has already told the Fabric Line how many colours
+   * this cloth carries does not then have to hand-add every row before
+   * mapping them. Still governed by the SAME guard as the one-row case: it
+   * only fires on a group with zero repeats, never re-seeds or tops up a
+   * group the planner has already started mapping (typing over `Color 2`, or
+   * deleting a row, both leave the group non-empty and this stays out of it
+   * from then on). No count declared falls back to the one blank row above —
+   * this does not guess a count nobody stated.
    */
   function openDetail(line: LineRow, origin: DOMRect | null) {
     const address = ydAddressOf(line);
     const key = ydAddress(address);
+    const colourCount = line.no_of_colors && line.no_of_colors > 0 ? line.no_of_colors : 1;
     /* THE KEYS ARE MINTED OUT HERE, not inside the updaters. `newKey()` advances
        a counter, and an updater React may call more than once must not be the
        thing that advances it — the guard below also RETURNS `xs` unchanged on
        most openings, so a key minted inside would be spent on nothing. */
-    const repeatKey = newKey();
+    const repeatKeys = Array.from({ length: colourCount }, () => newKey());
     const comboKey = newKey();
     setYdRepeats((xs) =>
-      xs.some((r) => ydAddress(r) === key) ? xs : [...xs, blankYdRepeat(repeatKey, address)],
+      xs.some((r) => ydAddress(r) === key)
+        ? xs
+        : [
+            ...xs,
+            ...repeatKeys.map((repeatKey, i) => ({
+              ...blankYdRepeat(repeatKey, address),
+              sno: line.no_of_colors ? i + 1 : 0,
+              color_name: line.no_of_colors ? `Color ${i + 1}` : "",
+            })),
+          ],
     );
     setYdCombinations((xs) =>
       xs.some((r) => ydAddress(r) === key) ? xs : [...xs, blankYdCombination(comboKey, address)],
@@ -5919,7 +5942,8 @@ export function FabricBomScreen({
                  land on the text node inside it. See `detailOrigin`. */
               /* `openDetail`, not the two setters it used to call inline — it
                  seeds the popup's blank rows on the way in
-                 (`erp-table-default-row`). */
+                 (`erp-table-default-row`), including the colour count seed —
+                 see that function's own comment. */
               onClick={(ev) => openDetail(r, ev.currentTarget.getBoundingClientRect())}
             >
               Detail

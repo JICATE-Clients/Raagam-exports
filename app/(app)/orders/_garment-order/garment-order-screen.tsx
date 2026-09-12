@@ -1445,6 +1445,30 @@ const weekBefore = (iso: string): string =>
 const STYLE_COL_W = "14rem";
 
 /**
+ * T&A ▸ ACTIVITY LADDER ROW — Activity / Days column widths, read by both the
+ * header (`Activity Days Owner Status`) and every data row
+ * (`taRenderMobileRow`), because that is the only way the two can agree on
+ * where a column sits. Owner reuses `TA_OWNER_COL_W` beside this one, and
+ * Status is deliberately NOT a fourth fixed width here — see that constant's
+ * own comment for why it is `flex-1` instead.
+ *
+ * BEFORE THIS, EVERY COLUMN WAS SIZED TO ITS OWN CONTENT — `w-40` / `w-32` on
+ * the first three, and the Status chip pushed to the far edge with `ml-auto`
+ * rather than given a width of its own. That worked while the chip's content
+ * was short (one date + a status word), and broke the moment it grew (0546:
+ * showing the row's END date beside its start date, "→ …"): nothing in a
+ * plain `flex` row reserves space for that growth, so once the row's total
+ * content exceeded the `max-w-2xl` pane, `flex-wrap` moved the WHOLE CHIP to
+ * a second line — landing wherever it happened to fall rather than under the
+ * "Status" header above it (screenshot 2853). Exactly the "Approval Qty tab"
+ * bug this repo already has a name for: an intrinsic-width element decides
+ * where a column falls, so a longer value moves the column instead of
+ * growing inside it.
+ */
+const TA_ACTIVITY_COL_W = "10rem";
+const TA_OWNER_COL_W = "8rem";
+
+/**
  * A STYLE FIELD'S WIDTH, KEYED BY ITS HEADER.
  *
  * The row left the 14-column track on 2026-08-26 for the reason the Order Info
@@ -9632,11 +9656,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     return (
         <div
           className={cn(
-            "flex flex-wrap items-center gap-x-3 gap-y-1 border-l-[3px] bg-surface px-2 py-1.5",
+            "flex items-center gap-x-3 gap-y-1 border-l-[3px] bg-surface px-2 py-1.5",
             toneBorder[tone],
           )}
         >
-          <div className="w-40 min-w-0 flex-none">
+          <div className="min-w-0 flex-none" style={{ width: TA_ACTIVITY_COL_W }}>
             <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
               {taColumns[0].cell(r, i)}
             </RequiredScope>
@@ -9673,7 +9697,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             )}
           </div>
 
-          <div className="flex flex-none items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2 pr-1">
+          <div className="flex w-fit items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2 pr-1">
             <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
               {taColumns[1].cell(r, i)}
             </RequiredScope>
@@ -9686,7 +9710,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              RecordPicker draws none of its own). The hold still works
              regardless — `useRequiredHold` inside `RecordPicker` does not
              depend on a star being drawn anywhere. */}
-          <div className="w-32 min-w-0 flex-none">
+          <div className="min-w-0 flex-none" style={{ width: TA_OWNER_COL_W }}>
             <RequiredScope required={taColumns[4].required} label={taColumns[4].header}>
               {taColumns[4].cell(r, i)}
             </RequiredScope>
@@ -9702,7 +9726,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               treatment for one app. */}
           <div
             className={cn(
-              "ml-auto flex flex-none items-center gap-1.5 rounded-md border px-2 py-1",
+              /* `flex-1 min-w-0` — the same GROWING space the header's own
+                 "Status" span reserves (`flex-1` there too), rather than a
+                 width sized to this chip's own content. `justify-end` keeps
+                 the chip hugging the right edge of that space when its
+                 content is short; `flex-wrap` + `min-w-0` are what let a
+                 LONG one (target date + "→" + end date + status word) wrap
+                 onto a second line INSIDE the chip's own border instead of
+                 the chip itself being shoved past the row's edge and picked
+                 up by the row's own wrap (screenshot 2853 — see
+                 `TA_ACTIVITY_COL_W`'s comment for the history). */
+              "flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 rounded-md border px-2 py-1",
               toneBox[tone],
             )}
           >
@@ -19376,11 +19410,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           {/* `max-w-2xl`, LEFT-ALIGNED (client: "left align it and compact it
              more") — no `mx-auto`, so the column hugs the pane's own left
              edge instead of centring in whatever width the pane happens to
-             be. The header row's five labels line up loosely over
-             `taRenderMobileRow`'s own grid — "loosely" because a compact card
-             flexes its own widths (a two-digit Days pill vs. a name that
-             wraps), and a header pinned to pixel-exact columns would drift
-             the first time either did. */}
+             be. The header row's four labels line up over
+             `taRenderMobileRow`'s own row — Activity/Owner share the fixed
+             `TA_ACTIVITY_COL_W`/`TA_OWNER_COL_W` widths, and Status is
+             `flex-1` in both, so the two reserve the SAME space rather than
+             each guessing at it independently. This used to say "loosely",
+             back when every column was sized to its own content and the
+             Status chip was pushed right with a bare `ml-auto`; that broke
+             (screenshot 2853) the moment the chip's content grew past what
+             the row's `flex-wrap` could keep on one line. See
+             `TA_ACTIVITY_COL_W`'s own comment for the history. */}
           <div className="max-w-2xl">
             {/* THE GATE, BACK ON THE ACTIVITY VIEW (operator, 2026-09-11:
                 "move the Cutting Start Based / Yarn Purchase Based mode
@@ -19433,13 +19472,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               </div>
             )}
             <div className="flex items-center gap-x-3 border-b border-border-strong px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              <span className="w-40 flex-none">Activity</span>
+              <span className="flex-none" style={{ width: TA_ACTIVITY_COL_W }}>Activity</span>
               <span className="flex-none">Days</span>
-              <span className="w-32 flex-none">Owner</span>
+              <span className="flex-none" style={{ width: TA_OWNER_COL_W }}>Owner</span>
               {/* Target and Status merged into one chip on the row itself
                   (`taRenderMobileRow`) — one header word for the one thing
-                  the operator now sees as one fact. */}
-              <span className="ml-auto flex-none">Status</span>
+                  the operator now sees as one fact. `flex-1 text-right`, not
+                  `ml-auto`: this is now the same GROWING column the chip
+                  below sits in (`taRenderMobileRow`'s own note), so the two
+                  line up under the same reserved space instead of each
+                  pushing itself to the edge of two independently-wrapping
+                  flex rows. */}
+              <span className="flex-1 text-right">Status</span>
             </div>
             <div
               /* `!border-t-0` / `!py-0` cancel `flatRows`'s own hairline/
@@ -19449,8 +19493,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                  today, is being more compact than it was. NO `w-fit`, unlike
                  the icon-timeline version this replaces: that design needed
                  the row to shrink to its own content so the ✕ sat next to it;
-                 this one needs the row to fill the column's width so the
-                 Status chip's `ml-auto` has somewhere to push to. */
+                 this one needs the row to fill the pane's width, or the
+                 Status chip's `flex-1` has nothing to grow into. */
               className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0"
             >
               <ChildGrid<TaRow>
