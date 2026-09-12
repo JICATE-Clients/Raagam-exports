@@ -6,7 +6,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -185,37 +185,29 @@ export default function CompletenessSheet({
               the only thing saying which set a figure belongs to — the reason
               the record editor keeps them too. */}
           <DetailSection label="Pay — Statutory" cols={12}>
-            <FieldGrid>
-              {money("Gross Salary", "stat_gross", "sr-stat-gross")}
-              {money("Basic", "stat_basic", "sr-stat-basic")}
-              {money("DA", "stat_da", "sr-stat-da")}
-              {money("HRA", "stat_hra", "sr-stat-hra")}
-            </FieldGrid>
+            {money("Gross Salary", "stat_gross", "sr-stat-gross")}
+            {money("Basic", "stat_basic", "sr-stat-basic")}
+            {money("DA", "stat_da", "sr-stat-da")}
+            {money("HRA", "stat_hra", "sr-stat-hra")}
           </DetailSection>
           <DetailSection label="Pay — Actual" cols={12}>
-            <FieldGrid>
-              {money("Gross Salary", "act_gross", "sr-act-gross")}
-              {money("Basic", "act_basic", "sr-act-basic")}
-              {money("DA", "act_da", "sr-act-da")}
-              {money("HRA", "act_hra", "sr-act-hra")}
-            </FieldGrid>
+            {money("Gross Salary", "act_gross", "sr-act-gross")}
+            {money("Basic", "act_basic", "sr-act-basic")}
+            {money("DA", "act_da", "sr-act-da")}
+            {money("HRA", "act_hra", "sr-act-hra")}
           </DetailSection>
           <DetailSection label="ESI Details" cols={12}>
-            <FieldGrid>
-              {status("ESI", "esi_status", "sr-esi")}
-              {text("ESI No.", "esi_no", "sr-esi-no")}
-              {date("Date of Joining", "esi_date_of_joining", "sr-esi-doj")}
-              {date("Date of Leaving", "esi_date_of_leaving", "sr-esi-dol")}
-              {text("Dispensary", "esi_dispensary", "sr-esi-disp")}
-            </FieldGrid>
+            {status("ESI", "esi_status", "sr-esi")}
+            {text("ESI No.", "esi_no", "sr-esi-no")}
+            {date("Date of Joining", "esi_date_of_joining", "sr-esi-doj")}
+            {date("Date of Leaving", "esi_date_of_leaving", "sr-esi-dol")}
+            {text("Dispensary", "esi_dispensary", "sr-esi-disp")}
           </DetailSection>
           <DetailSection label="PF Details" cols={12}>
-            <FieldGrid>
-              {status("PF", "pf_status", "sr-pf")}
-              {text("PF No.", "pf_no", "sr-pf-no")}
-              {date("Date of Joining", "pf_date_of_joining", "sr-pf-doj")}
-              {date("Date of Leaving", "pf_date_of_leaving", "sr-pf-dol")}
-            </FieldGrid>
+            {status("PF", "pf_status", "sr-pf")}
+            {text("PF No.", "pf_no", "sr-pf-no")}
+            {date("Date of Joining", "pf_date_of_joining", "sr-pf-doj")}
+            {date("Date of Leaving", "pf_date_of_leaving", "sr-pf-dol")}
           </DetailSection>
         </div>
       ) : (
@@ -223,70 +215,68 @@ export default function CompletenessSheet({
            Rows: 3+6+3 = 12, then 3+3+3+3 = 12 — every row closes, which is what
            keeps mixed widths from reading as ragged whitespace. */
         <DetailSection label="Bank Account" cols={12}>
-          <FieldGrid>
-            <Field label="Pay Mode" size="sm" htmlFor="bd-pay-mode">
-              <Select
-                id="bd-pay-mode"
-                value={payMode}
-                onChange={(e) => setPayMode(e.target.value)}
-              >
-                {PAY_MODES.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Bank" size="lg" htmlFor="bd-bank">
-              <Select
-                id="bd-bank"
-                value={account.bank_id ?? ""}
-                onChange={(e) => setA({ bank_id: e.target.value || null })}
-              >
-                <option value=""></option>
-                {banks.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Branch" size="sm" htmlFor="bd-branch">
-              <Input
-                id="bd-branch"
-                value={account.branch ?? ""}
-                onChange={(e) => setA({ branch: e.target.value })}
-              />
-            </Field>
-            <Field label="Bank Type" size="sm" htmlFor="bd-bank-type">
-              <Input
-                id="bd-bank-type"
-                value={account.bank_type ?? ""}
-                onChange={(e) => setA({ bank_type: e.target.value })}
-              />
-            </Field>
-            <Field label="A/c Type" size="sm" htmlFor="bd-ac-type">
-              <Input
-                id="bd-ac-type"
-                value={account.ac_type ?? ""}
-                onChange={(e) => setA({ ac_type: e.target.value })}
-              />
-            </Field>
-            <Field label="A/c No" size="sm" htmlFor="bd-ac-no">
-              <Input
-                id="bd-ac-no"
-                value={account.ac_no ?? ""}
-                onChange={(e) => setA({ ac_no: e.target.value })}
-              />
-            </Field>
-            <Field label="IFSC Code" size="sm" htmlFor="bd-ifsc">
-              <Input
-                id="bd-ifsc"
-                value={account.ifsc_code ?? ""}
-                onChange={(e) => setA({ ifsc_code: e.target.value })}
-              />
-            </Field>
-          </FieldGrid>
+          <Field label="Pay Mode" size="sm" htmlFor="bd-pay-mode">
+            <Select
+              id="bd-pay-mode"
+              value={payMode}
+              onChange={(e) => setPayMode(e.target.value)}
+            >
+              {PAY_MODES.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Bank" size="lg" htmlFor="bd-bank">
+            <Select
+              id="bd-bank"
+              value={account.bank_id ?? ""}
+              onChange={(e) => setA({ bank_id: e.target.value || null })}
+            >
+              <option value=""></option>
+              {banks.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Branch" size="sm" htmlFor="bd-branch">
+            <Input
+              id="bd-branch"
+              value={account.branch ?? ""}
+              onChange={(e) => setA({ branch: e.target.value })}
+            />
+          </Field>
+          <Field label="Bank Type" size="sm" htmlFor="bd-bank-type">
+            <Input
+              id="bd-bank-type"
+              value={account.bank_type ?? ""}
+              onChange={(e) => setA({ bank_type: e.target.value })}
+            />
+          </Field>
+          <Field label="A/c Type" size="sm" htmlFor="bd-ac-type">
+            <Input
+              id="bd-ac-type"
+              value={account.ac_type ?? ""}
+              onChange={(e) => setA({ ac_type: e.target.value })}
+            />
+          </Field>
+          <Field label="A/c No" size="sm" htmlFor="bd-ac-no">
+            <Input
+              id="bd-ac-no"
+              value={account.ac_no ?? ""}
+              onChange={(e) => setA({ ac_no: e.target.value })}
+            />
+          </Field>
+          <Field label="IFSC Code" size="sm" htmlFor="bd-ifsc">
+            <Input
+              id="bd-ifsc"
+              value={account.ifsc_code ?? ""}
+              onChange={(e) => setA({ ifsc_code: e.target.value })}
+            />
+          </Field>
         </DetailSection>
       )}
     </Sheet>

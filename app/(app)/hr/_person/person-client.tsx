@@ -54,6 +54,7 @@ import {
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { Toggle } from "@/components/ui/toggle";
+import { PhotoUpload } from "@/components/ui/photo-upload";
 import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
@@ -438,6 +439,8 @@ const PERSON_DEFAULTS: PersonInput = {
   pf_no: null,
   pf_date_of_joining: null,
   pf_date_of_leaving: null,
+
+  photo_url: null,
 
   /* Enclosure (0556) */
   passbook_no: null,
@@ -2058,6 +2061,31 @@ export default function PersonClient({
                     options={divisions}
                     value={form.division_id}
                     onChange={(v) => set({ division_id: v })}
+                  />
+                </Field>
+
+                {/*
+                  THE PHOTO CLOSES THE IDENTITY BLOCK (client 2026-09-12).
+
+                  LAST, not first, and that is about the keyboard rather than
+                  looks: `PhotoUpload` is a button, and Tab lands on fields —
+                  so wherever it sits, the typing path steps over it. Putting
+                  it at the end means the operator types ID No → … → Division
+                  in one unbroken run and reaches the picture when the words
+                  are done, instead of meeting an unreachable control in the
+                  middle of the block.
+
+                  `md` (4 of 12) beside Division's `sm` (3) leaves the row at
+                  7 — a partial LAST row of the group, which is what the rest
+                  of this screen does too. It is a control with a preview
+                  rather than a box, so the row it sits on is taller; the last
+                  row is the one place that costs nothing.
+                */}
+                <Field label="Photo" size="md">
+                  <PhotoUpload
+                    value={form.photo_url}
+                    onChange={(url) => set({ photo_url: url })}
+                    folder={isWorker ? "workers" : "staff"}
                   />
                 </Field>
               </FieldGrid>
