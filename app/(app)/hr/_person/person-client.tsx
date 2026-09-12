@@ -3942,7 +3942,8 @@ export default function PersonClient({
                     />
                   </Field>
                   <TextField
-                    label="Grade" size="xs"
+                    label="Grade"
+                    size="xs"
                     value={form.grade}
                     onChange={(v) => set({ grade: v })}
                     id="od-grade"
@@ -3967,9 +3968,45 @@ export default function PersonClient({
           content: childrenLoading ? (
             <LoadingRows />
           ) : (
+            /*
+                A ROW OF LABELLED FIELDS, NOT A TABLE LINE (client 2026-09-12:
+                "i want like this freely not in a in line box", pointing at the
+                Detail pane).
+
+                `forceCards` + `flatRows` is the pair `raagam-screen-layout`
+                rule 4 names, and they go together: `flatRows` is a cards-mode
+                MODIFIER, so on its own it is a silent no-op and the boxes stay.
+                Together they give ONE frame for the grid with a hairline
+                between records, rather than a bordered box per row — which the
+                client rejected separately on 2026-08-19.
+
+                The labels and cells are READ OFF `columns`, never retyped
+                beside it, so a new column cannot leave the header and the card
+                disagreeing. `required` is forwarded for the reason AGENTS.md
+                spells out: in cards mode `ChildGrid` renders the row itself
+                instead of wrapping each cell in a `RequiredScope`, so a column
+                that declares `required` draws the star and loses the cursor
+                hold unless the control is told as well.
+              */
             <ChildGrid<FamilyRow>
               columns={familyColumns}
               rows={family}
+              forceCards
+              flatRows
+              renderMobileRow={(row, i) => (
+                <FieldGrid>
+                  {familyColumns.map((c, ci) => (
+                    <Field
+                      key={ci}
+                      label={c.header}
+                      required={c.required}
+                      size="sm"
+                    >
+                      {c.cell(row, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              )}
               onAdd={() => setFamily((xs) => [...xs, blankFamily(newKey())])}
               onRemove={(r) =>
                 setFamily((xs) => xs.filter((x) => x.key !== r.key))
@@ -3987,9 +4024,45 @@ export default function PersonClient({
           content: childrenLoading ? (
             <LoadingRows />
           ) : (
+            /*
+                A ROW OF LABELLED FIELDS, NOT A TABLE LINE (client 2026-09-12:
+                "i want like this freely not in a in line box", pointing at the
+                Detail pane).
+
+                `forceCards` + `flatRows` is the pair `raagam-screen-layout`
+                rule 4 names, and they go together: `flatRows` is a cards-mode
+                MODIFIER, so on its own it is a silent no-op and the boxes stay.
+                Together they give ONE frame for the grid with a hairline
+                between records, rather than a bordered box per row — which the
+                client rejected separately on 2026-08-19.
+
+                The labels and cells are READ OFF `columns`, never retyped
+                beside it, so a new column cannot leave the header and the card
+                disagreeing. `required` is forwarded for the reason AGENTS.md
+                spells out: in cards mode `ChildGrid` renders the row itself
+                instead of wrapping each cell in a `RequiredScope`, so a column
+                that declares `required` draws the star and loses the cursor
+                hold unless the control is told as well.
+              */
             <ChildGrid<ExperienceRow>
               columns={experienceColumns}
               rows={experience}
+              forceCards
+              flatRows
+              renderMobileRow={(row, i) => (
+                <FieldGrid>
+                  {experienceColumns.map((c, ci) => (
+                    <Field
+                      key={ci}
+                      label={c.header}
+                      required={c.required}
+                      size="sm"
+                    >
+                      {c.cell(row, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              )}
               onAdd={() =>
                 setExperience((xs) => [...xs, blankExperience(newKey())])
               }
