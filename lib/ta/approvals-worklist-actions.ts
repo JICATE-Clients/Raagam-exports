@@ -15,7 +15,7 @@ import { today, addDays } from "@/lib/calendar";
  * that — see its own header.
  */
 
-type Result = { ok: true } | { ok: false; error: string };
+type Result = { ok: true; warning?: string } | { ok: false; error: string };
 
 const LIST_PATH = "/orders/ta-followup";
 const TABLE = "garment_order_amendment_ta_approvals";
@@ -37,15 +37,27 @@ const HISTORY_TABLE = "garment_order_amendment_ta_approval_history";
  * gate stricter than the spec that created it.
  *
  * EXPECTED APPROVAL DATE (§3B): `target_date` is recomputed HERE, from the
- * ACTUAL send date, never the originally planned one — `target_date =
- * sendDate + masterLeadDays`, the buyer's own Customer Master override
- * (`customer_approval_defaults`) falling back to the approval's own
- * `standard_days`, the exact same resolution `getApprovalsWorklist` already
- * uses for the read side. This is also what makes a REWORKED (V2) row's
+ * ACTUAL send date — `target_date = sendDate + this buyer's Customer Master
+ * Review Lead Days`. This is also what makes a REWORKED (V2) row's
  * resubmission target correct with no separate formula: `markApprovalRework`
  * leaves the stale `target_date` alone (so a reworked sample shows as
  * immediately due), and the moment it is marked Sent again THIS function
  * recomputes it from the new send date.
+ *
+ * NO FALLBACK TO `ta_approvals.standard_days` — client correction,
+ * 2026-09-11 ("[the lead days] need to [come] from customer based approval
+ * days"). The order's own T&A tab already refuses this exact fallback for
+ * the PLANNED target date (`taApprovalDates` in garment-order-screen.tsx,
+ * client 2026-09-09: "if there is no approval for that customer it should
+ * show the required indication instead ... don't show like this dummy
+ * date") — a number nobody configured for THIS buyer computing a real-
+ * looking date is the "silent fallback makes the customer's own list
+ * advisory" trap AGENTS.md's Nominated vendors section names, and this
+ * function was the one place that still had it. When this (customer,
+ * approval) pair has no `customer_approval_defaults` row, `target_date` is
+ * left exactly as it was — never guessed from the global default — and the
+ * caller gets a `warning` back so the merchandiser learns the customer's
+ * Approvals tab needs configuring, rather than trusting a wrong date.
  */
 export async function markApprovalSent(
   id: string,
@@ -69,7 +81,7 @@ export async function markApprovalSent(
     // inference to `GenericStringError` for the whole row — see the other
     // reads in this file for the same discipline.
     .select(
-      "approval_id, approval:ta_approvals(requires_proof, standard_days), amendment:garment_order_amendments(customer_id)",
+      "approval_id, approval:ta_approvals(requires_proof, name), amendment:garment_order_amendments(customer_id)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -85,11 +97,11 @@ export async function markApprovalSent(
     };
   }
 
-  // §3B: same (customer, approval) override lookup `getApprovalsWorklist`
-  // does on read, done here as a single-pair query since only one row is
-  // being sent.
+  // §3B: the buyer's OWN Review Lead Days, and only that — see this
+  // function's own header for why the global standard_days fallback was
+  // removed.
   const approvalId = row.approval_id;
-  let leadDays = appr?.standard_days ?? 0;
+  let leadDays: number | null = null;
   if (amendment?.customer_id && approvalId) {
     const { data: override } = await s
       .from("customer_approval_defaults")
@@ -104,9 +116,9 @@ export async function markApprovalSent(
     actual_sent_date: date,
     actual_sent_time: sentTime?.trim() || null,
     proof_reference: reference,
-    target_date: addDays(date, leadDays),
     status: "sent",
   };
+  if (leadDays !== null) patch.target_date = addDays(date, leadDays);
   if (proof) {
     patch.proof_path = proof.path;
     patch.mime_type = proof.mimeType;
@@ -115,7 +127,12 @@ export async function markApprovalSent(
   const { error } = await s.from(TABLE).update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath(LIST_PATH);
-  return { ok: true };
+  return leadDays === null
+    ? {
+        ok: true,
+        warning: `${appr?.name ?? "This approval"} has no Review Lead Days set for this customer — its Expected Approval Date was not updated. Set it on the customer's own Approvals tab.`,
+      }
+    : { ok: true };
 }
 
 export async function markApprovalApproved(id: string, receivedDate?: string): Promise<Result> {

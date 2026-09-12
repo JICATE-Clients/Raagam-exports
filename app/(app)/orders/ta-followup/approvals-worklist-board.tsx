@@ -110,7 +110,7 @@ export function ApprovalsWorklistBoard({
   const [reworkId, setReworkId] = useState<string | null>(null);
   const [historyRow, setHistoryRow] = useState<ApprovalWorklistRow | null>(null);
   const [dispatchRow, setDispatchRow] = useState<ApprovalWorklistRow | null>(null);
-  const { success, error } = useToast();
+  const { toast, success, error } = useToast();
 
   useEffect(() => {
     if (!pending) return;
@@ -156,8 +156,14 @@ export function ApprovalsWorklistBoard({
       }
       const res = await markApprovalSent(row.id, opts.sentDate, opts.sentTime, opts.proofReference, proof);
       setBusyId(null);
-      if (res.ok) success(proof ? "Marked sent, proof attached" : "Marked sent");
-      else error(res.error ?? "Could not save");
+      if (res.ok) {
+        success(proof ? "Marked sent, proof attached" : "Marked sent");
+        // No Review Lead Days configured for this buyer — Expected Approval
+        // Date could not be recomputed (markApprovalSent's own header).
+        if (res.warning) toast(res.warning, "info");
+      } else {
+        error(res.error ?? "Could not save");
+      }
     });
   }
 

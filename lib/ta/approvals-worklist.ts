@@ -63,8 +63,11 @@ export interface ApprovalWorklistRow {
    */
   merchandiserDelayDays: number | null;
   buyerDelayDays: number | null;
-  /** `customer_approval_defaults.lead_time_days` for this buyer+approval, falling back to `ta_approvals.standard_days`. */
-  masterLeadDays: number;
+  /** `customer_approval_defaults.lead_time_days` for this buyer+approval, or
+   *  null when this customer has no row for it — NO fallback to
+   *  `ta_approvals.standard_days` (2026-09-11 correction; see the note above
+   *  its computation). */
+  masterLeadDays: number | null;
 }
 
 export interface ApprovalWorklistNote {
@@ -220,9 +223,14 @@ export async function getApprovalsWorklist(): Promise<ApprovalWorklist> {
 
     const customerId = str(a?.customer_id);
     const approvalId = str(r.approval_id);
+    // NO FALLBACK TO `standard_days` (client correction, 2026-09-11 — see
+    // markApprovalSent's own header for the write-side half of this same
+    // fix). A buyer's "agreed" review window is whatever THEIR OWN
+    // Customer Master row says, never the global default — reporting one
+    // against a number nobody configured for them would flag a buyer as
+    // late against a promise they never made.
     const masterLeadDays =
-      (customerId && approvalId ? leadOverrides.get(`${customerId}:${approvalId}`) : undefined) ??
-      num(appr?.standard_days);
+      customerId && approvalId ? (leadOverrides.get(`${customerId}:${approvalId}`) ?? null) : null;
 
     // §5: MERCHANDISER DELAY — only meaningful once the approval was actually
     // sent; max(0, …) because an early dispatch is not a delay.
@@ -230,11 +238,12 @@ export async function getApprovalsWorklist(): Promise<ApprovalWorklist> {
       ? Math.max(0, daysBetween(targetDate, actualSentDate))
       : null;
     // §5: BUYER EXCESS DELAY — only meaningful once the buyer has actually
-    // responded (received/rejected); the review window itself is
+    // responded (received/rejected) AND this buyer has an actual configured
+    // lead time to judge them against; the review window itself is
     // actualReceivedDate − actualSentDate, and only the days beyond the
     // buyer's own agreed lead time count against them.
     const buyerDelayDays =
-      actualSentDate && actualReceivedDate
+      actualSentDate && actualReceivedDate && masterLeadDays !== null
         ? Math.max(0, daysBetween(actualSentDate, actualReceivedDate) - masterLeadDays)
         : null;
 
