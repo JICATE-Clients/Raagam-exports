@@ -9,8 +9,14 @@ import { ValidatedInput } from "@/components/ui/validated-input";
 import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import {
+  rowActionsColumn,
+  ROW_ACTIONS_MENU_WIDTH,
+} from "@/components/ui/row-actions-column";
+import { isInactive } from "@/lib/masters/inactive";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -43,7 +49,6 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
-import { Toggle } from "@/components/ui/toggle";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -790,6 +795,10 @@ export function EmployeeMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `employee` is registered in
+     `lib/masters/active-registry.ts`. */
+  const { setStatus, isPending: statusPending } = useBlockAction("employee");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -1252,24 +1261,51 @@ export function EmployeeMasterScreen({
       ),
     },
     {
+      /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
+         API, with no editor in between. Same component as Country, Port, Bank
+         and Destination, so no two listings can drift.
+
+         This screen builds its own `DataTable` rather than going through
+         `MasterListShell`, so the cell is declared here instead of being spliced
+         in. That is the ONLY difference: the switch, its green, the word beside
+         it and the `isInactive` read are all `StatusToggle`'s.
+
+         DRAFT IS STILL SAID, and it is `StatusToggle`'s pill rather than this
+         screen's — `is_draft` is orthogonal to `inactive` (a draft employee is
+         live or blocked like any other), so it can never be a switch position
+         and the two states are shown side by side. */
       header: "Status",
-      cell: (r) => {
-        const tone = r.is_draft ? "warning" : r.inactive ? "danger" : "success";
-        const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
-        return <StatusPill tone={tone}>{text}</StatusPill>;
-      },
+      className: "w-32",
+      cell: (r) => (
+        <StatusToggle
+          row={r}
+          label={r.name}
+          draft={r.is_draft}
+          // Blocking is the destructive direction and `setMasterActive` gates it
+          // as `delete` server-side.
+          disabled={!perms.canDelete || isPending || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
+      ),
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.name}
-        onView={() => setViewRow(r)}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
+    rowActionsColumn(
+      (r) => (
+        /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
+           Delete behind a confirm dialog. `onView` stays the screen's own — it
+           opens the purpose-built `RecordViewSheet` below, which always wins over
+           the menu's row-derived one. */
+        <TableRowActionsMenu
+          label={r.name}
+          onView={() => setViewRow(r)}
+          onEdit={() => openEdit(r)}
+          onDelete={() => remove(r)}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      ),
+      ROW_ACTIONS_MENU_WIDTH,
+    ),
   ];
 
   const age = ageFromDob(form.dob);
@@ -1391,7 +1427,17 @@ export function EmployeeMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No employees yet." />
+        {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
+            last one alone — the ⋮ must stay legible on a dimmed row, and
+            `opacity` on the `<tr>` would take it down with the text. Same rule
+            `MasterListShell` applies to the listings it owns. */}
+        <DataTable
+          columns={withCreatedColumns(columns, filtered)}
+          rows={filtered}
+          getKey={(r) => r.id}
+          rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
+          empty="No employees yet."
+        />
       </div>
 
       {/* mobile cards */}
@@ -1640,32 +1686,24 @@ export function EmployeeMasterScreen({
                       />
                     </Field>
 
-                    {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-                        Entry uses) — the identical swap Country, Destination and Notify
-                        made, and from the SAME component, so no two masters can drift
-                        apart. It is still a real `<input type="checkbox">` underneath
-                        (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
-                        still counts it and Tab, Enter-advance and the arrows all reach it.
+                    {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17:
+                        "block option move to that table listing — we are used to
+                        give that block while CREATING the data but we need to
+                        move this in ACTION only, no more in the creating
+                        screen"). It is the listing's Status column now: a switch
+                        on the row, wired straight to `setStatus` above, with
+                        `employee` registered in `lib/masters/active-registry.ts`.
 
-                        `label=""` RESERVES the label row rather than drawing one: a cell
-                        with no label at all collapses it and lifts the switch ~16px above
-                        the labelled fields beside it. The switch renders its own word, so
-                        a `label="Inactive"` here would draw the name twice. */}
-                    {editId && (
-                      /* NO `w`, and no `size="full"` either: that prop is a col-span,
-                         which is inert in a flex row — it would have packed the switch
-                         inline anyway, but reading as though it claimed a line. An
-                         unsized `Field` in a flex row is exactly as wide as what is in
-                         it, and a switch is not one of the widths. */
-                      <Field label="">
-                        <Toggle
-                          id="emp-inactive"
-                          label="Inactive"
-                          checked={form.inactive}
-                          onChange={(inactive) => set({ inactive })}
-                        />
-                      </Field>
-                    )}
+                        **The row control had to land first** — it is the only
+                        route to the flag once the field is gone, so deleting the
+                        field on its own would have made blocking an employee
+                        impossible rather than moved it. Same order Country,
+                        Destination and Bank followed.
+
+                        `form.inactive` is STILL in the form state and still
+                        round-trips through `submit()`, so editing a blocked
+                        employee does not quietly switch it back on. The value is
+                        simply no longer typed here. */}
                   </FieldRow>
                 </DetailSection>
 

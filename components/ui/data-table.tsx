@@ -24,6 +24,7 @@ export function DataTable<T>({
   onToggle,
   onToggleAll,
   bare = false,
+  rowClassName,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -42,6 +43,19 @@ export function DataTable<T>({
    * sits visibly inset inside the Card's `rounded-xl`.
    */
   bare?: boolean;
+  /**
+   * Extra classes for one row, on BOTH layouts - the desktop `<tr>` and the
+   * stacked card beneath it.
+   *
+   * Added for the muted-inactive rule: a listing that carries its status in the
+   * row-actions menu instead of a Status column has no other way to show that a
+   * row is switched off (`MasterListShell`). Deliberately a class hook and not a
+   * `muted` boolean - the table has no opinion about WHY a row is dimmed, and a
+   * named flag here would be a second place the status rule is written down.
+   *
+   * Applied last so it wins over the hover and selected states above it.
+   */
+  rowClassName?: (row: T, index: number) => string | undefined;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   const selected = selectedKeys ?? new Set<string>();
@@ -114,6 +128,7 @@ export function DataTable<T>({
                     "border-b border-border last:border-0 hover:bg-surface-muted/60",
                     href && "cursor-pointer",
                     selected.has(key) && "bg-primary/5",
+                    rowClassName?.(row, ri),
                   )}
                   data-href={href}
                 >
@@ -204,6 +219,7 @@ export function DataTable<T>({
                   "space-y-1.5 px-3 py-3",
                   ri > 0 && "border-t-2 border-border-strong",
                   selected.has(key) && "bg-primary/5",
+                  rowClassName?.(row, ri),
                 )}
               >
                 {selectable && (

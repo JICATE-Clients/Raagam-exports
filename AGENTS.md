@@ -481,8 +481,8 @@ Enforced in the primitives, so a picker cannot forget: `DataPicker` hides any ro
 - A `<Combobox>` or `<Select>` over stored data has no inactive state of its own, so
   filter its options at the call site: `.filter((o) => !isInactive(o) || o.id === value)`.
 
-Two exemptions, both narrow: a table with no disable column (`ports`, `currencies`,
-`attribute_values`), and a picker that FILTERS a list rather than setting a value —
+Two exemptions, both narrow: a table with no disable column (`currencies`,
+`attribute_values` — `ports` was the third until 0547 gave it `inactive`), and a picker that FILTERS a list rather than setting a value —
 narrowing a search to a since-retired buyer is legitimate. Master **list** screens show
 both by design; that is where a row gets switched back on.
 

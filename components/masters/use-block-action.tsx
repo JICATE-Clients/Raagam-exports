@@ -89,5 +89,42 @@ export function useBlockAction(entityKey: string) {
     ];
   };
 
-  return { blockItem, isPending };
+  /**
+   * THE SAME WRITE, FOR THE Active / Inactive PAIR IN `TableRowActionsMenu`.
+   *
+   * `blockItem` above is one item whose LABEL is the verb; this is the handler
+   * behind two items that name the two STATES and tick the current one. They are
+   * two shapes of one control, and they share this hook rather than a second
+   * copy of the action call for the reason this file exists at all: the flag was
+   * hand-rolled on 40 screens before it was a hook, and a second call site is how
+   * that starts again.
+   *
+   * `active` is stated positively - "should this row be ON?" - matching
+   * `setMasterActive` and `activePatch`, so nothing here flips a boolean by hand.
+   * The permission gate is the caller's, exactly as `canBlock` is above, and it
+   * should be `perms.canDelete` for the same reason.
+   */
+  const setStatus = (
+    row: { id: string } & Deactivatable,
+    active: boolean,
+    opts: { label?: string | null } = {},
+  ): void => {
+    // Re-selecting the state the row is already in costs a round trip and a
+    // toast that reports no change. `TableRowActionsMenu` drops it too; this
+    // guard is what makes the hook safe for any other caller.
+    const currentlyActive = !isInactive(row);
+    if (currentlyActive === active) return;
+    const name = opts.label || "Record";
+    startTransition(async () => {
+      const res = await setMasterActive(entityKey, row.id, active);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      success(`${name} marked ${active ? "active" : "inactive"}.`);
+      router.refresh();
+    });
+  };
+
+  return { blockItem, setStatus, isPending };
 }

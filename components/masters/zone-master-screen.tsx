@@ -9,8 +9,15 @@ import { Label } from "@/components/ui/label";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import {
+  rowActionsColumn,
+  ROW_ACTIONS_MENU_WIDTH,
+} from "@/components/ui/row-actions-column";
+import { isInactive } from "@/lib/masters/inactive";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { deletedToast } from "@/lib/masters/delete-message";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -22,7 +29,7 @@ import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createZone,
   updateZone,
-  deactivateZone,
+  deleteZone,
 } from "@/lib/masters/zone-actions";
 import type { Zone, ZoneInput } from "@/lib/masters/zone-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
@@ -336,6 +343,10 @@ export function ZoneMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `zone` is registered in
+     `lib/masters/active-registry.ts`. */
+  const { setStatus, isPending: statusPending } = useBlockAction("zone");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -443,11 +454,17 @@ export function ZoneMasterScreen({
     });
   }
 
-  function deactivate(r: Zone) {
+  /* A REAL DELETE NOW, not the old `deactivateZone` (2026-09-11). The flag
+     belongs to the Status switch in the column beside this; leaving a
+     "Deactivate" item in the menu would have given one zone two controls for one
+     flag. `deleteZone` runs the shared guard, so a zone something points at
+     soft-disables instead and `deletedToast` says which of the two happened —
+     this screen no longer claims an outcome it cannot know. */
+  function remove(r: Zone) {
     startTransition(async () => {
-      const res = await deactivateZone(r.id);
+      const res = await deleteZone(r.id);
       if (res.ok) {
-        success("Zone marked inactive.");
+        success(deletedToast("Zone", res));
         router.refresh();
       } else {
         error(res.error);
@@ -467,27 +484,50 @@ export function ZoneMasterScreen({
       ),
     },
     {
+      /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
+         API, with no editor in between. Same component as Country, Port, Bank
+         and Destination, so no two listings can drift.
+
+         This screen builds its own `DataTable` rather than going through
+         `MasterListShell`, so the cell is declared here instead of being spliced
+         in. That is the ONLY difference: the switch, its green, the word beside
+         it and the `isInactive` read are all `StatusToggle`'s. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.zone_name}
+          // Blocking is the destructive direction and `setMasterActive` gates it
+          // as `delete` server-side.
+          disabled={!perms.canDelete || isPending || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.zone_name })}
+        />
       ),
     },
-    /* This master never hard-deletes — the row is deactivated, so the verb
-       stays "Deactivate" rather than promising something else. Already-inactive
-       rows have nothing left to do. */
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.zone_name}
-        onEdit={() => openEdit(r)}
-        onDelete={() => deactivate(r)}
-        deleteLabel="Deactivate"
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete && !r.inactive}
-        isPending={isPending}
-      />
-    )),
+    rowActionsColumn(
+      (r) => (
+        /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
+           Delete behind a confirm dialog. The View is automatic —
+           `rowActionsColumn` publishes the row and the menu reads it, exactly as
+           `RowActions` did here before, so the eye this screen already had is
+           not lost.
+
+           `canDelete` no longer excludes an inactive row. It did while the item
+           WAS the deactivate — there was nothing left for it to do on a row
+           already off — and that reasoning went with the verb: deleting a
+           blocked zone is exactly as meaningful as deleting a live one. */
+        <TableRowActionsMenu
+          label={r.zone_name}
+          onEdit={() => openEdit(r)}
+          onDelete={() => remove(r)}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      ),
+      ROW_ACTIONS_MENU_WIDTH,
+    ),
   ];
 
   return (
@@ -542,10 +582,15 @@ export function ZoneMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
+        {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
+            last one alone — the ⋮ must stay legible on a dimmed row, and
+            `opacity` on the `<tr>` would take it down with the text. Same rule
+            `MasterListShell` applies to the listings it owns. */}
         <DataTable
           columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
           getKey={(r) => r.id}
+          rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
           empty="No zone records yet."
         />
       </div>

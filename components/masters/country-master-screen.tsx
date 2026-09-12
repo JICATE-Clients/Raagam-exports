@@ -14,6 +14,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
@@ -51,7 +52,9 @@ const BLANK = {
  *
  *   row 1 — name 144 + country_group 112 + ecgc 72 + isd 72, three 12px gaps
  *            = 436px, and the row simply ENDS there.
- *   row 2 — the two flags at content width (inactive is edit-only).
+ *   row 2 — the Default Country switch at content width. (Inactive used to
+ *            sit beside it; it is a row action now — see the note at that
+ *            `FieldRow` below.)
  *
  * **The sums-to-12 rule does not apply and is not being broken** — that rule is
  * about a fractional track where leftovers read as page padding. A content-width
@@ -151,6 +154,10 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* Active / Inactive in the row's ⋮ menu. `country` is registered in
+     `lib/masters/active-registry.ts`; `setStatus` does the write, the toast and
+     the refresh, so this screen never touches the flag itself. */
+  const { setStatus, isPending: statusPending } = useBlockAction("country");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -258,7 +265,17 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
       header: "Default",
       cell: (r) => (r.default_country ? <span className="text-sm text-primary">✓</span> : <span className="text-sm text-muted-foreground">—</span>),
     },
-    { header: "Status", cell: (r) => statusPill(r) },
+    /* NO Status COLUMN DECLARED HERE, AND THE COLUMN IS STILL THERE.
+       `MasterListShell` splices it in because this screen passes
+       `onStatusChange` — a switch plus the word it is set to, clicking which
+       calls the status API directly (client 2026-09-11). Declaring one here
+       would be stripped as a duplicate; see that prop.
+
+       Draft is the one state a two-position switch cannot express: `is_draft`
+       is orthogonal to `inactive`, so a draft country shows an ON switch reading
+       "Active". It stays legible in the Status FACET above the list, in the
+       mobile card's pill, and in the view sheet, which renders `statusOf` rather
+       than the switch. */
   ];
 
   return (
@@ -275,7 +292,17 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
         addLabel="+ Add Country"
         onAdd={openAdd}
         columns={columns}
-        actions={{ onEdit: openEdit, onDelete: remove }}
+        actions={{
+          onEdit: openEdit,
+          onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the
+             switch calls. `active` is stated positively; nothing here flips the
+             boolean — `setStatus` does the write, the toast and the refresh. */
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.name }),
+        }}
         empty="No country records yet."
         mobile={{
           title: (r) => r.name,
@@ -285,7 +312,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
           onEdit: openEdit,
           onDelete: remove,
         }}
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       {/* editor */}
@@ -413,14 +440,27 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               checked={form.default_country}
               onChange={(default_country) => set({ default_country })}
             />
-            {editId && (
-              <Toggle
-                id="co-inactive"
-                label="Inactive"
-                checked={form.inactive}
-                onChange={(inactive) => set({ inactive })}
-              />
-            )}
+            {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block
+                option move to that table listing — we are used to give that
+                block while CREATING the data but we need to move this in ACTION
+                only, no more in the creating screen"). It is the listing's ⋮
+                menu's Active / Inactive pair now, wired at `onStatusChange`
+                above, with `country` already registered in
+                `lib/masters/active-registry.ts`.
+
+                **The row action had to land first** — it is the only route to
+                the flag once the field is gone, so deleting the field on its own
+                would have made blocking a country impossible rather than moved
+                it. That is the order `customer-master-screen.tsx` followed on
+                2026-09-09 and `bank-master-screen.tsx` before it.
+
+                `form.inactive` is STILL in the form state and still round-trips
+                through `submit()`, so editing a blocked country does not quietly
+                switch it back on. The value is simply no longer typed here.
+
+                It was also the field that gave this row two shapes: unlabelled
+                and edit-only, it left a hole on New and a floating switch on
+                Edit. */}
           </FieldRow>
         </DetailSection>
       </Sheet>

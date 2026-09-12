@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin, SlidersHorizontal, User, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { Field, FIELD_WIDTH, FieldRow, type FieldWidth } from "@/components/ui/field";
@@ -11,10 +10,10 @@ import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Select } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -43,8 +42,7 @@ import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-che
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
-import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
-import { Toggle } from "@/components/ui/toggle";
+import { createdSection } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -547,8 +545,16 @@ export function ApplicantMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* Active / Inactive from the listing's Status switch. `applicant` is
+     registered in `lib/masters/active-registry.ts`; `setStatus` does the write,
+     the toast and the refresh, so this screen never touches the flag itself.
+
+     It switches the APPLICANT ROW and nothing else. Blocking a party that has
+     published a Customer and a Consignee (0378) does not reach down that
+     subtree — `deleteParty` is what owns the subtree, and a switch on a row
+     promises only the row it sits in. */
+  const { setStatus, isPending: statusPending } = useBlockAction("applicant");
   const isdOf = useIsdLookup(countries);
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   /** The record being LOOKED at — read-only, never the editor's record. */
   const [viewRow, setViewRow] = useState<Applicant | null>(null);
@@ -641,14 +647,6 @@ export function ApplicantMasterScreen({
     for (const c of cities) m.set(c.id, c.name);
     return m;
   }, [cities]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.code, r.name, r.email].filter(Boolean).join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -956,25 +954,17 @@ export function ApplicantMasterScreen({
         </span>
       ),
     },
-    {
-      header: "Status",
-      cell: (r) => {
-        const tone = r.is_draft ? "warning" : r.inactive ? "danger" : "success";
-        const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
-        return <StatusPill tone={tone}>{text}</StatusPill>;
-      },
-    },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.name}
-        onView={() => setViewRow(r)}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
+    /* NO Status COLUMN AND NO ACTIONS COLUMN DECLARED HERE, AND BOTH ARE STILL
+       THERE. `MasterListShell` splices in the Status switch because this screen
+       passes `onStatusChange`, and the ⋮ cell because it passes `actions` — a
+       `Status` header declared here would be stripped as a duplicate, and a
+       hand-rolled actions column is what the shell exists to stop 131 listings
+       from each writing differently.
+
+       Draft is the one state a two-position switch cannot express: `is_draft` is
+       orthogonal to `inactive`, so a draft applicant shows an ON switch reading
+       "Active". It stays legible in the Status FACET above the list, in the
+       mobile card's pill, and in this screen's own view sheet. */
   ];
 
   /**
@@ -1031,59 +1021,65 @@ export function ApplicantMasterScreen({
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        {/* caps-input: exempt -- a search QUERY is not a stored value. */}
-        <Input uppercase={false}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search applicant…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Applicant
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No applicants yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No applicants yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.code ?? "—"}
-                    {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
-                </div>
-                <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
-                  {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      {/* THE WHOLE LISTING IS THE SHELL NOW — toolbar, search, Status facet,
+          desktop table, mobile cards and pagination. This screen hand-rolled all
+          five, which is why it was the one Associates master with no Status
+          facet and no pagination; it also means the ⋮ actions menu and the
+          Status switch arrive as props rather than as a second copy of two
+          components whose own files say the shell is their only wiring path. */}
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) => [r.code, r.name, r.email].filter(Boolean).join(" ")}
+        searchPlaceholder="Search applicant…"
+        statusOf={(r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Applicant"
+        onAdd={openAdd}
+        columns={columns}
+        rowLabel={(r) => r.name}
+        actions={{
+          /* This screen has a BESPOKE view sheet (it shows the contacts and the
+             published-party roles the table cannot), so it passes its own
+             `onView` rather than taking the shell's columns-derived one. That
+             always wins — the ⋮ menu reads whichever `onView` reached it. */
+          onView: setViewRow,
+          onEdit: openEdit,
+          onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the switch
+             calls. `active` is stated positively; nothing here flips the
+             boolean — `setStatus` does the write, the toast and the refresh. */
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.name }),
+        }}
+        empty="No applicants yet."
+        mobile={{
+          /* The card keeps the PublishesBadge the desktop Name cell carries —
+             which of Customer / Consignee this applicant published is the one
+             fact about an applicant that is not derivable from its own fields. */
+          title: (r) => (
+            <span className="flex flex-wrap items-center gap-1.5">
+              {r.name}
+              <PublishesBadge roles={applicantPublishes(r)} />
+            </span>
+          ),
+          meta: (r) =>
+            [r.code, r.country_id ? (countryLabel.get(r.country_id) ?? null) : null]
+              .filter(Boolean)
+              .join(" · ") || null,
+          pill: (r) => (
+            <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
+              {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          ),
+          onView: setViewRow,
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending || statusPending}
+      />
 
       {/* editor */}
       <MasterFullScreen
@@ -1212,43 +1208,30 @@ export function ApplicantMasterScreen({
                         <option value="yes">Yes</option>
                       </Select>
                     </Field>
-                    {/* THE SWITCH FOLLOWS ALSO CONSIGNEE ON THE SAME LINE, so New and
-                        Edit differ by one CELL rather than by a row. It used to take a
-                        short second row of its own — which is what a twelfths track
-                        forces, since a lone 3-of-12 cell leaves nine columns of blank
-                        beside it — and a content-width row simply ends after it.
+                    {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block
+                        option move to that table listing — we are used to give that
+                        block while CREATING the data but we need to move this in
+                        ACTION only, no more in the creating screen"). It is the
+                        listing's Status column now: a switch on the row, wired
+                        straight to `setStatus` above, with `applicant` registered in
+                        `lib/masters/active-registry.ts`.
 
-                        The objection to putting it in the track was real: a bare switch
-                        has no <Label> above it, so it would align to its neighbours'
-                        LABELS rather than their controls. `Toggle`'s own `min-h-9` and
-                        the `label=""` below are the two halves of the answer, and
-                        Consignee's Identity row carries the same pair.
+                        **The row control had to land first** — it is the only route
+                        to the flag once the field is gone, so deleting the field on
+                        its own would have made blocking an applicant impossible
+                        rather than moved it. Same order Country, Port and Payment
+                        Term followed.
 
-                        `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-                        Entry uses) — the identical swap Country, Destination and Notify
-                        made, and from the SAME component, so no two masters can drift
-                        apart. It is still a real `<input type="checkbox">` underneath
-                        (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
-                        still counts it and Tab, Enter-advance and the arrows all reach it.
+                        `form.inactive` is STILL in the form state and still
+                        round-trips through `submit()`, so editing a blocked
+                        applicant does not quietly switch it back on. It also still
+                        draws the Inactive badge in this editor's own header, which
+                        is the one place the state has to remain VISIBLE while the
+                        field that set it is gone.
 
-                        `label=""` RESERVES the label row rather than drawing one: a cell
-                        with no label at all collapses it and lifts the switch ~16px above
-                        the labelled fields beside it. The switch renders its own word, so
-                        a `label="Inactive"` here would draw the name twice.
-
-                        NO `w`: a switch is not one of the vocabulary's widths, and an
-                        unsized `Field` in a flex row is exactly as wide as what is in
-                        it. */}
-                    {editId && (
-                      <Field label="">
-                        <Toggle
-                          id="ap-inactive"
-                          label="Inactive"
-                          checked={form.inactive}
-                          onChange={(inactive) => set({ inactive })}
-                        />
-                      </Field>
-                    )}
+                        It was also the field that gave this row two shapes: it was
+                        edit-only, so New and Edit differed by a cell. The row is now
+                        Also Customer + Also Consignee on every record. */}
                   </FieldRow>
                 </DetailSection>
               </SectionBody>

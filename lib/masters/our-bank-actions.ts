@@ -50,7 +50,23 @@ export async function updateOurBank(id: string, data: OurBankInput): Promise<Res
 export async function deleteOurBank(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const res = await deleteOrDeactivate(s, "our_banks", id, "blocked");
+  /**
+   * `inactive`, NOT `blocked` — fixed 2026-09-11, and this is the SECOND time
+   * this exact line has been wrong in this repo.
+   *
+   * `0305_new_tables_blocked_to_inactive.sql:8` renamed this column and
+   * `our-bank-types.ts` has said `inactive` ever since; only this write was left
+   * behind. It reached the soft-disable path — the one taken whenever the bank
+   * is referenced by anything, which is the ordinary case — and updated a column
+   * that does not exist, so PostgREST errored and deleting an in-use bank
+   * reported a failure instead of switching it off.
+   *
+   * `deactivateZone` in `zone-actions.ts` carried the identical line from the
+   * identical migration and was fixed on 2026-08-10. Found here while
+   * registering `our_bank` in `lib/masters/active-registry.ts`, whose column had
+   * to be read from the catalog rather than from this file.
+   */
+  const res = await deleteOrDeactivate(s, "our_banks", id, "inactive");
   if (!res.ok) return fail(res.error);
   rev();
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };

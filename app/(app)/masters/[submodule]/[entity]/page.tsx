@@ -270,7 +270,9 @@ export default async function SubEntityPage({
       screen = (
         // The four `RecordPicker` lists below flatten a master to {id, code,
         // name}. The disable flag has to ride along or the picker cannot hide a
-        // retired row; `public.ports` is the one exception, having no such column.
+        // retired row. `public.ports` used to be the one exception, having no
+        // such column — 0547 gave it one, so it rides along like the rest and
+        // the Port of Loading / Discharge fields stop offering a retired berth.
         <CustomerMasterScreen
           rows={customers}
           applicants={applicants}
@@ -305,6 +307,7 @@ export default async function SubEntityPage({
             id: p.id,
             code: p.short_name,
             name: p.name ?? p.short_name ?? "—",
+            inactive: isInactive(p),
           }))}
           destinations={destRows.map((d) => ({
             id: d.id,
