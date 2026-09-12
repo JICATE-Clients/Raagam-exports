@@ -143,7 +143,7 @@ function ProductLineForm({
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <div>
-          <Label>Order Qty</Label>
+          <Label>Cut Qty</Label>
           <Input
             type="number"
             min="0"
@@ -308,7 +308,7 @@ function ClothsTab({
       ),
     },
     {
-      header: "Order Qty",
+      header: "Cut Qty",
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span>,
     },

@@ -125,7 +125,7 @@ function drawLetterhead(
     doc.setFontSize(8);
     doc.setTextColor(70);
     doc.text(
-      `Order Qty ${fmtNumber(header.qty.orderQty)}    Excess Qty ${fmtNumber(header.qty.excessQty)}` +
+      `Cut Qty ${fmtNumber(header.qty.orderQty)}    Excess Qty ${fmtNumber(header.qty.excessQty)}` +
         `    Rejection Allowance ${fmtNumber(header.qty.rejectionQty)}    Approval Allowance ${fmtNumber(header.qty.approvalQty)}` +
         `    SQ Qty ${fmtNumber(header.qty.sqQty)}`,
       M,

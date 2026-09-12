@@ -74,7 +74,7 @@ function StyleCostsSummaryTab({ styleCosts, costSheetId, opportunityId, currency
     { header: "Style Ref", cell: (r) => r.style_ref_no ?? "—" },
     { header: "Style No", cell: (r) => r.style_no ?? "—" },
     { header: "Article", cell: (r) => r.article_no ?? "—" },
-    { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.order_qty ?? "—"}</span> },
+    { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.order_qty ?? "—"}</span> },
     { header: "Fabric", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.fabric_cost, currency)}</span> },
     { header: "Trims", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.trims_cost, currency)}</span> },
     { header: "CMT", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.cmt_cost, currency)}</span> },
@@ -101,7 +101,7 @@ function StyleCostsSummaryTab({ styleCosts, costSheetId, opportunityId, currency
           <div><Label>Style No</Label><Input className="w-24" value={form.style_no} onChange={(e) => setForm({ ...form, style_no: e.target.value })} /></div>
           <div><Label>Article</Label><Input className="w-24" value={form.article_no} onChange={(e) => setForm({ ...form, article_no: e.target.value })} /></div>
           <div><Label>UOM</Label><Input className="w-16" value={form.uom_id} onChange={(e) => setForm({ ...form, uom_id: e.target.value })} /></div>
-          <div><Label>Order Qty</Label><Input className="w-24" type="number" value={form.order_qty} onChange={(e) => setForm({ ...form, order_qty: e.target.value })} /></div>
+          <div><Label>Cut Qty</Label><Input className="w-24" type="number" value={form.order_qty} onChange={(e) => setForm({ ...form, order_qty: e.target.value })} /></div>
           <Button size="sm" disabled={isPending} onClick={addRow}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}

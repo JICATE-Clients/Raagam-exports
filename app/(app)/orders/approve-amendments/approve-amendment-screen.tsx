@@ -155,7 +155,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
     { header: "Ship Mode", cell: (r) => <span className="text-sm">{r.ship_mode ?? "—"}</span> },
     { header: "Currency", cell: (r) => <span className="text-sm">{r.currency_code ?? "—"}</span> },
     { header: "Pay Mode", cell: (r) => <span className="text-sm">{r.pay_mode ?? "—"}</span> },
-    { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.sales_order?.order_qty ?? null)}</span> },
+    { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.sales_order?.order_qty ?? null)}</span> },
     { header: "Amended Dt", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.amend_date)}</span> },
     { header: "Amendment No", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
     {

@@ -840,7 +840,7 @@ function CmtSection({
     { header: "OC No", cell: (r) => <span className="text-sm">{r.oc_no ?? "--"}</span> },
     { header: "Order No", cell: (r) => <span className="text-sm">{r.order_no ?? "--"}</span> },
     { header: "Coordinate", cell: (r) => <span className="text-sm">{r.coordinate_name ?? "--"}</span> },
-    { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },
+    { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },
     { header: "SQ Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.sq_qty)}</span> },
     { header: "Rate", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtMoney(r.rate)}</span> },
     { header: "Ops", cell: (r) => <span className="tabular-nums text-sm">{r.operations.length}</span> },
@@ -983,7 +983,7 @@ function CmtSection({
                 <Input value={cmtForm.coordinate_name} onChange={(e) => setCmtForm((f) => ({ ...f, coordinate_name: e.target.value }))} />
               </div>
               <div>
-                <Label>Order Qty</Label>
+                <Label>Cut Qty</Label>
                 <Input type="number" min="0" step="0.001" value={cmtForm.order_qty} onChange={(e) => setCmtForm((f) => ({ ...f, order_qty: e.target.value }))} />
               </div>
               <div>
@@ -1250,7 +1250,7 @@ function GeneralTab({
     { header: "Style Ref", cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
     { header: "Style No", cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
     { header: "Article No", cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
-    { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },
+    { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },
     { header: "Revenue", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtMoney(r.revenue)}</span> },
     { header: "Expenses", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtMoney(r.expenses_total)}</span> },
     { header: "P/L", align: "right", cell: (r) => <span className={`tabular-nums text-sm font-semibold ${r.profit_loss < 0 ? "text-danger" : "text-success"}`}>{fmtMoney(r.profit_loss)}</span> },

@@ -737,7 +737,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
                 </Button>
               </div>
             </Field>
-            <Field label="Order Qty" size="sm" htmlFor="tap-qty">
+            <Field label="Cut Qty" size="sm" htmlFor="tap-qty">
               <Input id="tap-qty" type="number" min="0" value={orderQty} onChange={(e) => setOrderQty(e.target.value)} />
             </Field>
             <Field label="Proposed Deliv. Dt" size="sm" htmlFor="tap-prop">

@@ -231,7 +231,7 @@ function StylesTab({
       ),
     },
     {
-      header: "Order Qty",
+      header: "Cut Qty",
       align: "right",
       cell: (row) => (
         <span className="tabular-nums text-xs">{row.order_qty ?? "—"}</span>
@@ -379,7 +379,7 @@ function StylesTab({
                 />
               </div>
               <div>
-                <Label htmlFor="st-ord-qty">Order Qty</Label>
+                <Label htmlFor="st-ord-qty">Cut Qty</Label>
                 <Input
                   id="st-ord-qty"
                   type="number"
@@ -434,7 +434,7 @@ function StylesTab({
                 {/* NESTED grids. The combo rows and the size rows each need
                     their OWN body/row markers: mark only the outer and every
                     size input counts as a column of the combo row, so ↓ from
-                    "Order Qty" lands on the 2nd size of the next combo. That is
+                    "Cut Qty" lands on the 2nd size of the next combo. That is
                     the exact failure material-attribute-master-screen hit.
                     `ownDescendants` in child-grid.tsx scopes by nearest marker,
                     so the inner list stays out of the outer axis. */}
@@ -443,7 +443,7 @@ function StylesTab({
                   <div key={ci} data-grid-row data-row-box className="mb-3 rounded border border-border p-3 space-y-2">
                     <div className="flex gap-2 items-end">
                       <div className="flex-1"><Label>Combo</Label><Input value={c.combo} onChange={(e) => updateCombo(ci, "combo", e.target.value)} /></div>
-                      <div className="w-28"><Label>Order Qty</Label><Input type="number" value={c.order_qty} onChange={(e) => updateCombo(ci, "order_qty", e.target.value)} /></div>
+                      <div className="w-28"><Label>Cut Qty</Label><Input type="number" value={c.order_qty} onChange={(e) => updateCombo(ci, "order_qty", e.target.value)} /></div>
                       <div className="w-28"><Label>Exp Qty</Label><Input type="number" value={c.expected_order_qty} onChange={(e) => updateCombo(ci, "expected_order_qty", e.target.value)} /></div>
                       <Button type="button" variant="ghost" size="sm" data-row-remove aria-label="Remove combo" className="text-red-600" onClick={() => removeCombo(ci)}>Remove</Button>
                     </div>
