@@ -84,6 +84,23 @@ export type RowMenuItem = DropdownItem;
 const RowRecordContext = createContext<unknown>(undefined);
 
 /**
+ * The row `rowActionsColumn` published, for the OTHER actions cell.
+ *
+ * `TableRowActionsMenu` is the collapsed form of this cell and needs the same
+ * automatic View. Exporting the reader rather than the context keeps the
+ * provider private — `RowActionsCell` stays the only thing that can publish a
+ * row, so the two cells cannot disagree about what "the row" is.
+ *
+ * It exists because the alternative was worse than a shared hook: the menu
+ * shipped WITHOUT an auto-view and the first hand-rolled listing to adopt it
+ * (Destination) would have silently lost the eye it already had. "Defaults
+ * decide adoption" is this file's own lesson, one component along.
+ */
+export function useRowRecord(): unknown {
+  return useContext(RowRecordContext);
+}
+
+/**
  * Publish the row to `RowActions` beneath it.
  *
  * A COMPONENT, not a function that returns a column — and that distinction is

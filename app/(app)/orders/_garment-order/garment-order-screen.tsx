@@ -527,56 +527,6 @@ type ComboCompRow = {
   print_id: string | null;
   processed_as_trim: boolean;
 };
-/**
- * WHAT A FOLDED FABRIC SAYS ITS PARTS LOOK LIKE — read-only, never written back.
- *
- * This was `commonAesthetic`, and it did two jobs: it fed a fabric-level control
- * AND it summarised. The control is gone (client 2026-08-20 — the aesthetic
- * belongs to the part), so only the summary survives, and losing the other job is
- * what makes the shape safe: nothing here can unify parts that differ, because
- * nothing here writes.
- *
- * THREE STATES, NOT TWO, and that is the whole point of the rewrite. The old
- * version collapsed "they disagree" and "there are no parts" into the same empty
- * string, which was right for a control that must start blank and wrong for a
- * line of text: a fabric whose sleeves are GREEN and body WHITE must not read as
- * a fabric with no colour answered. `mixed` is that third state.
- *
- * THE `mixed` FLAG IS PER AXIS SINCE 2026-08-31, and the single OR it replaces
- * was not merely coarse — it became wrong when the caller stopped choosing
- * between the two.
- *
- * It returned one `mixed: colour.mixed || print.mixed` because the folded line
- * showed one of the two: `takesAllOverPrint` picked the print, everything else
- * picked the colour, so whichever flag was asked about was the one that mattered
- * and the OR could never mislead. `takesAllOverPrint` is gone (client
- * 2026-08-31, and see `declaredPrintOptions`), so the folded line now shows BOTH
- * — and a combined flag would say "mixed" over a fabric whose every part is
- * WHITE merely because one of them carries a print. That is the same failure
- * this doc block already records one paragraph up, arriving on the other axis:
- * an answered value rendered as if nobody had answered.
- */
-function aestheticSummary(
-  cs: readonly { color_name?: string | null; print_id?: string | null }[],
-): {
-  colour: { value: string | null; mixed: boolean };
-  print: { value: string | null; mixed: boolean };
-} {
-  const one = <T,>(xs: readonly T[]): { value: T | null; mixed: boolean } =>
-    xs.length === 0
-      ? { value: null, mixed: false }
-      : { value: xs[0], mixed: !xs.every((x) => x === xs[0]) };
-
-  const colour = one(cs.map((c) => (c.color_name ?? "").trim().toUpperCase()));
-  const print = one(cs.map((c) => c.print_id ?? null));
-  return {
-    // `|| null` on the colour only: "" is what an unanswered text cell holds and
-    // must read as nothing, while a print is a uuid or already null.
-    colour: { value: colour.value || null, mixed: colour.mixed },
-    print,
-  };
-}
-
 /** Combos ▸ Detail ▸ one fabric structure of one combo (0408 · 0409). */
 type ComboStructRow = {
   key: string;
@@ -640,8 +590,9 @@ type ComboStructRow = {
    * THE COLUMNS NEVER MOVED THROUGHOUT. `combo_components.color_name` /
    * `print_id` have always been where the value lives, which is why both the
    * roll-up and this reversal were UI-only and no order had to migrate either
-   * way. `aestheticSummary` still reads them UP, but only to write a line of
-   * text on a folded row — never back into state.
+   * way. `aestheticSummary` read them UP to write the folded row's summary
+   * line — never back into state — and went with that line on 2026-09-11, so
+   * nothing outside a part reads them at all now.
    */
   components: ComboCompRow[];
 };
@@ -880,6 +831,48 @@ type ApprovalQtyRow = {
  * lives inside the component, and two rows sharing a React key is a swapped-row
  * bug that only shows up once the operator starts editing.
  */
+/**
+ * ONE BLANK PART, THE ROW A FABRIC'S PARTS GRID OPENS WITH.
+ *
+ * The grid is a typing surface, not a list of results, and the app's standing
+ * rule is that such a grid never renders completely empty
+ * (`erp-table-default-row`). It was empty here: a fabric with no parts drew its
+ * "+ Add part" button and nothing else — not even the column titles, which this
+ * grid prints on row 0 and therefore prints never when there is no row 0. The
+ * table did not look empty, it looked absent (operator instruction, 2026-09-11,
+ * on the fabric below SINGLE JERSEY in the Structure Details overlay).
+ *
+ * EVERY KEY IS GENUINELY BLANK, which is what lets the save side drop the row.
+ * `componentFilled` (actions.ts) tests the fields an operator has to type, so a
+ * seeded part that was never touched is not written — and `structSaysSomething`
+ * asks `components.some(...)` rather than `components.length`, so a fabric
+ * carrying only this row still reads as blank and `seedComboFromStyle` still
+ * runs. Both of those already held; nothing here relies on new behaviour.
+ * `processed_as_trim` is `false` for the same reason the others are empty: a
+ * default that looked like an answer would turn its clause in that OR-chain into
+ * the constant true, which is the phantom-line bug Material BOM shipped twice.
+ *
+ * NOT SEEDED FROM `blankStruct`, AND THAT IS THE WHOLE CARE IN THIS CHANGE. The
+ * part row's Coordinate, Component and Colour are `required` (client
+ * 2026-08-21), so the row HOLDS THE CURSOR while they are blank. On a fabric
+ * that has not named a Structure yet that hold would be a cage and possibly an
+ * unsatisfiable one: `scopedCoordinates` offers the STYLE's coordinates, and a
+ * combo naming no style has none to offer — the operator could neither fill the
+ * cell nor leave it. So the seed runs where a fabric becomes real: on load for a
+ * stored fabric, and in `pickComboStructure` the moment one is named. A brand
+ * new fabric shows no parts table, and its first act opens one.
+ */
+function blankComboComponent(key: string): ComboCompRow {
+  return {
+    key,
+    coordinate_id: null,
+    component_id: null,
+    color_name: "",
+    print_id: null,
+    processed_as_trim: false,
+  };
+}
+
 function toRows(src: SeededAmendmentChildren, newKey: () => string) {
   const num = (v: number | null | undefined) => (v ? String(v) : "");
   const txt = (v: string | null | undefined) => v ?? "";
@@ -1055,14 +1048,24 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
            back null through any older cache. The screen holds an array always. */
         yarn_colors: st.yarn_colors ?? [],
         // No aesthetic read up any more — each part carries its own, below.
-        components: (st.components ?? []).map((c): ComboCompRow => ({
-          key: newKey(),
-          coordinate_id: c.coordinate_id,
-          component_id: c.component_id,
-          color_name: txt(c.color_name),
-          print_id: c.print_id,
-          processed_as_trim: c.processed_as_trim ?? false,
-        })),
+        /* A STORED FABRIC WITH NO PARTS OPENS WITH ONE BLANK ROW, the second of
+           the three statements in `erp-table-default-row`: `[]`, `null` and
+           `undefined` all mean "no parts yet", which is the state the blank row
+           exists for. Without it an EXISTING fabric that never had parts opened
+           to a bare "+ Add part" — the same absent table a new one did, and the
+           half that is easy to miss because it needs a saved record to see.
+           A stored fabric has named a Structure, so the row's required cells are
+           answerable; `blankComboComponent` says why that matters. */
+        components: (st.components ?? []).length
+          ? (st.components ?? []).map((c): ComboCompRow => ({
+              key: newKey(),
+              coordinate_id: c.coordinate_id,
+              component_id: c.component_id,
+              color_name: txt(c.color_name),
+              print_id: c.print_id,
+              processed_as_trim: c.processed_as_trim ?? false,
+            }))
+          : [blankComboComponent(newKey())],
       })),
     })),
     priceDetails: src.priceDetails.map((x): PriceDetailRow => ({
@@ -6061,6 +6064,20 @@ export function GarmentOrderScreen({
           composition_id:
             held ||
             compositionForStructure(id, data.fabrics, data.compositions),
+          /* THE PARTS TABLE OPENS WITH THE FABRIC. Naming a Structure is the
+             moment a fabric becomes a thing with parts, and it is also the
+             moment the part row's required cells become answerable — see
+             `blankComboComponent` for why the seed is here and not in
+             `blankStruct`.
+
+             ONLY WHEN THERE ARE NONE, and only forward. Re-picking a Structure
+             on a fabric that already has parts leaves them alone, and clearing
+             it (`id` null) neither seeds nor removes: the parts an operator
+             typed are theirs, and a fabric mid-correction must not lose them. */
+          components:
+            id && st.components.length === 0
+              ? [blankComboComponent(newKey())]
+              : st.components,
         };
       }),
     );
@@ -14440,7 +14457,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            already separate the halves, so `pl-6` and `pt-3` would be a second
            24px on top of the first. If the card is ever removed, this line and
            its two paddings come back together — they are one decision. */
-        className="min-w-0 space-y-2"
+        /* A BASIS, BECAUSE THE ROW IS FLEX NOW (2026-09-11). The half beside
+           this one is `flex-1`, so this one has to say how wide it starts or it
+           would size to the max-content of four pickers and take back the width
+           the card was just given. 34rem is its own floor with a little room:
+           four `minmax(104px,1fr)` columns, the ✕'s auto track and four 12px
+           gaps come to ~504px.
+
+           IT KEEPS THE DEFAULT SHRINK, deliberately. A cramped row narrows THIS
+           half — the card, on a zero basis, has nothing to give back — which is
+           the same order of sacrifice the old 1.25 / 1 track made when it put the
+           larger share on the fields. */
+        className="min-w-0 space-y-2 min-[1250px]:basis-[34rem]"
         onKeyDown={(e) => gridKeyNav(e)}
       >
         {st.components.map((c, j) => (
@@ -14917,9 +14945,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          border on a screen whose overlay is already titled "Structure Details".
          Same call, same day, same prop as the Prices grid — see `flatRows`.
 
-         The band survives it, and here that matters more than on Prices: this
-         grid FOLDS (`foldRows` below), so the summary line is the whole of a
-         closed structure, and its ✕ is the only way to remove one. */
+         The band survives it, and here that matters more than on Prices: the
+         row's ✕ is the only way to remove a fabric. It used to matter for a
+         second reason as well — this grid FOLDED, so a closed card was the whole
+         of a fabric an operator could see. The fold came off on 2026-09-11; the
+         note where `foldRows` used to be passed says why. */
       flatRows
       /* THE ✕ SITS IN THE HEADER BAND, NOT THE CONTROL BAND (client 2026-09-08:
          "shift the circular X button upward so it sits at the header level above
@@ -14943,6 +14973,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          explicit that both offsets move if `LABEL_METRICS` or `Input`'s height
          do. This only names WHICH band. */
       cornerRemoveAlign="header"
+      /* AND THE CLOSED ROW'S ✕ SITS BESIDE ITS CARD (operator instruction,
+         2026-09-11). The two states of this grid want the chip in two places and
+         say so in two props: the line above keeps an OPEN structure's chip up at
+         header level with the parts table's column titles (client 2026-09-08),
+         and this one takes a FOLDED structure's chip out of the corner and puts
+         it immediately outside the right edge of the card, which now hugs its
+         own contents. Neither is the default and neither reaches the other
+         state. */
+      foldedRemoveBeside
       /* NO SUMMARY LINE (client 2026-08-18, screenshot 2347: "in top the fabric
          it's showing Circular Knit type, no need to show there").
 
@@ -14961,175 +15000,36 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
          The ✕ is unaffected: with no band, `ChildGrid` floats it into the row's
          top-right corner, still carrying `data-row-remove` for Ctrl+Del. */
-      /* ONE STRUCTURE OPEN AT A TIME (client 2026-08-14, module-wide). Seven
-         fields plus a nested components panel is three or four wrapped lines
-         per structure, and a combo with three structures filled the overlay
-         before "+ Add structure" came into view. `ChildGrid` owns the fold; the
-         `#N` band and the family chip `rowSummary` already draws stay above it,
-         so a closed structure still says which one it is. */
-      foldRows
-      /* Nothing to summarise until a Structure is named — and `rowSummary`
-         would be showing "New structure" beside it. */
-      canFold={(st) => !!st.structure_id}
-      renderFoldedRow={(st) => {
-        const parts = st.components?.length ?? 0;
-        /* READ UP FROM THE PARTS, because the fabric no longer holds an answer
-           of its own (client 2026-08-20). A folded fabric is read rather than
-           edited, so this is the one place a roll-up is still the right shape —
-           and `aestheticSummary` cannot write, which is what makes it safe.
+      /* NO FOLD — EVERY FABRIC SHOWS ITS FIELDS (operator instruction,
+         2026-09-11, pointing at a screenshot of this overlay: an open SINGLE
+         JERSEY card beside a collapsed 1X1 LYCRA RIB card holding one box and a
+         lot of empty, asking for the second to look like the first).
 
-           "mixed" IS A REAL ANSWER AND MUST BE SAID. Parts of one fabric now
-           legitimately differ, and showing blank there would be indistinguishable
-           from "nobody has answered yet" — a closed row that hides the very thing
-           the client asked to make visible. */
-        const aes = aestheticSummary(st.components ?? []);
-        /* BOTH AESTHETICS, NOT ONE OF THEM (2026-08-31).
+         THIS REVERSES "ONE STRUCTURE OPEN AT A TIME" (client 2026-08-14,
+         module-wide), and the reason that rule existed has not gone away: seven
+         fields plus a nested parts panel is three or four wrapped lines per
+         fabric, and a combo with three fabrics filled the overlay before
+         "+ Add fabric" came into view. That is the cost, accepted rather than
+         overlooked. The later instruction wins; putting the fold back needs a
+         new decision, not a tidy-up.
 
-           This line used to read `takesAllOverPrint(...) ? <print> : <colour>`,
-           and the choice was correct while at most one of the two cells could be
-           answered — the gate hid whichever the Fabric Type did not call for. The
-           client put Colour and Fabric Print side by side on EVERY part on
-           2026-08-20, so since that day a fabric could carry both and the folded
-           row showed one of them; removing `takesAllOverPrint` is what made the
-           omission impossible to keep. A fold that drops a stored value is worse
-           than a fold that is long: the whole job of this line is to be the whole
-           of a closed structure.
+         NOTHING WAS DELETED FROM THE PRIMITIVE. `foldRows`, `canFold` and
+         `renderFoldedRow` are `ChildGrid` props this grid no longer passes, and
+         four other grids in this file still do. Restoring the fold is a git
+         revert of this commit.
 
-           SO EACH AXIS SPEAKS FOR ITSELF, including its own "mixed" — see
-           `aestheticSummary`, where the combined flag was split for exactly this
-           reason. A fabric whose parts are all WHITE but carry different prints
-           now reads "WHITE · mixed prints", not "mixed".
+         WHAT WENT WITH IT, AND IT IS NOT NOTHING. The closed card carried its own
+         advisory — `structureProblems` repeated for a fabric the operator had
+         moved on from, which was the whole argument for deferring the warning
+         until they left. The open row's advisory below says the same thing and
+         waits on `structTouched`, which was already the gate for every row that
+         was open. So an incomplete fabric is still named, on blur rather than on
+         fold.
 
-           THE YARN COLOURS JOIN IT, and that is not decoration on a Yarn Dyed
-           row: with `printed` withdrawn, the Fabric Type label says "Yarn Dyed"
-           and the part colours are free text like "WHITE/BLUE STRIPE" — so
-           without this the one field that states which yarns the cloth is made of
-           would be invisible in the only state a finished fabric is normally
-           seen in. Joined by "/" rather than the line's own "·" so the set reads
-           as one answer.
-
-           EVERY ENTRY IS STILL `null` WHEN UNANSWERED, because the `.filter`
-           below is what keeps a half-filled fabric from printing a row of
-           separators with nothing between them. */
-        const colourBit = aes.colour.mixed ? "mixed colours" : aes.colour.value;
-        const printBit = aes.print.mixed
-          ? "mixed prints"
-          : (printOpts.find((o) => o.id === aes.print.value)?.name ?? null);
-        const summary = [
-          data.compositions.find((c) => c.id === st.composition_id)?.name,
-          gsmRange(st.gsm, st.gsm_tolerance) || null,
-          ITEM_SUB_TYPE_OPTIONS.find((o) => o.value === st.item_sub_type)?.label,
-          st.yarn_colors.length ? st.yarn_colors.join(" / ") : null,
-          colourBit,
-          printBit,
-          parts > 0 ? `${parts} ${parts === 1 ? "part" : "parts"}` : null,
-        ]
-          .filter(Boolean)
-          .join("  ·  ");
-        const foldedProblems = structureProblems(st, familyCodeOf(st.structure_id));
-        return (
-          /* NO RAIL — the transparent twin came off with the open row's coloured
-             one (client 2026-09-08); the long note is in `renderMobileRow`. It
-             held the closed state at the open one's inset and had no other job,
-             so it could not outlive it: kept alone it would indent every folded
-             fabric 18px past the open one it sits between.
-
-             `cursor-pointer` MOVED ONTO THE CARD rather than going with the
-             wrapper. The whole folded row opens on click (`ChildGrid` puts the
-             handler on the row) and nothing else says so — a closed record that
-             responds to a click it never advertised is the other half of "now
-             it's confusing". */
-          /*
-            * A CLOSED FABRIC IS A CARD (client 2026-09-08: "wrap the collapsed
-            * structure row (1X1 LYCRA RIB ...) inside its own full-width
-            * bordered container ... so it appears as a distinct, unified row").
-            *
-            * `flatRows` above is why it had none, and the two instructions do
-            * not conflict. The client removed the per-structure frame on
-            * 2026-08-18 ("one frame is enough"), which was right for a row being
-            * EDITED — an open fabric is already fenced, first by the spec card
-            * on its left half and then by the parts table on its right. A CLOSED
-            * one has neither, so what was left was a line of controls between
-            * two horizontal rules, which is the floating this asks to stop. The
-            * two are about two STATES of one row, and `renderFoldedRow` is where
-            * a state-only frame can live without reopening the one `flatRows`
-            * closed.
-            *
-            * ## `border-border` / `bg-surface`, NOT `border-gray-200` /
-            * `bg-white`
-            *
-            * Those two were named literally and are the one part of the request
-            * not taken as written: this repo paints from declared tokens, and a
-            * hard `bg-white` stays white when the dark theme inverts everything
-            * around it. Same substitution the spec card one state over already
-            * made, for the same reason.
-            *
-            * ## NO `flex items-center justify-between`
-            *
-            * Also asked for by name, and it would undo what it is for. The
-            * children here are a `FieldGrid` and the advisory line under it, so
-            * `justify-between` would set the warning BESIDE the fields and
-            * centre it against them — and with no warning showing it does
-            * nothing at all. The "unified row" the flex was reaching for is what
-            * the `FieldGrid` already delivers: Structure at `md`, the summary at
-            * `xl`, on the grid's own track. The container is the change; the
-            * arrangement inside it is untouched.
-            *
-            * ## THE HOVER HAD TO MOVE WITH THE FILL
-            *
-            * `ChildGrid` puts `hover:bg-surface-muted` on the ROW to say a
-            * folded row opens on click (`cursor-pointer`, now on this card, is
-            * the other half of that sentence). An opaque card painted over that
-            * row hides it, so the card takes the same hover itself — the
-            * affordance is unchanged and the surface it plays on is the one now
-            * on top. The 40px `pr-10` gutter the ✕ hangs in is still the row's
-            * own and still tints.
-            *
-            * THE RAIL IS GONE, later the same day (client 2026-09-08, "remove the
-            * left-side border/outline"), and this card is half of why that was
-            * safe: with a closed fabric drawn as its own container and an open one
-            * drawn as a spec card beside its parts, the two states differ in shape
-            * rather than in the ink on a line beside them. The card starts on the
-            * overlay's own margin, exactly where the open row's spec card starts,
-            * so opening a fabric still moves nothing sideways. `space-y-2` sits on
-            * the card because the wrapper that used to carry it has gone; the 8px
-            * it sets is the same 8px.
-            */
-          <div className="cursor-pointer space-y-2 rounded-lg border border-border bg-surface p-3 transition-colors hover:bg-surface-muted">
-          <FieldGrid>
-            {/* THE STRUCTURE STAYS A REAL FIELD — Tab lands on fields, so a
-                folded row rendering none is mouse-only, and focusing it is what
-                opens the row again. */}
-            <Field label="Structure" required size="md">
-              <RecordPicker
-                label="Structure"
-                compact
-                required
-                items={scopedStructures(r, st.structure_id)}
-                value={st.structure_id}
-                onChange={(id) => pickComboStructure(r.key, st.key, id)}
-              />
-            </Field>
-            <Field label="" size="xl">
-              <div className="flex min-h-8 items-center">
-                <Truncated className="text-sm text-muted-foreground">
-                  {summary || "Nothing else filled in yet"}
-                </Truncated>
-              </div>
-            </Field>
-          </FieldGrid>
-          {/* THE ADVISORY LIVES HERE TOO, and this is the half that makes
-              deferring it honest. A folded structure is one the operator has
-              moved on from — the definition of the moment they asked to be told
-              — and it is also the only state a finished-but-incomplete
-              structure is ever seen in, since focusing it opens it again. Gated
-              on nothing further: `folded` IS the gate. */}
-          {foldedProblems.length > 0 && (
-            <p className="text-xs text-warning">{foldedProblems.join(" · ")}</p>
-          )}
-          </div>
-        );
-      }}
+         The closed card's bordered frame went too (client 2026-09-08: "wrap the
+         collapsed structure row ... inside its own full-width bordered
+         container"). Nothing is lost there: the spec card that request was
+         reaching for is what an OPEN row already draws. */
       onAdd={() => addStruct(r.key)}
       onRemove={(st) => mutStructs(r.key, (sts) => sts.filter((x) => x.key !== st.key))}
       addLabel="+ Add fabric"
@@ -15174,6 +15074,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            * card `renderFoldedRow` gained on 2026-09-08. They differ in SHAPE now,
            * so the line beside them had nothing left of its own to say.
            *
+           * THERE IS ONLY ONE STATE SINCE 2026-09-11, when the fold came off and
+           * every fabric began showing its fields. That is not an argument for
+           * the rail coming back — with no closed state there is nothing left for
+           * a marker to tell apart.
+           *
            * BOTH RAILS CAME OFF IN ONE CHANGE, and that is not tidiness. The twin
            * in `renderFoldedRow` was transparent and existed ONLY to hold the two
            * states at one inset, so removing either alone would shift the other
@@ -15198,20 +15103,39 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              * divider turns with it: a left border when the halves are side by
              * side, the top border `componentGrid` carries when they are not.
              */
-            /* 1.25fr / 1fr, WAS 1.85 / 1 (client 2026-08-20, screenshot 2408:
-               "use that left side gab and make in ssamse row").
+            /* A FLEX ROW, NOWRAP, BOTTOM-ALIGNED (operator instruction,
+               2026-09-11: "flex flex-nowrap and items-end ... without wrapping to
+               the next line"). It was
+               `grid min-[1250px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]`.
 
-               1.85 was right when the left half carried SIX fields and the right
-               carried two names. It now carries five and four, so the old ratio
-               starved the half that grew to feed the half that shrank — the two
-               changes are one change, and fixing only the part row's track would
-               have squeezed four fields into a third of the card.
+               THE STACK BELOW 1250px IS KEPT, and that is not a narrowing of the
+               instruction. The grid declared its two columns only from 1250px up
+               and was ONE column beneath, which is exactly what `flex-col` gives:
+               nowrap on a column axis stacks rather than wraps, so nothing below
+               the breakpoint changes. `items-end` is gated with the row direction
+               because on a column it aligns the cross axis — it would right-align
+               both halves instead of bottom-aligning them.
 
-               At ~1830px this puts each part column near 176px, which is `term`
-               — the width the part row's own `w` props already ask for, so the
-               track and the fields finally agree instead of one overriding the
-               other. */
-            className="grid items-start gap-x-6 gap-y-3 min-[1250px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]"
+               THE RATIO IS GONE AND THE CARD TOOK ITS PLACE. It was 1.25fr / 1fr,
+               itself down from 1.85 / 1 (client 2026-08-20, screenshot 2408: "use
+               that left side gab and make in ssamse row") — 1.85 was right when
+               the left half carried SIX fields and the right two names, 1.25 when
+               they carried five and four. A share and "make one half wider"
+               cannot both be stated, so the card is `flex-1` (zero basis, grows
+               into everything spare) and the parts half declares a basis of its
+               own. What the 08-20 note was protecting still holds: at ~1830px
+               each part column lands near 176px, the `term` its own `w` props ask
+               for.
+
+               WHAT NOWRAP COSTS, AND IT IS REAL BETWEEN 1250px AND ~1450px. The
+               card's five columns floor at 666px and the parts half at ~504px, so
+               the row wants ~1194px of content while the pane gives about 990px at
+               the breakpoint. Neither half may wrap now, so what shows there is
+               the overflow the track's own note already records as "squeezed and
+               deliberately unfixed". `flex-1` on a zero basis means the card
+               absorbs none of that shrink and the parts half absorbs all of it,
+               down to its own min-content. */
+            className="flex flex-col flex-nowrap gap-x-6 gap-y-3 min-[1250px]:flex-row min-[1250px]:items-end"
             /* FOCUS LEAVING THE ROW IS "they moved on" — `onBlur` bubbles in
                React, so one handler covers every field in the row and the
                nested part rows with it. `relatedTarget` inside this row is a
@@ -15277,16 +15201,25 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * block inside a bordered card container").
               *
               * NOTHING INSIDE MOVES. This is a wrapper on the half that already
-              * existed — the five-column track below, its field order and its
-              * single horizontal line are untouched, which is what "without
-              * rearranging them" asks for. The only thing it costs the track is
-              * `p-3`'s 24px, on a row whose floors are already tight above
-              * 1250px (see the track's own note).
+              * existed — the track below, its field order and its single
+              * horizontal line are untouched, which is what "without rearranging
+              * them" asks for. What it costs that track is the card's SIDE
+              * padding, on a row whose floors are already tight above 1250px (see
+              * the track's own note).
+              *
+              * `px-4 py-6`, NOT `p-4` (operator instruction, 2026-09-11:
+              * "increase box height ... add more vertical padding ... to make it
+              * vertically more spacious"). THE TWO AXES ANSWER DIFFERENT QUESTIONS
+              * NOW and must not be collapsed back into one shorthand by a later
+              * tidy-up: the horizontal 16px is width taken off a track that has
+              * none to spare between 1250px and ~1450px, while the vertical 24px
+              * is free, because nothing on this card competes for height. Raising
+              * `py` again is safe; raising `px` is not.
               *
               * `self-stretch`, NOT `h-full`, AND THAT IS THE WHOLE TRICK. The
-              * outer grid is `items-start`, so a grid item is exactly as tall as
-              * its content and `h-full` would resolve against that height and do
-              * nothing. `align-self: stretch` overrides `items-start` for THIS
+              * outer row aligns its items rather than stretching them, so an item
+              * is exactly as tall as its content and `h-full` would resolve
+              * against that height and do nothing. `align-self: stretch` overrides `items-start` for THIS
               * item only, so the spec fills the row's height while the parts
               * table beside it keeps sizing itself. Putting `items-stretch` on
               * the grid instead would have stretched both halves and changed the
@@ -15298,61 +15231,89 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               * costs — and a literal white would stay white in the dark theme
               * while everything around it inverted.
               */}
-            <div className="min-w-0 space-y-2 self-stretch rounded-lg border border-border bg-surface p-3">
-            {/* FIVE COLUMNS, DOWN FROM SIX (client 2026-08-20, screenshot 2408:
-                "use that left side gap"). The sixth held the fabric's Colour /
-                Print slot, and when that moved onto the part row the track
-                stayed — so the fabric row reserved a whole column for a control
-                that no longer exists, which is the empty space to the right of
-                Fabric Type in the screenshot.
+            {/* `flex-1` — THIS IS THE HALF THAT GROWS (operator instruction,
+                2026-09-11: "increase the width of the bordered container ...
+                applying flex-1 or w-full so it expands neatly"). `w-full` was the
+                other option offered and would have done nothing: a grid item
+                already filled its column, and a flex item's width comes from its
+                basis, not from a percentage of its parent.
 
-                A trailing empty track is invisible in code review and obvious on
-                screen: nothing errors, the row just stops short of its own
-                frame. Count the children whenever a field leaves a hand-written
-                `grid-cols-[…]`.
+                `self-stretch` STAYS AND STILL OVERRIDES THE ROW. It answers the
+                other axis — the card's bottom edge meeting the parts table's
+                (client 2026-09-06) — and it now overrides `items-end` exactly as
+                it used to override `items-start`. Drop it and the card becomes
+                content-height and bottom-aligned, with the parts table running
+                past it. */}
+            <div className="min-w-0 flex-1 space-y-2 self-stretch rounded-lg border border-border bg-surface px-4 py-6">
+            {/* ONE TRACK OF FIVE, IN THE ORDER THE OPERATOR NAMED THEM
+                (2026-09-11: "Structure*, Composition*, GSM*, Tolerance*,
+                Fabric Type*"). Every label starts on the same line and every box
+                starts under its own label, which is all "column alignment" asks
+                for and is what a row split into two items could not promise.
 
-                THE TRACK IS GATED AT `lg`, because its floors add up to more
-                room than most windows give it: 150 + 170 + 72 + 72 + 130 plus
-                four gaps is 642px that cannot shrink. Against ~350px of content
-                on a 414px phone it overflowed the card by nearly 300px — the
-                worst mobile break in this module — and a floored track has no
-                way to answer that except to stop applying.
+                THE HOUR IN BETWEEN, AND WHAT IT LEFT. Earlier the same day the
+                four were made uniform and Tolerance was pulled OUT of the track,
+                compact and behind a rule. Both halves of that are kept here —
+                Structure, Composition, GSM and Fabric Type still share one width
+                (`minmax(130px,1fr)` each) and Tolerance is still the short cell
+                (`6rem`) — but it stands in its stated place in the row rather
+                than beside it. The reversal is deliberate and costs nothing that
+                was gained: it restores the pair, since GSM and Tolerance are
+                neighbours again.
 
-                Below `lg` the fields stack one per line and each takes the full
-                width, which is the same answer the outer track at
-                `min-[1250px]` already gives the two halves. `lg` (1024px)
-                rather than the ~934px where the arithmetic first fits: the rail
-                is 228px, the content pane 32px of `px-4` and the card its own
-                padding on top, so the tighter bound leaves nothing for the part
-                of the chrome that is not fixed.
+                BEFORE EITHER OF THOSE it was five columns each sized to its own
+                field — `minmax(150px,1.3fr)`, `minmax(170px,1.7fr)`, `4.5rem`,
+                `6rem`, `minmax(130px,1fr)` — which is this app's compact standard
+                stated exactly: an input is as wide as the KIND of value it holds.
+                Uniformity overrules it on this card, and the accepted cost is a
+                four-digit GSM box at ~176px. If that reads wrong on screen the
+                fix is to take GSM out of the uniform group the way Tolerance is
+                out of it, never to shrink the control inside its cell — that
+                leaves the CELL at its old width and floats the value in dead
+                space.
 
-                STILL SQUEEZED ABOVE 1250px, AND DELIBERATELY LEFT ALONE. Once
-                the outer track splits, this row lives in the 1.25 half — about
-                527px at a 1250px window, under the 642px it needs — so it wants
-                a real answer somewhere between "stack" and "one line", not a
-                second breakpoint guessed from arithmetic. That is a desktop
-                layout decision with client history behind it (screenshots 2354,
-                2408) and it is not this change. */}
-            {/* TOLERANCE IS 9rem, GSM IS STILL 4.5 — the LABEL is what needs
-                the width, not the box (client 2026-09-06). "Tolerance * (175 -
-                185)" is ~23 characters and `Label` is `text-xs block` with no
-                `nowrap`, so over a 72px track it wrapped to three lines; on this
-                `items-end` row a taller cell bottom-aligns its input and rides
-                its label above every other label — the exact failure screenshot
-                2397 reported, and the reason the range had a `row-start-2` cell
-                of its own in the first place.
+                `items-start`, NOT `items-end`, AND IT IS WHAT MAKES THE ROW LINE
+                UP. Tolerance carries the derived range under its box, so it is
+                taller than the other four — and an `items-end` row matches
+                BOTTOMS, which rode the Tolerance label ~26px above every other
+                label (client screenshot 2397). Top-aligning puts all five labels
+                on one line and lets the range hang. What it trades away is the
+                opposite hazard: a label that wraps in a narrow column now pushes
+                its own control down. All five labels are one short word or two,
+                so at these widths none of them wraps.
 
-                THE INPUT DOES NOT GROW WITH IT. Tolerance keeps `w="num"` (72px)
-                because a tolerance is one or two digits, so the extra 72px is
-                label, not a wider box and not a trailing empty track — the cell's
-                content spans the column even though its control does not.
+                COUNT THE COLUMNS AGAINST THE CHILDREN. The track was six when the
+                fabric's Colour / Print slot moved to the part row (client
+                2026-08-20, screenshot 2408: "use that left side gap") and the
+                sixth stayed behind — a whole column reserved for a control that
+                no longer existed, which is the empty space to the right of Fabric
+                Type in that screenshot. A trailing empty track is invisible in
+                code review and obvious on screen: nothing errors, the row just
+                stops short of its own frame.
 
-                THE FLOORS NOW ADD UP TO 714px, from 642. That is 72px worse
-                against the ~527px this half gets at a 1250px window, which the
-                note below already records as squeezed and deliberately unfixed.
-                Accepted knowingly rather than overlooked: the alternative was a
-                wrapping label, which is the defect above. */}
-            <div className="grid items-end gap-x-3 gap-y-2 lg:grid-cols-[minmax(150px,1.3fr)_minmax(170px,1.7fr)_4.5rem_9rem_minmax(130px,1fr)]">
+                `w-full` ON EVERY CELL IS LOAD-BEARING. `Field` emits its `w` as a
+                `w-*` class on the CELL, so a cell left at `w="num"` would be 72px
+                inside its track and the alignment would be in the track only —
+                the "a track is not a cell" trap the Tolerance label hit on
+                2026-09-06 at 9rem. tailwind-merge resolves the pair to the later
+                class, which is why the `w` prop can stay for the stacked case
+                below `lg`.
+
+                THE FLOORS ADD UP TO ~634px — three 130px columns, the 96px
+                Tolerance box, a 130px Fabric Type and four 12px gaps. It was 666px
+                as five bespoke columns and ~705px while Tolerance stood outside
+                with a rule and its own padding. This half gets about 527px at a
+                1250px window, so the row is still squeezed there and still
+                deliberately unfixed: the outer row's own note records what nowrap
+                costs between 1250px and ~1450px.
+
+                GATED AT `lg`, AND THAT IS THE PART THAT MUST NOT BE RELAXED. A
+                floored track cannot shrink, and against ~350px of content on a
+                414px phone the five-column version overflowed its card by nearly
+                300px — the worst mobile break in this module. Below `lg` the five
+                stack one per line at full width, which is the same answer the
+                outer track at `min-[1250px]` gives the two halves. */}
+            <div className="grid items-start gap-x-3 gap-y-2 lg:grid-cols-[repeat(3,minmax(130px,1fr))_6rem_minmax(130px,1fr)]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 
@@ -15481,6 +15442,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 * as the text it always was. Losing the box also loses nothing
                 * from the keyboard: `Input readOnly` sets `tabIndex={-1}`
                 * itself, so Tab never stopped there anyway.
+                *
+                * AND THE TWO BOXES NO LONGER STAND TOGETHER (operator
+                * instruction, 2026-09-11). Tolerance was asked out of the track
+                * and Fabric Type now sits between them, so "200 ± 5" is no longer
+                * read off two adjacent boxes. This paragraph stays because it is
+                * the design that was overruled, not a description of the card —
+                * what keeps the pair legible now is the range printed under the
+                * Tolerance box, which states the figure the two of them work out
+                * to, under the box that changes it.
                 */}
               {/*
                 * THREE LABELLED SLOTS, ALL ONE CONTROL TALL (client 2026-08-20,
@@ -15508,6 +15478,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 * exactly an input's height, which is what makes it line up while
                 * staying off the Tab path — the same shape the folded structure
                 * summary uses a few hundred lines down.
+                *
+                * THE SLOT IS GONE AND POINT 2 IS ANSWERED ANOTHER WAY. The range
+                * became the Tolerance label's suffix (2026-09-06) and then that
+                * field's `hint` (2026-09-11); the taller-field problem it was
+                * dodging is now handled by top-aligning the two ITEMS of the row
+                * rather than by giving the figure a row of its own. Point 1 is
+                * untouched, and it is why Tolerance still carries its own label
+                * wherever it stands.
                 */}
               {/* `onBlur` ON BOTH BOXES — see `carryDownGsm`. It declines
                   unless this is a fabric of the FIRST COMBO, so the handler is
@@ -15535,7 +15513,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   one — `need.gsm` is `isCircularKnit(family)`, not a constant,
                   and it is routed through the one rule so the star, the hold
                   and the Save gate cannot drift apart from each other. */}
-              <Field label="GSM" required={need.gsm} w="num">
+              <Field
+                label="GSM"
+                required={need.gsm}
+                w="num"
+                className="w-full"
+              >
                 <Input
                   type="number"
                   className="text-right"
@@ -15544,42 +15527,74 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   onBlur={() => carryDownGsm(r.key, st.key)}
                 />
               </Field>
-              {/* TOLERANCE IS REQUIRED AND ALSO PREFILLED TO 5, which is not a
-                  contradiction: `addStruct` seeds ±5 so the hold is satisfied on
+              {/* TOLERANCE IS BACK IN THE TRACK, BETWEEN GSM AND FABRIC TYPE
+                  (operator instruction, 2026-09-11: the row is
+                  "Structure*, Composition*, GSM*, Tolerance*, Fabric Type*").
+                  Earlier the same day it was asked OUT of the track and stood
+                  beside it behind a rule, compact and deliberately apart; this
+                  names the five as one ordered row, and the later instruction
+                  wins. What that hour cost is worth keeping: the pair reads as a
+                  pair again, because GSM and Tolerance are neighbours again.
+
+                  ITS COLUMN IS 6rem AND THE OTHER FOUR ARE `1fr`, which is the one
+                  thing carried over from the isolated version — a two-digit
+                  tolerance in a 176px box is the "this much huge" complaint from
+                  the other side. Uniform still means Structure, Composition, GSM
+                  and Fabric Type; Tolerance is the short cell among them, in its
+                  stated place rather than outside the row.
+
+                  TOLERANCE IS REQUIRED AND ALSO PREFILLED TO 5, which is not a
+                  contradiction: `addStruct` seeds 5 so the hold is satisfied on
                   arrival and the operator only meets it if they CLEAR the box.
                   A field they emptied on purpose is exactly the one worth
                   refusing to leave blank, and zero still reads as an answer
-                  (`structureProblems`). */}
-              {/* THE DERIVED RANGE LIVES ON THIS LABEL (client 2026-09-06:
-                  "clean up the dangling 175 - 185 text by integrating it into
-                  the Tolerance label"). It had a cell of its own at
-                  `row-start-2`, which is what "dangling" names — a figure on a
-                  second row under two boxes, belonging to neither.
+                  (`structureProblems`).
 
-                  `labelSuffix`, NOT a ReactNode `label`: the star is drawn
-                  between the two, so only a suffix can land AFTER it, and
-                  `label` staying a string is what keeps the required hold
-                  announcing "Tolerance is required." See the prop in
-                  `field.tsx`.
+                  THE RANGE IS HELPER TEXT UNDER THE BOX (operator instruction,
+                  2026-09-11), centred on it: the cell is the box's 96px and the
+                  hint is `block text-center`, so "(175 - 185)" sits under the
+                  control it is computed from rather than under a wider track.
 
-                  It renders nothing until there is something to say — `gsmRange`
-                  returns "" with no GSM typed, so a fresh fabric reads
-                  "Tolerance *" and grows the annotation as it is filled in. */}
+                  THIS STILL REVERSES THE CLIENT'S 2026-09-06 INSTRUCTION, which
+                  was to "clean up the dangling 175 - 185 text by integrating it
+                  into the Tolerance label" — the ask `labelSuffix` was built for.
+                  Putting the range back on the label needs a new decision, not a
+                  tidy-up.
+
+                  AND IT IS WHY THE TRACK IS `items-start`. A `hint` renders BELOW the
+                  control, so this cell is taller than the other four; on an
+                  `items-end` row it matched its BOTTOM to theirs and rode its own
+                  label ~26px above every other label in the row (client
+                  screenshot 2397), which is the misalignment this instruction is
+                  about. Top-aligning the track lines all five labels up and lets
+                  the range hang under its box, where it belongs.
+
+                  `w-full` IS THE LOAD-BEARING CLASS, as on every cell here: `w="num"`
+                  puts 72px on the CELL, and a 96px track with a 72px cell in it is
+                  the "widening a track does not widen a cell" trap this field
+                  already paid for once, on 2026-09-06 at 9rem. `tabular-nums` so the
+                  figure does not jitter as it is recomputed on every GSM
+                  keystroke, and `null` rather than an empty string when there is
+                  nothing to say: `Field` renders no paragraph at all for a falsy
+                  `hint`, so a fresh fabric with no GSM typed is exactly one control
+                  tall. */}
+              {/* `onBlur` ON BOTH BOXES — see `carryDownGsm`. It declines unless this
+                  is a fabric of the FIRST COMBO, so the handler is harmless on
+                  every other card. */}
               <Field
                 label="Tolerance"
-                labelSuffix={
-                  range ? (
-                    <span className="ml-1 font-normal tabular-nums text-muted-foreground">
-                      ({range})
-                    </span>
-                  ) : null
-                }
                 required={need.gsm_tolerance}
                 w="num"
+                className="w-full"
+                hint={
+                  range ? (
+                    <span className="block text-center tabular-nums">({range})</span>
+                  ) : null
+                }
               >
                 <Input
                   type="number"
-                  className="text-right"
+                  className="w-full text-right"
                   value={st.gsm_tolerance}
                   onChange={(e) =>
                     patchStruct(r.key, st.key, {
@@ -15590,25 +15605,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 />
               </Field>
               {/*
-                * THE RANGE'S OWN CELL STOOD HERE AND IS NOW THE TOLERANCE
-                * LABEL'S SUFFIX (client 2026-09-06). It was
+                * THE RANGE'S OWN CELL STOOD HERE. It was
                 * `col-span-2 col-start-3 row-start-2` — a right-aligned figure
                 * on a second row under GSM and Tolerance, belonging to neither,
-                * which is what the client called dangling.
+                * which is what the client called dangling (2026-09-06). It
+                * became the Tolerance label's suffix that day, and the Tolerance
+                * field's `hint` on 2026-09-11.
                 *
-                * WHAT THAT CELL WAS AVOIDING STILL HOLDS, and the suffix is not
-                * a way back into it. The range was given a row of its own
-                * because putting it INSIDE GSM's `Field` made that field taller
-                * than its neighbours, and on an `items-end` row a taller field
-                * matches its BOTTOM to theirs and shoves its label ~26px up
-                * (client screenshot 2397). `labelSuffix` does not reopen that:
-                * it renders ON the label's existing line, so the field's height
-                * is unchanged and row 1's alignment is computed exactly as
-                * before. The width it needs came from the track instead — see
-                * the note there.
-                *
-                * Still unlabelled, still right of the star, still reading as the
-                * result of the two boxes under it rather than as a caption.
+                * THE CELL IS NOT WHAT CAME BACK, and the distinction is the
+                * whole of what was objected to: a figure belonging to NEITHER
+                * box. A `hint` belongs to the field it is inside, reads as the
+                * result of the box above it, and moves with that box.
                 */}
               {/* THREE OPTIONS, DOWN FROM FOUR — "Printed" left the vocabulary
                   on 2026-08-31 (client: "Fabric Type is meant to define the

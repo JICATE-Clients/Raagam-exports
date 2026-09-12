@@ -303,10 +303,54 @@ export const FIELD_SPAN: Record<FieldSize, string> = {
  */
 export const FIELD_WIDTH: Record<FieldWidth, string> = {
   num: "w-[4.5rem]", // 72px
+  /**
+   * 88px — the label floor (`lib/ui/sizes.ts`). An explicit rem literal, the
+   * shape `num` above and `party` below both take, so the number in the class is
+   * the number in the comment and in the other table.
+   */
+  hug: "w-[5.5rem]", //  88px
   range: "w-28", //     112px
   code: "w-36", //      144px — the width `across="compact"` already settled on
   term: "w-44", //      176px
+  /**
+   * 200px. A STATIC ARBITRARY LITERAL, the same shape `num` above takes, because
+   * 12.5rem is not on Tailwind's own `w-*` scale between `w-44` and `w-48` — and
+   * `w-48` is 192, which is under the 200 the client measured.
+   */
+  party: "w-[12.5rem]", //  200px
   name: "w-72", //      288px
+};
+
+/**
+ * THE SAME SEVEN WIDTHS AS A CSS LENGTH — for the places that cannot take a class.
+ *
+ * A `ChildGridColumn.width` is written into `style` and onto a `<col>`, so it
+ * needs `"11rem"` where a `Field` needs `"w-44"`. Until this existed a screen
+ * putting a grid column beside a field had to retype the number, and the two
+ * were kept equal by a COMMENT — Zone ▸ Edit said "`11rem` — `term`, as
+ * FIELD_W.zone_name" and was true only for as long as nobody edited one half
+ * (client 2026-09-10: "zone name input box size same to area input box").
+ * A comment is a note the next reader finds afterwards, not a guarantee.
+ *
+ * WHY THIS IS A SECOND TABLE AND NOT A DERIVATION. `FIELD_WIDTH` above cannot be
+ * built from these values — Tailwind v4 scans SOURCE TEXT, so `w-[${rem}]` emits
+ * no CSS — and these cannot be parsed out of the classes, because half of them
+ * are scale names (`w-44`) rather than lengths. So the pair is edited together
+ * or not at all: **a step added or changed above must be added or changed here
+ * in the same edit**, and the px comments on the two maps are what a reviewer
+ * checks them against.
+ *
+ * Reading a value out of this map is Tailwind-safe for the same reason
+ * `FIELD_WIDTH` is: nothing here becomes a class name.
+ */
+export const FIELD_WIDTH_CSS: Record<FieldWidth, string> = {
+  num: "4.5rem", //   72px
+  hug: "5.5rem", //   88px
+  range: "7rem", //  112px
+  code: "9rem", //   144px
+  term: "11rem", //  176px
+  party: "12.5rem", //  200px
+  name: "18rem", //  288px
 };
 
 /**
@@ -446,12 +490,58 @@ export function FieldRow({
   className,
   nowrap = false,
   align = "end",
+  gap,
 }: {
   children: ReactNode;
   className?: string;
   /** One line, never folded — see `FIELD_ROW_NOWRAP` above for the three parts
    *  and for the portal caveat on pickers. */
   nowrap?: boolean;
+  /**
+   * THE GAP, WHEN THE ROW'S OWN DEFAULT IS THE WRONG ONE FOR IT. Omit it and
+   * each constant keeps the gap it argues for above — `gap-x-3` (12px) wrapping,
+   * `gap-x-2.5` (10px) nowrap.
+   *
+   * `FIELD_ROW_NOWRAP_BASE` tightens to 10px for a stated reason: "a band of
+   * 85-170px controls at 12px apart reads as separated rather than grouped."
+   * That reasoning is about a BAND — Customer ▸ Identity's eight fields, where
+   * the row has to read as one object. It does not carry to a row of TWO
+   * controls, which cannot read as a band however they are spaced, and where the
+   * only question left is whether the pair matches the 12px rhythm every other
+   * row on the screen uses. Zone ▸ Edit is that row (client 2026-09-10, one
+   * compact row at gap-3).
+   *
+   * `"pack"` is `gap-x-2` (8px), the third and tightest (client 2026-09-10, Our
+   * Bank ▸ Details: eight fields "into a single, compact horizontal row …
+   * gap-2"). It is for the densest case this app has — a `nowrap` band of eight
+   * or more explicitly-sized cells — and its 8px is not a new number either:
+   * `FIELD_TRACK_32` above already spends exactly that, and for the neighbouring
+   * reason, that a fixed gap repeated many times is width the fields never get
+   * back. On a row of two controls it would be wrong for the same reason
+   * `"tight"` is: too close to read as separate objects.
+   *
+   * `"wide"` is `gap-x-4` (16px), and it is `"pack"`'s mirror image (client
+   * 2026-09-10, Zone ▸ Edit: "clean spacing between the columns (gap-4)"). The
+   * three steps above all answer "these controls should read as ONE object" and
+   * differ only in how hard they say it; this one answers the opposite question.
+   * Zone ▸ Edit is a name field beside a one-column grid — two DIFFERENT things
+   * that happen to share a line, where 12px reads as a single wide control split
+   * by a seam. Widening is what says they are two columns.
+   *
+   * So this states the gap and nothing else, and the four steps are picked by
+   * the SAME question rather than by feel:
+   *
+   *   `pack`  8px   a nowrap band of eight or more sized cells — one object
+   *   `tight` 10px  a band of a few sized cells — one object
+   *   `row`   12px  the house gap; the wrapping row's own
+   *   `wide`  16px  two or three controls that must read as separate columns
+   *
+   * A FIFTH STEP MEANS THE GAP HAS BECOME A PER-SCREEN DECISION, which is the
+   * failure `lib/ui/sizes.ts` names for widths and which applies here unchanged.
+   * Four is already the point at which the next request should be answered by
+   * reaching for one of these, not by adding to them.
+   */
+  gap?: "row" | "tight" | "pack" | "wide";
   /**
    * Which edge the fields line up on. `"end"` is the default and the house rule
    * (a wrapping label must not drop its control); `"start"` is for a row whose
@@ -467,15 +557,22 @@ export function FieldRow({
   return (
     <div className={cn("@container/section", nowrap && "overflow-x-auto", className)}>
       <div
-        className={
+        className={cn(
           nowrap
             ? align === "start"
               ? FIELD_ROW_NOWRAP_TOP
               : FIELD_ROW_NOWRAP
             : align === "start"
               ? FIELD_ROW_TOP
-              : FIELD_ROW
-        }
+              : FIELD_ROW,
+          // `cn` is tailwind-merge, so this REPLACES the base's `gap-x-*` rather
+          // than racing it in the stylesheet — the two classes would otherwise be
+          // decided by source order in the built CSS, which no call site can see.
+          gap === "row" && "gap-x-3",
+          gap === "tight" && "gap-x-2.5",
+          gap === "pack" && "gap-x-2",
+          gap === "wide" && "gap-x-4",
+        )}
       >
         {children}
       </div>

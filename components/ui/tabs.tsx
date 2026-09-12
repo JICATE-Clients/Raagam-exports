@@ -117,7 +117,35 @@ export function Tabs({
         // there is no scope to sort within and it is inert. Either way it says
         // what this row is.
         data-focus-region="header"
-        className="flex gap-1 overflow-x-auto border-b border-border"
+        /**
+         * `overflow-y-hidden` IS NOT TIDYING — IT IS WHAT TAKES THE UP/DOWN
+         * ARROW BUTTONS OFF THE RIGHT END OF THE STRIP (operator, 2026-09-12,
+         * on Fabric BOM ▸ Fabric Lines ▸ [Detail] ▸ Yarn Dyed Details).
+         *
+         * THERE WAS NEVER ANY JSX TO DELETE FOR THEM, which is the whole reason
+         * this is written down here. They are a SCROLLBAR — Chrome's Windows 11
+         * scrollbars draw a stepper arrow at each end, and on a 38px-tall strip
+         * the two arrows meet with no thumb between them, so a pair of buttons
+         * appears beside three tabs that fit the width perfectly well.
+         *
+         * Two things combine to grow one, and neither is visible on its own:
+         *
+         * - `overflow-x-auto` sets ONLY `overflow-x`. CSS then computes the
+         *   other axis' `visible` to `auto` (Overflow 3 §3), so one declaration
+         *   makes this a scroll container on BOTH axes.
+         * - The tabs below used to carry `-mb-px`, to pull the active tab's 2px
+         *   border over the 1px one on this element. Under `align-items:
+         *   stretch` that single negative pixel puts each tab's border box 1px
+         *   below this element's content box — 1px of vertical scrollable
+         *   overflow, which is all a scrollbar needs.
+         *
+         * The negative margin is gone (see the tab's own class), so nothing
+         * overflows and nothing is clipped. This stays as the guard: it costs
+         * nothing, and it is what stops the arrows coming back the next time a
+         * tab gains a pixel this row did not budget for. A tab strip has no
+         * vertical axis to scroll in the first place.
+         */
+        className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border"
       >
         {items.map((item) => {
           const isActive = active === item.key;
@@ -135,7 +163,15 @@ export function Tabs({
               tabIndex={isActive ? 0 : -1}
               onClick={() => select(item.key)}
               className={cn(
-                "-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                // NO `-mb-px`. It used to sit at the head of this line so the
+                // active tab's 2px border landed ON the strip's own 1px one
+                // rather than above it — one pixel of polish that cost the
+                // scrollbar arrows described on the strip above, because a
+                // negative end margin is still vertical overflow to a box that
+                // `overflow-x-auto` has already made scrollable on both axes.
+                // The accent now sits directly on top of the divider, which
+                // runs unbroken under every tab. Do not put it back.
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
                 isActive
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground",

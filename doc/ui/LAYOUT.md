@@ -180,6 +180,35 @@ two-column page split kept. Recorded here because a screen quietly using a retir
 how the next reader "fixes" it back — that already happened once. The arithmetic is in the
 comment beside the fields (`material-master-screen.tsx`, `fabricDetails`).
 
+**AND THE CLIENT REVERSED IT FOR A RECORD EDITOR (2026-09-11).** Shown the HR
+Staff editor — nine identical `md` boxes down the Detail tab — the same client
+who asked for one width now asks for the opposite, in their own words: *"it looks
+like an excel sheet ... every box has same size, but maybe address need a bigger
+one, id no like small number needs small ones right"*.
+
+Both instructions are real and neither is a mistake. They are the same person
+looking at the same trade-off from opposite ends: on the Applicant SHEET, mixed
+spans read as ragged whitespace; on a section-rail RECORD EDITOR with ~60 fields,
+one repeated box reads as a spreadsheet. The later instruction wins where they
+overlap, and the scope of the reversal is exactly that editor family:
+
+| Screen | Rule |
+|---|---|
+| Master sheets (`*-master-screen.tsx`, `SimpleMasterScreen`) | **unchanged** — one width, `sm` / `lg` per the table above |
+| The HR person editor (`hr/_person/person-client.tsx`, Staff + Workers) | **sized to the data** |
+
+**The guard that keeps size-to-data from becoming raggedness is that EVERY ROW
+STILL SUMS TO EXACTLY 12.** Ragged is a row of 11 with a one-unit hole in it, not
+a row of unequal boxes — the 07-29 complaint was about the hole. `xs` and `md` are
+therefore *un*-retired inside that editor, and each group's arithmetic is written
+into a comment beside it, because nothing in the build can catch an overflow.
+
+**A COLUMN OF GENUINELY UNIFORM DATA STAYS UNIFORM.** Pay ▸ Statutory and Pay ▸
+Actual are five money boxes each (Basic, DA, HRA, Others, Gross); they are the
+same kind of value and are meant to be compared down the column, so they keep one
+width. "Size to the data" is not "make every box a different size" — where the
+data really is uniform, uniform IS sized to it.
+
 **What stays wide.** `full` is for things that are not fields: a `ChildGrid`, a GSTIN fact
 strip, a multi-line `Textarea`. A textarea in particular must never share a row — every
 grid row is as tall as its tallest item, so the fields beside it end up floating above a

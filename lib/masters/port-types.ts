@@ -13,6 +13,8 @@ export interface Port {
   name: string | null;
   country_id: string;
   port_type: PortType | null;
+  /** true = switched off. 0547; see the note on `portInput.inactive`. */
+  inactive: boolean;
   created_at: string;
   updated_at: string;
   // embedded for display (port-service selects countries(id,code,name))
@@ -28,5 +30,21 @@ export const portInput = z.object({
   name: z.string().trim().min(1, "Name is required"),
   country_id: z.string().uuid("Country is required"),
   port_type: z.enum(PORT_TYPES).nullable().default(null),
+  /**
+   * Switched off — not offered in any port dropdown (AGENTS.md "Disabled rows").
+   *
+   * NOT TYPED ON THIS SCREEN. It is the listing's Status switch, which writes
+   * through `setMasterActive` and never comes near this schema (client
+   * 2026-08-17: the block control lives in the row action, "no more in the
+   * creating screen"). It is here because `updatePort` sends the WHOLE record:
+   * without the field, editing a blocked port's name would switch it back on,
+   * and `lib/data-io` would have no way to express the state at all.
+   *
+   * `.default(false)` is therefore load-bearing in one direction only — a create
+   * omits it and gets an active port. An UPDATE must pass the record's stored
+   * value, which is why the screen keeps `inactive` in its form state and round-
+   * trips it untouched.
+   */
+  inactive: z.boolean().default(false),
 });
 export type PortInput = z.infer<typeof portInput>;

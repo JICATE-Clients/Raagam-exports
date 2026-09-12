@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -55,6 +55,167 @@ type BranchRow = {
 };
 
 const BLANK = { code: "", bank_type: "Foreign" as BankType, name: "", inactive: false };
+
+/**
+ * DETAILS, SHRINK-WRAPPED (`erp-form-compact`; client 2026-09-10, bank fields
+ * "compact tighten properly") — three controls that were `sm + lg + sm`, i.e.
+ * 3 + 6 + 3 of twelve, on a `Sheet` that is `max-w-[1180px]`.
+ *
+ * So a bank CODE stood in a ~285px box, and the Foreign/Local radio pair — two
+ * words and two 16px dots, ~151px of actual control — stood in another one with
+ * 134px of nothing after it. That is rule 1 exactly: the cell is a share of the
+ * pane and holds its width whatever is put in it. The old note above this
+ * section is the tell, and it is honest about what it was doing — "3 + 6 + 3 =
+ * 12, one flush row. It was sm + lg + md = 13, which overflowed the track" — the
+ * numbers being balanced there are the TRACK'S, not a measurement of anything a
+ * bank holds.
+ *
+ *   code 144  Code, and Name.
+ *
+ * NAME IS `code` (144), AND THAT IS THE SIBLING MASTERS' ANSWER RATHER THAN A
+ * NEW ONE. A party's own name has no schema maximum, so `FieldWidth`'s stated
+ * test argues for `name` (288) — and Consignee, Notify and Vendor each narrowed
+ * exactly this box to 144 on the client's instruction of 2026-09-09, Consignee's
+ * map recording the reasoning in writing. A bank is the same kind of party on
+ * the same kind of master, so a third opinion here is the drift
+ * `lib/ui/sizes.ts` exists to stop. A long name still scrolls inside the box, as
+ * it does at every step.
+ *
+ * NOT `party` (200), though this screen is where the word "bank" appears in that
+ * step's own definition. `party` is for a name in a picker TRIGGER, and
+ * `lib/ui/sizes.ts` refuses it for a typing surface in the same paragraph:
+ * reaching for it to widen a text input is "size to the data". Here the operator
+ * types the bank rather than picking it.
+ *
+ * THE TYPE RADIO TAKES NO `w` AT ALL. A radio pair is not one of the widths — it
+ * is a control exactly as wide as its own two words — and an unsized `Field` in
+ * a flex row is exactly as wide as what is in it. Employee's Inactive switch
+ * records the same call for the same reason one master over.
+ */
+const DETAILS_W = {
+  code: "code", //  a short bank code
+  name: "code", //  the party's own name, as Consignee / Notify / Vendor
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * AND THE DETAILS CARD IS CAPPED TO THAT ROW (`erp-form-compact` rule 4).
+ * Narrowing the fields does not narrow the card: `DetailSection` is a block box
+ * and goes on filling the sheet, so without this the three tightened controls
+ * sit in the left 40% of an 1140px box and the surplus reads as a hole — the
+ * same complaint one card out.
+ *
+ *   144 + 144 + ~151  =  439 + 2 x 12 = 463   Code, Name, the radio pair
+ *   + 2 x 10                                  `DetailSection`'s `p-2.5`
+ *   + 2 x 1                                   its border
+ *   = 485  ->  31rem (496), 11px of slack
+ *
+ * THE RADIO IS THE ONE ESTIMATE ON THIS SCREEN, so it is rounded up rather than
+ * down: a 16px dot, `gap-1.5`, "Foreign" at Inter 14px (~53px), the row's own
+ * `gap-4`, then the same again for "Local" (~38px). Every other number here is a
+ * step of the vocabulary. Nothing folds if the cap is a little generous and a
+ * cap 10px short would drop the radio onto a line of its own, so if those two
+ * words are ever translated this is the constant to re-check.
+ *
+ * A definite length, never `max-w-fit`: `DetailSection`'s root declares
+ * `@container/section`, so a content-sized cap on it resolves to zero and the
+ * card collapses. `employee-master-screen.tsx`'s `IDENTITY_BOX_W` carries the
+ * long version of that note.
+ */
+const DETAILS_BOX_W = "max-w-[31rem]";
+
+/**
+ * A BRANCH'S TWELVE FIELDS, SHRINK-WRAPPED — the same conversion, on the card
+ * where twelve of this screen's fifteen controls actually live.
+ *
+ * Every one of them was `size="sm"`, and the note above `renderMobileRow` stated
+ * that as though it were the design: "Every field is `sm` (3 of 12), so the
+ * twelve fall into three flush rows of FOUR". Four equal cells is a statement
+ * about the TRACK — it gave a six-digit PIN the same ~272px as a street, and it
+ * is why Street's own comment had to argue at length for staying `sm` when the
+ * value wanted more ("the only way to widen Street is to break it"). That
+ * argument dissolves here: a width is not taken from a neighbour, so Street can
+ * be 288 without anything else giving anything up.
+ *
+ * NO HAND-TYPED PIXELS. Every step is one an address block on a sibling master
+ * already settled — Consignee's `ADDRESS_W` is the closest, field for field:
+ *
+ *   code  144  Country, State, City, Land Line, and the two bank codes. The
+ *              place trio is what Consignee, Customer and Vendor give City and
+ *              State; a land line prints as 0422-2345678, ~100px of Inter at
+ *              14px plus the input's own padding, so `range` would clip it.
+ *   range 112  Pin. Six digits, a hard maximum, and the 90-120 band this step
+ *              exists for — four masters state this same value for this field.
+ *   name  288  Street and E-Mail. A postal line has no hard maximum, which is
+ *              the test `FieldWidth` states, and an address genuinely is longer
+ *              than a name.
+ *   term  176  Mobile, WhatsApp and Current Acc No — and the last of those takes
+ *              it for a different reason from the first two, which is worth
+ *              saying out loud. Mobile and WhatsApp are `MobileField` /
+ *              `WhatsAppField`, each an input with a `ContactChip` beside it in
+ *              the same cell, so at `code` the number would be squeezed by a
+ *              fixed 28px button: that is Consignee's stated reason for the
+ *              identical step. The account number takes it for the VALUE
+ *              instead — up to 18 digits, the measurement `OUR_BANK_W` and
+ *              Employee's `BANK_W` both already settled on.
+ *
+ * DERIVED, AND IT KEEPS THE THREE READING ROWS THE OLD TRACK HAPPENED TO GIVE.
+ * One `FieldRow` wrapping, with `FORM_W` below fixing where it breaks:
+ *
+ *   144 + 144 + 144 + 112  =  544 + 3 x 12 = 580   where the branch is
+ *   288 + 144 + 176 + 176  =  784 + 3 x 12 = 820   the address, then the phones
+ *   288 + 144 + 144 + 176  =  752 + 3 x 12 = 788   e-mail, then the codes
+ *
+ * The JSX order is untouched, so the KEYBOARD path is untouched — Tab still runs
+ * where / address+phones / email+codes, which the old note correctly called the
+ * point of writing them in that order. What changes is that the fold is now
+ * derived from what the fields measure instead of from four cells adding to
+ * twelve.
+ */
+const BRANCH_W = {
+  country: "code",
+  state: "code",
+  city: "code",
+  pin: "range", //           6 digits
+  street: "name", //         a postal line — no schema maximum
+  land_line: "code", //      0422-2345678, wider than `range` holds
+  contact: "term", //        Mobile and WhatsApp: input + ContactChip
+  email: "name", //          an address is longer than a name
+  swift_rtgs_code: "code",
+  ifs_code: "code",
+  current_acc_no: "term", // up to 18 digits, as Our Bank's Account No
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE FORM'S WIDTH — `erp-form-compact` rule 4's "cap a sub-grid to the FORM's
+ * width, not the screen's", and here the sub-grid IS the widest thing in the
+ * form, so this one constant is the form's own edge.
+ *
+ * Two readers: the wrapper around the branch grid, and the footer's button box,
+ * so Cancel and Save end where the card above them ends rather than a
+ * sheet-width to its right.
+ *
+ *   820       the widest of the three branch lines
+ *   + 2 x 10  `ChildGrid`'s `GRID_FRAME` padding (`p-2.5`; its
+ *             `@2xl/editor:p-2` is narrower still, which only ever leaves the
+ *             fields more room)
+ *   + 2 x 1   its border
+ *   = 842  ->  54rem (864), 22px of slack
+ *
+ * IT IS WHAT DECIDES THE FOLD. Street joining line 1 would need 580 + 12 + 288 =
+ * 880, so the three lines hold at any cap from 842 up to ~901 — that is the
+ * number to check before widening this constant. Uncapped, the card fills the
+ * sheet's ~1140px and Street climbs onto line 1, which is the shape the old
+ * four-per-row track existed to prevent.
+ *
+ * A WRAPPER `<div>`, NOT A PROP. `ChildGrid` takes no root `className`, and its
+ * own `hugsContent` / `cardHug` path is the wrong tool twice over: it needs
+ * every COLUMN to declare a width, and these `columns` are the never-rendered
+ * fallback pair — and `cardHug`'s own note records that a `w-fit` around a
+ * `forceCards` grid COLLAPSES it, because `renderMobileRow`'s root is a
+ * container query and so contributes zero to `fit-content`. A cap on a plain
+ * parent has neither problem.
+ */
+const FORM_W = "max-w-[54rem]";
 const blankBranch = (key: string): BranchRow => ({
   key,
   country_id: "",
@@ -126,8 +287,15 @@ export function BankMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  /** Block / Unblock in the ⋮ — one implementation for every master listing. */
-  const { blockItem } = useBlockAction("bank");
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `bank` is registered in
+     `lib/masters/active-registry.ts`.
+
+     IT REPLACES `blockItem`, which used to sit in the ⋮ beside Duplicate. One
+     master, one control for the flag: leaving both would give a bank two places
+     to be blocked from, and the menu item would be the one that never says which
+     way the row is currently set. */
+  const { setStatus, isPending: statusPending } = useBlockAction("bank");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -341,12 +509,11 @@ export function BankMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.branches.length}</span>,
     },
-    {
-      header: "Status",
-      cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
-      ),
-    },
+    /* NO Status COLUMN DECLARED HERE, AND THE COLUMN IS STILL THERE.
+       `MasterListShell` splices it in because this screen passes
+       `onStatusChange` — a switch plus the word it is set to, clicking which
+       calls the status API directly. Declaring one here would be stripped as a
+       duplicate; see that prop. */
   ];
 
   /**
@@ -384,14 +551,19 @@ export function BankMasterScreen({
           onView: setViewRow,
           onEdit: openEdit,
           onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the switch
+             calls. `active` is stated positively; nothing here flips the boolean. */
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.name }),
           // Duplicate lives behind the ⋮ — it is a create, not row CRUD, and it
-          // is the only master that offers one.
-          menu: (r) => [
-            ...(perms.canCreate && perms.canEdit
+          // is the only master that offers one. Block / Unblock USED to sit here
+          // too; the Status switch replaced it — see `setStatus` above.
+          menu: (r) =>
+            perms.canCreate && perms.canEdit
               ? [{ label: "Duplicate", icon: Copy, onClick: () => openDuplicate(r) }]
-              : []),
-            ...blockItem(r, { label: r.name, canBlock: perms.canDelete }),
-          ],
+              : [],
         }}
         empty="No bank records yet."
         mobile={{
@@ -406,7 +578,7 @@ export function BankMasterScreen({
           onEdit: openEdit,
           onDelete: remove,
         }}
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       {/* editor */}
@@ -415,14 +587,20 @@ export function BankMasterScreen({
         onClose={() => setOpen(false)}
         title={editId ? "Edit Bank" : "New Bank"}
         footer={
-          <>
+          /* `mr-auto` inside the Sheet footer's `justify-end` row: the auto margin
+             eats the free space on the RIGHT, so this box sits at the left edge and
+             the buttons — right-aligned inside it by `justify-end` — end exactly
+             where the branch card above them ends. Without it they stay pinned to
+             the 1180px sheet and float a third of a screen away from an 864px form.
+             `FORM_W` is the arithmetic, stated once at the top of this file. */
+          <div className={`mr-auto flex w-full ${FORM_W} items-center justify-end gap-2`}>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
-          </>
+          </div>
         }
       >
         {/* Single column, header ABOVE the branches — BOTH visible at once, on
@@ -465,10 +643,21 @@ export function BankMasterScreen({
               </span>
             </div>
           )}
-          {/* 3 + 6 + 3 = 12, one flush row. It was sm + lg + md = 13, which
-              overflowed the track and wrapped Type onto a line of its own. */}
-          <DetailSection label="Details" cols={12}>
-            <Field label="Code" size="sm" htmlFor="bk-code">
+          {/* ONE `FieldRow`, laid out by WIDTHS — `DETAILS_W` at the top of this
+              file carries the arithmetic and `DETAILS_BOX_W` caps the card to it.
+              `cols={1}`, because that row is the only child this section places;
+              the twelfths it used to balance ("3 + 6 + 3 = 12, one flush row")
+              are gone from this screen.
+
+              `align="start"`, NOT `FieldRow`'s default `items-end`: Name renders
+              a `DuplicateError` and a `SpellSuggestHint` BELOW its input, and
+              both appear mid-typing. That is `erp-form-compact` rule 4's choice —
+              `items-end` is for a LABEL that outgrows its narrow box, `start` for
+              a field that grows DOWNWARDS — and on an `items-end` row the first
+              collision would drop Name's own label ~16px below Code's. */}
+          <DetailSection label="Details" cols={1} className={DETAILS_BOX_W}>
+            <FieldRow align="start">
+            <Field label="Code" w={DETAILS_W.code} htmlFor="bk-code">
               <Input
                 uppercase
                 id="bk-code"
@@ -476,7 +665,7 @@ export function BankMasterScreen({
                 onChange={(e) => set({ code: e.target.value })}
               />
             </Field>
-            <Field label="Name" size="lg" required htmlFor="bk-name">
+            <Field label="Name" w={DETAILS_W.name} required htmlFor="bk-name">
               <Input
                 id="bk-name"
                 uppercase
@@ -498,8 +687,13 @@ export function BankMasterScreen({
             </Field>
             {/* A radio set is one field with several controls; the inline gap
                 is intra-control spacing, not page layout. `h-8` matches the
-                compact control height so it sits on the same baseline. */}
-            <Field label="Type" size="sm">
+                compact control height so it sits on the same baseline.
+
+                NO `w`: a radio pair is not one of the widths — it is exactly as
+                wide as its own two words — and an unsized `Field` in a flex row
+                is exactly as wide as what is in it. `DETAILS_BOX_W` above counts
+                it at ~151px, the one estimate in that arithmetic. */}
+            <Field label="Type">
               <div className="flex h-8 items-center gap-4">
                 {BANK_TYPES.map((t) => (
                   <label key={t} className="flex cursor-pointer items-center gap-1.5">
@@ -521,14 +715,20 @@ export function BankMasterScreen({
                 in the input and still round-trips, so an edit cannot null it —
                 the value is simply no longer typed here. See
                 `useBlockAction` / `lib/masters/active-registry.ts`. */}
+            </FieldRow>
           </DetailSection>
 
           {/* Twelve fields per branch — well past the ~5 a row can hold, so
-              stacked cards with a FieldGrid inside (LAYOUT.md §6). The fields
+              stacked cards with a `FieldRow` inside (LAYOUT.md §6). The fields
               were labelled by PLACEHOLDER, which disappears the moment anyone
               types; they carry real labels now. Replaces a hand-rolled list
               with its own header band, `#` column, remove button and a
               `max-h-96` scroller. */}
+          {/* CAPPED TO THE FORM, NOT THE SHEET (`erp-form-compact` rule 4), and
+              on a plain wrapper because `ChildGrid` takes no root `className` and
+              its own hug path collapses a `forceCards` card. `FORM_W` at the top
+              of this file carries both halves of that. */}
+          <div className={FORM_W}>
           <ChildGrid<BranchRow>
             lockExisting
             label="Bank Detail"
@@ -556,14 +756,24 @@ export function BankMasterScreen({
               }
               return summary;
             }}
-            // Every field is `sm` (3 of 12), so the twelve fall into three
-            // flush rows of FOUR — where / address + phones / email + codes.
-            // Tab follows that reading order; reordering this JSX reorders the
-            // keyboard path, which is the point.
+            // ONE `FieldRow`, laid out by WIDTHS — `BRANCH_W` at the top of this
+            // file carries the arithmetic and `FORM_W` fixes the fold. It still
+            // falls into three lines of four, and they are still where / address
+            // + phones / email + codes, but the break is now derived from what
+            // the fields measure rather than from four cells adding up to twelve.
+            // Tab follows this JSX order; reordering it reorders the keyboard
+            // path, which is as much the point as it ever was.
+            //
+            // `align="start"`, NOT the default `items-end`, and four things on
+            // this row need it: Pin, E-Mail, IFS Code and Current Acc No are
+            // `ValidatedInput`s, which draw their error on a `<p>` below the
+            // control, and WhatsApp carries its "Same as mobile" tick there too.
+            // On an `items-end` row each of those would lift its own label above
+            // its neighbours' the moment it appeared.
             renderMobileRow={(b) => (
-              <FieldGrid>
-                {/* Row 1 — where the branch is. 3+3+3+3 = 12 */}
-                <Field label="Country" size="sm">
+              <FieldRow align="start">
+                {/* Line 1 — where the branch is. 144+144+144+112 = 580 */}
+                <Field label="Country" w={BRANCH_W.country}>
                   <Combobox
                     // `Combobox` has no inactive state of its own, so the rule
                     // is applied to the options: a switched-off country is not
@@ -580,21 +790,21 @@ export function BankMasterScreen({
                     clearable
                   />
                 </Field>
-                <Field label="State" size="sm">
+                <Field label="State" w={BRANCH_W.state}>
                   <Input
                     uppercase
                     value={b.state}
                     onChange={(e) => setBranchAt(b.key, { state: e.target.value })}
                   />
                 </Field>
-                <Field label="City" size="sm">
+                <Field label="City" w={BRANCH_W.city}>
                   <Input
                     uppercase
                     value={b.city}
                     onChange={(e) => setBranchAt(b.key, { city: e.target.value })}
                   />
                 </Field>
-                <Field label="Pin" size="sm">
+                <Field label="Pin" w={BRANCH_W.pin}>
                   <ValidatedInput
                     format="pincode"
                     value={b.pin}
@@ -602,22 +812,28 @@ export function BankMasterScreen({
                   />
                 </Field>
 
-                {/* Row 2 — the rest of the address, then the two phones.
-                    Street is `sm` ON PURPOSE, not by oversight. It was `full`
-                    (~570px) when this card lived in a half-width column. Four
-                    across is the standing rule for this card, and the only way
-                    to widen Street is to break it — `lg` here makes the rows go
-                    4/3/3/2 and leaves the last one half empty. Weighed and
-                    declined (client 2026-07-29): ~34 characters shows the
-                    common case and the field still scrolls past it. */}
-                <Field label="Street" size="sm">
+                {/* Line 2 — the rest of the address, then the two phones.
+                    288+144+176+176 = 820, the widest of the three and therefore
+                    what `FORM_W` is derived from.
+
+                    STREET IS `name` (288) NOW, AND THE ARGUMENT THAT KEPT IT
+                    NARROW IS GONE RATHER THAN OVERRULED. This comment used to
+                    read "Street is `sm` ON PURPOSE … the only way to widen Street
+                    is to break it — `lg` here makes the rows go 4/3/3/2 and
+                    leaves the last one half empty", weighed and declined with the
+                    client on 2026-07-29. That was true of a TRACK, where a width
+                    is taken from a neighbour. Off it, a postal line takes the
+                    step its content type takes and the other three keep theirs.
+                    The 2026-07-29 decision is not being reversed; the trade it
+                    was choosing between no longer exists. */}
+                <Field label="Street" w={BRANCH_W.street}>
                   <Input
                     uppercase
                     value={b.street}
                     onChange={(e) => setBranchAt(b.key, { street: e.target.value })}
                   />
                 </Field>
-                <Field label="Land Line" size="sm">
+                <Field label="Land Line" w={BRANCH_W.land_line}>
                   <Input
                     value={b.land_line}
                     onChange={(e) => setBranchAt(b.key, { land_line: e.target.value })}
@@ -627,14 +843,14 @@ export function BankMasterScreen({
                     WhatsApp's "Same as mobile" tick sits BELOW its input, so
                     this cell is ~18px taller and the row grows to match — that
                     is the grid stretching, not a bug to align away. */}
-                <Field size="sm">
+                <Field w={BRANCH_W.contact}>
                   <MobileField
                     id={`bk-${b.key}-mobile`}
                     value={b.mobile}
                     onChange={(v) => setBranchAt(b.key, { mobile: v })}
                   />
                 </Field>
-                <Field size="sm">
+                <Field w={BRANCH_W.contact}>
                   <WhatsAppField
                     id={`bk-${b.key}-whatsapp`}
                     value={b.whatsapp}
@@ -644,38 +860,39 @@ export function BankMasterScreen({
                   />
                 </Field>
 
-                {/* Row 3 — email and the three bank codes. */}
-                <Field label="E-Mail" size="sm">
+                {/* Line 3 — e-mail and the three bank codes. 288+144+144+176 = 788 */}
+                <Field label="E-Mail" w={BRANCH_W.email}>
                   <ValidatedInput
                     format="email"
                     value={b.email}
                     onChange={(e) => setBranchAt(b.key, { email: e.target.value })}
                   />
                 </Field>
-                <Field label={codeLabel} size="sm">
+                <Field label={codeLabel} w={BRANCH_W.swift_rtgs_code}>
                   <Input
                     uppercase
                     value={b.swift_rtgs_code}
                     onChange={(e) => setBranchAt(b.key, { swift_rtgs_code: e.target.value })}
                   />
                 </Field>
-                <Field label="IFS Code" size="sm">
+                <Field label="IFS Code" w={BRANCH_W.ifs_code}>
                   <ValidatedInput
                     format="ifsc"
                     value={b.ifs_code}
                     onChange={(e) => setBranchAt(b.key, { ifs_code: e.target.value })}
                   />
                 </Field>
-                <Field label="Current Acc No" size="sm">
+                <Field label="Current Acc No" w={BRANCH_W.current_acc_no}>
                   <ValidatedInput
                     format="account"
                     value={b.current_acc_no}
                     onChange={(e) => setBranchAt(b.key, { current_acc_no: e.target.value })}
                   />
                 </Field>
-              </FieldGrid>
+              </FieldRow>
             )}
           />
+          </div>
         </div>
       </Sheet>
 

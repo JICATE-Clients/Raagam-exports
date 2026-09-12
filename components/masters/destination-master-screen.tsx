@@ -7,11 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import {
+  rowActionsColumn,
+  ROW_ACTIONS_MENU_WIDTH,
+} from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
-import { Toggle } from "@/components/ui/toggle";
+import { isInactive } from "@/lib/masters/inactive";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { useToast } from "@/components/ui/toast";
 import {
   createDestination,
@@ -125,6 +130,10 @@ export function DestinationMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `destination` is registered in
+     `lib/masters/active-registry.ts`. */
+  const { setStatus, isPending: statusPending } = useBlockAction("destination");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -244,21 +253,44 @@ export function DestinationMasterScreen({
       cell: (r) => <span className="text-sm text-muted-foreground">{countryLabel.get(r.country_id) ?? "—"}</span>,
     },
     {
+      /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
+         API, with no editor in between. Same component as Country, Port and
+         Bank, so the four cannot drift.
+
+         This screen builds its own `DataTable` rather than going through
+         `MasterListShell`, so the cell is declared here instead of being spliced
+         in. That is the ONLY difference: the switch, its green, the word beside
+         it and the `isInactive` read are all `StatusToggle`'s. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.name}
+          // Blocking is the destructive direction and `setMasterActive` gates it
+          // as `delete` server-side.
+          disabled={!perms.canDelete || isPending || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name ?? undefined })}
+        />
       ),
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.name}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
+    rowActionsColumn(
+      (r) => (
+        /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
+           Delete behind a confirm dialog. The View is automatic — `rowActionsColumn`
+           publishes the row and the menu reads it, exactly as `RowActions` did
+           here before, so the eye this screen already had is not lost. */
+        <TableRowActionsMenu
+          label={r.name}
+          onEdit={() => openEdit(r)}
+          onDelete={() => remove(r)}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isPending={isPending || statusPending}
+        />
+      ),
+      ROW_ACTIONS_MENU_WIDTH,
+    ),
   ];
 
   return (
@@ -282,7 +314,19 @@ export function DestinationMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No destination records yet." />
+        {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
+            last one alone — the ⋮ must stay legible on a dimmed row, and
+            `opacity` on the `<tr>` would take it down with the text. Same rule
+            `MasterListShell` applies to the listings it owns. */}
+        <DataTable
+          columns={withCreatedColumns(columns, filtered)}
+          rows={filtered}
+          getKey={(r) => r.id}
+          rowClassName={(r) =>
+            isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined
+          }
+          empty="No destination records yet."
+        />
       </div>
 
       {/* mobile cards */}
@@ -386,45 +430,25 @@ export function DestinationMasterScreen({
             </Field>
           </FieldRow>
 
-          {/* THE FLAG GETS ITS OWN ROW, below the inputs and left-aligned
-              (client 2026-09-08: move it "directly below the input fields on the
-              next line", not beside Country). It was a third `sm` cell on the
-              same 12-col row. It is not merely appended to the row above because
-              `FIELD_ROW` is `items-end` and a switch carries no label row:
-              sharing the row would bottom-align a 20px control against 46px
-              fields and leave it floating beside them.
+          {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block option
+              move to that table listing — we are used to give that block while
+              CREATING the data but we need to move this in ACTION only, no more
+              in the creating screen"). It is the listing's Status column now: a
+              switch on the row, wired straight to `setStatus` above, with
+              `destination` registered in `lib/masters/active-registry.ts`.
 
-              `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-              Entry uses) — the identical swap the sibling Country master made the
-              same day, and from the SAME component, so the two masters and
-              Garment Order's Pack / Multi Style switches cannot drift apart.
-              Size, track colour and the ON `--primary` are `Toggle`'s, not this
-              screen's, which is the whole point of asking for "the same as Order
-              Entry".
+              **The row control had to land first** — it is the only route to the
+              flag once the field is gone, so deleting the field on its own would
+              have made blocking a destination impossible rather than moved it.
+              Same order `customer-master-screen.tsx` followed on 2026-09-09 and
+              `country-master-screen.tsx` on 2026-09-11.
 
-              IT IS STILL A REAL CHECKBOX UNDERNEATH, and that is what makes the
-              swap safe rather than merely pretty. `Toggle` keeps an `sr-only`
-              `<input type="checkbox">` and draws the switch with its siblings,
-              because `isFieldLike()` (lib/focus.ts) counts an `<input>` and NOT
-              a `<button role="switch">` — the obvious build would have dropped
-              this flag off Tab, off Enter-advance and off the arrows, leaving it
-              mouse-only. Tab reaches it, Enter and Space toggle it, and a screen
-              reader still announces a checkbox.
+              `form.inactive` is STILL in the form state and still round-trips
+              through `submit()`, so editing a blocked destination does not
+              quietly switch it back on. The value is simply no longer typed here.
 
-              No `<Field>` around it, for the same reason Country has none: the
-              switch carries its own `label` and its own `min-h-9`, so a `Field`
-              would add an empty label row above a control that does not need
-              one. */}
-          {editId && (
-            <FieldRow>
-              <Toggle
-                id="de-inactive"
-                label="Inactive"
-                checked={form.inactive}
-                onChange={(inactive) => set({ inactive })}
-              />
-            </FieldRow>
-          )}
+              It was also the field that gave this section two shapes: edit-only,
+              it left a hole on New and a lone switch on Edit. */}
         </DetailSection>
       </Sheet>
     </div>

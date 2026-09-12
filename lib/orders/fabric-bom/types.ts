@@ -149,7 +149,9 @@ export interface FabricBomManualEntry {
   endbit_loss_pct: number | null;
   /** Legacy's "Assort Color wise" checkbox on the same row (0522). */
   assort_color_wise: boolean;
-  /** Legacy's "Size Wise" toggle (0523) — TRUE gives every size its own row. */
+  /** Legacy's "Size Wise" toggle (0523) — TRUE gives every size its own row.
+   *  FALSE, the default since 2026-09-04, asks once and writes that answer to
+   *  every size. */
   size_wise: boolean;
   components: FabricBomManualComponent[];
   sizes: FabricBomManualSize[];
@@ -547,11 +549,18 @@ export const fabricBomManualEntryInput = z.object({
   endbit_loss_pct: z.coerce.number().min(0).max(100).nullable().default(0),
   /* Legacy's "Assort Color wise" checkbox on the same row (0522). */
   assort_color_wise: z.coerce.boolean().default(false),
-  /* Legacy's "Size Wise" toggle (0523). TRUE — the default and the existing
-     behaviour — gives every size its own row; FALSE lets the planner type one
-     figure that the screen writes to every size, so it changes what is ASKED
-     and never what is stored. */
-  size_wise: z.coerce.boolean().default(true),
+  /* Legacy's "Size Wise" toggle (0523). TRUE gives every size its own row;
+     FALSE — THE DEFAULT since 2026-09-04 ("its auto enabled so disable it") —
+     lets the planner type one figure that the screen writes to every size, so
+     it changes what is ASKED and never what is stored.
+
+     THE DEFAULT IS STATED IN THREE PLACES AND ALL THREE SAY FALSE: this schema
+     (what a payload omitting the field saves, and the one `lib/data-io` would
+     read), `blankManualEntry` in the screen (what a new row shows), and the
+     column default in 0555 (what an insert bypassing both gets). A payload that
+     omits the field used to save TRUE against a screen showing the toggle off —
+     the row then read back size-wise having never been switched on. */
+  size_wise: z.coerce.boolean().default(false),
   component_ids: z.array(z.string().uuid()).default([]),
   sizes: z.array(fabricBomManualSizeInput).default([]),
 });

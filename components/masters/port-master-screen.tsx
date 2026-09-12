@@ -7,21 +7,22 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { type Column } from "@/components/ui/data-table";
+import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { PORT_NAMES } from "@/lib/masters/geo-names";
 import { createPort, updatePort, deletePort } from "@/lib/masters/port-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import { PORT_TYPES, type Port, type PortInput, type PortType } from "@/lib/masters/port-types";
 import type { Country } from "@/lib/masters/country-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
-import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -30,6 +31,10 @@ const BLANK = {
   name: "",
   country_id: "",
   port_type: "" as "" | PortType,
+  /* NOT A FIELD ON THIS FORM — see the note where the Sheet's fields end. It is
+     in the form state only so `submit()` can hand the stored value back, since
+     `updatePort` writes the whole record. */
+  inactive: false,
 };
 
 /**
@@ -133,7 +138,11 @@ export function PortMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
+  /* Active / Inactive from the listing's Status switch. `port` is registered in
+     `lib/masters/active-registry.ts` (0547 is the migration that gave `ports`
+     the column); `setStatus` does the write, the toast and the refresh, so this
+     screen never touches the flag itself. */
+  const { setStatus, isPending: statusPending } = useBlockAction("port");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -189,18 +198,6 @@ export function PortMasterScreen({
     return m;
   }, [countries]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.short_name, r.name, r.country?.name ?? countryLabel.get(r.country_id), r.port_type]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query, countryLabel]);
-
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
@@ -213,6 +210,8 @@ export function PortMasterScreen({
       name: r.name ?? "",
       country_id: r.country_id,
       port_type: r.port_type ?? "",
+      // Carried, never typed — see BLANK.
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -227,6 +226,10 @@ export function PortMasterScreen({
         name: form.name.trim(),
         country_id: form.country_id,
         port_type: form.port_type ? form.port_type : null,
+        // `updatePort` writes the WHOLE record and `portInput.inactive` defaults
+        // to false, so omitting this would switch a blocked port back on every
+        // time somebody corrected its spelling.
+        inactive: form.inactive,
       };
       const res = editId ? await updatePort(editId, payload) : await createPort(payload);
       if (res.ok) {
@@ -243,7 +246,10 @@ export function PortMasterScreen({
     startTransition(async () => {
       const res = await deletePort(r.id);
       if (res.ok) {
-        success("Port deleted.");
+        // NOT "Port deleted." — since 0547 a referenced port is switched off
+        // instead of removed (`deleteOrDeactivate`), and the toast is the only
+        // thing that tells the operator which of the two they got.
+        success(deletedToast("Port", res));
         router.refresh();
       } else {
         error(res.error);
@@ -255,6 +261,22 @@ export function PortMasterScreen({
     return r.country?.name ?? countryLabel.get(r.country_id) ?? "—";
   }
 
+  /* The read-only view sheet and the mobile card want a pill rather than the
+     listing's live switch — looking at a record must not be able to change it,
+     which is why the shell renders `statusOf` there instead of the Status cell. */
+  function statusPill(r: Port) {
+    return r.inactive ? (
+      <StatusPill tone="danger">Inactive</StatusPill>
+    ) : (
+      <StatusPill tone="success">Active</StatusPill>
+    );
+  }
+
+  /* DATA COLUMNS ONLY. The trailing ⋮ cell, the Created pair and the Status
+     column of switches are all spliced in by `MasterListShell` — declaring a
+     `Status` header here would be STRIPPED as a duplicate (see
+     `actions.onStatusChange`), and a hand-rolled actions column is what the
+     shell exists to stop 131 listings from each writing differently. */
   const columns: Column<Port>[] = [
     { header: "Name", cell: (r) => <span className="text-sm font-medium">{r.name ?? "—"}</span> },
     { header: "Country", cell: (r) => <span className="text-sm">{countryName(r)}</span> },
@@ -262,70 +284,51 @@ export function PortMasterScreen({
       header: "Type",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.port_type ?? "—"}</span>,
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.name}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
   ];
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        {/* caps-input: exempt -- a search QUERY is not a stored value. */}
-        <Input uppercase={false}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search port…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Port
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No port records yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No port records yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-[15px] font-semibold text-foreground">
-                  {r.name ?? r.short_name ?? "—"}
-                </div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  {countryName(r)}
-                  {r.port_type ? ` · ${r.port_type}` : ""}
-                </div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      {/* THE WHOLE LISTING IS THE SHELL NOW — toolbar, search, Status facet,
+          desktop table, mobile cards and pagination. This screen hand-rolled all
+          five, which is why it was the one Associates master with no Status
+          facet, no pagination and no read-only view; it also means the ⋮ actions
+          menu and the Status switch arrive as props rather than as a second copy
+          of two components whose own files say the shell is their only wiring
+          path. */}
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) =>
+          [r.short_name, r.name, countryName(r), r.port_type].filter(Boolean).join(" ")
+        }
+        searchPlaceholder="Search port…"
+        statusOf={(r) => (r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Port"
+        onAdd={openAdd}
+        columns={columns}
+        rowLabel={(r) => r.name ?? r.short_name ?? "Port"}
+        actions={{
+          onEdit: openEdit,
+          onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the switch
+             calls. `active` is stated positively; nothing here flips the boolean
+             — `setStatus` does the write, the toast and the refresh. */
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.name }),
+        }}
+        empty="No port records yet."
+        mobile={{
+          title: (r) => r.name ?? r.short_name ?? "—",
+          meta: (r) => [countryName(r), r.port_type].filter(Boolean).join(" · ") || null,
+          pill: (r) => statusPill(r),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending || statusPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -426,6 +429,14 @@ export function PortMasterScreen({
               </Select>
             </Field>
           </FieldRow>
+          {/* NO INACTIVE SWITCH HERE, AND THERE NEVER WAS ONE (client 2026-08-17:
+              "block option move to that table listing … no more in the creating
+              screen"). The flag arrived on `ports` with 0547 and went straight to
+              the listing's Status column, so this form skips the step Country and
+              Customer had to take of removing a field.
+
+              `form.inactive` still round-trips through `submit()` — see BLANK —
+              so editing a blocked port's name does not quietly switch it back on. */}
         </DetailSection>
       </Sheet>
     </div>

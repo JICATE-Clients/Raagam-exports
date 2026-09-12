@@ -33,7 +33,7 @@
  * Color/Print panels, in this same module, a day earlier.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -257,9 +257,15 @@ export function RepeatsPanel({
         columns={columns}
         rows={rows as YdRepeatRow[]}
         seedRow
-        /* 46.5rem + 72px of chrome = 816px, under `tableFrom`'s 1152, so this
-           renders as a table and falls back to stacked cards below the
-           breakpoint rather than growing a sideways scrollbar. */
+        /* 46.5rem + 72px of chrome = 816px, under `5xl`'s 1024, so this renders
+           as a table and falls back to stacked cards below the breakpoint
+           rather than growing a sideways scrollbar.
+
+           THE NUMBER SAID 1152 UNTIL 2026-09-11, which is `6xl` and not what
+           this line declares. Harmless while nothing read it, and misleading the
+           moment something did: `TAB_WIDTH` sizes the card from this threshold,
+           so a card derived against 1152 would have been 128px wider than the
+           grid needs for no reason anyone could have checked. */
         tableFrom="5xl"
         centerHeaders
         renderMobileRow={(row) => (
@@ -489,7 +495,19 @@ export function CombinationsPanel({
       columns={columns}
       rows={rows as YdCombinationRow[]}
       seedRow
-      tableFrom="5xl"
+      /* NO `tableFrom` — THIS GRID NEVER NEEDED ONE, and declaring 1024px was
+         what made the narrowest of the three tabs demand the widest popup.
+
+         Two columns: Combo 10rem + YD Combo Name 14rem = 24rem (384px), plus
+         the ordinal and ✕ chrome ≈ 452px. The DEFAULT switch is `@lg` (512px),
+         which this clears outright — so the table shows from 512px of pane and
+         falls back to stacked cards only below that, which is a phone.
+
+         `tableFrom` only ever moves the switch LATER, so `5xl` here was asking
+         for 1024px to render a 452px table: 572px of the popup reserved for
+         nothing. Its two siblings genuinely need the room — Repeats is 816px
+         and Mixing Details 1028px, and `TableFrom`'s lowest step is 5xl — so
+         they keep theirs and this one does not. */
       centerHeaders
       renderMobileRow={(row) => (
         <FieldGrid>
@@ -541,6 +559,42 @@ export function CombinationsPanel({
  * to it — so naming the style would name the wrong thing on an order whose style
  * uses several cloths. The style is the Components tree's subject, not this one's.
  */
+/**
+ * HOW WIDE THE CARD IS FOR EACH TAB — derived from the grid on show, never
+ * picked (operator, 2026-09-11: the card must fit the table).
+ *
+ * ## WHY IT IS PER TAB AND NOT ONE NUMBER
+ *
+ * One popup, three grids, and they are not close to the same width: Repeats is
+ * 864px of columns, Mixing Details 1028px, Combinations 452px. A single card has
+ * to clear the widest, so at `size="md"` (1152px) Combinations drew a 452px
+ * table with ~660px of empty card beside it. The card now follows the tab.
+ *
+ * ## EACH NUMBER IS TWO CONSTRAINTS, AND THE SECOND IS THE ONE THAT BITES
+ *
+ * The card must hold the TABLE, and it must also clear that grid's `tableFrom`
+ * threshold — below it `ChildGrid` renders stacked cards with no column headers,
+ * which is a real defect and not a smaller layout (Style ▸ Process, 2026-08-12).
+ * The threshold is the larger of the two here, so it is what sets these:
+ *
+ *   Repeats + Mixing   table 864 / 1028   threshold 1024 (`tableFrom="5xl"`)
+ *   Combinations       table 452          threshold  512 (the default `@lg`)
+ *
+ * Then add the chrome the container query does NOT see: the body is `px-5`
+ * inside a 1px border (42px), plus ~16px whenever the vertical scrollbar shows.
+ * 1120 and 600 leave 30-90px over that, deliberately — a width that sits exactly
+ * on a threshold lands under it the first time a scrollbar appears, and the grid
+ * silently becomes cards.
+ *
+ * STATIC LITERALS. Tailwind scans source text, so a computed `max-w-[${n}px]`
+ * compiles to nothing and the card keeps its default. See `maxWidthClass`.
+ */
+const TAB_WIDTH: Record<string, string> = {
+  repeats: "max-w-[1120px]",
+  mixing: "max-w-[1120px]",
+  combinations: "max-w-[600px]",
+};
+
 export function YarnDyedSheet({
   open,
   onClose,
@@ -599,6 +653,13 @@ export function YarnDyedSheet({
   onAddYdCombination: () => void;
   onRemoveYdCombination: (row: YdCombinationRow) => void;
 }) {
+  /* WHICH TAB IS ON SHOW, so the card can size itself to it (`TAB_WIDTH`).
+     `Tabs` fires `onChange` even while it owns its own state, so this listens
+     without taking control of it — there is nothing here that needs to MOVE the
+     operator to a tab, only to know which one they are on. The initial value is
+     `Tabs`' own default, the first item. */
+  const [tab, setTab] = useState("repeats");
+
   return (
     <Sheet
       open={open}
@@ -621,11 +682,16 @@ export function YarnDyedSheet({
          stay a table (below ~512px it drops to stacked cards with no column
          headers — Style ▸ Process's own note, 2026-08-12), nothing wider. */
       size="md"
+      /* THE CARD FITS THE TABLE (operator, 2026-09-11). `size="md"` stays for
+         everything else it decides — the contained-dialog branch and the Ctrl+S
+         gate — and only the width comes from the tab. See `TAB_WIDTH`. */
+      maxWidthClass={TAB_WIDTH[tab] ?? TAB_WIDTH.repeats}
       alignToPane
       origin={origin}
       footer={<SubSheetFooter onDone={onClose} parent="fabric BOM" />}
     >
       <Tabs
+        onChange={setTab}
         /* THE CLIENT'S "TOP BAR" (2026-09-02, screenshot 114300 —
            `Manage Attributes | Display Attributes | Sorting`): "if we click the
            tab, the actual screen of that field will display in that single

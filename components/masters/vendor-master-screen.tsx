@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow, type FieldSize, type FieldWidth } from "@/components/ui/field";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
@@ -26,8 +26,14 @@ import { Select } from "@/components/ui/select";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import {
+  rowActionsColumn,
+  ROW_ACTIONS_MENU_WIDTH,
+} from "@/components/ui/row-actions-column";
+import { isInactive } from "@/lib/masters/inactive";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
@@ -142,47 +148,22 @@ type CategoryKey = (typeof CATEGORY_FLAGS)[number]["key"];
  * nature. See applicant-master-screen for the rule and what it trades away.
  */
 const FIELD_SIZE = {
-  // ---- Identity ----
-  name: "sm", // 3 — "SREE LAKSHMI TEXTILE PROCESSORS PVT LTD" scrolls in the box
-  vendor_type: "sm", // 3 — With in State · Other State · Foreign Vendor
-  status: "sm", // 3 — longest is "Under Evaluation"
-  country_id: "sm", // 3 — a picked country name
-  group_id: "sm", // 3 — a picked vendor group
-  inactive: "sm", // 3 — a tick box, room for its own caption
-  category_flag: "sm", // 3 — ×4 = one flush row of the Category checkboxes
-  // ---- Registration ----
-  tin_no: "sm", // 3 — 11 digits
-  pan_no: "sm", // 3 — exactly 10 characters
-  reg_caption: "sm", // 3 — a short caption, not a sentence
-  reg_no_dt: "sm", // 3 — a registration number and date
-  web_site: "sm", // 3 — a URL; it scrolls inside the box (see the note above)
-  // ---- Other Details · Banking ----
-  bank_name: "sm", // 3 — "STATE BANK OF INDIA"
-  branch: "sm", // 3 — "PEELAMEDU"
-  ac_no: "sm", // 3 — a fixed-width identifier
-  ifsc_code: "sm", // 3 — exactly 11 characters
-  ac_type: "sm", // 3 — SB / CA / CC
-  // ---- Other Details · GST ----
-  gst_reg_status: "sm", // 3 — Registered · Unregistered · Composite
-  gst_no: "sm", // 3 — exactly 15 characters
-  gstin_strip: "full", // 12 — a fact strip stands alone (LAYOUT.md §3)
-  // ---- Other Details · Additional ----
-  enterprise_status: "sm", // 3 — MSME / Small / Medium
-  memorandum_no: "sm", // 3 — a reference number
-  inhouse_unit_id: "sm", // 3 — a unit code
-  duty_against: "sm", // 3 — a short code
+  // ---- Identity · Category · Registration ----
+  //   NOT HERE ANY MORE. That whole section left the twelfths track on
+  //   2026-09-10 — see `IDENTITY_W`, `REGISTRATION_W` and the two box caps
+  //   below, which state widths instead of shares. The keys are deleted rather
+  //   than left unread: a `FIELD_SIZE.name` still sitting here is a share this
+  //   file no longer honours, and the next reader would copy it.
+  // ---- Other Details ----
+  //   NOT HERE ANY MORE. All three of its cards left the twelfths track on
+  //   2026-09-10 — see `BANKING_W`, `GST_W`, `ADDITIONAL_W` and the one cap
+  //   `OTHER_BOX_W` they share.
   // ---- Address child rows ----
-  address_type: "sm", // 3 — Office · Works · Billing
-  street: "sm", // 3 — a wider Street was declined (client 2026-07-29); the
-  //                    box still scrolls past the ~34 characters it shows
-  city_id: "sm", // 3 — a picked city
-  state_id: "sm", // 3 — a picked state
-  address_country_id: "sm", // 3 — a picked country
-  pin: "sm", // 3 — 6 digits
-  land_line: "sm", // 3 — a phone number
-  mobile: "sm", // 3 — a phone number
-  whatsapp: "sm", // 3 — beside its mobile, same as bank-master-screen
-  email_id: "sm", // 3 — accounts@sreelakshmitextiles.co.in scrolls in the box
+  //   NOT HERE ANY MORE either. That grid's card left the twelfths track on
+  //   2026-09-10 — see `ADDRESS_W` and `ADDRESS_BOX_W` below, which state
+  //   widths instead of shares. Deleted rather than left unread, for the reason
+  //   the Identity block above gives: a `FIELD_SIZE.street` still sitting here
+  //   is a share this file no longer honours, and the next reader would copy it.
   // ---- Item Category ----
   // row 1  item_class 3 + category 3 + vat 3 + duty 3      = 12
   // row 2  lead_days 3 + form 3 + supply_type 3 + p.term 3 = 12
@@ -200,12 +181,472 @@ const FIELD_SIZE = {
   // subcon.  process 3 + payment_term 3                         =  6
   process_id: "sm",
   vat_portion_pct: "sm",
-  service_type_id: "sm",
-  // ---- the shared TDS / ESI panel ----
-  tds_levy_id: "sm",
-  esi_no: "sm",
-  esi_retention_pct: "sm",
+  // `service_type_id` and the three TDS / ESI keys are NOT here any more — the
+  // Service row and the shared panel left the twelfths track on 2026-09-10; see
+  // `SERVICE_W` and `TDS_ESI_W` below. `payment_term_id` above stays, because
+  // Item Category, Process and SubContractor still read it.
 } satisfies Record<string, FieldSize>;
+
+/**
+ * IDENTITY, SHRINK-WRAPPED (`erp-form-compact`) — the same conversion Notify,
+ * Consignee and Our Bank took, on the row that holds the same kind of party.
+ *
+ * Six cells at `size="sm"` was 3 of 12 each, so a Yes/No-sized Type dropdown, a
+ * picked country and the vendor's own NAME were all the same width — and that
+ * width was ~285px on a 1366 laptop and ~352px at 1920, because a twelfth is a
+ * share of the pane rather than a measurement of anything in the box. The
+ * complaint is the surplus, not the control: a fraction cannot be narrowed from
+ * the inside, since shrinking the input leaves the CELL at its share and floats
+ * the value in the hole. So the row leaves the track for `FieldRow` + `Field w=`.
+ *
+ * NO HAND-TYPED PIXELS. Every width is a step of the vocabulary in
+ * `lib/ui/sizes.ts`. `customer-master-screen.tsx`'s `IDENTITY_W` is the one map
+ * in this app that hand-types them, and it says in writing not to be copied.
+ *
+ *   selects 140-170  ->  `code` 144   Name, Country, Group Name
+ *   two-word enum    ->  `term` 176   Type, Status
+ *
+ * NAME IS `code` (144), NOT `name` (288), BECAUSE THE SIBLINGS ALREADY MEASURED
+ * IT. The client asked Notify's name box for 140px on 2026-09-09, Consignee took
+ * the same step for the same reason, and a vendor is the same kind of party on
+ * the same kind of screen — so a second opinion here is drift rather than
+ * tailoring. It costs what it costs, said plainly: "SREE LAKSHMI TEXTILE
+ * PROCESSORS PVT LTD" is longer than ~110px of visible glyphs and scrolls inside
+ * its own box while being typed. An `<input>` scrolls rather than truncating, so
+ * nothing here promises a reveal it cannot give (AGENTS.md, "Truncated values").
+ * Group Name is `code` for the same reason: it holds a name as well.
+ *
+ * TYPE AND STATUS TAKE THE STEP ABOVE IT, and that is arithmetic rather than
+ * preference. "Foreign Vendor" and "Under Evaluation" are ~95-110px of glyphs
+ * at 14px, plus the select's own `px-3` and its chevron — past 144 and inside
+ * 176. `code` would clip the longest option of a list the operator must read.
+ *
+ * THE SWITCH TAKES NO `w` AT ALL, and that is rule 1 rather than an omission: a
+ * switch is not one of the five widths, and an unsized `Field` in a flex row is
+ * exactly as wide as what is in it (~100px of track, gap and its own word).
+ *
+ * DERIVED, so it can be checked against the pane. `FIELD_ROW` puts 12px between
+ * cells:
+ *
+ *   New    144 + 176 + 176 + 144 + 144         =  784 + 4 x 12 =  832
+ *   Edit   144 + 176 + 176 + 144 + 144 + ~100  =  884 + 5 x 12 =  944
+ *
+ * BOTH ON ONE LINE AT EVERY WINDOW THIS APP RUNS IN, which the twelfths could
+ * not do: five fields at 3 spilled the sixth cell onto a second row that was
+ * three quarters empty. The yardstick is `MasterFullScreen`'s own — content =
+ * min(viewport - 192 rail, 1440 cap) - 32 padding, i.e. 1142 on a 1366 laptop
+ * and 1408 at 1920 — so Edit clears the narrowest of those by 198px.
+ *
+ * AND IT WOULD WRAP RATHER THAN SCROLL IF IT EVER DID. This is a plain
+ * `FieldRow`, not `nowrap`: nobody asked Identity for one unbroken line, and
+ * `nowrap`'s `overflow-x-auto` would clip an in-flow picker panel. A field added
+ * here folds onto a second line, visibly, instead of hiding off the right edge.
+ */
+const IDENTITY_W = {
+  name: "code", //         140px asked for on the sibling; 144 is the step
+  vendor_type: "term", //  "Foreign Vendor" — past `code`, inside `term`
+  status: "term", //       "Under Evaluation" — the same
+  country_id: "code", //   as Notify's and Consignee's own Country
+  group_id: "code", //     a group's name, same as `name` above
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE REGISTRATION NUMBERS, on the same steps.
+ *
+ * Four bounded identifiers — an 11-digit TIN, a 10-character PAN, a short
+ * caption and a registration number — that each took 3 of 12, i.e. ~285px for a
+ * value that cannot reach fifteen characters. They are codes, so they are all
+ * `code`, and the row that used to fill the card now ends where the fourth
+ * number ends. Consignee's `REGISTRATION_W` reached the same answer for four of
+ * the same kind, including the argument against giving PAN a narrower step of
+ * its own: a row of identifiers reads as one band, and one of them sitting 32px
+ * shy of its neighbours is a ragged edge bought for nothing.
+ *
+ * WEB SITE IS THE ONE FIELD WITH NO MAXIMUM, so it takes `name` (288) — the
+ * same step Notify's own Web site takes, and the test `FieldWidth` states: does
+ * the schema guarantee a maximum? A URL does not.
+ *
+ *   144 + 144 + 144 + 144 + 288 = 864 + 4 x 12 = 912
+ */
+const REGISTRATION_W = {
+  tin_no: "code", //       11 digits
+  pan_no: "code", //       exactly 10 characters
+  reg_caption: "code", //  a short caption, not a sentence
+  reg_no_dt: "code", //    a number and a date
+  web_site: "name", //     a URL — free text, no hard maximum
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE REGISTRATION CARD'S CAP (`erp-form-compact` rule 4) — a block box held to
+ * its own content instead of to the pane.
+ *
+ * Narrowing the five fields does not narrow the CARD: `DetailSection` is a block
+ * box and goes on filling its 1142px row whatever is inside it, so the tightened
+ * row would trail ~230px of empty card to the right of Web site — the same
+ * defect one card out. Derived from the row above:
+ *
+ *   912       the five fields and their gaps
+ *   + 2 x 10  `DetailSection`'s `p-2.5` (its `@2xl/editor:p-2` is narrower still)
+ *   + 2 x 1   its border
+ *   = 934  ->  59rem (944)
+ *
+ * The 10px of slack is the same trade Country's and Our Bank's caps make: the
+ * card must not be the thing that decides where the row breaks.
+ */
+const REGISTRATION_BOX_W = "max-w-[59rem]";
+
+/**
+ * THE CATEGORY CARD'S CAP — A DEFINITE REM, AND IT WAS `max-w-fit` UNTIL
+ * 2026-09-10, WHICH IS WHY THE SECTION RENDERED AS A LABEL OVER AN EMPTY BOX
+ * (client: "restore the CATEGORY section … display all 4 options in a VISIBLE
+ * horizontal row").
+ *
+ * ## The same cycle as before, one element further out
+ *
+ * `DetailSection`'s single root carries `@container/section` AND the caller's
+ * `className` — read `detail-section.tsx`, they are not two elements. So
+ * `max-w-fit` put a CONTENT-SIZED CAP ON A CONTAINER-QUERY ROOT: `container-type:
+ * inline-size` applies `contain: inline-size`, an inline-size-contained box has a
+ * max-content of ZERO, and `fit-content` resolves through max-content. The cap
+ * computed to 0 and the card was its padding and border with the caption
+ * spilling out.
+ *
+ * THE NOTE THAT USED TO SIT HERE DIAGNOSED THIS EXACTLY AND FIXED THE WRONG
+ * ELEMENT. It described the collapse, cited `child-grid.tsx`'s two earlier
+ * sightings, wrote down the rule — "never put a content-sized cap around a
+ * container-query root" — and then removed the container from the INNER row
+ * (`FieldRow` → a plain div) while leaving `max-w-fit` on the outer one, which
+ * was a container-query root all along. A rule stated correctly and applied one
+ * element off is the shape of this whole family of bugs.
+ *
+ * `IDENTITY_BOX_W` in `employee-master-screen.tsx` and `REGISTRATION_BOX_W`
+ * below both say it in one line: **a definite length, never `max-w-fit`.** This
+ * constant is now one.
+ *
+ * ## And a definite length here has to be estimated
+ *
+ * That is what the old note was avoiding, and the objection was real: the four
+ * cells are `Toggle`s — a 36px track, an 8px gap, then a caption of 12 to 22
+ * characters — and there is no schema maximum to derive a number from. But the
+ * choice was never "estimate or hug"; it was "estimate or render nothing".
+ *
+ *   4 x (36 track + 8 gap)                        =  176
+ *   captions at ~6.6px per character, `text-xs`:
+ *     Is Bought Items Vendor  22  ~145
+ *     Is Service Provider     19  ~125
+ *     Is Sub Contractor       17  ~112
+ *     Is Processor            12  ~ 79            =  461
+ *   + 3 x 16  the row's `gap-4`                   =   48
+ *   = 685
+ *   + 2 x 10  `DetailSection`'s `p-2.5`
+ *   + 2 x 1   its border                          =  707  ->  46rem (736)
+ *
+ * THE GENEROUS END, deliberately, and the row's own `overflow-x-auto` is what
+ * makes the trade safe in BOTH directions: an estimate that reads low costs a
+ * scrollbar the operator can see, and one that reads high costs a sliver of
+ * grey. Neither can drop a flag onto a line of its own, which is the one thing
+ * this section must not do — four flags read as a set or they are read one at a
+ * time. `PHOTO_BOX_W` on the Employee master takes the same side of the same
+ * trade and says so.
+ */
+const CATEGORY_BOX_W = "max-w-[46rem]";
+
+/**
+ * THE SERVICE ROW, SHRINK-WRAPPED (`erp-form-compact`) — the two pickers inside
+ * the Service child grid's card, packed by width instead of by twelfths.
+ *
+ * A `forceCards` grid renders `renderMobileRow` for every row, and that callback
+ * returned a `FieldGrid` — the same 12-column track the sections beside it were
+ * on, so a picked service type and a payment term each took a quarter of the
+ * card and the card took the pane. Two fields at 3 of 12 left SIX TWELFTHS of
+ * every service line empty, once per row, on a grid that pages four at a time.
+ *
+ * NEITHER WIDTH IS A NEW MEASUREMENT:
+ *
+ *   code 144  Service Type — a picked name from a managed list, the step
+ *             Notify's Department and Designation pickers already take in the
+ *             same shape of grid card.
+ *   term 176  Payment Terms — Consignee's `GENERAL_W` measured this one and
+ *             says why in writing: "60 DAYS FROM BL DATE" clips at `code`. It
+ *             is the same master behind the same picker, so a second opinion
+ *             here would be drift.
+ *
+ *   144 + 176 = 320 + 1 x 12 = 332
+ */
+const SERVICE_W = {
+  service_type_id: "code", //  a picked name from a managed list
+  payment_term_id: "term", //  "60 DAYS FROM BL DATE" clipped at `code`
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE SERVICE GRID'S CAP (`erp-form-compact` rule 4: a sub-grid takes the FORM's
+ * width, not the screen's), derived the way Notify's Contacts grid is derived:
+ *
+ *   332       the content row above
+ *   + 40      the ✕'s reserved gutter — a `renderMobileRow` card keeps the
+ *             CORNER remove, an absolute chip standing in the `relative pr-10`
+ *             the row reserves, so the fields never get the card's full width
+ *   + 2 x 10  `GRID_FRAME`'s `p-2.5`, the NON-compact density (the editor pane
+ *             resolves `@2xl/editor:p-2` and pays 4px less)
+ *   + 2 x 1   its border
+ *   = 394  ->  26rem (416), 22px of slack
+ *
+ * The slack is the same trade every cap on this screen makes: a cap that fits at
+ * only one density wraps the row at the other, and here a wrap costs a whole
+ * line per service. `lockExisting` withholds the ✕ from a STORED row, which
+ * gives its two fields 40px MORE than a new one's — with only two fields there
+ * is no third to fold, so the wider shape cannot break the narrower one's cap.
+ *
+ * A WRAPPING `<div>`, NOT `ChildGrid`'s OWN `hugsContent`, AND THAT IS NOT A
+ * PREFERENCE. `hugsContent` turns on when every column declares a `width`, and
+ * `child-grid.tsx` records at length what it then does to a `renderMobileRow`
+ * card: the card's `width: fit-content` is computed from its children, the row
+ * callback returns a `FieldRow` whose root is `@container/section` and therefore
+ * `contain: inline-size`, so it contributes ZERO — the card shrinks past every
+ * field in it and settles on the widest thing that is not itself contained,
+ * about 38px. Fabric BOM ▸ Manual shipped exactly that (client 2026-09-03).
+ * A cap on the outside has no such cycle to fall into.
+ *
+ * SAFE TO NARROW ONLY BECAUSE THIS GRID IS `forceCards`: AGENTS.md's rule is
+ * never to take a `ChildGrid` under 512px, which is where its responsive table
+ * falls back to stacked cards with no column headers. This grid is declared as
+ * cards already, so there is no table to lose.
+ */
+const SERVICE_BOX_W = "max-w-[26rem]";
+
+/**
+ * THE ADDRESS CARD, SHRINK-WRAPPED (`erp-form-compact`) — the ten fields inside
+ * the Address child grid's card, packed by width instead of by twelfths.
+ *
+ * Same shape as the Service row above and the same cause: a `forceCards` grid
+ * renders `renderMobileRow` for every row, that callback returned a `FieldGrid`,
+ * and ten fields at 3 of 12 came out as three rows of four with a hole in the
+ * last — a six-digit PIN as wide as the street it sits under, once per address,
+ * on a grid that pages three at a time. A fraction cannot be made compact:
+ * narrowing the control inside a twelfth leaves the CELL at its share and floats
+ * the value in the hole.
+ *
+ * NOT ONE NEW MEASUREMENT. Customer ▸ Address and Consignee ▸ Address hold this
+ * same postal address and were converted on 2026-09-09 with an `ADDRESS_W` that
+ * is deliberately identical between the two files; eight of these ten keys are
+ * that map, copied rather than re-derived, because measuring one address three
+ * times is the drift `lib/ui/sizes.ts` exists to stop:
+ *
+ *   name  288  Street, Email ID — a postal line and an address have no hard
+ *              maximum, which is the test `FieldWidth` states.
+ *   code  144  City, State, Land Line — and Country, which takes the step
+ *              `IDENTITY_W.country_id` already takes in this same file.
+ *   range 112  Pin — six digits, a maximum the schema guarantees.
+ *   term  176  Mobile and WhatsApp, both. THE STEP IS PAID FOR BY THE CONTROL,
+ *              not the value: each holds its input AND a `ContactChip` in a flex
+ *              beside it (`contact-fields.tsx`), so at `code` the number would be
+ *              squeezed by a fixed 28px button. Land Line carries no chip and
+ *              stays at 144.
+ *
+ * ADDRESS TYPE IS THE ONE KEY WITH NO SIBLING, and it is `code` because it holds
+ * a word from a fixed set the legacy form printed as column headers — OFFICE,
+ * WORKS, BILLING. It is an `<Input>` rather than a `<Select>`, so nothing in the
+ * schema bounds it; what bounds it is that a longer value would not be one of the
+ * three things this column means.
+ *
+ * DERIVED, and this row WRAPS — these are the two lines, and the cap below is
+ * what makes them a fact rather than a coincidence of the window:
+ *
+ *   144 + 288 + 144 + 144 + 144 + 112 = 976 + 5 x 12 = 1036   type..pin: WHERE
+ *   144 + 176 + 176 + 288             = 784 + 3 x 12 =  820   land line..email:
+ *                                                             HOW TO REACH IT
+ *
+ * That break is the one an operator would make by hand, and it is the reason the
+ * cap is not simply "the widest line": at any width past 1254 the Land Line
+ * climbs onto line 1 and the split stops meaning anything.
+ */
+const ADDRESS_W = {
+  address_type: "code", //  OFFICE · WORKS · BILLING
+  street: "name", //        a postal line has no hard maximum — free text
+  city_id: "code",
+  state_id: "code",
+  country_id: "code", //    as IDENTITY_W.country_id above
+  pin: "range", //          6 digits
+  land_line: "code", //     no chip beside it, unlike the two below
+  mobile: "term", //        input + ContactChip
+  whatsapp: "term", //      input + ContactChip + its "Same as mobile" tick
+  email_id: "name", //      an e-mail address — free text
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * THE ADDRESS GRID'S CAP (`erp-form-compact` rule 4), derived exactly as
+ * `SERVICE_BOX_W` above is derived — read its note for the two things that make
+ * a cap on the OUTSIDE the only shape that works here, both of which apply
+ * unchanged: `ChildGrid`'s own `hugsContent` collapses a `renderMobileRow` card
+ * to ~38px, and narrowing a grid under 512px is safe only because this one is
+ * `forceCards` and has no responsive table to lose.
+ *
+ *   1036      line 1 of the content row above
+ *   + 40      the ✕'s reserved gutter — a `renderMobileRow` card keeps the CORNER
+ *             remove, an absolute chip standing in the `relative pr-10` the row
+ *             reserves, so the fields never get the card's full width
+ *   + 2 x 10  `GRID_FRAME`'s `p-2.5`, the NON-compact density (the editor pane
+ *             resolves `@2xl/editor:p-2` and pays 4px less)
+ *   + 2 x 1   its border
+ *   = 1098  ->  70rem (1120), 22px of slack
+ *
+ * THE CAP HAS A CEILING AS WELL AS A FLOOR, and that is what this one is for.
+ * Under 1098 the row folds Pin onto line 2 and the address is split mid-thought;
+ * at 1254 or more the Land Line joins line 1 and the two lines stop being "where
+ * it is" and "how to reach it". 1120 sits between them, so EVERY window this app
+ * runs in draws the same two lines — the yardstick is `MasterFullScreen`'s own,
+ * content = min(viewport - 192 rail, 1440 cap) - 32 padding, i.e. 1142 on a 1366
+ * laptop and 1408 at 1920, and the cap binds at both.
+ *
+ * IT HOLDS FOR A STORED ROW TOO, which is the check `lockExisting` makes
+ * necessary: withholding the ✕ hands that row its 40px back, so its fields have
+ * 1098 rather than 1058 — still 94px short of the 1192 a fourth field on line 1
+ * would need. A locked row and a new one wrap identically, at both densities.
+ */
+const ADDRESS_BOX_W = "max-w-[70rem]";
+
+/**
+ * THE SHARED TDS & ESI PANEL, on the same steps.
+ *
+ * ONE DECLARATION, THREE READERS — `tdsEsiPanel` is a single JSX value rendered
+ * by Process, Service and SubContractor (see its own note: three tabs, one piece
+ * of state, deliberately not three copies). So converting it for Service
+ * converts it for the other two, which is the point rather than a side effect: a
+ * per-section width here would be the same panel at three widths.
+ *
+ *   term  176  TDS ID No — a levy is displayed by its DESCRIPTION, a phrase
+ *              rather than a code, so it takes the step Payment Terms takes
+ *              above and for the same measured reason.
+ *   code  144  ESI No — a registration number, unvalidated on purpose
+ *   range 112  ESI Retention % — `num` (72) is the step the VALUE argues for (a
+ *              percent with two decimals is ~6 glyphs), and the LABEL sets the
+ *              floor instead: "ESI Retention %" is ~88px at 12px, so at `num`
+ *              it would wrap to two lines and stand the row's tallest cell on
+ *              its own. Consignee's `also_notify` records the same trade.
+ *
+ *   176 + 144 + 112 = 432 + 2 x 12 = 456
+ *
+ * `FieldRow`'s default `items-end`, not `align="start"`: nothing in this row
+ * renders a hint or an error BELOW its control, and bottom alignment is what
+ * keeps a label that does wrap from dropping its box below its neighbours.
+ */
+const TDS_ESI_W = {
+  tds_levy_id: "term", //         a levy's description, not its code
+  esi_no: "code", //              whatever the ESIC office issued
+  esi_retention_pct: "range", //  the label's floor, not the value's width
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * AND THE PANEL'S CARD IS CAPPED TO THAT ROW (rule 4 again — `DetailSection` is
+ * a block box and goes on filling the pane whatever is inside it):
+ *
+ *   456       the row above
+ *   + 2 x 10  `DetailSection`'s `p-2.5` (its `@2xl/editor:p-2` is narrower still)
+ *   + 2 x 1   its border
+ *   = 478  ->  31rem (496), 18px of slack
+ */
+const TDS_ESI_BOX_W = "max-w-[31rem]";
+
+/**
+ * BANKING, SHRINK-WRAPPED (`erp-form-compact`) — and NOT measured again here,
+ * because `our-bank-master-screen.tsx` holds the same five values and the client
+ * measured them there on 2026-09-10 ("compact", tight to the text).
+ *
+ * `OUR_BANK_W` is the map to read: Account No takes `term` (176) because
+ * `lib/validation/formats.ts` caps an account at 18 digits, ~151px of them;
+ * IFSC takes `code` (144) because it is exactly 11 characters and `range` would
+ * clip the eleventh; and the fields with no schema maximum — a bank's name, a
+ * branch's — take `range` (112) together. A second opinion on this screen would
+ * be drift, and drift between two screens holding one bank account is exactly
+ * what the shared vocabulary exists to stop.
+ *
+ * A/c TYPE IS THE ONE FIELD OUR BANK DOES NOT HAVE, and it takes `hug` (88), the
+ * floor: SB / CA / CC is three characters, so the LABEL is what stops the cell
+ * going narrower. That step is defined for precisely this case.
+ *
+ * WHAT THE NARROW BOXES COST, said plainly: "STATE BANK OF INDIA" is longer than
+ * ~86px of visible glyphs and scrolls inside its own input while being typed.
+ * An `<input>` scrolls rather than truncating, so nothing promises a reveal it
+ * cannot give (AGENTS.md, "Truncated values"). That is the trade the client
+ * asked for on the screen that owns these fields.
+ *
+ *   112 + 112 + 176 + 144 + 88  =  632 + 4 x 12 = 680
+ */
+const BANKING_W = {
+  bank_name: "range", //   no schema maximum — as `OUR_BANK_W.bank_name`
+  branch: "range", //      as `OUR_BANK_W.branch_name`
+  ac_no: "term", //        18 digits, the schema's own maximum
+  ifsc_code: "code", //    exactly 11 characters
+  ac_type: "hug", //       SB / CA / CC — the label is the floor, not the value
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * GST — two fields and the fact strip that decodes the second of them.
+ *
+ * "Unregistered" is the longest option of the status select at ~84px of glyphs,
+ * plus the select's own `px-3` and its chevron: past `range`, inside `code`. The
+ * GSTIN itself is exactly 15 characters, which is the value Consignee's
+ * `REGISTRATION_W` already puts at `code` and calls "the widest of the four, and
+ * it fits".
+ *
+ *   144 + 144 = 288 + 1 x 12 = 300
+ *
+ * THE STRIP IS NOT ONE OF THE CELLS. `GstinInsight` is a fact strip, so it takes
+ * the whole line under the number it decodes — but it does that with `w-full` on
+ * the `Field`, never with `size="full"`. That prop is a col-span, and a col-span
+ * in a flex row is INERT: the strip would have packed inline as a third cell
+ * beside the GST number instead of standing under it. Consignee's Registration
+ * card records the same trap in the same words, one screen along.
+ */
+const GST_W = {
+  gst_reg_status: "code", //  "Unregistered" plus a chevron
+  gst_no: "code", //          exactly 15 characters
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * ADDITIONAL DETAILS — four short identifiers, so one step for all four.
+ *
+ * Every value here is short (MSME, a memorandum number, a unit code, a duty
+ * code) and every LABEL is long: "Enterprise Status" is ~108px of Inter 600 at
+ * 12px and "Inhouse Unit ID" ~96px. So this row is label-bound rather than
+ * value-bound, and `code` (144) is the first step that clears the widest label
+ * with room to spare. `hug` (88) is the floor for a label of TWO SHORT WORDS and
+ * would wrap "Enterprise Status" onto two lines.
+ *
+ *   144 x 4  =  576 + 3 x 12 = 612
+ */
+const ADDITIONAL_W = {
+  enterprise_status: "code", //  MSME / Small / Medium — the label is 108px
+  memorandum_no: "code", //      a reference number
+  inhouse_unit_id: "code", //    a unit code
+  duty_against: "code", //       a short code
+} satisfies Record<string, FieldWidth>;
+
+/**
+ * ONE CAP FOR ALL THREE CARDS (`erp-form-compact` rule 4), and one is what
+ * matters here: they are stacked full-width sections under a single rail entry,
+ * so capping each to its own longest line would leave three bordered boxes of
+ * three different widths one above the other — which reads as a mistake rather
+ * than as three sections. `employee-master-screen.tsx` states the same rule for
+ * its own stacked pair.
+ *
+ * Derived from the widest of the three rows, which is Banking:
+ *
+ *   680       Banking, the longest line of the three (GST is 300, Additional 612)
+ *   + 2 x 10  `DetailSection`'s `p-2.5` (its `@2xl/editor:p-2` is narrower still)
+ *   + 2 x 1   its border
+ *   = 702  ->  45rem (720), 18px of slack
+ *
+ * THE GSTIN STRIP IS THE ONE CHILD THAT WANTS MORE, and it gets 698px inside
+ * this cap — more than the ~630 the same strip has on Consignee, and it wraps
+ * (`flex flex-wrap`) rather than clipping in any case. So the cap is set by the
+ * fields, and the strip is checked against it rather than the other way round.
+ *
+ * A definite length, never `max-w-fit`: `DetailSection`'s root declares
+ * `@container/section`, so a content-sized cap on it resolves to zero and the
+ * card collapses — see `CATEGORY_BOX_W` above for the full note.
+ */
+const OTHER_BOX_W = "max-w-[45rem]";
 
 type HeaderForm = {
   code: string;
@@ -481,6 +922,10 @@ export function VendorMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `vendor` is registered in
+     `lib/masters/active-registry.ts`, against `master_vendors`. */
+  const { setStatus, isPending: statusPending } = useBlockAction("vendor");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -1279,27 +1724,64 @@ export function VendorMasterScreen({
       ),
     },
     {
-      header: "Status",
-      cell: (r) =>
-        r.is_draft ? (
-          <StatusPill tone="warning">Draft</StatusPill>
-        ) : r.inactive ? (
-          <StatusPill tone="danger">Inactive</StatusPill>
-        ) : (
-          <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>
-        ),
+      /* APPROVAL IS ITS OWN COLUMN NOW, and this is the one place the Associates
+         sweep of 2026-09-11 had to ADD a column rather than convert one.
+         `master_vendors` is the only master in the module carrying a second,
+         unrelated status: an approval enum (Pending · Approved · Hold ·
+         Terminated) that has nothing to do with whether the row is switched on.
+         The old cell showed ONE of the three facts and hid the other two —
+         Draft won, then Inactive, and the approval state was visible only on a
+         vendor that was neither. `viewSections` says as much in its own comment
+         and spells the status out because the cell had eaten it.
+
+         Splitting them is what makes the switch possible without losing
+         anything: approval here, on/off beside it, draft as a pill on the
+         switch. All three are now readable down the column at once, which is
+         what a listing is for. */
+      header: "Approval",
+      cell: (r) => <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>,
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.name}
-        onView={() => setViewRow(r)}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
+    {
+      /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
+         API, with no editor in between. Same component as Country, Port, Bank
+         and Destination, so no two listings can drift.
+
+         This screen builds its own `DataTable` rather than going through
+         `MasterListShell`, so the cell is declared here instead of being spliced
+         in. That is the ONLY difference: the switch, its green, the word beside
+         it and the `isInactive` read are all `StatusToggle`'s. */
+      header: "Status",
+      className: "w-32",
+      cell: (r) => (
+        <StatusToggle
+          row={r}
+          label={r.name}
+          draft={r.is_draft}
+          // Blocking is the destructive direction and `setMasterActive` gates it
+          // as `delete` server-side.
+          disabled={!perms.canDelete || isPending || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
+      ),
+    },
+    rowActionsColumn(
+      (r) => (
+        /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
+           Delete behind a confirm dialog. `onView` stays the screen's own — it
+           opens the purpose-built `RecordViewSheet` below, which always wins over
+           the menu's row-derived one. */
+        <TableRowActionsMenu
+          label={r.name}
+          onView={() => setViewRow(r)}
+          onEdit={() => openEdit(r)}
+          onDelete={() => remove(r)}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      ),
+      ROW_ACTIONS_MENU_WIDTH,
+    ),
   ];
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
@@ -1322,37 +1804,54 @@ export function VendorMasterScreen({
    * fields stay mounted and keep focus. (`react-hooks/static-components`.)
    */
   const tdsEsiPanel = (
-      <DetailSection label="TDS & ESI" cols={12}>
-        <Field size={FIELD_SIZE.tds_levy_id}>
-          <LevyPicker
-            label="TDS ID No"
-            levies={tdsLevies}
-            value={form.tds_levy_id}
-            onChange={(id) => set({ tds_levy_id: id })}
-          />
-        </Field>
-        {/* Unvalidated on purpose, like TIN No: an ESI registration is whatever
-            the ESIC office issued, and a format guess would strand rows. */}
-        <Field label="ESI No" size={FIELD_SIZE.esi_no} htmlFor="ve-esino">
-          <Input
-            uppercase
-            id="ve-esino"
-            value={form.esi_no}
-            onChange={(e) => set({ esi_no: e.target.value })}
-          />
-        </Field>
-        <Field label="ESI Retention %" size={FIELD_SIZE.esi_retention_pct} htmlFor="ve-esiret">
-          <Input
-            id="ve-esiret"
-            type="number"
-            min={0}
-            max={100}
-            step="0.01"
-            inputMode="decimal"
-            value={form.esi_retention_pct}
-            onChange={(e) => set({ esi_retention_pct: e.target.value })}
-          />
-        </Field>
+      /* Three fields, ONE row, laid out by WIDTH — `TDS_ESI_W` and
+         `TDS_ESI_BOX_W` above carry the arithmetic and the reason the card is
+         capped. `cols={1}` because the `FieldRow` below is the only row the card
+         has to stack; on the twelfths track these three took 3 of 12 each and
+         the card ran on to the pane's edge past them.
+
+         A BARE BLOCK COMMENT, not a braced JSX one: this is the parenthesised
+         expression `tdsEsiPanel` is assigned, not JSX children, so wrapping it
+         in braces here is a syntax error rather than a comment.
+
+         `compact` on the picker with the label on the `Field`, the same idiom
+         the Identity row uses: `LevyPicker` draws its own caption otherwise, and
+         a self-labelled cell beside two `Field`-labelled ones puts the three
+         labels at two different offsets. */
+      <DetailSection label="TDS & ESI" cols={1} className={TDS_ESI_BOX_W}>
+        <FieldRow>
+          <Field label="TDS ID No" w={TDS_ESI_W.tds_levy_id}>
+            <LevyPicker
+              label="TDS ID No"
+              levies={tdsLevies}
+              value={form.tds_levy_id}
+              onChange={(id) => set({ tds_levy_id: id })}
+              compact
+            />
+          </Field>
+          {/* Unvalidated on purpose, like TIN No: an ESI registration is whatever
+              the ESIC office issued, and a format guess would strand rows. */}
+          <Field label="ESI No" w={TDS_ESI_W.esi_no} htmlFor="ve-esino">
+            <Input
+              uppercase
+              id="ve-esino"
+              value={form.esi_no}
+              onChange={(e) => set({ esi_no: e.target.value })}
+            />
+          </Field>
+          <Field label="ESI Retention %" w={TDS_ESI_W.esi_retention_pct} htmlFor="ve-esiret">
+            <Input
+              id="ve-esiret"
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              inputMode="decimal"
+              value={form.esi_retention_pct}
+              onChange={(e) => set({ esi_retention_pct: e.target.value })}
+            />
+          </Field>
+        </FieldRow>
       </DetailSection>
   );
 
@@ -1361,16 +1860,28 @@ export function VendorMasterScreen({
   const SECTION_CONTENT: Record<SectionKey, ReactNode> = {
     identity: (
       <SectionBody title="Identity">
-        {/* The identity band — no card chrome, so `FieldGrid` rather than a
-            `DetailSection`. It replaces a hand-rolled `sm:grid-cols-2`, which
-            gave a three-word Type dropdown the same half-row box as the
-            vendor's name and held every row to two fields.
-              row 1  name 6 + vendor_type 3 + status 3            = 12
-              row 2  country 3 + group 3 [+ inactive 3, edit only]
-            Inactive sits LAST, not first, so row 1 looks the same in New as in
-            Edit (same reasoning as bank-master-screen). */}
-        <FieldGrid className="mb-3">
-          <Field label="Name" size={FIELD_SIZE.name} required htmlFor="ve-name">
+        {/* The identity band — no card chrome, and no twelfths either: ONE
+            `FieldRow`, laid out by WIDTHS. `IDENTITY_W` at the top of this file
+            carries the row's arithmetic and the reason each field takes the step
+            it does. It replaced a hand-rolled `sm:grid-cols-2` with a 12-column
+            track (name 6 + type 3 + status 3, then country 3 + group 3 + the
+            switch), and the track is what left a picked country and the vendor's
+            own name in boxes of the same ~285px.
+
+            Inactive still sits LAST, not first, so row 1 looks the same in New as
+            in Edit (same reasoning as bank-master-screen) — but it is no longer a
+            second row: at 944px the six cells share one line inside the narrowest
+            pane this app gets (1142), so New and Edit differ by one cell rather
+            than by a row.
+
+            `align="start"`, not `FieldRow`'s default `items-end`: Name renders a
+            `DuplicateError` and a `SpellSuggestHint` BELOW its control, and
+            bottom alignment measures from the bottom — so the moment either
+            appears it would lift the Name box clear of the boxes beside it, WHILE
+            THE OPERATOR IS TYPING. Nothing here has the opposite hazard: every
+            label sits in a cell wide enough for it, so none wraps. */}
+        <FieldRow align="start" className="mb-3">
+          <Field label="Name" w={IDENTITY_W.name} required htmlFor="ve-name">
             <Input
               id="ve-name"
               uppercase
@@ -1390,7 +1901,7 @@ export function VendorMasterScreen({
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
           </Field>
-          <Field label="Type" size={FIELD_SIZE.vendor_type} htmlFor="ve-type">
+          <Field label="Type" w={IDENTITY_W.vendor_type} htmlFor="ve-type">
             <Select
               id="ve-type"
               value={form.vendor_type}
@@ -1404,7 +1915,7 @@ export function VendorMasterScreen({
               ))}
             </Select>
           </Field>
-          <Field label="Status" size={FIELD_SIZE.status} htmlFor="ve-status">
+          <Field label="Status" w={IDENTITY_W.status} htmlFor="ve-status">
             <Select
               id="ve-status"
               value={form.status}
@@ -1420,7 +1931,7 @@ export function VendorMasterScreen({
           {/* `compact` on the picker, label on the Field — without it the
               picker draws its own caption and the field reads "Country"
               twice. */}
-          <Field label="Country" size={FIELD_SIZE.country_id}>
+          <Field label="Country" w={IDENTITY_W.country_id}>
             <CountryPicker
               countries={countries}
               value={form.country_id || null}
@@ -1430,9 +1941,14 @@ export function VendorMasterScreen({
               compact
             />
           </Field>
-          {/* This one labels itself, so the Field is an unlabelled cell that
-              exists only to carry the span. */}
-          <Field size={FIELD_SIZE.group_id}>
+          {/* `compact` and a `Field label`, the same idiom as Country beside
+              it — this cell used to let the picker draw its own caption while
+              Country's came from the `Field`, so the two labels sat at different
+              offsets. That was invisible on a stretched grid cell and is not on
+              a row that packs by width. `label` still reaches the picker: it is
+              the dialog's title and the toast's noun, `compact` only stops it
+              being drawn a second time. */}
+          <Field label="Group Name" w={IDENTITY_W.group_id}>
             <LookupDialogPicker
               kind="vendor_group"
               label="Group Name"
@@ -1441,98 +1957,181 @@ export function VendorMasterScreen({
               onChange={(id) => set({ group_id: id })}
               canCreate={perms.canCreate}
               canEdit={perms.canEdit}
+              compact
             />
           </Field>
-          {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-              Entry uses) — the identical swap Country, Destination and Notify
-              made, and from the SAME component, so no two masters can drift
-              apart. It is still a real `<input type="checkbox">` underneath
-              (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
-              still counts it and Tab, Enter-advance and the arrows all reach it.
+          {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block option
+              move to that table listing — we are used to give that block while
+              CREATING the data but we need to move this in ACTION only, no more
+              in the creating screen"). It is the listing's Status column now: a
+              switch on the row, wired straight to `setStatus` above, with
+              `vendor` registered in `lib/masters/active-registry.ts`.
 
-              `label=""` RESERVES the label row rather than drawing one: a cell
-              with no label at all collapses it and lifts the switch ~16px above
-              the labelled fields beside it. The switch renders its own word, so
-              a `label="Inactive"` here would draw the name twice. */}
-          {editId && (
-            <Field label="" size={FIELD_SIZE.inactive}>
-              <Toggle
-                id="ve-inactive"
-                label="Inactive"
-                checked={form.inactive}
-                onChange={(inactive) => set({ inactive })}
-              />
-            </Field>
-          )}
-        </FieldGrid>
+              **The row control had to land first** — it is the only route to the
+              flag once the field is gone, so deleting the field on its own would
+              have made blocking a vendor impossible rather than moved it. Same
+              order Country, Destination and Bank followed.
+
+              `form.inactive` is STILL in the form state and still round-trips
+              through `submit()`, so editing a blocked vendor does not quietly
+              switch it back on. The value is simply no longer typed here.
+
+              Status (the APPROVAL enum, two cells up this row) stays a field.
+              It is a decision somebody makes about the vendor, not a flag the
+              listing owns, and the listing now shows it in its own column
+              instead of behind Draft and Inactive. */}
+        </FieldRow>
 
         {/* Both blocks were hand-rolled cards (a bare `<Label>` over a
             `sm:grid-cols-2`, and a bordered div with an `<h3>`); they are
             real groups, so they become real `DetailSection`s and stop
             inventing their own borders and gaps. `span={2}` keeps each on a
             row of its own — the four Category captions do not fit in a
-            half-width column. */}
+            half-width column, and neither card is a half of a pair now that
+            each is capped to its own content rather than to the pane. */}
         <SectionGrid>
-          {/* Four flags, one row: 3+3+3+3 = 12. */}
-          <DetailSection label="Category" cols={12} span={2}>
-            {CATEGORY_FLAGS.map((f) => (
-              <Field key={f.key} size={FIELD_SIZE.category_flag}>
-                <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form[f.key as CategoryKey]}
-                    onChange={(e) => set({ [f.key]: e.target.checked } as Partial<HeaderForm>)}
-                  />
-                  <span className="text-sm text-foreground">{f.label}</span>
-                </label>
-              </Field>
-            ))}
+          {/* FOUR SWITCHES ON ONE LINE, AND A HAND-ROLLED FLEX ROW IS WHAT
+              PUTS THEM THERE — `FieldRow` COLLAPSES THIS CARD TO NOTHING.
+
+              ## The blank card, and why it was blank
+
+              `FieldRow`'s root is `@container/section`, which is
+              `container-type: inline-size`, which applies `contain: inline-size`
+              — so the element's inline size may not be computed from its own
+              contents, and it contributes ZERO to an ancestor sized from its
+              children. `CATEGORY_BOX_W` is exactly such an ancestor
+              (`max-w-fit`), so the card shrank past all four switches and
+              settled on the widest thing in it that is not itself contained:
+              its own "CATEGORY" caption.
+
+              It was INVISIBLY wrong first and visibly wrong second. A wrapping
+              `FieldRow` leaves `overflow: visible`, so the switches spilled out
+              of the collapsed box and still read as a row; adding `nowrap` added
+              `overflow-x-auto` to that same zero-width box and clipped every one
+              of them, and the section rendered as a label over an empty card.
+
+              This is the third recorded sighting of one cycle. `child-grid.tsx`
+              carries the other two at length — `w-fit` belongs on the scroll
+              wrapper and never on the `@container` root, and a `renderMobileRow`
+              returning a `FieldGrid` collapses a hugging card to a 38px input
+              (client 2026-09-03). Same containment, same shrink-to-fit ancestor,
+              same answer: **never put a content-sized cap around a container-query
+              root.** The two fixes available are to drop the cap or to drop the
+              container, and here the cap is the rule (rule 4, the card hugs its
+              content) while the container buys nothing — `Field`'s spans and
+              widths are what `@container/section` exists to resolve, and there is
+              not a `Field` in this row.
+
+              ## So it is four `Toggle`s in a plain flex row
+
+              `flex-row items-center gap-4 whitespace-nowrap text-xs` (client
+              2026-09-10), and a plain div is also what survives the cap: it
+              contributes its real max-content, where a `FieldRow` would
+              contribute zero and be capped to nothing.
+
+              `gap-4` (16px) is honoured literally here and could not have been
+              through `FieldRow`, whose `gap` prop takes named steps on purpose so
+              a new number cannot enter the app through one call site. That rule
+              governs rows of FIELDS on the width vocabulary; this is a row of
+              booleans with no widths at all, and it is not on that track. It was
+              `gap-5` for a day.
+
+              `text-xs` GOES ON THE SWITCHES AS WELL AS THE ROW, and both are
+              needed. `Toggle`'s root sets `text-sm` on itself, so inheriting from
+              the row cannot reach it — the row's `text-xs` is overridden by the
+              child's own class. Passing it in the Toggle's `className` is what
+              lands it, since `cn` is tailwind-merge and `className` is last.
+
+              `whitespace-nowrap` keeps a caption on one line ("Is Bought Items
+              Vendor" is 22 characters) and `shrink-0` on each switch stops flex
+              squeezing that line into an ellipsis instead. `overflow-x-auto` is
+              the honest answer on a window too narrow for all four — a scroll the
+              operator can see, rather than a flag silently dropped onto a line of
+              its own. It is safe on this div for the reason the whole note above
+              turns on: overflow is not containment.
+
+              `min-h-8` overrides `Toggle`'s own `min-h-9`, which exists to centre
+              a switch against the 36px controls beside it. There are no controls
+              beside these — the row holds nothing but switches — so it takes the
+              32px compact height every other control in an editor already uses at
+              `@2xl/editor`, rather than a new number.
+
+              `Toggle`, not the tick box this replaced: every boolean in this app
+              is a switch. It is still a real `<input type="checkbox">` underneath
+              (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
+              counts it and Tab, Enter-advance and the arrows all reach it. The
+              bordered tile goes with the tick — a box drawn round each of four
+              adjacent flags reads as four cards rather than one question asked
+              four ways. */}
+          <DetailSection label="Category" cols={1} span={2} className={CATEGORY_BOX_W}>
+            <div className="flex flex-row flex-nowrap items-center gap-4 overflow-x-auto whitespace-nowrap text-xs">
+              {CATEGORY_FLAGS.map((f) => (
+                <Toggle
+                  key={f.key}
+                  id={`ve-${f.key}`}
+                  label={f.label}
+                  checked={form[f.key as CategoryKey]}
+                  onChange={(next) => set({ [f.key]: next } as Partial<HeaderForm>)}
+                  className="min-h-8 shrink-0 text-xs"
+                />
+              ))}
+            </div>
           </DetailSection>
 
-          {/* row 1  tin_no 3 + pan_no 3 + reg_caption 3 + reg_no_dt 3 = 12
-              row 2  web_site 6 */}
-          <DetailSection label="Registration" cols={12} span={2}>
-            <Field label="TIN No." size={FIELD_SIZE.tin_no} htmlFor="ve-tin">
-              <Input
-                uppercase
-                id="ve-tin"
-                value={form.tin_no}
-                onChange={(e) => set({ tin_no: e.target.value })}
-              />
-            </Field>
-            <Field label="PAN No" size={FIELD_SIZE.pan_no} htmlFor="ve-pan">
-              <ValidatedInput
-                id="ve-pan"
-                format="pan"
-                value={form.pan_no}
-                onChange={(e) => set({ pan_no: e.target.value })}
-              />
-            </Field>
-            <Field label="Reg. Caption" size={FIELD_SIZE.reg_caption} htmlFor="ve-regcap">
-              <Input
-                uppercase
-                id="ve-regcap"
-                value={form.reg_caption}
-                onChange={(e) => set({ reg_caption: e.target.value })}
-              />
-            </Field>
-            <Field label="Reg. No / Dt" size={FIELD_SIZE.reg_no_dt} htmlFor="ve-regno">
-              <Input
-                uppercase
-                id="ve-regno"
-                value={form.reg_no_dt}
-                onChange={(e) => set({ reg_no_dt: e.target.value })}
-              />
-            </Field>
-            <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="ve-web">
-              <ValidatedInput
-                id="ve-web"
-                format="website"
-                value={form.web_site}
-                onChange={(e) => set({ web_site: e.target.value })}
-              />
-            </Field>
+          {/* Five fields, ONE row — `REGISTRATION_W` carries the widths and
+              `REGISTRATION_BOX_W` the card's cap. It used to be two rows on the
+              twelfths track (four identifiers at 3, then Web site alone at 6 with
+              half its line empty), and the four identifiers were ~285px apiece
+              for values that cannot reach fifteen characters.
+
+              `align="start"`: PAN and Web site are `ValidatedInput`s, which
+              render their format message BELOW the control, and `items-end`
+              measures from the bottom of that — so the first mistyped PAN would
+              lift its box clear of the four beside it while the operator is
+              still in the row. */}
+          <DetailSection label="Registration" cols={1} span={2} className={REGISTRATION_BOX_W}>
+            <FieldRow align="start">
+              <Field label="TIN No." w={REGISTRATION_W.tin_no} htmlFor="ve-tin">
+                <Input
+                  uppercase
+                  id="ve-tin"
+                  value={form.tin_no}
+                  onChange={(e) => set({ tin_no: e.target.value })}
+                />
+              </Field>
+              <Field label="PAN No" w={REGISTRATION_W.pan_no} htmlFor="ve-pan">
+                <ValidatedInput
+                  id="ve-pan"
+                  format="pan"
+                  value={form.pan_no}
+                  onChange={(e) => set({ pan_no: e.target.value })}
+                />
+              </Field>
+              <Field label="Reg. Caption" w={REGISTRATION_W.reg_caption} htmlFor="ve-regcap">
+                <Input
+                  uppercase
+                  id="ve-regcap"
+                  value={form.reg_caption}
+                  onChange={(e) => set({ reg_caption: e.target.value })}
+                />
+              </Field>
+              <Field label="Reg. No / Dt" w={REGISTRATION_W.reg_no_dt} htmlFor="ve-regno">
+                <Input
+                  uppercase
+                  id="ve-regno"
+                  value={form.reg_no_dt}
+                  onChange={(e) => set({ reg_no_dt: e.target.value })}
+                />
+              </Field>
+              <Field label="Web site" w={REGISTRATION_W.web_site} htmlFor="ve-web">
+                <ValidatedInput
+                  id="ve-web"
+                  format="website"
+                  value={form.web_site}
+                  onChange={(e) => set({ web_site: e.target.value })}
+                />
+              </Field>
+            </FieldRow>
           </DetailSection>
         </SectionGrid>
       </SectionBody>
@@ -1547,6 +2146,10 @@ export function VendorMasterScreen({
             ChildGrid exists to prevent. The fields were labelled by column
             header on desktop and by nothing at all on mobile; they carry real
             labels now. */}
+        {/* Capped to its own row, not to the pane (`erp-form-compact` rule 4) —
+            `ADDRESS_BOX_W` above derives the number, and says why the cap is a
+            wrapper here rather than `ChildGrid`'s own `hugsContent`. */}
+        <div className={ADDRESS_BOX_W}>
         <ChildGrid<AddressRow>
           lockExisting
           label="Address Detail"
@@ -1564,26 +2167,43 @@ export function VendorMasterScreen({
             { header: "Street", cell: (a) => a.street },
           ]}
           renderMobileRow={(a) => (
-            /* row 1  address_type 3 + street 3 + city 3 + state 3   = 12
-               row 2  country 3 + pin 3 + land_line 3 + mobile 3     = 12
-               row 3  whatsapp 3 + email_id 6                        =  9 */
-            <FieldGrid>
-              <Field label="Address Type" size={FIELD_SIZE.address_type}>
+            /* ONE wrapping `FieldRow`, laid out by WIDTHS — `ADDRESS_W` above
+               carries the bands, the two lines this wraps into and why the cap
+               makes them stable. It replaces three rows of the 12-col track, on
+               which a six-digit PIN and the street itself took the same quarter
+               of the card.
+
+               `align="start"`, and this row has the hazard that choice is for:
+               WhatsApp renders a "Same as mobile" tick BELOW its control, and
+               both `ValidatedInput` cells can render a format message there.
+               `items-end` measures from the bottom of that, so those cells would
+               sit their LABEL a line above every other label on the row. Nothing
+               here has the opposite hazard — the longest label is "Address Type",
+               81.3px of Inter 600 at 12px inside a 144px cell, so none of the
+               ten wraps to a second line. */
+            <FieldRow align="start">
+              <Field label="Address Type" w={ADDRESS_W.address_type}>
                 <Input
                   uppercase
                   value={a.address_type}
                   onChange={(e) => setAddressAt(a.key, { address_type: e.target.value })}
                 />
               </Field>
-              <Field label="Street" size={FIELD_SIZE.street}>
+              <Field label="Street" w={ADDRESS_W.street}>
                 <Input
                   uppercase
                   value={a.street}
                   onChange={(e) => setAddressAt(a.key, { street: e.target.value })}
                 />
               </Field>
-              {/* The three pickers render their own labels. */}
-              <Field size={FIELD_SIZE.city_id}>
+              {/* `compact` on all three, with the label on the `Field` — the same
+                  idiom Identity and Service use, and for the reason Identity
+                  states: a picker drawing its own caption beside a `Field` that
+                  draws one puts the two labels at different offsets. Invisible on
+                  a stretched twelfth, and not on a row that packs by width.
+                  `label` still reaches each picker as the dialog's title and the
+                  toast's noun; `compact` only stops it being drawn twice. */}
+              <Field label="City" w={ADDRESS_W.city_id}>
                 <LookupDialogPicker
                   kind="city"
                   label="City"
@@ -1592,9 +2212,10 @@ export function VendorMasterScreen({
                   onChange={(id) => setAddressAt(a.key, { city_id: id })}
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}
+                  compact
                 />
               </Field>
-              <Field size={FIELD_SIZE.state_id}>
+              <Field label="State" w={ADDRESS_W.state_id}>
                 <StatePicker
                   label="State"
                   options={states}
@@ -1608,31 +2229,33 @@ export function VendorMasterScreen({
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}
                   canDelete={perms.canDelete}
+                  compact
                 />
               </Field>
-              <Field size={FIELD_SIZE.address_country_id}>
+              <Field label="Country" w={ADDRESS_W.country_id}>
                 <CountryPicker
                   countries={countries}
                   value={a.country_id || null}
                   onChange={(id) => setAddressAt(a.key, { country_id: id })}
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}
+                  compact
                 />
               </Field>
-              <Field label="Pin" size={FIELD_SIZE.pin}>
+              <Field label="Pin" w={ADDRESS_W.pin}>
                 <ValidatedInput
                   format="pincode"
                   value={a.pin}
                   onChange={(e) => setAddressAt(a.key, { pin: e.target.value })}
                 />
               </Field>
-              <Field label="Land Line" size={FIELD_SIZE.land_line}>
+              <Field label="Land Line" w={ADDRESS_W.land_line}>
                 <Input
                   value={a.land_line}
                   onChange={(e) => setAddressAt(a.key, { land_line: e.target.value })}
                 />
               </Field>
-              <Field size={FIELD_SIZE.mobile}>
+              <Field w={ADDRESS_W.mobile}>
                 <MobileField
                   id={`ve-${a.key}-mobile`}
                   value={a.mobile}
@@ -1642,7 +2265,7 @@ export function VendorMasterScreen({
               {/* The "Same as mobile" tick makes this cell ~18px taller than
                   the one beside it and the row grows to match — that is the
                   grid stretching, not a reason to give it a whole line. */}
-              <Field size={FIELD_SIZE.whatsapp}>
+              <Field w={ADDRESS_W.whatsapp}>
                 <WhatsAppField
                   id={`ve-${a.key}-whatsapp`}
                   value={a.whatsapp}
@@ -1651,16 +2274,17 @@ export function VendorMasterScreen({
                   onChange={(v) => setAddressAt(a.key, { whatsapp: v })}
                 />
               </Field>
-              <Field label="Email ID" size={FIELD_SIZE.email_id}>
+              <Field label="Email ID" w={ADDRESS_W.email_id}>
                 <ValidatedInput
                   format="email"
                   value={a.email_id}
                   onChange={(e) => setAddressAt(a.key, { email_id: e.target.value })}
                 />
               </Field>
-            </FieldGrid>
+            </FieldRow>
           )}
         />
+        </div>
       </SectionBody>
     ),
     itemcat: (
@@ -1873,49 +2497,66 @@ export function VendorMasterScreen({
     ),
     service: (
       <SectionBody title="Service">
-        <ChildGrid<ServiceRow>
-          lockExisting
-          label="Service Detail"
-          rows={svcRows}
-          onAdd={() => addRowTo(setSvcRows, blankService)}
-          onRemove={(r) => dropRow(setSvcRows, r.key)}
-          addLabel="+ Add service"
-          forceCards
-          flatRows
-          pageSize={4}
-          columns={[
-            { header: "Service Type", cell: (r) => serviceTypeLabel.get(r.service_type_id) ?? "—" },
-          ]}
-          renderMobileRow={(r) => (
-            <FieldGrid>
-              {/* A ⓘ list in legacy whose contents no screenshot shows, so it is
-                  a managed list the operator fills — never invented values. */}
-              <Field size={FIELD_SIZE.service_type_id}>
-                <LookupDialogPicker
-                  kind="vendor_service_type"
-                  label="Service Type"
-                  options={serviceTypes}
-                  value={r.service_type_id || null}
-                  usedIds={usedServiceTypeIds}
-                  onChange={(id) => patchRow(setSvcRows, r.key, { service_type_id: id ?? "" })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-              </Field>
-              <Field size={FIELD_SIZE.payment_term_id}>
-                <PaymentTermPicker
-                  label="Payment Terms"
-                  options={paymentTerms}
-                  value={r.payment_term_id || null}
-                  onChange={(id) => patchRow(setSvcRows, r.key, { payment_term_id: id ?? "" })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                  canDelete={perms.canDelete}
-                />
-              </Field>
-            </FieldGrid>
-          )}
-        />
+        {/* Capped to its own row, not to the pane (`erp-form-compact` rule 4) —
+            `SERVICE_BOX_W` above derives the number and says why the cap is a
+            wrapper here rather than `ChildGrid`'s own `hugsContent`. */}
+        <div className={SERVICE_BOX_W}>
+          <ChildGrid<ServiceRow>
+            lockExisting
+            label="Service Detail"
+            rows={svcRows}
+            onAdd={() => addRowTo(setSvcRows, blankService)}
+            onRemove={(r) => dropRow(setSvcRows, r.key)}
+            addLabel="+ Add service"
+            forceCards
+            flatRows
+            pageSize={4}
+            columns={[
+              { header: "Service Type", cell: (r) => serviceTypeLabel.get(r.service_type_id) ?? "—" },
+            ]}
+            /* Two fields on ONE line, by width — `SERVICE_W` above. It was a
+               `FieldGrid`, so each picker took 3 of the card's 12 columns and the
+               other six were empty on every service line. `FieldRow`'s default
+               `items-end`: neither picker renders a hint or an error below its
+               control, and both labels fit their cells on one line.
+
+               `compact` on both, with the label on the `Field` — each picker draws
+               its own caption otherwise, and the two idioms mixed in one row put
+               the labels at different offsets. `label` still reaches each picker as
+               its dialog title and toast noun. */
+            renderMobileRow={(r) => (
+              <FieldRow>
+                {/* A ⓘ list in legacy whose contents no screenshot shows, so it is
+                    a managed list the operator fills — never invented values. */}
+                <Field label="Service Type" w={SERVICE_W.service_type_id}>
+                  <LookupDialogPicker
+                    kind="vendor_service_type"
+                    label="Service Type"
+                    options={serviceTypes}
+                    value={r.service_type_id || null}
+                    usedIds={usedServiceTypeIds}
+                    onChange={(id) => patchRow(setSvcRows, r.key, { service_type_id: id ?? "" })}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                    compact
+                  />
+                </Field>
+                <Field label="Payment Terms" w={SERVICE_W.payment_term_id}>
+                  <PaymentTermPicker
+                    label="Payment Terms"
+                    options={paymentTerms}
+                    value={r.payment_term_id || null}
+                    onChange={(id) => patchRow(setSvcRows, r.key, { payment_term_id: id ?? "" })}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                    canDelete={perms.canDelete}
+                    compact
+                  />
+                </Field>
+              </FieldRow>
+            )}
+          />
+        </div>
         {tdsEsiPanel}
       </SectionBody>
     ),
@@ -1971,137 +2612,163 @@ export function VendorMasterScreen({
             beside a GSTIN in a half-width column is back to three fields a
             row, which is what this pass exists to fix. */}
         <SectionGrid>
-          {/* row 1  bank_name 3 + branch 3 + ac_no 3 + ifsc_code 3 = 12
-              row 2  ac_type 3 — the fifth of five, nothing to pair it with. */}
-          <DetailSection label="Banking" cols={12} span={2}>
-            <Field label="Bank Name" size={FIELD_SIZE.bank_name} htmlFor="ve-bank">
-              <Input
-                uppercase
-                id="ve-bank"
-                value={form.bank_name}
-                onChange={(e) => set({ bank_name: e.target.value })}
-              />
-            </Field>
-            <Field label="Branch" size={FIELD_SIZE.branch} htmlFor="ve-branch">
-              <Input
-                uppercase
-                id="ve-branch"
-                value={form.branch}
-                onChange={(e) => set({ branch: e.target.value })}
-              />
-            </Field>
-            <Field label="A/c No" size={FIELD_SIZE.ac_no} htmlFor="ve-acno">
-              <ValidatedInput
-                id="ve-acno"
-                format="account"
-                value={form.ac_no}
-                onChange={(e) => set({ ac_no: e.target.value })}
-              />
-            </Field>
-            <Field label="IFSC Code" size={FIELD_SIZE.ifsc_code} htmlFor="ve-ifsc">
-              <ValidatedInput
-                id="ve-ifsc"
-                format="ifsc"
-                value={form.ifsc_code}
-                onChange={(e) => set({ ifsc_code: e.target.value })}
-              />
-            </Field>
-            <Field label="A/c Type" size={FIELD_SIZE.ac_type} htmlFor="ve-actype">
-              <Input
-                uppercase
-                id="ve-actype"
-                value={form.ac_type}
-                onChange={(e) => set({ ac_type: e.target.value })}
-              />
-            </Field>
-          </DetailSection>
+          {/* FIVE FIELDS, ONE LINE — `BANKING_W` above carries the widths and
+              says why none of them is a new measurement. On the twelfths track
+              this was 3+3+3+3 and then A/c Type alone on a second row with
+              three quarters of it empty; the fifth field now simply follows the
+              fourth.
 
-          {/* row 1  gst_reg_status 3 + gst_no 3 = 6 (the Debit / Credit Group
-                     pickers that filled the other 6 went with the Account Group
-                     master, 2026-08-01)
-              row 2  the GSTIN strip, 12
-              The strip is a fact strip, so it is `full` (LAYOUT.md §3) and
-              lands on the line directly under the GST number it decodes. */}
-          <DetailSection label="GST" cols={12} span={2}>
-            <Field label="GST No" size={FIELD_SIZE.gst_reg_status} htmlFor="ve-gststatus">
-              <Select
-                id="ve-gststatus"
-                value={form.gst_reg_status}
-                onChange={(e) => set({ gst_reg_status: e.target.value as "" | GstRegStatus })}
-              >
-                <option value=""></option>
-                {GST_REG_STATUSES.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="GST Number" size={FIELD_SIZE.gst_no} htmlFor="ve-gstno">
-              <ValidatedInput
-                id="ve-gstno"
-                // Shape-only on purpose. The check digit is verified by the
-                // strip below as a WARNING, not a block — a bad GSTIN copied
-                // off an invoice still has to be savable while the vendor is
-                // chased. Switch this to "gstin_strict" to make it a hard
-                // block instead.
-                format="gstin"
-                value={form.gst_no}
-                onChange={(e) => set({ gst_no: e.target.value })}
-                {...dupFieldProps(gstDupError, "ve-gstno")}
-              />
-              <DuplicateError error={gstDupError} id="ve-gstno" />
-            </Field>
-            {gstin && (
-              <Field size={FIELD_SIZE.gstin_strip}>
-                <GstinInsight
-                  decoded={gstin}
-                  panValue={form.pan_no}
-                  suggestions={gstinSuggestions}
+              `align="start"`: A/c No and IFSC Code are `ValidatedInput`s, which
+              render their format message BELOW the control, and `items-end`
+              measures from the bottom of that — so the first mistyped IFSC would
+              lift its box clear of the four beside it while the operator is
+              still in the row.
+
+              `cols={1}` because the `FieldRow` is the only row this card has to
+              stack, and `OTHER_BOX_W` is the cap all three cards share. */}
+          <DetailSection label="Banking" cols={1} span={2} className={OTHER_BOX_W}>
+            <FieldRow align="start">
+              <Field label="Bank Name" w={BANKING_W.bank_name} htmlFor="ve-bank">
+                <Input
+                  uppercase
+                  id="ve-bank"
+                  value={form.bank_name}
+                  onChange={(e) => set({ bank_name: e.target.value })}
                 />
               </Field>
-            )}
+              <Field label="Branch" w={BANKING_W.branch} htmlFor="ve-branch">
+                <Input
+                  uppercase
+                  id="ve-branch"
+                  value={form.branch}
+                  onChange={(e) => set({ branch: e.target.value })}
+                />
+              </Field>
+              <Field label="A/c No" w={BANKING_W.ac_no} htmlFor="ve-acno">
+                <ValidatedInput
+                  id="ve-acno"
+                  format="account"
+                  value={form.ac_no}
+                  onChange={(e) => set({ ac_no: e.target.value })}
+                />
+              </Field>
+              <Field label="IFSC Code" w={BANKING_W.ifsc_code} htmlFor="ve-ifsc">
+                <ValidatedInput
+                  id="ve-ifsc"
+                  format="ifsc"
+                  value={form.ifsc_code}
+                  onChange={(e) => set({ ifsc_code: e.target.value })}
+                />
+              </Field>
+              <Field label="A/c Type" w={BANKING_W.ac_type} htmlFor="ve-actype">
+                <Input
+                  uppercase
+                  id="ve-actype"
+                  value={form.ac_type}
+                  onChange={(e) => set({ ac_type: e.target.value })}
+                />
+              </Field>
+            </FieldRow>
           </DetailSection>
 
-          {/* row 1  enterprise_status 3 + memorandum_no 3 + inhouse_unit_id 3
-                     + duty_against 3 = 12 */}
-          <DetailSection label="Additional Details" cols={12} span={2}>
-            <Field
-              label="Enterprise Status"
-              size={FIELD_SIZE.enterprise_status}
-              htmlFor="ve-enterprise-status"
-            >
-              <Input
-                uppercase
-                id="ve-enterprise-status"
-                value={form.enterprise_status}
-                onChange={(e) => set({ enterprise_status: e.target.value })}
-              />
-            </Field>
-            <Field label="Memorandum No" size={FIELD_SIZE.memorandum_no} htmlFor="ve-memorandum-no">
-              <Input
-                uppercase
-                id="ve-memorandum-no"
-                value={form.memorandum_no}
-                onChange={(e) => set({ memorandum_no: e.target.value })}
-              />
-            </Field>
-            <Field label="Inhouse Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="ve-inhouse-unit">
-              <Input
-                uppercase
-                id="ve-inhouse-unit"
-                value={form.inhouse_unit_id}
-                onChange={(e) => set({ inhouse_unit_id: e.target.value })}
-              />
-            </Field>
-            <Field label="Duty Against" size={FIELD_SIZE.duty_against} htmlFor="ve-duty-against">
-              <Input
-                uppercase
-                id="ve-duty-against"
-                value={form.duty_against}
-                onChange={(e) => set({ duty_against: e.target.value })}
-              />
-            </Field>
+          {/* Two fields and the strip that decodes the second of them — see
+              `GST_W` above, and note the strip takes `w-full` rather than
+              `size="full"`, which is a col-span and inert in a flex row. (The
+              Debit / Credit Group pickers that used to fill the other six
+              twelfths went with the Account Group master, 2026-08-01.)
+
+              `align="start"`: the GST number is a `ValidatedInput` AND carries a
+              `DuplicateError` under it, either of which would lift its box clear
+              of the status select beside it under `items-end`. */}
+          <DetailSection label="GST" cols={1} span={2} className={OTHER_BOX_W}>
+            <FieldRow align="start">
+              <Field label="GST No" w={GST_W.gst_reg_status} htmlFor="ve-gststatus">
+                <Select
+                  id="ve-gststatus"
+                  value={form.gst_reg_status}
+                  onChange={(e) => set({ gst_reg_status: e.target.value as "" | GstRegStatus })}
+                >
+                  <option value=""></option>
+                  {GST_REG_STATUSES.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="GST Number" w={GST_W.gst_no} htmlFor="ve-gstno">
+                <ValidatedInput
+                  id="ve-gstno"
+                  // Shape-only on purpose. The check digit is verified by the
+                  // strip below as a WARNING, not a block — a bad GSTIN copied
+                  // off an invoice still has to be savable while the vendor is
+                  // chased. Switch this to "gstin_strict" to make it a hard
+                  // block instead.
+                  format="gstin"
+                  value={form.gst_no}
+                  onChange={(e) => set({ gst_no: e.target.value })}
+                  {...dupFieldProps(gstDupError, "ve-gstno")}
+                />
+                <DuplicateError error={gstDupError} id="ve-gstno" />
+              </Field>
+              {gstin && (
+                /* `w-full`, NOT `size="full"` — see `GST_W`. The `-mt-1` pulls the
+                   strip up under the number now that the row is top-aligned. */
+                <Field className="w-full -mt-1">
+                  <GstinInsight
+                    decoded={gstin}
+                    panValue={form.pan_no}
+                    suggestions={gstinSuggestions}
+                  />
+                </Field>
+              )}
+            </FieldRow>
+          </DetailSection>
+
+          {/* Four short identifiers under four long labels, so one step for all
+              four — `ADDITIONAL_W` above. `FieldRow`'s default `items-end` here:
+              nothing in this row renders a message below its control, and bottom
+              alignment is what keeps a label that ever does wrap from dropping
+              its box below the row. */}
+          <DetailSection label="Additional Details" cols={1} span={2} className={OTHER_BOX_W}>
+            <FieldRow>
+              <Field
+                label="Enterprise Status"
+                w={ADDITIONAL_W.enterprise_status}
+                htmlFor="ve-enterprise-status"
+              >
+                <Input
+                  uppercase
+                  id="ve-enterprise-status"
+                  value={form.enterprise_status}
+                  onChange={(e) => set({ enterprise_status: e.target.value })}
+                />
+              </Field>
+              <Field label="Memorandum No" w={ADDITIONAL_W.memorandum_no} htmlFor="ve-memorandum-no">
+                <Input
+                  uppercase
+                  id="ve-memorandum-no"
+                  value={form.memorandum_no}
+                  onChange={(e) => set({ memorandum_no: e.target.value })}
+                />
+              </Field>
+              <Field label="Inhouse Unit ID" w={ADDITIONAL_W.inhouse_unit_id} htmlFor="ve-inhouse-unit">
+                <Input
+                  uppercase
+                  id="ve-inhouse-unit"
+                  value={form.inhouse_unit_id}
+                  onChange={(e) => set({ inhouse_unit_id: e.target.value })}
+                />
+              </Field>
+              <Field label="Duty Against" w={ADDITIONAL_W.duty_against} htmlFor="ve-duty-against">
+                <Input
+                  uppercase
+                  id="ve-duty-against"
+                  value={form.duty_against}
+                  onChange={(e) => set({ duty_against: e.target.value })}
+                />
+              </Field>
+            </FieldRow>
           </DetailSection>
         </SectionGrid>
       </SectionBody>
@@ -2130,7 +2797,17 @@ export function VendorMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No vendors yet." />
+        {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
+            last one alone — the ⋮ must stay legible on a dimmed row, and
+            `opacity` on the `<tr>` would take it down with the text. Same rule
+            `MasterListShell` applies to the listings it owns. */}
+        <DataTable
+          columns={withCreatedColumns(columns, filtered)}
+          rows={filtered}
+          getKey={(r) => r.id}
+          rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
+          empty="No vendors yet."
+        />
       </div>
 
       {/* mobile cards */}

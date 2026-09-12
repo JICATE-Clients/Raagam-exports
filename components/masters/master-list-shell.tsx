@@ -6,7 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, type RowMenuItem } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import { StatusPill } from "@/components/ui/status-pill";
+import {
+  rowActionsColumn,
+  ROW_ACTIONS_MENU_WIDTH,
+} from "@/components/ui/row-actions-column";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 import {
   RecordViewSheet,
   type ViewPair,
@@ -80,6 +87,56 @@ export type MasterListShellProps<Row> = {
     onView?: (r: Row) => void;
     onEdit?: (r: Row) => void;
     onDelete?: (r: Row) => void;
+    /**
+     * SWITCH THE ROW ON OR OFF FROM THE LISTING, and — by being present at all
+     * — give this list a Status column of switches.
+     *
+     * `active` is stated positively: true means the row should be ON. That is
+     * the convention `setMasterActive` and `activePatch` already use, and
+     * `lib/masters/inactive.ts` records why it matters — two of the schema's
+     * three spellings are negated, so a caller that inverts the boolean itself
+     * is one copy-paste from switching a row on when it meant to switch it off.
+     * `useBlockAction().setStatus` is the handler to pass; it does the write,
+     * the toast and the refresh.
+     *
+     * ## THE COLUMN IS SPLICED HERE, NOT DECLARED BY THE SCREEN
+     *
+     * Same rule as the Created pair and the actions cell beside it: the header,
+     * the width, the switch, its colour and the word next to it are the shell's,
+     * so forty listings cannot drift into forty status cells. A screen that
+     * still declares its own `Status` column gets it STRIPPED, deliberately —
+     * exactly as `withCreatedColumns` strips a hand-rolled Created column, and
+     * for the same reason: two Status columns is a worse failure than a screen
+     * silently losing a cell it no longer owns.
+     *
+     * It lands AFTER the Created pair because `withCreatedColumns` walks back
+     * over a trailing `Status` header to place its own — so the documented order
+     * (data, Created Date, Created User, Status, actions) falls out rather than
+     * being re-stated here.
+     *
+     * ## IT DOES NOT PICK THE ACTIONS CELL — `variant` DOES
+     *
+     * For one day this prop did both, on the reasoning that the menu was what
+     * carried the status. The client reversed that on 2026-09-11: the status is
+     * a column again and the menu holds only View / Edit / Delete. The two facts
+     * really are independent now, so they are two props — a list can have
+     * switches and inline icons, or a menu and no status at all.
+     *
+     * The screen that adopts this should still drop its Inactive FIELD (client
+     * 2026-08-17: "no more in the creating screen"). That half is unchanged and
+     * is not done for it here: this component cannot see the screen's form.
+     */
+    onStatusChange?: (r: Row, active: boolean) => void;
+    /**
+     * Which actions cell this list gets: three inline icons (`RowActions`, the
+     * default and what ~131 listings render) or one collapsed `⋮` menu
+     * (`TableRowActionsMenu`).
+     *
+     * Opt-in per screen rather than flipped app-wide, because changing the cell
+     * on every master at once is not a thing to do as a side effect of adding it
+     * to one. Associates is the module being moved over first.
+     */
+    variant?: "icons" | "menu";
     /** Extra items behind a `⋮` — Duplicate, Export row. Never Delete. */
     menu?: (r: Row) => RowMenuItem[];
   };
@@ -195,10 +252,58 @@ export function MasterListShell<Row>({
   // uses, so the column and the filter appear and disappear together.
   const showCreated = useMemo(() => hasCreatedInfo(rows), [rows]);
 
-  // The screen's columns plus the Created pair, spliced in ahead of the
-  // trailing Status column. Kept separate from `tableColumns` because the
-  // derived view sheet below wants the DATA columns without the actions one.
-  const dataColumns = useMemo(() => withCreatedColumns(columns, rows), [columns, rows]);
+  /**
+   * The Status column of switches — present exactly when the screen declared
+   * `onStatusChange`. See that prop for why the shell owns this cell.
+   *
+   * Held as its own reference rather than found again by header text, because
+   * the read-only view sheet below has to recognise it: a `RecordViewSheet` that
+   * rendered this cell verbatim would put a LIVE switch inside a surface whose
+   * whole promise is that looking at a record cannot change it.
+   */
+  const statusColumn = useMemo<Column<Row> | null>(() => {
+    const onStatusChange = actions?.onStatusChange;
+    if (!onStatusChange) return null;
+    return {
+      header: "Status",
+      className: "w-32",
+      cell: (r) => (
+        <StatusToggle
+          // `Row` is generic here and the switch wants a row it can read a
+          // status off. The cast is safe in the direction that matters:
+          // `isInactive` answers false for a row carrying none of the three
+          // spellings, so a screen that declares `onStatusChange` over a
+          // flagless table gets "Active", not a crash.
+          row={r as Deactivatable}
+          label={nameOf(r)}
+          // Draft is the one state a two-position switch cannot express, and it
+          // is read off the facet the screen ALREADY declares rather than a
+          // second prop — `statusOf` is the same function the Status filter
+          // above the list runs, so the pill and the facet cannot disagree about
+          // which rows are drafts. A list with no `statusOf` has no draft state
+          // and the pill never appears.
+          draft={statusOf?.(r) === "draft"}
+          // Blocking is the destructive direction and `setMasterActive` gates it
+          // as `delete` server-side. Same gate `useBlockAction`'s `canBlock`
+          // takes, so the two controls cannot disagree about who may block a row.
+          disabled={!perms.canDelete || isPending}
+          onChange={(active) => onStatusChange(r, active)}
+        />
+      ),
+    };
+  }, [actions, nameOf, statusOf, perms.canDelete, isPending]);
+
+  // The screen's columns, plus the Status switch, plus the Created pair spliced
+  // in ahead of it. Kept separate from `tableColumns` because the derived view
+  // sheet below wants the DATA columns without the actions one.
+  const dataColumns = useMemo(() => {
+    // A screen's own Status column is REPLACED, not appended to — see the note
+    // on `actions.onStatusChange`.
+    const base = statusColumn
+      ? [...columns.filter((c) => !/^\s*status\s*$/i.test(c.header ?? "")), statusColumn]
+      : columns;
+    return withCreatedColumns(base, rows);
+  }, [columns, rows, statusColumn]);
 
   // The Created line is APPENDED to the mobile card, not substituted for the
   // screen's own meta — the card has room for both, and dropping the screen's
@@ -217,6 +322,29 @@ export function MasterListShell<Row>({
   // header/alignment/width are the same on every list in the app.
   const tableColumns = useMemo(() => {
     if (!actions && !autoView) return dataColumns;
+
+    // The collapsed form — opted into per screen; see `actions.variant`.
+    if (actions?.variant === "menu") {
+      return [
+        ...dataColumns,
+        rowActionsColumn<Row>(
+          (r) => (
+            <TableRowActionsMenu
+              label={nameOf(r)}
+              onView={onView && (() => onView(r))}
+              onEdit={actions?.onEdit && (() => actions.onEdit!(r))}
+              onDelete={actions?.onDelete && (() => actions.onDelete!(r))}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isPending={isPending}
+              menu={actions?.menu?.(r) ?? []}
+            />
+          ),
+          ROW_ACTIONS_MENU_WIDTH,
+        ),
+      ];
+    }
+
     return [
       ...dataColumns,
       rowActionsColumn<Row>((r) => (
@@ -233,6 +361,55 @@ export function MasterListShell<Row>({
       )),
     ];
   }, [dataColumns, actions, autoView, onView, nameOf, perms.canEdit, perms.canDelete, isPending]);
+
+  /**
+   * DIM A ROW THAT IS SWITCHED OFF.
+   *
+   * Only for a listing that carries the Status switch. The switch and the word
+   * beside it already say which state the row is in; this says it in a way that
+   * survives being scanned rather than read, so a blocked row is findable in
+   * forty without checking forty switches.
+   *
+   * Listings that do not declare `onStatusChange` are left alone — dimming ~62
+   * existing lists is a change nobody asked for, and their pill already says it.
+   *
+   * `opacity-60` rather than a text colour: the row holds pills, links and an
+   * icon button as well as text, and a `text-*` class reaches none of them.
+   *
+   * IT DIMS THE DATA CELLS AND NOT THE LAST ONE, which is the actions cell.
+   * Opacity on the `<tr>` would take the `—` button down with the text, and a
+   * child cannot be made brighter than its parent again — `opacity` composites
+   * the whole subtree, so `[&>td:last-child]:opacity-100` does nothing. The
+   * control that switches the row back ON is the one thing on a dimmed row that
+   * must stay fully legible, so the dimming is applied per cell instead.
+   */
+  const rowClassName = useMemo(() => {
+    if (!actions?.onStatusChange) return undefined;
+    return (r: Row) =>
+      isInactive(r as Deactivatable) ? "[&>td:not(:last-child)]:opacity-60" : undefined;
+  }, [actions]);
+
+  /**
+   * THE STATUS AS A PILL, for the read-only view sheet.
+   *
+   * The table cell is a live switch, and `RecordViewSheet` derives its pairs by
+   * calling each column's `cell` — so rendering that column verbatim would put a
+   * working control inside a surface whose whole promise is that looking at a
+   * record cannot change it. This is what the sheet shows instead.
+   *
+   * It reads `statusOf` where the screen declared one, so a THIRD state the
+   * switch cannot express (Draft) is still reported here. Falling back to
+   * `isInactive` keeps it correct for a list with switches and no status facet.
+   */
+  const statusPairValue = useCallback(
+    (r: Row) => {
+      const s = statusOf?.(r) ?? (isInactive(r as Deactivatable) ? "inactive" : "active");
+      const tone = s === "draft" ? "warning" : s === "inactive" ? "danger" : "success";
+      const text = s === "draft" ? "Draft" : s === "inactive" ? "Inactive" : "Active";
+      return <StatusPill tone={tone}>{text}</StatusPill>;
+    },
+    [statusOf],
+  );
 
   const filterConfig = useMemo(() => {
     const filters: Record<string, (r: Row, v: string) => boolean> = {};
@@ -400,6 +577,7 @@ export function MasterListShell<Row>({
           columns={tableColumns}
           rows={pg.paged}
           getKey={(r) => getKey(r)}
+          rowClassName={rowClassName}
           empty={empty}
           selectable={!!bulkEntityKey}
           selectedKeys={bulkEntityKey ? sel.selectedKeys : undefined}
@@ -453,9 +631,17 @@ export function MasterListShell<Row>({
               // its own section, so the sheet words it exactly as the table does
               // and an unknown creator drops out (the sheet hides empty pairs;
               // a table cell has to show the dash).
+              // The Status column is the one cell that is NOT rendered as the
+              // table renders it — see `statusPairValue`.
               pairs: dataColumns
                 .filter((c) => !!c.header && !/^created\s/i.test(c.header))
-                .map((c) => [c.header, c.cell(viewRow)] as ViewPair),
+                .map(
+                  (c) =>
+                    [
+                      c.header,
+                      c === statusColumn ? statusPairValue(viewRow) : c.cell(viewRow),
+                    ] as ViewPair,
+                ),
             },
             ...(typeof view === "object" ? view.sections?.(viewRow) ?? [] : []),
             ...createdSection(viewRow),

@@ -210,7 +210,12 @@ export function WorkTimingMasterScreen({
     },
     {
       header: "All Categories",
-      width: "auto",
+      // A FIXED WIDTH, NOT `auto`. `auto` is this prop's CARD-mode
+      // spelling for "hug"; in the TABLE branch it lands on
+      // `<th style={{width:"auto"}}>`, which is the CSS default — so the
+      // column absorbed the table's leftover width and left a band of
+      // empty space beside a 40px switch (client 2026-09-09).
+      width: "8rem",
       align: "center",
       cell: (l) => (
         <Toggle

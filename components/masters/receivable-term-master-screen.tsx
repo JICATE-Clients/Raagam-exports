@@ -15,6 +15,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createReceivableTerm,
@@ -35,7 +36,6 @@ import {
 } from "@/lib/masters/receivable-term-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
-import { Toggle } from "@/components/ui/toggle";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -86,7 +86,7 @@ const FIELD_SIZE = {
   pay_mode: "sm", // 3 — CHEQUE · DA · DD · DP · LC · OTH · PDC · TT
   credit_days: "sm", // 3 — 0-90; see the note above on `xs` in a half-width section
   with_interest: "sm", // 3 — a Yes/No radio pair, both captions on one line
-  inactive: "sm", // 3 — a tick box; it only needs room for its own caption
+  // `inactive` is gone from this map with the field — it is a row action now.
   description: "full", // 12 — a textarea stands alone (LAYOUT.md §3)
   at_basis: "sm", // 3 — SIGHT · OPEN · DAYS
   at_when: "sm", // 3 — AFTER · FROM
@@ -113,6 +113,10 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* Active / Inactive from the listing's Status switch. `receivable_term` is
+     registered in `lib/masters/active-registry.ts`; `setStatus` does the write,
+     the toast and the refresh, so this screen never touches the flag itself. */
+  const { setStatus, isPending: statusPending } = useBlockAction("receivable_term");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editEntryNo, setEditEntryNo] = useState<number | null>(null);
@@ -205,12 +209,11 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
       cell: (r) => <span className="text-sm text-muted-foreground">{r.with_interest ? "Yes" : "No"}</span>,
     },
     { header: "Credit Days", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.credit_days}</span> },
-    {
-      header: "Status",
-      cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
-      ),
-    },
+    /* NO Status COLUMN DECLARED HERE, AND THE COLUMN IS STILL THERE.
+       `MasterListShell` splices it in because this screen passes
+       `onStatusChange` — a switch plus the word it is set to, clicking which
+       calls the status API directly (client 2026-09-11). Declaring one here
+       would be stripped as a duplicate; see that prop. */
   ];
 
   return (
@@ -227,7 +230,21 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
         addLabel="+ Add Receivable Term"
         onAdd={openAdd}
         columns={columns}
-        actions={{ onEdit: openEdit, onDelete: remove }}
+        actions={{
+          onEdit: openEdit,
+          onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the switch
+             calls. `active` is stated positively; nothing here flips the boolean.
+
+             A term has no name — the label is what a screen reader says instead
+             of "Status of", and what the delete dialog titles itself with, so it
+             falls back to the entry number the listing is ordered by. */
+          onStatusChange: (r, active) =>
+            setStatus(r, active, { label: r.description ?? `Entry #${r.entry_no}` }),
+        }}
         empty="No receivable terms yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · ${r.pay_mode ?? "—"}`,
@@ -240,7 +257,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
           onEdit: openEdit,
           onDelete: remove,
         }}
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       {/* editor */}
@@ -329,27 +346,26 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 </label>
               </div>
             </Field>
-            {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-                Entry uses) — the identical swap Country, Destination and Notify
-                made, and from the SAME component, so no two masters can drift
-                apart. It is still a real `<input type="checkbox">` underneath
-                (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
-                still counts it and Tab, Enter-advance and the arrows all reach it.
+            {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block
+                option move to that table listing — we are used to give that
+                block while CREATING the data but we need to move this in ACTION
+                only, no more in the creating screen"). It is the listing's
+                Status column now: a switch on the row, wired straight to
+                `setStatus` above, with `receivable_term` registered in
+                `lib/masters/active-registry.ts`.
 
-                `label=""` RESERVES the label row rather than drawing one: a cell
-                with no label at all collapses it and lifts the switch ~16px above
-                the labelled fields beside it. The switch renders its own word, so
-                a `label="Inactive"` here would draw the name twice. */}
-            {editId && (
-              <Field label="" size={FIELD_SIZE.inactive}>
-                <Toggle
-                  id="rt-inactive"
-                  label="Inactive"
-                  checked={form.inactive}
-                  onChange={(inactive) => set({ inactive })}
-                />
-              </Field>
-            )}
+                **The row control had to land first** — it is the only route to
+                the flag once the field is gone, so deleting the field on its own
+                would have made blocking a receivable term impossible rather than
+                moved it. Same order Country, Port and Payment Term followed.
+
+                `form.inactive` is STILL in the form state and still round-trips
+                through `submit()`, so editing a blocked term does not quietly
+                switch it back on. The value is simply no longer typed here.
+
+                Row 2 of the Details grid is `with_interest` alone (3 of 12) as a
+                result, and Description keeps its own row — a textarea stands
+                alone (LAYOUT.md §3), so nothing moves up to fill the gap. */}
             <Field label="Description" size={FIELD_SIZE.description} htmlFor="rt-desc">
               <Textarea
                 id="rt-desc"

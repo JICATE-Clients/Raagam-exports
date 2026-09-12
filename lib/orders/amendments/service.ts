@@ -425,11 +425,24 @@ async function getWarehouseRows(): Promise<PickerRow[]> {
   return (data ?? []) as PickerRow[];
 }
 
+/**
+ * THIS SELECT NAMED TWO COLUMNS `ports` DID NOT HAVE, and the picker was empty
+ * rather than broken.
+ *
+ * `inactive` did not exist until 0547, and `ports` has never had a `code` — 0234
+ * called it `short_name`. PostgREST answers an unknown column with a 400, and
+ * this function reads `data ?? []`, so the Amendment screen's Port field offered
+ * nothing at all and looked exactly like a master with no rows in it ("A FAILED
+ * QUERY IS AN ERROR, NOT AN EMPTY LIST"). 0547 supplies the first column and the
+ * alias below supplies the second.
+ */
 async function getPortRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("ports")
-    .select("id, code, name, inactive")
+    // `code:short_name` — `PickerRow.code` is what the picker shows beside the
+    // name, and on a port that is its short name.
+    .select("id, code:short_name, name, inactive")
     .order("name");
   return (data ?? []) as PickerRow[];
 }

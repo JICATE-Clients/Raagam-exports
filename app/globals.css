@@ -458,6 +458,67 @@
   border-color: var(--border);
 }
 
+/*
+ * SCROLLS, WITHOUT SAYING SO — for a surface whose scrollbar is chrome rather
+ * than information (client 2026-09-12, the section rail: "it should be
+ * scrollable but scrollable bar should not show").
+ *
+ * `@utility` rather than a plain class, so Tailwind v4 wraps it in
+ * `@layer utilities` with everything else. An unlayered rule here would beat
+ * every utility regardless of specificity — the trap the focus-ring note
+ * further down records, where an unlayered floor silently overrode
+ * `outline-none` on four primitives.
+ *
+ * USE IT ONLY WHERE THE EXTENT OF THE CONTENT IS OBVIOUS ANYWAY. A scrollbar is
+ * the one thing telling an operator there is more below: the rail can lose it
+ * because its rows are visibly cut off mid-list, and because the arrow keys and
+ * Tab reach every row whether or not the mouse can see it. A data table is the
+ * opposite case and keeps its bar.
+ */
+@utility scrollbar-none {
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* legacy Edge */
+  &::-webkit-scrollbar {
+    display: none;            /* Chrome, Safari */
+  }
+}
+
+/*
+ * THE APP SHELL OWNS SCROLLING — THE DOCUMENT NEVER DOES.
+ *
+ * `app/(app)/layout.tsx` is `h-screen overflow-hidden` and scrolls inside
+ * `<main>`, so on an app route the document has no business scrolling at all.
+ * Nothing in the SOURCE makes it: `<InstallPrompt>` is fixed-or-null and
+ * `<SilentUpdater>` returns null, leaving the 100vh shell as body's only
+ * in-flow child. What is NOT in the source is what the Bug Reporter SDK mounts
+ * into `body` at runtime, beside the shell.
+ *
+ * Anything in flow there makes the document taller than the viewport, and then
+ * the whole shell scrolls as one block: the topbar and the workspace tabs slide
+ * off the top, a section rail loses its first rows, and a strip of bare `body`
+ * opens under the editor's footer — which reads as the editor failing to reach
+ * the bottom of the screen (client 2026-09-11, on New Staff: "see bottom of the
+ * new staff there is so much space ... wherever like this extra space at the
+ * bottom remove and fix it"). The editor is the wrong suspect: a page-mounted
+ * `MasterFullScreen` is `flex-1 min-h-0` inside an `h-full` wrapper and does
+ * fill its scrollport. It is the GROUND BENEATH the shell that moved.
+ *
+ * ## WHY `:has()` AND NOT A PLAIN `body` RULE
+ *
+ * Capping `body` unconditionally would reach `/login`, `/error` and every other
+ * route OUTSIDE the app shell — pages that legitimately scroll the document and
+ * would be clipped instead, with no inner scroller to fall back on. Keyed on the
+ * shell's own marker, the rule applies exactly where an inner scroller already
+ * exists, and nowhere else.
+ *
+ * `dvh` rather than `vh` so a mobile browser's retracting URL bar does not leave
+ * the same strip it was meant to close.
+ */
+body:has([data-app-shell]) {
+  height: 100dvh;
+  overflow: hidden;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -732,6 +793,16 @@ body {
   }
   .bug-reporter-sdk {
     display: none !important;
+  }
+  /*
+   * THE SHELL CAP IS LIFTED FOR PRINT. `body:has([data-app-shell])` above pins
+   * the document to one viewport, which on paper would mean exactly one page —
+   * the clipping failure `.report-print-area` above already warns about, from
+   * the other direction.
+   */
+  body:has([data-app-shell]) {
+    height: auto;
+    overflow: visible;
   }
   /*
    * Cards carry a --smoke background-image and an --elev/--sheen shadow. Most

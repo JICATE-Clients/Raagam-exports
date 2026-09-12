@@ -15,6 +15,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createPaymentTerm,
@@ -35,7 +36,6 @@ import {
 } from "@/lib/masters/payment-term-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
-import { Toggle } from "@/components/ui/toggle";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -69,11 +69,11 @@ const blankForm = () => ({
  * THE SPANS OF ONE ROW MUST SUM TO 12 — a row past 12 does not shrink, its last
  * field wraps onto a line of its own with the rest of that line left empty.
  *   Details row 1  entry_no 3 + entry_date 3 + pay_mode 3 + credit_days 3 = 12
- *   Details row 2  with_interest 3 + inactive 3 (edit only)              =  6
+ *   Details row 2  with_interest 3 (inactive left — it is a row action now)  =  3
  *   Details row 3  description 12
  *   AT      row 1  at_basis 3 + at_when 3 + at_event 6                   = 12
  *
- * Row 2 is deliberately short: the only fields left are two toggles, and
+ * Row 2 is deliberately short: the only field left on it is a radio pair, and
  * Description is a textarea, which §3 keeps at `full`. Nothing can be pulled up
  * to fill it without giving the textarea a partial row.
  *
@@ -86,7 +86,6 @@ const FIELD_SIZE = {
   pay_mode: "sm", // 3 — CHEQUE · DA · DD · DP · LC · OTH · PDC · TT
   credit_days: "sm", // 3 — 0-90; see the note above on `xs` in a half-width section
   with_interest: "sm", // 3 — a Yes/No radio pair, both captions on one line
-  inactive: "sm", // 3 — a tick box; it only needs room for its own caption
   description: "full", // 12 — a textarea stands alone (LAYOUT.md §3)
   at_basis: "sm", // 3 — SIGHT · OPEN · DAYS
   at_when: "sm", // 3 — AFTER · FROM
@@ -113,6 +112,10 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `payment_term` is registered in
+     `lib/masters/active-registry.ts`. */
+  const { setStatus, isPending: statusPending } = useBlockAction("payment_term");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editEntryNo, setEditEntryNo] = useState<number | null>(null);
@@ -210,12 +213,11 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
       cell: (r) => <span className="text-sm text-muted-foreground">{r.with_interest ? "Yes" : "No"}</span>,
     },
     { header: "Credit Days", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.credit_days}</span> },
-    {
-      header: "Status",
-      cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
-      ),
-    },
+    /* NO Status COLUMN DECLARED HERE, AND THE COLUMN IS STILL THERE.
+       `MasterListShell` splices it in because this screen passes
+       `onStatusChange` — a switch plus the word it is set to, clicking which
+       calls the status API directly (client 2026-09-11). Declaring one here
+       would be stripped as a duplicate; see that prop. */
   ];
 
   return (
@@ -232,7 +234,17 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
         addLabel="+ Add Payment Term"
         onAdd={openAdd}
         columns={columns}
-        actions={{ onEdit: openEdit, onDelete: remove }}
+        actions={{
+          onEdit: openEdit,
+          onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the switch
+             calls. `active` is stated positively; nothing here flips the boolean. */
+          onStatusChange: (r, active) =>
+            setStatus(r, active, { label: r.description ?? `Entry #${r.entry_no}` }),
+        }}
         empty="No payment terms yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · ${r.pay_mode ?? "—"}`,
@@ -245,7 +257,7 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
           onEdit: openEdit,
           onDelete: remove,
         }}
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       {/* editor */}
@@ -335,27 +347,27 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
                 </label>
               </div>
             </Field>
-            {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-                Entry uses) — the identical swap Country, Destination and Notify
-                made, and from the SAME component, so no two masters can drift
-                apart. It is still a real `<input type="checkbox">` underneath
-                (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
-                still counts it and Tab, Enter-advance and the arrows all reach it.
+            {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block
+                option move to that table listing — we are used to give that
+                block while CREATING the data but we need to move this in ACTION
+                only, no more in the creating screen"). It is the listing's
+                Status column now: a switch on the row, wired straight to
+                `setStatus` above, with `payment_term` registered in
+                `lib/masters/active-registry.ts`.
 
-                `label=""` RESERVES the label row rather than drawing one: a cell
-                with no label at all collapses it and lifts the switch ~16px above
-                the labelled fields beside it. The switch renders its own word, so
-                a `label="Inactive"` here would draw the name twice. */}
-            {editId && (
-              <Field label="" size={FIELD_SIZE.inactive}>
-                <Toggle
-                  id="pt-inactive"
-                  label="Inactive"
-                  checked={form.inactive}
-                  onChange={(inactive) => set({ inactive })}
-                />
-              </Field>
-            )}
+                **The row control had to land first** — it is the only route to
+                the flag once the field is gone, so deleting the field on its own
+                would have made blocking a payment term impossible rather than
+                moved it. Same order Country, Destination and Bank followed.
+
+                `form.inactive` is STILL in the form state and still round-trips
+                through `submit()`, so editing a blocked term does not quietly
+                switch it back on. The value is simply no longer typed here.
+
+                Row 2 of the Details grid is now `with_interest` alone (3 of 12).
+                It was 3 + 3 before; Description is a textarea and §3 keeps
+                those at `full`, so there is still nothing that can be pulled up
+                to fill the line. */}
             <Field label="Description" size={FIELD_SIZE.description} htmlFor="pt-desc">
               <Textarea
                 id="pt-desc"

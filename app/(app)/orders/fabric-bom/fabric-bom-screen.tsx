@@ -398,8 +398,9 @@ type ManualEntryRow = {
   endbit_loss_pct: string;
   /** Legacy's "Assort Color wise" checkbox (0522). */
   assort_color_wise: boolean;
-  /** Legacy's "Size Wise" toggle (0523). TRUE — the default — gives every size
-   *  its own row; FALSE asks once and writes the answer to every size. */
+  /** Legacy's "Size Wise" toggle (0523). TRUE gives every size its own row;
+   *  FALSE — THE DEFAULT since 2026-09-04 — asks once and writes the answer to
+   *  every size. See `blankManualEntry` below. */
   size_wise: boolean;
   component_ids: string[];
   sizes: ManualSizeRow[];
@@ -825,25 +826,69 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
  * belongs would have to be re-associated from UI state at the moment of saving —
  * exactly the shape that loses rows once the overlay is closed.
  */
-type YdRepeat = YdRepeatRow & {
+/** Which cloth a Yarn Dyed row is about — (style, structure, fabric), the same
+ *  three fields `fabricGroupKey` reads. Named once because four things carry it:
+ *  the two row types below, the reader beside them, and the blank-row factories. */
+type YdAddress = {
   style_ref_no: string;
   structure_id: string | null;
   item_id: string | null;
 };
 
-type YdCombination = YdCombinationRow & {
-  style_ref_no: string;
-  structure_id: string | null;
-  item_id: string | null;
-};
+type YdRepeat = YdRepeatRow & YdAddress;
+
+type YdCombination = YdCombinationRow & YdAddress;
 
 /** The group address, in the same shape `fabricGroupKey` reads — ONE statement
  *  of "which cloth is this about", shared with `detailLines`. */
-const ydAddress = (r: {
-  style_ref_no: string;
-  structure_id: string | null;
-  item_id: string | null;
-}) => fabricGroupKey(r);
+const ydAddress = (r: YdAddress) => fabricGroupKey(r);
+
+/** A fabric line's own address, for the two factories below. A `LineRow` already
+ *  has the three fields; this narrows it rather than passing the whole row, so a
+ *  factory cannot start reading a field that is not part of the address. */
+const ydAddressOf = (l: YdAddress): YdAddress => ({
+  style_ref_no: l.style_ref_no,
+  structure_id: l.structure_id,
+  item_id: l.item_id,
+});
+
+/**
+ * A BLANK Repeats ROW (0512), for one fabric group.
+ *
+ * TWO CALLERS AND ONE DEFINITION: the panel's "+ Add repeat", and the seed the
+ * [Detail] button plants before the popup opens (`openDetail`). They were one
+ * caller until 2026-09-11 and the second is what made this a factory — an
+ * inline literal copied beside the first is how a seeded row and an added row
+ * come to differ in a field nobody compares.
+ *
+ * EVERY KEY IS BLANK EXCEPT `dye_type`, AND THAT ONE IS SAFE — checked, not
+ * assumed. The `erp-table-default-row` rule is that a stamped default turns its
+ * clause in the save-side filter into the constant `true`; `ydRepeatFilled`
+ * (`lib/orders/fabric-bom/actions.ts`) tests `yarn_item_id`, `color_name`,
+ * `value` and `twisted_yarn` and never `dye_type`, so "dyed" cannot make an
+ * untouched row look answered. Adding a clause on `dye_type` there would break
+ * that, which is why this says so here as well as in the filter.
+ */
+const blankYdRepeat = (key: string, address: YdAddress): YdRepeat => ({
+  key,
+  ...address,
+  sno: 0,
+  yarn_item_id: null,
+  dye_type: "dyed" as const,
+  color_name: "",
+  uom_id: null,
+  value: null,
+  twisted_yarn: "",
+});
+
+/** As `blankYdRepeat`, for a Combinations row. `ydCombinationFilled` tests both
+ *  of its typed fields, so a blank one is dropped on save. */
+const blankYdCombination = (key: string, address: YdAddress): YdCombination => ({
+  key,
+  ...address,
+  combo: "",
+  yd_combo_name: "",
+});
 
 const EMPTY_DECLS: StyleComponentDecl[] = [];
 
@@ -1492,6 +1537,84 @@ export function FabricBomScreen({
   const [detailOrigin, setDetailOrigin] = useState<DOMRect | null>(null);
 
   /**
+   * OPEN THE [Detail] POPUP ON A LINE, ON ONE BLANK ROW PER TYPED PANEL
+   * (`erp-table-default-row`; 2026-09-11).
+   *
+   * ## WHY THE SEED IS HERE AND NOT `seedRow`'s JOB
+   *
+   * Both panels pass `seedRow` and both still do — it is what puts a fresh row
+   * back when the operator deletes the last one. What it could not do is open
+   * the popup on one, and the reason is the mount that never ends: `Sheet` keeps
+   * its children in the DOM while closed and `Tabs` mounts the ACTIVE panel, so
+   * the Repeats grid exists, empty, from the moment this screen renders — with
+   * no line selected. `seedRow` fires once per EMPTY SPELL (`seeded` in
+   * `child-grid.tsx`), that spell began at page load, and its rows never left
+   * zero while the popup was shut. By the time a line was clicked the seed had
+   * already been spent on nothing, and the panel opened with no row at all.
+   *
+   * That is the case the skill names: "`seedRow` is the primitive answer, and it
+   * is not always the right one — seed the STATE in the open handlers instead."
+   * Seeding here also RE-ARMS the grid, because its row count goes 0 → 1 as the
+   * popup opens, which is what makes the delete-the-last-row net work again.
+   *
+   * ## IT DOES NOT SET `dirty`
+   *
+   * `setYdRepeats` directly, never `mutYdRepeats`: a row nobody has typed in is
+   * not unsaved work, and flagging it would arm `useUnsavedGuard` against the
+   * silent auto-update every time an operator merely LOOKED at a fabric line.
+   * The row costs nothing at save either — `ydRepeatFilled` and
+   * `ydCombinationFilled` drop it server-side, the same division `dias` and the
+   * manual entries already record.
+   *
+   * ## ONE ROW, NOT ONE PER OPENING
+   *
+   * Guarded on the group already having rows, so reopening a line the planner
+   * has worked on adds nothing and a line they opened and left keeps its single
+   * blank rather than collecting one per visit.
+   *
+   * ## …OR ONE ROW PER DECLARED COLOUR (client 2026-09-12)
+   *
+   * When the LINE'S OWN `no_of_colors` (0513) is set, the seed is that many
+   * rows instead of one, each `color_name` pre-filled `Color 1` / `Color 2` /
+   * … — so a planner who has already told the Fabric Line how many colours
+   * this cloth carries does not then have to hand-add every row before
+   * mapping them. Still governed by the SAME guard as the one-row case: it
+   * only fires on a group with zero repeats, never re-seeds or tops up a
+   * group the planner has already started mapping (typing over `Color 2`, or
+   * deleting a row, both leave the group non-empty and this stays out of it
+   * from then on). No count declared falls back to the one blank row above —
+   * this does not guess a count nobody stated.
+   */
+  function openDetail(line: LineRow, origin: DOMRect | null) {
+    const address = ydAddressOf(line);
+    const key = ydAddress(address);
+    const colourCount = line.no_of_colors && line.no_of_colors > 0 ? line.no_of_colors : 1;
+    /* THE KEYS ARE MINTED OUT HERE, not inside the updaters. `newKey()` advances
+       a counter, and an updater React may call more than once must not be the
+       thing that advances it — the guard below also RETURNS `xs` unchanged on
+       most openings, so a key minted inside would be spent on nothing. */
+    const repeatKeys = Array.from({ length: colourCount }, () => newKey());
+    const comboKey = newKey();
+    setYdRepeats((xs) =>
+      xs.some((r) => ydAddress(r) === key)
+        ? xs
+        : [
+            ...xs,
+            ...repeatKeys.map((repeatKey, i) => ({
+              ...blankYdRepeat(repeatKey, address),
+              sno: line.no_of_colors ? i + 1 : 0,
+              color_name: line.no_of_colors ? `Color ${i + 1}` : "",
+            })),
+          ],
+    );
+    setYdCombinations((xs) =>
+      xs.some((r) => ydAddress(r) === key) ? xs : [...xs, blankYdCombination(comboKey, address)],
+    );
+    setDetailOrigin(origin);
+    setDetailKey(line.key);
+  }
+
+  /**
    * WHICH YARN, AND WHICH FABRIC, HAS ITS ROUTE UNFOLDED — legacy's `[+]`
    * (client 2026-09-03, screenshots 2652 + 2653: "list the yarn — if the yarn is
    * clicked show the S No / Stage / Process / For / Descriptions / Loss %", and
@@ -1908,9 +2031,14 @@ export function FabricBomScreen({
     // ONE BLANK DIA ROW, for `blankLine`'s reason exactly — an empty grid has no
     // field for Tab to land on.
     setDias([blankDia(newKey())]);
-    /* NO SEED ROW. A repeat cannot be addressed until a fabric group exists to
-       address it to, and the overlay opens its own blank row through `seedRow`
-       once one does. */
+    /* NO SEED ROW HERE. A repeat cannot be addressed until a fabric group exists
+       to address it to — so the blank row is planted by `openDetail`, at the one
+       moment the line IS known, and not on a document that names no fabric yet.
+
+       `seedRow` was named here as the mechanism until 2026-09-11 and could never
+       have been: the panel is mounted with no anchor from page load, so its one
+       seed per empty spell was spent before a line was ever clicked. See
+       `openDetail`. */
     setYdRepeats([]);
     setYdCombinations([]);
     /* NO BLANK ROUTE ROW, and this is the deliberate exception to the two above.
@@ -5812,11 +5940,11 @@ export function FabricBomScreen({
               /* Captures the button's own rect so the sheet scales out of
                  THIS button — `currentTarget`, not `target`: the click can
                  land on the text node inside it. See `detailOrigin`. */
-              onClick={(ev) => {
-                setDetailOrigin(ev.currentTarget.getBoundingClientRect());
-                seedYdColoursIfEmpty(r);
-                setDetailKey(r.key);
-              }}
+              /* `openDetail`, not the two setters it used to call inline — it
+                 seeds the popup's blank rows on the way in
+                 (`erp-table-default-row`), including the colour count seed —
+                 see that function's own comment. */
+              onClick={(ev) => openDetail(r, ev.currentTarget.getBoundingClientRect())}
             >
               Detail
             </Button>
@@ -6158,54 +6286,6 @@ export function FabricBomScreen({
   }, [procs]);
 
   /**
-   * SEEDS `Color 1` / `Color 2` / … THE INSTANT THE [Detail] POPUP OPENS ON A
-   * GROUP WITH NO REPEATS YET (client 2026-09-12) — never on every render, and
-   * never over rows the planner has already started mapping.
-   *
-   * Reads the line's OWN `no_of_colors` (0513), the count typed on the Fabric
-   * Lines row before Detail is ever clicked — this is the one place that count
-   * is allowed to drive the Repeats grid; `colourCountNote` elsewhere stays
-   * advisory-only, comparing the two rather than one seeding the other after
-   * the planner has begun typing.
-   *
-   * CALLED FROM THE CLICK HANDLER, not an effect keyed on `detailKey` — same
-   * reason `ChildGrid`'s `seedRow` is sometimes wrong (AGENTS.md, "Editable
-   * sub-tables open with a row"): an effect-based seed on a mutator that also
-   * flips `dirty` would mark the document unsaved the moment the popup opens,
-   * before the operator has touched anything.
-   *
-   * THE EMPTY CHECK IS INSIDE THE UPDATER, not read from `ydRepeats` before
-   * calling `mutYdRepeats` — so it reads the current state at commit time
-   * rather than whatever this render closed over, and two seedings can never
-   * race into duplicate rows.
-   */
-  const seedYdColoursIfEmpty = (line: LineRow) => {
-    const count = line.no_of_colors;
-    if (!count || count < 1) return;
-    const key = fabricGroupKey(line);
-    const address = {
-      style_ref_no: line.style_ref_no,
-      structure_id: line.structure_id,
-      item_id: line.item_id,
-    };
-    mutYdRepeats((xs) => {
-      if (xs.some((r) => ydAddress(r) === key)) return xs;
-      const seeded: YdRepeat[] = Array.from({ length: count }, (_, i) => ({
-        key: newKey(),
-        ...address,
-        sno: i + 1,
-        yarn_item_id: null,
-        dye_type: "dyed" as const,
-        color_name: `Color ${i + 1}`,
-        uom_id: null,
-        value: null,
-        twisted_yarn: "",
-      }));
-      return [...xs, ...seeded];
-    });
-  };
-
-  /**
    * EVERYTHING ONE FABRIC GROUP'S YARN DYED TABS NEED (0512), from an ANCHOR
    * LINE — the rows, the option lists, the composition and the handlers.
    *
@@ -6235,27 +6315,34 @@ export function FabricBomScreen({
       repeats: key ? ydRepeats.filter((r) => ydAddress(r) === key) : [],
       combinations: key ? ydCombinations.filter((r) => ydAddress(r) === key) : [],
       /* THE ADDRESS IS STAMPED ON ADD, off the anchor — the one moment it is
-         known without ambiguity. */
-      addRepeat: () =>
-        mutYdRepeats((xs) => [
-          ...xs,
-          {
-            key: newKey(),
-            ...address,
-            sno: 0,
-            yarn_item_id: null,
-            dye_type: "dyed" as const,
-            color_name: "",
-            uom_id: null,
-            value: null,
-            twisted_yarn: "",
-          },
-        ]),
-      addCombination: () =>
-        mutYdCombinations((xs) => [
-          ...xs,
-          { key: newKey(), ...address, combo: "", yd_combo_name: "" },
-        ]),
+         known without ambiguity.
+
+         ## WITH NO ANCHOR THEY DECLINE, AND THAT IS NOT DEFENSIVE CODING
+         (2026-09-11)
+
+         `ChildGrid`'s `onAdd` is documented `() => boolean | void`, "return
+         `false` to decline", and this is a real caller of that contract rather
+         than a guard against an impossible state: the Repeats panel is MOUNTED
+         WITH NO ANCHOR for as long as this screen is on screen. `Sheet` keeps
+         its children in the DOM while closed — the closed state is `opacity-0`
+         + `inert`, so the opening transition has something to animate — and
+         `Tabs` mounts the ACTIVE panel, which is Repeats. So from the moment the
+         list page renders, a `ChildGrid` with `seedRow` and zero rows exists and
+         asks for one.
+
+         Answering that ask wrote a repeat addressed to ("", null, null), which
+         no line's filter ever matches, so it was invisible; and `mutYdRepeats`
+         pairs `setDirty(true)`, so the screen armed `useUnsavedGuard` over work
+         nobody had done, on a LIST page with nothing to lose. Declining writes
+         nothing and flags nothing. */
+      addRepeat: () => {
+        if (!anchor) return false;
+        mutYdRepeats((xs) => [...xs, blankYdRepeat(newKey(), address)]);
+      },
+      addCombination: () => {
+        if (!anchor) return false;
+        mutYdCombinations((xs) => [...xs, blankYdCombination(newKey(), address)]);
+      },
       /* THE CLOTH'S OWN COMPOSITION, or null where the master states none —
          `mixingDetailRows` then refuses every Mixing % by name rather than
          assuming the yarn is the whole cloth. */
