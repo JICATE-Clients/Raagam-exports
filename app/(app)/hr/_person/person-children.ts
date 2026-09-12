@@ -39,6 +39,9 @@ export async function getPersonChildren(kind: PersonKind, id: string): Promise<{
   externalRefs: StaffExternalReference[];
   emergencyContacts: StaffEmergencyContact[];
   shifts: HrShiftAssignment[];
+  education: Record<string, unknown>[];
+  technical: Record<string, unknown>[];
+  languages: Record<string, unknown>[];
 }> {
   if (!(await can("hr_payroll", "view"))) {
     return {
@@ -50,6 +53,9 @@ export async function getPersonChildren(kind: PersonKind, id: string): Promise<{
       externalRefs: [],
       emergencyContacts: [],
       shifts: [],
+      education: [],
+      technical: [],
+      languages: [],
     };
   }
   return read(kind, id);

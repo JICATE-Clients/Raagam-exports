@@ -8,7 +8,6 @@ import { listBanks } from "@/lib/masters/bank-service";
 import { listDesignations } from "@/lib/masters/designation-service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
 import { isInactive } from "@/lib/masters/inactive";
-import { PageHeader } from "@/components/ui/page-header";
 import PersonClient from "../_person/person-client";
 
 export default async function StaffPage() {
@@ -64,30 +63,35 @@ export default async function StaffPage() {
       inactive: isInactive(r as never),
     }));
 
+  /**
+   * NO WRAPPER AND NO `PageHeader` HERE. `PersonClient` page-mounts its editor
+   * (`mount="page"`), which needs `h-full` to resolve against
+   * `<main className="flex-1 overflow-y-auto">` in app/(app)/layout.tsx — a
+   * `space-y-4` div between the two breaks that chain and strands the footer.
+   * The list branch draws the header itself; the edit branch replaces it with
+   * an identity band. Same shape as `/orders/garment-orders`.
+   */
   return (
-    <div className="space-y-4">
-      <PageHeader title="Staff" description="Manage salaried staff members." />
-      <PersonClient
-        kind="staff"
-        rows={staff}
-        locations={locations}
-        departments={opt(departments, (d) => d.name ?? d.short_name)}
-        divisions={opt(divisions, (d) => d.division_name)}
-        categories={opt(categories, (c) => c.name)}
-        hostelCategories={opt(hostelCategories, (h) => h.name)}
-        banks={opt(banks, (b) => b.name)}
-        designations={opt(designations, (d) => d.name)}
-        shiftCategories={opt(
-          // `config_lookups` is one table of many kinds; the shift rows are the
-          // ones `work_timing_lines` also points at, so an assignment names the
-          // same shift a Work Timing does.
-          lookups.filter((l) => l.kind === "shift_category"),
-          (l) => l.name,
-        )}
-        canCreate={canCreate}
-        canExport={canExport}
-        canDelete={canDelete}
-      />
-    </div>
+    <PersonClient
+      kind="staff"
+      rows={staff}
+      locations={locations}
+      departments={opt(departments, (d) => d.name ?? d.short_name)}
+      divisions={opt(divisions, (d) => d.division_name)}
+      categories={opt(categories, (c) => c.name)}
+      hostelCategories={opt(hostelCategories, (h) => h.name)}
+      banks={opt(banks, (b) => b.name)}
+      designations={opt(designations, (d) => d.name)}
+      shiftCategories={opt(
+        // `config_lookups` is one table of many kinds; the shift rows are the
+        // ones `work_timing_lines` also points at, so an assignment names the
+        // same shift a Work Timing does.
+        lookups.filter((l) => l.kind === "shift_category"),
+        (l) => l.name,
+      )}
+      canCreate={canCreate}
+      canExport={canExport}
+      canDelete={canDelete}
+    />
   );
 }

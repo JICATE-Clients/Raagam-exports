@@ -511,6 +511,25 @@ const money = z.coerce.number().nonnegative().default(0);
  * `.optional().nullable()` and trusted.
  */
 const optText = z.string().optional().nullable().transform((v) => v || null);
+/**
+ * A WHOLE NUMBER THAT MAY GENUINELY BE ABSENT — a count, not a quantity.
+ *
+ * `money` defaults to 0, which is right for an amount and wrong for "how many
+ * children": nought and unanswered are different facts, and the column is
+ * nullable so the difference survives. An empty box stays null rather than
+ * arriving as a confident zero.
+ */
+const optCount = z
+  .union([z.coerce.number().int().nonnegative(), z.literal("")])
+  .optional()
+  .nullable()
+  .transform((v) => (v === "" || v === undefined ? null : v));
+/** Same, for a measurement that carries decimals (height, weight). */
+const optDecimal = z
+  .union([z.coerce.number().nonnegative(), z.literal("")])
+  .optional()
+  .nullable()
+  .transform((v) => (v === "" || v === undefined ? null : v));
 const optDate = z.string().optional().nullable().transform((v) => v || null);
 const optUuid = z
   .union([z.string().uuid(), z.literal("")])
@@ -713,6 +732,63 @@ export const personInput = z.object({
   pf_no: optText,
   pf_date_of_joining: optDate,
   pf_date_of_leaving: optDate,
+
+  /* ---- Enclosure (0556) — the documents a joiner hands in ---------------- */
+  passbook_no: optText,
+  ration_card_no: optText,
+  insurance_policy_no: optText,
+  passport_no: optText,
+  passport_valid_upto: optDate,
+  election_card_no: optText,
+  uan_no: optText,
+  interview_date: optDate,
+
+  /* ---- "Details" (0556) — how they reached us, and their household ------- */
+  through_advertisement: z.boolean().default(false),
+  through_voluntarily: z.boolean().default(false),
+  through_knowledge: z.boolean().default(false),
+  bus_no: optText,
+  physique_illness: optText,
+  occupation: optText,
+  // A COUNT, SO IT IS BLANK RATHER THAN ZERO WHEN UNANSWERED. `money`'s
+  // `.default(0)` is wrong here: "no children" and "not asked" are different
+  // answers, and the column is nullable so the distinction survives.
+  no_of_children: optCount,
+  dependants: optCount,
+  earning_members: optCount,
+  properties_owned: optText,
+  professional_membership: optText,
+  extra_curricular: optText,
+  achievement_details: optText,
+  disciplinary_actions: optText,
+
+  /* ---- "Other Details" (0556) — physical particulars, IDs, grade --------- */
+  mother_tongue: optText,
+  height_cm: optDecimal,
+  weight_kg: optDecimal,
+  eye_sight: optText,
+  house_type: optText,
+  id_submitted_dl: z.boolean().default(false),
+  id_submitted_vote_id: z.boolean().default(false),
+  id_submitted_ration: z.boolean().default(false),
+  id_submitted_passport: z.boolean().default(false),
+  id_submitted_tc: z.boolean().default(false),
+  id_submitted_mark_sheet: z.boolean().default(false),
+  id_submitted_aadhaar: z.boolean().default(false),
+  id_submitted_pan: z.boolean().default(false),
+  id_submitted_others: z.boolean().default(false),
+  id_submitted_specify: optText,
+  prior_experience: optText,
+  handicap_details: optText,
+  has_passport: z.boolean().default(false),
+  two_wheeler_licence: z.boolean().default(false),
+  four_wheeler_licence: z.boolean().default(false),
+  major_operation: z.boolean().default(false),
+  operation_details: optText,
+  only_earning_member: z.boolean().default(false),
+  willing_donate_blood: z.boolean().default(false),
+  grade: optText,
+  employee_classification: optText,
 });
 
 /** A child row as the form holds it — `key` is React's, never persisted. */
@@ -776,6 +852,42 @@ export const staffNominationInput = z.object({
   nomination_for: optText,
 });
 export type StaffNominationInput = z.infer<typeof staffNominationInput>;
+
+/* ---- the three grids behind General's popups (0556) --------------------- */
+
+/** Education Details — schooling, one row per qualification. */
+export const staffEducationInput = z.object({
+  type_of_training: optText,
+  institution: optText,
+  month_year_passed: optText,
+  class_marks: optText,
+  special_subjects: optText,
+});
+export type StaffEducationInput = z.infer<typeof staffEducationInput>;
+
+/** Technical Details — trade training, beside Education on the same popup. */
+export const staffTechnicalInput = z.object({
+  qualification: optText,
+  institution: optText,
+  major_subject: optText,
+  class_pct: optText,
+  duration: optText,
+});
+export type StaffTechnicalInput = z.infer<typeof staffTechnicalInput>;
+
+/**
+ * Language Details. Legacy's grid is Speak / Read / Write with no column naming
+ * the LANGUAGE — the row is typed into the "Speak" cell. A row that cannot say
+ * which tongue it is about is not a record, so `language` is a column of its
+ * own and the three abilities become what they are: ticks.
+ */
+export const staffLanguageInput = z.object({
+  language: optText,
+  can_speak: z.boolean().default(false),
+  can_read: z.boolean().default(false),
+  can_write: z.boolean().default(false),
+});
+export type StaffLanguageInput = z.infer<typeof staffLanguageInput>;
 export type PersonInput = z.infer<typeof personInput>;
 
 /** Staff add nothing of their own — `monthly_salary` is derived (0551). */

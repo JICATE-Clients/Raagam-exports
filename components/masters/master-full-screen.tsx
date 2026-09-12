@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -55,6 +56,49 @@ export type FullScreenSection = {
   icon: LucideIcon;
   /** Completion dot on the rail ("has data"). */
   done?: boolean;
+  /**
+   * THIS ROW BELONGS UNDER THE ONE ABOVE IT — indented on the rail.
+   *
+   * A record whose first section grows past a screenful has to break somewhere,
+   * and the operator asked for the break to be VISIBLE in the rail rather than
+   * a run of headings inside one long pane (client 2026-09-11, HR Staff: "in
+   * detail the 3 lines can be there, under the details other all heading can
+   * show in left side bar under the detail ... so if i click from the left side
+   * only those regarding fields can show").
+   *
+   * INDENTATION ONLY — it is NOT a collapsible tree, and deliberately so. Every
+   * row stays in `sections`, so the arrow walk, `goToSection`, the Tab hand-off
+   * between panes and `sectionValidity` all keep seeing one flat list; a parent
+   * that could hide its children would be able to hide a blank mandatory field
+   * from the operator while still blocking Save, which is the failure
+   * `sectionValidity` exists to prevent.
+   *
+   * The parent is simply whichever row precedes it, so ordering IS the nesting.
+   */
+  sub?: boolean;
+  /**
+   * A CATEGORY ROW THAT OWNS NO PANE — clicking it opens its FIRST CHILD.
+   *
+   * Some parents have content of their own and some do not, and the difference
+   * is real rather than a style choice. HR Staff's `Detail` keeps the identity
+   * block, so its pane is worth opening; `General` is nothing BUT its four
+   * groups (Permanent Address, Correspondence Address, Personal, Identifiers),
+   * so a `General` pane would be a blank screen with a footer.
+   *
+   * One rule covers both: a parent shows whatever is not in a child, and where
+   * that is nothing, the row becomes pure navigation. `content` should be
+   * `null` on such a row — it is never rendered.
+   *
+   * ENFORCED BY `resolveSection` at every place the section changes — the
+   * initial section, `goToSection` (rail click, a blocked Save's jump) and the
+   * rail's arrow walk — and the Tab / Enter hand-off skips the row outright.
+   * This used to claim `goToSection` was the only door; it was not, and the
+   * category rows opened blank until all four were covered.
+   *
+   * Requires at least one `sub` row beneath it. A `groupOnly` row with no
+   * children would be a dead end, so it falls back to behaving normally.
+   */
+  groupOnly?: boolean;
   /**
    * NOTHING TO TYPE IN HERE RIGHT NOW — the Tab / Enter hand-off passes OVER
    * this section instead of landing in it (client 2026-08-19).
@@ -233,6 +277,26 @@ export type MasterFullScreenHandle = {
   goToSection: (key: string, land?: Landing) => void;
 };
 
+/**
+ * WHERE A SECTION KEY ACTUALLY LANDS — a `groupOnly` category resolves to its
+ * first child, everything else to itself.
+ *
+ * ONE FUNCTION, CALLED FROM EVERY PLACE THE SHELL CHANGES SECTION: the initial
+ * section, `goToSection`, and the rail's arrow walk. The first cut put this
+ * logic inline in `goToSection` alone on the belief that every route passed
+ * through it; three did not, so clicking a category landed on its empty pane
+ * (client 2026-09-11: "whenever i click fields which has children it shows
+ * this blank"). A rule that has to be remembered at each call site is a rule
+ * that will be forgotten at one of them — the fourth route, the Tab / Enter
+ * hand-off, SKIPS category rows instead of resolving them (see `advance`),
+ * because resolving backwards from a first child would land on itself.
+ */
+function resolveSection(list: FullScreenSection[], key: string): string {
+  const at = list.findIndex((x) => x.key === key);
+  if (at >= 0 && list[at].groupOnly && list[at + 1]?.sub) return list[at + 1].key;
+  return key;
+}
+
 /** The rail's section buttons, in order. */
 /**
  * `:not([disabled])` — A SWITCHED-OFF SECTION IS NOT A STOP ON THE RAIL EITHER
@@ -256,6 +320,7 @@ export function MasterFullScreen({
   ref,
   mount = "overlay",
   dirty = false,
+  paneHeading = false,
   open,
   onClose,
   modeLabel,
@@ -393,6 +458,30 @@ export function MasterFullScreen({
    */
   onExpandRail?: () => void;
   initialSection?: string;
+  /**
+   * NAME THE ACTIVE SECTION AT THE TOP OF ITS PANE, visibly, from its own rail
+   * label. OFF by default.
+   *
+   * This runs against the shell's standing rule and does so on purpose. On
+   * 2026-09-03 the client asked, on Fabric BOM, for the in-pane title to go —
+   * "it's showing the tab same look duplicated" — which is why `SectionBody`
+   * renders its title `sr-only` while the rail is up (see `SectionNamedByRail`
+   * below). On 2026-09-11 the same client asked for the opposite on HR Staff:
+   * "the left side heading also should present in the inside".
+   *
+   * Both are right for their screen, which is why this is a prop and not a
+   * change to the default. HR's rail is deep (24 rows, four nested groups) and
+   * at 228px it truncates — "Pay — Act…", "Salary Reg…" — so the pane is the
+   * only place the full name of where you are can appear. Fabric BOM's rail has
+   * short, whole labels, and there the heading really is a duplicate. Flipping
+   * the default would have undone the 09-03 decision on 40 screens to answer a
+   * complaint about one.
+   *
+   * Drawn from `label`, never a second string, so the heading and the rail row
+   * cannot disagree. Do not combine with a `SectionBody` title on the same
+   * screen — the pane would carry two names.
+   */
+  paneHeading?: boolean;
   footer: {
     /** Left status text; e.g. "Unsaved changes". */
     status?: ReactNode;
@@ -486,7 +575,7 @@ export function MasterFullScreen({
     onStepBlocked?: (reason: string) => void;
   };
 }) {
-  const firstKey = initialSection ?? sections[0]?.key ?? "";
+  const firstKey = resolveSection(sections, initialSection ?? sections[0]?.key ?? "");
   const [section, setSection] = useState(firstKey);
 
   /* THROUGH A REF, so the effect below is keyed on the SECTION and not on the
@@ -535,6 +624,68 @@ export function MasterFullScreen({
   //
   // OVERLAY ONLY — see the `dirty` prop. A modal guard on a route never lifts,
   // so the page would never receive a deploy.
+  /**
+   * COLLAPSING THE `sub` ROWS UNDER THEIR PARENT.
+   *
+   * A run of `sub` rows belongs to the last non-`sub` row above it, so ORDER is
+   * the nesting and no caller declares a parent twice.
+   *
+   * Shown when the operator has opened the group, OR when the section they are
+   * actually in is one of its children — the second half is what makes this safe
+   * to collapse at all. Tab off the parent's last field, `goToSection` from a
+   * blocked Save, the arrow walk: each of those can land on a child, and each
+   * reveals the row it landed on rather than moving the cursor somewhere the
+   * rail does not admit exists. Derived per render rather than synced in an
+   * effect, so the two can never disagree.
+   *
+   * It hides ROWS, never sections: `sections` stays flat, so `sectionValidity`,
+   * the Tab hand-off and `goToSection` are untouched by any of this. A collapsed
+   * group can no more hide a blocking field than a scrolled-past row could.
+   */
+  const parentOfRow = useMemo(() => {
+    const map = new Map<string, string>();
+    let lastTop: string | null = null;
+    for (const s of sections) {
+      if (s.sub) {
+        if (lastTop) map.set(s.key, lastTop);
+      } else lastTop = s.key;
+    }
+    return map;
+  }, [sections]);
+  const hasChildren = useMemo(
+    () => new Set(parentOfRow.values()),
+    [parentOfRow],
+  );
+  /**
+   * The parent row the operator has asked to open. It only counts WHILE THEY
+   * ARE STANDING ON THAT ROW — see `groupOpen`.
+   */
+  const [openParent, setOpenParent] = useState<string | null>(null);
+  const activeParent = parentOfRow.get(section) ?? null;
+  /**
+   * A GROUP IS OPEN IF YOU ARE INSIDE IT, or if you are on its parent row and
+   * asked for it. Those two clauses are what make every case behave:
+   *
+   *   new record            section = the parent, nobody asked  -> CLOSED
+   *   click the parent      section = the parent, asked         -> open
+   *   click it again        the ask is withdrawn                -> CLOSED
+   *   click a child         you are inside                      -> open
+   *   Tab / blocked Save    you are inside                      -> open
+   *   move to another top   neither clause holds                -> CLOSED
+   *
+   * Tying the manual half to `section === key` is what stops a `groupOnly`
+   * parent latching open forever: clicking one moves you INTO its first child,
+   * so the first clause takes over and the second stops applying. It also means
+   * a group can never close while the operator is standing in it — hiding the
+   * row they are on would lose them their place, which is the same reason a
+   * disabled section stays listed.
+   */
+  const groupOpen = (key: string) =>
+    activeParent === key || (openParent === key && section === key);
+  const railRows = sections.filter(
+    (s) => !s.sub || groupOpen(parentOfRow.get(s.key) ?? ""),
+  );
+
   useModalGuard(open && mount === "overlay");
 
   // The page mount's counterpart: gate on real unsaved work, and include
@@ -636,6 +787,8 @@ export function MasterFullScreen({
   const goToSection = useCallback(
     (key: string, landing: Landing = "first") => {
       landingRef.current = landing;
+      // A category row owns no pane — see `resolveSection`.
+      key = resolveSection(navRef.current.sections, key);
       // Already on that section: no state change means no effect, so nothing
       // would move. `setTimeout(0)` rather than a direct call because the
       // caller is usually reacting to values that changed in this same commit
@@ -726,7 +879,15 @@ export function MasterFullScreen({
     // `disabled` IMPLIES `skipTab` — one flag cannot be set without the other
     // taking effect, so a caller marking a section unreachable never has to
     // remember to take it off the typing path as well.
-    while (next >= 0 && next < list.length && (list[next].skipTab || list[next].disabled))
+    // A `groupOnly` category has no fields to land in, so the typing path
+    // passes over it exactly as it passes over a `skipTab` section: Tab off
+    // Detail ▸ Status goes straight into Pay — Statutory, and Shift+Tab off Pay
+    // — Statutory goes back to Status rather than into an empty pane.
+    while (
+      next >= 0 &&
+      next < list.length &&
+      (list[next].skipTab || list[next].disabled || list[next].groupOnly)
+    )
       next += dir;
     // Off the end of the last section: decline. Tab wraps to the section's first
     // field as it would on any other surface, and Enter saves.
@@ -907,7 +1068,10 @@ export function MasterFullScreen({
      * still activate natively (the rail row is a button), so nothing is lost for
      * an operator who expects to confirm.
      */
-    const key = items[next].dataset.sectionKey;
+    const raw = items[next].dataset.sectionKey;
+    // Arrowing ONTO a category row opens its first child — the same answer a
+    // click gives, so the rail's two input methods cannot disagree.
+    const key = raw ? resolveSection(navRef.current.sections, raw) : raw;
     if (key && key !== navRef.current.section) {
       landingRef.current = "rail";
       setSection(key);
@@ -1140,7 +1304,21 @@ export function MasterFullScreen({
           // at all now — Tab off a section's last field opens the next section.
           data-focus-region="header"
           className={cn(
-            "flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:flex-col md:overflow-visible md:border-b-0 md:border-r md:p-3",
+            /* `md:overflow-y-auto` + `md:min-h-0` — THE RAIL SCROLLS ON ITS OWN.
+
+               It was `md:overflow-visible`, which is fine while a rail is
+               shorter than the pane beside it and silently loses rows once it
+               is not: the card clips at `overflow-hidden`, so on HR Staff
+               (24 rows, four nested groups) everything below Work Experience
+               was unreachable by mouse — "the left side is not scrolling up or
+               down" (client 2026-09-12).
+
+               `min-h-0` is the half that does the work. This is a grid item,
+               and a grid item's default `min-height: auto` refuses to shrink
+               below its content, so `overflow-y-auto` alone would have changed
+               nothing — the same trap the page-mount card's own comment
+               records one level up. */
+            "scrollbar-none flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:min-h-0 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r md:p-3",
             /* `md:hidden`, NOT `hidden`: the horizontal chip strip below the
                breakpoint is the only section nav a phone has, and collapsing is
                a desktop answer to a desktop problem. */
@@ -1150,9 +1328,10 @@ export function MasterFullScreen({
           <span className="hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
             Sections
           </span>
-          {sections.map((s) => {
+          {railRows.map((s) => {
             const isActive = section === s.key;
             const Icon = s.icon;
+            const parent = hasChildren.has(s.key);
             return (
               <button
                 key={s.key}
@@ -1187,7 +1366,19 @@ export function MasterFullScreen({
                  * on the field that owes an answer — the same move a blocked
                  * Save makes.
                  */
+                aria-expanded={parent ? groupOpen(s.key) : undefined}
                 onClick={() => {
+                  /* A PARENT ROW BOTH NAVIGATES AND TOGGLES. The operator asked
+                     for the children to appear on clicking the parent and NOT
+                     when the editor merely opens on it (client 2026-09-11: "when
+                     i click details only other child tabs shows, whenever i click
+                     add staff itself it should not show right"). A new record
+                     opens with the parent ACTIVE but never clicked, so the
+                     derived `groupOpen` is false and the group starts closed —
+                     which is the whole distinction being asked for. */
+                  if (parent) {
+                    setOpenParent((p) => (p === s.key ? null : s.key));
+                  }
                   const list = sections;
                   const from = list.findIndex((x) => x.key === section);
                   const to = list.findIndex((x) => x.key === s.key);
@@ -1200,7 +1391,7 @@ export function MasterFullScreen({
                       return;
                     }
                   }
-                  setSection(s.key);
+                  goToSection(s.key);
                 }}
                 aria-current={isActive}
                 aria-selected={isActive}
@@ -1219,6 +1410,20 @@ export function MasterFullScreen({
                   s.disabled && "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
                 )}
               >
+                {/* The indent that says "this sits under the row above". A
+                    spacer rather than padding on the button, so the focus ring
+                    and the hover fill still span the full rail width — an
+                    indented HIT AREA reads as a different kind of control. */}
+                {s.sub && <span aria-hidden className="w-3 shrink-0" />}
+                {/* NO CHEVRON. One was here as the affordance saying a row
+                    opens others; the client read the mixed rows as untidy
+                    beside the plain ones — "for child fields there is dropdown
+                    arrow mark, remove it ... i want neat look" (2026-09-12).
+
+                    What still says a group exists is the INDENT of its children
+                    once open, and `aria-expanded` keeps the fact available to a
+                    screen reader. The trade is real and was taken knowingly: a
+                    closed group is now discoverable only by clicking its row. */}
                 <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
                 {/* truncate-reveal: exempt -- rail chrome, not a value. The
                     vocabulary is fixed and short, and clicking the step shows
@@ -1349,6 +1554,15 @@ export function MasterFullScreen({
                 ITSELF — see `SectionNamedByRail`. It is false exactly when the
                 rail has folded away, which is the one state where the heading
                 is the only thing left saying where the operator is. */}
+            {/* The opt-in pane heading — see `paneHeading`. Same type as the
+                in-pane group headings it replaced (13px, bold, capitals), so a
+                pane that still carries an inner group reads as one hierarchy
+                rather than two competing title styles. */}
+            {paneHeading && active && (
+              <h2 className="mb-4 text-[13px] font-bold uppercase tracking-wide text-foreground">
+                {active.label}
+              </h2>
+            )}
             <SectionNamedByRail.Provider value={!railCollapsed}>
               {active?.content}
             </SectionNamedByRail.Provider>

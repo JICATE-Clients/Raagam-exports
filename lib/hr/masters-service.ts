@@ -1,3 +1,4 @@
+import { withCreators } from "@/lib/created-by";
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { PARENT_COLUMN, type PersonKind } from "./types";
@@ -60,17 +61,27 @@ export async function listWorkers(): Promise<WorkerRow[]> {
     )
     .order("name");
   if (error) throw new Error(error.message);
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
-    const con = r.contractors as { name: string } | null;
-    const loc = r.locations as { name: string } | null;
-    const desig = r.designations as { name: string } | null;
-    return {
-      ...(r as unknown as Worker),
-      contractor_name: con?.name ?? null,
-      location_name: loc?.name ?? null,
-      designation_name: desig?.name ?? null,
-    };
-  });
+  /**
+   * `withCreators` RESOLVES THE NAME; THE COLUMN ALONE SHOWS A DASH.
+   * AGENTS.md ▸ "Created Date / Created User": the screen already splices the
+   * two columns in (`withCreatedColumns`), and `creatorName()` refuses to print
+   * anything uuid-shaped — so without this call the column is present, wired,
+   * and empty in every row. Not an error, not a missing column, just blank.
+   * `select("*")` already brings `created_by`, so this is the only half missing.
+   */
+  return withCreators(
+    ((data ?? []) as Record<string, unknown>[]).map((r) => {
+      const con = r.contractors as { name: string } | null;
+      const loc = r.locations as { name: string } | null;
+      const desig = r.designations as { name: string } | null;
+      return {
+        ...(r as unknown as Worker),
+        contractor_name: con?.name ?? null,
+        location_name: loc?.name ?? null,
+        designation_name: desig?.name ?? null,
+      };
+    }),
+  );
 }
 
 export async function getWorker(id: string): Promise<Worker | null> {
@@ -126,6 +137,9 @@ export async function getPersonChildren(
   externalRefs: StaffExternalReference[];
   emergencyContacts: StaffEmergencyContact[];
   shifts: HrShiftAssignment[];
+  education: Record<string, unknown>[];
+  technical: Record<string, unknown>[];
+  languages: Record<string, unknown>[];
 }> {
   const supabase = await createClient();
   // ONE COLUMN NAME, DECIDED ONCE. The seven `hr_*` tables take either a
@@ -134,8 +148,19 @@ export async function getPersonChildren(
   const parent = PARENT_COLUMN[kind];
   const pick = (table: string) =>
     supabase.from(table).select("*").eq(parent, id).order("sno");
-  const [family, experience, internalRefs, nominations, bankAccounts, externalRefs, emergencyContacts, shifts] =
-    await Promise.all([
+  const [
+    family,
+    experience,
+    internalRefs,
+    nominations,
+    bankAccounts,
+    externalRefs,
+    emergencyContacts,
+    shifts,
+    education,
+    technical,
+    languages,
+  ] = await Promise.all([
       pick("hr_family_members"),
       pick("hr_work_experience"),
       pick("hr_internal_references"),
@@ -144,6 +169,9 @@ export async function getPersonChildren(
       pick("hr_external_references"),
       pick("hr_emergency_contacts"),
       pick("hr_shift_assignments"),
+      pick("hr_education"),
+      pick("hr_technical_details"),
+      pick("hr_languages"),
     ]);
   const firstError =
     family.error ??
@@ -153,7 +181,10 @@ export async function getPersonChildren(
     bankAccounts.error ??
     externalRefs.error ??
     emergencyContacts.error ??
-    shifts.error;
+    shifts.error ??
+    education.error ??
+    technical.error ??
+    languages.error;
   if (firstError) throw new Error(firstError.message);
   return {
     family: (family.data ?? []) as StaffFamilyMember[],
@@ -164,6 +195,9 @@ export async function getPersonChildren(
     externalRefs: (externalRefs.data ?? []) as StaffExternalReference[],
     emergencyContacts: (emergencyContacts.data ?? []) as StaffEmergencyContact[],
     shifts: (shifts.data ?? []) as HrShiftAssignment[],
+    education: education.data ?? [],
+    technical: technical.data ?? [],
+    languages: languages.data ?? [],
   };
 }
 
@@ -184,15 +218,25 @@ export async function listStaff(): Promise<StaffRow[]> {
     .select("*, locations(name), designations(name)")
     .order("name");
   if (error) throw new Error(error.message);
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
-    const loc = r.locations as { name: string } | null;
-    const desig = r.designations as { name: string } | null;
-    return {
-      ...(r as unknown as Staff),
-      location_name: loc?.name ?? null,
-      designation_name: desig?.name ?? null,
-    };
-  });
+  /**
+   * `withCreators` RESOLVES THE NAME; THE COLUMN ALONE SHOWS A DASH.
+   * AGENTS.md ▸ "Created Date / Created User": the screen already splices the
+   * two columns in (`withCreatedColumns`), and `creatorName()` refuses to print
+   * anything uuid-shaped — so without this call the column is present, wired,
+   * and empty in every row. Not an error, not a missing column, just blank.
+   * `select("*")` already brings `created_by`, so this is the only half missing.
+   */
+  return withCreators(
+    ((data ?? []) as Record<string, unknown>[]).map((r) => {
+      const loc = r.locations as { name: string } | null;
+      const desig = r.designations as { name: string } | null;
+      return {
+        ...(r as unknown as Staff),
+        location_name: loc?.name ?? null,
+        designation_name: desig?.name ?? null,
+      };
+    }),
+  );
 }
 
 // ---------- settings ----------

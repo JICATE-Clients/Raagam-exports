@@ -45,18 +45,26 @@ export default async function AppLayout({
       <SearchProvider>
         <ShortcutsProvider>
           <KeyboardNavProvider>
-          <div className="flex h-screen overflow-hidden">
+          <div data-app-shell className="flex h-screen overflow-hidden">
             <Sidebar stores={stores} />
             <div className="flex min-w-0 flex-1 flex-col">
               <Topbar previewableRoles={previewableRoles} />
               <RolePreviewBanner />
               <WorkspaceTabsBar />
               {/* `pb-20` below md is clearance for MobileNav's floating bar;
-                  `md:pb-6` is ordinary page padding. A page-mounted
-                  MasterFullScreen CANCELS the md value with `-mb-6` so its
-                  sticky footer reaches the viewport edge instead of floating
-                  above a strip of page — change `md:pb-6` here and change that
-                  offset with it (components/masters/master-full-screen.tsx). */}
+                  `md:pb-6` is ordinary page padding, and a page-mounted
+                  MasterFullScreen's footer deliberately sits ON that 24px
+                  rather than cancelling it.
+
+                  THE `-mb-6` THIS COMMENT USED TO NAME IS GONE. The card bled
+                  over the padding until 2026-08-27, when the client asked for
+                  the footer to stop reading as a bar welded to the window
+                  ("can we make it curved, plain, without the bar"); the bleed
+                  was withdrawn and the card is a card again, with the same 24px
+                  under it every other page has. `master-full-screen.tsx` keeps
+                  the full history — both complaints, and why the later one
+                  wins. A comment naming an offset that no longer exists sends
+                  the next reader looking for a bug in the wrong file. */}
               <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-6">
                 {children}
               </main>
