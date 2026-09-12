@@ -162,6 +162,36 @@ function normalizeManualEntries(data: FabricBomInput) {
       wastage_pct: e.wastage_pct ?? 0,
       endbit_loss_pct: e.endbit_loss_pct ?? 0,
       assort_color_wise: e.assort_color_wise ?? false,
+      /* "SIZE WISE", WHICH THIS NORMALISER DROPPED ON THE FLOOR (2026-09-11).
+         The planner's answer reached the action and was validated, and then
+         every insert went to Postgres with the column ABSENT — so the stored
+         value was the table default on every single save, and the toggle was
+         never wired to anything.
+
+         IT LOOKED FIXED FROM BOTH ENDS, which is why it survived a week. The
+         screen seeds `size_wise: false` and reads it back with a `?? false`
+         fallback; the schema defaults it to false; 0555 flips the column
+         default to false. Four statements of one default, all agreeing, and no
+         write between them. Before 0555 every entry read back TRUE having never
+         been switched on — the grid fanned into a row per size with no
+         keystroke anywhere asking for it (client 2026-09-04: "its auto enabled
+         so disable it"). 0555 alone would have made it store FALSE just as
+         unconditionally, which is the same defect wearing the answer the client
+         asked for: a control that looks live and changes nothing, exactly what
+         `mba-master-screen.tsx` records for its own `size_wise`.
+
+         0555'S HEADER IS WRONG ON ONE POINT and is left as written, because a
+         migration records what was believed when it ran. It says the insert
+         "spreads the PARSED entry", so the schema default was what reached
+         Postgres. The insert spreads the NORMALIZED entry — this object — and
+         the schema's value never survived the map. The column default is still
+         worth having as the floor under a `lib/data-io` import, which is 0555's
+         other stated reason and is unaffected.
+
+         `?? false` matches `assort_color_wise` above and every other statement
+         of this default; the schema has already resolved it, so the coalesce is
+         the belt on the braces rather than a second opinion. */
+      size_wise: e.size_wise ?? false,
       sno: 0,
       /* DEDUPED, because `uq_ofbmc_entry_component` would reject the second copy
          and take the whole save with it. The multi-select cannot produce one

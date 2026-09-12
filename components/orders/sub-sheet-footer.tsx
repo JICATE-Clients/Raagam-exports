@@ -52,13 +52,20 @@ import { cn } from "@/lib/utils";
  */
 export function SubSheetFooter({
   onDone,
-  /** What the operator must save to keep this — named, because "the parent" is
-   *  not a thing they can see from inside an overlay. */
-  parent = "garment order",
   blockedReason,
   onBlocked,
 }: {
   onDone: () => void;
+  /**
+   * What the operator must save to keep this — named, because "the parent" is
+   * not a thing they can see from inside an overlay.
+   *
+   * NOTHING READS IT SINCE 2026-09-11, when the line that printed it came off
+   * (see below). It stays on the type rather than going with that line: all
+   * three call sites pass it, it is the only place that names what must be
+   * saved, and removing it would mean editing those three sheets now and
+   * editing them again the day the line comes back.
+   */
   parent?: string;
   /** Why Done cannot finish here — null/undefined means it can. */
   blockedReason?: string | null;
@@ -69,25 +76,36 @@ export function SubSheetFooter({
   const blocked = !!blockedReason;
   return (
     <>
-      {/* `mr-auto` against the footer's `justify-end`, so the line sits left and
-          the button stays where a primary action is expected.
+      {/* THE KEPT-CHANGES LINE IS GONE (operator instruction, 2026-09-11:
+          "delete the footer text"). It read "Changes here are kept — save the
+          <parent> to store them." on every unblocked sub-sheet, and it was the
+          whole reason this component exists: the doc block above records the
+          client reading Style ▸ Process as "missing save button" (2026-08-14,
+          screenshot 2288) because a sheet with fields, a grid and no footer
+          reads as unfinished. What answers that now is the Done button alone —
+          a footer, which is most of what was missing, but not the sentence that
+          said where the work goes. If these overlays start reading as unsaved
+          again, this is the line to bring back.
 
-          THE REASON REPLACES THE KEPT-CHANGES LINE, in place, rather than being
-          added beside it. Proximity is the entire point: the 2026-08-20 finding
-          on this exact overlay was that the arithmetic rule was never MISSING —
-          it was stated in the grid's own totals, several inches from the caret
-          and above the fold on a short window. A rule the operator has to go
-          looking for is a rule they meet at Save. It belongs in the same glance
-          as the button that is refusing, so it goes where that button's own
-          status line already is. */}
-      <span
-        className={cn(
-          "mr-auto text-xs",
-          blocked ? "font-medium text-danger" : "text-muted-foreground",
-        )}
-      >
-        {blocked ? blockedReason : `Changes here are kept — save the ${parent} to store them.`}
-      </span>
+          THE BLOCKED REASON IS NOT THAT TEXT AND STAYS. It is why Done is
+          refusing, and a refusal with nothing beside it is the silent-refusal
+          failure AGENTS.md names under the nominated-vendor rule. It used to
+          REPLACE the kept-changes line in place, and the reason it sits here
+          rather than anywhere else outlives it: the 2026-08-20 finding on
+          Quantities ▸ Assortments was that the arithmetic rule was never
+          MISSING — it was stated in the grid's own totals, several inches from
+          the caret and above the fold on a short window. A rule the operator
+          has to go looking for is a rule they meet at Save, so it belongs in
+          the same glance as the button that is refusing.
+
+          `mr-auto` against the footer's `justify-end` keeps it left of that
+          button. With no reason to give, nothing renders at all and
+          `justify-end` leaves Done exactly where it has always been. */}
+      {blocked && (
+        <span className="mr-auto text-xs font-medium text-danger">
+          {blockedReason}
+        </span>
+      )}
       {/* BLOCKED WITH `aria-disabled`, NEVER `disabled` — the same treatment the
           Assort button carries in the orders screen (client 2026-08-17: "check
           why the assort button is not working"), and for the same two reasons:

@@ -158,6 +158,7 @@ export function Sheet({
   zIndexBase = 90,
   fullScreen = true,
   size = "lg",
+  maxWidthClass,
   fullBleed = false,
   origin,
   alignToPane = false,
@@ -216,6 +217,37 @@ export function Sheet({
    *  Ctrl+S needs no change: its gate is already `size !== "sm"`, so "md" keeps
    *  the save shortcut while nested pickers keep the browser's. */
   size?: "sm" | "md" | "lg";
+  /**
+   * THE CARD'S WIDTH, WHEN THE THREE SIZES ARE THE WRONG VOCABULARY FOR IT.
+   *
+   * `sm` is `max-w-md` (448px) and `md` is `max-w-6xl` (1152px), with NOTHING
+   * between them. That gap is not hypothetical: AGENTS.md's "A sub-detail
+   * Sheet's size" records two popups on one screen moved `lg` -> `md` -> `sm`
+   * in a single day, the operator asking twice why the fields were "this much
+   * huge", because the only sizes on offer were far too wide or far too narrow.
+   *
+   * A caller passes this when it can DERIVE the width from what is inside — a
+   * sheet holding one `ChildGrid` knows that grid's columns and its `tableFrom`
+   * threshold, and those two numbers are the answer. Overrides `size`'s width
+   * and NOTHING ELSE: `size` still selects the contained-dialog branch and still
+   * gates Ctrl+S, so pass it as before and let this take the width only.
+   *
+   * ## A STATIC LITERAL, NEVER AN INTERPOLATION
+   *
+   * Tailwind scans source text, so `max-w-[${n}px]` compiles to no CSS at all
+   * and the card silently keeps its default. Write the class out, as
+   * `PaletteTable`'s own `width` prop requires for the same reason.
+   *
+   * ## SIZE IT FROM THE CONTENT BOX, NOT THE CARD
+   *
+   * The body is `px-5` inside a 1px border, so the container a `ChildGrid`
+   * measures is about 42px narrower than this — more when a scrollbar shows.
+   * A width chosen to sit exactly on a `tableFrom` threshold therefore lands
+   * UNDER it and the grid renders as stacked cards with no column headers,
+   * which is the defect this prop exists to avoid, arriving from arithmetic.
+   * Leave 30-40px of headroom.
+   */
+  maxWidthClass?: string;
   /**
    * DROP THE 1180px READING WIDTH and let the content use the whole pane
    * (client 2026-08-18, on Combos ▸ Structure Details: "make this screen full
@@ -698,7 +730,11 @@ export function Sheet({
               style={{ transformOrigin }}
               className={cn(
                 "flex max-h-[88vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
-                size === "md" ? "max-w-6xl" : "max-w-md",
+                /* The caller's derived width wins over the size's own — see
+                   `maxWidthClass`. `transition-all` above is already on this
+                   element, so a card that changes width (a tabbed sheet sizing
+                   itself to the tab on show) animates rather than jumping. */
+                maxWidthClass ?? (size === "md" ? "max-w-6xl" : "max-w-md"),
                 open ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
               )}
             >

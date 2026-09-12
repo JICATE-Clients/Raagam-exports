@@ -1452,6 +1452,7 @@ export function ChildGrid<T extends { key: string }>({
   tableAlways = false,
   cornerRemoveAlign = "control",
   removeBeside = false,
+  foldedRemoveBeside = false,
   centerHeaders = false,
   lockExisting = false,
   hideRemove = false,
@@ -1704,10 +1705,60 @@ export function ChildGrid<T extends { key: string }>({
    * cell — this grid is only ever cards because 26rem is below `@lg` (512px).
    * It is inert on all of those rather than wrong, so it is safe to pass.
    *
-   * `renderMobileRow` keeps the corner: that callback owns the whole row's
-   * layout, so where its fields sit is not something this can know.
+   * ## `renderMobileRow` IS INCLUDED, AND USED NOT TO BE
+   *
+   * The original gate excluded it, reasoning that the callback owns the row's
+   * layout so the chip cannot know where its fields sit. That is true of putting
+   * the chip AMONG the columns and irrelevant to what this does: the callback's
+   * whole output goes in the growing left box and the chip follows the lot. No
+   * knowledge of the row's internals is needed or used.
+   *
+   * The exclusion had a real cost — Fabric BOM ▸ Components is a
+   * `renderMobileRow` card in a `masterDetail` pane, so its ✕ had no way off
+   * the corner at all, floating at the pane's right margin while the fields and
+   * the colour table under them are left-aligned and narrower (operator,
+   * 2026-09-11). Opting in is still per grid, so a card that wants the corner
+   * simply does not pass this: `notify-master-screen.tsx` derives its whole
+   * width cap from the corner's 40px gutter and is untouched because it never
+   * passed the prop.
+   *
+   * Such a row aligns `items-start` rather than `items-center` — see the branch.
    */
   removeBeside?: boolean;
+  /**
+   * THE SAME CHIP BESIDE THE ROW, BUT ONLY WHILE IT IS FOLDED (operator
+   * instruction, 2026-09-11, Combos ▸ Structure Details: the closed fabric's
+   * "X (remove) button is currently pushed all the way to the far right
+   * margin ... wrap the bordered box and the X button in a flex container ...
+   * so it sits immediately outside the right edge of the compacted bordered
+   * box").
+   *
+   * ## WHY IT IS NOT `removeBeside`
+   *
+   * That prop reshapes EVERY row of the grid, and a folded row is not the shape
+   * it was derived against: its branch runs before `besideRemove` is ever read,
+   * so passing `removeBeside` to a folding grid moves the chip on the open rows
+   * and takes it off the closed ones entirely (`cornerRemove` stands down for
+   * the whole grid, and the folded branch renders the callback alone). The two
+   * states of this one grid want opposite answers — an open structure keeps its
+   * chip in the header band, level with the parts table's column titles (client
+   * 2026-09-08, `cornerRemoveAlign`), and a closed one wants it against the
+   * right edge of a card that now hugs its own content.
+   *
+   * ## WHAT IT DOES
+   *
+   * `flex items-center gap-4`, the callback's whole output on the left with no
+   * `flex-1` — so a folded card that sizes itself (`w-fit`) keeps the chip at
+   * its edge instead of at the pane's. A card that still fills the width gets
+   * the chip where it always was, so this is inert rather than wrong on a
+   * folded row that has not been compacted.
+   *
+   * The row's own `relative pr-10` comes off with the float, for FOLDED ROWS
+   * ONLY: the gutter exists to keep a label out from under a floating chip and
+   * nothing floats here. The open rows keep theirs, which is what holds the two
+   * states' left edges in the same place — the gutter is on the right.
+   */
+  foldedRemoveBeside?: boolean;
   /**
    * EVERY COLUMN HEADING IS CENTRED, whatever its cells do (client, 2026-08-18:
    * "make all the heading in center, everything should look neat and clean").
@@ -3665,8 +3716,12 @@ export function ChildGrid<T extends { key: string }>({
                `lockExisting` grid comes out a chip-and-gap wider than every row
                under it (client 2026-09-09, on this same Marking grid: "the first
                row stretches wider than the rows with the ✕ button"). */
-            const besideRemove = removeBeside && !renderMobileRow && !listRows && !summary;
-            const cornerRemove = canRemoveRow && !besideRemove;
+            const besideRemove = removeBeside && !listRows && !summary;
+            /* FOLDED ROWS ONLY, and it is read alongside `besideRemove` rather
+               than folded into it — see `foldedRemoveBeside` for why one grid
+               wants the corner open and the flow closed. */
+            const foldedBeside = foldedRemoveBeside && folded && canRemoveRow;
+            const cornerRemove = canRemoveRow && !besideRemove && !foldedBeside;
             /* A FUNCTION, so a folded row (which renders `renderFoldedRow`
                instead) never pays for cells it throws away. Written once because
                both layouts below render the same cells — the only thing that
@@ -3838,17 +3893,53 @@ export function ChildGrid<T extends { key: string }>({
                 </div>
               )}
               {folded ? (
-                renderFoldedRow!(row, i)
-              ) : renderMobileRow ? (
-                renderMobileRow(row, i)
+                foldedBeside ? (
+                  /* THE CHIP AT THE CARD'S EDGE, NOT THE PANE'S — see
+                     `foldedRemoveBeside`. No `flex-1` on the left box on
+                     purpose: it is what would push the chip back out to the
+                     margin the instruction is about. `min-w-0` so a card that
+                     does NOT size itself can still shrink instead of pushing
+                     the chip off the pane. */
+                  <div className="flex items-center justify-start gap-4">
+                    <div className="min-w-0">{renderFoldedRow!(row, i)}</div>
+                    <RowRemoveChip
+                      inFlow
+                      label="Remove row"
+                      onClick={() => onRemove(row)}
+                    />
+                  </div>
+                ) : (
+                  renderFoldedRow!(row, i)
+                )
               ) : besideRemove ? (
                 /* THE ✕ IN THE ROW, not over it — see `removeBeside` above for
                    which shape of grid asks for this and why the corner cannot
                    answer it. `min-w-0` is what lets the fields shrink instead of
                    pushing the chip off the pane; `flex-1` is what keeps them
-                   growing when it is the field that is narrow. */
-                <div className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1 space-y-2">{cells()}</div>
+                   growing when it is the field that is narrow.
+
+                   AHEAD OF THE `renderMobileRow` BRANCH, which it used to sit
+                   behind. Wrapping that callback's output needs to know nothing
+                   about where its fields sit — the chip goes after the WHOLE
+                   row, not among its columns — so the reason the gate excluded
+                   it does not actually apply to this shape. See `removeBeside`.
+
+                   `items-start` FOR A CALLBACK-RENDERED ROW, `items-center`
+                   otherwise. A one-input Marking row is a single line and the
+                   two agree; a `renderMobileRow` card can be a field row plus a
+                   whole nested grid, and centring a 28px chip against that puts
+                   it halfway down the pane beside nothing. Top-aligned it lands
+                   level with the row's first line, which is where the reference
+                   ✕ — a table's own ✕ cell — sits. */
+                <div
+                  className={cn(
+                    "flex gap-2",
+                    renderMobileRow ? "items-start" : "items-center",
+                  )}
+                >
+                  <div className="min-w-0 flex-1 space-y-2">
+                    {renderMobileRow ? renderMobileRow(row, i) : cells()}
+                  </div>
                   {locked(row) ? (
                     /* The chip's own box, empty — see `besideRemove` above for
                        why a locked row reserves it rather than closing up. */
@@ -3857,6 +3948,8 @@ export function ChildGrid<T extends { key: string }>({
                     <RowRemoveChip inFlow label="Remove row" onClick={() => onRemove(row)} />
                   )}
                 </div>
+              ) : renderMobileRow ? (
+                renderMobileRow(row, i)
               ) : (
                 cells()
               )}

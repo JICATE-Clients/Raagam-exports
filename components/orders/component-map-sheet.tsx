@@ -638,7 +638,7 @@ export function ComponentMapBody({
     coordinates.find((c) => c.id === id)?.name ?? null;
 
   /* THE COMPONENTS TREE AND NOTHING ELSE.
-     
+
      NO TAB STRIP, AND NO SHEET — this file draws the tree and stops (client
      2026-09-02, screenshots 2619 → 2620 → 2623). It took two corrections to get
      here and both are worth keeping, because each was a plausible arrangement:
@@ -1296,6 +1296,35 @@ export function ComponentMapBody({
          * the slack falls to the right of them.
          */
         fill
+        /* THE ✕ SITS AT THE END OF THE ROW, NOT FLOATING AT THE PANE'S CORNER
+           (operator, 2026-09-11, Fabric BOM ▸ Components: align the ✕ the way
+           the ✕ on the other tab's tables is aligned).
+
+           THE REFERENCE IS A TABLE'S ✕ CELL. Fabric BOM's own `PaletteTable`
+           (`fabric-bom-screen.tsx`) puts its ✕ in a real `<td>` after the last
+           data column, so it takes part in the layout and lands beside the row
+           it deletes. This pane had the other shape: `cornerRemove` is
+           `absolute right-1`, measured from the CARD, so it floated against the
+           full-width row wrapper while the Coordinate / Component fields and the
+           colour table below them are left-aligned and narrower than the pane.
+           That gap is what was reported, and this file's own note at the spacer
+           below already described the same float without treating it as a fault.
+
+           `removeBeside` IS THE EXISTING DOOR, NOT A NEW ONE. It swaps the float
+           for `flex items-center gap-2` with the chip `shrink-0` at the end —
+           the same `RowRemoveChip`, so `data-row-remove`, Ctrl+Del, the
+           `aria-label`, the 28px circle and its hover fill all come along
+           unchanged. Nothing is hand-rolled here and no class string is written
+           at this call site, which is what keeps the ✕ on this pane identical
+           to the one Customer ▸ Marking already uses.
+
+           IT IS SAFE TO PASS ON THIS GRID: the prop is live only on the
+           `cornerRemove` path (`!renderMobileRow && !listRows && !summary`), and
+           this grid is exactly that — `forceCards` + `masterDetail`, with the
+           open panel's body rendering through the same branch. `relative pr-10`
+           comes off with the float; the 40px gutter existed only to keep a label
+           out from under a floating chip. */
+        removeBeside
         /* ONE PANEL OPEN AT A TIME, the row itself being the affordance —
            focus or click opens it, exactly as the table did and as Order
            Entry's Structure Details does. There is no toggle control. */
@@ -1540,6 +1569,31 @@ export function ComponentMapBody({
                   and the Component field at the top of the pane. A third naming
                   is what the client is looking at when they call it noise. */}
             <ChildGrid<MapLine>
+              /* `fill` — THE SAME LOAD-BEARING PROP THE OUTER GRID CARRIES, AND
+                 ITS ABSENCE HERE IS WHAT LEFT THE ✕ STRANDED AT THE PANE'S RIGHT
+                 MARGIN (operator, 2026-09-11: move the ✕ next to Required
+                 Print).
+
+                 `hugsContent` is `!fill && columns.every((c) => c.width)`. All
+                 six `colourColumns` declare a width — they were written for the
+                 table — so the hug switched itself on and the table took
+                 `w-fit` / `w-auto table-fixed`: it shrink-wrapped to the sum of
+                 those widths (~36rem) inside a detail pane of ~867px. Everything
+                 after Required Print was therefore dead space, and the panel's
+                 ✕ — which sits at the END of the row — had that whole gap in
+                 front of it. Moving the ✕ could never close it, because the gap
+                 was never the ✕'s: it belonged to the table beside it.
+
+                 THIS IS THE OUTER GRID'S BUG ONE LEVEL DOWN. Its own note
+                 (`fill IS LOAD-BEARING HERE`, 2026-09-03) records the identical
+                 mechanism collapsing the whole detail pane, and names the lesson
+                 this repeats: "a column `width` is a TABLE concern, and
+                 declaring one silently changes how the CARD lays out."
+
+                 `fill` suppresses ONLY the hug. The columns keep their declared
+                 widths and the table becomes `w-full`, so its slack is shared
+                 out along the row instead of piling up to the right of it. */
+              fill
               /* grid-caption: exempt -- the pane holds ONE panel at a
                  time and names it twice before this grid is reached
                  (the selected rail entry, and the Component field
