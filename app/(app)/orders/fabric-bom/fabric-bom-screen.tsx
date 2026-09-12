@@ -5814,6 +5814,7 @@ export function FabricBomScreen({
                  land on the text node inside it. See `detailOrigin`. */
               onClick={(ev) => {
                 setDetailOrigin(ev.currentTarget.getBoundingClientRect());
+                seedYdColoursIfEmpty(r);
                 setDetailKey(r.key);
               }}
             >
@@ -6155,6 +6156,54 @@ export function FabricBomScreen({
     }
     return out;
   }, [procs]);
+
+  /**
+   * SEEDS `Color 1` / `Color 2` / … THE INSTANT THE [Detail] POPUP OPENS ON A
+   * GROUP WITH NO REPEATS YET (client 2026-09-12) — never on every render, and
+   * never over rows the planner has already started mapping.
+   *
+   * Reads the line's OWN `no_of_colors` (0513), the count typed on the Fabric
+   * Lines row before Detail is ever clicked — this is the one place that count
+   * is allowed to drive the Repeats grid; `colourCountNote` elsewhere stays
+   * advisory-only, comparing the two rather than one seeding the other after
+   * the planner has begun typing.
+   *
+   * CALLED FROM THE CLICK HANDLER, not an effect keyed on `detailKey` — same
+   * reason `ChildGrid`'s `seedRow` is sometimes wrong (AGENTS.md, "Editable
+   * sub-tables open with a row"): an effect-based seed on a mutator that also
+   * flips `dirty` would mark the document unsaved the moment the popup opens,
+   * before the operator has touched anything.
+   *
+   * THE EMPTY CHECK IS INSIDE THE UPDATER, not read from `ydRepeats` before
+   * calling `mutYdRepeats` — so it reads the current state at commit time
+   * rather than whatever this render closed over, and two seedings can never
+   * race into duplicate rows.
+   */
+  const seedYdColoursIfEmpty = (line: LineRow) => {
+    const count = line.no_of_colors;
+    if (!count || count < 1) return;
+    const key = fabricGroupKey(line);
+    const address = {
+      style_ref_no: line.style_ref_no,
+      structure_id: line.structure_id,
+      item_id: line.item_id,
+    };
+    mutYdRepeats((xs) => {
+      if (xs.some((r) => ydAddress(r) === key)) return xs;
+      const seeded: YdRepeat[] = Array.from({ length: count }, (_, i) => ({
+        key: newKey(),
+        ...address,
+        sno: i + 1,
+        yarn_item_id: null,
+        dye_type: "dyed" as const,
+        color_name: `Color ${i + 1}`,
+        uom_id: null,
+        value: null,
+        twisted_yarn: "",
+      }));
+      return [...xs, ...seeded];
+    });
+  };
 
   /**
    * EVERYTHING ONE FABRIC GROUP'S YARN DYED TABS NEED (0512), from an ANCHOR
