@@ -132,6 +132,9 @@ export type StaffChildren = {
   externalRefs: Record<string, unknown>[];
   emergencyContacts: Record<string, unknown>[];
   shifts: Record<string, unknown>[];
+  education: Record<string, unknown>[];
+  technical: Record<string, unknown>[];
+  languages: Record<string, unknown>[];
 };
 
 /**
@@ -167,7 +170,25 @@ async function replacePersonChildren(
     ["hr_bank_accounts", children.bankAccounts],
     ["hr_external_references", children.externalRefs],
     ["hr_emergency_contacts", children.emergencyContacts],
-    ["hr_shift_assignments", children.shifts],
+    // Shifts are a WORKER section only (client 2026-09-11), so a staff save
+    // must not reach this table at all — not even to write nothing to it.
+    //
+    // "Send an empty list" would NOT have been equivalent: the delete below
+    // runs before the `rows.length` check, by design, because that is what
+    // makes removing the last row of a list stick. So a staff save carrying
+    // `shifts: []` would DELETE the spells of any staff member who has them —
+    // silently, from a screen that no longer displays them. 0554 deliberately
+    // gave the table a `staff_id` with its own exclusion constraint, so those
+    // rows are legal data; this change is about what the editor offers, not
+    // about making them invalid.
+    ...(kind === "worker"
+      ? ([["hr_shift_assignments", children.shifts]] as const)
+      : ([] as const)),
+    // The three grids behind General's popups (0556). Both kinds have them —
+    // only Shifts above is worker-only.
+    ["hr_education", children.education],
+    ["hr_technical_details", children.technical],
+    ["hr_languages", children.languages],
   ] as const;
 
   for (const [table, rows] of tables) {

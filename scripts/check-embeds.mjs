@@ -61,7 +61,25 @@ import path from "node:path";
 /** base table -> embedded table -> the FK columns that make it ambiguous. */
 const AMBIGUOUS = {
   purchase_orders: { vendors: ["vendor_id", "agent_id"] },
+  // 0553 put `prod_dept_id` on `workers`, which already had `department_id` —
+  // so `workers(..., departments(name))` became a 300 the day that migration
+  // ran. Nothing embeds it today, which is exactly when to declare the pair:
+  // the header above says to re-run the catalog query whenever a migration adds
+  // an FK to a table that already has one to the same target, and this entry is
+  // that rule being followed rather than a bug being cleaned up after.
+  workers: { departments: ["department_id", "prod_dept_id"] },
 };
+
+/* KNOWN GAP, MEASURED 2026-09-11 AND DELIBERATELY NOT CLOSED HERE.
+ *
+ * The catalog query in the header returns EIGHTY-FOUR ambiguous pairs today;
+ * this table declares two. Most are `profiles` (`created_by` + `approved_by`)
+ * and `config_lookups`, both embedded all over the app, so the gate is passing
+ * on a table that covers a fraction of what it is meant to. Closing it is a
+ * pass of its own — run the query, declare every pair, then fix whatever the
+ * check then reports — and not something to fold into an unrelated change,
+ * because the findings need reading one by one rather than silencing.
+ */
 
 /* Roots default to the app's source trees, but a path may be passed on the
    command line. That is not a convenience: it is how this check is verified.

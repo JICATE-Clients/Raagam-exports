@@ -1085,6 +1085,16 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/hr/lifecycle", label: "Lifecycle", description: "Joining, transfer, confirmation and exit" },
         ],
       },
+      // SUB-MODULES IN THEIR OWN RIGHT, not rows inside People (client
+      // 2026-09-12: "i want salry and banks shpuld ne here as people T&A pay
+      // not inside of the people").
+      //
+      // Third and stated placement: they were under Pay, then under People.
+      // `kind: "link"` is the shape for a screen with no siblings worth
+      // grouping — one sidebar row and one hub card each, BESIDE People rather
+      // than beneath it.
+      { kind: "link", href: "/hr/salary-registry", label: "Salary Registry" },
+      { kind: "link", href: "/hr/bank-details", label: "Bank Details" },
       {
         kind: "group",
         slug: "time",

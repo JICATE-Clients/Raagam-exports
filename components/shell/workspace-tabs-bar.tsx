@@ -113,6 +113,31 @@ export function WorkspaceTabsBar() {
   const modules = NAV.filter((i) => hasPermission(user, i.module, "view"));
   const showHome = hasPermission(user, "dashboard", "view");
   const isHomeActive = pathname === "/";
+  /**
+   * THE MODULE'S OWN HOME, BESIDE THE APP'S (client 2026-09-10: "here the home
+   * is routing for main home but there is home in hr module also right, so in
+   * the multi bar this hr home also should be shown").
+   *
+   * Standing on /hr/staff, "Home" goes to the dashboard — there was nothing in
+   * this bar that went one level up, to HR's own card index. The sidebar's
+   * module row does it, but the bar is what the operator is looking at while an
+   * editor covers the page, and a page-mounted editor is exactly when the
+   * sidebar is least in view.
+   *
+   * DRAWN LIKE HOME, NOT LIKE A TAB, and that is the whole point. A module root
+   * IS a hub route, and the file header above records why a hub never becomes a
+   * tab: drilling Orders → Order Management → Order Entry would leave three tabs
+   * where the operator opened one thing. So this is a second FIXED chip, keyed
+   * off the pathname exactly as Home is — nothing is registered, nothing is
+   * closable, and `useEnsureWorkspaceTab`'s `skip` is untouched.
+   *
+   * `modules` is already filtered by `<module>:view`, so a module the operator
+   * cannot see cannot appear here either.
+   */
+  const activeModule = modules.find(
+    (m) => m.href !== "/" && isUnderModule(pathname, m.href),
+  );
+  const isModuleHomeActive = !!activeModule && pathname === activeModule.href;
   // Home is drawn once, fixed, ahead of the list — see the file header.
   const openTabs = tabs.filter((t) => t.href !== "/");
   // The store's own `activeId` can lag one route behind while the operator
@@ -179,6 +204,32 @@ export function WorkspaceTabsBar() {
         >
           <LayoutDashboard className={cn("h-3.5 w-3.5 flex-none", isHomeActive && "text-primary")} />
           Home
+        </button>
+      )}
+
+      {activeModule && (
+        <button
+          type="button"
+          onClick={(e) => {
+            if (!isPlainLeftClick(e)) return;
+            // The same call the sidebar's module row makes. `openTab` sees a hub
+            // href and only NAVIGATES — see its own note — so this cannot leave
+            // a stray "HR & Payroll" tab behind.
+            openTab({ href: activeModule.href, title: activeModule.label });
+          }}
+          className={cn(
+            "flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
+            isModuleHomeActive
+              ? "bg-surface font-bold text-foreground shadow-sm"
+              : "font-medium text-white/90 hover:bg-white/10",
+          )}
+        >
+          {/* The module's OWN nav icon, so the chip and the sidebar row the
+             operator would otherwise click carry the same mark. */}
+          <activeModule.icon
+            className={cn("h-3.5 w-3.5 flex-none", isModuleHomeActive && "text-primary")}
+          />
+          {activeModule.label}
         </button>
       )}
 

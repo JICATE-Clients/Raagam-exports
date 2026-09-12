@@ -1,101 +1,29 @@
-import Link from "next/link";
-import {
-  Users,
-  Building2,
-  UserCog,
-  CalendarCheck,
-  Scissors,
-  Wallet,
-  ReceiptText,
-  Settings,
-  HandCoins,
-  SlidersHorizontal,
-  Award,
-  CalendarDays,
-  UserMinus,
-  FileCheck,
-} from "lucide-react";
-import { requirePermission } from "@/lib/auth/server";
-import { createClient } from "@/lib/supabase/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardBody } from "@/components/ui/card";
-import { Stat } from "@/components/ui/stat";
+import { ModuleHub } from "@/components/shell/module-hub";
 
-async function safeCount(table: string): Promise<number> {
-  try {
-    const supabase = await createClient();
-    const { count } = await supabase
-      .from(table)
-      .select("id", { count: "exact", head: true });
-    return count ?? 0;
-  } catch {
-    return 0;
-  }
-}
-
-const areas = [
-  { href: "/hr/workers", label: "Workers", desc: "Shift & piece-rate workers (3 types)", icon: Users },
-  { href: "/hr/contractors", label: "Contractors", desc: "Piece-rate contractors", icon: Building2 },
-  { href: "/hr/staff", label: "Staff", desc: "Monthly-salary staff", icon: UserCog },
-  { href: "/hr/attendance", label: "Attendance", desc: "Daily hours, OT & extra (biometric/manual)", icon: CalendarCheck },
-  { href: "/hr/piece-records", label: "Piece Records", desc: "Worker piece counts (editable until locked)", icon: Scissors },
-  { href: "/hr/payroll", label: "Payroll Runs", desc: "Weekly workers + monthly staff; dual-account", icon: Wallet },
-  { href: "/hr/payslip", label: "Payslips", desc: "Weekly worker payslip (A/C 1 + A/C 2)", icon: ReceiptText },
-  { href: "/hr/settings", label: "Payroll Settings", desc: "OT caps, ESI/PF rates", icon: Settings },
-  { href: "/hr/advances", label: "Advances", desc: "Employee advances + repayment", icon: HandCoins },
-  { href: "/hr/adjustments", label: "Allowances & Deductions", desc: "Recurring/one-off pay adjustments", icon: SlidersHorizontal },
-  { href: "/hr/comp-events", label: "Bonus & Increments", desc: "Comp events with approval", icon: Award },
-  { href: "/hr/leave", label: "Leave & Encashment", desc: "Leave applications + EL encashment", icon: CalendarDays },
-  { href: "/hr/lifecycle", label: "Lifecycle", desc: "Transfers · resignations · settlements", icon: UserMinus },
-  { href: "/hr/statutory", label: "Statutory Docs", desc: "ESI forms 3/5/10 + strength", icon: FileCheck },
-];
-
-export default async function HrPage() {
-  await requirePermission("hr_payroll", "view");
-
-  const [workers, staff, contractors] = await Promise.all([
-    safeCount("workers"),
-    safeCount("staff"),
-    safeCount("contractors"),
-  ]);
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="HR & Payroll"
-        description="Workers, attendance, piece counts, payroll runs and payslips"
-      />
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Stat label="Workers" value={workers} tone="info" />
-        <Stat label="Staff" value={staff} />
-        <Stat label="Contractors" value={contractors} />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {areas.map((a) => {
-          const Icon = a.icon;
-          return (
-            <Link key={a.href} href={a.href} className="block">
-              <Card className="h-full transition-colors hover:border-primary">
-                <CardBody className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-semibold text-foreground">
-                      {a.label}
-                    </h2>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {a.desc}
-                    </p>
-                  </div>
-                </CardBody>
-              </Card>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
+/**
+ * The HR & Payroll module landing page: one card per sub-module, from
+ * `lib/nav/module-groups.ts`.
+ *
+ * It was a hand-written grid of 14 LEAF screens — and `module-hub.tsx`'s own
+ * header names this page as one of the four it was built to replace ("`/hr` 14
+ * against 4"). Two things were wrong with it, and the second is the one that
+ * hides:
+ *
+ * - **It flattened the middle level away.** The registry has said for a month
+ *   that HR is four sub-modules (People · Time & Attendance · Pay · Compliance
+ *   & Setup); the landing page listed their children instead, so the groups
+ *   existed in the sidebar and nowhere on the page. Two levels in the sidebar,
+ *   the third on the page — AGENTS.md ▸ "The sidebar lists SUB-MODULES".
+ * - **It drew its own `Card`s.** So it silently had none of what `HubPage`
+ *   carries: the `unavailable` state, the record counts, the "N screens" glyph.
+ *   A duplicated list drifts in CAPABILITY as well as in facts, and that half
+ *   stays invisible until a card lies.
+ *
+ * The three Stat tiles it drew (workers · staff · contractors) are not lost —
+ * they move one level down, to where they are a fact about a screen rather than
+ * about the module: `/hr/people`'s cards read their counts from
+ * `hub-count-map.ts`, which already names all three tables.
+ */
+export default function HrPage() {
+  return <ModuleHub moduleHref="/hr" />;
 }
