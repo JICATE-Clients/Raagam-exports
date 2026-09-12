@@ -11954,6 +11954,43 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         ]
       : [];
 
+  /**
+   * DELIVERY DATE CANNOT BE IN THE PAST (doc/order/update.md §6.1: "restricted
+   * to future dates"; operator confirmed same-day delivery is allowed, so
+   * this compares `<`, not `<=` — today itself is a valid Deli.Dt). Same
+   * shape as `futureDateProblems` immediately above, mirrored: that rule
+   * bounds Date from above, this one bounds Deli.Dt from below.
+   *
+   * COMPARED AS TEXT, for the identical reason `futureDateProblems` gives —
+   * both sides are `YYYY-MM-DD`, which sorts lexicographically exactly as it
+   * sorts chronologically, so this needs no Date parsing and cannot pick up a
+   * timezone crossing the comparison. A blank date says nothing here; Deli.Dt
+   * is already `required` above, and "a blank field is not also a malformed
+   * one".
+   *
+   * NO `min` COMPARISON CAN REPLACE THIS, for the same reason `futureDateProblems`
+   * gives about `max`: a native date input's `min` bounds validity and greys
+   * the picker, but the year segment still accepts typed digits and the value
+   * still reaches state. `min={today()}` is set on the field too (client-side
+   * hint only); this is what Save actually reads.
+   *
+   * NO ZOD TWIN, for the same reason `futureDateProblems` gives — orders have
+   * no data-io import path, so the screen is the only door, and only the
+   * screen knows the operator's own "today".
+   */
+  const deliveryDateProblems: Problem[] =
+    form.delivery_date && form.delivery_date < today()
+      ? [
+          {
+            section: "orderinfo",
+            fieldId: "hd-deli",
+            label: "Deli.Dt",
+            message: "Deli.Dt cannot be in the past.",
+            kind: "custom",
+          },
+        ]
+      : [];
+
   const validity = sectionValidity({
     sections: [
       { key: "orderinfo" },
@@ -12108,6 +12145,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
        below `form`. */
     extra: [
       ...futureDateProblems,
+      ...deliveryDateProblems,
       ...styleLineProblemList,
       ...duplicateStyleRefProblems,
       /* After `styleLineProblemList`, deliberately: an unnamed style row reports
@@ -20393,9 +20431,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 star is decoration.
                 `w="code"` (144px), not `size="xs"` — same floor as `Date` above:
                 a native `type="date"` input draws its own dd/mm/yyyy and
-                calendar button and clips below ~130px. */}
+                calendar button and clips below ~130px.
+                `min={today()}` MIRRORS `Date`'s `max={today()}` above — same
+                caveat applies: a native date input's `min` bounds validity
+                and greys the picker, but the year segment still accepts
+                typed digits, so this is a hint only. `deliveryDateProblems`
+                (below `validity`) is what Save actually reads (doc/order/
+                update.md §6.1; same-day delivery is allowed, so this is
+                inclusive where `Date`'s ceiling is exclusive). */}
             <Field label="Deli.Dt" w="code" htmlFor="hd-deli" required>
-              <Input id="hd-deli" type="date" required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
+              <Input id="hd-deli" type="date" min={today()} required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
             </Field>
             {/* RECEIVED DATE (client 2026-09-09) — the header's own
                 `received_date` column, withdrawn from the write path
