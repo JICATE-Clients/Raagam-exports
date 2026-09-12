@@ -4590,6 +4590,40 @@ export function GarmentOrderScreen({
   );
 
   /**
+   * PP SEND AND PP APPROVAL DROP OUT OF THE LADDER IN YARN-PURCHASE-BASED MODE
+   * (client, 2026-09-11: "in yarn purchase remove the pp approval sent and
+   * pproval receive activity"). In that mode the PP Sample gate has moved
+   * onto the Purchase Order screen (`lib/purchase/pp-approval-gate.ts`) —
+   * these two rows exist to schedule and gate CUTTING, which this mode
+   * deliberately does not do, so keeping them on screen would show two
+   * dates for a gate that no longer applies to production at all.
+   *
+   * MATERIALS IN-HOUSE IS DELIBERATELY KEPT. It is not itself a PP-gate row
+   * — it is the "fabric must be in-house" milestone — and simply removing
+   * it from this array is enough to re-anchor it: with PPSEND/PPAPPR gone,
+   * `orderTaLadder`'s backward walk chains it directly off Cutting's own
+   * date instead (Materials In-House = Cutting Start − 1, the same fixed
+   * rule it always had, just against a different immediate neighbour now
+   * that the two rows between it and Cutting are gone). No special-casing
+   * needed — this is a consequence of `orderTaLadder` processing whatever
+   * list it is given, positionally, exactly as its own header describes.
+   *
+   * GATED ON THE SAME TWO FIELDS `refuseUnapprovedYarnPurchase` READS
+   * (`production_based_pp_approval !== false` AND `pp_approval_trigger_mode
+   * === "YARN_PURCHASE_BASED"`) — the grid must agree with the PO lock
+   * about which orders are actually in this mode, or an order could show a
+   * ladder implying one rule while a different one is enforced at Save.
+   */
+  const taVisibleRows = useMemo(() => {
+    if (form.production_based_pp_approval === false) return taRows;
+    if (form.pp_approval_trigger_mode !== "YARN_PURCHASE_BASED") return taRows;
+    return taRows.filter((r) => {
+      const sn = taActivityById.get(r.activity_id ?? "")?.short_name;
+      return sn !== "PPSEND" && sn !== "PPAPPR";
+    });
+  }, [taRows, taActivityById, form.production_based_pp_approval, form.pp_approval_trigger_mode]);
+
+  /**
    * THE LADDER — every Target Date on this tab, plus the anchor, the start date
    * and the float.
    *
@@ -4641,7 +4675,11 @@ export function GarmentOrderScreen({
   const taLadder = useMemo(
     () =>
       orderTaLadder({
-        rows: taRows.map((r) => {
+        // `taVisibleRows`, not `taRows` — see that memo's own comment. Dropping
+        // PP Send/PP Approval OUT of the array the ladder chains through (in
+        // Yarn-Purchase-Based mode) is what re-anchors Materials In-House
+        // directly off Cutting, with no arithmetic branch of its own needed.
+        rows: taVisibleRows.map((r) => {
           // `computedTaDays` wins here too, and for the SAME reason the save
           // payload applies it (see the comment on `ta_activities` below): a
           // system-computed row's Days CELL displays the pinned/customer
@@ -4674,7 +4712,7 @@ export function GarmentOrderScreen({
         })),
         deliveryDate: form.delivery_date || null,
       }),
-    [taRows, quantities, form.delivery_date, taLabel, taActivityById],
+    [taVisibleRows, quantities, form.delivery_date, taLabel, taActivityById],
   );
 
   /**
@@ -4698,8 +4736,8 @@ export function GarmentOrderScreen({
    * earlier row would be lost.
    */
   const taDates = useMemo(() => {
-    if (isRefusal(taLadder)) return new Map<string, { target_date: string; float: number }>();
-    const m = new Map<string, { target_date: string; float: number }>();
+    if (isRefusal(taLadder)) return new Map<string, { target_date: string; float: number; end_date: string | null }>();
+    const m = new Map<string, { target_date: string; float: number; end_date: string | null }>();
     for (const r of taLadder.rows) {
       // A row whose own Days is blank, or that sits behind one that is
       // (`Schedule.incomplete`), carries no date yet — left out of the Map
@@ -4707,7 +4745,12 @@ export function GarmentOrderScreen({
       // "nothing to show" the same way it does while the whole ladder
       // refuses, and every reader keeps its one `d ? … : "—"` check.
       if (r.target_date == null || r.float == null) continue;
-      m.set(r.row_uid, { target_date: r.target_date, float: r.float });
+      // `end_date` is left nullable here (never used as the exclusion test
+      // above) — a row can have a real target_date/float while its own
+      // end_date fails to compute in some future edge case, and hiding the
+      // whole row over a missing SECOND date would be worse than showing
+      // one date instead of two.
+      m.set(r.row_uid, { target_date: r.target_date, float: r.float, end_date: r.end_date });
     }
     return m;
   }, [taLadder]);
@@ -4801,8 +4844,16 @@ export function GarmentOrderScreen({
    * real array is what lands the new row at the END of THIS reversed one,
    * next to the "+ Add activity" button it was clicked from — appending would
    * have put it at the top of the screen, nowhere near the click.
+   *
+   * READS `taVisibleRows`, NOT `taRows` — the same substitution `taLadder`
+   * makes and for the same reason (see that memo's own comment): PP Send and
+   * PP Approval drop out of the GRID in Yarn-Purchase-Based mode along with
+   * the ladder, rather than staying visible while carrying no Target Date.
+   * `onAdd`/`onRemove` below still read and write the REAL `taRows` state,
+   * so this filter is display-only and reverses instantly the moment the
+   * mode is switched back.
    */
-  const taRowsDisplay = useMemo(() => [...taRows].reverse(), [taRows]);
+  const taRowsDisplay = useMemo(() => [...taVisibleRows].reverse(), [taVisibleRows]);
 
   // ---------------- LIST MODE ----------------
   if (mode === "list") {
@@ -9641,6 +9692,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             <ToneIcon className={cn("size-3.5 shrink-0", toneText[tone])} aria-hidden />
             <span className="tabular-nums text-xs text-muted-foreground">
               {d ? fmtDate(d.target_date) : "—"}
+              {/* END DATE (client, 2026-09-11: "only showing the start date
+                  of the activity, need to show the end date... near").
+                  `end_date` is `target_date` walked forward this row's own
+                  Days — see `order-ladder.ts`'s own note on the field. Shown
+                  only when it differs from `target_date`: a row whose Days
+                  is 0 (Fabric Plan, Shipment, …) starts and ends the same
+                  day, and an arrow pointing a date at itself reads as a
+                  glitch rather than a zero-length step. */}
+              {d?.end_date && d.end_date !== d.target_date && (
+                <>
+                  {" "}
+                  <span aria-hidden>→</span> {fmtDate(d.end_date)}
+                </>
+              )}
             </span>
             <span className={cn("text-xs font-semibold", toneText[tone])}>{statusText}</span>
           </div>
@@ -19346,8 +19411,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     value={form.pp_approval_trigger_mode}
                     onChange={(pp_approval_trigger_mode) => set({ pp_approval_trigger_mode })}
                     options={[
-                      { value: "CUTTING_BASED", label: "Cutting Start Based" },
-                      { value: "YARN_PURCHASE_BASED", label: "Yarn Purchase Based" },
+                      { value: "CUTTING_BASED", label: "Cutting Based PP Approval" },
+                      { value: "YARN_PURCHASE_BASED", label: "Yarn Based PP Approval" },
                     ]}
                   />
                 )}

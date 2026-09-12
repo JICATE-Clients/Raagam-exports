@@ -93,7 +93,7 @@
  */
 
 import { isCalendarDate } from "@/lib/calendar";
-import { backwardSchedule, isRefusal, type Refusal } from "@/lib/ta/schedule";
+import { addWorkingDays, backwardSchedule, isRefusal, type Refusal } from "@/lib/ta/schedule";
 
 export type { Refusal };
 export { isRefusal };
@@ -131,8 +131,18 @@ export type TaLadderResult = {
    * blank, or whose neighbour nearer delivery hasn't answered its Days yet —
    * see `Schedule.incomplete` in `lib/ta/schedule.ts` for why that is a
    * partial result, not a refusal.
+   *
+   * `end_date` (client request, 2026-09-11: "only showing the start date of
+   * the activity, need to show the end date") is `target_date` walked FORWARD
+   * this row's own `days_required` working days — `addWorkingDays` is
+   * `subtractWorkingDays`'s own mirror, so this lands on exactly the date the
+   * NEXT row (nearer delivery) was already given, without re-deriving or
+   * duplicating that arithmetic: row_i's own span is
+   * `[target_date, end_date]`, `days_required` wide. `null` under the exact
+   * same conditions `target_date` is — a row with nothing to start from has
+   * nothing to end on either.
    */
-  rows: (TaLadderRow & { target_date: string | null; float: number | null })[];
+  rows: (TaLadderRow & { target_date: string | null; float: number | null; end_date: string | null })[];
   anchor: TaLadderAnchor;
   /** Work must begin here — `null` while `incomplete` is set. */
   startDate: string | null;
@@ -235,11 +245,29 @@ export function orderTaLadder(input: {
 
   // OUT: back to execution order, zipped onto the input BY POSITION.
   const scheduled = [...plan.steps].reverse();
-  const rows = input.rows.map((r, i) => ({
-    ...r,
-    target_date: scheduled[i].date,
-    float: scheduled[i].float,
-  }));
+  const rows = input.rows.map((r, i) => {
+    const target_date = scheduled[i].date;
+    const days = r.days_required;
+    // Same walk `subtractWorkingDays` took to get here, mirrored forward —
+    // never a refusal in practice (a date `backwardSchedule` just produced
+    // is by construction a real calendar date, and `days` is the same
+    // finite number that walk already accepted), but `isRefusal` is checked
+    // rather than assumed so a future edge case fails closed (null) instead
+    // of throwing.
+    const end_date =
+      target_date != null && days != null && Number.isFinite(days)
+        ? (() => {
+            const e = addWorkingDays(target_date, days, input.holidays);
+            return isRefusal(e) ? null : e;
+          })()
+        : null;
+    return {
+      ...r,
+      target_date,
+      float: scheduled[i].float,
+      end_date,
+    };
+  });
 
   return {
     rows,

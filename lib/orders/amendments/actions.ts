@@ -1254,19 +1254,41 @@ async function taActivityRows(
      same ladder whatever this returns. */
   const activityIds = [...new Set(rows.map((r) => r.activity_id).filter((v): v is string => !!v))];
   const labels = new Map<string, string>();
+  // `short_name` alongside `name` — the SAME lookup the ladder used to only
+  // need for labels now also answers "is this row PP Send / PP Approval",
+  // for the Yarn-Purchase-Based exclusion below. One query, not two.
+  const shortNames = new Map<string, string>();
   if (activityIds.length) {
     const { data: acts, error: actErr } = await s
       .from("ta_activities")
-      .select("id, name")
+      .select("id, name, short_name")
       .in("id", activityIds);
     if (actErr) return { ok: false, error: actErr.message };
-    for (const a of (acts ?? []) as { id: string; name: string | null }[]) {
+    for (const a of (acts ?? []) as { id: string; name: string | null; short_name: string | null }[]) {
       if (a.name) labels.set(a.id, a.name);
+      if (a.short_name) shortNames.set(a.id, a.short_name);
     }
   }
 
+  /* PP SEND AND PP APPROVAL DROP OUT OF THE LADDER IN YARN-PURCHASE-BASED
+   * MODE — the exact server-side half of what `taVisibleRows` does on the
+   * screen (`garment-order-screen.tsx`), and it MUST reach the same verdict:
+   * `target_date` is stored, and "BOTH HALVES OR NEITHER" (this file's own
+   * header) is what makes storing it safe. Reusing the two fields
+   * `refuseUnapprovedYarnPurchase` already reads keeps all three call sites
+   * — the client ladder, the Purchase Order gate, and this save — agreeing
+   * about which orders are actually in this mode. */
+  const yarnPurchaseBased =
+    data.production_based_pp_approval !== false && data.pp_approval_trigger_mode === "YARN_PURCHASE_BASED";
+  const ladderRows = yarnPurchaseBased
+    ? rows.filter((r) => {
+        const sn = r.activity_id ? shortNames.get(r.activity_id) : undefined;
+        return sn !== "PPSEND" && sn !== "PPAPPR";
+      })
+    : rows;
+
   const plan = orderTaLadder({
-    rows: rows.map((r) => ({
+    rows: ladderRows.map((r) => ({
       row_uid: r.row_uid,
       activity_id: r.activity_id,
       label: (r.activity_id && labels.get(r.activity_id)) || "",
@@ -1283,10 +1305,21 @@ async function taActivityRows(
   /* A REFUSAL DATES NOTHING AND DOES NOT BLOCK THE SAVE (client 2026-08-31: the
      tab is optional "now will implement it later as required"). Draft or not —
      see the header for what this used to be, why it changed, and the one line
-     that puts it back when the requirement returns. */
-  const targetDates = isRefusal(plan)
-    ? rows.map(() => null)
-    : plan.rows.map((r) => r.target_date);
+     that puts it back when the requirement returns.
+     KEYED BY `row_uid`, NOT POSITION — `ladderRows` can be SHORTER than
+     `rows` (the Yarn-Purchase-Based filter above), so `plan.rows[i]` no
+     longer lines up with `rows[i]` by index the way it always used to when
+     the two arrays were the same length. `mergeTaCompletions` below is
+     still fed one entry per `rows` row, in `rows`' own order — its own
+     `targetDates[i] ?? null` already treats a missing index as "no date",
+     which is exactly right for a row this save excluded from the ladder:
+     PP Send / PP Approval get `target_date: null` while every other row —
+     Materials In-House included, now chained straight off Cutting — gets
+     the date this SHORTER ladder actually computed for it. */
+  const targetDateByRowUid = isRefusal(plan)
+    ? new Map<string, string | null>()
+    : new Map(plan.rows.map((r) => [r.row_uid, r.target_date]));
+  const targetDates = rows.map((r) => targetDateByRowUid.get(r.row_uid) ?? null);
 
   /* CARRY THE DASHBOARD'S COLUMNS ACROSS. Pure, declared in `types.ts`, and
      vectored — see `mergeTaCompletions` there for why the rule lives outside
