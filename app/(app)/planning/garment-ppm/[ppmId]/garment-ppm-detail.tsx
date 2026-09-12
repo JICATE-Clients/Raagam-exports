@@ -319,7 +319,7 @@ function QuantitiesTab({ ppm }: { ppm: PpmDetail }) {
     { header: "Style",      cell: (r) => <span className="text-sm">{r.style_no ?? "--"}</span> },
     { header: "Article",    cell: (r) => <span className="text-sm">{r.article_no ?? "--"}</span> },
     { header: "UOM",        cell: (r) => <span className="text-xs text-muted-foreground">{r.uom_id ?? "--"}</span> },
-    { header: "Order Qty",    align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },
+    { header: "Cut Qty",    align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.order_qty)}</span> },
     { header: "Approval Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.approval_qty)}</span> },
     { header: "PPM Qty",      align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.ppm_qty)}</span> },
     { header: "Rate",         align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtMoney(r.rate)}</span> },

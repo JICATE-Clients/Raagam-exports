@@ -128,7 +128,7 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
     { header: "Customer", cell: (r) => r.buyer_name ?? "—" },
     { header: "Type", cell: (r) => r.sq_sub_type?.replace("_", " ") ?? "—" },
     { header: "Source", cell: (r) => r.sourcing_type?.replace("_", " ") ?? "—" },
-    { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.order_qty}</span> },
+    { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.order_qty}</span> },
     { header: "SQ Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.sq_qty}</span> },
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
     /* Confirm is the workflow step this screen exists for — its own labelled
@@ -227,7 +227,7 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
           </DetailSection>
           <DetailSection label="Quantities">
             <div>
-              <Label htmlFor="sq-qty">Order Qty</Label>
+              <Label htmlFor="sq-qty">Cut Qty</Label>
               <Input id="sq-qty" type="number" value={form.order_qty} onChange={(e) => setForm({ ...form, order_qty: e.target.value })} />
             </div>
             <div>

@@ -252,7 +252,7 @@ function PiEnquiryTab({ rows }: { rows: PiEnquiryRow[] }) {
               <div><Label>Style No</Label><Input className="w-24" value={piStyleForm.style_no} onChange={(e) => setPiStyleForm({ ...piStyleForm, style_no: e.target.value })} /></div>
               <div><Label>Description</Label><Input className="w-32" value={piStyleForm.style_description} onChange={(e) => setPiStyleForm({ ...piStyleForm, style_description: e.target.value })} /></div>
               <div><Label>Fabric</Label><Input className="w-24" value={piStyleForm.fabric_structure} onChange={(e) => setPiStyleForm({ ...piStyleForm, fabric_structure: e.target.value })} /></div>
-              <div><Label>Order Qty</Label><Input className="w-20" type="number" value={piStyleForm.order_qty} onChange={(e) => setPiStyleForm({ ...piStyleForm, order_qty: e.target.value })} /></div>
+              <div><Label>Cut Qty</Label><Input className="w-20" type="number" value={piStyleForm.order_qty} onChange={(e) => setPiStyleForm({ ...piStyleForm, order_qty: e.target.value })} /></div>
               <div><Label>Exp Qty</Label><Input className="w-20" type="number" value={piStyleForm.expected_order_qty} onChange={(e) => setPiStyleForm({ ...piStyleForm, expected_order_qty: e.target.value })} /></div>
               <Button size="sm" disabled={isPending} onClick={submitPiStyle}>{isPending ? "Adding…" : "Add"}</Button>
             </div>

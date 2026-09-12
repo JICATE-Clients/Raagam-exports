@@ -169,7 +169,7 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
                 <div><Label>Style No</Label><Input className="w-24" value={styleForm.style_no} onChange={(e) => setStyleForm({ ...styleForm, style_no: e.target.value })} /></div>
                 <div><Label>Description</Label><Input className="w-40" value={styleForm.style_description} onChange={(e) => setStyleForm({ ...styleForm, style_description: e.target.value })} /></div>
                 <div><Label>UOM</Label><Input className="w-16" value={styleForm.uom_id} onChange={(e) => setStyleForm({ ...styleForm, uom_id: e.target.value })} /></div>
-                <div><Label>Order Qty</Label><Input className="w-24" type="number" value={styleForm.order_qty} onChange={(e) => setStyleForm({ ...styleForm, order_qty: e.target.value })} /></div>
+                <div><Label>Cut Qty</Label><Input className="w-24" type="number" value={styleForm.order_qty} onChange={(e) => setStyleForm({ ...styleForm, order_qty: e.target.value })} /></div>
                 <Button size="sm" disabled={isPending} onClick={submitStyle}>{isPending ? "Adding…" : "Add"}</Button>
               </div>
             )}

@@ -48,7 +48,7 @@ const columns: Column<AcceptedOrderRow>[] = [
     ),
   },
   {
-    header: "Order Qty",
+    header: "Cut Qty",
     align: "right",
     cell: (row) => (
       <span className="tabular-nums text-sm">{row.order_qty ?? 0}</span>

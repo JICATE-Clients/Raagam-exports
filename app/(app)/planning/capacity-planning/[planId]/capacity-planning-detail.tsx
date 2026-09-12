@@ -192,7 +192,7 @@ function OrdersTab({
     { header: "RE No",     cell: (r) => <span className="text-sm">{r.sc_no ?? "--"}</span> },
     { header: "Customer",  cell: (r) => <span className="text-sm">{r.customer_name ?? "--"}</span> },
     { header: "Style",     cell: (r) => <span className="text-sm">{r.style_ref_no ?? "--"}</span> },
-    { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.order_qty}</span> },
+    { header: "Cut Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.order_qty}</span> },
     { header: "Location",  cell: (r) => <span className="text-sm">{r.location_name ?? "--"}</span> },
     { header: "Team",      cell: (r) => <span className="text-sm">{r.team_name ?? "--"}</span> },
     { header: "Plan Qty",  align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.plan_qty}</span> },
@@ -320,7 +320,7 @@ function OrdersTab({
                 />
               </div>
               <div>
-                <Label>Order Qty</Label>
+                <Label>Cut Qty</Label>
                 <Input
                   type="number"
                   min="0"

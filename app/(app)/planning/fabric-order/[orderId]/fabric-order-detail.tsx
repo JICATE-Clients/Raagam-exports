@@ -429,7 +429,7 @@ function FabricDetailsTab({ order }: { order: OrderDetail }) {
                       <th className="pb-2 pr-4">Type</th>
                       <th className="pb-2 pr-4">Stage</th>
                       <th className="pb-2 pr-4">GSM</th>
-                      <th className="pb-2 pr-4 text-right">Order Qty</th>
+                      <th className="pb-2 pr-4 text-right">Cut Qty</th>
                       <th className="pb-2 pr-4 text-right">Rate</th>
                       <th className="pb-2 text-right">Total Value</th>
                     </tr>
