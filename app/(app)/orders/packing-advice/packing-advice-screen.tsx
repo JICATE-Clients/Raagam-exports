@@ -20,6 +20,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { computeCbm } from "@/lib/orders/packing-advice/cbm";
 import {
   createPackingAdvice,
   updatePackingAdvice,
@@ -65,6 +66,11 @@ type LineRow = {
   /* Orphaned since 0033 — wired up 0557, doc/order/update.md §3.1. */
   gross_weight: string;
   net_weight: string;
+  /* 0558, doc/order/update.md §3.1. CBM is computed from these, never typed
+     or stored — see computeCbm(). */
+  length_cm: string;
+  width_cm: string;
+  height_cm: string;
 };
 
 type HeaderForm = {
@@ -144,6 +150,9 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
     measurement: "",
     gross_weight: "",
     net_weight: "",
+    length_cm: "",
+    width_cm: "",
+    height_cm: "",
   });
 
   const updateLine = (key: string, patch: Partial<LineRow>) =>
@@ -200,6 +209,9 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
             measurement: l.measurement ?? "",
             gross_weight: l.gross_weight != null ? String(l.gross_weight) : "",
             net_weight: l.net_weight != null ? String(l.net_weight) : "",
+            length_cm: l.length_cm != null ? String(l.length_cm) : "",
+            width_cm: l.width_cm != null ? String(l.width_cm) : "",
+            height_cm: l.height_cm != null ? String(l.height_cm) : "",
           }))
         : [blankLine()],
     );
@@ -236,6 +248,9 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
         measurement: l.measurement || null,
         gross_weight: numOrNull(l.gross_weight),
         net_weight: numOrNull(l.net_weight),
+        length_cm: numOrNull(l.length_cm),
+        width_cm: numOrNull(l.width_cm),
+        height_cm: numOrNull(l.height_cm),
       })),
     };
     start(async () => {
@@ -389,6 +404,19 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
       cell: (r) => <RecordPicker label="Unit" compact items={data.uoms} value={r.unit_id} onChange={(id) => updateLine(r.key, { unit_id: id })} />,
     },
     { header: "Measurement", cell: (r) => <Input className="h-8" uppercase value={r.measurement} onChange={(e) => updateLine(r.key, { measurement: e.target.value })} /> },
+    /* Length / Width / Height (0558, doc/order/update.md §3.1) — CBM below is
+       DERIVED from these three plus Ctns (`computeCbm`), never typed. */
+    { header: "Length (cm)", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.length_cm} onChange={(e) => updateLine(r.key, { length_cm: e.target.value })} /> },
+    { header: "Width (cm)", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.width_cm} onChange={(e) => updateLine(r.key, { width_cm: e.target.value })} /> },
+    { header: "Height (cm)", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.height_cm} onChange={(e) => updateLine(r.key, { height_cm: e.target.value })} /> },
+    {
+      header: "CBM",
+      align: "right",
+      cell: (r) => {
+        const cbm = computeCbm(n(r.length_cm) || null, n(r.width_cm) || null, n(r.height_cm) || null, n(r.ctns) || null);
+        return <Input readOnly className="h-8 bg-surface-muted text-right" value={cbm != null ? cbm.toFixed(3) : ""} />;
+      },
+    },
     /* Columns already existed on `packing_advice_lines` since 0033 but were
        never wired to a cell — see doc/order/update.md §3.1. Per carton, so
        they sit beside the rest of the line rather than on the header. */

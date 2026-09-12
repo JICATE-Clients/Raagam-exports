@@ -61,6 +61,12 @@ export interface PackingAdviceLine {
      has not weighed a carton yet leaves it blank rather than reading 0. */
   gross_weight: number | null;
   net_weight: number | null;
+  /* 0558, doc/order/update.md §3.1. CBM itself is NOT here — it is derived
+     from these three plus `ctns` by lib/orders/packing-advice/cbm.ts, never
+     stored. See that migration's own comment. */
+  length_cm: number | null;
+  width_cm: number | null;
+  height_cm: number | null;
   // embedded for display
   sc_no?: { id: string; order_number: string | null } | null;
 }
@@ -112,6 +118,9 @@ export const packingLineInput = z.object({
   measurement: nullableText,
   gross_weight: numN,
   net_weight: numN,
+  length_cm: numN,
+  width_cm: numN,
+  height_cm: numN,
 });
 export type PackingLineInput = z.infer<typeof packingLineInput>;
 
