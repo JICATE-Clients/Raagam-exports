@@ -733,6 +733,14 @@ export const personInput = z.object({
   pf_date_of_joining: optDate,
   pf_date_of_leaving: optDate,
 
+  /**
+   * The person's photograph (0557) — a public URL in the `employee-photos`
+   * bucket, written by `PhotoUpload`. Same column name and same bucket as
+   * `employees.photo_url` (0336), so the two people-shaped masters store a face
+   * one way.
+   */
+  photo_url: optText,
+
   /* ---- Enclosure (0556) — the documents a joiner hands in ---------------- */
   passbook_no: optText,
   ration_card_no: optText,
