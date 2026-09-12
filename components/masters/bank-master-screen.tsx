@@ -287,8 +287,15 @@ export function BankMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  /** Block / Unblock in the ⋮ — one implementation for every master listing. */
-  const { blockItem } = useBlockAction("bank");
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `bank` is registered in
+     `lib/masters/active-registry.ts`.
+
+     IT REPLACES `blockItem`, which used to sit in the ⋮ beside Duplicate. One
+     master, one control for the flag: leaving both would give a bank two places
+     to be blocked from, and the menu item would be the one that never says which
+     way the row is currently set. */
+  const { setStatus, isPending: statusPending } = useBlockAction("bank");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -502,12 +509,11 @@ export function BankMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.branches.length}</span>,
     },
-    {
-      header: "Status",
-      cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
-      ),
-    },
+    /* NO Status COLUMN DECLARED HERE, AND THE COLUMN IS STILL THERE.
+       `MasterListShell` splices it in because this screen passes
+       `onStatusChange` — a switch plus the word it is set to, clicking which
+       calls the status API directly. Declaring one here would be stripped as a
+       duplicate; see that prop. */
   ];
 
   /**
@@ -545,14 +551,19 @@ export function BankMasterScreen({
           onView: setViewRow,
           onEdit: openEdit,
           onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the switch
+             calls. `active` is stated positively; nothing here flips the boolean. */
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.name }),
           // Duplicate lives behind the ⋮ — it is a create, not row CRUD, and it
-          // is the only master that offers one.
-          menu: (r) => [
-            ...(perms.canCreate && perms.canEdit
+          // is the only master that offers one. Block / Unblock USED to sit here
+          // too; the Status switch replaced it — see `setStatus` above.
+          menu: (r) =>
+            perms.canCreate && perms.canEdit
               ? [{ label: "Duplicate", icon: Copy, onClick: () => openDuplicate(r) }]
-              : []),
-            ...blockItem(r, { label: r.name, canBlock: perms.canDelete }),
-          ],
+              : [],
         }}
         empty="No bank records yet."
         mobile={{
@@ -567,7 +578,7 @@ export function BankMasterScreen({
           onEdit: openEdit,
           onDelete: remove,
         }}
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       {/* editor */}

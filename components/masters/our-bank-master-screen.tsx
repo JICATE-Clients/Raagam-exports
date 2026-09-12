@@ -17,8 +17,15 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import {
+  rowActionsColumn,
+  ROW_ACTIONS_MENU_WIDTH,
+} from "@/components/ui/row-actions-column";
+import { isInactive } from "@/lib/masters/inactive";
+import { useBlockAction } from "@/components/masters/use-block-action";
+import { deletedToast } from "@/lib/masters/delete-message";
 import { DetailSection } from "@/components/masters/detail-section";
 import {
   createOurBank,
@@ -29,7 +36,6 @@ import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-che
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import type { OurBank, OurBankInput } from "@/lib/masters/our-bank-types";
 import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
-import { Toggle } from "@/components/ui/toggle";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -123,29 +129,25 @@ const OUR_BANK_W = {
  * DERIVED, NOT PICKED — the row, left to right, at the widths above:
  *
  *   176 + 88 + 112 + 88 + 144 + 144 + 112  =  864   the seven inputs
- *   36 + 8 + 52                            =   96   the Inactive switch: its
- *                                                   `w-9` track, the `gap-2`
- *                                                   inside `Toggle`, and its own
- *                                                   word (51.9px of Inter 400 at
- *                                                   14px). It carries no `w`, so
- *                                                   it hugs that and nothing
- *                                                   pads it.
- *   7 x 8                                  =   56   `gap="pack"`, the 8px the
+ *   6 x 8                                  =   48   `gap="pack"`, the 8px the
  *                                                   client asked for
- *   = 1016                                          the row
- *   + 2 x 8                                = 1032   `DetailSection`'s `p-2`
+ *   = 912                                           the row
+ *   + 2 x 8                                =  928   `DetailSection`'s `p-2`
  *
- * 65rem (1040px) leaves 8px over that — the same slack-not-wrap trade Country's
- * and Zone's caps make: the buttons must not be the thing that decides where the
- * row ends. It is 148px under the Sheet's own 1180px pane, which is the number
- * that had to clear and the reason `code` was unavailable for the names above.
+ * 65rem (1040px) leaves 112px over that — the same slack-not-wrap trade
+ * Country's and Zone's caps make: the buttons must not be the thing that decides
+ * where the row ends. It is 148px under the Sheet's own 1180px pane, which is
+ * the number that had to clear and the reason `code` was unavailable for the
+ * names above.
  *
- * Every term in that sum is now MEASURED rather than estimated, including the
- * switch's word — which was the one estimate here while `inactive` sat in a row
- * of its own and nothing depended on it. `nowrap` means a miss changes nothing
- * that folds, and 148px inside the pane absorbs any font fallback. On a NEW
- * record the toggle is not rendered at all and the row is 912px, left-aligned in
- * the same card.
+ * EVERY TERM IN THAT SUM IS NOW A DECLARED STEP. The eighth cell used to be the
+ * Inactive switch at ~96px, and it was the one estimate here — a switch carries
+ * no `w`, so its width was its own word measured in Inter 400. It became a row
+ * action on 2026-09-11 (see the note where it stood), so the row is seven cells
+ * in BOTH states and New and Edit are finally the same shape. The cap is left at
+ * 65rem rather than retightened: it is a ceiling, the row is left-aligned inside
+ * it, and lowering it would only mean re-deriving this block the next time a
+ * field is added.
  */
 const FORM_W = "max-w-[65rem]";
 
@@ -159,6 +161,10 @@ export function OurBankMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `our_bank` is registered in
+     `lib/masters/active-registry.ts`. */
+  const { setStatus, isPending: statusPending } = useBlockAction("our_bank");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -239,7 +245,14 @@ export function OurBankMasterScreen({
     startTransition(async () => {
       const res = await deleteOurBank(r.id);
       if (res.ok) {
-        success("Bank deleted.");
+        /* `deletedToast`, not a flat "Bank deleted." — `deleteOrDeactivate`
+           decides delete-vs-deactivate server-side, so only the RESULT knows
+           which happened. The old wording claimed a delete on every in-use bank,
+           and it went unnoticed because that branch could not be reached: the
+           action patched a `blocked` column dropped by 0305, so an in-use bank
+           errored rather than soft-disabling (fixed in `our-bank-actions.ts`
+           today). Fixing the write is what made the wrong toast reachable. */
+        success(deletedToast("Bank", res));
         router.refresh();
       } else {
         error(res.error);
@@ -253,23 +266,45 @@ export function OurBankMasterScreen({
     { header: "Bank Name", cell: (r) => <span className="text-sm">{r.bank_name ?? "—"}</span> },
     { header: "Branch", cell: (r) => <span className="text-sm">{r.branch_name ?? "—"}</span> },
     {
+      /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
+         API, with no editor in between. Same component as Country, Port, Bank
+         and Destination, so no two listings can drift.
+
+         This screen builds its own `DataTable` rather than going through
+         `MasterListShell`, so the cell is declared here instead of being spliced
+         in. That is the ONLY difference: the switch, its green, the word beside
+         it and the `isInactive` read are all `StatusToggle`'s. */
       header: "Status",
+      className: "w-32",
       cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
+        <StatusToggle
+          row={r}
+          label={r.account_name}
+          // Blocking is the destructive direction and `setMasterActive` gates it
+          // as `delete` server-side.
+          disabled={!perms.canDelete || isPending || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.account_name ?? r.account_no })}
+        />
       ),
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.account_name}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
+    rowActionsColumn(
+      (r) => (
+        /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
+           Delete behind a confirm dialog. The View is automatic —
+           `rowActionsColumn` publishes the row and the menu reads it, exactly as
+           `RowActions` did here before, so the eye this screen already had is
+           not lost. */
+        <TableRowActionsMenu
+          label={r.account_name}
+          onEdit={() => openEdit(r)}
+          onDelete={() => remove(r)}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      ),
+      ROW_ACTIONS_MENU_WIDTH,
+    ),
   ];
 
   return (
@@ -324,7 +359,17 @@ export function OurBankMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No bank records yet." />
+        {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
+            last one alone — the ⋮ must stay legible on a dimmed row, and
+            `opacity` on the `<tr>` would take it down with the text. Same rule
+            `MasterListShell` applies to the listings it owns. */}
+        <DataTable
+          columns={withCreatedColumns(columns, pg.paged)}
+          rows={pg.paged}
+          getKey={(r) => r.id}
+          rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
+          empty="No bank records yet."
+        />
       </div>
 
       {/* mobile cards */}
@@ -507,46 +552,28 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </Field>
-          {/* THE EIGHTH CELL OF THE ROW, not a row of its own (client
-              2026-09-10 lists Inactive among the fields to align). It was
-              deliberately separate until then, and the reason it could not be
-              was real: on a WRAPPING row its place depended on the switch
-              fitting beside Address — "an arithmetic nobody can check by
-              reading, since the toggle's width is its own word". `nowrap`
-              retires that objection rather than answering it. There is no fold
-              to land wrong, so the only question left is whether the row fits
-              the pane, and `FORM_W` above counts the switch into that sum with
-              92px of slack around the one estimate in it.
+          {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block option
+              move to that table listing — we are used to give that block while
+              CREATING the data but we need to move this in ACTION only, no more
+              in the creating screen"). It is the listing's Status column now: a
+              switch on the row, wired straight to `setStatus` above, with
+              `our_bank` registered in `lib/masters/active-registry.ts`.
 
-              It also keeps the property the old note wanted: `inactive` is LAST,
-              so New shows the same row as Edit with one cell missing from the
-              end rather than a different shape.
+              **The row control had to land first** — it is the only route to the
+              flag once the field is gone, so deleting the field on its own would
+              have made blocking a bank impossible rather than moved it. Same
+              order Country, Destination and Bank followed.
 
-              `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-              Entry uses) — the identical swap Country, Destination and Notify
-              made, and from the SAME component, so no two masters can drift
-              apart. It is still a real `<input type="checkbox">` underneath
-              (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
-              still counts it and Tab, Enter-advance and the arrows all reach it.
+              `form.inactive` is STILL in the form state and still round-trips
+              through `submit()`, so editing a blocked bank does not quietly
+              switch it back on. The value is simply no longer typed here.
 
-              `label=""` RESERVES the label row rather than drawing one: a cell
-              with no label at all collapses it and lifts the switch ~16px above
-              the labelled fields beside it — visible now that it stands IN the
-              row instead of under it. The switch renders its own word, so a
-              `label="Inactive"` here would draw the name twice.
-
-              No `w`: the switch hugs its own word, and a step from the
-              vocabulary would only pad it. */}
-          {editId && (
-            <Field label="">
-              <Toggle
-                id="ob-inactive"
-                label="Inactive"
-                checked={form.inactive}
-                onChange={(inactive) => setForm({ ...form, inactive })}
-              />
-            </Field>
-          )}
+              IT ALSO RETIRES THE ONE ESTIMATE IN `FORM_W` ABOVE. That sum
+              counted the switch's width from its own word, which is the only
+              term in the row arithmetic nobody could check by reading. Seven
+              cells now, all of them a declared step, and New and Edit finally
+              show the SAME row rather than one with a cell missing from the
+              end. */}
           </FieldRow>
         </DetailSection>
       </Sheet>

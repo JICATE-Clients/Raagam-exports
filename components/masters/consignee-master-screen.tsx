@@ -11,8 +11,14 @@ import { ValidatedInput } from "@/components/ui/validated-input";
 import { Field, FIELD_WIDTH, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { StatusToggle } from "@/components/ui/status-toggle";
+import {
+  rowActionsColumn,
+  ROW_ACTIONS_MENU_WIDTH,
+} from "@/components/ui/row-actions-column";
+import { isInactive } from "@/lib/masters/inactive";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -65,7 +71,6 @@ import type { Currency } from "@/lib/masters/types";
 import type { Bank } from "@/lib/masters/bank-types";
 import type { Notify } from "@/lib/masters/notify-types";
 import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
-import { Toggle } from "@/components/ui/toggle";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -485,28 +490,33 @@ const MARKING_W = "max-w-[25rem]";
  * argument that keeps Country at `code` beside `ADDRESS_W`'s City and State.
  * Customer is `code` for that reason too: it holds a party's name as well.
  *
- * TWO CELLS TAKE NO `w` AT ALL, and that is rule 1 rather than an omission: a
- * switch and a button are not among the five widths, and an unsized `Field` in a
- * flex row is exactly as wide as what is in it. `Toggle` is ~100px of switch plus
- * the word "Inactive"; the Fetch button is its own label, ~190px. Both are
- * measured below rather than named, and both must carry `label=""` — see the row.
+ * ONE CELL TAKES NO `w` AT ALL, and that is rule 1 rather than an omission: a
+ * button is not among the five widths, and an unsized `Field` in a flex row is
+ * exactly as wide as what is in it. The Fetch button is its own label, ~190px.
+ * It is measured below rather than named, and it must carry `label=""` — see
+ * the row.
  *
  * DERIVED, so it can be checked against the pane. `FIELD_ROW` puts 12px between
  * cells:
  *
- *   New    144 + 144 + 144 + 112 + ~190          =  734 + 4 x 12 =  782
- *   Edit   144 + 144 + 144 + 112 + ~100 + ~190   =  834 + 5 x 12 =  894
+ *   144 + 144 + 144 + 112 + ~190   =  734 + 4 x 12 =  782
  *
- * BOTH ON ONE LINE AT EVERY WINDOW THIS APP RUNS IN, which is the thing the
- * twelfths could not do at any size: four fields at 3 filled row 1 exactly, so
- * Inactive and Fetch were pushed onto a second row that left half of itself empty
- * — and the old map's own comment called that "a short second row" rather than
- * the hole it was.
+ * ONE SUM, NOT TWO, since 2026-09-11. There used to be a New row and a longer
+ * Edit row, because an edit-only Inactive switch stood in this line — ~100px of
+ * switch plus its word, the one estimate in the arithmetic. The switch is a row
+ * action now (see the note where it stood), so both states are these five cells
+ * and every term is a declared step bar the button.
+ *
+ * ON ONE LINE AT EVERY WINDOW THIS APP RUNS IN, which is the thing the twelfths
+ * could not do at any size: four fields at 3 filled row 1 exactly, so Inactive
+ * and Fetch were pushed onto a second row that left half of itself empty — and
+ * the old map's own comment called that "a short second row" rather than the
+ * hole it was.
  *
  * "EVERY WINDOW" IS A CLAIM WITH ARITHMETIC BEHIND IT, and the yardstick is the
  * one `GENERAL_W` derives below: content = min(viewport - 192 rail, 1440 cap) -
- * 32 padding, i.e. 1142 on a 1366 laptop and 1408 at 1920. 894 clears the
- * narrowest of those by 248px, so unlike General this row has no break width to
+ * 32 padding, i.e. 1142 on a 1366 laptop and 1408 at 1920. 782 clears the
+ * narrowest of those by 360px, so unlike General this row has no break width to
  * know about.
  *
  * AND IT WOULD WRAP RATHER THAN SCROLL IF IT EVER DID. This is a plain
@@ -769,6 +779,10 @@ export function ConsigneeMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* The Status SWITCH in the listing (client 2026-09-11). `setStatus` does the
+     write, the toast and the refresh; `consignee` is registered in
+     `lib/masters/active-registry.ts`. */
+  const { setStatus, isPending: statusPending } = useBlockAction("consignee");
   const isdOf = useIsdLookup(countries);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -1416,24 +1430,52 @@ export function ConsigneeMasterScreen({
       ),
     },
     {
+      /* A SWITCH, NOT A PILL (client 2026-09-11) — one click calls the status
+         API, with no editor in between. Same component as Country, Port, Bank
+         and Destination, so no two listings can drift.
+
+         This screen builds its own `DataTable` rather than going through
+         `MasterListShell`, so the cell is declared here instead of being spliced
+         in. That is the ONLY difference: the switch, its green, the word beside
+         it and the `isInactive` read are all `StatusToggle`'s.
+
+         DRAFT IS STILL SAID, and it is `StatusToggle`'s pill rather than this
+         screen's — `is_draft` is orthogonal to `inactive` (a draft consignee is
+         live or blocked like any other), so it can never be a switch position
+         and the two states are shown side by side. Writing the chip here instead
+         is how three masters ended up with three spellings of one cell. */
       header: "Status",
-      cell: (r) => {
-        const tone = r.is_draft ? "warning" : r.inactive ? "danger" : "success";
-        const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
-        return <StatusPill tone={tone}>{text}</StatusPill>;
-      },
+      className: "w-32",
+      cell: (r) => (
+        <StatusToggle
+          row={r}
+          label={r.name}
+          draft={r.is_draft}
+          // Blocking is the destructive direction and `setMasterActive` gates it
+          // as `delete` server-side.
+          disabled={!perms.canDelete || isPending || statusPending}
+          onChange={(active) => setStatus(r, active, { label: r.name })}
+        />
+      ),
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.name}
-        onView={() => setViewRow(r)}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
+    rowActionsColumn(
+      (r) => (
+        /* One ⋮ per row instead of three inline icons: View, Edit, a rule, then
+           Delete behind a confirm dialog. `onView` stays the screen's own — it
+           opens the purpose-built `RecordViewSheet` below, which always wins over
+           the menu's row-derived one. */
+        <TableRowActionsMenu
+          label={r.name}
+          onView={() => setViewRow(r)}
+          onEdit={() => openEdit(r)}
+          onDelete={() => remove(r)}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      ),
+      ROW_ACTIONS_MENU_WIDTH,
+    ),
   ];
 
   /**
@@ -1640,7 +1682,17 @@ export function ConsigneeMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No consignees yet." />
+        {/* `rowClassName` dims a switched-off row's DATA cells and leaves the
+            last one alone — the ⋮ must stay legible on a dimmed row, and
+            `opacity` on the `<tr>` would take it down with the text. Same rule
+            `MasterListShell` applies to the listings it owns. */}
+        <DataTable
+          columns={withCreatedColumns(columns, filtered)}
+          rows={filtered}
+          getKey={(r) => r.id}
+          rowClassName={(r) => (isInactive(r) ? "[&>td:not(:last-child)]:opacity-60" : undefined)}
+          empty="No consignees yet."
+        />
       </div>
 
       {/* mobile cards */}
@@ -1835,55 +1887,32 @@ export function ConsigneeMasterScreen({
                         <option value="yes">Yes</option>
                       </Select>
                     </Field>
-                    {/* Edit only, so it takes a short SECOND row rather than a
-                        share of the first — row 1 then looks identical in New
-                        and in Edit. It used to sit outside the track entirely,
-                        which cost Edit a `space-y-4` gap plus a loose row that
-                        started at the grid's left edge and left 9 of 12 columns
-                        empty: the "extra space in the edit form" the client
-                        reported (2026-07-31).
+                    {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17:
+                        "block option move to that table listing — we are used to
+                        give that block while CREATING the data but we need to
+                        move this in ACTION only, no more in the creating
+                        screen"). It is the listing's Status column now: a switch
+                        on the row, wired straight to `setStatus` above, with
+                        `consignee` registered in
+                        `lib/masters/active-registry.ts`.
 
-                        IT IS NOT A SECOND ROW ANY MORE. That note describes the
-                        twelfths, where four fields at 3 filled row 1 exactly and
-                        left this switch nowhere to go but a line of its own with
-                        three quarters of it empty — the same hole one step in.
-                        Off the track (`IDENTITY_W`) the row is 894px of six
-                        cells, which clears the narrowest content width this app
-                        gets (1142, on a 1366 laptop — `GENERAL_W` derives it),
-                        so the switch simply follows Also Notify on the SAME line
-                        and New and Edit differ by one cell rather than by a row.
+                        **The row control had to land first** — it is the only
+                        route to the flag once the field is gone, so deleting the
+                        field on its own would have made blocking a consignee
+                        impossible rather than moved it. Same order Country,
+                        Destination and Bank followed.
 
-                        The objection to putting it in the track was real — a
-                        bare switch has no <Label> above it, so it would align
-                        to its neighbours' LABELS rather than their controls.
-                        `Toggle`'s own `min-h-9` and the `label=""` below are
-                        the two halves of the answer. */}
-                    {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch Order
-                        Entry uses) — the identical swap Country, Destination and Notify
-                        made, and from the SAME component, so no two masters can drift
-                        apart. It is still a real `<input type="checkbox">` underneath
-                        (`components/ui/toggle.tsx` says why at length), so `isFieldLike()`
-                        still counts it and Tab, Enter-advance and the arrows all reach it.
+                        `form.inactive` is STILL in the form state and still
+                        round-trips through `submit()`, so editing a blocked
+                        consignee does not quietly switch it back on. The value
+                        is simply no longer typed here.
 
-                        `label=""` RESERVES the label row rather than drawing one: a cell
-                        with no label at all collapses it and lifts the switch ~16px above
-                        the labelled fields beside it — and `align="start"` on the row makes
-                        that WORSE rather than moot, since a cell with no label now starts
-                        its control at the row's very top. The switch renders its own word,
-                        so a `label="Inactive"` here would draw the name twice.
-
-                        NO `w`: a switch is not one of the five widths, and an unsized
-                        `Field` in a flex row is exactly as wide as what is in it. */}
-                    {editId && (
-                      <Field label="">
-                        <Toggle
-                          id="cn-inactive"
-                          label="Inactive"
-                          checked={form.inactive}
-                          onChange={(inactive) => set({ inactive })}
-                        />
-                      </Field>
-                    )}
+                        IT ALSO ENDS THE ROW'S TWO SHAPES. The long note this
+                        replaced was three rounds of argument about where an
+                        edit-only cell should sit — a second row, then the sixth
+                        cell of the first — because New and Edit could not show
+                        the same row while the field existed on one of them. They
+                        show the same five cells now, in both states. */}
                     {/* The row's last cell. `label=""`, not an absent label: the
                         button says what it does and a word above it would only
                         repeat the words underneath, but the label ROW still has

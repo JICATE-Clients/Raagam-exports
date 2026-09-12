@@ -36,6 +36,7 @@ export function Toggle({
   ariaLabel,
   id,
   disabled = false,
+  tone = "primary",
   className,
 }: {
   checked: boolean;
@@ -67,6 +68,25 @@ export function Toggle({
   ariaLabel?: string;
   id?: string;
   disabled?: boolean;
+  /**
+   * The colour of the ON state. `primary` (brand blue) is the default and what
+   * every form switch in the app takes.
+   *
+   * `success` exists for ONE job: a switch that reports a record's ACTIVE /
+   * INACTIVE status in a listing (`StatusToggle`). It is not a decoration -
+   * green is already this app's settled colour for that exact fact, carried by
+   * `--success` in every Active status pill in the app. A status switch painted
+   * brand blue would be the only Active indicator in the app that is not green.
+   *
+   * IT IS A PROP RATHER THAN A CALL-SITE `className` ON PURPOSE. The ON colour
+   * is set by `peer-checked:bg-*` on an inner span, which the label's own
+   * `className` cannot reach - so a call site trying to recolour this would end
+   * up reaching in with an arbitrary variant that breaks the moment the markup
+   * moves. The note on `label` below says track colour is the component's; this
+   * is how the component offers a second one, and the list is deliberately two
+   * long.
+   */
+  tone?: "primary" | "success";
   className?: string;
 }) {
   return (
@@ -101,13 +121,20 @@ export function Toggle({
              flips with the theme; `border-border-strong` gives the pill an edge
              that survives the same monitor the gridlines were lost on. */
           "relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border-strong bg-switch-off transition-colors",
-          /* ON stays --primary, and the gap between the two states is now a hue
-             change AND a lightness change rather than lightness alone. */
-          "peer-checked:border-primary peer-checked:bg-primary",
+          /* ON is --primary by default, and the gap between the two states is a
+             hue change AND a lightness change rather than lightness alone.
+             `tone="success"` swaps in the green this app already uses for an
+             Active record - see the prop. */
+          tone === "success"
+            ? "peer-checked:border-success peer-checked:bg-success"
+            : "peer-checked:border-primary peer-checked:bg-primary",
           // The focus ring lands on the TRACK because the input itself is
           // `sr-only` and has no box to draw one on. `focus-visible`, not
           // `focus`, so a mouse click does not leave a ring behind.
-          "peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 peer-focus-visible:ring-offset-1",
+          "peer-focus-visible:ring-2 peer-focus-visible:ring-offset-1",
+          tone === "success"
+            ? "peer-focus-visible:ring-success/40"
+            : "peer-focus-visible:ring-primary/40",
           // VARIANT ORDER MATTERS: `peer-checked:[&>span]:…` compiles to
           // `.peer:checked ~ .track > span`, which is the knob. Written the other
           // way round the peer relationship is resolved against the KNOB's own

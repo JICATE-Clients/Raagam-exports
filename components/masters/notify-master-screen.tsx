@@ -11,11 +11,11 @@ import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Toggle } from "@/components/ui/toggle";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -298,6 +298,10 @@ export function NotifyMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /* Active / Inactive from the listing's Status switch. `notify` is registered
+     in `lib/masters/active-registry.ts` (table `notifies`); `setStatus` does the
+     write, the toast and the refresh, so this screen never touches the flag. */
+  const { setStatus, isPending: statusPending } = useBlockAction("notify");
   const isdOf = useIsdLookup(countries);
   const [open, setOpen] = useState(false);
   /** The record being LOOKED at — read-only, never the editor's record. */
@@ -659,12 +663,11 @@ export function NotifyMasterScreen({
         </span>
       ),
     },
-    {
-      header: "Status",
-      cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
-      ),
-    },
+    /* NO Status COLUMN DECLARED HERE, AND THE COLUMN IS STILL THERE.
+       `MasterListShell` splices it in because this screen passes
+       `onStatusChange` — a switch plus the word it is set to, clicking which
+       calls the status API directly (client 2026-09-11). Declaring one here
+       would be stripped as a duplicate; see that prop. */
   ];
 
   /**
@@ -722,7 +725,21 @@ export function NotifyMasterScreen({
         addLabel="+ Add Notify"
         onAdd={openAdd}
         columns={columns}
-        actions={{ onView: setViewRow, onEdit: openEdit, onDelete: remove }}
+        actions={{
+          /* This screen has a BESPOKE view sheet, so it passes its own `onView`
+             rather than taking the shell's columns-derived one. That still wins
+             inside the ⋮ menu — the menu reads whichever `onView` reached it. */
+          onView: setViewRow,
+          onEdit: openEdit,
+          onDelete: remove,
+          /* One ⋮ per row instead of three inline icons: View, Edit, a rule,
+             then Delete behind a confirm dialog. */
+          variant: "menu",
+          /* Gives the list its Status column of switches, and is what the switch
+             calls. `active` is stated positively; nothing here flips the
+             boolean — `setStatus` does the write, the toast and the refresh. */
+          onStatusChange: (r, active) => setStatus(r, active, { label: r.name }),
+        }}
         empty="No notify parties yet."
         mobile={{
           title: (r) => r.name,
@@ -745,7 +762,7 @@ export function NotifyMasterScreen({
           onEdit: openEdit,
           onDelete: remove,
         }}
-        isPending={isPending}
+        isPending={isPending || statusPending}
       />
 
       {/* editor */}
@@ -890,52 +907,31 @@ export function NotifyMasterScreen({
                     canDelete={perms.canDelete}
                   />
                 </Field>
-                {/* `Toggle`, NOT A TICK BOX (client 2026-09-08: the same switch
-                    Order Entry uses) — the identical swap the sibling Country and
-                    Destination masters made, and from the SAME component, so the
-                    three masters and Garment Order's Pack / Multi Style switches
-                    cannot drift apart. Size, track colour and the ON `--primary`
-                    are `Toggle`'s, not this screen's, which is the whole point of
-                    asking for "the same as Order Entry".
+                {/* NO INACTIVE SWITCH HERE ANY MORE (client 2026-08-17: "block
+                    option move to that table listing — we are used to give that
+                    block while CREATING the data but we need to move this in
+                    ACTION only, no more in the creating screen"). It is the
+                    listing's Status column now: a switch on the row, wired
+                    straight to `setStatus` above, with `notify` registered in
+                    `lib/masters/active-registry.ts`.
 
-                    IT IS STILL A REAL CHECKBOX UNDERNEATH, and that is what makes
-                    the swap safe rather than merely pretty. `Toggle` keeps an
-                    `sr-only` `<input type="checkbox">` and draws the switch with
-                    its siblings, because `isFieldLike()` (lib/focus.ts) counts an
-                    `<input>` and NOT a `<button role="switch">` — the obvious
-                    build would have dropped this flag off Tab, off Enter-advance
-                    and off the arrows, leaving it mouse-only. Tab reaches it,
-                    Enter and Space toggle it, and a screen reader still announces
-                    a checkbox.
+                    **The row control had to land first** — it is the only route
+                    to the flag once the field is gone, so deleting the field on
+                    its own would have made blocking a notify party impossible
+                    rather than moved it. Same order Country, Port and Payment
+                    Term followed.
 
-                    `label=""` RESERVES THE LABEL ROW, and it is the alignment fix
-                    rather than decoration. It survived the move off the twelfths
-                    track unchanged, and for the same reason one step along: the
-                    row is now `align="start"` (see the note above the `FieldRow`),
-                    so a cell with no label at all starts its control at the row's
-                    TOP and stands ~16px above every labelled field beside it —
-                    the documented 2026-08-11 fault, and what put this switch above
-                    the centre line of the Name and Country boxes. Country needs no
-                    such spacer: `CountryPicker` renders its own `Label`, so its
-                    cell already opens with one. The spacer goes through the real
-                    `Label`, so the reserved row keeps that component's own
-                    `@2xl/editor` metrics instead of a second copy of them.
+                    `form.inactive` is STILL in the form state and still
+                    round-trips through `submit()`, so editing a blocked party
+                    does not quietly switch it back on. It also still draws the
+                    Inactive badge in this editor's own header, which is the one
+                    place the state has to remain VISIBLE while the field that
+                    set it is gone.
 
-                    No `label="Inactive"` on the Field: the switch renders its own
-                    words, and two labels would draw the name twice. */}
-                {editId && (
-                  /* No `w`: a switch is not one of the five widths, and an
-                     unsized `Field` in a flex row is exactly as wide as what is
-                     in it. */
-                  <Field label="">
-                    <Toggle
-                      id="nt-inactive"
-                      label="Inactive"
-                      checked={form.inactive}
-                      onChange={(inactive) => set({ inactive })}
-                    />
-                  </Field>
-                )}
+                    The `label=""` alignment spacer went with it. That note is
+                    not lost — the same reasoning still governs any unlabelled
+                    cell in an `align="start"` row, and the `FieldRow` above
+                    carries it. */}
               </FieldRow>
             </DetailSection>
               </SectionBody>

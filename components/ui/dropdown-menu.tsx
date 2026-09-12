@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MoreVertical, type LucideIcon } from "lucide-react";
+import { Check, MoreVertical, type LucideIcon } from "lucide-react";
+import { StatusDot } from "@/components/ui/status-pill";
+import type { StatusTone } from "@/lib/ui/tone";
 import { cn } from "@/lib/utils";
 
 export interface DropdownItem {
@@ -28,6 +30,46 @@ export interface DropdownItem {
    * own label, which is why a section must never carry meaning the label omits.
    */
   section?: string;
+  /**
+   * Draw a rule above this item.
+   *
+   * ## A PROPERTY OF THE ITEM, FOR THE SAME REASON `section` IS ONE
+   *
+   * The obvious spelling - a `{ kind: "separator" }` entry in `items` - is the
+   * bug `section` above already records: `onMenuKeyDown` walks `items` by INDEX
+   * and `activate` reads `items[active]`, so a non-actionable element of that
+   * array becomes a stop the arrows can land on and Enter does nothing from.
+   * Every element of `items` stays an action; the rule is drawn beside one.
+   *
+   * Rendered as a real `role="separator"` element rather than a border on the
+   * button, so a screen reader announces the grouping instead of inferring it
+   * from a line it cannot see. It is skipped at index 0, where it would only
+   * underline the menu's own top border.
+   */
+  separatorBefore?: boolean;
+  /**
+   * A filled status dot in place of the icon - the Active (green) / Inactive
+   * (grey) pair in a row-actions menu.
+   *
+   * `StatusDot` is the app's one dot, so these are the same green and grey the
+   * `StatusPill` beside them uses. `icon` still works and wins if both are set;
+   * an item should not carry two glyphs.
+   */
+  dot?: StatusTone;
+  /**
+   * Makes this item a RADIO rather than a plain command: `role="menuitemradio"`
+   * plus `aria-checked`, and a tick on the right when true.
+   *
+   * Use it for items that report a state the menu can switch between (Active /
+   * Inactive), never for one that merely performs an action. `undefined` - the
+   * default, and what every existing menu passes - leaves the item a plain
+   * `menuitem`, so this lands without touching the ~40 menus already open.
+   *
+   * A CHECKED ITEM IS STILL CLICKABLE, deliberately. Disabling it would grey
+   * out the one line that says what the row currently IS, and re-selecting the
+   * current state is a harmless no-op the handler can drop.
+   */
+  checked?: boolean;
 }
 
 /**
@@ -160,6 +202,11 @@ export function DropdownMenu({
                 item.section && item.section !== items[i - 1]?.section ? item.section : null;
               return (
                 <div key={item.label}>
+                  {/* Skipped at index 0 - a rule there would only thicken the
+                      menu's own top border. Same reasoning as the heading. */}
+                  {item.separatorBefore && i > 0 && (
+                    <div role="separator" className="my-1 border-t border-border" />
+                  )}
                   {heading && (
                     <div
                       aria-hidden
@@ -176,7 +223,8 @@ export function DropdownMenu({
                   )}
                 <button
                   type="button"
-                  role="menuitem"
+                  role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+                  aria-checked={item.checked}
                   disabled={item.disabled}
                   onClick={() => activate(item)}
                   onMouseEnter={() => setActive(i)}
@@ -186,8 +234,24 @@ export function DropdownMenu({
                     item.danger ? "text-danger" : "text-foreground",
                   )}
                 >
-                  {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                  {item.label}
+                  {/* `icon` wins over `dot` - an item should not carry two
+                      glyphs, and every existing menu passes an icon. The dot is
+                      boxed to an icon's width so a mixed menu still aligns. */}
+                  {Icon ? (
+                    <Icon className="h-4 w-4 shrink-0" />
+                  ) : item.dot ? (
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                      <StatusDot tone={item.dot} />
+                    </span>
+                  ) : null}
+                  {/* `flex-1` so the tick below sits at the right edge; NO
+                      `truncate` - a clipped menu label hides the action the
+                      operator is about to take, which is exactly the dead end
+                      AGENTS.md "Truncated values" forbids. A long label wraps
+                      inside the 176px menu instead, which is also what the bare
+                      text node here did before it was wrapped in a span. */}
+                  <span className="min-w-0 flex-1">{item.label}</span>
+                  {item.checked && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
                 </button>
                 </div>
               );

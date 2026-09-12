@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { portInput, type PortInput } from "./port-types";
-import { deleteOrBlock } from "./delete-guard";
+import { deleteOrDeactivate } from "./delete-guard";
 import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
 function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
@@ -55,12 +56,22 @@ export async function updatePort(id: string, data: PortInput): Promise<Result> {
   return { ok: true };
 }
 
-export async function deletePort(id: string): Promise<Result> {
+/**
+ * SOFT-DISABLES A PORT THAT IS STILL REFERENCED, since 0547 gave `ports` an
+ * `inactive` column.
+ *
+ * It called `deleteOrBlock` before that, which is the flagless masters' path:
+ * a referenced row could not be deleted and there was nothing to switch off
+ * instead, so the operator was told "In use by Customers — cannot delete." and
+ * had no way to retire the berth at all. With the flag it takes the same route
+ * every other Associates master takes, and the caller's toast says which of the
+ * two happened (`deletedToast`) rather than promising a deletion.
+ */
+export async function deletePort(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  // No inactive flag on ports — block (with a "used by X" message) when referenced.
-  const res = await deleteOrBlock(s, "ports", id);
+  const res = await deleteOrDeactivate(s, "ports", id, "inactive");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

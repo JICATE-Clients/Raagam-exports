@@ -50,15 +50,32 @@ import { RowActionsCell } from "@/components/ui/row-actions";
 export const ROW_ACTIONS_WIDTH = "w-40";
 
 /**
+ * The same column when the cell is a single collapsed menu button
+ * (`TableRowActionsMenu`) rather than three icons plus a confirm strip.
+ *
+ * `ROW_ACTIONS_WIDTH` is sized for the widest state the icon cluster ever has -
+ * `Delete? [Cancel] [Confirm]` - so that clicking the bin does not reflow the
+ * table. A menu cell never has that state: the confirm moved into a dialog, and
+ * what is left is one 32px button. Keeping 160px would hand every such listing
+ * 128px of reserved whitespace for nothing, which is the opposite of what the
+ * width discipline in this repo is for.
+ */
+export const ROW_ACTIONS_MENU_WIDTH = "w-16";
+
+/**
  * Build the trailing actions column. Keeps header/align/width in one place so a
  * screen cannot get the column geometry subtly wrong, and publishes the row so
  * the eye works without any further wiring.
  */
-export function rowActionsColumn<T>(cell: (row: T) => ReactNode): Column<T> {
+export function rowActionsColumn<T>(
+  cell: (row: T) => ReactNode,
+  /** Narrower geometry for a collapsed menu cell - see ROW_ACTIONS_MENU_WIDTH. */
+  width: string = ROW_ACTIONS_WIDTH,
+): Column<T> {
   return {
     header: "",
     align: "right",
-    className: ROW_ACTIONS_WIDTH,
+    className: width,
     cell: (row) => <RowActionsCell row={row}>{cell(row)}</RowActionsCell>,
   };
 }
