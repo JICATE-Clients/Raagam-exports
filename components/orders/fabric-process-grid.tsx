@@ -62,6 +62,7 @@ import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
   MAX_ROUTE_STAGES,
   blankFabricProcess,
+  dyeingBlocked,
   fabricProcessRowStarted,
   printBlocked,
   processesForFabric,
@@ -80,6 +81,7 @@ export function FabricProcessGrid({
   lookups,
   newKey,
   printDeclared,
+  fabricIsYarnDyed = false,
   canCreate = false,
   canEdit = false,
   readOnly = false,
@@ -113,6 +115,12 @@ export function FabricProcessGrid({
   /** Has the order declared an AOP / Roll form print? (0528) — withheld from
    *  "Print" processes in the Process picker until it is. */
   printDeclared: boolean;
+  /** Is THIS fabric Yarn-Dyed? (0557, doc/order/update.md §7.3) — withholds
+   *  "Dyeing"-flagged processes from the Process picker, since a yarn-dyed
+   *  fabric's dyeing loss is already carried on the Yarn Process tab and a
+   *  Fabric Dyeing step here would double it. Defaults `false` (never
+   *  withhold) so an unfilled call site sees every process it always has. */
+  fabricIsYarnDyed?: boolean;
   canCreate?: boolean;
   canEdit?: boolean;
   readOnly?: boolean;
@@ -203,7 +211,7 @@ export function FabricProcessGrid({
           <RecordPicker
             label=""
             compact
-            items={processesForFabric(processes, { currentValue: r.process_id, printDeclared })}
+            items={processesForFabric(processes, { currentValue: r.process_id, printDeclared, fabricIsYarnDyed })}
             value={r.process_id}
             onChange={(id) => patch(r.key, { process_id: id })}
             disabled={readOnly}
@@ -225,6 +233,17 @@ export function FabricProcessGrid({
             <div className="mt-0.5 text-xs text-warning">
               Print details are not available — add a Roll form print on
               Color/Print Details first.
+            </div>
+          )}
+          {/* 0557 — this fabric's Type was set to Yarn Dyed AFTER this row
+              already named a Dyeing process (the dyeing loss for a yarn-dyed
+              fabric belongs on the Yarn Process tab instead). Same "held
+              value survives, tagged" idiom as `printBlocked` above — never
+              silently dropped. */}
+          {dyeingBlocked(r, processes, fabricIsYarnDyed) && (
+            <div className="mt-0.5 text-xs text-warning">
+              Dyeing is not needed here — this fabric is Yarn Dyed, so its
+              dyeing loss is carried on the Yarn Process tab instead.
             </div>
           )}
         </div>

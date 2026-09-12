@@ -690,7 +690,7 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
   // select over a MISSING column with an error rather than nulls.
   const { data } = await s
     .from("processes")
-    .select("id, name, inactive, for_fabric, is_print")
+    .select("id, name, inactive, for_fabric, is_print, is_dyeing")
     .order("name");
   return ((data ?? []) as {
     id: string;
@@ -698,6 +698,7 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     inactive: boolean | null;
     for_fabric: boolean | null;
     is_print: boolean | null;
+    is_dyeing: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
@@ -705,6 +706,7 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     inactive: p.inactive ?? false,
     for_fabric: p.for_fabric ?? false,
     is_print: p.is_print ?? false,
+    is_dyeing: p.is_dyeing ?? false,
   }));
 }
 

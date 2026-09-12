@@ -56,6 +56,11 @@ export interface PackingAdviceLine {
   total_qty: number;
   unit_id: string | null;
   measurement: string | null;
+  /* Orphaned since 0033 (never read/written outside the DB) — wired up
+     0557, doc/order/update.md §3.1. Per carton, nullable: an operator who
+     has not weighed a carton yet leaves it blank rather than reading 0. */
+  gross_weight: number | null;
+  net_weight: number | null;
   // embedded for display
   sc_no?: { id: string; order_number: string | null } | null;
 }
@@ -85,6 +90,9 @@ export interface PackingAdvice {
 const nullableText = z.string().optional().nullable();
 const uuidN = z.string().uuid().nullable().default(null);
 const num = z.coerce.number().default(0);
+/** Unlike `num` above, a weight genuinely has no default — an uncaptured
+ *  carton weight is "not weighed yet", not zero. */
+const numN = z.coerce.number().nullable().default(null);
 
 export const packingLineInput = z.object({
   sort_order: z.coerce.number().int().nonnegative().default(0),
@@ -102,6 +110,8 @@ export const packingLineInput = z.object({
   total_qty: num,
   unit_id: uuidN,
   measurement: nullableText,
+  gross_weight: numN,
+  net_weight: numN,
 });
 export type PackingLineInput = z.infer<typeof packingLineInput>;
 

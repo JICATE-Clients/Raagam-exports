@@ -41,6 +41,11 @@ export interface Process {
    *  has declared a Roll form print / AOP. Seeded once from names already
    *  containing PRINT; an operator-maintained flag from here on. */
   is_print: boolean;
+  /** Is this a FABRIC-STAGE Dyeing process? (0557) — read by the Fabric BOM ▸
+   *  Fabric Process picker to withhold Dyeing from a Yarn-Dyed fabric's
+   *  offered route, same shape as `is_print` above. Seeded once from
+   *  `for_fabric` processes already named DYE/DYEING; operator-maintained. */
+  is_dyeing: boolean;
   has_sub_categories: boolean;
   sl_no: number;
   inactive: boolean;
@@ -70,6 +75,7 @@ export const processInput = z.object({
   designwise_delivery: z.boolean().default(false),
   is_conversion: z.boolean().default(false),
   is_print: z.boolean().default(false),
+  is_dyeing: z.boolean().default(false),
   has_sub_categories: z.boolean().default(false),
   sl_no: z.coerce.number().int().default(9),
   inactive: z.boolean().default(false),

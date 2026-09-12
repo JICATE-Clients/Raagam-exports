@@ -71,6 +71,10 @@ export type FabricProcessOption = {
    *  `processesForFabric` reads it to refuse "Print" until the order has
    *  declared a Roll form print / AOP. */
   is_print: boolean;
+  /** Is this a FABRIC-STAGE Dyeing step? (0557) — `processesForFabric` reads
+   *  it to withhold Dyeing from a Yarn-Dyed fabric's offered route (doc/order/
+   *  update.md §7.3: "skip the standard Fabric Dyeing stage logic"). */
+  is_dyeing: boolean;
 };
 
 /**
@@ -163,14 +167,28 @@ export const blankFabricProcess = (
  * function are not the Fabric Process screen (`processesForFabric.spec`-style
  * unit tests, storybook, …), and a gate that silently activates itself would
  * be a worse surprise than one a caller must opt into is safe.
+ *
+ * `fabricIsYarnDyed` IS THE 0557 GATE (doc/order/update.md §7.3) — withhold a
+ * `is_dyeing`-flagged process from a Yarn-Dyed fabric's route, since a
+ * yarn-dyed fabric's dyeing loss is already carried on the YARN side
+ * (`order_fabric_bom_yarn_stages`, 0493) and a Fabric Dyeing step here would
+ * double it. Same idiom as `printDeclared` in every respect: withheld from the
+ * OFFERED list rather than blocked after the fact, a row that already holds
+ * one survives via `currentValue`, and it defaults `false` (never withhold)
+ * for the same "most callers are not this screen" reason `printDeclared`
+ * defaults `true` — an unfilled call site should see every process it always
+ * has, not silently start hiding Dyeing.
  */
 export function processesForFabric(
   options: readonly FabricProcessOption[],
-  opts: { currentValue?: string | null; printDeclared?: boolean } = {},
+  opts: { currentValue?: string | null; printDeclared?: boolean; fabricIsYarnDyed?: boolean } = {},
 ): FabricProcessOption[] {
   const held = opts.currentValue ?? null;
   const printDeclared = opts.printDeclared ?? true;
-  const flagged = options.filter((p) => p.for_fabric && (printDeclared || !p.is_print));
+  const fabricIsYarnDyed = opts.fabricIsYarnDyed ?? false;
+  const flagged = options.filter(
+    (p) => p.for_fabric && (printDeclared || !p.is_print) && (!fabricIsYarnDyed || !p.is_dyeing),
+  );
   if (!held || flagged.some((p) => p.id === held)) return flagged;
   const kept = options.find((p) => p.id === held);
   return kept ? [...flagged, kept] : flagged;
@@ -223,6 +241,23 @@ export function printBlocked(
 ): boolean {
   if (printDeclared || !row.process_id) return false;
   return !!options.find((p) => p.id === row.process_id)?.is_print;
+}
+
+/**
+ * Does this row hold a Dyeing process on a fabric that is now Yarn-Dyed? The
+ * inline twin of `fabricIsYarnDyed` in `processesForFabric` — that function
+ * withholds Dyeing from the OFFERED list; this one says why a row that
+ * already holds one (added before the fabric's Type was set to Yarn Dyed, or
+ * before this gate existed) is showing a process the operator could not pick
+ * again today. Same idiom as `printBlocked` immediately above.
+ */
+export function dyeingBlocked(
+  row: Pick<FabricProcessRow, "process_id">,
+  options: readonly FabricProcessOption[],
+  fabricIsYarnDyed: boolean,
+): boolean {
+  if (!fabricIsYarnDyed || !row.process_id) return false;
+  return !!options.find((p) => p.id === row.process_id)?.is_dyeing;
 }
 
 /**

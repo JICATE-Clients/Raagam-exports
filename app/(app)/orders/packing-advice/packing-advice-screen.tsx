@@ -62,6 +62,9 @@ type LineRow = {
   total_qty: string;
   unit_id: string | null;
   measurement: string;
+  /* Orphaned since 0033 — wired up 0557, doc/order/update.md §3.1. */
+  gross_weight: string;
+  net_weight: string;
 };
 
 type HeaderForm = {
@@ -139,6 +142,8 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
     total_qty: "",
     unit_id: null,
     measurement: "",
+    gross_weight: "",
+    net_weight: "",
   });
 
   const updateLine = (key: string, patch: Partial<LineRow>) =>
@@ -193,6 +198,8 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
             total_qty: l.total_qty ? String(l.total_qty) : "",
             unit_id: l.unit_id,
             measurement: l.measurement ?? "",
+            gross_weight: l.gross_weight != null ? String(l.gross_weight) : "",
+            net_weight: l.net_weight != null ? String(l.net_weight) : "",
           }))
         : [blankLine()],
     );
@@ -227,6 +234,8 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
         total_qty: numOrNull(l.total_qty) ?? 0,
         unit_id: l.unit_id,
         measurement: l.measurement || null,
+        gross_weight: numOrNull(l.gross_weight),
+        net_weight: numOrNull(l.net_weight),
       })),
     };
     start(async () => {
@@ -380,6 +389,11 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
       cell: (r) => <RecordPicker label="Unit" compact items={data.uoms} value={r.unit_id} onChange={(id) => updateLine(r.key, { unit_id: id })} />,
     },
     { header: "Measurement", cell: (r) => <Input className="h-8" uppercase value={r.measurement} onChange={(e) => updateLine(r.key, { measurement: e.target.value })} /> },
+    /* Columns already existed on `packing_advice_lines` since 0033 but were
+       never wired to a cell — see doc/order/update.md §3.1. Per carton, so
+       they sit beside the rest of the line rather than on the header. */
+    { header: "Net Wt", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.net_weight} onChange={(e) => updateLine(r.key, { net_weight: e.target.value })} /> },
+    { header: "Gross Wt", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.gross_weight} onChange={(e) => updateLine(r.key, { gross_weight: e.target.value })} /> },
   ];
 
 
