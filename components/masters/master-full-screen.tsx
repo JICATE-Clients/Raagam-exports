@@ -670,8 +670,14 @@ export function MasterFullScreen({
    *   click the parent      section = the parent, asked         -> open
    *   click it again        the ask is withdrawn                -> CLOSED
    *   click a child         you are inside                      -> open
+   *   click the parent then the ask is withdrawn AND you leave  -> CLOSED
    *   Tab / blocked Save    you are inside                      -> open
    *   move to another top   neither clause holds                -> CLOSED
+   *
+   * The fifth line is the one that needs both halves: the click sets
+   * `openParent` to null AND navigates to the parent, so `activeParent` stops
+   * matching too. Withdrawing the ask alone would leave the first clause
+   * holding the group open.
    *
    * Tying the manual half to `section === key` is what stops a `groupOnly`
    * parent latching open forever: clicking one moves you INTO its first child,
@@ -1377,7 +1383,17 @@ export function MasterFullScreen({
                      derived `groupOpen` is false and the group starts closed —
                      which is the whole distinction being asked for. */
                   if (parent) {
-                    setOpenParent((p) => (p === s.key ? null : s.key));
+                    /* TOGGLE WHAT IS ON SCREEN, not what was last asked for.
+                       Reading `groupOpen` is the whole fix: the old line
+                       toggled `openParent` alone, so arriving from a CHILD —
+                       where the group is open because you are inside it, not
+                       because you opened it — set the flag and the children
+                       stayed put. It took two clicks to close what looked open
+                       after one (client 2026-09-12: "if i again touch details
+                       the childs should slide hidden ... always something is
+                       open with the child"). */
+                    const showing = groupOpen(s.key);
+                    setOpenParent(showing ? null : s.key);
                   }
                   const list = sections;
                   const from = list.findIndex((x) => x.key === section);
