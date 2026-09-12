@@ -216,9 +216,11 @@ import {
      `takesAllOverPrint` is not imported because it no longer exists — see
      `declaredPrintOptions`. */
   componentColourEntry,
-  /* Yarn Dyed (0480): which colours the cloth is knitted FROM, offered from this
-     order's own colourways and scoped to the combo's style. */
-  yarnColourOptions,
+  /* Yarn Dyed (0480): which colours the cloth is knitted FROM, offered from
+     Color/Print ▸ Yarn Dyeing's own `Y/D` rows (2026-09-12) — order-wide, not
+     scoped to a style; see the function's own comment for why this replaced
+     a Combos-grid reading rather than joining it. */
+  yarnDyedColourOptions,
   /* The ±5 prefill and the one question that tells a prefill from an answer.
      `toleranceStated`, never `.trim()`, in all three places named in its doc. */
   DEFAULT_GSM_TOLERANCE,
@@ -566,10 +568,12 @@ type ComboStructRow = {
    * part — and it is what makes the part's own Colour cell manual-entry text
    * ("WHITE/BLUE STRIPE"): the finished panel has no single colour to pick.
    *
-   * NAMES, NOT IDS. The column is `text[]` and the values are the order's own
-   * combo names, which is what `yarnColourOptions` offers — the same call
-   * `color_name` beside it makes, and for the same reason: a colourway is not a
-   * master row here, it is a word the operator typed on the Combos grid.
+   * NAMES, NOT IDS. The column is `text[]` and the values are Color/Print ▸
+   * Yarn Dyeing's own `Y/D` colour names (`yarnDyedColourOptions`, 2026-09-12
+   * — a combo name from the Combos grid was the source until then, see that
+   * function's own comment), and for the same reason `color_name` beside it
+   * is text: a colour here is not a master row, it is a word the operator
+   * typed on a Color/Print dyeing grid.
    *
    * ALWAYS AN ARRAY, NEVER NULL, on this side. 0478's column is
    * `not null default '{}'` and `toRows` coalesces, so nothing on the screen has
@@ -3254,52 +3258,26 @@ export function GarmentOrderScreen({
     colourOptionsByType.get(st.item_sub_type) ?? [];
 
   /**
-   * THE YARN COLOURS A YARN-DYED FABRIC MAY BE KNITTED FROM (client 2026-08-31:
-   * "it must dynamically list ONLY the colors previously defined for the style's
-   * master colorways").
+   * THE YARN COLOURS A YARN-DYED FABRIC MAY BE KNITTED FROM — Color/Print ▸
+   * Yarn Dyeing's own `Y/D` rows (2026-09-12: "its should in color tab yarn
+   * color ... this yarn dying color section yarn dyed color type"). A
+   * combo's own name was the source until then; see `yarnDyedColourOptions`'
+   * own comment in combo-rules.ts for why that changed.
    *
-   * The rule is `yarnColourOptions` and it lives in `combo-rules.ts` for the
-   * usual reason — the screen and anything that later asks the same question
-   * must not answer it two ways. What is here is only the shape of the lookup.
+   * ONE LIST FOR THE WHOLE ORDER, NOT PER STYLE. Color/Print Details carries
+   * no style axis — `dyeings` is one palette shared by every combo and every
+   * structure — so unlike `colourOptionsByType` beside it there is nothing to
+   * key a map by; every Structure Details card reads the same memoised array.
    *
-   * MEMOISED PER STYLE REF, WHICH IS THE SAME MOVE `colourOptionsByType` MAKES
-   * ONE FIELD OVER, and for the same reason: the answer is a different one per
-   * combo, so a single memo could only hold the unscoped list — which is exactly
-   * the defect that rule exists to avoid (style 2's NAVY offered under style 1).
-   * The key set is small and closed: the distinct style refs the Combos grid
-   * holds, plus `""` for a combo that names no style.
-   *
-   * IT MEMOISES OVER `combos`, WHICH THE OPERATOR IS TYPING INTO, so this
-   * recomputes whenever a combo name changes — which is correct rather than
-   * wasteful: the combo names ARE the vocabulary, so a colourway renamed from
-   * WHITE to OFF WHITE must reach the dropdown on the keystroke. What the memo
-   * still buys is that a combo with three yarn-dyed structures resolves its list
-   * once instead of three times, which is the whole of what the neighbouring
-   * memo buys too.
-   *
-   * `styleKey`, NEVER `===` — the same normalisation `yarnColourOptions` applies
-   * internally (trim + uppercase), and the one every other cross-tab style
-   * reference in this module uses. A row saved before the CAPITALS rule would
-   * otherwise key itself into a bucket nothing looks in.
+   * MEMOISES OVER `dyeings`, for the same reason `colourOptionsByType` does:
+   * a colourway typed on Color/Print ▸ Yarn Dyeing must reach this dropdown on
+   * the keystroke, and the memo only buys skipping the recompute between
+   * keystrokes, not staleness.
    */
-  const yarnColourOptionsByStyle = useMemo(() => {
-    const opts = (ref: string | null) =>
-      yarnColourOptions(combos, ref).map((c) => ({ id: c, label: c }));
-    const m = new Map<string, { id: string; label: string }[]>();
-    // The unscoped list first: it is both the answer for a combo naming no style
-    // and `yarnColourOptions`' own fallback, so it is always wanted.
-    m.set("", opts(null));
-    for (const c of combos) {
-      const k = styleKey(c.style_ref_no);
-      if (k && !m.has(k)) m.set(k, opts(c.style_ref_no));
-    }
-    return m;
-  }, [combos]);
-
-  const yarnColourOptionsFor = (r: ComboRow) =>
-    yarnColourOptionsByStyle.get(styleKey(r.style_ref_no)) ??
-    yarnColourOptionsByStyle.get("") ??
-    [];
+  const yarnDyedColourOptionsList = useMemo(
+    () => yarnDyedColourOptions(dyeings).map((c) => ({ id: c, label: c })),
+    [dyeings],
+  );
 
   /**
    * THE STYLE PICKER IS GONE (client 2026-08-25) — and with it `styleFilterRows`,
@@ -11954,6 +11932,43 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         ]
       : [];
 
+  /**
+   * DELIVERY DATE CANNOT BE IN THE PAST (doc/order/update.md §6.1: "restricted
+   * to future dates"; operator confirmed same-day delivery is allowed, so
+   * this compares `<`, not `<=` — today itself is a valid Deli.Dt). Same
+   * shape as `futureDateProblems` immediately above, mirrored: that rule
+   * bounds Date from above, this one bounds Deli.Dt from below.
+   *
+   * COMPARED AS TEXT, for the identical reason `futureDateProblems` gives —
+   * both sides are `YYYY-MM-DD`, which sorts lexicographically exactly as it
+   * sorts chronologically, so this needs no Date parsing and cannot pick up a
+   * timezone crossing the comparison. A blank date says nothing here; Deli.Dt
+   * is already `required` above, and "a blank field is not also a malformed
+   * one".
+   *
+   * NO `min` COMPARISON CAN REPLACE THIS, for the same reason `futureDateProblems`
+   * gives about `max`: a native date input's `min` bounds validity and greys
+   * the picker, but the year segment still accepts typed digits and the value
+   * still reaches state. `min={today()}` is set on the field too (client-side
+   * hint only); this is what Save actually reads.
+   *
+   * NO ZOD TWIN, for the same reason `futureDateProblems` gives — orders have
+   * no data-io import path, so the screen is the only door, and only the
+   * screen knows the operator's own "today".
+   */
+  const deliveryDateProblems: Problem[] =
+    form.delivery_date && form.delivery_date < today()
+      ? [
+          {
+            section: "orderinfo",
+            fieldId: "hd-deli",
+            label: "Deli.Dt",
+            message: "Deli.Dt cannot be in the past.",
+            kind: "custom",
+          },
+        ]
+      : [];
+
   const validity = sectionValidity({
     sections: [
       { key: "orderinfo" },
@@ -12083,10 +12098,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         required: true,
         empty: (f) => !f.merchandiser_id,
       },
-      // Logistic (now "Payment & Value") — was five, invisible from where the
-      // operator stood; Ship Type, Ship Mode and Pay Terms left with their
-      // `<Field>`s (2026-09-08, see the note on the tab's FieldGrid) and are
-      // no longer part of the Save gate. Pay Mode and Currency remain.
+      // Logistic (now "Payment", "Payment & Value" until 2026-09-12) — was
+      // five, invisible from where the operator stood; Ship Type, Ship Mode
+      // and Pay Terms left with their `<Field>`s (2026-09-08, see the note on
+      // the tab's FieldGrid) and are no longer part of the Save gate. Pay
+      // Mode and Currency remain.
       {
         section: "logistic",
         id: "lg-paymode",
@@ -12108,6 +12124,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
        below `form`. */
     extra: [
       ...futureDateProblems,
+      ...deliveryDateProblems,
       ...styleLineProblemList,
       ...duplicateStyleRefProblems,
       /* After `styleLineProblemList`, deliberately: an unnamed style row reports
@@ -15543,8 +15560,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   and Fabric Type; Tolerance is the short cell among them, in its
                   stated place rather than outside the row.
 
-                  TOLERANCE IS REQUIRED AND ALSO PREFILLED TO 5, which is not a
-                  contradiction: `addStruct` seeds 5 so the hold is satisfied on
+                  TOLERANCE FOLLOWS GSM'S OWN CASE RULE (2026-09-12: "if gsm in
+                  optional tolerece also optional") — `need.gsm_tolerance` is
+                  the same `isCircularKnit(family)` `need.gsm` is, not a
+                  constant, so the star on this cell appears and vanishes
+                  exactly where GSM's does (combo-rules.ts). It is ALSO
+                  PREFILLED TO 5, which is not a contradiction even where it is
+                  required: `addStruct` seeds 5 so the hold is satisfied on
                   arrival and the operator only meets it if they CLEAR the box.
                   A field they emptied on purpose is exactly the one worth
                   refusing to leave blank, and zero still reads as an answer
@@ -15892,19 +15914,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 {/* "Yarn Color" — the client's own word, singular, American
                     spelling, matching "Fabric Color" on the part rows beneath.
                     The repo spells it "Colour" in code identifiers
-                    (`yarnColourOptions`, `colourEntry`) and "Color" in
+                    (`yarnDyedColourOptions`, `colourEntry`) and "Color" in
                     operator-facing labels; both halves of that split are
                     deliberate and both are in this one field. */}
                 <MultiSelect
                   compact
                   label="Yarn Color"
-                  /* THIS ORDER'S OWN COLOURWAYS, SCOPED TO THE COMBO'S STYLE
-                     (client: "it must dynamically list ONLY the colors
-                     previously defined for the style's master colorways"). The
-                     rule, including why a combo naming no style is offered
-                     everything rather than nothing, is `yarnColourOptions` in
-                     combo-rules.ts; `yarnColourOptionsFor` is only the memo. */
-                  options={yarnColourOptionsFor(r)}
+                  /* COLOR/PRINT ▸ YARN DYEING'S OWN `Y/D` ROWS (2026-09-12,
+                     replacing a Combos-grid reading — see
+                     `yarnDyedColourOptions`'s own comment in combo-rules.ts
+                     for why, and why it is no longer scoped to a style).
+                     `yarnDyedColourOptionsList` is only the memo. */
+                  options={yarnDyedColourOptionsList}
                   values={st.yarn_colors}
                   /* STORED AS TYPED — the option ids ARE the colour names (0480
                      stores `text[]`, because a colourway is free text at both
@@ -17683,7 +17704,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     // ---------------- Color / Print Details ----------------
     {
       key: "colors",
-      label: "Color/Print Details",
+      /* SHORTENED FROM "Color/Print Details" (2026-09-12, alongside "Payment
+         & Value" -> "Payment" on the `logistic` section — same rail, same
+         192px budget, see that section's own comment). The full name is
+         still how this tab is described everywhere in prose and comments;
+         only the rail row's own text changed, and `paneHeading` is not
+         opted into here, so nothing else on screen repeats this string. */
+      label: "Color/Print",
       content: (
         <div className="space-y-4">
           {/* WHAT THE ORDER'S FABRICS NEED — said, never enforced.
@@ -18872,8 +18899,20 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
        * the tab reads as what it now holds. The rail KEY stays `logistic`
        * (AGENTS.md, "The sidebar lists SUB-MODULES": a label is not a route,
        * and every `section: "logistic"` reference below still resolves).
+       *
+       * SHORTENED AGAIN TO "Payment" (2026-09-12, screenshot 2861) — "Payment
+       * & Value" (15 chars, ampersand and two spaces included) truncated to
+       * "Payment & V…" on the rail's own active/bold row. `master-full-
+       * screen.tsx`'s rail is a fixed 192px app-wide (narrowed from 228 on
+       * 2026-08-27, client: "this section make it less wider") and is
+       * deliberately exempt from truncate-reveal — there is no hover bubble
+       * to recover a clipped label here, only the click, so a label that does
+       * not fit is illegible rather than merely untidy. Widening the rail
+       * would reopen that closed decision for every master and order screen;
+       * shortening the label is the same move `master-full-screen.tsx`'s own
+       * comment already names as the answer for a long section name.
        */
-      label: "Payment & Value",
+      label: "Payment",
       content: (
         <div className="space-y-4">
           {/* Logistic scalars */}
@@ -20393,9 +20432,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 star is decoration.
                 `w="code"` (144px), not `size="xs"` — same floor as `Date` above:
                 a native `type="date"` input draws its own dd/mm/yyyy and
-                calendar button and clips below ~130px. */}
+                calendar button and clips below ~130px.
+                `min={today()}` MIRRORS `Date`'s `max={today()}` above — same
+                caveat applies: a native date input's `min` bounds validity
+                and greys the picker, but the year segment still accepts
+                typed digits, so this is a hint only. `deliveryDateProblems`
+                (below `validity`) is what Save actually reads (doc/order/
+                update.md §6.1; same-day delivery is allowed, so this is
+                inclusive where `Date`'s ceiling is exclusive). */}
             <Field label="Deli.Dt" w="code" htmlFor="hd-deli" required>
-              <Input id="hd-deli" type="date" required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
+              <Input id="hd-deli" type="date" min={today()} required value={form.delivery_date} onChange={(e) => setHeaderDeliveryDate(e.target.value)} />
             </Field>
             {/* RECEIVED DATE (client 2026-09-09) — the header's own
                 `received_date` column, withdrawn from the write path

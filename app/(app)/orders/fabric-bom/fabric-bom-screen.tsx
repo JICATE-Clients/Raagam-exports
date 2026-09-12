@@ -8589,6 +8589,14 @@ export function FabricBomScreen({
                           processes={data.processes}
                           lookups={data.processLookups}
                           printDeclared={printDeclared}
+                          /* 0557, doc/order/update.md §7.3 — a Yarn-Dyed
+                             fabric's dyeing loss is carried on the Yarn
+                             Process tab, so Fabric Process withholds
+                             `is_dyeing` steps for it (never blocked after the
+                             fact — see `dyeingBlocked` for the row that
+                             already holds one from before the fabric's Type
+                             was set to Yarn Dyed). */
+                          fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
                           /* THE SCREEN'S OWN GENERATOR, so a route added to a
                              reopened BOM cannot collide with the keys
                              `openExisting` has already issued. */

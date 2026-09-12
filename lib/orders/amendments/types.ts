@@ -1976,19 +1976,21 @@ export const amendmentComboStructureInput = z.object({
    * column needs it, move these five lines there and let both call it.
    *
    * TRIM → UPPER → DROP BLANKS → DE-DUPE, IN THAT ORDER. The cell is a tick
-   * list over `yarnColourOptions`, whose options are already trimmed and
-   * upper-cased, so a value that skipped either step would render as an
-   * unticked box beside an identical ticked one — the same colour offered
-   * twice, which is the near-miss defect one door along. `""` ticks nothing
-   * and goes; a repeat is one colour stated twice and goes, because the column
-   * is a SET.
+   * list over `yarnDyedColourOptions` (Color/Print ▸ Yarn Dyeing's `Y/D` rows,
+   * 2026-09-12 — a Combos-grid reading before then), whose options are
+   * already trimmed and upper-cased, so a value that skipped either step
+   * would render as an unticked box beside an identical ticked one — the same
+   * colour offered twice, which is the near-miss defect one door along. `""`
+   * ticks nothing and goes; a repeat is one colour stated twice and goes,
+   * because the column is a SET.
    *
-   * THE OPERATOR'S ORDER IS KEPT. `yarnColourOptions` offers the colourways in
-   * the order the Combos grid lists them, so re-sorting here would make the
-   * stored value disagree with the list it was picked from. The diff sorts for
-   * its OWN comparison instead (`joinYarnColours` in diff.ts), which is where
-   * "re-ordering is not a change" belongs — a store that sorted would make the
-   * two indistinguishable and lose the operator's order for nothing.
+   * THE OPERATOR'S ORDER IS KEPT. `yarnDyedColourOptions` offers the colours
+   * in the order Color/Print ▸ Yarn Dyeing lists them, so re-sorting here
+   * would make the stored value disagree with the list it was picked from.
+   * The diff sorts for its OWN comparison instead (`joinYarnColours` in
+   * diff.ts), which is where "re-ordering is not a change" belongs — a store
+   * that sorted would make the two indistinguishable and lose the operator's
+   * order for nothing.
    */
   yarn_colors: z
     .array(z.string())

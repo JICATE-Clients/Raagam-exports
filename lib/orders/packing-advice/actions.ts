@@ -36,6 +36,11 @@ function normalizeLines(data: PackingAdviceInput) {
       total_qty: Number(l.total_qty) || 0,
       unit_id: l.unit_id,
       measurement: clean(l.measurement),
+      gross_weight: l.gross_weight,
+      net_weight: l.net_weight,
+      length_cm: l.length_cm,
+      width_cm: l.width_cm,
+      height_cm: l.height_cm,
     }))
     .filter(
       (l) =>
@@ -51,7 +56,12 @@ function normalizeLines(data: PackingAdviceInput) {
         l.qty_per_ctn ||
         l.total_qty ||
         l.unit_id ||
-        l.measurement,
+        l.measurement ||
+        l.gross_weight ||
+        l.net_weight ||
+        l.length_cm ||
+        l.width_cm ||
+        l.height_cm,
     )
     .map((l, i) => ({ ...l, sort_order: i + 1 }));
 }

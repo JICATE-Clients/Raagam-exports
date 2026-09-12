@@ -45,6 +45,7 @@ const BLANK = {
   designwise_delivery: false,
   is_conversion: false,
   is_print: false,
+  is_dyeing: false,
   has_sub_categories: false,
   sl_no: 9,
   inactive: false,
@@ -154,6 +155,7 @@ export function ProcessMasterScreen({
       designwise_delivery: r.designwise_delivery,
       is_conversion: r.is_conversion,
       is_print: r.is_print,
+      is_dyeing: r.is_dyeing,
       has_sub_categories: r.has_sub_categories,
       sl_no: r.sl_no,
       inactive: r.inactive,
@@ -200,6 +202,7 @@ export function ProcessMasterScreen({
         designwise_delivery: form.designwise_delivery,
         is_conversion: form.is_conversion,
         is_print: form.is_print,
+        is_dyeing: form.is_dyeing,
         has_sub_categories: form.has_sub_categories,
         sl_no: form.sl_no,
         inactive: form.inactive,
@@ -570,6 +573,17 @@ export function ProcessMasterScreen({
                 onChange={(e) => set({ is_print: e.target.checked })}
               />
               <span className="text-sm text-foreground">Is Print Process</span>
+            </label>
+            {/* 0557 — read by the Fabric BOM ▸ Fabric Process picker to
+                withhold Dyeing from a Yarn-Dyed fabric's offered route. */}
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.is_dyeing}
+                onChange={(e) => set({ is_dyeing: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Is Dyeing Process</span>
             </label>
           </DetailSection>
 

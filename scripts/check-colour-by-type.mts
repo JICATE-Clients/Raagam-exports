@@ -39,10 +39,12 @@
  *    `componentProblems` to the old `colourSourceFor(...) !== null` test compiles,
  *    runs, and silently makes Colour optional on every yarn-dyed part. §9, §10.
  *
- * 5. **A yarn-colour list narrows to its own style.** §11, and it is the
- *    cascading-filter defect in AGENTS.md one door along: a facet must narrow to
- *    the facet beside it. Nothing on screen says which style a colourway came
- *    from, so an unscoped list reads exactly like a scoped one.
+ * 5. **A yarn-colour list reads its own section AND its own dye_type, not
+ *    either alone.** §11 — a Yarn Dyeing row typed `Melange` shares its
+ *    section with a `Y/D` row and must still be excluded, and a Fabric
+ *    Dyeing row must never leak in regardless of what its `dye_type` says.
+ *    Same double test `colourSourceFor` makes for solid/melange, one field
+ *    over.
  *
  * 6. **A prefilled tolerance is not an answer.** §8. `toleranceStated` decides
  *    whether a structure row is worth seeding from, storing, or carrying down;
@@ -50,19 +52,19 @@
  *
  * ## THE DATA IS REAL
  *
- * `PALETTE` and `COMBOS` below are read out of the live catalog, not invented,
- * because the whole argument for these rules is what the real rows do under them.
- * Re-verified 2026-08-31 against `garment_order_amendment_dyeings`: **7 rows, and
- * every one of them is `section = 'fabric'`** — six `Dyed` plus one `Melange`
- * (GREY MELANGE). There is NO yarn-section dyeing row anywhere in the database.
+ * `PALETTE` below is read out of the live catalog, not invented, because the
+ * whole argument for §1-§10 is what the real rows do under them. Re-verified
+ * 2026-08-31 against `garment_order_amendment_dyeings`: 7 rows, all
+ * `section = 'fabric'` — six `Dyed` plus one `Melange` (GREY MELANGE).
  *
- * That single fact is the load-bearing argument for §11. A Yarn Color dropdown
- * sourced from the Color/Print palette — `declaredColoursFor(rows, "yarn_dyed")`,
- * which used to read the yarn grid's `Y/D` rows — would have been EMPTY on every
- * live order on the day it shipped, and nobody would have noticed, because the
- * cell also takes free text. So the yarn colours come from the Combos grid
- * instead, which cannot be empty where the field appears: Yarn Color lives inside
- * one combo's [Detail] overlay, so at least one combo always exists to offer.
+ * `YARN_ROWS` IN §11 IS NOT THAT SAME SNAPSHOT. On 2026-08-31 there was NO
+ * yarn-section dyeing row anywhere in the database, which is why Yarn Color
+ * was sourced from the Combos grid instead (`yarnColourOptions`, since
+ * removed) — `declaredColoursFor(rows, "yarn_dyed")` would have been EMPTY on
+ * every live order that day. By 2026-09-12 that was no longer true
+ * (screenshot 2860: real `Y/D` BROWN and DUTCH BLUE rows on a live order), so
+ * `yarnDyedColourOptions` reads Color/Print ▸ Yarn Dyeing directly and §11's
+ * fixture is shaped on that screenshot rather than a database snapshot.
  *
  * Run: `npm run check:colour-by-type`.
  */
@@ -74,8 +76,7 @@ import {
   componentProblems,
   declaredColoursFor,
   toleranceStated,
-  yarnColourOptions,
-  type ColourwayLike,
+  yarnDyedColourOptions,
   type DeclaredColour,
 } from "../lib/orders/amendments/combo-rules.ts";
 
@@ -454,155 +455,102 @@ check(
   ["Colour is required"],
 );
 
-console.log("\n§11  `yarnColourOptions` — the colours a yarn-dyed fabric is knitted FROM");
+console.log(
+  "\n§11  `yarnDyedColourOptions` — the colours a yarn-dyed fabric is knitted FROM",
+);
 
 /**
- * REAL COMBO NAMES AND REAL STYLE REFS, read out of
- * `garment_order_amendment_combos` on 2026-08-31 — STL/26-27/0003 carries WHITE,
- * RED and GREY MELANGE; V-NECK carries GREEN, NAVY and RED.
+ * REAL COLOR/PRINT ▸ YARN DYEING ROWS, shaped on screenshot 2860 (2026-09-12):
+ * a Y/D BROWN, a Y/D DUTCH BLUE, and a Melange BROWN sharing the same yarn
+ * section. That third row is the useful one — same section, same colour name
+ * as row 1, wrong `dye_type` — because it is what tells "filters on dye_type"
+ * apart from "filters on section alone".
  *
- * THE TWO ARE COMBINED ONTO ONE ORDER HERE, and that composition is the only
- * invented thing in the fixture: every amendment in the catalog today holds a
- * SINGLE style. Which is precisely why the cascade defect would ship unnoticed —
- * there is no live row that would expose it, and nothing on screen says which
- * style a colourway came from, so an unscoped list reads exactly like a scoped
- * one. RED appearing under both styles is the useful accident: it is what
- * distinguishes "narrowed correctly" from "deduped by luck".
+ * A FABRIC-SECTION ROW IS IN THE FIXTURE TOO (Dyed RED), standing in for the
+ * whole Fabric Dyeing grid beside Yarn Dyeing: same shape of row, wrong
+ * section, and it must never leak into a yarn-dyed cloth's own colour list —
+ * the "GREY MELANGE on a solid fabric" defect §1-§10 already guard against,
+ * one field over.
  */
-const COMBOS: ColourwayLike[] = [
-  { style_ref_no: "STL/26-27/0003", combo: "WHITE" },
-  { style_ref_no: "STL/26-27/0003", combo: "RED" },
-  { style_ref_no: "STL/26-27/0003", combo: "GREY MELANGE" },
-  { style_ref_no: "V-NECK", combo: "GREEN" },
-  { style_ref_no: "V-NECK", combo: "NAVY" },
-  { style_ref_no: "V-NECK", combo: "RED" },
+const YARN_ROWS: DeclaredColour[] = [
+  { section: "yarn", dye_type: "Y/D", color_name: "BROWN" },
+  { section: "yarn", dye_type: "Y/D", color_name: "DUTCH BLUE" },
+  { section: "yarn", dye_type: "Melange", color_name: "GREY MELANGE" },
+  { section: "fabric", dye_type: "Dyed", color_name: "RED" },
 ];
 
 check(
-  "a style is offered its own colourways",
-  yarnColourOptions(COMBOS, "STL/26-27/0003"),
-  ["WHITE", "RED", "GREY MELANGE"],
+  "only the yarn-section Y/D rows are offered",
+  yarnDyedColourOptions(YARN_ROWS),
+  ["BROWN", "DUTCH BLUE"],
 );
+// THE MELANGE ROW IS EXCLUDED EVEN THOUGH IT SHARES THE SECTION. Scoping to
+// `section === "yarn"` alone would have let it through — dye_type is the
+// second, independent test, same shape as `colourSourceFor`'s own
+// `types`/`sections` pair.
 check(
-  "the other style is offered its own",
-  yarnColourOptions(COMBOS, "V-NECK"),
-  ["GREEN", "NAVY", "RED"],
-);
-// THE CASCADING-FILTER ASSERTION (AGENTS.md, "Cascading filters"): a facet
-// narrows to the facet beside it. A PO with two styles has two independent sets
-// of colourways, and offering style 2's NAVY under style 1 is the same defect the
-// Material Attributes filter bar and the item-report filter bar both shipped.
-check(
-  "style 2's NAVY is NOT offered under style 1",
-  yarnColourOptions(COMBOS, "STL/26-27/0003").includes("NAVY"),
+  "a yarn-section Melange row is NOT offered as a yarn colour",
+  yarnDyedColourOptions(YARN_ROWS).includes("GREY MELANGE"),
   false,
 );
+// THE FABRIC-SECTION ROW IS EXCLUDED EVEN THOUGH ITS COLOUR NAME IS UNIQUE.
+// Scoping to `dye_type === "Y/D"` alone, with no section test, would let a
+// Fabric Dyeing row named "Y/D" by mistake leak in — belt and braces, the
+// same double test `colourSourceFor` makes for solid/melange.
 check(
-  "style 1's GREY MELANGE is NOT offered under style 2",
-  yarnColourOptions(COMBOS, "V-NECK").includes("GREY MELANGE"),
+  "a fabric-section row is NOT offered regardless of dye_type",
+  yarnDyedColourOptions(YARN_ROWS).includes("RED"),
   false,
 );
 
-// ORDER IS FIRST-SEEN, NOT SORTED. The Combos grid is the operator's own list and
-// its order is the one they built; re-sorting alphabetically would make the
-// dropdown disagree with the grid it came from. Sorted, style 1 would read
-// GREY MELANGE, RED, WHITE — so the two vectors above already fail on a sort, and
-// this one names the reason so the failure is readable.
+// ORDER IS FIRST-SEEN, NOT SORTED. Color/Print ▸ Yarn Dyeing is the operator's
+// own list and its order is the one they built; re-sorting alphabetically
+// would make the dropdown disagree with the grid it came from. Sorted, this
+// would read BROWN, DUTCH BLUE unchanged by luck (already alphabetical) — the
+// fixture below exercises a pair that is NOT alphabetical, so a stray sort is
+// caught rather than hidden.
 check(
   "the grid's own order is preserved, not alphabetised",
-  yarnColourOptions(COMBOS, "STL/26-27/0003")[0],
-  "WHITE",
-);
-
-// A BLANK STYLE REF OFFERS EVERYTHING, and this is the deliberate OPPOSITE of the
-// nominated-vendor "empty and explain" rule (AGENTS.md, "Nominated vendors").
-// There a blank supply type means the answer is genuinely UNAPPROVABLE — the
-// customer has not said who may supply — so offering every vendor would make the
-// nomination list advisory. Here a blank style ref means an operator has not
-// typed one onto a combo yet, and the order's own colourways are still the right
-// vocabulary; there is no third party whose approval is being bypassed. Same
-// three clauses `scopedStructures` and `declaredPrintOptions` already use on this
-// screen.
-check(
-  "a blank style ref falls back to every colourway",
-  yarnColourOptions(COMBOS, ""),
-  ["WHITE", "RED", "GREY MELANGE", "GREEN", "NAVY"],
-);
-check("a null style ref falls back too", yarnColourOptions(COMBOS, null), [
-  "WHITE",
-  "RED",
-  "GREY MELANGE",
-  "GREEN",
-  "NAVY",
-]);
-check("an undefined style ref falls back too", yarnColourOptions(COMBOS, undefined), [
-  "WHITE",
-  "RED",
-  "GREY MELANGE",
-  "GREEN",
-  "NAVY",
-]);
-// A style ref matching no combo can only mean the grid moved on beneath the
-// overlay. It falls back to the whole list, NEVER to `[]` — an empty dropdown
-// there would read as "this style has no colours", which is a claim, not a gap.
-check(
-  "a style ref matching nothing falls back, never to empty",
-  yarnColourOptions(COMBOS, "STL/26-27/9999"),
-  ["WHITE", "RED", "GREY MELANGE", "GREEN", "NAVY"],
-);
-
-check(
-  "style refs are matched case- and space-insensitively",
-  yarnColourOptions(COMBOS, "  stl/26-27/0003 "),
-  ["WHITE", "RED", "GREY MELANGE"],
-);
-check(
-  "a stored style ref with stray spaces still matches",
-  yarnColourOptions(
-    [{ style_ref_no: " V-NECK ", combo: "GREEN" }],
-    "v-neck",
-  ),
-  ["GREEN"],
+  yarnDyedColourOptions([
+    { section: "yarn", dye_type: "Y/D", color_name: "DUTCH BLUE" },
+    { section: "yarn", dye_type: "Y/D", color_name: "BROWN" },
+  ]),
+  ["DUTCH BLUE", "BROWN"],
 );
 
 check(
   "colour names are uppercased and trimmed",
-  yarnColourOptions([{ style_ref_no: "S1", combo: " navy " }], "S1"),
+  yarnDyedColourOptions([{ section: "yarn", dye_type: "Y/D", color_name: " navy " }]),
   ["NAVY"],
 );
 check(
-  "the same colourway twice is ONE option",
-  yarnColourOptions(
-    [
-      { style_ref_no: "S1", combo: "WHITE" },
-      { style_ref_no: "S1", combo: "white" },
-    ],
-    "S1",
-  ),
+  "dye_type is matched case-insensitively",
+  yarnDyedColourOptions([{ section: "yarn", dye_type: "y/d", color_name: "NAVY" }]),
+  ["NAVY"],
+);
+check(
+  "the same colour twice is ONE option",
+  yarnDyedColourOptions([
+    { section: "yarn", dye_type: "Y/D", color_name: "WHITE" },
+    { section: "yarn", dye_type: "Y/D", color_name: "white" },
+  ]),
   ["WHITE"],
 );
 check(
-  "a blank combo name is not an option",
-  yarnColourOptions(
-    [
-      { style_ref_no: "S1", combo: "   " },
-      { style_ref_no: "S1", combo: null },
-      { style_ref_no: "S1", combo: "WHITE" },
-    ],
-    "S1",
-  ),
+  "a blank colour name is not an option",
+  yarnDyedColourOptions([
+    { section: "yarn", dye_type: "Y/D", color_name: "   " },
+    { section: "yarn", dye_type: "Y/D", color_name: "WHITE" },
+  ]),
   ["WHITE"],
 );
-// A combo that names no style is part of the fallback list and is reachable from
-// it — the row is real, the operator simply has not said which style it belongs
-// to yet.
-check(
-  "a combo naming no style is still offered when nothing scopes",
-  yarnColourOptions([{ combo: "ECRU" }], null),
-  ["ECRU"],
-);
-check("no combos at all offers nothing", yarnColourOptions([], "S1"), []);
-check("no combos and no style offers nothing", yarnColourOptions([], null), []);
+// NO FALLBACK TO EVERYTHING WHEN NOTHING MATCHES — the deliberate OPPOSITE of
+// `yarnColourOptions`'s old blank-style-ref fallback, and the same "empty and
+// explain" shape `declaredColoursFor` already uses: an order that has not
+// filled in Yarn Dyeing yet offers no yarn colours, not the Fabric Dyeing
+// palette instead.
+check("no yarn Y/D rows offers nothing", yarnDyedColourOptions(YARN_ROWS.slice(2)), []);
+check("no rows at all offers nothing", yarnDyedColourOptions([]), []);
 
 console.log(
   failed === 0
