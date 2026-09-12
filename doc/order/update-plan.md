@@ -11,8 +11,38 @@ new work. **Nothing below should be built without first reading its "already
 built" mapping** — several sections need zero code, only data or wiring.
 
 Real order root: `garment_order_amendments`. Latest applied migration: **0555**
-(`0555_ta_approval_dispatch_details.sql`) — the next new migration is **0556**,
-claimed by whichever gap is built first; renumber the rest at build time.
+(`0555_ta_approval_dispatch_details.sql`) at the time of the audit — see
+"Progress" below for what has shipped since.
+
+## Progress (updated 2026-09-12)
+
+Shipped, in order:
+
+1. **§7.3 Yarn-Dyed skips Dyeing on the Fabric Process route** — `processes.is_dyeing`
+   flag (migration 0557), `processesForFabric()`'s `fabricIsYarnDyed` param,
+   `dyeingBlocked()` warning. No decision needed.
+2. **§3.1 Packing Advice Gross/Net Weight wired up** — orphaned columns since 0033,
+   now in the Zod schema, the line grid, and the save action. No decision needed.
+3. **§3.1 Packing Advice Carton Dimensions + derived CBM** — new
+   `length_cm`/`width_cm`/`height_cm` columns (migration 0558);
+   `lib/orders/packing-advice/cbm.ts` computes CBM, never stored. No decision needed.
+4. **§6.1 Delivery Date cannot be in the past** — mirrors the existing "Date cannot
+   be in the future" rule; same-day delivery allowed (operator decision, Q3 below).
+5. **§1 IWO number format `IWO/<unit>/<fy>/<serial>`** — migration 0559, mirrors
+   0395's Sales Order SC No pattern exactly. FY segment has no hyphen (`2627`),
+   matching the SC No spelling (operator decision, Q4 below). **Not yet run against
+   a live database from this session** — verify its self-test before trusting it.
+
+**Explicitly deferred, per operator instruction:** §5.2 Rejection Allowance tier
+seeding (Q2) — the spec's own table has an unfilled 51–99 piece gap, and this repo
+has a recorded incident from guessing at exactly this kind of gap before. Confirm
+with whoever owns the spec before seeding any tier rows.
+
+Still fully open: Q1 (TBA scope — fabric vs Material BOM), Q5 (force-closure
+"remaining qty" meaning + which screens are "issuance"), Q6 (is Decimal(18,4) a
+real MRP precision requirement), Q7 (is tiered pricing actually wanted), Q8
+(Commercial Invoice screen scoping), Q9 (TBA release: approval-flow engine vs ad-hoc
+columns), Q10 (IWO stock transfer / de-link data model).
 
 ---
 

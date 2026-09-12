@@ -186,17 +186,30 @@ export type StructureRequiredCells = {
  * THE PARAMETER CAME BACK WITH IT. `familyCode` is the knit family
  * (`fabric_structure` lookup `code` — "circular" / "flat_knit" / "woven") the
  * screen's `familyCodeOf` resolves through the picked Structure's category
- * (`categories.fabric_structure_id`, 0409). Composition, Tolerance, Fabric
- * Type and Colour stay unconditional — only GSM was ever the case rule.
+ * (`categories.fabric_structure_id`, 0409). Composition, Fabric Type and
+ * Colour stay unconditional.
+ *
+ * ## TOLERANCE FOLLOWS GSM, NOT THE OTHER THREE (2026-09-12)
+ *
+ * Tolerance was unconditional alongside Composition and Fabric Type from
+ * 2026-08-31 and stayed that way through both GSM swings above — until now:
+ * "if gsm in optional tolerece also optional". The reasoning is GSM's own —
+ * Tolerance is a ± VARIANCE ON A GSM FIGURE (`gsmRange` above), so requiring
+ * one on a Woven or Flat Knit row, where GSM itself is optional and usually
+ * blank, asks the operator to state a margin around a number that is not
+ * there. `gsm_tolerance` now reads the SAME `isCircularKnit(familyCode)` GSM
+ * does, rather than its own `true` — one case rule, not two that happen to
+ * agree today and are free to drift apart tomorrow.
  */
 export function structureRequiredCells(
   familyCode?: string | null,
 ): StructureRequiredCells {
+  const gsmCase = isCircularKnit(familyCode);
   return {
     structure: true,
     composition: true,
-    gsm: isCircularKnit(familyCode),
-    gsm_tolerance: true,
+    gsm: gsmCase,
+    gsm_tolerance: gsmCase,
     item_sub_type: true,
   };
 }
@@ -236,11 +249,13 @@ export function structureProblems(
     problems.push("GSM is required for Circular Knit");
   }
   /*
-   * COMPOSITION · TOLERANCE · FABRIC TYPE — UNCONDITIONALLY REQUIRED once the
-   * row names a structure (client 2026-08-31). GSM joined them on 2026-09-01
-   * ("gsm also need required for all fabric type") and left again on
-   * 2026-09-05 when the case rule came back — these three were never part of
-   * that carve-out either time and stay unconditional throughout.
+   * COMPOSITION · FABRIC TYPE — UNCONDITIONALLY REQUIRED once the row names a
+   * structure (client 2026-08-31). GSM joined them on 2026-09-01 ("gsm also
+   * need required for all fabric type") and left again on 2026-09-05 when the
+   * case rule came back; Tolerance rode along with GSM both times and, on
+   * 2026-09-12, was told to keep doing so rather than staying unconditional —
+   * see `structureRequiredCells`'s own comment. Composition and Fabric Type
+   * were never part of either carve-out and stay unconditional throughout.
    *
    * ## THEY DID BECOME `required` PROPS — DERIVED, NOT RESTATED
    *
@@ -282,7 +297,7 @@ export function structureProblems(
     blank(row.gsm_tolerance) &&
     row.gsm_tolerance !== 0
   ) {
-    problems.push("Tolerance is required");
+    problems.push("Tolerance is required for Circular Knit");
   }
   if (need.item_sub_type && blank(row.item_sub_type)) {
     problems.push("Fabric Type is required");
@@ -480,8 +495,8 @@ export function colourSourceFor(
  * A yarn-dyed cloth is knitted from PRE-DYED yarns of several colours, so the
  * finished panel has no single solid colour — its colour is a description
  * ("WHITE/BLUE STRIPE"). The yarns themselves are named on the structure's own
- * **Yarn Color** field (`yarnColourOptions`), which is where those two colours
- * belong. Offering WHITE or BLUE on the part as well would let an operator
+ * **Yarn Color** field (`yarnDyedColourOptions`), which is where those two
+ * colours belong. Offering WHITE or BLUE on the part as well would let an operator
  * record a striped panel as plain WHITE, and the client's word for what that
  * does to the order's colourways is "corrupt".
  *
@@ -554,71 +569,65 @@ export function declaredColoursFor(
  * YARN COLOURS — the colours a yarn-dyed fabric is knitted FROM (0478)
  * ------------------------------------------------------------------------- */
 
-/** A combo of this order, as the yarn-colour list reads it. */
-export type ColourwayLike = {
-  style_ref_no?: string | null;
-  combo?: string | null;
-};
-
 /**
- * THE COLOURS OFFERABLE AS YARN COLOURS — client 2026-08-31:
- * "it must dynamically list ONLY the colors previously defined for the style's
- * master colorways (e.g. if the user set up White and Blue combos, only White
- * and Blue are selectable as yarn colors)."
+ * THE COLOURS OFFERABLE AS YARN COLOURS — Color/Print ▸ Yarn Dyeing's own
+ * `Y/D` rows, not the Combos grid (superseded 2026-09-12: "its should in
+ * color tab yarn color ... this yarn dying color section yarn dyed color
+ * type").
  *
- * A combo IS a colourway, and on this order they are literally colour names —
- * WHITE, NAVY, GREY MELANGE, RED, GREEN, YELLOW, BLUE (catalog 2026-08-31). So
- * the source is the Combos grid itself, and that is not merely the cheapest
- * reading of the sentence: it is the ONLY source that cannot be empty where the
- * field appears. Yarn Color lives inside one combo's [Detail] overlay, so at
- * least one combo — the one being edited — always exists to offer.
+ * ## WHY THIS REPLACES THE COMBOS-BASED READING RATHER THAN JOINING IT
  *
- * THE COLOR/PRINT PALETTE WAS THE OTHER CANDIDATE AND IT WOULD HAVE SHIPPED
- * DEAD. `declaredColoursFor(rows, "yarn_dyed")` read the yarn grid's `Y/D` rows,
- * and the catalog holds **no yarn-section dyeing row at all** — all seven
- * declared colours are `section = 'fabric'`. A Yarn Color dropdown sourced there
- * would have been empty on every live order on the day it shipped, which is the
- * `Y/D`-shaped hole `colourSourceFor` used to have and nobody noticed because
- * the cell also took free text.
+ * The original version (client 2026-08-31) read the Combos grid — "list only
+ * the colors previously defined for the style's master colorways" — and its
+ * own header explained why: `declaredColoursFor(rows, "yarn_dyed")` would
+ * have read Color/Print ▸ Yarn Dyeing's `Y/D` rows, and on that day's catalog
+ * **every declared colour was `section = 'fabric'`** — the yarn section held
+ * nothing, so sourcing from it would have shipped a permanently empty
+ * dropdown. Combos was chosen because it is the one source that cannot be
+ * empty where the field appears (the combo being edited always exists).
  *
- * SCOPED TO THE COMBO'S OWN STYLE — "the STYLE's master colorways". A PO with
- * two styles has two independent sets of colourways, and offering style 2's
- * NAVY under style 1 is the cascading-filter defect one door along (AGENTS.md,
- * "Cascading filters"): the facet must narrow to the facet beside it.
+ * That premise is gone. Yarn Dyeing now carries real `Y/D` rows (BROWN,
+ * DUTCH BLUE, screenshot 2860), and a combo's NAME (RED, GREEN, BLUE — the
+ * garment-level colourway) was never the same vocabulary as a YARN's colour
+ * in the first place: "Yarn Color" asks which pre-dyed yarns a striped cloth
+ * is knitted FROM, and a colourway name answers a different question. Adding
+ * the Yarn Dyeing colours BESIDE the combo names, rather than instead of
+ * them, would put the wrong vocabulary back on the list — the same
+ * "GREY MELANGE on a solid fabric" trap `declaredColoursFor`'s own comment
+ * warns against, one field over.
  *
- * A COMBO NAMING NO STYLE IS OFFERED EVERYTHING, and this is the deliberate
- * OPPOSITE of the nominated-vendor "empty and explain". There a blank parent
- * means the answer is genuinely unapprovable; here it means an operator has not
- * typed a style ref onto a combo yet, and the colourways of the order are still
- * the right vocabulary. Same three clauses `scopedStructures` and
- * `declaredPrintOptions` already use on this screen: nothing to scope by falls
- * back to the whole list, never to nothing.
+ * NOT `declaredColoursFor(rows, "yarn_dyed")` — that call returns `[]` by
+ * design. `colourSourceFor`'s `yarn_dyed` branch is withdrawn on purpose (see
+ * its own comment) and MUST stay withdrawn: a yarn-dyed PART's colour is a
+ * blend ("WHITE/BLUE STRIPE") no single declared colour can state, so the
+ * Component colour cell must keep offering nothing. This is a different
+ * field asking a different question — which colours exist to compose that
+ * blend from — so it reads the same `yarn`-section `Y/D` rows the withdrawn
+ * branch would have, without reopening the component cell's list.
  *
- * ORDER IS FIRST-SEEN, NOT SORTED. The Combos grid is the operator's own list
- * and its order is the one they built; re-sorting it alphabetically would make
- * the dropdown disagree with the grid it came from.
+ * ORDER-WIDE, NOT SCOPED TO A STYLE. `DyeingRow` carries no `style_ref_no` —
+ * Color/Print Details is one palette for the whole order, unlike the Combos
+ * grid the withdrawn version scoped by style — so there is nothing to narrow
+ * by. A PO with two styles shares one Yarn Dyeing palette between them, which
+ * is the same thing the Fabric Dyeing and Roll Form Print grids beside it
+ * already do.
+ *
+ * NO FALLBACK TO EVERY DECLARED COLOUR. Filtering to `section === "yarn"`
+ * and `dye_type === "Y/D"` and finding nothing is a real answer — the
+ * operator has not filled in Yarn Dyeing yet — not a reason to widen to the
+ * Fabric Dyeing palette, which would offer solid-fabric colours as yarn
+ * colours.
  */
-export function yarnColourOptions(
-  combos: readonly ColourwayLike[],
-  styleRefNo: string | null | undefined,
-): string[] {
-  const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
-  const want = norm(styleRefNo);
-  const pick = (scoped: boolean) => {
-    const out: string[] = [];
-    for (const c of combos) {
-      if (scoped && norm(c.style_ref_no) !== want) continue;
-      const name = norm(c.combo);
-      if (name && !out.includes(name)) out.push(name);
-    }
-    return out;
-  };
-  if (!want) return pick(false);
-  const scoped = pick(true);
-  // A style ref that matches no combo can only mean the grid has moved on
-  // beneath this overlay; the order's colourways are still the vocabulary, and
-  // an empty list here would read as "this style has no colours".
-  return scoped.length ? scoped : pick(false);
+export function yarnDyedColourOptions(rows: readonly DeclaredColour[]): string[] {
+  const norm = (v: string) => v.trim().toUpperCase();
+  const out: string[] = [];
+  for (const r of rows) {
+    if (r.section !== "yarn") continue;
+    if (norm(r.dye_type) !== "Y/D") continue;
+    const name = norm(r.color_name);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 /**

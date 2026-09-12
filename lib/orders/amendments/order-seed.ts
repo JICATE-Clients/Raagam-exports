@@ -914,8 +914,9 @@ export async function seedAmendmentFromOrder(
    *
    * UPPER-CASED HERE RATHER THAN LEFT AS TYPED, which is one step further than
    * the dyeing seed above takes the same text. The reason is the cell: this is
-   * a tick list over `yarnColourOptions`, whose options are already upper-cased,
-   * so a seeded "White" would tick nothing and sit beside an untickable WHITE.
+   * a tick list over `yarnDyedColourOptions`, whose options are already
+   * upper-cased, so a seeded "White" would tick nothing and sit beside an
+   * untickable WHITE.
    * A free-text colour has no such list to disagree with, which is why the
    * dyeings keep the order's own spelling.
    *
