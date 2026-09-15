@@ -131,6 +131,8 @@ export async function ModuleHub({ moduleHref }: { moduleHref: string }) {
       title={grouping.label}
       description={grouping.description ?? `${cards.length} sub-modules`}
       cards={cards}
+      // Same reasoning as `GroupHub`'s own call — see `hideCards` on `HubPage`.
+      hideCards
     />
   );
 }
