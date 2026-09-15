@@ -357,6 +357,12 @@ export function ComponentMapBody({
   coordinates,
   /** The order's declared colours and prints, for the two auto-filled cells. */
   colourOptions,
+  /** A yarn-dyed line's OWN fabric's YD Combo Names — see the Required Color
+   *  cell for why this replaces `colourOptions` there. A function, not a
+   *  column, for the same reason `fabricTypeOfId` is: the answer lives on
+   *  Yarn Dyed Details, scoped to (style, structure, fabric), and a copy
+   *  carried on the row would be a second place for it to disagree. */
+  ydComboOptionsFor,
   printOptions,
   /** The order's assort colourways — this sheet is now the only door to them. */
   comboOptions,
@@ -387,6 +393,11 @@ export function ComponentMapBody({
   components: readonly PickerRow[];
   coordinates: readonly PickerRow[];
   colourOptions: readonly string[];
+  ydComboOptionsFor: (l: {
+    style_ref_no: string | null;
+    structure_id: string | null;
+    item_id: string | null;
+  }) => readonly string[];
   printOptions: readonly string[];
   comboOptions: readonly string[];
   structureId: string | null;
@@ -1126,19 +1137,44 @@ export function ComponentMapBody({
          earlier screens declared rather than accepting a fifth spelling of WHITE.
          `clearable` because a panel with no stated colour is an ordinary document.
          Typed text in a Combobox is a search and is never committed — see
-         `commit` in combobox.tsx. */
+         `commit` in combobox.tsx.
+
+         A LINE WHOSE FABRIC HAS DECLARED YD COMBO NAMES OFFERS THOSE, NOT THIS
+         LIST (doc/order/comboname.md §1 — "selecting a yarn-dyed fabric for a
+         panel ... automatically filters the Required Color ... dropdown to
+         pull options directly from the created YD Combo Names"). "NAVY" off
+         the order's general dye/yarn palette does not say which of a striped
+         cloth's several dyed colours this panel is cut from; the combo name
+         ("ROJA", "C01 - GREEN / RED") does.
+
+         GATED ON WHETHER COMBOS EXIST, NOT ON THE FABRIC MASTER'S OWN Solid /
+         Melange / Yarn Dyed Type — screenshot 2874/2875 (2026-09-15) is a
+         fabric whose master Type reads Solid but whose Yarn Dyed Details
+         popup carries a real Combo (PARISIAN NIGHT) named "ROJA": the Type
+         field is a separate declaration nobody had reason to flip, and an
+         `isYarnDyed(fabricTypeOfId(...))` gate left it showing the general
+         palette regardless. Yarn Dyed Details' own [Detail] popup is reachable
+         from every fabric line unconditionally (it is never Type-gated
+         either), so a Combo declared there is the honest signal that this
+         particular line's colour comes from a combo, not from the master's
+         classification of the cloth. `colourOptions` remains the list for
+         every fabric group that has declared no combos at all. */
       header: "Required Color",
       width: "6rem",
-      cell: (l) => (
-        <Combobox
-          compact
-          inputClassName="h-8"
-          options={colourOptions.map((c) => ({ value: c, label: c }))}
-          value={l.color_name}
-          onChange={(v) => onPatchLine(l.key, { color_name: v })}
-          clearable
-        />
-      ),
+      cell: (l) => {
+        const ydOptions = ydComboOptionsFor(l);
+        const options = ydOptions.length > 0 ? ydOptions : colourOptions;
+        return (
+          <Combobox
+            compact
+            inputClassName="h-8"
+            options={options.map((c) => ({ value: c, label: c }))}
+            value={l.color_name}
+            onChange={(v) => onPatchLine(l.key, { color_name: v })}
+            clearable
+          />
+        );
+      },
     },
     {
       header: "Required Print",
