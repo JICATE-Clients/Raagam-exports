@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
@@ -444,6 +444,11 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
           <tr>
             <Th>Class</Th>
             <Th>Item</Th>
+            {/* THE BRANCH (0528): a route split "Assort Color Wise" /
+                "Component Wise" prints one row per step per branch, exactly
+                as declared — never rolled up. "—" on a unified route. */}
+            <Th>Colour</Th>
+            <Th>Component</Th>
             <Th>Stage</Th>
             <Th>Process</Th>
             <Th right>Loss %</Th>
@@ -454,6 +459,8 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
             <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
               <Td>{r.className}</Td>
               <Td>{r.itemName}</Td>
+              <Td>{r.combo ?? "—"}</Td>
+              <Td>{r.componentName ?? "—"}</Td>
               <Td>{r.stageName ?? "—"}</Td>
               <Td>{r.processName ?? "—"}</Td>
               <Td right mono>{r.lossPct != null ? `${r.lossPct.toFixed(2)}%` : "—"}</Td>
@@ -542,7 +549,7 @@ function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: En
           <Td right mono>{fmtNumber(s.netReqWt)}</Td>
           <Td right mono>
             <span className="inline-flex items-center">
-              {s.lossPct != null ? `${s.lossPct.toFixed(2)}%` : "—"}
+              {s.lossPct != null ? `${s.lossPct.toFixed(2)}%` : <RouteAbstain reason={comp.routeRefusal} />}
               {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
             </span>
           </Td>
@@ -590,7 +597,7 @@ function EntryComponentSummaryRow({ colour, comp }: { colour: string; comp: Entr
       <Td right mono>{fmtNumber(comp.subtotal.netReqWt)}</Td>
       <Td right mono>
         <span className="inline-flex items-center">
-          {lossPct != null ? `${lossPct.toFixed(2)}%` : "—"}
+          {lossPct != null ? `${lossPct.toFixed(2)}%` : <RouteAbstain reason={comp.routeRefusal} />}
           {comp.lossChain.length > 0 && <LossChainInfo chain={comp.lossChain} />}
         </span>
       </Td>
@@ -626,6 +633,19 @@ function ItemFormBadge({ form }: { form: string | null }) {
  *  `document.body` for the same reason `Tooltip` is: `ReportTable` wraps its
  *  `<table>` in `overflow-x-auto`, which would clip a plain absolutely-
  *  positioned panel sitting inside a right-hand column. */
+/** The "—" a Loss % cell prints when no ladder applied — and, when a route
+ *  WAS declared but refused this entry (its panels run different "Component
+ *  Wise" routes), the reason on hover, marked so the dash is not mistaken for
+ *  "no route". The PDF prints the same dash; the sentence is on screen only. */
+function RouteAbstain({ reason }: { reason: string | null }) {
+  if (!reason) return <>—</>;
+  return (
+    <span title={reason} className="cursor-help text-amber-700">
+      ⚠ —
+    </span>
+  );
+}
+
 function LossChainInfo({ chain }: { chain: { processName: string; lossPct: number }[] }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -846,7 +866,7 @@ function RequirementReportView({
               {openYarnLine.byFabric.map((c, i) => (
                 <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
                   <Td>{c.fabricName}</Td>
-                  <Td>{c.combo ?? "—"}</Td>
+                  <Td>{[c.combo, c.component].filter(Boolean).join(" · ") || "—"}</Td>
                   <Td right mono>{fmtNumber(c.wt)}</Td>
                 </tr>
               ))}
@@ -878,23 +898,44 @@ function RequirementReportView({
                       <tr>
                         <Th>Details</Th>
                         <Th>Colour</Th>
+                        <Th>Component</Th>
                         <Th right>Planned Wt</Th>
                         <Th right>Loss %</Th>
                         <Th right>To Ordered Wt</Th>
                       </tr>
                     </thead>
                     <tbody>
-                      {g.lines.map((l, i) => (
-                        <tr key={i} className="odd:bg-white even:bg-[#fafbfc]">
-                          <Td>{l.fabricName}</Td>
-                          <Td>{l.combo ?? "—"}</Td>
-                          <Td right mono>{fmtNumber(l.plannedWt)}</Td>
-                          <Td right mono>{l.lossPct.toFixed(2)}%</Td>
-                          <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
-                        </tr>
-                      ))}
+                      {/* GROUPED UNDER EACH ASSORT COLOUR when the section
+                          holds more than one (client spec, 2026-09-15) — the
+                          lines arrive sorted by colour, so a subtotal row is
+                          drawn where the colour changes. One colour, one flat
+                          list, no band: nothing to total under. */}
+                      {g.lines.map((l, i) => {
+                        const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
+                        const subtotal = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
+                        return (
+                          <Fragment key={i}>
+                            <tr className="odd:bg-white even:bg-[#fafbfc]">
+                              <Td>{l.fabricName}</Td>
+                              <Td>{l.combo ?? "—"}</Td>
+                              <Td>{l.component ?? "—"}</Td>
+                              <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                              <Td right mono>{l.lossPct.toFixed(2)}%</Td>
+                              <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+                            </tr>
+                            {subtotal && (
+                              <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
+                                <Td colSpan={3} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
+                                <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
+                                <Td>{""}</Td>
+                                <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                       <tr className="bg-[#f1f3f5] font-semibold">
-                        <Td colSpan={2}>Grand Total</Td>
+                        <Td colSpan={3}>Grand Total</Td>
                         <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
                         <Td>{""}</Td>
                         <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
@@ -905,6 +946,14 @@ function RequirementReportView({
               </div>
             );
           })}
+          {/* WEIGHTS THE LEDGER COULD NOT PLACE — named, never dropped. */}
+          {data.stageLedgerRefusals.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-[11px] text-amber-700">
+              {data.stageLedgerRefusals.map((r, i) => (
+                <li key={i}>⚠ {r}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

@@ -42,19 +42,31 @@
  * typed, like every other child grid in this module. The BOM's own footer Save
  * is what persists them.
  *
- * ## ONE GRID PER GROUP SINCE 2026-09-04 (0528)
+ * ## THE SPLIT IS TWO COLUMNS, NOT N GRIDS (2026-09-15)
  *
- * A fabric's route may now be split "Assort Color Wise" and/or
- * "Component Wise" — legacy's `[Assort Color]` / `[Components]` on the outer
- * row, read as CONTROLS rather than a second copy of Fabric Lines. This file
- * still renders exactly ONE route; the caller (`ProcessFoldList`'s panel in
- * `fabric-bom-screen.tsx`) is what now renders one instance of it per group
- * `processGroupsFor` returns, instead of always one. `combo` / `componentId`
- * are what stamp a group's identity onto every row this grid adds — see
- * `lib/orders/fabric-bom/processes.ts` for the grouping rule itself.
+ * A fabric's route may be split "Assort Color Wise" and/or "Component Wise"
+ * (0528) — legacy's `[Assort Color]` / `[Components]` on the outer row, read
+ * as CONTROLS rather than a second copy of Fabric Lines. Between 2026-09-04
+ * and 09-15 the caller answered a toggle by rendering ONE INSTANCE OF THIS
+ * GRID PER GROUP `processGroupsFor` returned, each seeded with its own blank
+ * row and its own "+ Add process": four colourways on one panel was four
+ * stacked grids, and four colourways on three panels would have been twelve
+ * (client screenshot 2876: "the ui for those filters needs a better fix").
+ *
+ * The client's own description of the legacy control is the shape instead:
+ * "unlocks individual color selection ON THE PROCESS CONFIGURATION GRID" /
+ * "unlocks component panel selection dropdowns ON THE PROCESS GRID". So a
+ * toggle now ADDS A COLUMN to the one route grid — `colours` puts a Colour
+ * ▾ before Stage, `components` a Component ▾ — and each step names which
+ * branch it belongs to. One grid, one blank row, one "+ Add process", the
+ * same rows and the same `combo` / `component_id` on every one of them; the
+ * storage, the save normaliser, the engine and both reports are untouched.
+ * `processGroupsFor` (`processes.ts`) still describes the grouping and is
+ * what the per-branch cap below reads.
  */
 
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -73,8 +85,8 @@ import {
 
 export function FabricProcessGrid({
   itemId,
-  combo = null,
-  componentId = null,
+  colours = null,
+  components = null,
   rows,
   onChange,
   processes,
@@ -89,12 +101,16 @@ export function FabricProcessGrid({
 }: {
   /** The fabric these steps belong to — stamped onto every row added. */
   itemId: string;
-  /** WHICH GROUP this grid is one fabric's route split into (0528) — both
-   *  null is the unified route, the caller's own `processGroupsFor` decides.
-   *  Stamped onto every row this grid adds, the same way `itemId` already is. */
-  combo?: string | null;
-  componentId?: string | null;
-  /** THIS group's steps only. The screen filters; this grid never does. */
+  /** THE FABRIC'S OWN COLOURWAYS when its route is split "Assort Color Wise"
+   *  (0528) — a Colour ▾ column appears and every started step must name one.
+   *  `null` (the toggle off) draws no column and rows keep `combo: null`.
+   *  Never the order's whole list: the cascading-filter rule, same as
+   *  `YarnProcessGrid`'s `combos`. */
+  colours?: readonly string[] | null;
+  /** THE FABRIC'S OWN PANELS when its route is split "Component Wise" — a
+   *  Component ▾ column appears, same contract as `colours`. */
+  components?: readonly { id: string; name: string }[] | null;
+  /** The whole fabric's steps, every branch together. */
   rows: FabricProcessRow[];
   onChange: (next: FabricProcessRow[]) => void;
   /** The whole master list, unfiltered — the `for_fabric` narrowing is
@@ -132,6 +148,30 @@ export function FabricProcessGrid({
   const patch = (key: string, next: Partial<FabricProcessRow>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...next } : r)));
 
+  const colourWise = !!colours;
+  const componentWise = !!components;
+
+  /* THE FOUR-STAGE CAP IS PER BRANCH (client spec 2026-09-01, "up to 4
+     distinct stages" — of one route, and a split fabric has one route per
+     branch). With every branch in one grid the button cannot know which
+     branch the next row is for, so it stands down only once EVERY branch the
+     toggles can name is full; a fifth step typed into one branch while
+     another is still short is named on that row instead (`overCap`). */
+  const branchKey = (r: Pick<FabricProcessRow, "combo" | "component_id">) =>
+    `${colourWise ? (r.combo ?? "") : ""}::${componentWise ? (r.component_id ?? "") : ""}`;
+  const branchCount = Math.max(1, colourWise ? colours!.length : 1) * Math.max(1, componentWise ? components!.length : 1);
+  const stepsInBranch = new Map<string, number>();
+  const positionInBranch = new Map<string, number>();
+  for (const r of rows) {
+    const k = branchKey(r);
+    const n = (stepsInBranch.get(k) ?? 0) + 1;
+    stepsInBranch.set(k, n);
+    positionInBranch.set(r.key, n);
+  }
+  const overCap = (r: FabricProcessRow) => (positionInBranch.get(r.key) ?? 0) > MAX_ROUTE_STAGES;
+  const branchesFull =
+    [...stepsInBranch.values()].filter((n) => n >= MAX_ROUTE_STAGES).length >= branchCount;
+
   /*
    * NO `usedIds`, AND THE OMISSION IS THE RULE RATHER THAN AN OVERSIGHT.
    *
@@ -146,6 +186,78 @@ export function FabricProcessGrid({
    */
 
   const columns: ChildGridColumn<FabricProcessRow>[] = [
+    /* THE TWO SPLIT COLUMNS (2026-09-15) — present only while their toggle
+       is on, so the unified route is exactly the grid it was. A `<Select>`
+       over the FABRIC'S OWN values, with the held one surviving a list that
+       no longer offers it: the "Disabled rows" rule, copied from
+       `YarnProcessGrid`'s Colour cell. REQUIRED on a started row: a step in
+       a colour-wise route that names no colour is a step `normalizeProcesses`
+       drops on Save, and the hold says so before the save does. */
+    ...(colourWise
+      ? [
+          {
+            header: "Colour",
+            width: "8rem",
+            required: rows.some(fabricProcessRowStarted),
+            cell: (r: FabricProcessRow) => {
+              const held = r.combo ?? "";
+              const options = held && !colours!.includes(held) ? [...colours!, held] : [...colours!];
+              return (
+                <Select
+                  compact
+                  className="h-8"
+                  aria-label="Colour"
+                  value={held}
+                  disabled={readOnly}
+                  required={fabricProcessRowStarted(r)}
+                  onChange={(e) => patch(r.key, { combo: e.target.value || null })}
+                >
+                  <option value="">{""}</option>
+                  {options.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </Select>
+              );
+            },
+          } satisfies ChildGridColumn<FabricProcessRow>,
+        ]
+      : []),
+    ...(componentWise
+      ? [
+          {
+            header: "Component",
+            width: "8rem",
+            required: rows.some(fabricProcessRowStarted),
+            cell: (r: FabricProcessRow) => {
+              const held = r.component_id ?? "";
+              const options =
+                held && !components!.some((c) => c.id === held)
+                  ? [...components!, { id: held, name: "(component not on this fabric)" }]
+                  : [...components!];
+              return (
+                <Select
+                  compact
+                  className="h-8"
+                  aria-label="Component"
+                  value={held}
+                  disabled={readOnly}
+                  required={fabricProcessRowStarted(r)}
+                  onChange={(e) => patch(r.key, { component_id: e.target.value || null })}
+                >
+                  <option value="">{""}</option>
+                  {options.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              );
+            },
+          } satisfies ChildGridColumn<FabricProcessRow>,
+        ]
+      : []),
     {
       /**
        * The fabric's STATE going into this step — GREY, DYED. Not the step
@@ -244,6 +356,13 @@ export function FabricProcessGrid({
             <div className="mt-0.5 text-xs text-warning">
               Dyeing is not needed here — this fabric is Yarn Dyed, so its
               dyeing loss is carried on the Yarn Process tab instead.
+            </div>
+          )}
+          {/* A FIFTH STEP IN ONE BRANCH while "+ Add process" is still up for
+              the others — named on the row, never trimmed (see `hideAdd`). */}
+          {overCap(r) && (
+            <div className="mt-0.5 text-xs text-warning">
+              A route runs at most {MAX_ROUTE_STAGES} stages — this branch already has them.
             </div>
           )}
         </div>
@@ -369,13 +488,10 @@ export function FabricProcessGrid({
          Loss % 4.5 + Type 7 = 38rem = 608px) plus ~170px of `#`/remove/cell
          chrome leaves the flexible Process column comfortable room at 1024 —
          MORE than before Descriptions (10rem) went (0528, "this description
-         column is not needed"), so the threshold this comment used to defend
-         is no longer close to the edge. Left at `5xl` rather than lowered:
-         nothing asked for the route to switch into stacked-card mode any
-         sooner, and this grid now also renders once PER GROUP when a fabric's
-         route is split — dropping the threshold would flip a two-colourway
-         fabric between table and card mode depending on how many groups fit
-         beside it, which is a worse inconsistency than leaving headroom.
+         column is not needed"). WITH BOTH SPLIT COLUMNS ON (2026-09-15) that
+         is 54rem = 864px + chrome ≈ 1034px, i.e. the table just fills the
+         fold panel's ~1344px at the threshold; add a column here and check
+         that sum against `tableFrom` again.
 
          THE THRESHOLD IS NOT COSMETIC HERE — IT DECIDES WHETHER THIS IS A TABLE.
          Below it `ChildGrid` stacks into one labelled field per column, which on
@@ -414,13 +530,12 @@ export function FabricProcessGrid({
          when the cap was different keeps every stage it has; the cap refuses
          the NEXT one. Silently dropping a fifth stage because a rule changed is
          data loss dressed up as validation. */
-      hideAdd={readOnly || rows.length >= MAX_ROUTE_STAGES}
-      onAdd={() =>
-        onChange([
-          ...rows,
-          blankFabricProcess(newKey(), itemId, { combo, component_id: componentId }),
-        ])
-      }
+      hideAdd={readOnly || branchesFull}
+      /* A NEW ROW NAMES NO BRANCH — the operator picks its Colour / Component
+         in the row, and the required hold refuses to move on until they do.
+         Defaulting it to the first colourway would be the "helpful default"
+         AGENTS.md warns turns a blank-row test into a constant. */
+      onAdd={() => onChange([...rows, blankFabricProcess(newKey(), itemId)])}
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
       addLabel="+ Add process"
     />
