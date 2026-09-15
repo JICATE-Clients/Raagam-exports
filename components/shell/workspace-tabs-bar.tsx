@@ -236,7 +236,15 @@ export function WorkspaceTabsBar() {
 
       {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-white/30" />}
 
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      {/* THE BAR IS A HAIRLINE. Enough open tabs overflow the strip, and the
+         default scrollbar under them is a 12-17px grey band across the top of
+         the app that reads as a second chrome edge. A 4px rounded thumb on a
+         transparent track still says "there are more tabs to the right"
+         without drawing one. Chrome / Safari take the `::-webkit-scrollbar`
+         parts, Firefox reads `scrollbar-width: thin` + `scrollbar-color` —
+         the same two halves `scrollbar-none` (globals.css) declares, but thin
+         rather than hidden: nothing else tells the operator a tab is off-screen. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
         {openTabs.map((tab) => {
           const active = tab.href === pathname;
           const Icon = iconForPath(tab.href, modules);

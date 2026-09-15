@@ -2,6 +2,7 @@
 
 import {
   Fragment,
+  type FocusEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -23,8 +24,6 @@ import {
   Truck,
   FileText,
   ClipboardList,
-  AlertTriangle,
-  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -317,6 +316,7 @@ import {
   styleFileMessage,
   orderUnitLabel,
   type GarmentOrderAmendment,
+  type AmendmentTaActivity,
   type AmendmentTaApproval,
 } from "@/lib/orders/amendments/types";
 import {
@@ -1471,6 +1471,14 @@ const STYLE_COL_W = "14rem";
  */
 const TA_ACTIVITY_COL_W = "10rem";
 const TA_OWNER_COL_W = "8rem";
+/**
+ * DEPARTMENT (restored 2026-09-12). Read THROUGH `activity_id` off
+ * `ta_activities.department`, never copied onto the row. A fixed width is what
+ * keeps this from being the column that jitters: most activities name no
+ * department, so a content-sized column would be four characters wide on one
+ * order and fourteen on the next.
+ */
+const TA_DEPT_COL_W = "7rem";
 
 /**
  * A STYLE FIELD'S WIDTH, KEYED BY ITS HEADER.
@@ -1893,6 +1901,40 @@ export function GarmentOrderScreen({
    * approvals are actionable and which are still unsaved.
    */
   const [savedApprovals, setSavedApprovals] = useState<AmendmentTaApproval[]>([]);
+
+  /**
+   * THE LADDER'S SAVED ROWS, KEPT WHOLE — so the Activity table can show an
+   * ACTUAL column (operator, 2026-09-12).
+   *
+   * `TaRow` is deliberately the EDITABLE shape and nothing more: it drops
+   * `actual_date` / `status` / `notes`, because those are entered on the
+   * dashboard days later by somebody else and must never ride this screen's
+   * save payload (see `TaRow`'s own note, and `normalizeTaActivities`). That
+   * rule is untouched here — this is a SECOND, read-only copy of the same
+   * rows, exactly as `savedApprovals` above stands beside `taApprovalRows`.
+   *
+   * The data was already arriving: `service.ts` selects
+   * `ta_activities(*)` and says why in its own comment — the dashboard-owned
+   * columns "are read-only here but must be SHOWN, since the tab is where an
+   * operator sees how far the order has actually got". Until today the screen
+   * threw them away on the way into `TaRow`; this keeps them.
+   *
+   * `[]` until the order has been saved once, so a brand-new ladder's ACTUAL
+   * column is honestly empty rather than pretending nothing has happened yet.
+   */
+  const [savedTaActivities, setSavedTaActivities] = useState<AmendmentTaActivity[]>([]);
+
+  /**
+   * WHICH T&A CELL IS OPEN FOR EDITING (operator, 2026-09-15: "remove the
+   * input field styling ... from the ACTIVITY and OWNER columns. Render their
+   * values as plain text"). A cell that HOLDS a value is drawn as text; a
+   * click on it (a row that is not locked) swaps in the picker until focus
+   * leaves the cell. `${row.key}:activity` / `${row.key}:owner`, one at a
+   * time. A cell with NO value never goes through this — it renders the
+   * picker outright, because a row with nothing in it has nothing to show
+   * as text and, for Owner, still has to be able to hold the cursor.
+   */
+  const [taEditingCell, setTaEditingCell] = useState<string | null>(null);
 
   /**
    * THE ATTACHED DOCUMENTS (0416) — the style JPG, the buyer's PDF order sheet,
@@ -3842,6 +3884,8 @@ export function GarmentOrderScreen({
     setTaRows([]);
     setTaApprovalRows([]);
     setSavedApprovals([]);
+    setSavedTaActivities([]);
+    setTaEditingCell(null);
     setAttachments([]);
     /* A FRESH FOLDER PER RECORD. Without this, a new order started after
        another would upload into the previous one's folder — harmless for
@@ -3967,6 +4011,10 @@ export function GarmentOrderScreen({
        editable grid, but the "TA Followup" tab needs the full saved shape to
        know what it can act on. See `savedApprovals`'s own note. */
     setSavedApprovals(r.ta_approvals ?? []);
+    /* The same rows `applyRows` just mapped into `taRows`, kept whole for
+       the ACTUAL column — see `savedTaActivities`'s own note. Read-only
+       here; nothing in the save payload reads this. */
+    setSavedTaActivities(r.ta_activities ?? []);
     /* NOT PART OF `applyRows`, deliberately: that mapping is shared with the
        ORDER SEED, and an order carries no attachments. Folding files into it
        would make every seeded amendment clear the documents of the one it was
@@ -9056,15 +9104,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           type="number"
           title={anchorId ? `Working days before ${taLabel(anchorId)} starts` : undefined}
           readOnly={!!fixedDays}
-          /* PILL, NOT A SQUARE BOX — `taRenderMobileRow` sits this inside a
-             rounded `bg-surface-muted` chip beside its own "Days" label, so a
-             bordered rectangular input here would draw a second, competing
-             shape inside that chip. `border-transparent bg-transparent`
-             (never `border-none`, which some Tailwind builds treat as a
-             different utility than the border-color/width pair `cn` here is
-             overriding) lets the chip's own background show through; the
-             focus ring still comes from `Input`'s own base classes, unopposed. */
-          className="w-12 rounded-full border-transparent bg-transparent text-center"
+          /* A PLAIN COMPACT BOX, NO PILL (operator, 2026-09-15: "remove the
+             rounded border and pill styling from the numbers in the DAYS
+             column"). The `rounded-full border-transparent` chip this
+             replaces was drawn for a row that showed the input at rest;
+             `taRenderMobileRow` now prints a FILLED Days as text and only
+             mounts this input while the cell is blank or being changed, so
+             the one time it is on screen it should look like the input it
+             is. `font-mono` so a value typed here sits in the same figure
+             face the text beside it uses. */
+          className="w-14 text-center font-mono"
           min="0"
           value={fixedDays ?? r.days_required}
           // A focused number input still eats mouse-wheel scroll as a
@@ -9528,7 +9577,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         */}
       <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-medium text-muted-foreground">Date</span>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Date</span>
           <Input
             id="ta-date"
             readOnly
@@ -9537,7 +9586,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           />
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-medium text-muted-foreground">Ref No</span>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Ref No</span>
           <Input
             id="ta-refno"
             readOnly
@@ -9550,89 +9599,132 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   );
 
   /**
-   * THE T&A GRID AS A COMPACT, PHASE-GROUPED TABLE (2026-09-10, replacing the
-   * icon-timeline cards above against a redesign mockup the operator
-   * approved — "still not yet updated" after the risk strip and the PP
-   * Sample link alone landed, so this is the rest of it: the row itself).
+   * ROW_UID → THE SAVED ROW, for the two dashboard-owned facts the Activity
+   * table now prints: ACTUAL and whether the step is done. A plain `const`
+   * rather than a `useMemo` — it is one pass over the order's own ladder
+   * (nine rows on a seeded order), and AGENTS.md's standing rule is that a
+   * memo that cheap buys nothing and costs a hook on a component that
+   * returns early.
+   */
+  const taSavedByUid = new Map(savedTaActivities.map((a) => [a.row_uid, a]));
+
+  /**
+   * "CRITICAL" — the ONE state this table colours: target passed, no actual
+   * date recorded. ONE predicate for the row's red edge and the footer's
+   * count, or the band can say "2 critical" over three red rows.
    *
-   * REUSES `taColumns[0].cell` / `[1].cell` / `[4].cell` VERBATIM, same as
-   * the design this replaces — see that version's own note, still true here:
-   * calling anything other than the real closures would fork the Activity
-   * picker's `usedIds` / `data-focus-optional` wiring and the Days/Task
-   * Owner controls into a second copy that WILL drift from the table's.
-   * `RequiredScope` wraps each for the same reason — no column declares
-   * `required` today (withdrawn 2026-08-31), but the day it returns this is
-   * the one place that would otherwise draw a hold with no star, or a star
-   * with no hold, behind nobody's back.
+   * Plain functions, not hooks, for the same reason as `taSavedByUid` above:
+   * this sits below the `if (mode === "list")` return.
+   */
+  const taIsCritical = (r: TaRow) => {
+    const d = taDates.get(r.row_uid);
+    return !!d && d.float < 0 && !taSavedByUid.get(r.row_uid)?.actual_date;
+  };
+  const taCriticalCount = taRowsDisplay.filter(taIsCritical).length;
+  /* THE SAME FIGURE THE DAYS CELL SHOWS — `computedTaDays` wins over the
+     stored value there, so the total must read it the same way or the
+     column and its sum disagree on a PP Send row. */
+  const taTotalDays = taRowsDisplay.reduce((sum, r) => {
+    const days = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name) ?? r.days_required;
+    return sum + (Number(days) || 0);
+  }, 0);
+
+  /**
+   * THE ROW, RESTYLED TO THE "T&A ORDER VIEW" MOCK (operator, 2026-09-15,
+   * screenshot 093247): seven plain columns — # · Activity · Department ·
+   * Owner · Days · Target · Actual — one hairline between rows, dense rows
+   * (`py-1`, operator 2026-09-15), and ONE coloured edge, red, meaning exactly one thing: the target
+   * has passed and no actual date has been recorded. Everything the previous
+   * row carried on top of its values — the four-tone stripe, the clock/alert
+   * glyph, the "2 days late" caption under Actual — is gone from the row and
+   * said ONCE, in words, in the footer band under the table (`taCriticalCount`).
    *
-   * A PHASE HEADER IS A SIBLING OF THE ROW, NOT A REPLACEMENT FOR ONE.
-   * `ChildGrid` still renders exactly one `TaRow` per `[data-grid-row]` —
-   * this function still returns ONE thing per call, a `<>` fragment whose
-   * first child is the optional heading and whose second is that same one
-   * row. Tab, Ctrl+Del and Enter-adds-a-row all still walk the unchanged
-   * one-activity-per-row model; nothing here is a second grid.
+   * ## ACTIVITY AND OWNER ARE TEXT, NOT INPUTS (operator, 2026-09-15)
    *
-   * TONE IS SCHEDULE PROXIMITY, NEVER COMPLETION — carried over unchanged
-   * from the row this replaces. This screen has no idea whether a step is
-   * done: `status` / `actual_date` are entered on the dashboard and never
-   * loaded here (see `TaRow`'s own note). `d.float` is the one honest signal
-   * available, so the status chip says "Overdue" / "Due today" / "Due soon"
-   * / "Scheduled" — never "Done", a claim this screen's own data cannot back.
+   * "Remove the input field styling (borders, backgrounds, and input tags)
+   * from the ACTIVITY and OWNER columns. Render their values as plain text."
+   * The first cut of this row kept the pickers and hid their chrome with
+   * `[&_input]` overrides; the operator saw an input regardless. So a cell
+   * that HOLDS a value is now a `<span>` — bold for Activity, medium for
+   * Owner — and the picker exists only where it is genuinely needed:
+   *
+   * - a hand-added row with NO activity yet, or a row with NO owner yet —
+   *   there is no value to print, and the Owner picker is where the
+   *   `required`-while-filled hold lives (`taColumns[4]`);
+   * - a cell the operator has CLICKED to change (`taEditingCell`), on a row
+   *   that is not locked. Focus leaving the cell puts the text back.
+   *
+   * The locked nine-step chain never opens: its Activity was `disabled` on
+   * the picker already, and text is the honest rendering of a value nobody
+   * here can change.
+   *
+   * DAYS JOINED THE SAME RULE the same day ("remove the rounded border and
+   * pill styling from the numbers in the DAYS column"): text while it holds
+   * a figure, the number box while blank or clicked, never a box for a
+   * computed figure. Tab lands on fields and a span is not one, so on a NEW
+   * order the cursor still walks blank Days → blank Days down the ladder
+   * (where the client asked it to land — see `taColumns[0]`'s
+   * `autoFilledField` note); on a saved one every filled cell is reached by
+   * a click. That trade is the operator's, made three times over.
+   *
+   * ## WHAT "CRITICAL" IS, AND WHY IT NEEDS `actual_date`
+   *
+   * `d.float < 0` alone was the old red: the target is behind us. That is
+   * wrong on a row the floor has already finished — Knitting in the mock ran
+   * three days late and is NOT red, because it is done. Since 2026-09-12 this
+   * screen keeps the dashboard's `actual_date` (`savedTaActivities`), so the
+   * row can finally say the honest thing: red is "late AND still open". A row
+   * never saved has no actual and is judged on its target alone. The test is
+   * `taIsCritical`, shared with the footer's count so the two cannot disagree.
+   *
+   * The end date under Target stays (client 2026-09-11: "need to show the end
+   * date... near") — the mock's rows simply had none that differed from the
+   * start. It is the one thing on the row the mock does not draw.
    */
   const taRenderMobileRow = (r: TaRow, i: number) => {
     const d = taDates.get(r.row_uid);
-
-    const tone: "danger" | "warning" | "info" | "muted" =
-      !d ? "muted" : d.float < 0 ? "danger" : d.float === 0 ? "warning" : d.float <= 3 ? "info" : "muted";
-    const toneBorder: Record<typeof tone, string> = {
-      danger: "border-l-danger",
-      warning: "border-l-warning",
-      info: "border-l-info",
-      muted: "border-l-border-strong",
+    /* THE DASHBOARD'S HALF OF THE ROW, read-only. `undefined` for a row that
+       has never been saved — which is not the same as a saved row with no
+       actual date yet, though both print an em dash. */
+    const actualDate = taSavedByUid.get(r.row_uid)?.actual_date ?? null;
+    /* DEPT IS READ THROUGH `activity_id`, NEVER COPIED ONTO THE ROW — the
+       rule `TaRow`'s own comment states. Most activities name none, which is
+       why this column was dropped in September; it is back by request, and
+       an em dash is the honest answer for the majority. */
+    const deptName = taActivityById.get(r.activity_id ?? "")?.department ?? null;
+    const critical = taIsCritical(r);
+    /* TEXT OR PICKER — see the function's own note. `locked` is the same
+       `default_seed` test `lockRow` and the Activity picker's `disabled`
+       read, so a row cannot be text here and a control there. */
+    const locked = !!taActivityById.get(r.activity_id ?? "")?.default_seed;
+    const activityName = taActivityById.get(r.activity_id ?? "")?.name ?? null;
+    const ownerName = r.assigned_staff_id
+      ? (data.employees.find((e) => e.id === r.assigned_staff_id)?.name ?? null)
+      : null;
+    const activityAsText = !!activityName && (locked || taEditingCell !== `${r.key}:activity`);
+    const ownerAsText = !!ownerName && taEditingCell !== `${r.key}:owner`;
+    /* DAYS follows the same rule (operator, 2026-09-15). The DISPLAYED
+       figure is `computedTaDays` first — the same precedence the input's
+       own `value` uses, so text and box can never show different numbers
+       for a PP Send row — and a computed figure is never editable, so it
+       never opens. */
+    const fixedDays = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+    const daysShown = fixedDays ?? r.days_required;
+    const daysAsText = daysShown !== "" && daysShown != null && (!!fixedDays || taEditingCell !== `${r.key}:days`);
+    /* Focus leaving the CELL — not the input, which loses focus to its own
+       list panel — closes the edit. `relatedTarget` is null on a click into
+       nothing, which also closes it. */
+    const closeOnLeave = (e: FocusEvent<HTMLDivElement>) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setTaEditingCell(null);
     };
-    /* THE SAME TINTED-BOX SHAPE `/orders/ta-worklist` ALREADY USES
-       (`STATUS_BOX` in `worklist-board.tsx`) — border at 30% + soft fill at
-       60%, so a date-and-status chip on this screen reads as the same KIND
-       of fact as the identical chip on that one, not a fourth invented
-       style. `muted` here is that file's `neutral`. */
-    const toneBox: Record<typeof tone, string> = {
-      danger: "border-danger/30 bg-danger-soft/60",
-      warning: "border-warning/30 bg-warning-soft/60",
-      info: "border-info/30 bg-info-soft/60",
-      muted: "border-border bg-surface-muted/60",
-    };
-    const toneText: Record<typeof tone, string> = {
-      danger: "text-danger",
-      warning: "text-warning",
-      info: "text-info",
-      muted: "text-muted-foreground",
-    };
-    /* THE SAME WORDING RULE `slipLabel()` IN `worklist-board.tsx` USES —
-       the exact day count, not a generic bucket word, because "2 days
-       late" is the figure an operator actually needs and "Overdue" made
-       them do the subtraction themselves from the date beside it. `!d`
-       (no date at all — the ladder is incomplete, or refused) is this
-       screen's own case that file's `slipLabel` never has to answer, since
-       every row it draws already has a real float. */
-    // No word for an on-track row (client 2026-09-15: remove "Scheduled") —
-    // only lateness, due-today and the 3-day warning are said out loud.
-    const statusText = !d
-      ? ""
-      : d.float < 0
-        ? `${Math.abs(d.float)} day${Math.abs(d.float) === 1 ? "" : "s"} late`
-        : d.float === 0
-          ? "Due today"
-          : d.float <= 3
-            ? `in ${d.float} day${d.float === 1 ? "" : "s"}`
-            : "";
-    /* SAME GLYPH CHOICE AS `StatusIcon` IN `worklist-board.tsx` — alert
-       triangle once it has slipped or is due today, a clock while it is
-       close, a plain calendar otherwise. Kept as a local pick rather than
-       importing that file's own component: this row's tones are a 4-way
-       split (`danger`/`warning`/`info`/`muted`), that screen's are a 5-way
-       `StatusTone`, and the two are close enough to invite reuse but not
-       equal enough to safely share one function. */
-    const ToneIcon = tone === "danger" || tone === "warning" ? AlertTriangle : tone === "info" ? Clock : CalendarClock;
+    /* THE EXACT DAY COUNT SURVIVES AS A TOOLTIP. The caption that used to
+       print it under Actual is gone (the mock has none), but "3 days past
+       target" is still the figure an operator needs and nobody should have
+       to subtract dates themselves — so the red row says it on hover. */
+    const slip =
+      critical && d
+        ? `${Math.abs(d.float)} day${Math.abs(d.float) === 1 ? "" : "s"} past target, no actual date recorded`
+        : undefined;
 
     /* PHASE HEADINGS WITHDRAWN (2026-09-10, operator: "Sample & Sourcing
        Gate, Production Floor — remove this headings also"). The grouping
@@ -9643,106 +9735,165 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     return (
         <div
           className={cn(
-            "flex items-center gap-x-3 gap-y-1 border-l-[3px] bg-surface px-2 py-1.5",
-            toneBorder[tone],
+            /* `py-1` — DENSE (operator, 2026-09-15: "much more compact and tight ...
+               minimize the whitespace between rows"). The mock's airy 60px row
+               lasted three days; with every cell now plain text the row is
+               as tall as its tallest line and nothing else.
+               `px-2` + `leading-none`, and every cell at text-[11px] / the
+               subtitles at text-[10px] with no `mt-*` between them — the
+               second pass the same day ("noticeably smaller ... line spacing
+               as tight as possible ... py-1 px-2"). Header and footer carry
+               the same `px-2`, or the columns drift. */
+            "flex items-center gap-x-2 border-l-[3px] bg-surface px-2 py-1 leading-none",
+            "transition-colors hover:bg-surface-muted/40",
+            /* The hairline is drawn on the row's TOP so the last row never
+               paints a trailing rule above the footer band — the same
+               reasoning `ChildGrid`'s own card body gives for not using
+               `divide-y`. `i` is the DISPLAY index, so the first visible row
+               carries none. */
+            i > 0 && "border-t border-t-border",
+            critical ? "border-l-danger" : "border-l-transparent",
           )}
+          title={slip}
         >
-          <div className="min-w-0 flex-none" style={{ width: TA_ACTIVITY_COL_W }}>
-            <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
-              {taColumns[0].cell(r, i)}
-            </RequiredScope>
-            {/* BYPASS AND THE PP SAMPLE LINK — one meta line under the
-                Activity picker rather than more columns, so the row stays
-                one visual line at any width above ~360px.
-                DEPARTMENT DELIBERATELY DROPPED (2026-09-10) — it was here as
-                plain text and, because only a handful of activities carry
-                one (Checking/Ironing/Materials In-House/PP Send/PP Approval;
-                most are null), it made exactly those rows taller than their
-                neighbours with nothing visually tying the caption to its own
-                row — the ragged, "floating label" look the phase headers
-                exist to prevent in the first place. The phase heading above
-                each group already says which area a row belongs to; a
-                second, inconsistently-populated answer to the same question
-                cost more in row-height jitter than it told the operator. */}
-            {/* THE PP SAMPLE CROSS-LINK IS WITHDRAWN (2026-09-10, operator:
-                "PP Sample, on TA Followup — I think no need this indication
-                too"), both directions — the reciprocal button and its
-                `onJumpToLadder` prop are gone from
-                `order-approval-followup.tsx` too. The segmented
-                Activity/Approval nav (`taSegNav`) already gets the operator
-                to the other tab in one click, so the per-row link was a
-                second way to do the same thing. */}
+          {/* # IS THE ROW POSITION, AND THAT IS THE CONTRACT rather than a
+              convenience. `order-ladder.ts` zips its dates back on BY POSITION
+              and never sorts the ladder for a caller, so the index IS the step
+              number and there is no `sequence` field to read instead. It walks
+              `taRowsDisplay`, so the number matches what the operator sees
+              rather than the array order underneath. */}
+          <span className="w-6 flex-none font-mono text-[11px] leading-none tabular-nums text-muted-foreground">
+            {i + 1}
+          </span>
+
+          {/* ACTIVITY carries the weight — bold text while it holds a value,
+              the picker only while it is blank or being changed (see the
+              function's own note). The picker is still `taColumns[0].cell`
+              verbatim, never a second copy: forking it would split the
+              `usedIds` / `data-focus-optional` / `disabled` wiring in two. */}
+          <div
+            className="min-w-0 flex-none"
+            style={{ width: TA_ACTIVITY_COL_W }}
+            onBlur={activityAsText ? undefined : closeOnLeave}
+          >
+            {activityAsText ? (
+              <span
+                className={cn(
+                  "block truncate text-xs font-semibold leading-none text-foreground",
+                  !locked && "cursor-pointer rounded hover:bg-surface-muted",
+                )}
+                title={locked ? activityName! : `${activityName} — click to change`}
+                onClick={locked ? undefined : () => setTaEditingCell(`${r.key}:activity`)}
+              >
+                {activityName}
+              </span>
+            ) : (
+              <RequiredScope required={taColumns[0].required} label={taColumns[0].header}>
+                {taColumns[0].cell(r, i)}
+              </RequiredScope>
+            )}
             {taBypass.get(r.row_uid) && (
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+              <div className="mb-0 mt-0 flex flex-wrap items-center gap-x-2 gap-y-0 text-[10px] leading-none text-muted-foreground">
                 <span
-                  className="rounded-full bg-info-soft px-1.5 py-0.5 font-semibold text-info"
-                  title={`${fmtNumber(taBypass.get(r.row_uid)!.qty)} good pieces recorded on Production`}
+                  title={`${fmtNumber(taBypass.get(r.row_uid)!.qty)} good pieces recorded on Production${taBypass.get(r.row_uid)!.lastEntryDate ? `, last on ${fmtDate(taBypass.get(r.row_uid)!.lastEntryDate!)}` : ""}`}
                 >
-                  {fmtNumber(taBypass.get(r.row_uid)!.qty)} pcs
+                  Bypass {fmtNumber(taBypass.get(r.row_uid)!.qty)} pcs
                 </span>
               </div>
             )}
           </div>
 
-          <div className="flex w-fit items-center gap-1 rounded-full bg-surface-muted py-0.5 pl-2 pr-1">
-            <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
-              {taColumns[1].cell(r, i)}
-            </RequiredScope>
-            <span className="text-[10px] font-medium text-muted-foreground">days</span>
+          {/* DEPARTMENT. An em dash for the majority that name none — that
+              ragged column is exactly why it was dropped on 2026-09-10, and the
+              fixed width is what stops it taking the row height with it. */}
+          <span
+            className="min-w-0 flex-none truncate text-xs leading-none text-foreground"
+            style={{ width: TA_DEPT_COL_W }}
+            title={deptName ?? undefined}
+          >
+            {deptName ?? "—"}
+          </span>
+
+          {/* OWNER — medium-weight text while assigned, the picker while
+              blank (which is also where its required-while-filled hold lives)
+              or being changed. Null is not a gap: an unclaimed rung belongs to
+              every eligible member of its department (0547). */}
+          <div
+            className="min-w-0 flex-none"
+            style={{ width: TA_OWNER_COL_W }}
+            onBlur={ownerAsText ? undefined : closeOnLeave}
+          >
+            {ownerAsText ? (
+              <span
+                className="block cursor-pointer truncate rounded font-mono text-[11px] font-medium leading-none text-foreground hover:bg-surface-muted"
+                title={`${ownerName} — click to change`}
+                onClick={() => setTaEditingCell(`${r.key}:owner`)}
+              >
+                {ownerName}
+              </span>
+            ) : (
+              <RequiredScope required={taColumns[4].required} label={taColumns[4].header}>
+                {taColumns[4].cell(r, i)}
+              </RequiredScope>
+            )}
           </div>
 
-          {/* TASK OWNER (0547) — same `RequiredScope`-only pattern as
-             Activity/Days above; this card never gives either a visible
-             star (confirmed accepted trade-off, since a `compact`
-             RecordPicker draws none of its own). The hold still works
-             regardless — `useRequiredHold` inside `RecordPicker` does not
-             depend on a star being drawn anywhere. */}
-          <div className="min-w-0 flex-none" style={{ width: TA_OWNER_COL_W }}>
-            <RequiredScope required={taColumns[4].required} label={taColumns[4].header}>
-              {taColumns[4].cell(r, i)}
-            </RequiredScope>
+          {/* DAYS — plain centred text while it holds a value, the input while
+              blank or being changed (see the function's own note; same rule
+              as Activity and Owner). The input is still `taColumns[1].cell`
+              verbatim, so the clamp, the wheel-blur and the `readOnly` for a
+              computed row stay in one place. */}
+          <div
+            className="w-14 flex-none text-center"
+            onBlur={daysAsText ? undefined : closeOnLeave}
+          >
+            {daysAsText ? (
+              <span
+                className={cn(
+                  "block font-mono text-[11px] leading-none tabular-nums text-foreground",
+                  !fixedDays && "cursor-pointer rounded hover:bg-surface-muted",
+                )}
+                title={fixedDays ? undefined : `${daysShown} days — click to change`}
+                onClick={fixedDays ? undefined : () => setTaEditingCell(`${r.key}:days`)}
+              >
+                {daysShown}
+              </span>
+            ) : (
+              <RequiredScope required={taColumns[1].required} label={taColumns[1].header}>
+                {taColumns[1].cell(r, i)}
+              </RequiredScope>
+            )}
           </div>
 
-          {/* DATE AND STATUS, ONE CHIP (2026-09-10, matching `/orders/ta-
-              worklist`'s own `STATUS_BOX` — operator: "I am expecting like
-              this, compare it both"). Two separate elements — a plain
-              Target date and a status pill off at the row's far edge — used
-              to answer "when" and "how urgent" as two facts an eye had to
-              connect itself; the worklist screen already solved this once,
-              so this reads it rather than re-inventing a fifth status
-              treatment for one app. */}
+          {/* TARGET, with the end date beneath it ON EVERY DATED ROW (client
+              2026-09-15: "every task should follow the same visual format" —
+              a 1-day Inspection reads `08/12 → 08/12`, not a bare date beside
+              ranges; carried over from master's chip when this table replaced
+              it). An em dash for a rung the backward walk could not date: it
+              stops at the first row with no Days, and a plan is read as a
+              promise, so no date is shown rather than a guessed one. */}
+          <div className="w-[4.75rem] flex-none whitespace-nowrap">
+            <div className="font-mono text-[11px] leading-none tabular-nums text-foreground">
+              {d ? fmtDate(d.target_date) : "—"}
+            </div>
+            {d?.end_date && (
+              <div className="mt-0 font-mono text-[10px] leading-none tabular-nums text-muted-foreground">
+                <span aria-hidden>→</span> {fmtDate(d.end_date)}
+              </div>
+            )}
+          </div>
+
+          {/* ACTUAL — the dashboard half of the row, read-only here (see
+              `savedTaActivities`). An em dash means "not recorded", and on the
+              day an order is raised that is the honest answer for nearly every
+              rung. Red on a critical row: the dash IS the problem. */}
           <div
             className={cn(
-              /* `flex-1 min-w-0` — the same GROWING space the header's own
-                 "Status" span reserves (`flex-1` there too), rather than a
-                 width sized to this chip's own content. `justify-end` keeps
-                 the chip hugging the right edge of that space when its
-                 content is short; `flex-wrap` + `min-w-0` are what let a
-                 LONG one (target date + "→" + end date + status word) wrap
-                 onto a second line INSIDE the chip's own border instead of
-                 the chip itself being shoved past the row's edge and picked
-                 up by the row's own wrap (screenshot 2853 — see
-                 `TA_ACTIVITY_COL_W`'s comment for the history). */
-              "flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 rounded-md border px-2 py-1",
-              toneBox[tone],
+              "w-[4.75rem] flex-none whitespace-nowrap font-mono text-[11px] leading-none tabular-nums",
+              actualDate ? "text-foreground" : critical ? "text-danger" : "text-muted-foreground",
             )}
           >
-            <ToneIcon className={cn("size-3.5 shrink-0", toneText[tone])} aria-hidden />
-            <span className="tabular-nums text-xs text-muted-foreground">
-              {d ? fmtDate(d.target_date) : "—"}
-              {/* START → END ON EVERY ROW (client 2026-09-15: "every task
-                  should follow the same visual format" — a 1-day Inspection
-                  reads `08/12/2026 → 08/12/2026`, not a bare date beside
-                  ranges). A "(N working days)" note was added the same day
-                  and removed at the client's request. */}
-              {d?.end_date && (
-                <>
-                  {" "}
-                  <span aria-hidden>→</span> {fmtDate(d.end_date)}
-                </>
-              )}
-            </span>
-            <span className={cn("text-xs font-semibold", toneText[tone])}>{statusText}</span>
+            {actualDate ? fmtDate(actualDate) : "—"}
           </div>
         </div>
     );
@@ -19295,11 +19446,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             */}
           {!isRefusal(taLadder) && (
             <div className="flex flex-wrap overflow-hidden rounded-md border border-border">
-              <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 px-3 py-2 last:border-r-0">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 p-2 last:border-r-0">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Anchor
                 </div>
-                <div className="text-xs font-semibold tabular-nums text-foreground">
+                <div className="text-sm font-semibold tabular-nums text-foreground">
                   {fmtDate(taLadder.anchor.date)}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
@@ -19310,13 +19461,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               </div>
               {taLadder.startDate != null ? (
                 <>
-                  <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 px-3 py-2 last:border-r-0">
-                    <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 p-2 last:border-r-0">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Work starts
                     </div>
                     <div
                       className={cn(
-                        "text-xs font-semibold tabular-nums",
+                        "text-sm font-semibold tabular-nums",
                         taLadder.float! < 0
                           ? "text-danger"
                           : taLadder.float === 0
@@ -19344,11 +19495,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     </div>
                   </div>
                   {taAttentionCount > 0 && (
-                    <div className="min-w-[9rem] flex-1 bg-surface-muted/40 px-3 py-2">
-                      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <div className="min-w-[9rem] flex-1 bg-surface-muted/40 p-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         Needs attention
                       </div>
-                      <div className="text-xs font-semibold text-warning">
+                      <div className="text-sm font-semibold text-warning">
                         {taAttentionCount} row{taAttentionCount === 1 ? "" : "s"}
                       </div>
                       <div className="text-[10px] text-muted-foreground">
@@ -19358,11 +19509,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   )}
                 </>
               ) : (
-                <div className="min-w-[9rem] flex-1 bg-surface-muted/40 px-3 py-2">
-                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-[9rem] flex-1 bg-surface-muted/40 p-2">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Work starts
                   </div>
-                  <div className="text-xs font-semibold text-muted-foreground">Not yet known</div>
+                  <div className="text-sm font-semibold text-muted-foreground">Not yet known</div>
                   <div className="text-[10px] text-warning">
                     {taLadder.incomplete?.reason ?? "Enter Days on every row to compute this"}
                   </div>
@@ -19452,20 +19603,22 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           {isRefusal(taLadder) && (
             <p className="pb-1 text-[11px] font-medium text-warning">{taLadder.refused}</p>
           )}
-          {/* `max-w-2xl`, LEFT-ALIGNED (client: "left align it and compact it
-             more") — no `mx-auto`, so the column hugs the pane's own left
-             edge instead of centring in whatever width the pane happens to
-             be. The header row's four labels line up over
-             `taRenderMobileRow`'s own row — Activity/Owner share the fixed
-             `TA_ACTIVITY_COL_W`/`TA_OWNER_COL_W` widths, and Status is
-             `flex-1` in both, so the two reserve the SAME space rather than
-             each guessing at it independently. This used to say "loosely",
-             back when every column was sized to its own content and the
-             Status chip was pushed right with a bare `ml-auto`; that broke
-             (screenshot 2853) the moment the chip's content grew past what
-             the row's `flex-wrap` could keep on one line. See
-             `TA_ACTIVITY_COL_W`'s own comment for the history. */}
-          <div className="max-w-2xl">
+          {/* ONE CARD, TO THE "T&A ORDER VIEW" MOCK (operator, 2026-09-15,
+             screenshot 093247): the PP-approval mode and its note at the top,
+             the seven-column ladder beneath, and a footer band that counts
+             rows, total days and the critical rungs. `max-w-6xl`, up from the
+             `max-w-4xl` of 09-12 — the mock's table is ~1200px wide and the
+             seven columns want the room. The half of the earlier instruction
+             that was about ALIGNMENT still holds (client: "left align it") —
+             no `mx-auto`, so the card hugs the pane's left edge.
+
+             `w-fit`, NOT `max-w-6xl` (operator, 2026-09-15: "eliminate all the
+             excess empty whitespace on the right side of the table"). Every
+             column is a fixed width, so the card is exactly as wide as the
+             widest of its header, its rows (their content plus `ChildGrid`'s
+             ✕ gutter) and its footer — and no wider. `max-w-full` keeps it
+             inside a narrow pane, where the scroller below takes over. */}
+          <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
             {/* THE GATE, BACK ON THE ACTIVITY VIEW (operator, 2026-09-11:
                 "move the Cutting Start Based / Yarn Purchase Based mode
                 again same place just hide the pp gate toggle"). The ON/OFF
@@ -19479,12 +19632,16 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 Based / Yarn Purchase Based) say what the bar is for without
                 it. Shown only when this order's ladder actually names PP
                 Send, PP Approval or Materials In-House, since a chain with
-                none of the three has nothing for the mode to gate. */}
+                none of the three has nothing for the mode to gate.
+
+                INSIDE THE CARD NOW, as the mock draws it: the segmented
+                control on its own line, no grey bar of its own — the card is
+                the frame. */}
             {taRows.some((r) => {
               const sn = taActivityById.get(r.activity_id ?? "")?.short_name;
               return sn === "PPSEND" || sn === "PPAPPR" || sn === "MATIH";
             }) && (
-              <div className="mb-2 flex flex-col items-start gap-1.5 rounded-md border border-border bg-surface-muted px-2.5 py-1.5">
+              <div className="border-b border-border px-2 py-1">
                 {/* HIDDEN (operator, 2026-09-11) — see the comment above.
                     Left as dead code deliberately, not deleted: the state
                     and its `set()` wiring are unchanged, so restoring this
@@ -19507,48 +19664,59 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     ]}
                   />
                 )}
-                {/* ALWAYS ITS OWN LINE (operator, 2026-09-15) — this used to
-                    sit beside the toggle in a `flex-wrap` row, so the short
-                    Cutting-Based sentence stayed inline while the longer
-                    Yarn-Based one wrapped underneath, flush against the
-                    toggle's left edge. Same bar, two different shapes
-                    depending only on which mode was picked, reported as
-                    looking broken. A fixed `flex-col` stack means the caption
-                    sits in the same place under the toggle in both modes,
-                    however long the sentence runs. */}
-                <span className="text-[10.5px] text-muted-foreground">
-                  {!form.production_based_pp_approval
-                    ? "Cutting and material buying proceed without waiting on PP Sample."
-                    : form.pp_approval_trigger_mode === "YARN_PURCHASE_BASED"
-                      ? "Bulk Yarn PO is locked until PP Sample is Approved; cutting is not gated by this toggle."
-                      : "Cutting waits until PP Sample is Approved."}
-                </span>
+                {/* THE ONE-LINE CONSEQUENCE UNDER THE MODE PICKER IS WITHDRAWN
+                    (operator, 2026-09-15: "remove the helper text that says
+                    'Bulk Yarn PO is locked until PP Sample is Approved...'").
+                    It said, per mode, what the gate does — "Cutting waits
+                    until PP Sample is Approved" / "Bulk Yarn PO is locked
+                    until PP Sample is Approved; cutting is not gated by this
+                    toggle" / (gate off) "Cutting and material buying proceed
+                    without waiting on PP Sample". The two option labels are
+                    now the whole explanation. The gate's BEHAVIOUR is
+                    unchanged; only the sentence describing it is gone. */}
               </div>
             )}
-            <div className="flex items-center gap-x-3 border-b border-border-strong px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {/* THE TABLE SCROLLS, THE PAGE NEVER DOES. Seven columns do not
+                fit the pane at every width, so the header, the body and the
+                footer share ONE horizontal scroller - AGENTS.md rule that a
+                wide table gets its own `overflow-x-auto` container rather
+                than pushing the page body sideways. No `min-w` on the three
+                siblings any more: the card is `w-fit`, so all three stretch
+                to the widest one's content width and cannot scroll out of
+                step.
+                THE BAR IS A HAIRLINE. A default scrollbar under the ladder is
+                a 12-17px grey band that reads as a second border across the
+                card; a 3px rounded thumb on a transparent track still says
+                "there is more to the right" without drawing a frame. Chrome /
+                Safari take the `::-webkit-scrollbar` parts, Firefox reads
+                `scrollbar-width: thin` + `scrollbar-color` — the same two
+                halves `scrollbar-none` (globals.css) declares, but thin rather
+                than hidden, because a data table keeps its bar. */}
+            <div className="overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
+            {/* THE HEADER ROW, as the mock draws it: small, uppercase, widely
+                tracked, muted, on the card's own white with a single rule
+                under it - not the grey band of 09-12, which read as a second
+                frame inside the card. The transparent `border-l-[3px]`
+                reserves the critical stripe's width here too, so the columns
+                line up whether or not any row is late. Same `gap-x-4` /
+                `px-3` as the row, because that is the only way the two can
+                agree on where a column sits. */}
+            <div className="flex items-center gap-x-2 border-b border-l-[3px] border-b-border border-l-transparent px-2 py-1 text-[10px] font-medium uppercase leading-none tracking-[0.14em] text-muted-foreground">
+              <span className="w-6 flex-none">#</span>
               <span className="flex-none" style={{ width: TA_ACTIVITY_COL_W }}>Activity</span>
-              <span className="flex-none">Days</span>
+              <span className="flex-none" style={{ width: TA_DEPT_COL_W }}>Department</span>
               <span className="flex-none" style={{ width: TA_OWNER_COL_W }}>Owner</span>
-              {/* Target and Status merged into one chip on the row itself
-                  (`taRenderMobileRow`) — one header word for the one thing
-                  the operator now sees as one fact. `flex-1 text-right`, not
-                  `ml-auto`: this is now the same GROWING column the chip
-                  below sits in (`taRenderMobileRow`'s own note), so the two
-                  line up under the same reserved space instead of each
-                  pushing itself to the edge of two independently-wrapping
-                  flex rows. */}
-              <span className="flex-1 text-right">Status</span>
+              <span className="w-14 flex-none text-center">Days</span>
+              <span className="w-[4.75rem] flex-none">Target</span>
+              <span className="w-[4.75rem] flex-none">Actual</span>
             </div>
             <div
-              /* `!border-t-0` / `!py-0` cancel `flatRows`'s own hairline/
-                 padding rhythm — `taRenderMobileRow` draws its own left-edge
-                 status border and padding instead, and stacking both would
-                 double the space between rows on a tab whose whole point,
-                 today, is being more compact than it was. NO `w-fit`, unlike
-                 the icon-timeline version this replaces: that design needed
-                 the row to shrink to its own content so the ✕ sat next to it;
-                 this one needs the row to fill the pane's width, or the
-                 Status chip's `flex-1` has nothing to grow into. */
+              /* `!border-t-0` / `!py-0` cancel `flatRows`'s own 2px rule and
+                 padding rhythm — `taRenderMobileRow` draws its own hairline,
+                 its own left-edge stripe and its own padding instead, and
+                 stacking both would double the space between rows. The rows
+                 fill the card, and the card (`w-fit`) is sized by the widest
+                 of them, so nothing here needs a width of its own. */
               className="[&_[data-grid-row]]:!border-t-0 [&_[data-grid-row]]:!py-0"
             >
               <ChildGrid<TaRow>
@@ -19589,6 +19757,35 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add activity"
               />
+            </div>
+            {/* THE FOOTER BAND: rows, total days, and the critical count in
+                words (the mock's "2 critical activities — target passed with
+                no actual date"). This is where the row's old four-stripe
+                legend and "N days late" caption went: ONE colour on the rows,
+                ONE sentence saying what it means, and nothing at all when no
+                row is late. `taCriticalCount` reads the same `taIsCritical`
+                the row's stripe does, so the count and the red rows cannot
+                disagree. The band deliberately does NOT claim completion for
+                the non-red rows: "target passed with no actual date" is the
+                only thing this screen can honestly say, since `actual_date`
+                is written on the dashboard and only READ here. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-0 border-t border-border bg-surface-muted/40 px-2 py-1 font-mono text-[10px] leading-none text-muted-foreground">
+              <span className="uppercase tracking-[0.14em]">
+                Rows <span className="font-semibold text-foreground">{taRowsDisplay.length}</span>
+              </span>
+              <span className="uppercase tracking-[0.14em]">
+                Total days <span className="font-semibold text-foreground">{taTotalDays}</span>
+              </span>
+              {taCriticalCount > 0 && (
+                <span className="flex items-center gap-2">
+                  <span className="inline-block h-3.5 w-[3px] bg-danger" aria-hidden />
+                  <span>
+                    {taCriticalCount} critical activit{taCriticalCount === 1 ? "y" : "ies"} — target
+                    passed with no actual date
+                  </span>
+                </span>
+              )}
+            </div>
             </div>
           </div>
           </div>
