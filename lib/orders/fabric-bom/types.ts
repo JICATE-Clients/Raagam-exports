@@ -411,6 +411,20 @@ export interface FabricBomYdCombination {
   item_id: string | null;
   combo: string | null;
   yd_combo_name: string | null;
+  /** The nested Color breakdown (0560) — reference only, sorted by `sno`. */
+  colors: FabricBomYdCombinationColor[];
+}
+
+/**
+ * One row of a Combinations row's nested Color breakdown (0560) — legacy's
+ * expandable "Color ID | Yarn Color" list under a Combo, reference only. See
+ * the migration header for why this is a plain child of the combination's
+ * `id` rather than addressed by the fabric group's own value-held address.
+ */
+export interface FabricBomYdCombinationColor {
+  id: string;
+  sno: number;
+  yarn_color: string | null;
 }
 
 /**
@@ -735,6 +749,17 @@ export const fabricBomYdRepeatInput = z.object({
 });
 
 /**
+ * ONE ROW OF A COMBINATIONS ROW'S NESTED COLOR BREAKDOWN (0560). No address
+ * fields — it is a plain child of the combination it belongs to, written and
+ * read alongside its parent in the same request. `sno` is the grid's own
+ * order; `Color ID` (C01, C02…) is derived from it and never sent.
+ */
+export const fabricBomYdCombinationColorInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  yarn_color: capsTextNullable(),
+});
+
+/**
  * ONE YARN-DYED COMBINATION — [Detail] ▸ Yarn Dyed Details ▸ Combinations.
  *
  * Addressed exactly as a repeat is, and for the same reasons. `combo` is held
@@ -746,6 +771,8 @@ export const fabricBomYdCombinationInput = z.object({
   item_id: uuidN,
   combo: capsTextNullable(),
   yd_combo_name: capsTextNullable(),
+  /** The nested Color breakdown (0560) — reference only, see that migration. */
+  colors: z.array(fabricBomYdCombinationColorInput).default([]),
 });
 
 /**

@@ -60,28 +60,6 @@ import { yarnShareOf, type FabricComposition, type Refusal } from "./yarn-proces
 const isRefusal = (v: unknown): v is Refusal =>
   typeof v === "object" && v !== null && "refused" in v;
 
-/**
- * PHYSICAL LENGTH UNITS `calculated_pct` KNOWS HOW TO CONVERT, IN CM PER
- * UNIT (backend calc spec, 2026-09-04, Formula 2: "the planner can enter
- * design pattern measurements in Centimetres or Inches instead of direct
- * percentages").
- *
- * Matched by `uoms.code`, uppercased — the master's own identity, never the
- * display `name` (`uomName` already exists for that). `MTR` is here even
- * though the spec names only cm/inch: it was already a selectable Uom on
- * this same Repeats panel before this change, and a stripe genuinely typed
- * in metres deserves the same conversion cm and inch get, not silent
- * exclusion for not being one of the two the spec happened to name.
- *
- * `INCH` (0532) did not exist on the `uoms` master until this feature needed
- * it — `CM` and `MTR` did.
- */
-const LENGTH_CM_PER_UNIT: Record<string, number> = {
-  CM: 1,
-  MTR: 100,
-  INCH: 2.54,
-};
-
 /** One typed row of the Repeats panel. */
 export type YdRepeatRow = {
   key: string;
@@ -124,58 +102,24 @@ export type MixingDetailRow = {
  * "nothing to declare"; a panel of refusals reads as "the master is incomplete",
  * which is the true statement and the actionable one.
  *
- * `uomCode` RESOLVES A REPEAT'S UNIT TO A PHYSICAL LENGTH, WHEN ONE OF ITS
- * SIBLINGS NEEDS IT (Formula 2). Before this, `calculated_pct` summed every
- * repeat's raw `value` regardless of `uom_id` — correct for the ordinary case
- * (every repeat for a yarn typed in the same unit, `%` included, where the
- * unit cancels out of the ratio) and silently wrong the moment two repeats of
- * one yarn used different PHYSICAL units: 4cm + 2in would divide as 4/6 and
- * 2/6, not the true 4/(4+5.08). So a yarn's repeats convert to a common unit
- * (cm) ONLY when they genuinely mix two or more units — a single unit,
- * whatever it is, is untouched and behaves exactly as before this change.
- * Where the mix cannot be resolved (a length unit alongside `%`, or a unit
- * this file does not know), the yarn ABSTAINS — `calculated_pct`/`mixing_pct`
- * both come back `null`, the same "—" the panel already shows for a blank or
- * disagreeing value, rather than a number computed from unlike quantities.
+ * NO PER-REPEAT UNIT CONVERSION ANY MORE (2026-09-15 correction — the Uom
+ * picker moved OFF Repeats/Mixing Details entirely, onto the fabric LINE's
+ * own `mixing_uom_id`, "already given in front" on the Fabric Lines grid).
+ * The whole reason a repeat's value once needed converting was two repeats
+ * of ONE yarn typed in different physical units (4cm + 2in dividing as 4/6
+ * instead of the true 4/(4+5.08)) — which is now structurally impossible:
+ * every repeat of a fabric group shares the SAME line-level unit, so a plain
+ * ratio of raw values is already correct regardless of which unit that is
+ * (cm, inch or a bare percentage all cancel out of a same-unit ratio).
  */
 export function mixingDetailRows(
   repeats: readonly YdRepeatRow[],
   fabric: FabricComposition | null,
   yarnName: (id: string | null) => string,
-  uomCode: (id: string | null) => string,
 ): MixingDetailRow[] {
   const dyed = repeats.filter((r) => r.dye_type === "dyed");
 
-  /* WHICH YARNS ACTUALLY MIX UNITS, AND WHICH OF THOSE MIXES ARE RESOLVABLE.
-     Single-unit yarns (the ordinary case, `%` included) are left alone —
-     `codes.size <= 1` — so this changes nothing for a repeat set that already
-     worked. */
-  const codesByYarn = new Map<string, Set<string>>();
-  for (const r of dyed) {
-    if (r.value == null) continue;
-    const k = r.yarn_item_id ?? "";
-    if (!codesByYarn.has(k)) codesByYarn.set(k, new Set());
-    codesByYarn.get(k)!.add((uomCode(r.uom_id) || "").toUpperCase());
-  }
-  const mixedLengthYarns = new Set<string>();
-  const unresolvableMixYarns = new Set<string>();
-  for (const [k, codes] of codesByYarn) {
-    if (codes.size <= 1) continue;
-    if ([...codes].every((c) => c in LENGTH_CM_PER_UNIT)) mixedLengthYarns.add(k);
-    else unresolvableMixYarns.add(k);
-  }
-
-  /* THE NORMALIZED VALUE FOR THE RATIO — `r.value` ITSELF NEVER CHANGES. The
-     panel's own "Value" column prints exactly what the planner typed; only
-     the percentage math reaches for the converted figure. */
-  const shareValue = (r: YdRepeatRow): number | null => {
-    if (r.value == null) return null;
-    const k = r.yarn_item_id ?? "";
-    if (unresolvableMixYarns.has(k)) return null;
-    if (!mixedLengthYarns.has(k)) return r.value;
-    const factor = LENGTH_CM_PER_UNIT[(uomCode(r.uom_id) || "").toUpperCase()];
-    return factor == null ? null : r.value * factor;
-  };
+  const shareValue = (r: YdRepeatRow): number | null => r.value;
 
   /* THE DENOMINATOR IS PER YARN, NOT PER PANEL. A fabric blending two yarns may
      dye each of them across its own set of colours, and one shared denominator
@@ -186,7 +130,7 @@ export function mixingDetailRows(
     totalByYarn.set(k, (totalByYarn.get(k) ?? 0) + (shareValue(r) ?? 0));
   }
 
-  return dyed.map((r) => {
+  return dyed.map((r, i) => {
     const total = totalByYarn.get(r.yarn_item_id ?? "") ?? 0;
     const value = shareValue(r);
 
@@ -209,25 +153,28 @@ export function mixingDetailRows(
        the master has since dropped from the composition. The row stays, its
        Mixing % is honestly 0, and the operator can see which one to fix.
 
-       THE UNIT CLASH GETS ITS OWN WORDS, NOT A BARE "—". Without this, a
-       `%`+physical-width mix on one yarn nulled `calculated`/`mixing_pct` and
-       said nothing — the exact silent-blank failure this cell was built to
-       avoid for the blend-share case (see the note above it). Checked before
-       the blend refusal so the operator fixes the more upstream problem
-       first: a unit clash makes the SHARE unanswerable regardless of what
-       `yarnShareOf` would have said. */
-    const refusal = unresolvableMixYarns.has(r.yarn_item_id ?? "")
-      ? "This yarn's repeats mix % with a physical width (cm/inch) — pick one measure for all of this yarn's repeats before its share can be worked out."
-      : isRefusal(share)
-        ? share.refused
-        : null;
+       THE UNIT-CLASH REFUSAL IS GONE WITH THE UNIT PICKER IT DESCRIBED —
+       every repeat of a fabric group now shares one line-level Uom, so two
+       repeats of one yarn can no longer disagree about what unit they are in. */
+    const refusal = isRefusal(share) ? share.refused : null;
 
     return {
       key: r.key,
       yarn_item_id: r.yarn_item_id,
       yarn_name: yarnName(r.yarn_item_id),
       dye_type: r.dye_type,
-      color_name: r.color_name,
+      /* "Color 1", "Color 2"… — the row's own POSITION among this fabric's
+       * dyed repeats, computed here rather than trusted off `r.color_name`
+       * (2026-09-15 correction, doc/order/check.md §3 + client transcript).
+       * A repeat is a physical stripe position, never a real colour: the
+       * SAME position holds a different actual colour per combo, which is
+       * exactly why Combinations carries its own per-combo picker. Storing
+       * a real name here would have this panel answer a question that is
+       * Combinations' to answer, and disagree with it the moment a second
+       * combo named a different colour for the same stripe. `i` is already
+       * this row's 1-based rank among DYED repeats — `dyed` is the filtered,
+       * order-preserving array `i` was destructured from just above. */
+      color_name: `Color ${i + 1}`,
       uom_id: r.uom_id,
       value: r.value,
       calculated_pct: calculated,

@@ -73,12 +73,6 @@ const repeat = (p: Partial<YdRepeatRow> & { key: string }): YdRepeatRow => ({
 
 const names = (id: string | null) => (id ? `YARN ${id}` : "");
 
-/** Every existing call below passes `null` uom ids, so `codes` answers ""
- *  for them — same as an unset Uom field — leaving sections 1-5 exercising
- *  the untouched single-unit path. Sections 6-7 use real ids. */
-const UOM_CODES: Record<string, string> = { u_cm: "CM", u_in: "INCH", u_pct: "%", u_mtr: "MTR" };
-const codes = (id: string | null) => (id ? (UOM_CODES[id] ?? "") : "");
-
 // ---------------------------------------------------------------------------
 console.log("\n1. The captured document (screenshot 2615) — one yarn, 60 / 40 / grey");
 // ---------------------------------------------------------------------------
@@ -92,17 +86,20 @@ console.log("\n1. The captured document (screenshot 2615) — one yarn, 60 / 40 
   };
   const rows = mixingDetailRows(
     [
-      repeat({ key: "1", sno: 1, yarn_item_id: "C", color_name: "COLOR 01", value: 60 }),
-      repeat({ key: "2", sno: 2, yarn_item_id: "C", color_name: "COLOR 02", value: 40 }),
-      repeat({ key: "3", sno: 3, yarn_item_id: "C", dye_type: "grey", color_name: "GREY", value: 0 }),
+      repeat({ key: "1", sno: 1, yarn_item_id: "C", value: 60 }),
+      repeat({ key: "2", sno: 2, yarn_item_id: "C", value: 40 }),
+      repeat({ key: "3", sno: 3, yarn_item_id: "C", dye_type: "grey", value: 0 }),
     ],
     cotton,
     names,
-    codes,
   );
 
   eq("row count (the Grey repeat draws no row)", rows.length, 2);
-  eq("colours", rows.map((r) => r.color_name), ["COLOR 01", "COLOR 02"]);
+  eq(
+    "colours are POSITION labels, never the input (2026-09-15 correction)",
+    rows.map((r) => r.color_name),
+    ["Color 1", "Color 2"],
+  );
   eqNum("COLOR 01 Calculated %", rows[0].calculated_pct, 60);
   eqNum("COLOR 01 Mixing %", rows[0].mixing_pct, 60);
   eqNum("COLOR 02 Calculated %", rows[1].calculated_pct, 40);
@@ -125,12 +122,11 @@ console.log("   50/50 cotton-polyester; the cotton is dyed 60 NAVY / 40 WHITE.")
   };
   const rows = mixingDetailRows(
     [
-      repeat({ key: "1", yarn_item_id: "C", color_name: "NAVY", value: 60 }),
-      repeat({ key: "2", yarn_item_id: "C", color_name: "WHITE", value: 40 }),
+      repeat({ key: "1", yarn_item_id: "C", value: 60 }),
+      repeat({ key: "2", yarn_item_id: "C", value: 40 }),
     ],
     blend,
     names,
-    codes,
   );
 
   // The colour split WITHIN the cotton is unchanged by the blend...
@@ -166,10 +162,9 @@ console.log("\n3. An UNDECLARED blend REFUSES — it does not quietly assume 100
     ],
   };
   const rows = mixingDetailRows(
-    [repeat({ key: "1", yarn_item_id: "A", color_name: "RED", value: 100 })],
+    [repeat({ key: "1", yarn_item_id: "A", value: 100 })],
     undeclared,
     names,
-    codes,
   );
 
   eqNum("Calculated % is still answerable", rows[0].calculated_pct, 100);
@@ -188,15 +183,14 @@ console.log("\n4. `Grey` is out of the DENOMINATOR, not merely out of the panel"
   };
   const rows = mixingDetailRows(
     [
-      repeat({ key: "1", yarn_item_id: "C", color_name: "NAVY", value: 60 }),
-      repeat({ key: "2", yarn_item_id: "C", color_name: "WHITE", value: 40 }),
+      repeat({ key: "1", yarn_item_id: "C", value: 60 }),
+      repeat({ key: "2", yarn_item_id: "C", value: 40 }),
       // A LARGE grey remainder. If it were counted the answers would be
       // 60/150 = 40% and 40/150 = 26.67% — both entirely plausible on screen.
-      repeat({ key: "3", yarn_item_id: "C", dye_type: "grey", color_name: "GREY", value: 50 }),
+      repeat({ key: "3", yarn_item_id: "C", dye_type: "grey", value: 50 }),
     ],
     cotton,
     names,
-    codes,
   );
 
   eq("still two rows", rows.length, 2);
@@ -214,73 +208,16 @@ console.log("\n5. An unanswered yarn prints nothing, not 0%");
     components: [{ yarn_id: "C", blend_pct: null }],
   };
   const rows = mixingDetailRows(
-    [repeat({ key: "1", yarn_item_id: "C", color_name: "NAVY", value: null })],
+    [repeat({ key: "1", yarn_item_id: "C", value: null })],
     cotton,
     names,
-    codes,
   );
   eqNum("Calculated % of a blank value", rows[0].calculated_pct, null);
   eqNum("Mixing % of a blank value", rows[0].mixing_pct, null);
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n6. STRIPE WIDTHS IN cm AND inch CONVERT BEFORE THEY DIVIDE (Formula 2)");
-console.log("   4cm + 2in — the spec's own worked example is 4cm + 2cm = 66.67/33.33;");
-console.log("   this is the SAME ratio in different units: 4cm + 5.08cm.");
-// ---------------------------------------------------------------------------
-{
-  const cotton: FabricComposition = {
-    fabric_id: "F6",
-    fabric_name: "YARN DYED STRIPE",
-    components: [{ yarn_id: "C", blend_pct: null }],
-  };
-  const rows = mixingDetailRows(
-    [
-      repeat({ key: "1", yarn_item_id: "C", color_name: "GREEN", uom_id: "u_cm", value: 4 }),
-      repeat({ key: "2", yarn_item_id: "C", color_name: "RED", uom_id: "u_in", value: 2 }),
-    ],
-    cotton,
-    names,
-    codes,
-  );
-
-  // 4 / (4 + 2*2.54) = 4 / 9.08 = 44.05...%; refutes the pre-fix reading of
-  // 4 / (4+2) = 66.67%, which is what an implementation still summing raw
-  // values regardless of unit would print.
-  eqNum("GREEN Calculated % — unit-converted, NOT 66.67", rows[0].calculated_pct, (4 / 9.08) * 100);
-  eqNum("RED Calculated % — unit-converted, NOT 33.33", rows[1].calculated_pct, (5.08 / 9.08) * 100);
-  eq("neither the typed Value nor the Uom is rewritten", [rows[0].value, rows[1].value], [4, 2]);
-}
-
-// ---------------------------------------------------------------------------
-console.log("\n7. A LENGTH UNIT MIXED WITH % ABSTAINS — it does not guess");
-// ---------------------------------------------------------------------------
-{
-  const cotton: FabricComposition = {
-    fabric_id: "F7",
-    fabric_name: "YARN DYED STRIPE",
-    components: [{ yarn_id: "C", blend_pct: null }],
-  };
-  const rows = mixingDetailRows(
-    [
-      repeat({ key: "1", yarn_item_id: "C", color_name: "GREEN", uom_id: "u_cm", value: 4 }),
-      repeat({ key: "2", yarn_item_id: "C", color_name: "RED", uom_id: "u_pct", value: 40 }),
-    ],
-    cotton,
-    names,
-    codes,
-  );
-
-  eqNum("cm mixed with % — GREEN abstains rather than reading 4/44", rows[0].calculated_pct, null);
-  eqNum("cm mixed with % — RED abstains too", rows[1].calculated_pct, null);
-  // THE ABSTENTION SAYS WHY, the same rule Section 3's blend refusal already
-  // holds to — a null with nothing beside it is indistinguishable on screen
-  // from "nothing to declare" (the Mixing % cell's own note).
-  eq("...and both rows say why, not just a blank —", [rows[0].refusal === null, rows[1].refusal === null], [false, false]);
-}
-
-// ---------------------------------------------------------------------------
-console.log("\n8. NET WEIGHT PER COLOUR (Formula 3) — mixing_pct x the fabric's own gross");
+console.log("\n6. NET WEIGHT PER COLOUR (Formula 3) — mixing_pct x the fabric's own gross");
 console.log("   50/50 cotton-polyester, cotton dyed 60 NAVY / 40 WHITE, 1,000 kg of cloth.");
 // ---------------------------------------------------------------------------
 {
@@ -294,12 +231,11 @@ console.log("   50/50 cotton-polyester, cotton dyed 60 NAVY / 40 WHITE, 1,000 kg
   };
   const mixing = mixingDetailRows(
     [
-      repeat({ key: "1", yarn_item_id: "C", color_name: "NAVY", value: 60 }),
-      repeat({ key: "2", yarn_item_id: "C", color_name: "WHITE", value: 40 }),
+      repeat({ key: "1", yarn_item_id: "C", value: 60 }),
+      repeat({ key: "2", yarn_item_id: "C", value: 40 }),
     ],
     blend,
     names,
-    codes,
   );
   const withNet = colorNetWeight(mixing, 1000);
 
@@ -321,10 +257,9 @@ console.log("   50/50 cotton-polyester, cotton dyed 60 NAVY / 40 WHITE, 1,000 kg
   };
   const refused = colorNetWeight(
     mixingDetailRows(
-      [repeat({ key: "1", yarn_item_id: "A", color_name: "RED", value: 100 })],
+      [repeat({ key: "1", yarn_item_id: "A", value: 100 })],
       undeclared,
       names,
-      codes,
     ),
     1000,
   );
