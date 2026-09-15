@@ -94,7 +94,22 @@ export function Segmented<T extends string>({
          * 4px gap; its track is a 20px pill centred in the slot, so it shifts
          * 2px rather than changing the row's height, and nobody has reported it.
          */
-        "inline-flex min-h-9 @2xl/editor:min-h-8 w-fit items-center rounded-md border border-border bg-surface p-0.5",
+        /**
+         * A GREY TRACK WITH A WHITE PILL RIDING IN IT — the shape `taSegNav`
+         * (garment-order-screen.tsx) has always used for Activity/Approval,
+         * and now the one this primitive uses too, so the two segmented
+         * controls that sit inches apart on the T&A tab are one control in two
+         * places rather than two that merely rhyme.
+         *
+         * THIS REVERSES THE 2026-09-11 TINTED PILL, DELIBERATELY. That day's
+         * answer to "make active tab more attractive now look not clean" was a
+         * `bg-primary-soft` pill on a white track — louder, but it read as a
+         * THIRD selected-state treatment beside the Activity/Approval pills
+         * above it. The selected segment is still the loud one; it is simply
+         * lifted out of the track by contrast and a shadow, the way the tabs
+         * beside it are, instead of by a tint of its own.
+         */
+        "inline-flex min-h-9 @2xl/editor:min-h-8 w-fit items-center rounded-md border border-border bg-surface-muted p-0.5",
         disabled && "opacity-60",
         className,
       )}
@@ -128,21 +143,20 @@ export function Segmented<T extends string>({
                 plays the same part. `focus-visible`, not `focus`, so a mouse
                 click does not leave a ring behind.
 
-                COLORED, NOT MERELY SHADED (operator, 2026-09-11: "make
-                active tab more attractive now look not clean") — a plain
-                `bg-surface-muted` pill under plain `text-foreground` read as
-                flat next to `taSegNav`'s own Activity/Approval pills a few
-                lines above it in this same file, which colour their active
-                state (`text-primary` on a tinted pill). `bg-primary-soft` +
-                `text-primary` is that same convention, reused here rather
-                than invented — so every future caller of this shared
-                primitive gets the louder selected state for free, not just
-                the one screen that first asked for it. */}
+                WHITE ON GREY, AND THE TEXT KEEPS ITS COLOUR (operator,
+                2026-09-12: one segmented style for the main tabs and the PP
+                approval tabs both). `bg-surface` + `shadow-sm` under
+                `text-primary` is exactly what `taSegNav`'s active pill does,
+                so the two controls now differ in nothing but their content.
+                The 2026-09-11 note this replaces asked for a louder selected
+                state and got a tinted pill; the lift is what was wanted, and
+                a white pill on the grey track gives more of it than a tint on
+                a white track did — see the wrapper's own comment. */}
             <span
               aria-hidden
               className={cn(
                 "pointer-events-none absolute inset-0 rounded transition-colors",
-                "peer-checked:bg-primary-soft peer-checked:shadow-sm",
+                "peer-checked:bg-surface peer-checked:shadow-sm",
                 "peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40",
               )}
             />

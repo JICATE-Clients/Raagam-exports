@@ -121,19 +121,19 @@ export function AdvisedItemsEditor({
   const columns: Column<OrderAdvisedItem>[] = [
     {
       header: "Item",
-      cell: (i) => <span className="text-sm font-medium">{i.description}</span>,
+      cell: (i) => <span className="font-medium">{i.description}</span>,
     },
     {
       header: "Attribute",
       cell: (i) => (
-        <span className="text-sm text-muted-foreground">{i.attribute ?? "—"}</span>
+        <span className="text-muted-foreground">{i.attribute ?? "—"}</span>
       ),
     },
     {
       header: "Qty",
       align: "right",
       cell: (i) => (
-        <span className="tabular-nums text-sm">
+        <span className="tabular-nums">
           {fmtNumber(i.quantity)}
           {i.unit ? ` ${i.unit}` : ""}
         </span>
@@ -142,7 +142,7 @@ export function AdvisedItemsEditor({
     {
       header: "Supplier",
       cell: (i) => (
-        <span className="text-sm text-muted-foreground">{i.supplier ?? "—"}</span>
+        <span className="text-muted-foreground">{i.supplier ?? "—"}</span>
       ),
     },
     {
@@ -281,12 +281,22 @@ export function AdvisedItemsEditor({
         </Card>
       )}
 
-      <DataTable
-        columns={withCreatedColumns(columns, items)}
-        rows={items}
-        getKey={(i) => i.id}
-        empty="No advised items for this order yet. Use 'New advised item' above."
-      />
+      {/* The list stands down while the form is open — the operator is typing a
+          new line, not reading the existing ones, and the table beneath the
+          expand-in-place form only pushed the Add button out of view. It
+          returns the moment the form closes (Cancel, or a successful add). */}
+      {!formOpen && (
+        <DataTable
+          columns={withCreatedColumns(columns, items)}
+          rows={items}
+          getKey={(i) => i.id}
+          /* TIGHT (operator, 2026-09-15: "compact, tighten properly"). The
+             cells above pin no `text-sm` of their own so the table's `dense`
+             size reaches them; the Status `<Select>` is already `h-7`. */
+          dense
+          empty="No advised items for this order yet. Use 'New advised item' above."
+        />
+      )}
     </div>
   );
 }

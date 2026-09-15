@@ -86,11 +86,15 @@ export function hasCreatedInfo(rows: readonly unknown[]): boolean {
  * so one factory serves both engines and every hand-rolled list.
  */
 export function createdColumns<Row>(): Column<Row>[] {
+  /* NO `text-sm` ON THE CELLS (2026-09-15): they inherit the table's size, so
+     a `<DataTable dense>` (text-xs) reaches these two columns the same as the
+     screen's own. Every other table is `text-sm` by default, so nothing
+     else changes. */
   return [
     {
       header: "Created Date",
       cell: (r) => (
-        <span className="whitespace-nowrap text-sm text-muted-foreground">
+        <span className="whitespace-nowrap text-muted-foreground">
           {fmtDate((r as CreatedFields).created_at)}
         </span>
       ),
@@ -98,7 +102,7 @@ export function createdColumns<Row>(): Column<Row>[] {
     {
       header: "Created User",
       cell: (r) => (
-        <span className="text-sm text-muted-foreground">{creatorName(r) ?? "—"}</span>
+        <span className="text-muted-foreground">{creatorName(r) ?? "—"}</span>
       ),
     },
   ];

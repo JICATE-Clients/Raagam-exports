@@ -25,6 +25,7 @@ export function DataTable<T>({
   onToggleAll,
   bare = false,
   rowClassName,
+  dense = false,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -56,8 +57,22 @@ export function DataTable<T>({
    * Applied last so it wins over the hover and selected states above it.
    */
   rowClassName?: (row: T, index: number) => string | undefined;
+  /**
+   * TIGHT ROWS (operator, 2026-09-15, Orders ▸ Advised Items: "compact,
+   * tighten properly"). `px-2 py-1` on every header and cell instead of
+   * `px-3 py-2`, and the table drops to `text-xs`, so a row is ~26px instead
+   * of ~37px. A PROP ON THE PRIMITIVE, deliberately — the alternative was a
+   * `[&_td]:!py-1` override on one screen, which is the per-screen patch
+   * AGENTS.md's "header row" section names as the bug `--check
+   * text-size-noop` exists to catch, one property along. Opt-in: the default
+   * density is unchanged for every other listing.
+   */
+  dense?: boolean;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
+  /* One padding token for th and td both, so the header can never sit on a
+     different rhythm from the rows beneath it. */
+  const pad = dense ? "px-2 py-1" : "px-3 py-2";
   const selected = selectedKeys ?? new Set<string>();
   const allSelected = rows.length > 0 && rows.every((r, i) => selected.has(getKey(r, i)));
 
@@ -71,11 +86,11 @@ export function DataTable<T>({
       {/* `hidden md:table`, with the stacked cards below taking over — see the
           note above that block. Desktop is unchanged: `md:table` restores the
           element's own default display. */}
-      <table className="hidden w-full text-sm md:table">
+      <table className={cn("hidden w-full md:table", dense ? "text-xs" : "text-sm")}>
         <thead>
           <tr className="border-b border-border bg-surface-muted">
             {selectable && (
-              <th className="w-10 px-3 py-2">
+              <th className={cn("w-10", pad)}>
                 <input
                   type="checkbox"
                   className="h-4 w-4 cursor-pointer"
@@ -97,7 +112,8 @@ export function DataTable<T>({
                   // Archivo weight spec: table headers are "hierarchy through
                   // case and spacing, not just weight" — the same reasoning
                   // that keeps this bold at 12px rather than clotting).
-                  "px-3 py-2 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
+                  pad,
+                  "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
                   align[c.align ?? "left"],
                   c.className,
                 )}
@@ -133,7 +149,7 @@ export function DataTable<T>({
                   data-href={href}
                 >
                   {selectable && (
-                    <td className="w-10 px-3 py-2 align-middle">
+                    <td className={cn("w-10 align-middle", pad)}>
                       <input
                         type="checkbox"
                         className="h-4 w-4 cursor-pointer"
@@ -147,7 +163,8 @@ export function DataTable<T>({
                     <td
                       key={ci}
                       className={cn(
-                        "px-3 py-2 align-middle",
+                        pad,
+                        "align-middle",
                         align[c.align ?? "left"],
                         c.className,
                       )}

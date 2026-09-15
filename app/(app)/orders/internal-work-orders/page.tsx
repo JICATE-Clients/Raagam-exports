@@ -102,18 +102,21 @@ export default async function InternalWorkOrdersPage() {
         }
       />
 
+      {/* THE TABLE IS THE FORM'S CHILD, so it is on screen only while the form
+          is closed — see `NewIwoForm`'s `children` note. Still rendered here,
+          on the server, exactly as before. */}
       <NewIwoForm
         customers={formData.customers}
         styles={formData.styles}
         itemClasses={formData.itemClasses}
-      />
-
-      <DataTable
-        columns={withCreatedColumns(columns, iwos)}
-        rows={iwos}
-        getKey={(row) => row.id}
-        empty="No internal work orders yet. Use 'New work order' above to create the first."
-      />
+      >
+        <DataTable
+          columns={withCreatedColumns(columns, iwos)}
+          rows={iwos}
+          getKey={(row) => row.id}
+          empty="No internal work orders yet. Use 'New work order' above to create the first."
+        />
+      </NewIwoForm>
     </div>
   );
 }
