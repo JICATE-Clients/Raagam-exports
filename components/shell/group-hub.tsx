@@ -4,9 +4,7 @@ import type { HubIconTone } from "@/components/masters/hub-card";
 import { notFound, redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
-// `HubCard` is unused while the card grid below is hidden (operator, 2026-09-15) —
-// see the comment at the grid's own commented-out render.
-// import { HubCard } from "@/components/masters/hub-card";
+import { HubCard } from "@/components/masters/hub-card";
 import { findGroup, groupAtRoute } from "@/lib/nav/module-groups";
 import { hubCounts } from "@/lib/nav/hub-counts";
 import { groupHubMark } from "@/lib/nav/group-hub-icons";
@@ -67,10 +65,28 @@ export function HubPage({
   description,
   note,
   status,
-  // Renamed, not dropped: every caller still builds and passes `cards` (kept
-  // as a required prop so restoring the grid needs no caller changes), it is
-  // just unused while the grid below is hidden (operator, 2026-09-15).
-  cards: _cards,
+  cards,
+  /**
+   * OPT IN, NEVER THE DEFAULT (operator, 2026-09-15, screenshot 2878 —
+   * `/masters/materials` rendered a bare title with its ~40 entities
+   * unreachable). The grid was hidden unconditionally for every caller of
+   * this shared component on 2026-09-15, on the reasoning that the sidebar
+   * already lists every card — true of `GroupHub` and `ModuleHub`, which
+   * read the SAME `lib/nav/module-groups.ts` registry the sidebar does and
+   * both redirect to their first child before this component ever renders
+   * a card. It is not true of the other five callers — `/masters/materials`,
+   * `/sales/samples-development`, `/sales/opportunities-costing` and the two
+   * generic `/masters` hubs — whose cards are the ONLY route to their
+   * children; the sidebar stops at the sub-module name (AGENTS.md, "The
+   * sidebar lists SUB-MODULES": "Master Data always had this shape …
+   * Materials' ~40 entities live on its hub"). Hiding the grid there did not
+   * repeat the sidebar, it deleted the only listing.
+   *
+   * So `GroupHub`/`ModuleHub` pass `hideCards` explicitly; every other
+   * caller gets its grid back by doing nothing, which is also what keeps a
+   * NEW `HubPage` caller correct without knowing this history.
+   */
+  hideCards,
 }: {
   /** Omit on a module's own landing page, which is the top of its trail. */
   breadcrumb?: { href: string; label: string };
@@ -82,6 +98,8 @@ export function HubPage({
   note?: string;
   status?: "provisional";
   cards: HubCardSpec[];
+  /** See the prop's own note. `GroupHub`/`ModuleHub` only. */
+  hideCards?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -105,32 +123,29 @@ export function HubPage({
           {note}
         </div>
       )}
-      {/* THE CARD GRID IS HIDDEN (operator, 2026-09-15) — the sidebar already
-          lists every one of these cards as a row (both read the same
-          `lib/nav/module-groups.ts` registry), so the hub page repeated the
-          sidebar's own listing back at the operator and read as confusing.
-          `cards` is still built by every caller and stays a required prop:
-          `ModuleHub` and `GroupHub` are otherwise unchanged, so restoring
-          this is "un-comment", not "re-derive the card list". */}
-      {/*
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {cards.map((c) => (
-          <HubCard
-            key={c.key}
-            href={c.href}
-            title={c.label}
-            subtitle={c.description}
-            count={c.count}
-            external={c.external}
-            dashed={c.dashed}
-            hub={c.hub}
-            unavailable={c.unavailable}
-            icon={c.icon}
-            tone={c.tone}
-          />
-        ))}
-      </div>
-      */}
+      {/* HIDDEN ONLY WHEN THE CALLER SAYS SO — see `hideCards`'s own note.
+          `GroupHub`/`ModuleHub` pass it because their grid repeats the
+          sidebar's own listing; every other caller renders its cards, which
+          is the only route their children have. */}
+      {!hideCards && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {cards.map((c) => (
+            <HubCard
+              key={c.key}
+              href={c.href}
+              title={c.label}
+              subtitle={c.description}
+              count={c.count}
+              external={c.external}
+              dashed={c.dashed}
+              hub={c.hub}
+              unavailable={c.unavailable}
+              icon={c.icon}
+              tone={c.tone}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -256,6 +271,10 @@ export async function GroupHub({
       note={group.note}
       status={group.status}
       cards={cards}
+      // The redirect above already sends every reachable case away from this
+      // render; when it doesn't (every child idle), the grid would only repeat
+      // the sidebar's own listing. See `hideCards`'s note on `HubPage`.
+      hideCards
     />
   );
 }
