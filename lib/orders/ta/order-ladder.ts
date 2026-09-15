@@ -92,8 +92,14 @@
  * they drift apart.
  */
 
-import { isCalendarDate } from "@/lib/calendar";
-import { addWorkingDays, backwardSchedule, isRefusal, type Refusal } from "@/lib/ta/schedule";
+import { daysBetween, isCalendarDate, today } from "@/lib/calendar";
+import {
+  addWorkingDays,
+  backwardSchedule,
+  isRefusal,
+  subtractWorkingDays,
+  type Refusal,
+} from "@/lib/ta/schedule";
 
 export type { Refusal };
 export { isRefusal };
@@ -111,8 +117,39 @@ export type TaLadderRow = {
   label: string;
   /** The operator's "Days" offset. NULL is an unfilled row and REFUSES. */
   days_required: number | null;
+  /**
+   * SIDE ACTIVITY (0561, client 2026-09-15) — Sewing Trims Inward hangs off
+   * Cutting, Packing Trims Inward off Packing. Such a row is dated
+   * `days_required` working days before its anchor's START and is a single
+   * arrival date (start = end). It NEVER enters the backward chain, so its lead
+   * time cannot push Cutting, PP Approval or Materials In-House back — trims
+   * feed the critical path, they are not on it. Absent / null = an ordinary
+   * chain step. Read from `ta_activities.anchor_activity_id` by both callers.
+   */
+  anchor_activity_id?: string | null;
 };
 
+/**
+ * The last day of a task that STARTS on `start` and needs `days` working days:
+ * `start + (days − 1)` working days, so a 1-day task starts and ends the same
+ * day and a 2-day Packing from Thu Oct 1 ends Fri Oct 2.
+ *
+ * It used to be `start + days`, which is the NEXT task's start — every task
+ * overlapped its successor by a day and a 2-day task printed as three (client
+ * spec 2026-09-15, "Lead Time Date Span Bug"). Exported because the T&A
+ * worklist shows the same End date from the stored start, and one rule
+ * written twice is how the two drift apart.
+ */
+export function taSpanEnd(
+  start: string,
+  days: number | null,
+  holidays?: ReadonlySet<string>,
+): string | null {
+  if (days == null || !Number.isFinite(days)) return null;
+  if (days <= 1) return start;
+  const e = addWorkingDays(start, days - 1, holidays);
+  return isRefusal(e) ? null : e;
+}
 /** Where the ladder hangs off, and which field that date came from. */
 export type TaLadderAnchor = {
   date: string;
@@ -133,14 +170,12 @@ export type TaLadderResult = {
    * partial result, not a refusal.
    *
    * `end_date` (client request, 2026-09-11: "only showing the start date of
-   * the activity, need to show the end date") is `target_date` walked FORWARD
-   * this row's own `days_required` working days — `addWorkingDays` is
-   * `subtractWorkingDays`'s own mirror, so this lands on exactly the date the
-   * NEXT row (nearer delivery) was already given, without re-deriving or
-   * duplicating that arithmetic: row_i's own span is
-   * `[target_date, end_date]`, `days_required` wide. `null` under the exact
-   * same conditions `target_date` is — a row with nothing to start from has
-   * nothing to end on either.
+   * the activity, need to show the end date") is the task's LAST working day,
+   * `taSpanEnd` — inclusive, so the span `[target_date, end_date]` holds
+   * exactly `days_required` working days and ends the working day BEFORE the
+   * next row starts. (It was the next row's start until 2026-09-15.) A side
+   * activity's is its own `target_date`: an arrival is one day. `null` under
+   * the exact same conditions `target_date` is.
    */
   rows: (TaLadderRow & { target_date: string | null; float: number | null; end_date: string | null })[];
   anchor: TaLadderAnchor;
@@ -231,7 +266,11 @@ export function orderTaLadder(input: {
   // IN: execution order reversed is downstream-first, which is what
   // `backwardSchedule` takes. See the header — this and the reverse below are
   // the only two reversals in the feature.
-  const steps = [...input.rows]
+  // SIDE ROWS STAY OUT OF THE CHAIN (0561) — see `TaLadderRow.anchor_activity_id`.
+  const isSide = (r: TaLadderRow) => !!r.anchor_activity_id;
+  const chain = input.rows.filter((r) => !isSide(r));
+
+  const steps = [...chain]
     .reverse()
     .map((r) => ({ key: r.row_uid, label: r.label, days: r.days_required }));
 
@@ -243,37 +282,48 @@ export function orderTaLadder(input: {
   });
   if (isRefusal(plan)) return plan;
 
-  // OUT: back to execution order, zipped onto the input BY POSITION.
+  // OUT: back to execution order, zipped onto the CHAIN rows BY POSITION.
   const scheduled = [...plan.steps].reverse();
-  const rows = input.rows.map((r, i) => {
+  const chainDated = chain.map((r, i) => {
     const target_date = scheduled[i].date;
-    const days = r.days_required;
-    // Same walk `subtractWorkingDays` took to get here, mirrored forward —
-    // never a refusal in practice (a date `backwardSchedule` just produced
-    // is by construction a real calendar date, and `days` is the same
-    // finite number that walk already accepted), but `isRefusal` is checked
-    // rather than assumed so a future edge case fails closed (null) instead
-    // of throwing.
-    const end_date =
-      target_date != null && days != null && Number.isFinite(days)
-        ? (() => {
-            const e = addWorkingDays(target_date, days, input.holidays);
-            return isRefusal(e) ? null : e;
-          })()
-        : null;
     return {
       ...r,
       target_date,
       float: scheduled[i].float,
-      end_date,
+      end_date: target_date == null ? null : taSpanEnd(target_date, r.days_required, input.holidays),
     };
   });
+
+  // Chain rows go back into their own slots in input order; each side row is
+  // dated off the START of the first chain row carrying its anchor activity.
+  // No anchor on this ladder, no start on the anchor yet, or no Days of its
+  // own — the side row is undated and the chain is untouched either way.
+  const now = input.now ?? today();
+  let c = 0;
+  const rows = input.rows.map((r) => {
+    if (!isSide(r)) return chainDated[c++];
+    const undated = { ...r, target_date: null, float: null, end_date: null };
+    const from = chainDated.find((x) => x.activity_id === r.anchor_activity_id)?.target_date;
+    const days = r.days_required;
+    if (from == null || days == null || !Number.isFinite(days)) return undated;
+    const at = subtractWorkingDays(from, days, input.holidays);
+    if (isRefusal(at)) return undated;
+    return { ...r, target_date: at, float: daysBetween(now, at), end_date: at };
+  });
+
+  // A trim due before the chain's first step is still work that must begin
+  // then, so the start date is the earliest dated row — once the chain itself
+  // is complete (`incomplete` keeps meaning what it meant).
+  let startDate = plan.startDate;
+  if (startDate != null) {
+    for (const r of rows) if (r.target_date != null && r.target_date < startDate) startDate = r.target_date;
+  }
 
   return {
     rows,
     anchor,
-    startDate: plan.startDate,
-    float: plan.float,
+    startDate,
+    float: startDate == null ? null : daysBetween(now, startDate),
     ...(plan.incomplete && { incomplete: plan.incomplete }),
   };
 }

@@ -291,6 +291,15 @@ export function WorklistBoard({
                   <StatusIcon row={row} className="size-3.5 shrink-0" />
                   <span className="tabular-nums text-xs text-muted-foreground">
                     {fmtDate(row.targetDate)}
+                    {/* Start → End on every row — the same format as the
+                        Order Entry T&A tab (client 2026-09-15). The row is
+                        still due by its START. */}
+                    {row.endDate && (
+                      <>
+                        {" "}
+                        <span aria-hidden>→</span> {fmtDate(row.endDate)}
+                      </>
+                    )}
                   </span>
                   <span className={cn("text-xs font-semibold", STATUS_ICON_COLOR[rowTone(row)])}>
                     {slipLabel(row)}

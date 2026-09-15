@@ -583,5 +583,111 @@ const dup = orderTaLadder({
 check("two rows sharing a uid still get their own dates", dates(dup), ["2026-10-07", "2026-10-09"]);
 refute("…they do not collapse onto one", dates(dup), ["2026-10-09", "2026-10-09"]);
 
+// ---------------------------------------------------------------------------
+// 10. THE END DATE IS THE TASK'S OWN LAST DAY, NOT THE NEXT TASK'S START
+//
+// The client's 2026-09-15 spec, verbatim: shipment Mon 2026-10-05, Inspection
+// 1 day → Sat Oct 3 (Sun Oct 4 skipped), Packing 2 days → Thu Oct 1 – Fri Oct 2,
+// Ironing 1 day → Wed Sep 30. The wrong answer being guarded against is the
+// pre-fix `start + days`, which printed Packing as Oct 1 → Oct 3 (three days,
+// overlapping Inspection) and Inspection as ending ON the shipment date.
+// ---------------------------------------------------------------------------
+
+check("2026-10-05 really is a Monday", dayOfWeek("2026-10-05"), 1);
+
+const QTY_05 = [{ earlier_shipment_date: "2026-10-05" }];
+const span = orderTaLadder({
+  rows: [row("iron", "Ironing", 1), row("pack", "Packing", 2), row("insp", "Inspection", 1)],
+  quantities: QTY_05,
+  deliveryDate: null,
+  now: "2026-09-01",
+});
+const spans = (v: unknown) =>
+  isRefusal(v)
+    ? v.refused
+    : (v as { rows: { label: string; target_date: string | null; end_date: string | null }[] }).rows.map((r) => [
+        r.label,
+        r.target_date,
+        r.end_date,
+      ]);
+
+check("the client's Oct 5 trace, start and end", spans(span), [
+  ["Ironing", "2026-09-30", "2026-09-30"],
+  ["Packing", "2026-10-01", "2026-10-02"],
+  ["Inspection", "2026-10-03", "2026-10-03"],
+]);
+refute(
+  "…Packing does not end on Inspection's start (the overlap bug)",
+  isRefusal(span) ? null : span.rows[1].end_date,
+  "2026-10-03",
+);
+refute(
+  "…Inspection does not end on the shipment date",
+  isRefusal(span) ? null : span.rows[2].end_date,
+  "2026-10-05",
+);
+
+// ---------------------------------------------------------------------------
+// 11. TRIM INWARDS ARE SIDE ROWS — DATED OFF THEIR ANCHOR, NEVER ON THE CHAIN
+//
+// 0561. Sewing Trims hang off Cutting's start, Packing Trims off Packing's.
+// The wrong answer is treating them as chain rows: Packing Trims' 2 days would
+// push Sewing from Mon Sep 28 back to Fri Sep 25, and everything behind it.
+// ---------------------------------------------------------------------------
+
+const side = (uid: string, label: string, days: number | null, anchorUid: string) => ({
+  ...row(uid, label, days),
+  anchor_activity_id: `act-${anchorUid}`,
+});
+
+const trims = orderTaLadder({
+  rows: [
+    row("matih", "Materials In-House", 1),
+    side("sewtrim", "Sewing Trims Inward", 2, "cut"),
+    row("cut", "Cutting", 1),
+    row("sew", "Sewing", 3),
+    side("packtrim", "Packing Trims Inward", 2, "pack"),
+    row("pack", "Packing", 2),
+    row("insp", "Inspection", 1),
+  ],
+  quantities: QTY_05,
+  deliveryDate: null,
+  now: "2026-09-01",
+});
+
+check("the chain is exactly what it is without the trims, and each trim is one day", spans(trims), [
+  ["Materials In-House", "2026-09-25", "2026-09-25"],
+  ["Sewing Trims Inward", "2026-09-24", "2026-09-24"],
+  ["Cutting", "2026-09-26", "2026-09-26"],
+  ["Sewing", "2026-09-28", "2026-09-30"],
+  ["Packing Trims Inward", "2026-09-29", "2026-09-29"],
+  ["Packing", "2026-10-01", "2026-10-02"],
+  ["Inspection", "2026-10-03", "2026-10-03"],
+]);
+refute(
+  "…Packing Trims did not push Sewing back",
+  isRefusal(trims) ? null : trims.rows[3].target_date,
+  "2026-09-25",
+);
+check(
+  "the start date includes a trim due before the chain's first step",
+  isRefusal(trims) ? null : trims.startDate,
+  "2026-09-24",
+);
+
+const orphan = orderTaLadder({
+  rows: [side("packtrim", "Packing Trims Inward", 2, "pack"), row("sew", "Sewing", 3), side("t2", "Sewing Trims Inward", null, "sew")],
+  quantities: QTY_05,
+  deliveryDate: null,
+  now: "2026-09-01",
+});
+check(
+  "a trim whose anchor is not on the ladder, or has no Days, is undated and blocks nothing",
+  isRefusal(orphan) ? orphan.refused : [orphan.rows.map((r) => r.target_date), orphan.incomplete ?? null],
+  // Sewing is the only chain row here: 3 working days back from Mon Oct 5 —
+  // Sat Oct 3, Fri Oct 2, Thu Oct 1.
+  [[null, "2026-10-01", null], null],
+);
+
 console.log(failed === 0 ? "\nOK — every T&A ladder vector holds." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

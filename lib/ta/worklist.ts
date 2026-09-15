@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAppUser, can } from "@/lib/auth/server";
 import { addDays, daysBetween, today } from "@/lib/calendar";
 import { currentAmendmentsBySalesOrder } from "@/lib/orders/amendments/current";
+import { taSpanEnd } from "@/lib/orders/ta/order-ladder";
 import { stageWipByPair } from "@/lib/production/service";
 import {
   ACTIVITY_SHORT_NAME_TO_STAGE as ACTIVITY_TO_STAGE,
@@ -164,7 +165,13 @@ export interface WorklistRow {
   assignedStaffId: string | null;
   assignedStaffName: string | null;
   delayAttribution: string;
+  /** The START date — what "due today" buckets by (client 2026-09-15: a task
+   *  that does not start on time slips everything after it). */
   targetDate: string;
+  /** The task's last working day, shown beside the start (`taSpanEnd`). Equal
+   *  to `targetDate` for a 1-day task or a side activity's arrival; null when
+   *  the row carries no Days. */
+  endDate: string | null;
   status: string;
   /** Positive = overdue by this many calendar days. 0 = due today. */
   daysLate: number;
@@ -582,7 +589,7 @@ export async function getWorklist(
   const { data, error } = await sb
     .from("garment_order_amendment_ta_activities")
     .select(
-      "id, row_uid, amendment_id, activity_id, target_date, actual_date, status, notes, " +
+      "id, row_uid, amendment_id, activity_id, days_required, target_date, actual_date, status, notes, " +
         "assigned_staff_id, delay_attribution, " +
         // `!assigned_staff_id` names the FK explicitly (0547) — this table has
         // only the one FK to `employees` today, so it is not yet required for
@@ -590,7 +597,7 @@ export async function getWorklist(
         // is what keeps this embed alive the day a second one is added, rather
         // than becoming the next PGRST201.
         "assignee:employees!assigned_staff_id(id, name), " +
-        "activity:ta_activities(id, short_name, name, department, sequence), " +
+        "activity:ta_activities(id, short_name, name, department, sequence, anchor_activity_id), " +
         "amendment:garment_order_amendments!inner(" +
         "id, code, is_draft, amend_date, created_at, sales_order_id, " +
         // `customer_id` → `customers`, NOT `buyer_id` → `buyers`. 0126 declared
@@ -871,6 +878,10 @@ export async function getWorklist(
   /* ---- 8. Build the rows. --------------------------------------------------- */
   const rows: WorklistRow[] = kept.map(({ r, a, act, deptName, src }) => {
     const targetDate = String(r.target_date);
+    // Same rule the T&A tab uses; a side activity (0561) is a one-day arrival.
+    const endDate = str(act?.anchor_activity_id)
+      ? targetDate
+      : taSpanEnd(targetDate, r.days_required == null ? null : Number(r.days_required));
     // daysBetween(target, today) — positive when today is AFTER the target, i.e.
     // overdue. `today()` is the local calendar date, so this cannot slip a day.
     const daysLate = daysBetween(targetDate, t);
@@ -915,6 +926,7 @@ export async function getWorklist(
       assignedStaffName: str(one(r, "assignee")?.name),
       delayAttribution: str(r.delay_attribution) ?? "none",
       targetDate,
+      endDate,
       status: str(r.status) ?? "pending",
       daysLate,
       bucket,
