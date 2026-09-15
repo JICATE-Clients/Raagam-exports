@@ -83,6 +83,7 @@ export interface PackingAdvice {
   qty_total: number;
   warehouse_id: string | null;
   warehouse_address: string | null;
+  remarks: string | null;
   status: PlaStatus;
   created_by: string | null;
   created_at: string;
@@ -135,6 +136,7 @@ export const packingAdviceInput = z.object({
   qty_total: num,
   warehouse_id: uuidN,
   warehouse_address: nullableText,
+  remarks: nullableText,
   lines: z.array(packingLineInput).default([]),
 });
 export type PackingAdviceInput = z.infer<typeof packingAdviceInput>;

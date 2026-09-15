@@ -19,9 +19,8 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow, type FieldWidth } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -37,6 +36,49 @@ interface Props {
   canEdit: boolean;
   canDelete: boolean;
 }
+
+/**
+ * DENSE INPUTS (operator, 2026-09-15: "much more compact and tight … a dense,
+ * enterprise UI look"). `Input` sets no vertical padding — its height IS the
+ * `h-9 @2xl/editor:h-8` pair — so `py-1` alone would change nothing; `h-7`
+ * (28px) is what actually shrinks the box, with `py-1` + `text-sm` (20px line)
+ * filling it exactly. `px-2` sits under the primitive's `px-2.5`. One const,
+ * six readers, so the form's boxes cannot drift apart from each other.
+ *
+ * `@2xl/editor:h-7` is not redundant: `cn` drops the primitive's bare `h-9`
+ * for ours, but its `@2xl/editor:h-8` is a different variant and survives the
+ * merge — and a container-query utility sorts AFTER a bare one, so without the
+ * twin the box would be 28px on a phone and back to 32px on the desktop the
+ * request was made about.
+ */
+const COMPACT_INPUT = "h-7 @2xl/editor:h-7 py-1 px-2 text-sm";
+
+/**
+ * COMPACT, BY WIDTH RATHER THAN BY TWELFTHS (operator, 2026-09-15: "reduce the
+ * width of the input boxes so they don't stretch so far"). Every cell was
+ * `size="sm"` — a quarter of the pane, ~300px wide — so a Unit of "PCS" and a
+ * two-decimal Quantity each sat in a box built for a customer name.
+ * `erp-form-compact`: an input is as wide as the kind of value it holds, never
+ * as wide as the column it lands in — and a fraction cannot be made compact,
+ * so the answer is leaving `FieldGrid` for `FieldRow` + `w=`, not a
+ * `max-w-[200px]` on each control inside the same twelfth.
+ *
+ * One `FieldRow` wrapping at the 8px `pack` gap the operator asked for:
+ *
+ *   288 + 176 + 112 + 144 + 200 + 288  =  1208 + 5 x 8 = 1248
+ *   item · attribute · qty · unit · supplier · remarks
+ *
+ * That is one line on a wide pane and two on a laptop, folding after Unit.
+ * The JSX order is unchanged, so Tab still runs the same path it always did.
+ */
+const AI_W = {
+  item: "name", //      free text — no schema maximum
+  attribute: "term", // "YARN DYED", a two-word attribute
+  quantity: "range", // "1,234.50" — number + 2 decimals + the spinner gutter
+  unit: "code", //      PCS / M / KG, and the "pcs / m / kg" placeholder
+  supplier: "party", // a party name in a short box — `term` clips, `name` oversizes
+  remarks: "name", //   free text
+} satisfies Record<string, FieldWidth>;
 
 export function AdvisedItemsEditor({
   fixedOrder,
@@ -151,7 +193,9 @@ export function AdvisedItemsEditor({
         canEdit ? (
           <Select
             value={i.status}
-            onChange={(e) => handleStatus(i.id, e.target.value as AdvisedStatus)}
+            onChange={(e) =>
+              handleStatus(i.id, e.target.value as AdvisedStatus)
+            }
             disabled={isPending}
             className="h-7 w-28 text-xs"
             aria-label="Advised item status"
@@ -195,90 +239,118 @@ export function AdvisedItemsEditor({
       )}
 
       {canCreate && formOpen && (
-        <Card>
-          <CardHeader>
-            <CardTitle>New advised item</CardTitle>
-          </CardHeader>
-          <CardBody>
-            <form
-              // ONE MARKER, NEVER A HANDLER. Without it `isEditorScope()` is
-              // false, so Tab keeps native order, leaves the form and stops on
-              // buttons — one of the ~51 page-level editors AGENTS.md counts as
-              // missing this. See the `raagam-keyboard-contract` skill.
-              data-focus-scope
-              onSubmit={handleAdd}
-              className="space-y-4"
-            >
-              {/* `FieldGrid`, not a hand-rolled `lg:grid-cols-3` with a
-                  `col-span-*` on Remarks — a screen composes primitives, it does
-                  not draw (LAYOUT.md §3). */}
-              <FieldGrid>
-                {/* `required` on the Field, not a `*` typed into the label — the
-                    same prop draws the star AND stamps `data-required-empty`, so
-                    the cursor holds on a blank box. */}
-                <Field label="Item" required size="sm" htmlFor="ai-desc">
-                  <Input
-                    id="ai-desc"
-                    uppercase
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    required
-                  />
-                </Field>
-                <Field label="Attribute" size="sm" htmlFor="ai-attr">
-                  <Input
-                    id="ai-attr"
-                    uppercase
-                    value={attribute}
-                    onChange={(e) => setAttribute(e.target.value)}
-                  />
-                </Field>
-                <Field label="Quantity" size="sm" htmlFor="ai-qty">
-                  <Input
-                    id="ai-qty"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    placeholder="0"
-                  />
-                </Field>
-                <Field label="Unit" size="sm" htmlFor="ai-unit">
-                  <Input
-                    id="ai-unit"
-                    uppercase
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    placeholder="pcs / m / kg"
-                  />
-                </Field>
-                <Field label="Suggested supplier" size="sm" htmlFor="ai-supp">
-                  <Input
-                    id="ai-supp"
-                    uppercase
-                    value={supplier}
-                    onChange={(e) => setSupplier(e.target.value)}
-                    placeholder="Optional"
-                  />
-                </Field>
-                <Field label="Remarks" size="sm" htmlFor="ai-rem">
-                  <Input
-                    id="ai-rem"
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Optional"
-                  />
-                </Field>
-              </FieldGrid>
-              <div className="flex items-end">
-                <Button type="submit" disabled={isPending || !description.trim()}>
-                  {isPending ? "Adding…" : "Add advised item"}
-                </Button>
-              </div>
-            </form>
-          </CardBody>
-        </Card>
+        /* FLAT, NOT A CARD (operator, 2026-09-15: "no shadow, no borders …
+           blend completely flat and seamlessly with the page's background").
+           This used to be `Card` › `CardHeader` › `CardBody`, and `Card` is
+           the app's raised surface panel — `rounded-xl border bg-surface`
+           plus the smoke wash, `shadow-elev` and `inset-shadow-sheen`. Those
+           are five utilities across two layers, so "override them with
+           className" is five overrides that each have to be re-found the
+           day the primitive changes; a plain `<section>` has nothing to
+           undo. The title keeps `CardTitle`'s own type scale so the heading
+           reads the same as every other panel's. */
+        <section className="space-y-3" aria-labelledby="ai-form-title">
+          <h3
+            id="ai-form-title"
+            className="text-sm font-semibold text-foreground"
+          >
+            New advised item
+          </h3>
+          <form
+            // ONE MARKER, NEVER A HANDLER. Without it `isEditorScope()` is
+            // false, so Tab keeps native order, leaves the form and stops on
+            // buttons — one of the ~51 page-level editors AGENTS.md counts as
+            // missing this. See the `raagam-keyboard-contract` skill.
+            data-focus-scope
+            onSubmit={handleAdd}
+            // `@container/editor` is the DENSITY container. `Input`, `Select`
+            // and `Button` are each `h-9 @2xl/editor:h-8`, and a page-level
+            // form declares no such container of its own (a Sheet or
+            // MasterFullScreen does) — so this form sat at the 36px mobile
+            // height on every desktop. Same move `default-account-head-
+            // screen.tsx` makes for the same reason.
+            className="@container/editor space-y-3"
+          >
+            {/* `FieldRow`, not a hand-rolled flex row and not `FieldGrid` —
+                see `AI_W` above for why the twelfths track was left. The
+                8px `pack` gap is the operator's own number ("change gap-6 or
+                gap-4 to gap-2"). */}
+            <FieldRow gap="pack">
+              {/* `required` on the Field, not a `*` typed into the label — the
+                  same prop draws the star AND stamps `data-required-empty`, so
+                  the cursor holds on a blank box. */}
+              <Field label="Item" required w={AI_W.item} htmlFor="ai-desc">
+                <Input
+                  id="ai-desc"
+                  className={COMPACT_INPUT}
+                  uppercase
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Attribute" w={AI_W.attribute} htmlFor="ai-attr">
+                <Input
+                  id="ai-attr"
+                  className={COMPACT_INPUT}
+                  uppercase
+                  value={attribute}
+                  onChange={(e) => setAttribute(e.target.value)}
+                />
+              </Field>
+              <Field label="Quantity" w={AI_W.quantity} htmlFor="ai-qty">
+                <Input
+                  id="ai-qty"
+                  className={COMPACT_INPUT}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  placeholder="0"
+                />
+              </Field>
+              <Field label="Unit" w={AI_W.unit} htmlFor="ai-unit">
+                <Input
+                  id="ai-unit"
+                  className={COMPACT_INPUT}
+                  uppercase
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value)}
+                  placeholder="pcs / m / kg"
+                />
+              </Field>
+              <Field
+                label="Suggested supplier"
+                w={AI_W.supplier}
+                htmlFor="ai-supp"
+              >
+                <Input
+                  id="ai-supp"
+                  className={COMPACT_INPUT}
+                  uppercase
+                  value={supplier}
+                  onChange={(e) => setSupplier(e.target.value)}
+                  placeholder="Optional"
+                />
+              </Field>
+              <Field label="Remarks" w={AI_W.remarks} htmlFor="ai-rem">
+                <Input
+                  id="ai-rem"
+                  className={COMPACT_INPUT}
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Optional"
+                />
+              </Field>
+            </FieldRow>
+            <div className="flex items-end">
+              <Button type="submit" disabled={isPending || !description.trim()}>
+                {isPending ? "Adding…" : "Add advised item"}
+              </Button>
+            </div>
+          </form>
+        </section>
       )}
 
       {/* The list stands down while the form is open — the operator is typing a
