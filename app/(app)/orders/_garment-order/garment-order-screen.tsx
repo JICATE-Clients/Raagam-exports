@@ -4699,12 +4699,15 @@ export function GarmentOrderScreen({
           // ladder) went blank despite Materials In-house and Inspection
           // having real values of their own, because `backwardSchedule`
           // never recovers once a step ahead of them comes back null.
-          const computed = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+          const act = taActivityById.get(r.activity_id ?? "");
+          const computed = computedTaDays(act?.short_name);
           return {
             row_uid: r.row_uid,
             activity_id: r.activity_id,
             label: taLabel(r.activity_id),
             days_required: computed != null ? Number(computed) : numOrNull(r.days_required),
+            // Side activity (0561) — the save action reads the same column.
+            anchor_activity_id: act?.anchor_activity_id ?? null,
           };
         }),
         /* EVERY quantity row, unfiltered — the rule is "the earliest non-blank
@@ -9045,9 +9048,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         // resolved, never SHOWS a value different from what the save payload
         // now sends for it.
         const fixedDays = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+        // A side activity's Days is an offset, not a duration (0561) — say
+        // which start it counts back from.
+        const anchorId = taActivityById.get(r.activity_id ?? "")?.anchor_activity_id;
         return (
         <Input
           type="number"
+          title={anchorId ? `Working days before ${taLabel(anchorId)} starts` : undefined}
           readOnly={!!fixedDays}
           /* PILL, NOT A SQUARE BOX — `taRenderMobileRow` sits this inside a
              rounded `bg-surface-muted` chip beside its own "Days" label, so a
@@ -9607,15 +9614,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
        (no date at all — the ladder is incomplete, or refused) is this
        screen's own case that file's `slipLabel` never has to answer, since
        every row it draws already has a real float. */
+    // No word for an on-track row (client 2026-09-15: remove "Scheduled") —
+    // only lateness, due-today and the 3-day warning are said out loud.
     const statusText = !d
-      ? "Scheduled"
+      ? ""
       : d.float < 0
         ? `${Math.abs(d.float)} day${Math.abs(d.float) === 1 ? "" : "s"} late`
         : d.float === 0
           ? "Due today"
           : d.float <= 3
             ? `in ${d.float} day${d.float === 1 ? "" : "s"}`
-            : "Scheduled";
+            : "";
     /* SAME GLYPH CHOICE AS `StatusIcon` IN `worklist-board.tsx` — alert
        triangle once it has slipped or is due today, a clock while it is
        close, a plain calendar otherwise. Kept as a local pick rather than
@@ -9721,15 +9730,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             <ToneIcon className={cn("size-3.5 shrink-0", toneText[tone])} aria-hidden />
             <span className="tabular-nums text-xs text-muted-foreground">
               {d ? fmtDate(d.target_date) : "—"}
-              {/* END DATE (client, 2026-09-11: "only showing the start date
-                  of the activity, need to show the end date... near").
-                  `end_date` is `target_date` walked forward this row's own
-                  Days — see `order-ladder.ts`'s own note on the field. Shown
-                  only when it differs from `target_date`: a row whose Days
-                  is 0 (Fabric Plan, Shipment, …) starts and ends the same
-                  day, and an arrow pointing a date at itself reads as a
-                  glitch rather than a zero-length step. */}
-              {d?.end_date && d.end_date !== d.target_date && (
+              {/* START → END ON EVERY ROW (client 2026-09-15: "every task
+                  should follow the same visual format" — a 1-day Inspection
+                  reads `08/12/2026 → 08/12/2026`, not a bare date beside
+                  ranges). A "(N working days)" note was added the same day
+                  and removed at the client's request. */}
+              {d?.end_date && (
                 <>
                   {" "}
                   <span aria-hidden>→</span> {fmtDate(d.end_date)}
@@ -19400,7 +19406,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               <span className="font-medium">
                 This schedule needs to start on {fmtDate(taLadder.startDate)}
               </span>{" "}
-              — before {fmtDate(form.amend_date)}, the order's own Date. The
+              — before {fmtDate(form.amend_date)}, the order&apos;s own Date. The
               production days entered add up to more time than is actually
               available; this does not block Save.
             </p>
@@ -19478,7 +19484,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               const sn = taActivityById.get(r.activity_id ?? "")?.short_name;
               return sn === "PPSEND" || sn === "PPAPPR" || sn === "MATIH";
             }) && (
-              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-muted px-2.5 py-1.5">
+              <div className="mb-2 flex flex-col items-start gap-1.5 rounded-md border border-border bg-surface-muted px-2.5 py-1.5">
                 {/* HIDDEN (operator, 2026-09-11) — see the comment above.
                     Left as dead code deliberately, not deleted: the state
                     and its `set()` wiring are unchanged, so restoring this
@@ -19501,6 +19507,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     ]}
                   />
                 )}
+                {/* ALWAYS ITS OWN LINE (operator, 2026-09-15) — this used to
+                    sit beside the toggle in a `flex-wrap` row, so the short
+                    Cutting-Based sentence stayed inline while the longer
+                    Yarn-Based one wrapped underneath, flush against the
+                    toggle's left edge. Same bar, two different shapes
+                    depending only on which mode was picked, reported as
+                    looking broken. A fixed `flex-col` stack means the caption
+                    sits in the same place under the toggle in both modes,
+                    however long the sentence runs. */}
                 <span className="text-[10.5px] text-muted-foreground">
                   {!form.production_based_pp_approval
                     ? "Cutting and material buying proceed without waiting on PP Sample."

@@ -62,13 +62,13 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       </div>
 
       <nav className="flex-1 space-y-0.5 p-1.5">
-        <SidebarItem
-          href={mod.href}
-          label="Home"
-          active={!activeHref && isRouteActive(pathname, mod.href)}
-          onClick={navigate(mod.href, mod.label)}
-        />
-
+        {/* THE "HOME" ROW IS HIDDEN (operator, 2026-09-15) — it only ever
+            reopened the module's own root/hub page, and that page's card
+            grid was hidden the same day (`group-hub.tsx`) because it
+            repeated this exact sidebar listing back at the operator. With
+            the cards gone the hub page has nothing left to open, so the row
+            that led to it is removed too, not merely orphaned. The module
+            icon in the level-1 rail still reaches the same route. */}
         <SidebarSection>
           {children.map((child) => {
             const childActive = child.href === activeHref;

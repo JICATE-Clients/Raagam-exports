@@ -903,6 +903,12 @@ const ydRepeatFilled = (r: FabricBomInput["yd_repeats"][number]) =>
 const ydCombinationFilled = (r: FabricBomInput["yd_combinations"][number]) =>
   !!((r.combo ?? "").trim() || (r.yd_combo_name ?? "").trim());
 
+/** As `ydRepeatFilled`, for one row of a Combinations row's nested Color
+ *  breakdown (0560). */
+const ydCombinationColorFilled = (
+  c: FabricBomInput["yd_combinations"][number]["colors"][number],
+) => !!(c.yarn_color ?? "").trim();
+
 async function writeLines(
   s: Awaited<ReturnType<typeof createClient>>,
   bomId: string,
@@ -990,10 +996,45 @@ async function writeLines(
 
   const ydCombinations = (data.yd_combinations ?? []).filter(ydCombinationFilled);
   if (ydCombinations.length) {
-    const { error } = await s
+    const { data: insertedCombinations, error } = await s
       .from("order_fabric_bom_yd_combinations")
-      .insert(ydCombinations.map((r) => ({ ...r, bom_id: bomId })));
+      .insert(
+        ydCombinations.map((r) => ({
+          style_ref_no: r.style_ref_no,
+          structure_id: r.structure_id,
+          item_id: r.item_id,
+          combo: r.combo,
+          yd_combo_name: r.yd_combo_name,
+          bom_id: bomId,
+        })),
+      )
+      .select("id");
     if (error) return fail(error.message);
+
+    /* THE NESTED COLOR BREAKDOWN (0560) — reference only, see the migration
+       header. Written from the just-inserted parents' generated ids, zipped
+       by ARRAY INDEX: `.select("id")` on a single multi-row insert with no
+       `ON CONFLICT` returns one row per value, in the order the values were
+       sent, which `ydCombinations` (the same filtered array, same order) was
+       built from. `order_fabric_bom_yd_combinations` has no stable id of its
+       own across saves — `writeLines` deletes and reinserts every row of it
+       on every save — so there is no earlier id to reuse here even if one
+       were wanted. */
+    const colorRows = (insertedCombinations ?? []).flatMap((inserted, i) =>
+      (ydCombinations[i]?.colors ?? [])
+        .filter(ydCombinationColorFilled)
+        .map((c) => ({
+          combination_id: inserted.id,
+          sno: c.sno,
+          yarn_color: c.yarn_color,
+        })),
+    );
+    if (colorRows.length) {
+      const { error: colorError } = await s
+        .from("order_fabric_bom_yd_combination_colors")
+        .insert(colorRows);
+      if (colorError) return fail(colorError.message);
+    }
   }
 
   const lines = normalizeLines(data);

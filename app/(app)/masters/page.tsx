@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
 import {
   listBuyers,
@@ -82,6 +83,14 @@ export default async function MastersPage({
       </div>
     );
   }
+
+  // REDIRECT TO THE FIRST SUBMODULE (operator, 2026-09-15) — same fix as
+  // `ModuleHub`/`GroupHub`: the card grid `HubPage` renders below is hidden,
+  // so this page had nothing left but a title, and the sidebar already lists
+  // all six submodules as rows. Every entry in `SUBMODULES` carries a real
+  // `/masters/<slug>` route (unlike a `GroupChild`, nothing here is `todo` or
+  // `unavailable`), so the first one is always reachable.
+  if (SUBMODULES[0]) redirect(`/masters/${SUBMODULES[0].slug}`);
 
   // Default landing: the six Configure submodules.
   //

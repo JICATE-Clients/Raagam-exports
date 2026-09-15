@@ -121,7 +121,11 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
            no line. Mixing Details is absent because it is DERIVED — see
            `mixingDetailRows` in yarn-dyed.ts. */
         "ydRepeats:order_fabric_bom_yd_repeats(*), " +
-        "ydCombinations:order_fabric_bom_yd_combinations(*)",
+        /* THE NESTED COLOR BREAKDOWN (0560) — a plain child of the
+           combination's own `id`, unlike the group-addressed panels beside
+           it, so it nests here rather than joining them as a flat sibling. */
+        "ydCombinations:order_fabric_bom_yd_combinations(*, " +
+        "colors:order_fabric_bom_yd_combination_colors(*))",
     )
     .order("created_at", { ascending: false });
 
@@ -161,6 +165,14 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
           ...y,
           stages: [...(y.stages ?? [])].sort((a, b) => a.sno - b.sno),
         })),
+      /* THE COMBINATION ROWS THEMSELVES CARRY NO `sno` (unsorted, as before);
+         only their nested Color breakdown (0560) needs one, for the same
+         "PostgREST makes no ordering promise" reason as every other embed
+         above. */
+      ydCombinations: (r.ydCombinations ?? []).map((c) => ({
+        ...c,
+        colors: [...(c.colors ?? [])].sort((a, b) => a.sno - b.sno),
+      })),
     })),
   );
 }
@@ -688,10 +700,16 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
   // `inactive`, not `is_active` — 0227's spelling. Reading the flag column from
   // memory is what leaves a picker silently empty, since PostgREST answers a
   // select over a MISSING column with an error rather than nulls.
-  const { data } = await s
+  const { data, error } = await s
     .from("processes")
     .select("id, name, inactive, for_fabric, is_print, is_dyeing")
     .order("name");
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md) — `data ?? []`
+  // on a missing column (e.g. `is_dyeing` before 0557 is applied) turns a
+  // broken schema into "the Process master has nothing flagged Fabric",
+  // which is exactly wrong and sent an operator to re-tick a flag that was
+  // never the problem.
+  if (error) throw new Error(`Could not load the Process master: ${error.message}`);
   return ((data ?? []) as {
     id: string;
     name: string;
@@ -750,10 +768,13 @@ async function getFabricProcessLookupRows(): Promise<FabricProcessLookups> {
  */
 async function getYarnProcessRows(): Promise<YarnProcessOption[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("processes")
     .select("id, name, inactive, for_yarn")
     .order("name");
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — same reasoning as
+  // `getFabricProcessRows` above, which is the sibling this was copied from.
+  if (error) throw new Error(`Could not load the Process master: ${error.message}`);
   return ((data ?? []) as {
     id: string;
     name: string;

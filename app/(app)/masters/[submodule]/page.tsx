@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { findSubmodule } from "@/lib/masters/submodules";
 import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
@@ -14,6 +14,18 @@ export default async function SubmodulePage({
   const sub = findSubmodule(submodule);
   // Materials has its own richer route at /masters/materials.
   if (!sub || sub.slug === "materials") notFound();
+
+  // REDIRECT TO THE FIRST CHILD (operator, 2026-09-15) — same fix as
+  // `ModuleHub`/`GroupHub`/`/masters`: the card grid `HubPage` renders below
+  // is hidden, and the sidebar already lists every child as a row. Every
+  // child here always resolves to a real href, `todo` included (see the
+  // comment on `href` below), so the first one is always reachable.
+  const firstChild = sub.children[0];
+  if (firstChild) {
+    redirect(
+      firstChild.type === "link" ? firstChild.href : `/masters/${sub.slug}/${firstChild.slug}`,
+    );
+  }
 
   const cards: HubCardSpec[] = sub.children.map((c) => ({
     key: c.slug,
