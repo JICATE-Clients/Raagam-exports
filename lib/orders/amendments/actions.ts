@@ -1258,15 +1258,24 @@ async function taActivityRows(
   // need for labels now also answers "is this row PP Send / PP Approval",
   // for the Yarn-Purchase-Based exclusion below. One query, not two.
   const shortNames = new Map<string, string>();
+  // `anchor_activity_id` (0561) — the screen hands the ladder the same column
+  // off its feeder, so both halves agree which rows are side activities.
+  const anchors = new Map<string, string>();
   if (activityIds.length) {
     const { data: acts, error: actErr } = await s
       .from("ta_activities")
-      .select("id, name, short_name")
+      .select("id, name, short_name, anchor_activity_id")
       .in("id", activityIds);
     if (actErr) return { ok: false, error: actErr.message };
-    for (const a of (acts ?? []) as { id: string; name: string | null; short_name: string | null }[]) {
+    for (const a of (acts ?? []) as {
+      id: string;
+      name: string | null;
+      short_name: string | null;
+      anchor_activity_id: string | null;
+    }[]) {
       if (a.name) labels.set(a.id, a.name);
       if (a.short_name) shortNames.set(a.id, a.short_name);
+      if (a.anchor_activity_id) anchors.set(a.id, a.anchor_activity_id);
     }
   }
 
@@ -1293,6 +1302,7 @@ async function taActivityRows(
       activity_id: r.activity_id,
       label: (r.activity_id && labels.get(r.activity_id)) || "",
       days_required: r.days_required,
+      anchor_activity_id: (r.activity_id && anchors.get(r.activity_id)) || null,
     })),
     // The quantity rows THIS SAVE IS WRITING, not `data.quantities` — a blank
     // destination row is dropped by `normalizeQuantities`, and a date on a row

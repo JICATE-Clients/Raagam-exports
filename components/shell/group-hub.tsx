@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import type { HubIconTone } from "@/components/masters/hub-card";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
-import { HubCard } from "@/components/masters/hub-card";
+// `HubCard` is unused while the card grid below is hidden (operator, 2026-09-15) —
+// see the comment at the grid's own commented-out render.
+// import { HubCard } from "@/components/masters/hub-card";
 import { findGroup, groupAtRoute } from "@/lib/nav/module-groups";
 import { hubCounts } from "@/lib/nav/hub-counts";
 import { groupHubMark } from "@/lib/nav/group-hub-icons";
@@ -65,7 +67,10 @@ export function HubPage({
   description,
   note,
   status,
-  cards,
+  // Renamed, not dropped: every caller still builds and passes `cards` (kept
+  // as a required prop so restoring the grid needs no caller changes), it is
+  // just unused while the grid below is hidden (operator, 2026-09-15).
+  cards: _cards,
 }: {
   /** Omit on a module's own landing page, which is the top of its trail. */
   breadcrumb?: { href: string; label: string };
@@ -100,6 +105,14 @@ export function HubPage({
           {note}
         </div>
       )}
+      {/* THE CARD GRID IS HIDDEN (operator, 2026-09-15) — the sidebar already
+          lists every one of these cards as a row (both read the same
+          `lib/nav/module-groups.ts` registry), so the hub page repeated the
+          sidebar's own listing back at the operator and read as confusing.
+          `cards` is still built by every caller and stays a required prop:
+          `ModuleHub` and `GroupHub` are otherwise unchanged, so restoring
+          this is "un-comment", not "re-derive the card list". */}
+      {/*
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((c) => (
           <HubCard
@@ -117,6 +130,7 @@ export function HubPage({
           />
         ))}
       </div>
+      */}
     </div>
   );
 }
@@ -163,6 +177,22 @@ export async function GroupHub({
   const { group, moduleLabel, module } = found;
 
   await requirePermission(module, "view");
+
+  /**
+   * REDIRECT TO THE FIRST CHILD SCREEN (operator, 2026-09-15) — same reason
+   * and same shape as `ModuleHub`'s own redirect: the card grid below is
+   * hidden, so this hub page had nothing left but a title and a description,
+   * and the sidebar already lists every one of these children as a row.
+   * Skips a `todo`/`unavailable` child exactly as `HubCard` already greys it
+   * out — redirecting into a screen with no route or no table would trade one
+   * blank page for a worse one. A group with every child idle falls through
+   * to the (now cardless) page below rather than redirecting nowhere; the nav
+   * check's own assertions are what keep that from being the common case.
+   */
+  const firstChild = group.children.find(
+    (c) => c.status !== "todo" && c.status !== "unavailable",
+  );
+  if (firstChild) redirect(firstChild.href);
 
   // AFTER the permission gate, never before: a count is a fact about records
   // this caller may or may not be allowed to see, and `hub_record_counts` is

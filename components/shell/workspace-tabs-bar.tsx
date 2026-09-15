@@ -114,30 +114,29 @@ export function WorkspaceTabsBar() {
   const showHome = hasPermission(user, "dashboard", "view");
   const isHomeActive = pathname === "/";
   /**
-   * THE MODULE'S OWN HOME, BESIDE THE APP'S (client 2026-09-10: "here the home
-   * is routing for main home but there is home in hr module also right, so in
-   * the multi bar this hr home also should be shown").
+   * THE MODULE'S OWN HOME CHIP IS HIDDEN (operator, 2026-09-15). It opened the
+   * module's own root/hub page (client 2026-09-10's reasoning below is kept
+   * for history), and that page's card grid was hidden the same day
+   * (`group-hub.tsx`) because it repeated the sidebar's own sub-module
+   * listing back at the operator. With the hub page's cards gone there is
+   * nothing left for this chip to usefully open, so it is removed alongside
+   * the sidebar's own "Home" row (`ContextSidebar.tsx`) rather than left
+   * pointing at an empty page.
    *
-   * Standing on /hr/staff, "Home" goes to the dashboard — there was nothing in
-   * this bar that went one level up, to HR's own card index. The sidebar's
-   * module row does it, but the bar is what the operator is looking at while an
-   * editor covers the page, and a page-mounted editor is exactly when the
-   * sidebar is least in view.
+   * ORIGINAL REASONING, client 2026-09-10: "here the home is routing for main
+   * home but there is home in hr module also right, so in the multi bar this
+   * hr home also should be shown" — standing on /hr/staff, "Home" goes to the
+   * dashboard, and nothing in this bar went one level up to HR's own card
+   * index; the sidebar's module row did it, but the bar is what the operator
+   * sees while a page-mounted editor covers the sidebar. Restoring this is
+   * "un-comment", not "re-derive" — `activeModule` / `isModuleHomeActive` are
+   * untouched below.
    *
-   * DRAWN LIKE HOME, NOT LIKE A TAB, and that is the whole point. A module root
-   * IS a hub route, and the file header above records why a hub never becomes a
-   * tab: drilling Orders → Order Management → Order Entry would leave three tabs
-   * where the operator opened one thing. So this is a second FIXED chip, keyed
-   * off the pathname exactly as Home is — nothing is registered, nothing is
-   * closable, and `useEnsureWorkspaceTab`'s `skip` is untouched.
-   *
-   * `modules` is already filtered by `<module>:view`, so a module the operator
-   * cannot see cannot appear here either.
-   */
   const activeModule = modules.find(
     (m) => m.href !== "/" && isUnderModule(pathname, m.href),
   );
   const isModuleHomeActive = !!activeModule && pathname === activeModule.href;
+   */
   // Home is drawn once, fixed, ahead of the list — see the file header.
   const openTabs = tabs.filter((t) => t.href !== "/");
   // The store's own `activeId` can lag one route behind while the operator
@@ -207,6 +206,7 @@ export function WorkspaceTabsBar() {
         </button>
       )}
 
+      {/* HIDDEN (operator, 2026-09-15) — see the comment above `activeModule`.
       {activeModule && (
         <button
           type="button"
@@ -224,14 +224,15 @@ export function WorkspaceTabsBar() {
               : "font-medium text-white/90 hover:bg-white/10",
           )}
         >
-          {/* The module's OWN nav icon, so the chip and the sidebar row the
-             operator would otherwise click carry the same mark. */}
+          // The module's OWN nav icon, so the chip and the sidebar row the
+          // operator would otherwise click carry the same mark.
           <activeModule.icon
             className={cn("h-3.5 w-3.5 flex-none", isModuleHomeActive && "text-primary")}
           />
           {activeModule.label}
         </button>
       )}
+      */}
 
       {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-white/30" />}
 

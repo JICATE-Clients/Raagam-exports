@@ -4747,12 +4747,15 @@ export function GarmentOrderScreen({
           // ladder) went blank despite Materials In-house and Inspection
           // having real values of their own, because `backwardSchedule`
           // never recovers once a step ahead of them comes back null.
-          const computed = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+          const act = taActivityById.get(r.activity_id ?? "");
+          const computed = computedTaDays(act?.short_name);
           return {
             row_uid: r.row_uid,
             activity_id: r.activity_id,
             label: taLabel(r.activity_id),
             days_required: computed != null ? Number(computed) : numOrNull(r.days_required),
+            // Side activity (0561) — the save action reads the same column.
+            anchor_activity_id: act?.anchor_activity_id ?? null,
           };
         }),
         /* EVERY quantity row, unfiltered — the rule is "the earliest non-blank
@@ -9093,9 +9096,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         // resolved, never SHOWS a value different from what the save payload
         // now sends for it.
         const fixedDays = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name);
+        // A side activity's Days is an offset, not a duration (0561) — say
+        // which start it counts back from.
+        const anchorId = taActivityById.get(r.activity_id ?? "")?.anchor_activity_id;
         return (
         <Input
           type="number"
+          title={anchorId ? `Working days before ${taLabel(anchorId)} starts` : undefined}
           readOnly={!!fixedDays}
           /* A PLAIN COMPACT BOX, NO PILL (operator, 2026-09-15: "remove the
              rounded border and pill styling from the numbers in the DAYS
@@ -9858,15 +9865,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             )}
           </div>
 
-          {/* TARGET, with the end date beneath it when the two differ. An em
-              dash for a rung the backward walk could not date: it stops at the
-              first row with no Days, and a plan is read as a promise, so no
-              date is shown rather than a guessed one. */}
+          {/* TARGET, with the end date beneath it ON EVERY DATED ROW (client
+              2026-09-15: "every task should follow the same visual format" —
+              a 1-day Inspection reads `08/12 → 08/12`, not a bare date beside
+              ranges; carried over from master's chip when this table replaced
+              it). An em dash for a rung the backward walk could not date: it
+              stops at the first row with no Days, and a plan is read as a
+              promise, so no date is shown rather than a guessed one. */}
           <div className="w-[4.75rem] flex-none whitespace-nowrap">
             <div className="font-mono text-[11px] leading-none tabular-nums text-foreground">
               {d ? fmtDate(d.target_date) : "—"}
             </div>
-            {d?.end_date && d.end_date !== d.target_date && (
+            {d?.end_date && (
               <div className="mt-0 font-mono text-[10px] leading-none tabular-nums text-muted-foreground">
                 <span aria-hidden>→</span> {fmtDate(d.end_date)}
               </div>
@@ -19547,7 +19557,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               <span className="font-medium">
                 This schedule needs to start on {fmtDate(taLadder.startDate)}
               </span>{" "}
-              — before {fmtDate(form.amend_date)}, the order's own Date. The
+              — before {fmtDate(form.amend_date)}, the order&apos;s own Date. The
               production days entered add up to more time than is actually
               available; this does not block Save.
             </p>

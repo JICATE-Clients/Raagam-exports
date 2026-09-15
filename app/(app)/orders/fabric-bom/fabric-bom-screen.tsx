@@ -190,7 +190,11 @@ import {
 /* `ClothText` — the read-only cell the Components tree already draws, borrowed
    for the Fabric Process row rather than redefined (2026-09-03). */
 import { ClothText, ComponentMapBody } from "@/components/orders/component-map-sheet";
-import { YarnDyedSheet, type YdCombinationRow } from "@/components/orders/yarn-dyed-panels";
+import {
+  YarnDyedSheet,
+  repeatPositionLabel,
+  type YdCombinationRow,
+} from "@/components/orders/yarn-dyed-panels";
 import { FabricBomReportsSheet } from "@/components/orders/fabric-bom-reports-sheet";
 import type { YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
@@ -882,12 +886,15 @@ const blankYdRepeat = (key: string, address: YdAddress): YdRepeat => ({
 });
 
 /** As `blankYdRepeat`, for a Combinations row. `ydCombinationFilled` tests both
- *  of its typed fields, so a blank one is dropped on save. */
+ *  of its typed fields, so a blank one is dropped on save. `colors` starts
+ *  empty — the nested Color breakdown (0560) is reference only and has no
+ *  seeded row of its own; see `CombinationsPanel`'s own "+ Add color". */
 const blankYdCombination = (key: string, address: YdAddress): YdCombination => ({
   key,
   ...address,
   combo: "",
   yd_combo_name: "",
+  colors: [],
 });
 
 const EMPTY_DECLS: StyleComponentDecl[] = [];
@@ -1957,6 +1964,30 @@ export function FabricBomScreen({
       ].sort(),
     [paletteEdit, palette],
   );
+
+  /**
+   * THE YARN COLOUR SECTION ONLY, for Yarn Dyed Details' Color cells
+   * (`colourOptionsFor`, `yarn-dyed-panels.tsx`) — `declaredColours` above
+   * mixes in the Colour (fabric-dye) section too, which is a different
+   * vocabulary from the one this popup's stripes/combinations are dyed with.
+   * Same "read the draft, not the loaded palette" reasoning as
+   * `declaredColours` — a Yarn Colour typed on this same BOM's Color/Print
+   * Details must be offered here before the BOM is saved and reopened.
+   */
+  const declaredYarnColours = useMemo(
+    () =>
+      [
+        ...new Set(
+          (paletteEdit
+            ? paletteEdit.yarn.map((r) => r.value)
+            : (palette?.yarn ?? []).map((d) => d.color_name ?? "")
+          )
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      ].sort(),
+    [paletteEdit, palette],
+  );
   const declaredPrints = useMemo(
     () =>
       [
@@ -2197,6 +2228,12 @@ export function FabricBomScreen({
         item_id: r.item_id,
         combo: r.combo ?? "",
         yd_combo_name: r.yd_combo_name ?? "",
+        // `colors` arrives pre-sorted by `sno` (service.ts) — a fresh client
+        // key per row, same as every other loaded grid in this screen.
+        colors: (r.colors ?? []).map((c) => ({
+          key: newKey(),
+          yarn_color: c.yarn_color ?? "",
+        })),
       })),
     );
 
@@ -6359,6 +6396,30 @@ export function FabricBomScreen({
   const removeYdCombination = (row: { key: string }) =>
     mutYdCombinations((xs) => xs.filter((x) => x.key !== row.key));
 
+  /**
+   * THE COLOR BREAKDOWN, BY POSITION (0560, redesigned 2026-09-15) — writes
+   * one combo's colour at one INDEX against `CombinationsPanel`'s own
+   * `positions` (one per dyed Mixing Details row of the open fabric group).
+   * No add/remove: the column count already is the position count, so this
+   * is the only mutation the Color breakdown needs.
+   *
+   * GROWS THE ARRAY LAZILY. A combo's `colors` need not be pre-padded to the
+   * fabric's current position count — typing into position 2 before
+   * position 1 has been touched extends the array with blank entries up to
+   * that index, same "fill left to right, refuse nothing" shape every other
+   * grid in this screen opens with.
+   */
+  const patchYdCombinationColorAt = (comboKey: string, index: number, yarn_color: string) =>
+    mutYdCombinations((xs) =>
+      xs.map((x) => {
+        if (x.key !== comboKey) return x;
+        const colors = [...x.colors];
+        while (colors.length <= index) colors.push({ key: newKey(), yarn_color: "" });
+        colors[index] = { ...colors[index], yarn_color };
+        return { ...x, colors };
+      }),
+    );
+
   /* THE YARN OPTIONS ARE EVERY YARN THE BOM'S FABRICS NAME, shaped for a
      picker. `RepeatsPanel` narrows them to the open cloth's own composition; the
      wider list is passed so a HELD yarn that has since left that composition can
@@ -6378,10 +6439,6 @@ export function FabricBomScreen({
     (id ? (comp?.yarns ?? []).find((y) => y.id === id)?.name : "") ?? "";
   const ydUomName = (id: string | null) =>
     (id ? data.uoms.find((u) => u.id === id)?.name : "") ?? "";
-  /** `uoms.code`, for the Yarn Dyed stripe cm/inch conversion — see
-   *  `mixingDetailRows`'s own doc on why this reads `code`, never `name`. */
-  const ydUomCode = (id: string | null) =>
-    (id ? data.uoms.find((u) => u.id === id)?.code : "") ?? "";
 
   /** The [Detail] popup's own scope — the line it was opened from. */
   const detailYd = ydFor(detailLine);
@@ -8638,6 +8695,22 @@ export function FabricBomScreen({
 
   function submit(asDraft: boolean) {
     if (!form.garment_order_id) return;
+    /* THE POSITION LABEL IS GROUP-SCOPED, so it has to be computed per fabric
+       group before this flat `ydRepeats.map` — `repeatPositionLabel` (same
+       function `RepeatsPanel` renders from) numbers "Color 1"/"Color 2"
+       within ONE cloth's own repeats, and this array holds every group's
+       rows concatenated. Grouping first, in the SAME order `ydAddress`
+       already scopes `RepeatsPanel`'s own `rows` prop to, is what keeps the
+       saved label identical to what the operator was just looking at rather
+       than a number drifting in from an unrelated fabric earlier in the
+       array. */
+    const repeatGroupsForSave = new Map<string, YdRepeat[]>();
+    for (const r of ydRepeats) {
+      const addr = ydAddress(r);
+      const group = repeatGroupsForSave.get(addr);
+      if (group) group.push(r);
+      else repeatGroupsForSave.set(addr, [r]);
+    }
     const payload = {
       garment_order_id: form.garment_order_id,
       bom_date: form.bom_date,
@@ -8696,24 +8769,38 @@ export function FabricBomScreen({
          this payload replaces the document, and sending one group's rows would
          delete every other fabric's. `ydRepeatFilled` in actions.ts drops the
          blank rows the grid opened. */
-      yd_repeats: ydRepeats.map((r, i) => ({
-        style_ref_no: r.style_ref_no || null,
-        structure_id: r.structure_id,
-        item_id: r.item_id,
-        sno: i + 1,
-        yarn_item_id: r.yarn_item_id,
-        dye_type: r.dye_type,
-        color_name: r.color_name || null,
-        uom_id: r.uom_id,
-        value: r.value,
-        twisted_yarn: r.twisted_yarn || null,
-      })),
+      yd_repeats: ydRepeats.map((r, i) => {
+        const group = repeatGroupsForSave.get(ydAddress(r)) ?? [r];
+        return {
+          style_ref_no: r.style_ref_no || null,
+          structure_id: r.structure_id,
+          item_id: r.item_id,
+          sno: i + 1,
+          yarn_item_id: r.yarn_item_id,
+          dye_type: r.dye_type,
+          // "Color 1" / "Color 2" / "Grey" — never the operator's own typed
+          // text (see RepeatsPanel's Color cell). Computed fresh here, from
+          // this row's position within its OWN fabric group, rather than
+          // trusting whatever `color_name` happens to hold in local state.
+          color_name: repeatPositionLabel(group, group.indexOf(r)) || null,
+          uom_id: r.uom_id,
+          value: r.value,
+          twisted_yarn: r.twisted_yarn || null,
+        };
+      }),
       yd_combinations: ydCombinations.map((r) => ({
         style_ref_no: r.style_ref_no || null,
         structure_id: r.structure_id,
         item_id: r.item_id,
         combo: r.combo || null,
         yd_combo_name: r.yd_combo_name || null,
+        // `sno` FROM ARRAY POSITION, same as `dias` below — the nested Color
+        // breakdown (0560) has no picker of its own to derive an order from,
+        // just the grid's own row order.
+        colors: r.colors.map((c, i) => ({
+          sno: i + 1,
+          yarn_color: c.yarn_color || null,
+        })),
       })),
       dias: dias.map((d, i) => ({
         sno: i + 1,
@@ -9076,12 +9163,10 @@ export function FabricBomScreen({
         ydRepeats={detailYd.repeats}
         ydCombinations={detailYd.combinations}
         yarnOptions={ydYarnOptions}
-        uomOptions={data.uoms}
         comboOptions={comboOptions}
+        yarnColourOptions={declaredYarnColours}
         composition={detailYd.composition}
         yarnName={ydYarnName}
-        uomName={ydUomName}
-        uomCode={ydUomCode}
         fabricTotalGross={detailFabricTotalGross}
         fabricUomName={detailFabricUomName}
         onPatchYdRepeat={patchYdRepeat}
@@ -9090,6 +9175,7 @@ export function FabricBomScreen({
         onPatchYdCombination={patchYdCombination}
         onAddYdCombination={detailYd.addCombination}
         onRemoveYdCombination={removeYdCombination}
+        onPatchYdCombinationColorAt={patchYdCombinationColorAt}
       />
 
       {/**

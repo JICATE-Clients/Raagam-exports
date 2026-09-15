@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
 import { MODULE_GROUPS } from "@/lib/nav/module-groups";
@@ -60,6 +60,31 @@ export async function ModuleHub({ moduleHref }: { moduleHref: string }) {
   const entries = grouping.entries.filter(
     (e) => !(e.kind === "group" && e.hidden),
   );
+
+  /**
+   * REDIRECT TO THE FIRST SUB-MODULE (operator, 2026-09-15) — the card grid
+   * below is hidden (see `group-hub.tsx`), so this page had nothing left but
+   * a title and a description, reachable by clicking the module's own icon in
+   * the level-1 rail. Rather than land the operator on that near-empty page,
+   * send them straight to the first entry the sidebar itself would show —
+   * same destination, one click saved instead of one wasted.
+   *
+   * A `group` is always reachable (its hub page exists regardless of what is
+   * inside it); a `link` is skipped when `unavailable`, same rule `HubCard`
+   * already used to grey it out — redirecting into a screen whose table does
+   * not exist would trade one confusing page for another.
+   */
+  const firstReachable = entries.find(
+    (e) => e.kind === "group" || e.status !== "unavailable",
+  );
+  if (firstReachable) {
+    redirect(
+      firstReachable.kind === "group"
+        ? `${moduleHref}/${firstReachable.slug}`
+        : firstReachable.href,
+    );
+  }
+
   const links = entries.filter((e) => e.kind === "link");
   const resolved = links.length ? await hubCounts(links) : new Map<string, number>();
 

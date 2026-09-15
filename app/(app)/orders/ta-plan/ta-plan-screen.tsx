@@ -18,8 +18,8 @@ import {
   addWorkingDays,
   backwardSchedule,
   isRefusal,
-  subtractWorkingDays,
 } from "@/lib/ta/schedule";
+import { taSpanEnd } from "@/lib/orders/ta/order-ladder";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { fmtDate } from "@/lib/format";
@@ -62,22 +62,23 @@ type LineRow = {
  */
 
 /**
- * End = Start + Days Required, COUNTED IN WORKING DAYS.
+ * End = the task's LAST working day: Start + (Days − 1) working days, so a
+ * 1-day task starts and ends the same day and a 2-day task spans two days.
  *
- * It counted calendar days until the backward scheduler arrived, and the two
- * cannot disagree on one screen: a plan filled from the delivery date and then
- * nudged forward by a single edit would contradict itself by however many
- * Sundays the span contained, with both dates looking perfectly ordinary.
+ * `taSpanEnd` (`lib/orders/ta/order-ladder.ts`) is the one rule, shared with
+ * the Order Entry T&A tab and the T&A worklist (client 2026-09-15: "both must
+ * use identical date logic"). It was `Start + Days`, which is the NEXT task's
+ * start — every task overlapped its successor by a day.
  *
- * `addWorkingDays` refuses a fractional or negative figure; a refusal here means
- * the operator is mid-keystroke, so the row is left exactly as it was rather
- * than blanked - the same call the grid already makes for an empty box.
+ * A fractional or negative figure yields no date; a refusal here means the
+ * operator is mid-keystroke, so the row is left exactly as it was rather than
+ * blanked - the same call the grid already makes for an empty box.
  */
 function withEnd(row: LineRow): LineRow {
   const days = Number(row.days_required);
-  if (row.start_date && row.days_required !== "" && !Number.isNaN(days)) {
-    const end = addWorkingDays(row.start_date, days);
-    return isRefusal(end) ? row : { ...row, end_date: end };
+  if (row.start_date && row.days_required !== "" && Number.isInteger(days) && days >= 0) {
+    const end = taSpanEnd(row.start_date, days);
+    return end == null ? row : { ...row, end_date: end };
   }
   return row;
 }
@@ -343,13 +344,14 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
       xs.map((x) => {
         const at = byKey.get(x.key);
         if (!at || at.date == null) return x;
-        // Start is the same walk one step further back: the process needs its
-        // own days BEFORE the date it must be complete on.
-        const start = subtractWorkingDays(at.date, at.days!);
+        // The walked date is this process's START — the same reading the
+        // Order Entry ladder gives it — and End is its own last working day
+        // (`taSpanEnd`). This used to take the walked date as End and step a
+        // further `days` back for Start, making every task one day too long.
         return {
           ...x,
-          end_date: at.date,
-          start_date: isRefusal(start) ? x.start_date : start,
+          start_date: at.date,
+          end_date: taSpanEnd(at.date, at.days) ?? x.end_date,
         };
       }),
     );
@@ -368,13 +370,16 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
   }
 
   function onPickFromActivity(key: string, fromActivityId: string | null) {
-    // suggest this row's Start Dt = the predecessor row's End Dt
+    // suggest this row's Start Dt = the working day AFTER the predecessor's End
+    // Dt — End is inclusive (the predecessor's own last day), so starting on it
+    // would overlap the two tasks by a day.
     const predecessor = lines.find(
       (l) => l.key !== key && l.activity_id === fromActivityId && l.end_date,
     );
+    const next = predecessor ? addWorkingDays(predecessor.end_date, 1) : null;
     patchLine(key, {
       from_activity_id: fromActivityId,
-      ...(predecessor ? { start_date: predecessor.end_date } : {}),
+      ...(next && !isRefusal(next) ? { start_date: next } : {}),
     });
   }
 
