@@ -58,7 +58,13 @@ function check(label: string, actual: unknown, expected: unknown) {
   }
 }
 
-type Stage = { combo: string | null; loss_pct: number | null; stage_id?: string | null; process_id?: string | null };
+type Stage = {
+  combo: string | null;
+  component_id?: string | null;
+  loss_pct: number | null;
+  stage_id?: string | null;
+  process_id?: string | null;
+};
 
 /** The chaining invariant, checked generically — never one number at a time. */
 function chains(steps: readonly StageUpliftStep[]): boolean {
@@ -240,6 +246,135 @@ const LEGACY_CHAIN: Stage[] = [
   } else {
     check("legacy-chain vector must not refuse", "refused", "not refused");
   }
+}
+
+// ---------------------------------------------------------------------------
+// 8. THE COMPONENT AXIS (0528, wired 2026-09-15) — a route split "Component
+//    Wise" is one sequence PER PANEL, and a weight belongs to an ENTRY that
+//    names a set of panels. `stagesForGroup` is the resolution; these vectors
+//    were run against the pre-fix engine first and FAILED there, because that
+//    engine ignored `component_id` and STACKED every panel's steps.
+// ---------------------------------------------------------------------------
+
+/* Body runs four stages, Rib runs three. The client's own example. */
+const SPLIT_ROUTE: Stage[] = [
+  { combo: null, component_id: "BODY", loss_pct: 1, stage_id: "GREY", process_id: "KNITTING" },
+  { combo: null, component_id: "BODY", loss_pct: 5, stage_id: "DYED", process_id: "DYEING" },
+  { combo: null, component_id: "BODY", loss_pct: 2, stage_id: "DYED", process_id: "STENTER" },
+  { combo: null, component_id: "BODY", loss_pct: 2, stage_id: "DYED", process_id: "COMPACTING" },
+  { combo: null, component_id: "RIB", loss_pct: 1, stage_id: "GREY", process_id: "KNITTING" },
+  { combo: null, component_id: "RIB", loss_pct: 5, stage_id: "DYED", process_id: "DYEING" },
+  { combo: null, component_id: "RIB", loss_pct: 2, stage_id: "DYED", process_id: "COMPACTING" },
+];
+{
+  const body = comboUpliftBreakdown(SPLIT_ROUTE, "WHITE", ["BODY"]);
+  const rib = comboUpliftBreakdown(SPLIT_ROUTE, "WHITE", ["RIB"]);
+  check(
+    "component-wise: an entry naming BODY walks BODY's four steps only",
+    isRefusal(body) ? "refused" : body.steps.map((s) => s.process_id),
+    ["KNITTING", "DYEING", "STENTER", "COMPACTING"],
+  );
+  check(
+    "component-wise: an entry naming RIB walks RIB's three steps only",
+    isRefusal(rib) ? "refused" : rib.steps.map((s) => s.process_id),
+    ["KNITTING", "DYEING", "COMPACTING"],
+  );
+  /* THE STACK, REFUTED BY NAME: seven stages compounded is 1/0.99/0.95/0.98/
+     0.98/0.99/0.95/0.98 = 1.201169; BODY alone is 1/0.99/0.95/0.98/0.98 =
+     1.107106. */
+  check(
+    "component-wise: BODY's factor is its own four stages, never all seven",
+    isRefusal(body) ? "refused" : Number(body.factor.toFixed(6)),
+    1.107106,
+  );
+  check("component-wise: comboUplift agrees for BODY", agrees(SPLIT_ROUTE, "WHITE").agree, true);
+  const stacked = comboUplift(SPLIT_ROUTE, "WHITE", ["BODY"]);
+  check(
+    "component-wise: BODY via comboUplift is 1.107106, never the 1.201169 stack",
+    isRefusal(stacked) ? "refused" : Number(stacked.toFixed(6)),
+    1.107106,
+  );
+
+  /* An entry naming BOTH, with DIFFERENT routes: refuse, never pick or stack. */
+  const both = comboUplift(SPLIT_ROUTE, "WHITE", ["BODY", "RIB"]);
+  check(
+    "component-wise: an entry spanning BODY and RIB (different routes) refuses",
+    isRefusal(both) ? "refused" : both,
+    "refused",
+  );
+
+  /* An entry naming a panel with NO route of its own gets the unscoped steps
+     only — here there are none, so factor 1: "no route declared", the same
+     reading a fabric with no route at all has always had. */
+  const rope = comboUpliftBreakdown(SPLIT_ROUTE, "WHITE", ["WAIST ROPE"]);
+  check(
+    "component-wise: a panel with no route walks nothing (factor 1)",
+    isRefusal(rope) ? "refused" : [rope.factor, rope.steps.length],
+    [1, 0],
+  );
+
+  /* No component passed at all: the UNDER-count, never the stack. */
+  const unknown = comboUpliftBreakdown(SPLIT_ROUTE, "WHITE");
+  check(
+    "component-wise: a caller naming no component gets unscoped steps only",
+    isRefusal(unknown) ? "refused" : [unknown.factor, unknown.steps.length],
+    [1, 0],
+  );
+}
+
+/* Two panels declaring the IDENTICAL sequence: one distinct answer, so an
+   entry spanning both is grossed by it ONCE. */
+const SAME_ROUTE_TWICE: Stage[] = [
+  { combo: null, component_id: "FRONT", loss_pct: 1, stage_id: "GREY", process_id: "KNITTING" },
+  { combo: null, component_id: "FRONT", loss_pct: 5, stage_id: "DYED", process_id: "DYEING" },
+  { combo: null, component_id: "BACK", loss_pct: 1, stage_id: "GREY", process_id: "KNITTING" },
+  { combo: null, component_id: "BACK", loss_pct: 5, stage_id: "DYED", process_id: "DYEING" },
+];
+{
+  const b = comboUpliftBreakdown(SAME_ROUTE_TWICE, "WHITE", ["FRONT", "BACK"]);
+  check(
+    "component-wise: FRONT and BACK with identical routes gross ONCE, not twice",
+    isRefusal(b) ? "refused" : [b.steps.length, Number(b.factor.toFixed(6))],
+    [2, 1.063264],
+  );
+}
+
+/* An UNSCOPED step beside scoped ones (mid-edit, before Save drops the
+   mismatch) applies to every panel, in its declared position. */
+const MIXED: Stage[] = [
+  { combo: null, component_id: null, loss_pct: 1, stage_id: "GREY", process_id: "KNITTING" },
+  { combo: null, component_id: "BODY", loss_pct: 5, stage_id: "DYED", process_id: "DYEING" },
+  { combo: null, component_id: "RIB", loss_pct: 3, stage_id: "DYED", process_id: "DYEING" },
+];
+{
+  const body = comboUpliftBreakdown(MIXED, "WHITE", ["BODY"]);
+  check(
+    "component-wise: an unscoped step applies to BODY alongside BODY's own",
+    isRefusal(body) ? "refused" : body.steps.map((s) => [s.process_id, s.loss_pct]),
+    [["KNITTING", 1], ["DYEING", 5]],
+  );
+}
+
+/* BOTH AXES AT ONCE — a (colour, component) grain: BLACK · BODY is its own
+   sequence and WHITE · BODY another; the colour filter still runs first. */
+const BOTH_AXES: Stage[] = [
+  { combo: "BLACK", component_id: "BODY", loss_pct: 6, stage_id: "DYED", process_id: "DYEING" },
+  { combo: "WHITE", component_id: "BODY", loss_pct: 3, stage_id: "DYED", process_id: "DYEING" },
+  { combo: "BLACK", component_id: "RIB", loss_pct: 8, stage_id: "DYED", process_id: "DYEING" },
+];
+{
+  const blackBody = comboUpliftBreakdown(BOTH_AXES, "BLACK", ["BODY"]);
+  const whiteBody = comboUpliftBreakdown(BOTH_AXES, "WHITE", ["BODY"]);
+  check(
+    "both axes: BLACK · BODY sees its own 6% only",
+    isRefusal(blackBody) ? "refused" : blackBody.steps.map((s) => s.loss_pct),
+    [6],
+  );
+  check(
+    "both axes: WHITE · BODY sees its own 3% only",
+    isRefusal(whiteBody) ? "refused" : whiteBody.steps.map((s) => s.loss_pct),
+    [3],
+  );
 }
 
 if (failed > 0) {

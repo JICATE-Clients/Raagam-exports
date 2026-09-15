@@ -49,6 +49,7 @@ import {
   yarnStageStarted,
   type FabricComposition,
   type FabricGross,
+  type RouteStage,
 } from "./yarn-process";
 import {
   basisFingerprint,
@@ -725,16 +726,17 @@ type NormalizedYarn = {
 function routesByFabricOf(
   data: FabricBomInput,
   fabricIds: ReadonlySet<string>,
-): Map<string, { combo: string | null; loss_pct: number | null; stage_id: string | null; process_id: string | null }[]> {
-  const out = new Map<
-    string,
-    { combo: string | null; loss_pct: number | null; stage_id: string | null; process_id: string | null }[]
-  >();
+): Map<string, RouteStage[]> {
+  const out = new Map<string, RouteStage[]>();
   for (const p of data.processes) {
     if (!p.process_id || !fabricIds.has(p.item_id)) continue;
     const list = out.get(p.item_id) ?? [];
     list.push({
       combo: p.combo ?? null,
+      /* CARRIED SINCE 2026-09-15. Without it a "Component Wise" route (0528)
+         read as ONE route and every panel's steps compounded onto every
+         weight — see `stagesForGroup`. */
+      component_id: p.component_id ?? null,
       loss_pct: p.loss_pct ?? null,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
@@ -1228,7 +1230,7 @@ async function writeLines(
     s,
     bomId,
     data,
-    fabricGrossOf(requirement),
+    fabricGrossOf(requirement, savedEntries),
     await compositionMapFor(saved),
     decimals.size ? decimals : await uomDecimalMap(s),
   );
@@ -1269,7 +1271,12 @@ async function writeLines(
  */
 function fabricGrossOf(
   requirement: readonly Record<string, unknown>[],
+  entries: readonly EntryRowWithId[],
 ): FabricGross[] {
+  /* WHICH PANELS EACH ENTRY COVERS — the same `component_ids` written to
+     `order_fabric_bom_manual_components` a few lines up, so a "Component
+     Wise" route (0528) can be resolved per bucket (`stagesForGroup`). */
+  const componentsByEntry = new Map(entries.map((e) => [e.id, e.component_ids]));
   /* KEYED BY (entry, COLOURWAY) SINCE 0504, not by entry alone. A stage may
      treat PURPLE and not GREEN, so the yarn has to be weighed per colourway
      before any loss is applied — summing an entry's slices into one figure first
@@ -1284,7 +1291,7 @@ function fabricGrossOf(
     if (!key || !itemId) continue;
 
     const combo = (r.combo as string | null) ?? null;
-    const bucket = `${key} ${comboKey(combo)}`;
+    const bucket = `${key}::${comboKey(combo)}`;
     const held = byBucket.get(bucket);
     /* A REFUSAL POISONS ITS BUCKET and cannot be un-poisoned by a later slice:
        a fabric that could not be computed for one size of one colourway has no
@@ -1297,6 +1304,7 @@ function fabricGrossOf(
       combo,
       gross: qty == null ? null : (held?.gross ?? 0) + Number(qty),
       uom_id: (r.consumption_uom_id as string | null) ?? null,
+      component_ids: componentsByEntry.get(key) ?? [],
       /* THE STORED REASON, so the saved yarn row refuses in the SAME words the
          screen previewed — the header's rule that this figure is computed once
          and read twice applies to the refusal as much as to the weight. The row

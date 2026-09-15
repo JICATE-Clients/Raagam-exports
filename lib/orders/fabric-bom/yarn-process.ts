@@ -191,6 +191,14 @@ export type FabricGross = {
    * in `yarnNetByCombo` is what a null means, not an empty string.
    */
   refusal?: string | null;
+  /**
+   * WHICH PANELS THIS WEIGHT COVERS — the Manual entry's own `component_ids`
+   * (0494), carried so a "Component Wise" route (0528) can be resolved to the
+   * one sequence that grosses this slice. See `stagesForGroup` for the rule.
+   * Optional and empty by default: a caller without it gets the unscoped
+   * steps only, never every component's steps stacked.
+   */
+  component_ids?: readonly string[];
 };
 
 /** The bucket key for a colourway. One function so the screen, the engine and
@@ -439,6 +447,125 @@ export function yarnNetByCombo(
 export const stageCoversCombo = (stageCombo: string | null, combo: string): boolean =>
   comboKey(stageCombo) === "" || comboKey(stageCombo) === combo;
 
+/** One declared step of a fabric's route, as every reader of
+ *  `order_fabric_bom_processes` (and the yarn's own stage grid, which has no
+ *  `component_id`) hands it to the engine. */
+export type RouteStage = {
+  combo: string | null;
+  /** WHICH PANEL this step is scoped to, when the fabric's route is split
+   *  "Component Wise" (0528). Optional so the yarn's own stages and every
+   *  pre-0528 caller are still well-formed; absent or null means the step
+   *  applies to every component. */
+  component_id?: string | null;
+  loss_pct: number | null;
+  stage_id?: string | null;
+  process_id?: string | null;
+};
+
+/**
+ * THE STEPS THAT TREAT ONE (COLOURWAY, COMPONENT-SET) — the single filter every
+ * ladder is built through, and the place the "Component Wise" toggle (0528)
+ * reaches the arithmetic at all.
+ *
+ * ## THE COLOUR AXIS IS `stageCoversCombo`, UNCHANGED
+ *
+ * A blank `combo` on a step means every colourway; a named one means that
+ * colourway alone. Nothing about that changed here.
+ *
+ * ## THE COMPONENT AXIS NEEDS A RESOLUTION, NOT JUST A FILTER
+ *
+ * A component-wise route is declared PER PANEL (FRONT BODY runs KNITTING →
+ * DYEING → STENTER → COMPACTING, NECK RIB runs KNITTING → DYEING →
+ * COMPACTING), but the requirement it is applied to is weighed per MANUAL
+ * ENTRY — "one fabric structure plus one SET of components" (0494, "the entry
+ * is the counting unit"). So the question "which route grosses this weight?"
+ * has three honest answers and one dishonest one:
+ *
+ * - the entry names ONE component that has a route → that component's steps,
+ *   plus any unscoped step (a step with no `component_id` treats every panel);
+ * - the entry names SEVERAL, and they all declare the IDENTICAL sequence →
+ *   that sequence, once. "One distinct answer or nothing", the same rule
+ *   `resolveGsm` / `soleStyleRefNo` already apply in `reports.ts`;
+ * - the entry names components with DIFFERENT routes → REFUSE, naming the fix
+ *   (count them in separate entries). The entry's weight is one figure with no
+ *   per-component split inside it, so neither route can be applied to "its
+ *   share" — there is no share;
+ * - the entry names no component that has a route → only the unscoped steps
+ *   apply. A component-wise fabric whose route has not been typed for this
+ *   panel yet is "no route declared", the same zero-loss reading a fabric with
+ *   no route at all has always had.
+ *
+ * THE DISHONEST ANSWER IS WHAT EVERY READER DID UNTIL 2026-09-15: nothing that
+ * read the route carried `component_id`, so every component's steps were seen
+ * as ONE route and STACKED — Body's four stages and Rib's three compounded as
+ * seven on every kilo of that fabric. A silent over-purchase, indistinguishable
+ * on screen from a correct figure. `scripts/check-fabric-bom-reports.mts`
+ * refutes it by name.
+ *
+ * `componentIds` DEFAULTS TO NONE, and the default is deliberately the
+ * UNDER-count (unscoped steps only), never the stack: a caller that does not
+ * know its component cannot be handed a component's loss, but it must never be
+ * handed all of them.
+ *
+ * ORDER IS PRESERVED from the input — this filters, it never re-sorts — so a
+ * caller that reversed the route for the backward walk (see `reports.ts`)
+ * gets its reversed order back.
+ */
+export function stagesForGroup<S extends RouteStage>(
+  stages: readonly S[],
+  combo: string,
+  componentIds: readonly string[] = [],
+): S[] | Refusal {
+  const forColour = stages.filter((s) => stageCoversCombo(s.combo, combo));
+  const named = resolveRouteComponents(forColour, componentIds);
+  if (isRefusal(named)) return named;
+  if (named.length === 0) return forColour.filter((s) => !s.component_id);
+  /* `named[0]` stands for all of them — `resolveRouteComponents` has just
+     proved every name in the list declares the identical sequence. */
+  return forColour.filter((s) => !s.component_id || s.component_id === named[0]);
+}
+
+/**
+ * WHICH OF AN ENTRY'S PANELS THE ROUTE IS RESOLVED TO — the resolution half of
+ * `stagesForGroup`, exported so a report can LABEL the branch a weight was
+ * grossed by ("FRONT BODY, BACK BODY") and key its totals on it.
+ *
+ * Returns the entry's components that carry a component-scoped step, PROVIDED
+ * they all declare the identical (stage, process, loss) sequence; `[]` when
+ * none of them does (only unscoped steps apply); a refusal when two of them
+ * disagree. `stages` is expected already colour-filtered; a caller passing
+ * the whole route gets the same answer for a route with no colour split.
+ */
+export function resolveRouteComponents(
+  stages: readonly RouteStage[],
+  componentIds: readonly string[],
+): string[] | Refusal {
+  const scoped = stages.filter((s) => !!s.component_id);
+  if (scoped.length === 0) return [];
+
+  const named = [...new Set(componentIds)].filter((id) => scoped.some((s) => s.component_id === id));
+  if (named.length <= 1) return named;
+
+  /* IDENTICAL means the same (stage, process, loss) sequence in the same
+     order — the whole of what a route says. `loss_pct` null and 0 are the
+     same step to the arithmetic and are compared as such. */
+  const signature = (id: string) =>
+    JSON.stringify(
+      scoped
+        .filter((s) => s.component_id === id)
+        .map((s) => [s.stage_id ?? null, s.process_id ?? null, s.loss_pct ?? 0]),
+    );
+  const first = signature(named[0]);
+  if (named.some((id) => signature(id) !== first)) {
+    return {
+      refused:
+        "its components run different process routes on Fabric Process, so one " +
+        "weight cannot be grossed by both — count them in separate entries on Manual",
+    };
+  }
+  return named;
+}
+
 /**
  * One colourway's gross-up factor: the SEQUENTIAL backward-markup product of
  * the stages treating it.
@@ -457,12 +584,17 @@ export const stageCoversCombo = (stageCombo: string | null, combo: string): bool
  * READS, not what the arithmetic does.
  */
 export function comboUplift(
-  stages: readonly { combo: string | null; loss_pct: number | null }[],
+  stages: readonly RouteStage[],
   combo: string,
+  /** The components the weight being grossed belongs to — see
+   *  `stagesForGroup` for what the engine does with them, and why an empty
+   *  list means "unscoped steps only", never "every component's steps". */
+  componentIds: readonly string[] = [],
 ): number | Refusal {
+  const treating = stagesForGroup(stages, combo, componentIds);
+  if (isRefusal(treating)) return treating;
   let factor = 1;
-  for (const s of stages) {
-    if (!stageCoversCombo(s.combo, combo)) continue;
+  for (const s of treating) {
     const loss = s.loss_pct ?? 0;
     if (loss < 0 || loss >= 100) {
       return { refused: "Process loss must be 0 or more and below 100" };
@@ -507,18 +639,18 @@ export type StageUpliftStep = {
 };
 
 export function comboUpliftBreakdown(
-  stages: readonly {
-    combo: string | null;
-    loss_pct: number | null;
-    stage_id?: string | null;
-    process_id?: string | null;
-  }[],
+  stages: readonly RouteStage[],
   combo: string,
+  /** Same third argument as `comboUplift`, for the same reason — the two
+   *  must walk the IDENTICAL stage list or the ledger a report prints stops
+   *  matching the total a purchase was raised against. */
+  componentIds: readonly string[] = [],
 ): { factor: number; steps: StageUpliftStep[] } | Refusal {
+  const treating = stagesForGroup(stages, combo, componentIds);
+  if (isRefusal(treating)) return treating;
   let factor = 1;
   const steps: StageUpliftStep[] = [];
-  for (const s of stages) {
-    if (!stageCoversCombo(s.combo, combo)) continue;
+  for (const s of treating) {
     const loss = s.loss_pct ?? 0;
     if (loss < 0 || loss >= 100) {
       return { refused: "Process loss must be 0 or more and below 100" };
@@ -587,10 +719,7 @@ export function yarnPurchase(
   yarnId: string,
   fabrics: readonly FabricGross[],
   compositions: ReadonlyMap<string, FabricComposition>,
-  routesByFabric: ReadonlyMap<
-    string,
-    readonly { combo: string | null; loss_pct: number | null; stage_id?: string | null; process_id?: string | null }[]
-  >,
+  routesByFabric: ReadonlyMap<string, readonly RouteStage[]>,
   yarnOwnStages: readonly { combo: string | null; loss_pct: number | null }[],
   decimals: number | null,
 ): { qty: number; uom_id: string | null; byCombo: YarnComboWeight[]; byFabric: YarnFabricWeight[] } | Refusal {
@@ -632,7 +761,17 @@ export function yarnPurchase(
 
     const combo = comboKey(f.combo);
     const net = f.gross * share;
-    const route = routesByFabric.get(f.fabric_id) ?? [];
+    /* THE FABRIC'S ROUTE, RESOLVED TO THIS SLICE'S OWN PANELS FIRST (0528,
+       wired 2026-09-15) — `stagesForGroup` is what keeps a component-wise
+       route from stacking every panel's steps onto one weight. Resolved here
+       rather than left to `comboUplift`'s own third argument so the refusal
+       can name the FABRIC: "its components run different routes" is only a
+       useful sentence once the reader knows whose. The yarn's own stages are
+       appended after, unfiltered — they carry no `component_id`. */
+    const route = stagesForGroup(routesByFabric.get(f.fabric_id) ?? [], combo, f.component_ids ?? []);
+    if (isRefusal(route)) {
+      return { refused: `${comp.fabric_name || "One fabric"}: ${route.refused}` };
+    }
     const factor = comboUplift([...route, ...yarnOwnStages], combo);
     if (isRefusal(factor)) return factor;
 

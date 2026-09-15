@@ -19074,31 +19074,41 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         <div className="space-y-4">
           {/* Logistic scalars */}
           <Card>
-            {/* FieldGrid, not a hand-written `grid-cols-1 sm:grid-cols-2
-                lg:grid-cols-3`: the 12-column track and the gap are the
-                primitive's, decided once, so this section lines up with the
-                Order Info fields above rather than agreeing with them by
-                coincidence (raagam-screen-layout: a screen composes, it does
-                not draw). */}
+            {/* `FieldRow`, NOT `FieldGrid` (2026-09-15, screenshot 2877: "compact
+                this tab all the field in order entry payment tab no need this
+                width"). `FieldGrid`'s twelfths are FRACTIONAL — `size="xs"` is
+                2 of 12 columns, a SHARE of the pane rather than a pixel count —
+                so on a wide monitor six `xs` fields flush to 12 still each
+                render as roughly a sixth of the whole content width, hundreds of
+                pixels for an exchange rate or a three-letter Pay Mode code. The
+                comment this replaced even said so directly: "6 x 2 = 12, one
+                flush row with no remainder to solve for" was describing the
+                twelfths adding up, not the fields being narrow.
+
+                `FieldRow` lays fields out by their WIDTH instead — a fixed
+                token from `FIELD_WIDTH`, the same one every masters field uses
+                (LAYOUT.md §3's one-width rule) — so a row of six short values
+                takes only the room its own data needs and ends there, same as
+                the Style row a few sections up already does.
+
+                TIGHTENED A STEP FURTHER THE SAME DAY ("little bit more
+                compacted"): Currency/Pay Mode → `hug` (88px, still clears a
+                three/six-letter value and a Select's chevron), Ex-Rate/Avg
+                Rate → `num` (72px, a short rate), Gross Value → `code` (144px)
+                and INR Value → `term` (176px) — INR stays the widest of the
+                three money-shaped cells because lakh grouping ("74,28,153.60")
+                runs longer than the buyer-currency figure beside it. */}
             <CardBody>
-              <FieldGrid>
+              <FieldRow>
               {/* Department, Agent and Received (mode) withdrawn 2026-08-10
                   (client). Their columns and stored values remain; they left the
                   Zod input too, which is what stops a save nulling them. */}
-              {/* `size="xs"` (2 of 12), SIX per row, so these fields line up
-                  with the Order Info section rather than agreeing with it by
-                  coincidence.
-
-                  SHIP TYPE, SHIP MODE, COUNTRY AND PAY TERMS ARE REMOVED
+              {/* SHIP TYPE, SHIP MODE, COUNTRY AND PAY TERMS ARE REMOVED
                   (client 2026-09-08). Their state, payload and Zod fields are
                   UNTOUCHED — `ship_type_id`, `ship_mode`, `country_id` and
                   `pay_terms_id` stay on `QuantityRow`/`form`/`amendmentInput`
                   exactly as `Department`/`Agent`/`Received` did on 2026-08-10 —
-                  only the `<Field>`s below are gone, which is also what drops
-                  the old `md`/`lg` width exception this note used to carry: the
-                  six fields left (Currency, Ex-Rate, Pay Mode, Avg Rate, Gross
-                  Value, INR Value) are `xs` (2) apiece, 6 x 2 = 12, one flush
-                  row with no remainder to solve for.
+                  only the `<Field>`s below are gone.
 
                   `sectionValidity`'s `logistic` gate (search `empty: (f) =>`)
                   and the rail-dot `logistic:` test below DROP their entries for
@@ -19110,8 +19120,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               {/* `CurrencyPicker` has no `required` prop of its own, so the
                   scope comes from the wrapper — its inner `DataPicker` ORs the
                   context (`data-picker.tsx:292`). `compact` because the Field
-                  now draws the label. */}
-              <Field label="Currency" required size="xs">
+                  now draws the label. `w="hug"` (88px, 2026-09-15: "little bit
+                  more compacted") — a currency code is three letters; `code`
+                  (144px) was still more room than a three-letter value or its
+                  chevron need. */}
+              <Field label="Currency" required w="hug">
                 <CurrencyPicker
                   label="Currency"
                   compact
@@ -19122,7 +19135,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   canEdit={masterPerms.canEdit}
                 />
               </Field>
-              <Field label="Ex-Rate" size="xs" htmlFor="lg-exrate">
+              <Field label="Ex-Rate" w="num" htmlFor="lg-exrate">
                 <Input
                   id="lg-exrate"
                   type="number"
@@ -19130,7 +19143,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   onChange={(e) => set({ ex_rate: e.target.value })}
                 />
               </Field>
-              <Field label="Pay Mode" required size="xs" htmlFor="lg-paymode">
+              <Field label="Pay Mode" required w="hug" htmlFor="lg-paymode">
                 <Select
                   id="lg-paymode"
                   value={form.pay_mode}
@@ -19230,7 +19243,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   wrong the fix is to delete three `tabIndex={0}` — do NOT answer
                   it by reversing the rule in `input.tsx`, which would put every
                   derived field in the app back on the typing path. */}
-              <Field label="Avg Rate" size="xs" htmlFor="lg-avgrate">
+              <Field label="Avg Rate" w="num" htmlFor="lg-avgrate">
                 <Input
                   id="lg-avgrate"
                   readOnly
@@ -19241,7 +19254,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
                 />
               </Field>
-              <Field label="Gross Value" size="xs" htmlFor="lg-gross">
+              <Field label="Gross Value" w="code" htmlFor="lg-gross">
                 <Input
                   id="lg-gross"
                   readOnly
@@ -19282,7 +19295,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
                   `npm run check:order-value` carries the vectors, including all
                   five refusals, each verified by breaking the function first. */}
-              <Field label="INR Value" size="xs" htmlFor="lg-inr">
+              <Field label="INR Value" w="term" htmlFor="lg-inr">
                 <Input
                   id="lg-inr"
                   readOnly
@@ -19293,7 +19306,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   value={inrVal == null ? "" : fmtMoney(inrVal, "INR")}
                 />
               </Field>
-              </FieldGrid>
+              </FieldRow>
             </CardBody>
           </Card>
 

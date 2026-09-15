@@ -310,10 +310,12 @@ export function exportEntryRegisterPdf(data: EntryRegister): void {
     doc.setFontSize(9);
     doc.text("PROCESS SEQUENCE & STAGE LOSS LEDGER", M, startY - 8);
     autoTable(doc, {
-      head: [["Class", "Item", "Stage", "Process", "Loss %"]],
+      head: [["Class", "Item", "Colour", "Component", "Stage", "Process", "Loss %"]],
       body: data.stageLedger.map((r) => [
         r.className,
         r.itemName,
+        r.combo ?? "",
+        r.componentName ?? "",
         r.stageName ?? "",
         r.processName ?? "",
         r.lossPct != null ? `${r.lossPct.toFixed(2)}%` : "",
@@ -322,7 +324,7 @@ export function exportEntryRegisterPdf(data: EntryRegister): void {
       margin: { left: M, right: M },
       styles: monoStyles(),
       headStyles: monoHead(),
-      columnStyles: { 4: { halign: "right" } },
+      columnStyles: { 6: { halign: "right" } },
     });
   }
 
@@ -418,29 +420,55 @@ export function exportYarnRequirementPdf(data: YarnFabricRequirementReport): voi
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
     doc.text(g.processName.toUpperCase(), M, startY - 6);
+    /* THE ASSORT COLOUR SUBTOTALS — a row after each colour's run when the
+       section holds more than one colour, same rule as the on-screen ledger.
+       `boldRows` remembers which body rows are totals for `didParseCell`. */
+    const body: string[][] = [];
+    const boldRows = new Set<number>();
+    g.lines.forEach((l, i) => {
+      body.push([
+        l.fabricName,
+        l.combo ?? "",
+        l.component ?? "",
+        fmtNumber(l.plannedWt),
+        `${l.lossPct.toFixed(2)}%`,
+        fmtNumber(l.toOrderedWt),
+      ]);
+      const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
+      const sub = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
+      if (sub) {
+        boldRows.add(body.length);
+        body.push([`${sub.combo || "No colour"} — subtotal`, "", "", fmtNumber(sub.plannedTotal), "", fmtNumber(sub.toOrderedTotal)]);
+      }
+    });
+    boldRows.add(body.length);
+    body.push(["Grand Total", "", "", fmtNumber(g.plannedTotal), "", fmtNumber(g.toOrderedTotal)]);
     autoTable(doc, {
-      head: [["Details", "Colour", "Planned Wt", "Loss %", "To Ordered Wt"]],
-      body: [
-        ...g.lines.map((l) => [
-          l.fabricName,
-          l.combo ?? "",
-          fmtNumber(l.plannedWt),
-          `${l.lossPct.toFixed(2)}%`,
-          fmtNumber(l.toOrderedWt),
-        ]),
-        ["Grand Total", "", fmtNumber(g.plannedTotal), "", fmtNumber(g.toOrderedTotal)],
-      ],
+      head: [["Details", "Colour", "Component", "Planned Wt", "Loss %", "To Ordered Wt"]],
+      body,
       startY,
       margin: { left: M, right: M },
       styles: monoStyles(),
       headStyles: monoHead(),
-      columnStyles: { 2: { halign: "right" }, 4: { halign: "right" } },
+      columnStyles: { 3: { halign: "right" }, 5: { halign: "right" } },
       didParseCell: (d) => {
-        if (d.section === "body" && d.row.index === g.lines.length) {
+        if (d.section === "body" && boldRows.has(d.row.index)) {
           d.cell.styles.fontStyle = "bold";
         }
       },
     });
+  }
+
+  /* WEIGHTS THE LEDGER COULD NOT PLACE — printed, never dropped. */
+  if (data.stageLedgerRefusals.length) {
+    const after = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
+    let ry = (after?.finalY ?? y) + 16;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    for (const r of data.stageLedgerRefusals) {
+      doc.text(`! ${r}`, M, ry);
+      ry += 11;
+    }
   }
 
   pageFooter(doc, data.header);
@@ -449,7 +477,7 @@ export function exportYarnRequirementPdf(data: YarnFabricRequirementReport): voi
 
 export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): void {
   const rows: string[][] = [
-    ["Section", "Stage", "Type", "Yarn / Fabric", "Color", "Planned Wt", "Loss %", "To Ordered Wt", "Unit", "Note"],
+    ["Section", "Stage", "Type", "Yarn / Fabric", "Color", "Component", "Planned Wt", "Loss %", "To Ordered Wt", "Unit", "Note"],
   ];
   for (const y of data.yarns) {
     rows.push([
@@ -458,6 +486,7 @@ export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): voi
       y.itemType,
       y.yarnName,
       y.color ?? "",
+      "",
       "",
       "",
       y.purchaseQty != null ? String(y.purchaseQty) : "",
@@ -474,6 +503,7 @@ export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): voi
       "",
       "",
       "",
+      "",
       String(data.yarnGrandTotal.qty),
       data.yarnGrandTotal.uomCode ?? "",
       "",
@@ -487,6 +517,7 @@ export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): voi
         "",
         l.fabricName,
         l.combo ?? "",
+        l.component ?? "",
         String(l.plannedWt),
         String(l.lossPct),
         String(l.toOrderedWt),
@@ -494,6 +525,9 @@ export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): voi
         "",
       ]);
     }
+  }
+  for (const r of data.stageLedgerRefusals) {
+    rows.push(["Process Stage Ledger", "", "", "", "", "", "", "", "", "", r]);
   }
   download(`${stem("YarnFabricRequirement", data.header)}.csv`, toCsv(rows), "text/csv");
 }

@@ -145,7 +145,6 @@ import { FabricProcessGrid } from "@/components/orders/fabric-process-grid";
 import {
   blankFabricProcess,
   blankFabricProcessScope,
-  processGroupsFor,
   routeStepCount,
   type FabricProcessRow,
   type FabricProcessScope,
@@ -169,6 +168,7 @@ import {
   yarnRowAnswered,
   type FabricComposition,
   type FabricGross,
+  type RouteStage,
   type YarnAnswer,
   type YarnRow,
   type YarnStageRow,
@@ -1988,6 +1988,55 @@ export function FabricBomScreen({
       ].sort(),
     [paletteEdit, palette],
   );
+
+  /**
+   * REQUIRED COLOR, FOR A YARN-DYED FABRIC, IS THE FABRIC'S OWN YD COMBO NAMES
+   * — not the order's general dye/yarn palette above (doc/order/comboname.md
+   * §1, "selecting a yarn-dyed fabric for a panel ... automatically filters
+   * the Required Color / Component Color dropdown to pull options directly
+   * from the created YD Combo Names"). A Yarn Dyed Combo Name ("C01 - GREEN /
+   * RED") names a whole stripe combination, which is what a yarn-dyed panel's
+   * colourway actually needs to say — "NAVY" alone does not identify which of
+   * the fabric's several dyed colours the panel is cut from.
+   *
+   * SCOPED TO THE GROUP, THE SAME (style, structure, fabric) KEY
+   * `fabricGroupKey`/`ydAddress` already use for Yarn Dyed Details itself —
+   * two fabrics on one style may each declare their own combos, and offering
+   * one fabric's names on the other's panel would be exactly the "un-scoped
+   * cascading filter" AGENTS.md's Cascading filters section warns about.
+   *
+   * NOT GATED ON THE FABRIC MASTER'S Solid / Melange / Yarn Dyed Type. Yarn
+   * Dyed Details' [Detail] popup is reachable from every fabric line
+   * unconditionally, so a fabric classified Solid on the master can still
+   * carry a real Combo (screenshot 2874/2875, 2026-09-15 — "SOLID THREE-
+   * THREAD FLEECE" with Combo PARISIAN NIGHT named "ROJA"). This returns
+   * whatever combo names the group has declared, full stop; the caller
+   * (`component-map-sheet.tsx`'s Required Color cell) is what decides to use
+   * them when non-empty and fall back to `colourOptions` otherwise — an empty
+   * return here is simply "no combos declared for this group yet", not a
+   * refusal.
+   */
+  const ydComboOptionsByGroup = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const c of ydCombinations) {
+      const name = (c.yd_combo_name ?? "").trim();
+      if (!name) continue;
+      const key = fabricGroupKey(c);
+      const arr = m.get(key);
+      if (arr) {
+        if (!arr.includes(name)) arr.push(name);
+      } else {
+        m.set(key, [name]);
+      }
+    }
+    return m;
+  }, [ydCombinations]);
+  const ydComboOptionsFor = (l: {
+    style_ref_no: string | null;
+    structure_id: string | null;
+    item_id: string | null;
+  }) => ydComboOptionsByGroup.get(fabricGroupKey(l)) ?? [];
+
   const declaredPrints = useMemo(
     () =>
       [
@@ -6264,6 +6313,11 @@ export function FabricBomScreen({
        lands. Summing an entry's slices into one figure first would make the
        combo split unrepresentable. */
     const byBucket = new Map<string, FabricGross>();
+    /* WHICH PANELS EACH ENTRY COVERS — carried on the bucket (2026-09-15) so a
+       "Component Wise" route (0528) resolves to ONE panel's sequence per
+       weight instead of stacking every panel's; `fabricGrossOf` (actions.ts)
+       reads the same set off the saved entries. See `stagesForGroup`. */
+    const componentsByEntry = new Map(entries.map((e) => [e.key, e.component_ids]));
     for (const p of preview) {
       /* A ROW THAT COULD NOT NAME ITS FABRIC IS SKIPPED. It is a refusal about
          the Fabric Lines tab ("no fabric uses this structure"), so there is no
@@ -6280,6 +6334,7 @@ export function FabricBomScreen({
         combo: p.combo,
         gross: p.qty == null ? null : (held?.gross ?? 0) + p.qty,
         uom_id: p.uom_id,
+        component_ids: componentsByEntry.get(p.entry_key) ?? [],
         /* THE REASON TRAVELS WITH THE NULL (2026-09-03). `preview` already holds
            the sentence that names the fix — "Enter the consumption for WHITE ·
            S" — and dropping it here is what left the Yarn Process tab printing
@@ -6291,7 +6346,7 @@ export function FabricBomScreen({
       });
     }
     return [...byBucket.values()];
-  }, [preview]);
+  }, [preview, entries]);
 
   const compositionById = useMemo(
     () => new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c])),
@@ -6308,15 +6363,20 @@ export function FabricBomScreen({
    * per-yarn stage grid as the primary source).
    */
   const routesByFabric = useMemo(() => {
-    const out = new Map<
-      string,
-      { combo: string | null; loss_pct: number | null; stage_id: string | null; process_id: string | null }[]
-    >();
+    const out = new Map<string, RouteStage[]>();
     for (const p of procs) {
       if (!p.process_id) continue;
       const loss = numOrNull(p.loss_pct);
       const list = out.get(p.item_id) ?? [];
-      list.push({ combo: p.combo ?? null, loss_pct: loss, stage_id: p.stage_id, process_id: p.process_id });
+      list.push({
+        combo: p.combo ?? null,
+        /* CARRIED SINCE 2026-09-15 — without it a "Component Wise" route
+           read as one route and stacked every panel's steps (`stagesForGroup`). */
+        component_id: p.component_id ?? null,
+        loss_pct: loss,
+        stage_id: p.stage_id,
+        process_id: p.process_id,
+      });
       out.set(p.item_id, list);
     }
     return out;
@@ -8160,6 +8220,7 @@ export function FabricBomScreen({
                     components={data.components}
                     coordinates={data.coordinates ?? []}
                     colourOptions={declaredColours}
+                    ydComboOptionsFor={ydComboOptionsFor}
                     printOptions={declaredPrints}
                     comboOptions={comboOptions}
                     structureId={st.anchor.structure_id}
@@ -8554,7 +8615,17 @@ export function FabricBomScreen({
               renderPanel={(r) => {
                 const scope = scopeFor(r.item_id);
                 const fabricRows = procs.filter((p) => p.item_id === r.item_id);
-                const groups = processGroupsFor(scope, r.combos, r.panelIds);
+                /* A STEP NAMING A BRANCH ON AN AXIS THAT IS NOW OFF is out of
+                   the grid but not out of state — the same rows
+                   `normalizeProcesses` will drop on Save (its own note), kept
+                   here so switching the toggle back on brings them back
+                   rather than making a flip-and-unflip cost the operator the
+                   route they had typed. A blank value on an axis that is ON
+                   stays in the grid: that is the row the required hold is
+                   for. */
+                const inScope = (p: FabricProcessRow) =>
+                  (scope.assort_color_wise || !p.combo) && (scope.component_wise || !p.component_id);
+                const shownRows = fabricRows.filter(inScope);
                 const readOnly = !perms.canEdit && !perms.canCreate;
                 return (
                   <div className="space-y-3">
@@ -8605,69 +8676,48 @@ export function FabricBomScreen({
                         onChange={(next) => setFabricScope(r.item_id, { component_wise: next })}
                       />
                     </div>
-                    {groups.map((g, gi) => (
-                      <div key={g.key} className="space-y-1">
-                        {/* A HEADING ONLY WHEN THERE IS MORE THAN ONE GROUP —
-                            Case A's single unified grid gets none, matching
-                            every other "no heading sentence" surface on this
-                            screen (AGENTS.md, de-clutter). */}
-                        {groups.length > 1 && (
-                          <div className="text-xs font-medium text-muted-foreground">
-                            {g.label}
-                          </div>
-                        )}
-                        {/* ONE SET OF COLUMN LABELS FOR THE WHOLE SPLIT, NOT
-                            ONE PER GROUP (client 2026-09-04: "process and
-                            color field each time have the table labels" —
-                            the same Stage / Process / Loss for / Loss % / Type
-                            header was repeating under every BLUE · FRONT BODY,
-                            BLUE · BACK BODY, … block). Every group draws the
-                            same columns off the same `fabricProcessColumns`
-                            shape, so only the FIRST needs to say what they
-                            are; `g.label` above still marks where one block
-                            ends and the next begins. */}
-                        <FabricProcessGrid
-                          itemId={r.item_id}
-                          combo={g.combo}
-                          componentId={g.component_id}
-                          hideHeader={gi > 0}
-                          rows={fabricRows.filter(
-                            (p) => (p.combo ?? null) === g.combo && (p.component_id ?? null) === g.component_id,
-                          )}
-                          onChange={(next) =>
-                            setFabricProcs(r.item_id, [
-                              ...fabricRows.filter(
-                                (p) =>
-                                  (p.combo ?? null) !== g.combo || (p.component_id ?? null) !== g.component_id,
-                              ),
-                              ...next,
-                            ])
-                          }
-                          processes={data.processes}
-                          lookups={data.processLookups}
-                          printDeclared={printDeclared}
-                          /* 0557, doc/order/update.md §7.3 — a Yarn-Dyed
-                             fabric's dyeing loss is carried on the Yarn
-                             Process tab, so Fabric Process withholds
-                             `is_dyeing` steps for it (never blocked after the
-                             fact — see `dyeingBlocked` for the row that
-                             already holds one from before the fabric's Type
-                             was set to Yarn Dyed). */
-                          fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
-                          /* THE SCREEN'S OWN GENERATOR, so a route added to a
-                             reopened BOM cannot collide with the keys
-                             `openExisting` has already issued. */
-                          newKey={newKey}
-                          /* The HOST screen's permissions standing in for "may
-                             I maintain this shared code list" — the model
-                             every `LookupDialogPicker` call site in this app
-                             uses. */
-                          canCreate={perms.canCreate}
-                          canEdit={perms.canEdit}
-                          readOnly={readOnly}
-                        />
-                      </div>
-                    ))}
+                    {/* ONE GRID, WHATEVER THE TOGGLES SAY (2026-09-15). This
+                        used to be `processGroupsFor(...).map(g => <Grid/>)` —
+                        one grid per (colour, component) group, each with its
+                        own seeded blank row and "+ Add process", which on a
+                        four-colourway fabric was four stacked grids (client
+                        screenshot 2876). A toggle now adds a COLUMN instead:
+                        `colours` / `components` make the grid draw a Colour /
+                        Component ▾ on every row, and the row names its own
+                        branch. Same rows, same `combo` / `component_id`, so
+                        `normalizeProcesses`, the engine and the reports read
+                        exactly what they read before. */}
+                    <FabricProcessGrid
+                      itemId={r.item_id}
+                      colours={scope.assort_color_wise ? r.combos : null}
+                      components={scope.component_wise ? r.panelIds : null}
+                      rows={shownRows}
+                      onChange={(next) =>
+                        setFabricProcs(r.item_id, [...fabricRows.filter((p) => !inScope(p)), ...next])
+                      }
+                      processes={data.processes}
+                      lookups={data.processLookups}
+                      printDeclared={printDeclared}
+                      /* 0557, doc/order/update.md §7.3 — a Yarn-Dyed
+                         fabric's dyeing loss is carried on the Yarn
+                         Process tab, so Fabric Process withholds
+                         `is_dyeing` steps for it (never blocked after the
+                         fact — see `dyeingBlocked` for the row that
+                         already holds one from before the fabric's Type
+                         was set to Yarn Dyed). */
+                      fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
+                      /* THE SCREEN'S OWN GENERATOR, so a route added to a
+                         reopened BOM cannot collide with the keys
+                         `openExisting` has already issued. */
+                      newKey={newKey}
+                      /* The HOST screen's permissions standing in for "may
+                         I maintain this shared code list" — the model
+                         every `LookupDialogPicker` call site in this app
+                         uses. */
+                      canCreate={perms.canCreate}
+                      canEdit={perms.canEdit}
+                      readOnly={readOnly}
+                    />
                   </div>
                 );
               }}
