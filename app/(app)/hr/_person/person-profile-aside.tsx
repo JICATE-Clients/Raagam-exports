@@ -79,11 +79,39 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
       data-focus-region="header"
       className="scrollbar-none w-72 shrink-0 space-y-4 overflow-y-auto"
     >
-      <Card>
-        <CardBody className="space-y-4">
-          <div className="flex flex-col items-center gap-3 text-center">
+      {/*
+        A PROFILE CARD THAT POPS, AND STAYS NEAT (client 2026-09-16: "top card
+        still not popping up ... i want them pop up yet neat").
+
+        A flat tint was not enough, and the reason is in the skin: `[data-skin]`
+        sets every card's border transparent, so a soft fill had nothing to hold
+        it. What reads as depth here is a BAND of real colour with the avatar
+        crossing it — the shape a profile card has everywhere — rather than a
+        louder fill behind the whole card.
+
+        The band is a gradient between the two BRAND tokens, so it follows the
+        theme instead of being a pair of hex values, and it carries no text: a
+        gradient under type is where contrast goes wrong. The avatar sits in a
+        4px ring of the card's own surface, which is what makes it read as
+        raised rather than pasted on.
+      */}
+      <Card className="overflow-hidden">
+        <div
+          aria-hidden
+          className="h-14"
+          style={{
+            backgroundImage:
+              "linear-gradient(120deg, var(--primary), var(--accent))",
+          }}
+        />
+        <CardBody className="space-y-3 pt-0">
+          <div className="-mt-10 flex flex-col items-center gap-2 text-center">
+            {/* 80px, down from 112. The column is fixed at 288px and holds
+                two cards; at 112 plus its own preview the Personal Info heading
+                sat below the fold on a laptop (client 2026-09-16: "bottom card
+                heading only showing in fit screen"). */}
             {p.photoUrl ? (
-              <div className="h-28 w-28 overflow-hidden rounded-2xl border border-border">
+              <div className="h-20 w-20 overflow-hidden rounded-2xl ring-4 ring-surface">
                 {/* eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL, same as PhotoUpload's own preview. */}
                 <img
                   src={p.photoUrl}
@@ -92,11 +120,11 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
                 />
               </div>
             ) : (
-              <div className="grid h-28 w-28 place-items-center rounded-2xl border border-border bg-primary-soft text-3xl font-bold text-primary">
+              <div className="grid h-20 w-20 place-items-center rounded-2xl bg-primary-soft text-2xl font-bold text-primary ring-4 ring-surface">
                 {initials(p.name) ? (
                   <span aria-hidden>{initials(p.name)}</span>
                 ) : (
-                  <UserRound aria-hidden className="h-12 w-12" />
+                  <UserRound aria-hidden className="h-9 w-9" />
                 )}
               </div>
             )}
@@ -124,10 +152,13 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
                 <StatusPill tone="info">New</StatusPill>
               )}
             </div>
+            {/* `showPreview={false}`: the avatar above IS the preview, so the
+                control contributes only its buttons and the size hint. */}
             <PhotoUpload
               value={p.photoUrl}
               onChange={p.onPhotoChange}
               folder={p.photoFolder}
+              showPreview={false}
             />
           </div>
 
@@ -157,10 +188,26 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
           <h2 className="text-sm font-semibold text-foreground">
             Personal Info
           </h2>
+          {/* A COLOUR PER ROW, on the chip only. The eye finds "Phone" by its
+              chip rather than by reading down the labels, and the text stays in
+              ink — a coloured label would trade legibility for the same cue.
+              Four brand tints cycle; `--danger` and `--warning` are deliberately
+              not among them, because those mean a STATE elsewhere in this app
+              and a red chip beside a blood group would read as a problem. */}
           <ul className="space-y-3">
-            {personal.map(([Icon, label, value]) => (
+            {personal.map(([Icon, label, value], i) => (
               <li key={label} className="flex items-start gap-3">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
+                <span
+                  className={
+                    [
+                      "bg-primary-soft text-primary",
+                      "bg-accent-soft text-accent",
+                      "bg-info-soft text-info",
+                      "bg-success-soft text-success",
+                    ][i % 4] +
+                    " grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+                  }
+                >
                   <Icon aria-hidden className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">

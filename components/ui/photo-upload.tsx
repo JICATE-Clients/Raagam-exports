@@ -5,6 +5,15 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
+  /**
+   * Draw the 80px thumbnail beside the button. Default true.
+   *
+   * Off where the SURFACE already shows the photo — the HR profile column puts
+   * a 112px avatar above this control, and two previews of one value is the
+   * "No photo" box sitting under a picture of the person (client 2026-09-16,
+   * "fix the cards alignment"). The buttons and the size hint stay either way.
+   */
+  showPreview?: boolean;
   value: string | null;
   onChange: (url: string | null) => void;
   bucket?: string;
@@ -15,7 +24,14 @@ type Props = {
 const ACCEPTED = "image/jpeg,image/png,image/webp";
 const MAX_SIZE = 2 * 1024 * 1024; // 2 MB
 
-export function PhotoUpload({ value, onChange, bucket = "employee-photos", folder = "photos", disabled }: Props) {
+export function PhotoUpload({
+  value,
+  onChange,
+  bucket = "employee-photos",
+  folder = "photos",
+  disabled,
+  showPreview = true,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +51,9 @@ export function PhotoUpload({ value, onChange, bucket = "employee-photos", folde
       const supabase = createClient();
       const ext = file.name.split(".").pop() ?? "jpg";
       const path = `${folder}/${crypto.randomUUID()}.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
+      const { error: uploadErr } = await supabase.storage
+        .from(bucket)
+        .upload(path, file, { upsert: true });
       if (uploadErr) {
         setError(uploadErr.message);
         return;
@@ -56,15 +74,21 @@ export function PhotoUpload({ value, onChange, bucket = "employee-photos", folde
 
   return (
     <div className="flex items-start gap-4">
-      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-surface-muted">
-        {value ? (
-          <img src={value} alt="Photo" className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-            No photo
-          </div>
-        )}
-      </div>
+      {showPreview && (
+        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-surface-muted">
+          {value ? (
+            <img
+              src={value}
+              alt="Photo"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+              No photo
+            </div>
+          )}
+        </div>
+      )}
       <div className="space-y-1.5">
         <div className="flex gap-2">
           <Button
@@ -77,12 +101,20 @@ export function PhotoUpload({ value, onChange, bucket = "employee-photos", folde
             {uploading ? "Uploading..." : value ? "Change" : "Upload"}
           </Button>
           {value && (
-            <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={handleRemove}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled}
+              onClick={handleRemove}
+            >
               Remove
             </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">JPG, PNG, or WebP. Max 2 MB.</p>
+        <p className="text-xs text-muted-foreground">
+          JPG, PNG, or WebP. Max 2 MB.
+        </p>
         {error && <p className="text-xs text-danger">{error}</p>}
         <input
           ref={inputRef}
