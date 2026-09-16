@@ -68,11 +68,11 @@ export function PageHeader({
            "major page title" tier (client 2026-09-07, Archivo weight spec).
            Every page in the app renders its title through this component, so
            this is the single place that tier is stated. */}
-        <h1 className="text-2xl font-extrabold tracking-[-0.01em] text-foreground">
+        <h1 className="ty-page-title text-2xl font-extrabold tracking-[-0.01em] text-foreground">
           {title}
         </h1>
         {description && (
-          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+          <p className="ty-body mt-0.5 text-sm text-muted-foreground">{description}</p>
         )}
       </div>
       {/* Back leads the row, then the screen's own actions. Rendered whenever

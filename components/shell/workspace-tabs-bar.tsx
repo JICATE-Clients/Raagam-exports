@@ -195,7 +195,7 @@ export function WorkspaceTabsBar() {
             openTab({ href: "/", title: "Home" });
           }}
           className={cn(
-            "flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
+            "ty-tab flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
             isHomeActive
               ? "bg-surface font-bold text-foreground shadow-sm"
               : "font-medium text-white/90 hover:bg-white/10",
@@ -218,7 +218,7 @@ export function WorkspaceTabsBar() {
             openTab({ href: activeModule.href, title: activeModule.label });
           }}
           className={cn(
-            "flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
+            "ty-tab flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
             isModuleHomeActive
               ? "bg-surface font-bold text-foreground shadow-sm"
               : "font-medium text-white/90 hover:bg-white/10",
@@ -254,7 +254,7 @@ export function WorkspaceTabsBar() {
               type="button"
               onClick={() => activate(tab.id)}
               className={cn(
-                "group flex h-8 min-w-[130px] flex-none items-center gap-2 whitespace-nowrap rounded-md pl-3 pr-1.5 text-[13px] transition-colors duration-150",
+                "ty-tab group flex h-8 min-w-[130px] flex-none items-center gap-2 whitespace-nowrap rounded-md pl-3 pr-1.5 text-[13px] transition-colors duration-150",
                 active
                   ? "bg-surface font-bold text-foreground shadow-sm"
                   : "font-medium text-white/90 hover:bg-white/10",

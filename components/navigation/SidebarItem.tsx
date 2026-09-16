@@ -18,6 +18,8 @@ export interface SidebarItemProps {
   /** Left indent step for nested rows (context sidebar's grandchildren). */
   indent?: 0 | 1 | 2;
   onClick?: (e: MouseEvent<HTMLAnchorElement>) => void;
+  /** Extra classes for one use of the row (the hover flyout's roomier rows). */
+  className?: string;
 }
 
 /**
@@ -33,6 +35,7 @@ export function SidebarItem({
   collapsed,
   indent = 0,
   onClick,
+  className,
 }: SidebarItemProps) {
   function handleClick(e: MouseEvent<HTMLAnchorElement>) {
     if (!isPlainLeftClick(e)) return;
@@ -48,7 +51,7 @@ export function SidebarItem({
         // `text-[13px]`, not `text-sm` (14px) — matches the workspace tab
         // bar's own label size (workspace-tabs-bar.tsx) exactly, client
         // 2026-09-08: the sidebar read a size larger side-by-side with it.
-        "flex w-fit items-center gap-2 rounded-[10px] text-[13px] transition-colors",
+        "ty-sidebar flex w-fit items-center gap-2 rounded-[10px] text-[13px] transition-colors",
         collapsed ? "h-10 w-10 justify-center" : "px-3 py-1.5",
         indent === 1 && !collapsed && "ml-3",
         indent === 2 && !collapsed && "ml-6",
@@ -67,6 +70,7 @@ export function SidebarItem({
         active
           ? "bg-primary font-medium text-primary-foreground hover:bg-primary-hover"
           : "text-muted-foreground hover:bg-border hover:text-foreground",
+        className,
       )}
     >
       {icon}

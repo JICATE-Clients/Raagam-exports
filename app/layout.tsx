@@ -6,6 +6,7 @@ import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { SilentUpdater } from "@/components/pwa/silent-updater";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { TYPE_SCALE_INIT_SCRIPT } from "@/lib/type-scale";
 
 /**
  * Inter, self-hosted by `next/font/google` (no runtime request to Google,
@@ -69,6 +70,8 @@ export default function RootLayout({
          * later means a white flash on every load for dark-mode users.
          */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Compact text, applied pre-paint for the same no-flash reason. */}
+        <script dangerouslySetInnerHTML={{ __html: TYPE_SCALE_INIT_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">
         <BugReporterWrapper>

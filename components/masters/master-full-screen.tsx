@@ -1228,7 +1228,7 @@ export function MasterFullScreen({
             )}
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <Truncated className="text-[15px] font-bold tracking-tight text-foreground">
+                <Truncated className="ty-section-title text-[15px] font-bold tracking-tight text-foreground">
                   {header.title}
                 </Truncated>
                 {header.badges}
@@ -1331,7 +1331,7 @@ export function MasterFullScreen({
             railCollapsed && "md:hidden",
           )}
         >
-          <span className="hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
+          <span className="ty-sidebar-group hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
             Sections
           </span>
           {railRows.map((s) => {
@@ -1416,7 +1416,7 @@ export function MasterFullScreen({
                 // arrow keys above (tabIndex={-1} blocks Tab, not .focus()).
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
-                  "flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
+                  "ty-sidebar flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
                   isActive
                     ? "border-border bg-surface font-semibold text-foreground shadow-sm"
                     : "border-transparent text-muted-foreground hover:bg-surface hover:text-foreground",
@@ -1575,7 +1575,7 @@ export function MasterFullScreen({
                 pane that still carries an inner group reads as one hierarchy
                 rather than two competing title styles. */}
             {paneHeading && active && (
-              <h2 className="mb-4 text-[13px] font-bold uppercase tracking-wide text-foreground">
+              <h2 className="ty-subsection mb-4 text-[13px] font-bold uppercase tracking-wide text-foreground">
                 {active.label}
               </h2>
             )}
@@ -1913,7 +1913,7 @@ export function SectionBody({
     <div>
       <h2
         className={cn(
-          "text-[15px] font-bold tracking-tight text-foreground",
+          "ty-section-title text-[15px] font-bold tracking-tight text-foreground",
           namedByRail
             ? "sr-only"
             /* `md:mb-4` ALONE, not the old `@2xl/editor:mb-3` density tweak

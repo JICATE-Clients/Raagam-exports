@@ -65,7 +65,7 @@ export default async function AppLayout({
                   the full history — both complaints, and why the later one
                   wins. A comment naming an offset that no longer exists sends
                   the next reader looking for a bug in the wrong file. */}
-              <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-6">
+              <main className="ty-workspace flex-1 overflow-y-auto p-4 pb-20 md:pb-6">
                 {children}
               </main>
               <MobileNav stores={stores} />

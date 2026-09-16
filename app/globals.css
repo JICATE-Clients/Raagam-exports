@@ -484,6 +484,38 @@
 }
 
 /*
+ * A SLIM SCROLLBAR — still visible, a third of the OS default (client
+ * 2026-09-16, the sidebar: "scrollbar width look large, compact it"). The
+ * sidebar keeps its bar, unlike the rail above: the module list is long and
+ * the bar is how a mouse user learns there is more.
+ *
+ * Chrome 121+ IGNORES every `::-webkit-scrollbar` rule on an element that also
+ * sets `scrollbar-width`, and its own `thin` is still ~11px on Windows. So the
+ * standard property goes only to browsers without the pseudo-element
+ * (Firefox), and Chrome/Edge/Safari get the exact 6px below.
+ */
+@utility scrollbar-slim {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+/*
  * THE APP SHELL OWNS SCROLLING — THE DOCUMENT NEVER DOES.
  *
  * `app/(app)/layout.tsx` is `h-screen overflow-hidden` and scrolls inside
@@ -1584,3 +1616,246 @@ body {
    the attribute for is a trap for the next screen that reaches for
    `data-md-plain` expecting it to still mean something. */
 
+
+/* ==========================================================================
+ * COMPACT TEXT — the opt-in ERP type scale (topbar "Compact text" switch,
+ * components/shell/type-scale-toggle.tsx; client 2026-09-16).
+ *
+ * Everything below is scoped to `html[data-type-scale="compact"]`, which the
+ * pre-paint script in lib/type-scale.ts sets BY DEFAULT (client 2026-09-16)
+ * unless the operator switched to standard. With the switch off not one rule
+ * here matches, so the standard look is untouched.
+ * Colour is never touched — this composes with Light, Dark and System.
+ *
+ * THE SCALE, once, as tokens:
+ *   page title 20/28/600 · section 16/24/600 · subsection 14/20/600
+ *   body, table data, input, button, tab, sidebar 13/20
+ *   table header, form label, breadcrumb 12/18 · helper, badge 11/16
+ * Weights: 400 / 500 / 600 only; 700+ is capped to 600 while compact is on.
+ *
+ * UNLAYERED ON PURPOSE — the reverse of the focus-floor note above. An
+ * unlayered rule beats every Tailwind utility, which is exactly the job: when
+ * the operator asks for compact text it must win over each call site's
+ * `text-sm` / `font-bold`. The attribute gate is what keeps that power from
+ * leaking into the default look.
+ *
+ * TYPE ONLY, NEVER BOX. No height, padding or margin is set here. Label
+ * line-height is deliberately left to LABEL_METRICS (label.tsx), which tunes
+ * it against the editor's field rows; forcing 18px there would grow every form.
+ *
+ * Form controls change at md+ only: below that `text-base` (16px) is what
+ * stops iOS zooming the page on focus, and that is behaviour, not typography.
+ * ========================================================================== */
+html[data-type-scale="compact"] {
+  --ty-page-title: 600 20px/28px var(--font-sans);
+  --ty-section-title: 600 16px/24px var(--font-sans);
+  --ty-subsection: 600 14px/20px var(--font-sans);
+  --ty-body: 400 13px/20px var(--font-sans);
+  --ty-medium: 500 13px/20px var(--font-sans);
+  --ty-small-medium: 500 12px/18px var(--font-sans);
+  --ty-helper: 400 11px/16px var(--font-sans);
+  --ty-badge: 500 11px/16px var(--font-sans);
+}
+
+html[data-type-scale="compact"] body {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Hierarchy caps — hand-set sizes on individual screens. A 24–30px figure
+   becomes a page-title-sized one, `text-lg` a section title, and the app's
+   default `text-sm` the 13px body size. Responsive variants (`md:text-sm`)
+   are different class tokens and are not matched, which is what leaves the
+   iOS no-zoom inputs alone. */
+html[data-type-scale="compact"] :is(.text-2xl, .text-3xl) { font-size: 20px; line-height: 28px; }
+html[data-type-scale="compact"] .text-lg { font-size: 16px; line-height: 24px; }
+html[data-type-scale="compact"] .text-sm { font-size: 13px; line-height: 20px; }
+html[data-type-scale="compact"] :is(.text-\[12\.5px\], .text-\[13\.5px\]) { font-size: 13px; }
+html[data-type-scale="compact"] .text-\[15px\] { font-size: 14px; }
+html[data-type-scale="compact"] :is(.text-\[9px\], .text-\[10px\], .text-\[10\.5px\]) { font-size: 11px; }
+
+/* Calm, not bold-heavy: bold and heavier read as semibold. */
+html[data-type-scale="compact"] :is(.font-bold, .font-extrabold, .font-black, b, strong) {
+  font-weight: 600;
+}
+
+/* Everything below is declared AFTER the caps above on purpose: same
+   specificity, so source order decides, and a stamped role must beat a
+   generic cap (a card title carries `text-sm` but is a 14px subsection). */
+
+/* Roles — stamped once in the shared primitives (page-header, sheet, tabs,
+   label, field, button, status-pill, card, stat, sidebar, group-hub,
+   master-full-screen, workspace-tabs-bar). */
+html[data-type-scale="compact"] .ty-page-title { font: var(--ty-page-title); letter-spacing: -0.01em; }
+html[data-type-scale="compact"] .ty-section-title { font: var(--ty-section-title); }
+html[data-type-scale="compact"] .ty-subsection { font: var(--ty-subsection); }
+html[data-type-scale="compact"] .ty-body { font: var(--ty-body); }
+html[data-type-scale="compact"] :is(.ty-tab, .ty-button, .ty-sidebar) { font: var(--ty-medium); }
+html[data-type-scale="compact"] .ty-breadcrumb { font: var(--ty-small-medium); }
+html[data-type-scale="compact"] .ty-label { font-size: 12px; font-weight: 500; }
+html[data-type-scale="compact"] .ty-sidebar-group { font-size: 11px; font-weight: 500; }
+html[data-type-scale="compact"] .ty-helper { font: var(--ty-helper); }
+html[data-type-scale="compact"] .ty-error { font-size: 12px; font-weight: 500; line-height: 18px; }
+html[data-type-scale="compact"] .ty-badge { font: var(--ty-badge); }
+/* An active tab may stand one step up; everything else in a tab strip stays 500. */
+html[data-type-scale="compact"] .ty-tab.font-bold {
+  font-weight: 600;
+}
+
+/* Tables — by element, so ChildGrid, DataTable AND the ~22 hand-rolled grids
+   all answer alike. Numbers get fixed-width digits so columns align. */
+/* `th[class]` lifts it over the bold cap: a header is 500, not 600. */
+html[data-type-scale="compact"] :is(th, th[class]) {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-type-scale="compact"] td {
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-type-scale="compact"] :is(td, th) :is(.tabular-nums, .font-mono) {
+  font-weight: 500;
+}
+
+/* Form controls: 13/20 regular, placeholder 12, tabular digits. */
+@media (min-width: 768px) {
+  html[data-type-scale="compact"]
+    :is(
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+      select,
+      textarea
+    ) {
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 400;
+  }
+  html[data-type-scale="compact"] :is(input, textarea)::placeholder {
+    font-size: 12px;
+    font-weight: 400;
+  }
+}
+html[data-type-scale="compact"] :is(input, select, textarea) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+ * NEW LOOK — COLOUR (client 2026-09-16). The same switch as COMPACT TEXT
+ * above: the topbar "New look" button sets `html[data-type-scale="compact"]`
+ * (on by default, lib/type-scale.ts), and every rule here is gated on it, so
+ * switching New look off restores the classic colours exactly. It composes
+ * with Light / Dark / System — each token below has a `.dark` value.
+ *
+ * The palette is the Raagam brand spec: neutrals ~75%, brand blue ~18%, green
+ * + semantic ~7%. Blue = interactive / selected; green = success ONLY;
+ * amber = pending / due; red = overdue / cancelled / errors; "informational"
+ * (Updated, Amended, Refund) = blue subtle ground with the active blue as text.
+ * The raw logo colours (#0493db, #85c227) stay on the logo.
+ * ========================================================================== */
+html[data-type-scale="compact"] {
+  --primary-active: #045a86;
+  --info: #045a86;
+  --info-soft: #eaf7fd;
+  --success-solid: #547b19;
+  --success-solid-hover: #466715;
+  --success-solid-active: #385311;
+  --placeholder: #6b7584;
+  --btn-glow: rgb(3 123 184 / 0.28);
+}
+html[data-type-scale="compact"].dark {
+  --primary-active: #036ca1;
+  --info: #7cc8f0;
+  --info-soft: #052c40;
+  --success-solid: #4f7518;
+  --success-solid-hover: #5d8a1d;
+  --success-solid-active: #43641a;
+  --placeholder: #8994a4;
+  --btn-glow: rgb(0 0 0 / 0.45);
+}
+
+/* Faint radial wash of the brand blue at the top of the workspace — never on
+   the app canvas behind tables, and it scrolls away with the content. */
+html[data-type-scale="compact"] .ty-workspace {
+  background-image: radial-gradient(
+    ellipse 70% 220px at 50% 0,
+    color-mix(in srgb, var(--primary) 3.5%, transparent),
+    transparent
+  );
+  background-attachment: local;
+  background-repeat: no-repeat;
+}
+
+html[data-type-scale="compact"] :is(input, textarea)::placeholder {
+  color: var(--placeholder);
+}
+
+/* ---- Buttons ------------------------------------------------------------- */
+/* Solid buttons (primary, approve, danger): a 12% white top sheen, a 1px inner
+   highlight, a soft shadow in the button's own colour, pressed = inset. */
+html[data-type-scale="compact"] .ty-btn-solid {
+  background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.12), transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 1px 2px var(--btn-glow);
+}
+html[data-type-scale="compact"] .ty-btn-solid:active:not(:disabled) {
+  background-color: var(--primary-active);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.2);
+}
+/* Approve = solid green, the one ordinary button that means success. */
+html[data-type-scale="compact"] .ty-btn-approve {
+  --btn-glow: rgb(84 123 25 / 0.28);
+  background-color: var(--success-solid);
+}
+html[data-type-scale="compact"] .ty-btn-approve:hover:not(:disabled) {
+  background-color: var(--success-solid-hover);
+}
+html[data-type-scale="compact"] .ty-btn-approve:active:not(:disabled) {
+  background-color: var(--success-solid-active);
+}
+html[data-type-scale="compact"] .ty-btn-danger {
+  --btn-glow: rgb(185 28 28 / 0.25);
+}
+html[data-type-scale="compact"] .ty-btn-danger:active:not(:disabled) {
+  background-color: var(--danger);
+}
+/* Secondary = white surface with the STRONG border. */
+html[data-type-scale="compact"] .ty-btn-outline {
+  border-color: var(--border-strong);
+}
+
+/* ---- Focus: 2px blue ring, 2px offset; inputs add a 3px 15% halo --------- */
+html[data-type-scale="compact"]
+  :is(a[href], button, [role="button"], [role="tab"], summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+/* An input sits flush beside its neighbours in a grid, so its ring hugs the
+   box instead of standing off it. A field showing an error keeps its own red
+   treatment — a blue focus ring must never paint over "this is wrong". */
+html[data-type-scale="compact"]
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea,
+    [data-field-trigger]
+  ):focus-visible:not([aria-invalid="true"]):not([data-dup-error]):not([data-required-empty]) {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--ring),
+    0 0 0 5px color-mix(in srgb, var(--ring) 15%, transparent);
+}
+
+/* ---- Status badges: tinted 1px border, faint top sheen, leading icon ----- */
+html[data-type-scale="compact"] .ty-badge {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
+  background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.35), transparent 60%);
+}
+html[data-type-scale="compact"].dark .ty-badge {
+  background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.05), transparent 60%);
+}
+html[data-type-scale="compact"] .ty-badge-icon {
+  display: inline-block;
+}

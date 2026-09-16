@@ -1,7 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-type Variant = "primary" | "outline" | "ghost" | "danger" | "subtle";
+type Variant = "primary" | "outline" | "ghost" | "danger" | "subtle" | "approve";
 type Size = "sm" | "md" | "lg" | "icon";
 
 /**
@@ -15,13 +15,22 @@ type Size = "sm" | "md" | "lg" | "icon";
  * emphasis actions (a row's own icon button, a filter toggle), and bumping
  * them too would be the "excessive bold" the spec explicitly warns against.
  */
+const PRIMARY =
+  "bg-primary text-primary-foreground hover:bg-primary-hover shadow-sm font-bold";
+
+/*
+ * `ty-btn-*` are NEW LOOK markers (the topbar switch, app/globals.css): they
+ * style nothing on their own. `approve` is therefore identical to `primary`
+ * in the standard look and turns solid green only under New look, where green
+ * is reserved for success — an Approve is the one ordinary button that says so.
+ */
 const variants: Record<Variant, string> = {
-  primary:
-    "bg-primary text-primary-foreground hover:bg-primary-hover shadow-sm font-bold",
+  primary: `ty-btn-solid ${PRIMARY}`,
+  approve: `ty-btn-solid ty-btn-approve ${PRIMARY}`,
   outline:
-    "border border-border bg-surface text-foreground hover:bg-surface-muted font-semibold",
+    "ty-btn-outline border border-border bg-surface text-foreground hover:bg-surface-muted font-semibold",
   ghost: "text-foreground hover:bg-surface-muted",
-  danger: "bg-danger text-white hover:opacity-90 shadow-sm font-bold",
+  danger: "ty-btn-solid ty-btn-danger bg-danger text-white hover:opacity-90 shadow-sm font-bold",
   subtle: "bg-surface-muted text-foreground hover:bg-border",
 };
 
@@ -68,7 +77,7 @@ export function buttonClasses({
   className,
 }: { variant?: Variant; size?: Size; className?: string } = {}): string {
   return cn(
-    "inline-flex items-center justify-center font-medium transition-colors",
+    "ty-button inline-flex items-center justify-center font-medium transition-colors",
     // Icons inside a button are sized and pinned by the button, never by
     // whatever the caller passed — an unconstrained svg stretches to fill
     // and reads as a distorted icon (client 2026-07-24 #6).

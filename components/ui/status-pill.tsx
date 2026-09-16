@@ -1,5 +1,47 @@
+import {
+  Check,
+  CircleDashed,
+  CircleX,
+  Clock,
+  PencilLine,
+  TriangleAlert,
+  Undo2,
+} from "lucide-react";
 import type { StatusTone } from "@/lib/ui/tone";
 import { cn } from "@/lib/utils";
+
+/**
+ * The leading icon a pill wears under NEW LOOK, so a status reads without its
+ * colour (greyscale, colour-blind operators, a photocopied printout). Chosen by
+ * TONE, because the 800-odd call sites already state one, with the label only
+ * refining it where one tone covers two meanings: danger is both "Overdue"
+ * (a warning triangle) and "Cancelled" (a cross); info is both "Updated"
+ * (a pencil) and "Refund" (a return arrow).
+ */
+function PillIcon({ tone, label }: { tone: StatusTone; label: string }) {
+  // `hidden` in the classic look; globals.css shows it under New look.
+  const cls = "ty-badge-icon hidden size-3 shrink-0";
+  switch (tone) {
+    case "success":
+      return <Check className={cls} aria-hidden />;
+    case "warning":
+      return <Clock className={cls} aria-hidden />;
+    case "danger":
+      return /cancel|reject|block|inactive|void/i.test(label) ? (
+        <CircleX className={cls} aria-hidden />
+      ) : (
+        <TriangleAlert className={cls} aria-hidden />
+      );
+    case "info":
+      return /refund|return/i.test(label) ? (
+        <Undo2 className={cls} aria-hidden />
+      ) : (
+        <PencilLine className={cls} aria-hidden />
+      );
+    default:
+      return <CircleDashed className={cls} aria-hidden />;
+  }
+}
 
 /**
  * Declared in `lib/ui/tone.ts` and re-exported here, so the existing importers
@@ -37,11 +79,12 @@ export function StatusPill({
         // status pills in this app are routine labels (Active/Inactive,
         // Pending), not alarms, and bolding every one of them everywhere is
         // the "excessive bold" the spec warns against.
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
+        "ty-badge inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
         tones[tone],
         className,
       )}
     >
+      <PillIcon tone={tone} label={typeof children === "string" ? children : ""} />
       {children}
     </span>
   );

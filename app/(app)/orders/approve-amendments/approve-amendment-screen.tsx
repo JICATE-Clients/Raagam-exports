@@ -397,7 +397,11 @@ function DecisionModal({
           <Button variant="outline" onClick={onCancel} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={onConfirm} disabled={busy || reasonMissing}>
+          <Button
+            variant={isReject ? "primary" : "approve"}
+            onClick={onConfirm}
+            disabled={busy || reasonMissing}
+          >
             {busy ? "Saving…" : isReject ? "Reject" : "Approve"}
           </Button>
         </div>

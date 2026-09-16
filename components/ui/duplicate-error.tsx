@@ -15,7 +15,7 @@
 export function DuplicateError({ error, id }: { error: string | null; id?: string }) {
   if (!error) return null;
   return (
-    <p id={id ? `${id}-dup` : undefined} role="alert" className="mt-1 text-xs text-danger">
+    <p id={id ? `${id}-dup` : undefined} role="alert" className="ty-error mt-1 text-xs text-danger">
       {error} <span className="text-muted-foreground">Press Esc to cancel.</span>
     </p>
   );
