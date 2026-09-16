@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
+import { SectionColumn, SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
 import {
   saveBankDetails,
@@ -179,106 +180,129 @@ export default function CompletenessSheet({
         </>
       }
     >
-      {isSalary ? (
-        <div className="space-y-4">
-          {/* Both panels hold the same four names, so the section labels are
+      {/* THE SAME FORM LOOK AS THE RECORD EDITOR (client 2026-09-16: "for
+          salary and bank also do the same ui changes"). `data-field-style`
+          is the one attribute the whole treatment keys on — underlines
+          instead of boxes, the label beside the line ending in a colon, and
+          a section's fields one per line. Declared on a wrapper because
+          `Sheet` takes no class for its body; every rule is a descendant
+          selector, so the wrapper is all they need. */}
+      <div data-field-style="lines" className="space-y-4">
+        {isSalary ? (
+          <div className="space-y-4">
+            {/* Both panels hold the same four names, so the section labels are
               the only thing saying which set a figure belongs to — the reason
               the record editor keeps them too. */}
-          <DetailSection label="Pay — Statutory" cols={12}>
-            {money("Gross Salary", "stat_gross", "sr-stat-gross")}
-            {money("Basic", "stat_basic", "sr-stat-basic")}
-            {money("DA", "stat_da", "sr-stat-da")}
-            {money("HRA", "stat_hra", "sr-stat-hra")}
-          </DetailSection>
-          <DetailSection label="Pay — Actual" cols={12}>
-            {money("Gross Salary", "act_gross", "sr-act-gross")}
-            {money("Basic", "act_basic", "sr-act-basic")}
-            {money("DA", "act_da", "sr-act-da")}
-            {money("HRA", "act_hra", "sr-act-hra")}
-          </DetailSection>
-          <DetailSection label="ESI Details" cols={12}>
-            {status("ESI", "esi_status", "sr-esi")}
-            {text("ESI No.", "esi_no", "sr-esi-no")}
-            {date("Date of Joining", "esi_date_of_joining", "sr-esi-doj")}
-            {date("Date of Leaving", "esi_date_of_leaving", "sr-esi-dol")}
-            {text("Dispensary", "esi_dispensary", "sr-esi-disp")}
-          </DetailSection>
-          <DetailSection label="PF Details" cols={12}>
-            {status("PF", "pf_status", "sr-pf")}
-            {text("PF No.", "pf_no", "sr-pf-no")}
-            {date("Date of Joining", "pf_date_of_joining", "sr-pf-doj")}
-            {date("Date of Leaving", "pf_date_of_leaving", "sr-pf-dol")}
-          </DetailSection>
-        </div>
-      ) : (
-        /* One DetailSection, per the surface table: 7 fields, no child grid.
+            {/* TWO AND TWO, side by side — the shape the client approved for
+                Permanent / Correspondence addresses (2026-09-16: "i want side
+                by side thing like permanent and corres address, all 4").
+                Statutory faces Actual and ESI faces PF, so the pair holding
+                the same four names is read across rather than scrolled
+                between. `SectionGrid` + `SectionColumn` is the repo's
+                two-column shape — the screen writes no `grid-cols-*` of its
+                own, and it falls to one column when the sheet is narrow. */}
+            <SectionGrid>
+              <SectionColumn>
+                <DetailSection label="Pay — Statutory" cols={12}>
+                  {money("Gross Salary", "stat_gross", "sr-stat-gross")}
+                  {money("Basic", "stat_basic", "sr-stat-basic")}
+                  {money("DA", "stat_da", "sr-stat-da")}
+                  {money("HRA", "stat_hra", "sr-stat-hra")}
+                </DetailSection>
+                <DetailSection label="ESI Details" cols={12}>
+                  {status("ESI", "esi_status", "sr-esi")}
+                  {text("ESI No.", "esi_no", "sr-esi-no")}
+                  {date("Date of Joining", "esi_date_of_joining", "sr-esi-doj")}
+                  {date("Date of Leaving", "esi_date_of_leaving", "sr-esi-dol")}
+                  {text("Dispensary", "esi_dispensary", "sr-esi-disp")}
+                </DetailSection>
+              </SectionColumn>
+              <SectionColumn>
+                <DetailSection label="Pay — Actual" cols={12}>
+                  {money("Gross Salary", "act_gross", "sr-act-gross")}
+                  {money("Basic", "act_basic", "sr-act-basic")}
+                  {money("DA", "act_da", "sr-act-da")}
+                  {money("HRA", "act_hra", "sr-act-hra")}
+                </DetailSection>
+                <DetailSection label="PF Details" cols={12}>
+                  {status("PF", "pf_status", "sr-pf")}
+                  {text("PF No.", "pf_no", "sr-pf-no")}
+                  {date("Date of Joining", "pf_date_of_joining", "sr-pf-doj")}
+                  {date("Date of Leaving", "pf_date_of_leaving", "sr-pf-dol")}
+                </DetailSection>
+              </SectionColumn>
+            </SectionGrid>
+          </div>
+        ) : (
+          /* One DetailSection, per the surface table: 7 fields, no child grid.
            Rows: 3+6+3 = 12, then 3+3+3+3 = 12 — every row closes, which is what
            keeps mixed widths from reading as ragged whitespace. */
-        <DetailSection label="Bank Account" cols={12}>
-          <Field label="Pay Mode" size="sm" htmlFor="bd-pay-mode">
-            <Select
-              id="bd-pay-mode"
-              value={payMode}
-              onChange={(e) => setPayMode(e.target.value)}
-            >
-              {PAY_MODES.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Bank" size="lg" htmlFor="bd-bank">
-            <Select
-              id="bd-bank"
-              value={account.bank_id ?? ""}
-              onChange={(e) => setA({ bank_id: e.target.value || null })}
-            >
-              <option value=""></option>
-              {banks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Branch" size="sm" htmlFor="bd-branch">
-            <Input
-              id="bd-branch"
-              value={account.branch ?? ""}
-              onChange={(e) => setA({ branch: e.target.value })}
-            />
-          </Field>
-          <Field label="Bank Type" size="sm" htmlFor="bd-bank-type">
-            <Input
-              id="bd-bank-type"
-              value={account.bank_type ?? ""}
-              onChange={(e) => setA({ bank_type: e.target.value })}
-            />
-          </Field>
-          <Field label="A/c Type" size="sm" htmlFor="bd-ac-type">
-            <Input
-              id="bd-ac-type"
-              value={account.ac_type ?? ""}
-              onChange={(e) => setA({ ac_type: e.target.value })}
-            />
-          </Field>
-          <Field label="A/c No" size="sm" htmlFor="bd-ac-no">
-            <Input
-              id="bd-ac-no"
-              value={account.ac_no ?? ""}
-              onChange={(e) => setA({ ac_no: e.target.value })}
-            />
-          </Field>
-          <Field label="IFSC Code" size="sm" htmlFor="bd-ifsc">
-            <Input
-              id="bd-ifsc"
-              value={account.ifsc_code ?? ""}
-              onChange={(e) => setA({ ifsc_code: e.target.value })}
-            />
-          </Field>
-        </DetailSection>
-      )}
+          <DetailSection label="Bank Account" cols={12}>
+            <Field label="Pay Mode" size="sm" htmlFor="bd-pay-mode">
+              <Select
+                id="bd-pay-mode"
+                value={payMode}
+                onChange={(e) => setPayMode(e.target.value)}
+              >
+                {PAY_MODES.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Bank" size="lg" htmlFor="bd-bank">
+              <Select
+                id="bd-bank"
+                value={account.bank_id ?? ""}
+                onChange={(e) => setA({ bank_id: e.target.value || null })}
+              >
+                <option value=""></option>
+                {banks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Branch" size="sm" htmlFor="bd-branch">
+              <Input
+                id="bd-branch"
+                value={account.branch ?? ""}
+                onChange={(e) => setA({ branch: e.target.value })}
+              />
+            </Field>
+            <Field label="Bank Type" size="sm" htmlFor="bd-bank-type">
+              <Input
+                id="bd-bank-type"
+                value={account.bank_type ?? ""}
+                onChange={(e) => setA({ bank_type: e.target.value })}
+              />
+            </Field>
+            <Field label="A/c Type" size="sm" htmlFor="bd-ac-type">
+              <Input
+                id="bd-ac-type"
+                value={account.ac_type ?? ""}
+                onChange={(e) => setA({ ac_type: e.target.value })}
+              />
+            </Field>
+            <Field label="A/c No" size="sm" htmlFor="bd-ac-no">
+              <Input
+                id="bd-ac-no"
+                value={account.ac_no ?? ""}
+                onChange={(e) => setA({ ac_no: e.target.value })}
+              />
+            </Field>
+            <Field label="IFSC Code" size="sm" htmlFor="bd-ifsc">
+              <Input
+                id="bd-ifsc"
+                value={account.ifsc_code ?? ""}
+                onChange={(e) => setA({ ifsc_code: e.target.value })}
+              />
+            </Field>
+          </DetailSection>
+        )}
+      </div>
     </Sheet>
   );
 }
