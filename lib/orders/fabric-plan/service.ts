@@ -325,10 +325,37 @@ async function codeMap(table: string, ids: string[]): Promise<Map<string, string
  */
 async function getProcessRows(): Promise<PickerRow[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("processes")
     .select("id, name, for_yarn, for_fabric, inactive")
-    .order("sl_no");
+    // BY NAME. This ordered by `processes.sl_no` — the legacy hand-typed serial
+    // — until the client removed that field from the Process master (2026-09-16,
+    // doc/order/fabriprocess.md §4: step ordering is governed by the 5 standard
+    // process routes, and "manual serial numbers cause sequencing errors") and
+    // 0565 dropped the column. `name` is what every other process feed in the
+    // app already orders by.
+    .order("name");
+  /*
+   * A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md).
+   *
+   * THE ORDER-BY ABOVE IS WHY THIS LINE IS HERE. PostgREST answers a sort over
+   * a missing column with an error, and this function used to read `data ?? []`
+   * — so the day 0565 dropped `sl_no` the Fabric Plan's process picker would
+   * have gone empty and said nothing, which on a picker reads as "no processes
+   * are set up" rather than as a fault. The order-by was fixed at the same time,
+   * so the specific break is gone; the SWALLOW is the bug underneath it, and it
+   * would have hidden the next one exactly as well.
+   *
+   * `throw`, not a `Refusal`, and the distinction is worth stating because both
+   * live one directory over. `Refusal` / `isRefusal` in `lib/orders/fabric-bom`
+   * is an ARITHMETIC refusal — a quantity that cannot be computed, carried into
+   * the reports and shown to the planner inline. This is not a value that came
+   * out wrong; it is a list that did not load, and the sibling doing the exact
+   * same job (`getFabricProcessRows` in `lib/orders/fabric-bom/service.ts`)
+   * throws for it. Nothing changes at the call site: `getFabricPlanFormData` is
+   * awaited by a server component, the same as that one.
+   */
+  if (error) throw new Error(`Could not load the Process master: ${error.message}`);
   return ((data ?? []) as {
     id: string;
     name: string;

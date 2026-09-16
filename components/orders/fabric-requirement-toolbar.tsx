@@ -8,6 +8,9 @@ import {
   type FabricSheetMeta,
 } from "@/lib/orders/fabric-requirement/export";
 import type { FabricSheetRow } from "@/lib/orders/fabric-requirement/sheet";
+/* THE RULE 2 DEMAND (0564) — the same lines the document renders, handed to
+   both exports so the screen, the paper and the spreadsheet carry one answer. */
+import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
 
 /**
  * The three ways off the screen — the fabric sheet's only behaviour.
@@ -29,15 +32,19 @@ import type { FabricSheetRow } from "@/lib/orders/fabric-requirement/sheet";
 export function FabricRequirementToolbar({
   rows,
   yarns,
+  cloth,
   meta,
 }: {
   rows: FabricSheetRow[];
   yarns: FabricSheetRow[];
+  /** Empty on an all-Rule-1 document, which is every BOM before 2026-09-16 —
+   *  both exports then produce exactly the file they always did. */
+  cloth: ClothPurchaseLine[];
   meta: FabricSheetMeta;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Button variant="outline" size="md" onClick={() => exportFabricRequirementCsv(rows, yarns, meta)}>
+      <Button variant="outline" size="md" onClick={() => exportFabricRequirementCsv(rows, yarns, meta, cloth)}>
         <FileSpreadsheet className="h-4 w-4" />
         Excel
       </Button>
@@ -45,7 +52,7 @@ export function FabricRequirementToolbar({
         <Printer className="h-4 w-4" />
         Print
       </Button>
-      <Button size="md" onClick={() => exportFabricRequirementPdf(rows, yarns, meta)}>
+      <Button size="md" onClick={() => exportFabricRequirementPdf(rows, yarns, meta, cloth)}>
         <Download className="h-4 w-4" />
         Download PDF
       </Button>

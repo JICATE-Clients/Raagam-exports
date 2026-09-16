@@ -145,6 +145,40 @@ export const Input = forwardRef<
   /** Opt-out, not opt-in: an explicit prop always wins. See `capsByDefault`. */
   const caps = uppercase ?? capsByDefault(props.type, readOnly);
   /**
+   * A NUMERIC FIELD REFUSES WHAT IT CANNOT STORE (2026-09-16).
+   *
+   * `inputMode="decimal"` IS ONLY A KEYBOARD HINT. On a phone it already makes
+   * letters unreachable; on a desktop keyboard it does nothing at all, so the
+   * twenty fields carrying it accepted any text — and every one of them is a
+   * width, a length, a tolerance, a weight, a quantity or a percentage whose
+   * column is `numeric`. The value was taken, shown, and destroyed later.
+   *
+   * Reported on Fabric BOM ▸ Dia / Size Width Details (client 2026-09-16,
+   * screenshots 2884 · 2885): the planner declared `64`, `23CM` and `25BOX`,
+   * and the Manual tab's Finish Dia list offered only `64`. That list skips a
+   * row whose dia does not parse — correctly, since it is how a row carrying
+   * only a knit type is left out — so the two bad rows were simply absent with
+   * nothing said. The same `Number()` runs again in the save payload, where
+   * `23CM` becomes `null`: the row came back reading "Flat · (empty)" and the
+   * typed text was gone. THE DROPDOWN WAS THE SYMPTOM; THE INPUT WAS THE BUG.
+   *
+   * SO THE FIX IS HERE AND NOT IN THE CELL. One rule for all twenty fields, and
+   * a new numeric field is correct without knowing this exists — the same call
+   * the CAPITALS default makes, and for the same reason: 873 of 968 inputs
+   * proved a per-call-site rule cannot hold.
+   *
+   * REFUSED, NEVER SANITISED. Stripping `23CM` to `23` or `25BOX` to `25` would
+   * invent a diameter the planner never typed, which is the one thing every
+   * abstain rule in this repo exists to prevent. `1,000` is refused for the
+   * same reason it is a bug today: `Number("1,000")` is `NaN`, so it already
+   * saved as null — now it cannot be entered at all.
+   *
+   * The partial forms a number passes THROUGH are allowed, or the field could
+   * not be typed into: "", "-", ".", "1." and "-.5" all test true.
+   */
+  const numeric = props.inputMode === "decimal" || props.inputMode === "numeric";
+  const numericPartial = props.inputMode === "numeric" ? /^-?\d*$/ : /^-?\d*\.?\d*$/;
+  /**
    * AN EMPTY DATE FIELD READS AS A PLACEHOLDER, NOT A VALUE (client, 2026-08-18:
    * "it should be so mild, not this much bold").
    *
@@ -362,11 +396,28 @@ export const Input = forwardRef<
       className,
     )}
     onChange={
-      caps
+      caps || numeric
         ? (e) => {
+            /* REFUSE AND RESTORE. Not calling `onChange` is not enough on its
+               own — React only rewrites the DOM when a render follows, and a
+               rejected keystroke changes no state. So put the controlled value
+               back explicitly and drop the caret where the refused character
+               would have gone, which keeps mid-string editing usable. */
+            if (numeric && !numericPartial.test(e.target.value)) {
+              if (props.value != null) {
+                const at = e.target.selectionStart;
+                e.target.value = String(props.value);
+                try {
+                  if (at != null) e.target.setSelectionRange(at - 1, at - 1);
+                } catch {
+                  /* some input types don't support selection ranges */
+                }
+              }
+              return;
+            }
             // Preserve the caret — assigning .value moves it to the end.
             const { selectionStart, selectionEnd } = e.target;
-            e.target.value = e.target.value.toUpperCase();
+            if (caps) e.target.value = e.target.value.toUpperCase();
             try {
               e.target.setSelectionRange(selectionStart, selectionEnd);
             } catch {

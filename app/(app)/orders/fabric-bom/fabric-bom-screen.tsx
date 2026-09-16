@@ -125,12 +125,14 @@ import {
   CALC_MODE_OPTIONS,
   calcModeOf,
   calculatedGrams,
+  averageWeightKg,
   consumptionMap,
   effectiveLength,
   consQtyOf,
   gramsFor,
   manualProblem,
   takenComponentIds,
+  unassignedCombos,
   type ManualSizeInput,
 } from "@/lib/orders/fabric-bom/manual";
 /* The footer for an overlay with NO SAVE OF ITS OWN — the same one Combos ▸
@@ -145,10 +147,23 @@ import { FabricProcessGrid } from "@/components/orders/fabric-process-grid";
 import {
   blankFabricProcess,
   blankFabricProcessScope,
+  processRowInScope,
   routeStepCount,
   type FabricProcessRow,
   type FabricProcessScope,
 } from "@/lib/orders/fabric-bom/processes";
+/* WHERE THIS FABRIC COMES FROM (0564, `doc/order/fabriprocess.md` §2) — the
+   planner's Default Rule 1 / Rule 2 choice, declared PER FABRIC because one
+   order legitimately knits the body and buys greige rolls for the collar rib.
+   The screen states it; `suppressedBySource` is what the demand engine reads. */
+import {
+  FABRIC_SOURCES,
+  FABRIC_SOURCE_LABELS,
+  asFabricSource,
+  stepSuppressedBySource,
+  suppressedBySource,
+  type FabricSource,
+} from "@/lib/orders/fabric-bom/fabric-source";
 /* Yarn Process (0493). NO grid component beside `FabricProcessGrid`: this tab
    flattened to four columns on the client's spec, so its cells live here with
    the dia and palette columns rather than in a file of their own. */
@@ -196,7 +211,7 @@ import {
   type YdCombinationRow,
 } from "@/components/orders/yarn-dyed-panels";
 import { FabricBomReportsSheet } from "@/components/orders/fabric-bom-reports-sheet";
-import type { YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
+import { yarnShadesFrom, type YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
   isYarnDyed,
   missingFabricLineFields,
@@ -207,6 +222,7 @@ import { FabricQuickCreateSheet } from "@/components/masters/fabric-quick-create
 import {
   declaredPanelsFor,
   fabricFormLabel,
+  layoutTypeLabel,
   fabricGroupKey,
   rollUp,
   type StyleComponentDecl,
@@ -311,6 +327,36 @@ type LineRow = {
   mixing_uom_id: string | null;
   no_of_colors: number | null;
   consumption_uom_id: string | null;
+  /**
+   * CARRIED, NOT SHOWN — AND THAT IS THE WHOLE POINT (2026-09-16).
+   *
+   * Neither has a cell: the client removed `consumption`'s on 2026-09-01 and
+   * `dia`'s with it, and neither is being put back here. They are in this type
+   * so that a SAVE RE-SENDS WHAT WAS ALREADY STORED, which is exactly what the
+   * removal note above this block said would be required "with a stored value".
+   *
+   * THE PRECONDITION THAT MADE THE REMOVAL SAFE HAS LAPSED. That note justified
+   * dropping the three columns by measuring them: "catalog-verified NULL on
+   * every one of the 0 stored lines". The table had no rows, so the check was
+   * VACUOUS — it proved nothing and reads as proof. `seedFabricBomFromCad`
+   * (`lib/orders/cad/actions.ts`) is the writer that made it non-vacuous: it
+   * updates `consumption`, `dia` and `consumption_uom_id` on these rows from a
+   * submitted CAD marker. The unit was still in the payload and the other two
+   * were not, so every Save deleted-and-reinserted the lines with both nulled —
+   * silently, leaving "— KGS" where a figure had been.
+   *
+   * Both are read: `requirement.ts` reads `line.consumption`, and `lines.dia`
+   * is CAD's own round trip (`cad/service.ts` labels with it, `cad/weights.ts`
+   * tests markers for agreement on it). NOTE `lines.dia` IS NOT THE DIA THE
+   * REPORTS PRINT — those read `order_fabric_bom_manual_sizes.dia`, a different
+   * column at a different grain. Three dia stores in this module; do not fold.
+   *
+   * `dia` is a string for the reason `ManualSizeRow` states (a controlled
+   * `<Input>` needs one) and to be cell-ready; `consumption` stays a number
+   * because nothing types it here and nothing should.
+   */
+  dia: string;
+  consumption: number | null;
   notes: string;
 };
 
@@ -402,6 +448,13 @@ type ManualEntryRow = {
   endbit_loss_pct: string;
   /** Legacy's "Assort Color wise" checkbox (0522). */
   assort_color_wise: boolean;
+  /** The colourways this entry's weight is for, when `assort_color_wise` is on
+   *  (0567). Plain strings: a combo is text on this whole document (0426), not
+   *  a uuid. Read ONLY while the toggle is on — the engine passes
+   *  `assort_color_wise ? combos : null`, so an empty set under a toggle that
+   *  is off means nothing, and an empty set under a toggle that is ON is
+   *  refused rather than read as "every colourway". */
+  combos: string[];
   /** Legacy's "Size Wise" toggle (0523). TRUE gives every size its own row;
    *  FALSE — THE DEFAULT since 2026-09-04 — asks once and writes the answer to
    *  every size. See `blankManualEntry` below. */
@@ -809,6 +862,7 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
   wastage_pct: "",
   endbit_loss_pct: "",
   assort_color_wise: false,
+  combos: [],
   /* FALSE (client, 2026-09-04: "its auto enabled so disable it" — reversing
      the earlier default). A new entry now asks once and fans the answer to
      every size; the planner switches this ON only when the sizes genuinely
@@ -920,6 +974,11 @@ const blankLine = (key: string): LineRow => ({
   mixing_uom_id: null,
   no_of_colors: null,
   consumption_uom_id: null,
+  /* BLANK, as every key here must be: the save-side filter is
+     `item_id !== null || consumption != null`, so a stamped consumption would
+     turn that second clause into the constant `true` and insert phantom lines. */
+  dia: "",
+  consumption: null,
   // DEFAULTED TO COLOUR, and this is the one default in the file. Fabric is dyed
   // per colourway, so colour-wise is not a guess about what the operator meant —
   // it is the only basis that is right for the ordinary case, and the engine
@@ -947,6 +1006,11 @@ const blankLine = (key: string): LineRow => ({
  * budget with a hard ceiling — see the `Fabric` column, which carries the
  * arithmetic and the reason `table-fixed` rules out the flexible alternative.
  */
+
+/** The text counterpart of `numOrNull`, for the two columns 0566 made text.
+ *  Trim only — the CAPITALS are the schema's job (`capsTextNullable`), so the
+ *  screen never has two opinions about how a typed value is normalised. */
+const textOrNull = (v: string): string | null => v.trim() || null;
 
 const numOrNull = (v: string): number | null => {
   const t = v.trim();
@@ -1123,6 +1187,10 @@ export function FabricBomScreen({
    *  what is ON it, not of how it is opened" (operator instruction,
    *  2026-09-03: apply this to every [Click]-opened sheet on this tab). */
   const [componentsOrigin, setComponentsOrigin] = useState<DOMRect | null>(null);
+  /** The entry whose Assort Colour picker is open, and the button it grew from
+   *  — the same pair `componentsFor` / `componentsOrigin` keep above. */
+  const [assortFor, setAssortFor] = useState<string | null>(null);
+  const [assortOrigin, setAssortOrigin] = useState<DOMRect | null>(null);
   /** The picker hands us its `commit` so a save selects the new fabric and
    *  closes the list in one step. A ref because the sheet outlives the callback
    *  (the same shape `bank-picker.tsx` uses). */
@@ -1292,7 +1360,16 @@ export function FabricBomScreen({
       const current = xs.find((x) => x.item_id === itemId) ?? blankFabricProcessScope(itemId);
       const next = { ...current, ...patch };
       const rest = xs.filter((x) => x.item_id !== itemId);
-      return next.assort_color_wise || next.component_wise ? [...rest, next] : rest;
+      /* WHAT COUNTS AS "THIS FABRIC HAS SOMETHING TO SAY" GAINED A THIRD ANSWER
+         (0564). Until the procurement source existed, an absent row meant both
+         toggles off and nothing else; it now ALSO has to mean `yarn_knit`, so a
+         fabric whose only non-default fact is "we buy the greige rolls" must
+         keep its row or the choice evaporates on the next keystroke. Same test
+         the server's `normalizeProcessScopes` applies — the two are one
+         statement written twice and must be changed together. */
+      const worthARow =
+        next.assort_color_wise || next.component_wise || next.source !== "yarn_knit";
+      return worthARow ? [...rest, next] : rest;
     });
     setDirty(true);
   };
@@ -2171,6 +2248,10 @@ export function FabricBomScreen({
         mixing_uom_id: l.mixing_uom_id ?? null,
         no_of_colors: l.no_of_colors ?? null,
         consumption_uom_id: l.consumption_uom_id,
+        /* LOADED SO THE NEXT SAVE CAN RE-SEND THEM — see `LineRow`. A stored 0
+           becomes "0" and not "", the same call `ManualSizeRow` makes. */
+        dia: l.dia == null ? "" : String(l.dia),
+        consumption: l.consumption ?? null,
         notes: l.notes ?? "",
     }));
     setLines(loadedLines);
@@ -2195,6 +2276,8 @@ export function FabricBomScreen({
         wastage_pct: e.wastage_pct == null ? "" : String(e.wastage_pct),
         endbit_loss_pct: e.endbit_loss_pct == null ? "" : String(e.endbit_loss_pct),
         assort_color_wise: e.assort_color_wise ?? false,
+        /* 0567's nested child, flattened to the strings the grid ticks. */
+        combos: (e.combos ?? []).map((c) => c.combo),
         /* SAME REVERSED DEFAULT AS `blankManualEntry`, for a NULL stored value
            (a legacy row saved before this column existed) — never disagreeing
            with what a brand-new entry now starts as. A row that itself was
@@ -2247,6 +2330,11 @@ export function FabricBomScreen({
         item_id: s.item_id,
         assort_color_wise: s.assort_color_wise,
         component_wise: s.component_wise,
+        /* 0564 — a BOM saved before the column existed reads as `yarn_knit`,
+           the in-house route this app has always assumed. The fallback is the
+           same default `blankFabricProcessScope` states, so a row read back and
+           a row never written describe the same fabric. */
+        source: (s.source ?? "yarn_knit") as FabricSource,
       })),
     );
 
@@ -2282,6 +2370,8 @@ export function FabricBomScreen({
         colors: (r.colors ?? []).map((c) => ({
           key: newKey(),
           yarn_color: c.yarn_color ?? "",
+          /* LOADED SO THE NEXT SAVE CAN RE-SEND IT — see the field's own note. */
+          dyeing_loss_pct: c.dyeing_loss_pct ?? null,
         })),
       })),
     );
@@ -3006,16 +3096,22 @@ export function FabricBomScreen({
    * are one option rather than two identical-looking rows — which is also what
    * makes the held-value test below reliable.
    *
-   * A ROW WITH NO NUMBER IS NOT AN OPTION. `normalizeDias` deliberately stores a
-   * knit type with no dia, and an option whose value is "" would be an entry
-   * that clears the cell while looking like a choice.
+   * A ROW WITH NOTHING TYPED IN IT IS NOT AN OPTION. `normalizeDias`
+   * deliberately stores a knit type with no dia, and an option whose value is ""
+   * would be an entry that clears the cell while looking like a choice.
+   *
+   * DE-DUPLICATED ON THE TEXT SINCE 0566, not on `numOrNull`. That parse is what
+   * silently dropped `23CM` and `25BOX` from this list while the panel showed
+   * them plainly (client 2026-09-16, screenshots 2884 · 2885) — the dia is a
+   * label now, so the label is the identity. Upper-cased for the compare only,
+   * which costs nothing because `Input` has already upper-cased what was typed
+   * and `capsTextNullable` stores it that way.
    */
   const declaredDiaOptions = useMemo(() => {
     const kinds = new Map<string, string[]>();
     for (const d of dias) {
-      const n = numOrNull(d.dia);
-      if (n == null) continue;
-      const key = String(n);
+      const key = d.dia.trim().toUpperCase();
+      if (!key) continue;
       const label = KNIT_TYPE_OPTIONS.find((o) => o.value === d.knit_type)?.label;
       const seen = kinds.get(key) ?? [];
       if (label && !seen.includes(label)) seen.push(label);
@@ -3038,6 +3134,38 @@ export function FabricBomScreen({
    * otherwise silently empty every size row citing it, and the save writes what
    * the form holds — so the next Save would make the loss permanent.
    */
+  /**
+   * HOW A DIA READS ON THE MANUAL GRID — `74" Open Width`, `28" Tubular`,
+   * `23 CM` (client 2026-09-16).
+   *
+   * DISPLAY ONLY. It never touches what is stored: `dia` is text since 0566 and
+   * saves exactly as the operator typed it. Decorating the STORED value would
+   * make the next save write `74" Open Width` into the column and the option
+   * list stop matching it — the value a picker shows and the value it holds
+   * have to be the same string.
+   *
+   * THE INCHES MARK IS ONLY ADDED TO A BARE NUMBER, and that is the whole care
+   * here. Before 0566 every dia was a number and `"` was always right; now a
+   * planner can write `23 CM`, and appending `"` to that produces `23 CM"` —
+   * a width in centimetres labelled as inches, which is worse than no unit at
+   * all. The client's own three examples say the same thing: the two bare
+   * numbers get `"` and the one that carries its unit does not.
+   *
+   * THE FORM COMES FROM THE ENTRY, not from the declared list. A dia is
+   * document-level vocabulary (`order_fabric_bom_dias`, shared by every entry);
+   * whether THIS cloth reaches cutting slit or as a tube is `width_form` on the
+   * entry, so the same declared `74` legitimately reads `74" Open Width` on one
+   * entry and `74" Tubular` on another. Its `knit_type` stays the sublabel —
+   * that says how the cloth is MADE and is a different axis again (0490).
+   */
+  const diaDisplay = (dia: string, widthForm: string | null) => {
+    const v = dia.trim();
+    if (!v) return "";
+    const bare = /^\d+(\.\d+)?$/.test(v);
+    const form = layoutTypeLabel(widthForm);
+    return [bare ? `${v}"` : v, form].filter(Boolean).join(" ");
+  };
+
   const diaOptionsFor = (held: string) => {
     const v = held.trim();
     if (!v || declaredDiaOptions.some((o) => o.value === v)) return declaredDiaOptions;
@@ -3273,7 +3401,7 @@ export function FabricBomScreen({
   const sizeInputsOf = (e: ManualEntryRow): ManualSizeInput[] =>
     e.sizes.map((z) => ({
       size_id: z.size_id,
-      dia: numOrNull(z.dia),
+      dia: textOrNull(z.dia),
       purchase_width: numOrNull(z.purchase_width),
       grams: numOrNull(z.grams),
       table_width: numOrNull(z.table_width),
@@ -3499,6 +3627,13 @@ export function FabricBomScreen({
     structure_id: e.structure_id,
     calc_mode: e.calc_mode,
     component_ids: e.component_ids,
+    /* PASSED SINCE 2026-09-16. Omitting it is what left `manualProblem`'s
+       colour-wise branch unreachable; the rule's type now refuses the omission
+       so this line cannot be dropped again without the build saying so. */
+    assort_color_wise: e.assort_color_wise,
+    /* AND THE SET ITSELF. Passing the flag without this is what made the gate
+       refuse a correctly ticked entry — see `ManualEntryLike.combos`. */
+    combos: e.combos,
     sizes: sizeInputsOf(e),
   });
 
@@ -3668,7 +3803,7 @@ export function FabricBomScreen({
      *  four times. */
     const inputOf = (r: ManualDisplayRow): ManualSizeInput => ({
       size_id: r.size_id,
-      dia: numOrNull(r.dia),
+      dia: textOrNull(r.dia),
       purchase_width: numOrNull(r.purchase_width),
       grams: numOrNull(r.grams),
       table_width: numOrNull(r.table_width),
@@ -3842,7 +3977,12 @@ export function FabricBomScreen({
           <Combobox
             compact
             inputClassName="h-8"
-            options={diaOptionsFor(r.dia)}
+            /* `value` STAYS THE STORED STRING and only `label` is decorated —
+               see `diaDisplay`. Rewriting `value` would save the decoration. */
+            options={diaOptionsFor(r.dia).map((o) => ({
+              ...o,
+              label: diaDisplay(o.value, e.width_form),
+            }))}
             value={r.dia}
             onChange={(v) => set(r, { dia: v })}
             clearable
@@ -4344,7 +4484,7 @@ export function FabricBomScreen({
              nothing; naming the tab that fills it is the whole difference.
              Same call the Yarn Process picker makes for an unflagged process
              master (AGENTS.md, nominated vendors). */
-          emptyHint="No fabric on this BOM yet — name one on Fabric Lines first, and it appears here"
+          emptyHint="No fabric on this BOM yet — name one on Fabric Allocation first, and it appears here"
         />
       ),
     },
@@ -4413,7 +4553,13 @@ export function FabricBomScreen({
        the cloth's own base unit off `item_id`; `entryUnitName` just has no
        column left to render into. */
     {
-      header: "Assort Color wise",
+      /* "ASSORT COLOUR-WISE", NOT "COMPO COLOR WISE" (2026-09-16). The field,
+         the engine, the spec and every refusal sentence say `assort_color_wise`
+         / "Assort Colour-Wise"; only this header said anything else. Two names
+         for one control is how an operator comes to believe there are two
+         settings — the same reason "Fabric Lines" became "Fabric Allocation"
+         earlier today. */
+      header: "Assort Colour-Wise",
       width: "4.5rem",
       align: "center",
       cell: (e) => (
@@ -4447,9 +4593,18 @@ export function FabricBomScreen({
            `Field`'s own header above it, and `Toggle`'s doc is explicit that
            a second one here would be the redundant "Pack — Yes" shape it was
            built to replace. */
+        /* LIVE AGAIN, AND ONLY BECAUSE ITS PICKER SHIPPED IN THE SAME CHANGE.
+           It was disabled earlier today: 0567 gave the flag meaning server-side
+           while the control that ticks the colourways did not exist, so
+           switching it on scoped the weight to an EMPTY set — the preview
+           showed a figure, the save succeeded, and the server stored a refusal
+           with a NULL `required_qty`. Re-enabling it alone would only have
+           moved the operator from "cannot click" to "clicks, then cannot save".
+           The pairing is the point: the toggle and the Assort Colour cell two
+           columns along are one feature and must never ship apart. */
         <span className="flex h-9 items-center justify-center @2xl/editor:h-8">
         <Toggle
-          ariaLabel="Assort Color wise"
+          ariaLabel="Assort Colour-Wise"
           checked={e.assort_color_wise}
           onChange={(next) => setEntryCell(e.key, { assort_color_wise: next })}
         />
@@ -4503,7 +4658,7 @@ export function FabricBomScreen({
            looking at is the BOX not lining up, and that is what this fixes.
 
            THE APP'S OWN `Toggle`, NOT A RAW CHECKBOX — same fix, same request,
-           as `Assort Color wise` beside it; see that cell's own note. */
+           as `Compo Color wise` beside it; see that cell's own note. */
         <span className="flex h-9 items-center justify-center @2xl/editor:h-8">
         <Toggle
           ariaLabel="Size Wise"
@@ -4619,30 +4774,45 @@ export function FabricBomScreen({
       header: "Assort Color",
       width: "4.5rem",
       align: "center",
-      /* DECLARED AND NOT YET BUILT, and it says so where the operator is
-         standing rather than doing nothing when clicked. Legacy opens a
-         sub-detail here that has not been shown to me, and inventing its
-         contents is the failure this tab has already recorded once — "a
-         screenshot cannot show a grain" (0491).
+      /* BUILT 2026-09-16, replacing the "not built yet" placeholder that stood
+         here since 0491. What unblocked it was not a legacy screenshot but
+         0567 deciding the GRAIN: an entry's weight is scoped to a SET of the
+         order's own colourways. That is the thing a screenshot could not have
+         told us, and inventing it was the failure the placeholder existed to
+         avoid.
 
-         THE REASON HANGS ON A WRAPPING SPAN, never on the button. A browser
-         dispatches no pointer events to a disabled control, so a `title` there
-         is unreachable in precisely the state it was written for — the defect
-         the [Detail] button on Fabric Lines already paid for (2026-09-02). */
-      cell: () => (
+         DISABLED WHILE THE TOGGLE IS OFF, because off means "every colourway"
+         and a ticked set would then be stored and never read — a control that
+         silently does nothing is what 0494 left us on the toggle itself. The
+         reason hangs on the WRAPPING SPAN, never on the button: a browser
+         dispatches no pointer events to a disabled control, so a title there is
+         unreachable in exactly the state it was written for. */
+      cell: (e) => (
         <span
           className="block"
-          title="Legacy opens a sub-detail here. It is not built yet — send that screen and it will be."
+          title={
+            e.assort_color_wise
+              ? undefined
+              : "Switch Assort Colour-Wise on to choose the colourways this weight is for. Off already means every colourway."
+          }
         >
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="h-8 w-full"
-            disabled
-            aria-label="Assort Color — not built yet"
+            disabled={!e.assort_color_wise}
+            aria-label={
+              e.combos.length
+                ? `Assort Colour — ${e.combos.length} chosen`
+                : "Assort Colour — none chosen"
+            }
+            onClick={(ev) => {
+              setAssortOrigin(ev.currentTarget.getBoundingClientRect());
+              setAssortFor(e.key);
+            }}
           >
-            Click
+            {e.combos.length ? String(e.combos.length) : "Click"}
           </Button>
         </span>
       ),
@@ -4665,6 +4835,10 @@ export function FabricBomScreen({
   /** The entry whose Components sheet is open, resolved from the key. Null when
    *  the key names a row a later edit removed — the sheet then closes itself
    *  rather than rendering against nothing. */
+  const assortForEntry = assortFor
+    ? (entries.find((e) => e.key === assortFor) ?? null)
+    : null;
+
   const componentsForEntry = componentsFor
     ? (entries.find((e) => e.key === componentsFor) ?? null)
     : null;
@@ -4714,12 +4888,19 @@ export function FabricBomScreen({
    * `railWidthPx` both record). These are the same figures rounded to the
    * scale: 9rem → `w-36`, 6rem → `w-24`, 4rem → `w-20`.
    *
-   * `Assort Color wise` IS THE ONE THAT IS NOT ITS COLUMN'S WIDTH. Its column
+   * `Compo Color wise` IS THE ONE THAT IS NOT ITS COLUMN'S WIDTH. Its column
    * is 4.5rem, sized for a centred checkbox under a wrapped two-line heading;
    * with the label held to ONE line it is the longest string on the row, so
    * it gets a width of its own rather than inheriting the column's, and the
    * row stays honest. A nowrap label in a box narrower than itself does not
    * wrap — it overflows, which is the failure this number exists to avoid.
+   *
+   * IT WAS `Assort Color wise` UNTIL 2026-09-16 (client rename, alongside
+   * Components ▸ `Assort Color` → `Compo Color`). `MANUAL_FIELD_W` IS KEYED BY
+   * THE HEADER STRING, so the key had to move with the word or the column
+   * silently loses its width and overflows again — the failure the paragraph
+   * below is an account of. The mentions further down keep the OLD word where
+   * they are recounting that defect; they are this same column.
    *
    * `Type` IS THE SAME FAILURE ON THE CONTROL SIDE, NOT THE LABEL (client
    * 2026-09-04: "Roll form ... value need to display, no wits hided"). The
@@ -4745,7 +4926,7 @@ export function FabricBomScreen({
    * overflows and visually bleeds into the next column's border and text.
    * That is what "Assort Color wise" overlapping "Size Wise" was: not a
    * z-index or positioning bug, a plain width shortfall on five of the eight
-   * columns (`Calculated`, `Assort Color wise`, `Size Wise`, `EndBit Loss %`,
+   * columns (`Calculated`, `Compo Color wise`, `Size Wise`, `EndBit Loss %`,
    * `Components`, `Assort Color` — everything sized off the old estimate
    * rather than off `Type`'s, which measured its own control instead and
    * happened to be wide enough by coincidence). Re-measured against the real
@@ -4756,7 +4937,7 @@ export function FabricBomScreen({
     Fabric: "w-36",
     Type: "w-32",
     Calculated: "w-28",
-    "Assort Color wise": "w-44",
+    "Compo Color wise": "w-44",
     "Size Wise": "w-24",
     "EndBit Loss %": "w-32",
     Components: "w-28",
@@ -4819,6 +5000,40 @@ export function FabricBomScreen({
         return multi ? `${label} (${structureById.get(g.structureId) ?? ""})` : label;
       });
       return `Not yet covered by any entry: ${parts.join("; ")}`;
+    })();
+
+    /**
+     * COLOURWAYS THIS STYLE PLANS NOTHING FOR (client's "⚠ Unassigned Combos").
+     *
+     * THE RULE IS `unassignedCombos`', NOT THIS SCREEN'S, and that matters more
+     * than it looks. It answers PER COMPONENT: a colourway planned for the body
+     * and not the rib is a garment with no rib, and a document-level "is
+     * CRANBERRY mentioned anywhere?" answers yes to exactly that garment. It
+     * also treats one entry with the toggle OFF as covering every colourway of
+     * its component, because that is what off means. Re-deriving either here
+     * would be a second reading of the same toggle.
+     *
+     * SCOPED TO THIS STYLE'S ENTRIES AND THE SAME `comboOptions` THE PICKER
+     * OFFERS. Warning about a colourway the operator cannot tick would be a
+     * complaint with no control behind it.
+     *
+     * A WARNING, NEVER A SAVE GATE — the client asked for "a subtle warning
+     * indicator", and a half-entered BOM is the ordinary state of one being
+     * typed. The engine's refusals are for what cannot be COMPUTED; this is for
+     * what has not been DECIDED, and blocking Save between a planner's first
+     * row and their last is not the same service.
+     */
+    const unassignedNote = (() => {
+      const missing = unassignedCombos(manualEntries.map(entryLike), comboOptions);
+      return missing.length > 0 ? missing : null;
+    })();
+
+    /** The footer figure — see its own note where it renders. */
+    const totalAvgGrams = (() => {
+      const parts = manualEntries
+        .map((e) => averageWeightKg(e.calc_mode, sizeInputsOf(e), gsmForStructure(e.structure_id)))
+        .filter((v): v is number => v != null);
+      return parts.length ? parts.reduce((a, b) => a + b, 0) * 1000 : null;
     })();
     return (
       <div className="space-y-4">
@@ -5385,6 +5600,44 @@ export function FabricBomScreen({
             own card below (`renderMobileRow`) instead of once here — see
             that card's note for why the two were split. */}
         {unallocatedNote && <p className="text-xs text-warning">{unallocatedNote}</p>}
+        {/* The colourway half of the same "not yet decided" band — `⚠` is this
+            module's own warning glyph (the reports sheet marks refusals with
+            it). Named in the ORDER'S order, which is the one the operator reads
+            them in everywhere else; never alphabetical and never the order the
+            entries happen to be in. */}
+        {unassignedNote && (
+          <p className="text-xs text-warning">
+            ⚠ Unassigned Combos: {unassignedNote.join(", ")}
+          </p>
+        )}
+        {/* TOTAL AVG WT — WHAT ONE GARMENT OF THIS STYLE WEIGHS (client
+            2026-09-16). Each entry contributes its OWN average over the sizes
+            it has weights for, and those are summed: "Total" is across
+            components, "Avg" is over sizes. Not a mean of means over one
+            component — a cuff and a body are different parts of one garment,
+            not two samples of the same thing.
+
+            PER STYLE, not per document. A garment is of one style, so summing
+            every entry on a multi-style BOM would report a garment carrying
+            another style's sleeves. `manualEntries` is already scoped by
+            `entriesForStyle`.
+
+            GRAMS, because the grid above it is in grams (`Cons Wt`) and a
+            footer in different units from the column it totals is read wrong
+            before it is read carefully. `averageWeightKg` answers in kg
+            because the requirement engine does (0562); the x1000 is display.
+
+            HIDDEN UNTIL THERE IS AN ANSWER — see `averageWeightKg`'s null. */}
+        {totalAvgGrams != null && (
+          <div className="flex items-baseline justify-end gap-3 border-t border-border pt-2">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              Total Avg Wt
+            </span>
+            <span className="text-sm font-medium tabular-nums">
+              {fmtNumber(totalAvgGrams)} g
+            </span>
+          </div>
+        )}
       </div>
     );
   };
@@ -6146,12 +6399,12 @@ export function FabricBomScreen({
         });
 
       if (itemIds.length === 0) {
-        refuse("No fabric on the Fabric Lines tab uses this structure — name the fabric there first");
+        refuse("No fabric on the Fabric Allocation tab uses this structure — name the fabric there first");
         continue;
       }
       if (itemIds.length > 1) {
         refuse(
-          "This structure names more than one fabric on the Fabric Lines tab, so this weight cannot say which — scope the entry's components, or use one fabric per structure",
+          "This structure names more than one fabric on the Fabric Allocation tab, so this weight cannot say which — scope the entry's components, or use one fabric per structure",
         );
         continue;
       }
@@ -6368,6 +6621,10 @@ export function FabricBomScreen({
       if (!p.process_id) continue;
       const loss = numOrNull(p.loss_pct);
       const list = out.get(p.item_id) ?? [];
+      /* THE PROCESS MASTER'S OWN KIND FLAGS (0564) — the screen's half of what
+         `processKindsOf` reads server-side. `data.processes` is the same master
+         list the Process ▾ is drawn from, so this costs no extra read. */
+      const kind = data.processes.find((o) => o.id === p.process_id);
       list.push({
         combo: p.combo ?? null,
         /* CARRIED SINCE 2026-09-15 — without it a "Component Wise" route
@@ -6376,11 +6633,25 @@ export function FabricBomScreen({
         loss_pct: loss,
         stage_id: p.stage_id,
         process_id: p.process_id,
+        /* CARRIED SINCE 2026-09-16 (0564), and the reason is the same one
+           `component_id` records one line up: the engine needs to know what
+           KIND of step this is, and a route built without it suppresses
+           nothing under Rule 2.
+
+           WITHOUT THESE TWO THE PREVIEW AND THE STORED FIGURE DIVERGE, which
+           is the one thing `yarnPurchase`'s own header says must never happen
+           here. `routesByFabricOf` (actions.ts) carries them, so a fabric set
+           to Greige Purchase would SAVE Rule 2's yarn — knitting suppressed —
+           while this screen went on previewing Rule 1's. Both numbers look
+           perfectly ordinary; only the planner acting on the preview finds
+           out. */
+        is_knitting: kind?.is_knitting ?? false,
+        is_dyeing: kind?.is_dyeing ?? false,
       });
       out.set(p.item_id, list);
     }
     return out;
-  }, [procs]);
+  }, [procs, data.processes]);
 
   /**
    * EVERYTHING ONE FABRIC GROUP'S YARN DYED TABS NEED (0512), from an ANCHOR
@@ -6474,7 +6745,8 @@ export function FabricBomScreen({
       xs.map((x) => {
         if (x.key !== comboKey) return x;
         const colors = [...x.colors];
-        while (colors.length <= index) colors.push({ key: newKey(), yarn_color: "" });
+        while (colors.length <= index)
+          colors.push({ key: newKey(), yarn_color: "", dyeing_loss_pct: null });
         colors[index] = { ...colors[index], yarn_color };
         return { ...x, colors };
       }),
@@ -6530,6 +6802,58 @@ export function FabricBomScreen({
    * It re-runs as the stages are typed, which is the whole point of the Loss %
    * cell: without it the planner types 3% and watches nothing happen.
    */
+  /**
+   * THE PER-SHADE DYEING LOSSES (0568), JOINED ONCE PER RENDER.
+   *
+   * PASSED NOW RATHER THAN WHEN THE LOSS COLUMN LANDS, and that is the whole
+   * point. `yarnPurchase`'s `shades` parameter defaults to `[]`, so omitting it
+   * is green today — every stored `dyeing_loss_pct` is 0 and a 0 grosses by
+   * nothing. It would go wrong silently on the day a non-zero loss can first be
+   * typed: the save path passes shades (`yarnShadesOf` in actions.ts) and this
+   * preview would not, so the screen would show one purchase weight and the
+   * database store another. `yarn-process.ts`'s header calls that the one thing
+   * that must never happen here.
+   *
+   * Pairing the fix with the Loss column would work and asks the person adding
+   * that column to remember this. Passing it now means they cannot get it
+   * wrong — the trap is closed by the code rather than by a note.
+   *
+   * A PLAIN `const`, NOT A `useMemo`: it is a cheap pass over rows this
+   * document already holds, and AGENTS.md's hooks rule has cost this module
+   * three memos already for exactly that reason. Hoisted out of `weightFor`
+   * though — that runs per yarn ROW, and `yarnShadesFrom` calls
+   * `mixingDetailRows` internally, which is the loop the server's own comment
+   * says it hoisted this join out of.
+   *
+   * The SHAPE is deliberately `yarnShadesOf`'s in actions.ts, not a second
+   * implementation that happens to agree.
+   */
+  const yarnShades = (() => {
+    const fabricIds = [
+      ...new Set(ydRepeats.map((r) => r.item_id).filter(Boolean)),
+    ] as string[];
+    return fabricIds.flatMap((fabricId) =>
+      yarnShadesFrom(
+        fabricId,
+        ydRepeats.filter((r) => r.item_id === fabricId),
+        compositionById.get(fabricId) ?? null,
+        /* `sno` FROM ROW ORDER, which is precisely how the payload above
+           numbers these colours (`sno: i + 1`). Deriving it the same way is
+           what keeps the preview's stripe pairing identical to the stored
+           one — `yarnShadesFrom` pairs share to colour BY POSITION. */
+        ydCombinations
+          .filter((c) => c.item_id === fabricId)
+          .map((c) => ({
+            ...c,
+            colors: c.colors.map((x, i) => ({
+              sno: i + 1,
+              dyeing_loss_pct: x.dyeing_loss_pct,
+            })),
+          })),
+      ),
+    );
+  })();
+
   const weightFor = (r: YarnRow) => {
     const uom = data.uoms.find((u) => u.id === fabricGross.find((f) => f.uom_id)?.uom_id);
     return yarnPurchase(
@@ -6543,6 +6867,19 @@ export function FabricBomScreen({
          whatever its fabric(s) already contribute via `routesByFabric`. */
       r.stages.map((st) => ({ combo: st.combo || null, loss_pct: numOrNull(st.loss_pct) })),
       uom?.decimal_places_allowed ?? null,
+      /* WHERE EACH FABRIC COMES FROM (0564) — BYTE-FOR-BYTE the expression the
+         server's `sourceByFabricOf` uses, on purpose. This is one computation
+         with two call sites, not two implementations that happen to agree: the
+         preview and the stored figure must read the same sources, or a fabric
+         set to Greige Purchase previews Rule 1's yarn (knitting still charged)
+         and saves Rule 2's. `asFabricSource` is what makes a legacy row with no
+         source, or an unrecognised string, read as Rule 1 rather than as
+         "suppress everything" — the safe direction, since it buys slightly too
+         much cloth rather than too little. */
+      new Map(procScopes.map((s) => [s.item_id, asFabricSource(s.source)])),
+      /* PER-SHADE DYEING LOSS (0568) — see `yarnShades` above for why this is
+         passed before the column that can set it exists. */
+      yarnShades,
     );
   };
 
@@ -6653,6 +6990,38 @@ export function FabricBomScreen({
       { section: "bom", id: "fb-date", label: "Date", required: true, empty: (f) => !f.bom_date },
     ],
     extra: [
+      /**
+       * THE YARN ROWS MUST BE DERIVED BEFORE THIS DOCUMENT CAN BE SAVED.
+       *
+       * `yarnRows` comes from `comp`, which an effect fills from
+       * `loadBomYarnComposition`. Until that resolves, `comp` is null and
+       * `yarnRows` is `[]` — and `[]` is what the payload sends, which the save
+       * path could not tell apart from "this BOM buys no yarn". It deleted
+       * every stored yarn row and put nothing back (HO/RE/26-27/0007,
+       * 2026-09-16: the report went from naming a unit problem to "no stored
+       * yarn purchase yet", and the figures a PO is raised against were gone).
+       *
+       * `writeYarns` REFUSES THAT SAVE NOW, which stops the data loss but
+       * leaves the operator with an error and nothing on screen explaining
+       * when it is safe to try again. This is the half that belongs here:
+       * AGENTS.md's "stated vs enforced" — a rule the server enforces and the
+       * screen does not express is a rule the operator meets as a mystery.
+       *
+       * SCOPED TO A DOCUMENT THAT NAMES CLOTH. `fabricIdKey` empty means no
+       * fabric has been chosen, and `comp` is then `EMPTY_COMPOSITION` rather
+       * than null — a genuinely yarn-less BOM saves exactly as before.
+       */
+      ...(fabricIdKey && !comp
+        ? [
+            {
+              section: "yarns",
+              label: "Yarn Process",
+              message:
+                "Yarn compositions are still loading — wait for Yarn Process to fill in before saving, or the yarn purchase cannot be worked out.",
+              kind: "custom" as const,
+            },
+          ]
+        : []),
       /**
        * NO FUTURE DATE (client 2026-09-01: "the system strictly
        * blocks/disallows selecting future/next dates").
@@ -6829,10 +7198,15 @@ export function FabricBomScreen({
     const src = boms.find((b) => b.id === sourceId);
     if (!src) return;
 
-    const diaKey = (k: string | null, d: number | null) =>
-      `${(k ?? "").trim()}${SEP}${d == null ? "" : String(Number(d))}`;
+    /* TEXT SINCE 0566, and `String(Number(d))` had to go with it — that was
+       what made "64.00" and "64" one key, and it turns "23 CM" into NaN. Trim
+       and upper-case instead, which is the same identity `declaredDiaOptions`
+       de-duplicates on, so Copy-from and the option list agree on what counts
+       as the same dia. */
+    const diaKey = (k: string | null, d: string | number | null) =>
+      `${(k ?? "").trim()}${SEP}${d == null ? "" : String(d).trim().toUpperCase()}`;
     const heldDias = new Set(
-      dias.map((d) => diaKey(d.knit_type || null, numOrNull(d.dia))),
+      dias.map((d) => diaKey(d.knit_type || null, d.dia)),
     );
     const freshDias = (src.dias ?? []).filter(
       (d) => !heldDias.has(diaKey(d.knit_type, d.dia)),
@@ -7028,9 +7402,13 @@ export function FabricBomScreen({
          number; the long part is the header above it, and a `<th>` may wrap. */
       width: "6.875rem",
       cell: (r) => (
+        /* NO `inputMode="decimal"` AND NO `text-right` SINCE 0566 — this is a
+           text field now. The attribute is what `Input`'s numeric guard keys
+           off, so leaving it would refuse the very "23 CM" this change exists
+           to allow; dropping it IS the documented opt-out. Left-aligned for the
+           same reason the digits were right-aligned before: that convention is
+           about a VALUE being a number, and this one is a label. */
         <Input
-          className="text-right"
-          inputMode="decimal"
           aria-label="Dia / size / width"
           value={r.dia}
           onChange={(e) => setDiaCell(r.key, { dia: e.target.value })}
@@ -7891,7 +8269,19 @@ export function FabricBomScreen({
     },
     {
       key: "lines",
-      label: "Fabric Lines",
+      /**
+       * "FABRIC ALLOCATION", NOT "FABRIC LINES" (client 2026-09-16). It is
+       * the legacy RP name for this tab and the word the client already used
+       * for it twice in this file's own comments (see the GSM note below and
+       * the column-for-column note above). The rename is the LABEL and every
+       * operator-facing sentence that points here — the section title, this
+       * screen's four "name a fabric on …" hints, and the two refusals in
+       * `yarn-process.ts`. `key`, `lines`, `lineColumns` and every comment
+       * recording history keep saying "line", because the rows are still
+       * fabric lines in the data model and rewriting the history is what the
+       * nav-path rule in AGENTS.md explicitly forbids.
+       */
+      label: "Fabric Allocation",
       icon: ListChecks,
       done: filledLines.length > 0,
       /**
@@ -7916,7 +8306,7 @@ export function FabricBomScreen({
        * screen that showed a table before now falls back to cards.
        */
       content: (
-        <SectionBody title="Fabric Lines">
+        <SectionBody title="Fabric Allocation">
           {/* STYLE NO, BACK — NOT AS A COLUMN, AS THE SAME DIVIDER
               `StyleIdentityBand` DRAWS ON COMPONENTS AND MANUAL (operator
               request, 2026-09-04: "we need to maintain the style no… use the
@@ -8204,7 +8594,7 @@ export function FabricBomScreen({
                describing the emptiness — a panel is mapped against a fabric, so
                with no fabric lines there is nothing to map. */
             <p className="text-xs text-muted-foreground">
-              No fabric lines yet — add one on Fabric Lines and its panels are
+              No fabric lines yet — add one on Fabric Allocation and its panels are
               mapped here.
             </p>
           ) : (
@@ -8481,7 +8871,7 @@ export function FabricBomScreen({
               sentence would send two thirds of the planners to the wrong one. */}
           {!lines.some((l) => l.item_id) ? (
             <p className="text-sm text-muted-foreground">
-              Name a fabric on Fabric Lines first — the yarns come from what each
+              Name a fabric on Fabric Allocation first — the yarns come from what each
               fabric is made of.
             </p>
           ) : !comp ? (
@@ -8592,7 +8982,7 @@ export function FabricBomScreen({
               named rather than the emptiness described. */}
           {fabricRouteRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Name a fabric on Fabric Lines first — each one gets its own route
+              Name a fabric on Fabric Allocation first — each one gets its own route
               here.
             </p>
           ) : (
@@ -8623,8 +9013,15 @@ export function FabricBomScreen({
                    route they had typed. A blank value on an axis that is ON
                    stays in the grid: that is the row the required hold is
                    for. */
-                const inScope = (p: FabricProcessRow) =>
-                  (scope.assort_color_wise || !p.combo) && (scope.component_wise || !p.component_id);
+                /* THE SAME FUNCTION THE SAVE PATH RUNS (2026-09-16). It was a
+                   second hand-written copy of the rule until then, and the two
+                   copies disagreed: this one has always admitted a blank-combo
+                   row on a colour-wise route (its first clause was
+                   `scope.assort_color_wise ||`, true before the value is read)
+                   while `normalizeProcesses` deleted it. The operator typed a
+                   shared step, saw it, saved, and it was gone. One function, so
+                   "shown" and "kept" cannot come apart again. */
+                const inScope = (p: FabricProcessRow) => processRowInScope(p, scope);
                 const shownRows = fabricRows.filter(inScope);
                 const readOnly = !perms.canEdit && !perms.canCreate;
                 return (
@@ -8657,6 +9054,16 @@ export function FabricBomScreen({
                         that leaves existing steps orphaned still drops them on
                         Save — `normalizeProcesses` is unchanged — the operator
                         is simply no longer told so on screen. */}
+                    {/* TWO STRIPS ON ONE LINE, AND THEY ARE TWO DIFFERENT
+                        QUESTIONS. "Group by" says how the route below is
+                        SPLIT; "Source" says where the cloth COMES FROM. They
+                        share a row because they share a grain — both are
+                        properties of this one fabric's route, stored on the
+                        same `order_fabric_bom_process_scope` row — and they
+                        wrap rather than stretch, the same `w-fit` the strip
+                        already took on 2026-09-04 ("look too much broader
+                        bigger box … compact it"). */}
+                    <div className="flex flex-wrap items-center gap-3">
                     <div className="inline-flex w-fit items-center gap-4 rounded-md border border-border px-2.5 py-1.5">
                       <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
                         Group by
@@ -8669,13 +9076,146 @@ export function FabricBomScreen({
                           setFabricScope(r.item_id, { assort_color_wise: next })
                         }
                       />
-                      <Toggle
-                        label="Component"
-                        checked={scope.component_wise}
-                        disabled={readOnly}
-                        onChange={(next) => setFabricScope(r.item_id, { component_wise: next })}
-                      />
+                      {/* THE `Component` TOGGLE STOOD HERE AND THE CLIENT
+                          REMOVED IT (2026-09-16, `doc/order/fabriprocess.md`
+                          §6: "the developer agreed to remove the
+                          Component-Wise flag from the Fabric Process screen to
+                          avoid unnecessary complexity").
+
+                          **ONLY THE CONTROL WENT. EVERYTHING UNDER IT IS
+                          DELIBERATELY INTACT** — `scope.component_wise` is
+                          still read three lines down to draw the Component ▾,
+                          still travels in the payload, still decides
+                          `inScope`, and `component_id`, `stagesForGroup`'s
+                          component axis, `comboUplift`, both reports and the
+                          ten §8 vectors in
+                          `scripts/check-fabric-bom-reports.mts` are all
+                          untouched.
+
+                          THAT SPLIT IS THE WHOLE POINT AND IT IS NOT TIDINESS
+                          LEFT UNDONE. Component Wise was wired end to end on
+                          2026-09-15, and the wiring is what fixed a SILENT
+                          yarn over-purchase — the engine had been stacking
+                          every panel's steps onto one route and returning an
+                          uplift of 1.201 where 1.107 was right. Deleting the
+                          machinery now would restore that bug on every route
+                          already saved component-split, and it would do it
+                          without an error, an empty list or anything else an
+                          operator could report. So: no NEW route can be
+                          component-split, and every saved one still renders
+                          and still computes.
+
+                          A reader who finds this and reaches for the delete
+                          key is holding the reversal this comment exists to
+                          stop. Restoring the toggle needs a client decision,
+                          not a tidy-up. */}
                     </div>
+                    {/* WHERE THIS FABRIC COMES FROM (0564,
+                        `doc/order/fabriprocess.md` §2) — the planner's
+                        "Default Rule No. 1" vs "No. 2".
+
+                        PER FABRIC, NOT PER ORDER, and that is the client's own
+                        example rather than a generalisation: one order buys
+                        ready-knitted greige rolls for the collar rib from the
+                        market while knitting the body in-house. An order-level
+                        control could not state that at all.
+
+                        ON THE FABRIC'S OWN PANEL, BESIDE THE SPLIT TOGGLE,
+                        because it is the same grain and the same stored row.
+                        It is not a "Group by" — it changes what the demand
+                        engine BUYS, not how the grid is divided — so it takes
+                        its own strip rather than a third switch in that one.
+
+                        A `<Select>` RATHER THAN A `Toggle`: three answers, and
+                        two of them ("Greige Fabric Purchase" / "Dyed Fabric
+                        Purchase") are not the negation of the third. The
+                        vocabulary is `FABRIC_SOURCES`, an `as const` in
+                        `fabric-source.ts` — a CLOSED list, so it is not a
+                        `config_lookups` kind (the same test `KNIT_TYPE_OPTIONS`
+                        passes and `fabric_stage` fails). */}
+                    <div className="inline-flex w-fit items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
+                      <label
+                        htmlFor={`fb-src-${r.item_id}`}
+                        className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground"
+                      >
+                        Source
+                      </label>
+                      <Select
+                        id={`fb-src-${r.item_id}`}
+                        compact
+                        className="h-8 w-56"
+                        value={scope.source}
+                        disabled={readOnly}
+                        onChange={(e) =>
+                          setFabricScope(r.item_id, {
+                            source: e.target.value as FabricSource,
+                          })
+                        }
+                      >
+                        {/* NO BLANK OPTION. Every fabric has a source — an
+                            unanswered one is `yarn_knit`, the in-house route
+                            this app assumed before the field existed — so an
+                            empty choice would be a fourth answer meaning
+                            nothing, and `blankFabricProcessScope` would have
+                            to decide what it meant anyway. */}
+                        {FABRIC_SOURCES.map((s) => (
+                          <option key={s} value={s}>
+                            {FABRIC_SOURCE_LABELS[s]}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    </div>
+                    {/* WHAT THE SOURCE HAS SUPPRESSED, SAID OUT LOUD.
+                        `suppressedBySource` drops Yarn Purchase, Knitting
+                        and/or Dyeing out of the demand engine — steps whose
+                        absence is INVISIBLE on this screen, because a route
+                        that never named them looks exactly like one whose
+                        source removed them. A suppression an operator cannot
+                        see is how this module's last silent-arithmetic bug
+                        happened (the 1.201-vs-1.107 yarn uplift, 2026-09-15):
+                        the number was wrong, nothing was empty, nothing
+                        errored, and it went unreported for six days.
+
+                        NOT A TOAST AND NOT A BLOCK — a standing line under the
+                        control that caused it, present exactly while the state
+                        it describes is true, which is the only shape a line
+                        under a heading may take on this screen. */}
+                    {scope.source !== "yarn_knit" && (
+                      <p className="text-xs text-warning">
+                        {(() => {
+                          const off = suppressedBySource(scope.source);
+                          const names = [
+                            off.yarnPurchase && "Yarn Purchase",
+                            off.knitting && "Knitting",
+                            off.dyeing && "Dyeing",
+                          ].filter(Boolean) as string[];
+                          const list =
+                            names.length > 1
+                              ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+                              : (names[0] ?? "");
+                          return names.length
+                            ? `${list} ${names.length > 1 ? "are" : "is"} not planned for this fabric — ${FABRIC_SOURCE_LABELS[scope.source]}, so the demand is the purchased roll weight in kg.`
+                            : `${FABRIC_SOURCE_LABELS[scope.source]} — the demand is the purchased roll weight in kg.`;
+                        })()}
+                      </p>
+                    )}
+                    {/* THIS FABRIC'S ROUTE IS SPLIT COMPONENT WISE AND THERE IS
+                        NO LONGER A SWITCH FOR IT (2026-09-16, §6). Said in
+                        words for the same reason the Component ▾ column is
+                        still drawn: a route saved before the control was
+                        removed keeps working, and an operator who meets a
+                        Component column with no toggle above it would otherwise
+                        read the screen as broken. Only ever visible on a route
+                        that IS split, so a new fabric never sees it. */}
+                    {scope.component_wise && (
+                      <p className="text-xs text-muted-foreground">
+                        This fabric&apos;s route is split component wise — each step names
+                        its own panel below. The Component Wise switch has been removed
+                        from this screen; a route already split keeps computing per
+                        panel.
+                      </p>
+                    )}
                     {/* ONE GRID, WHATEVER THE TOGGLES SAY (2026-09-15). This
                         used to be `processGroupsFor(...).map(g => <Grid/>)` —
                         one grid per (colour, component) group, each with its
@@ -8706,6 +9246,12 @@ export function FabricBomScreen({
                          already holds one from before the fabric's Type
                          was set to Yarn Dyed). */
                       fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
+                      /* 0564 — NOT a narrowing. The grid greys a step this
+                         source stops the engine charging for and says so;
+                         nothing is withheld from the ▾, because a purchased
+                         cloth's route is still allowed to record that it was
+                         knitted by somebody else. See the prop's own note. */
+                      source={scope.source}
                       /* THE SCREEN'S OWN GENERATOR, so a route added to a
                          reopened BOM cannot collide with the keys
                          `openExisting` has already issued. */
@@ -8785,6 +9331,11 @@ export function FabricBomScreen({
         mixing_uom_id: l.mixing_uom_id,
         no_of_colors: l.no_of_colors,
         consumption_uom_id: l.consumption_uom_id,
+        /* THE TWO THAT WERE MISSING. `normalizeLines` maps field by field and
+           the write is delete-then-reinsert, so a key absent HERE is not left
+           alone — it is overwritten with the column default on every save. */
+        dia: numOrNull(l.dia),
+        consumption: l.consumption,
         notes: l.notes || null,
       })),
       /* THE ORDER'S PALETTE, WHICH IS THE ONE KEY HERE THAT DOES NOT WRITE THIS
@@ -8850,12 +9401,15 @@ export function FabricBomScreen({
         colors: r.colors.map((c, i) => ({
           sno: i + 1,
           yarn_color: c.yarn_color || null,
+          /* THE ONE THAT WAS MISSING (0568). Absent here it is not left alone —
+             the write is delete-then-reinsert and the schema defaults it to 0. */
+          dyeing_loss_pct: c.dyeing_loss_pct,
         })),
       })),
       dias: dias.map((d, i) => ({
         sno: i + 1,
         knit_type: (d.knit_type || null) as "circular" | "flat_knit" | "woven" | null,
-        dia: numOrNull(d.dia),
+        dia: textOrNull(d.dia),
       })),
       /* THE COUNTING UNIT (0494). Sent WHOLE — blank sizes included — and
          filtered by `normalizeManualEntries` on the server, the same division
@@ -8881,10 +9435,13 @@ export function FabricBomScreen({
         assort_color_wise: e.assort_color_wise,
         size_wise: e.size_wise,
         component_ids: e.component_ids,
+        /* THE TICKED COLOURWAYS (0567). Sent whole; the server reads them only
+           when `assort_color_wise` is on. */
+        combos: e.combos,
         sizes: e.sizes.map((z, zi) => ({
           sno: zi + 1,
           size_id: z.size_id,
-          dia: numOrNull(z.dia),
+          dia: textOrNull(z.dia),
           purchase_width: numOrNull(z.purchase_width),
           /* THE STORED WEIGHT, whichever mode produced it. `gramsFor` is what
              makes a calculated entry indistinguishable to every downstream
@@ -8893,7 +9450,7 @@ export function FabricBomScreen({
             e.calc_mode,
             {
               size_id: z.size_id,
-              dia: numOrNull(z.dia),
+              dia: textOrNull(z.dia),
               purchase_width: numOrNull(z.purchase_width),
               grams: numOrNull(z.grams),
               table_width: numOrNull(z.table_width),
@@ -8944,6 +9501,13 @@ export function FabricBomScreen({
         item_id: s.item_id,
         assort_color_wise: s.assort_color_wise,
         component_wise: s.component_wise,
+        /* 0564 — WHERE THIS FABRIC COMES FROM travels on the same row as the
+           split toggles because it is the same grain (one row per bom+fabric)
+           and the same document. It is what `suppressedBySource` reads to drop
+           Yarn Purchase / Knitting / Dyeing out of the demand engine, so a
+           save that lost it would quietly re-order yarn the factory is not
+           buying. */
+        source: s.source,
       })),
       /* THE YARN ROWS AND THEIR TREATMENTS, DERIVED AND THEN SENT (0493 · 0504).
          `yarnRows` is not form state — it is the fabrics' compositions with the
@@ -9250,6 +9814,82 @@ export function FabricBomScreen({
           control is rendered from inside a mandatory cell; `Sheet` resets the
           scope at its portal boundary, which is the fix AGENTS.md records for
           the New Yarn / Purity defect (2026-08-06). */}
+      {assortForEntry &&
+        (() => {
+          const fabricName =
+            fabrics.find((f) => f.id === assortForEntry.item_id)?.name ?? "(no fabric named)";
+          const picked = new Set(assortForEntry.combos);
+          /* THE ORDER'S OWN COLOURWAYS, PLUS ANY THIS ENTRY ALREADY HOLDS THAT
+             THE ORDER NO LONGER DECLARES. Dropping a held value would show a
+             ticked box as empty and un-tick it on the next save — the "one row
+             that survives is the one the record already holds" rule (AGENTS.md,
+             Disabled rows). The stray is tagged rather than hidden, because the
+             engine REFUSES an entry naming a colourway the order lacks, and the
+             operator cannot fix what they cannot see. */
+          const stray = assortForEntry.combos.filter((c) => !comboOptions.includes(c));
+          const toggle = (c: string) =>
+            setEntryCell(assortForEntry.key, {
+              combos: picked.has(c)
+                ? assortForEntry.combos.filter((x) => x !== c)
+                : [...assortForEntry.combos, c],
+            });
+          return (
+            <Sheet
+              open
+              onClose={() => setAssortFor(null)}
+              /* "Assort Color", MATCHING THE COLUMN HEADER THIS OPENS FROM — that one is
+                 legacy's word for word, and this repo keeps legacy headers verbatim.
+                 The TOGGLE is "Assort Colour-Wise" because that is the client's own
+                 spelling for the setting; a sheet title disagreeing with the button
+                 that opened it is the two-names-one-thing defect at arm's length. */
+              title={`Assort Color — ${fabricName}`}
+              /* `sm`, `alignToPane`, `origin` and a `SubSheetFooter` — the four
+                 props every `[Click]` sub-detail in this screen carries, and
+                 for the reasons the Components sheet below records at length.
+                 A plain list of colourways has no `ChildGrid` breakpoint to
+                 clear, so nothing here argues for `md`. */
+              size="sm"
+              alignToPane
+              origin={assortOrigin}
+              footer={<SubSheetFooter onDone={() => setAssortFor(null)} parent="fabric BOM" />}
+            >
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  This weight is for the colourways ticked here. Leave Assort Colour-Wise
+                  off instead to use it for every colourway — an empty tick list is refused
+                  rather than read as &quot;all&quot;.
+                </p>
+                {comboOptions.length === 0 && stray.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    This order declares no colourways yet — add them on Color/Print Details
+                    and they appear here.
+                  </p>
+                ) : (
+                  <div className="flex flex-col">
+                    {[...comboOptions, ...stray].map((c) => (
+                      <label
+                        key={c}
+                        className="flex items-center gap-2 border-b border-border py-2 text-sm last:border-b-0"
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={picked.has(c)}
+                          onChange={() => toggle(c)}
+                        />
+                        <span className="min-w-0 flex-1 truncate">{c}</span>
+                        {stray.includes(c) && (
+                          <span className="text-xs text-warning">(not on this order)</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Sheet>
+          );
+        })()}
+
       {componentsForEntry &&
         (() => {
           const fabricName =

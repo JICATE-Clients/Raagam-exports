@@ -98,7 +98,7 @@
  *                  they were allowed to diverge and just happened not to.
  *   2. PANEL     — Coordinate · Layout Type (0530, gates Component) ·
  *                  Component · Fabric Type (read-only). Folds.
- *   3. COLOURWAY — Assort Colour · Fabric Type · Fabric (GSM as a read-only
+ *   3. COLOURWAY — Compo Color · Fabric Type · Fabric (GSM as a read-only
  *                  reference beneath it) · Type · Required Colour ·
  *                  Required Print.
  *
@@ -988,7 +988,7 @@ export function ComponentMapBody({
    * cleanup spec — "purge redundant columns"; the field itself is untouched,
    * see the note where the column used to sit).
    *
-   *   S No · Assort Color · Fabric Type · Fabric · Type ·
+   *   S No · Compo Color · Fabric Type · Fabric · Type ·
    *   Required Color · Required Print
    *
    * FABRIC TYPE / FABRIC ARE REPEATED FROM THE PANEL ROW AND ARE NOT
@@ -1023,14 +1023,23 @@ export function ComponentMapBody({
 
   const colourColumns: ChildGridColumn<MapLine>[] = [
     {
-      /* A `Select`, not a Combobox: the order's colourways are a closed list and a
+      /* HEADED `Compo Color`, RENAMED FROM `Assort Color` 2026-09-16 (client),
+         together with the Manual tab's `Assort Color wise` toggle → `Compo Color
+         wise`. THE VALUE IS UNCHANGED and so is the column it writes: `combo`
+         still holds the order's assort colourway, `comboOptions` still feeds it,
+         and `styleForCombo` still rides with it. This is the LABEL only — no
+         stored value, no key and no lookup moved, which is why the rename is one
+         string here and the stacked-card row follows it for free (that row is
+         `colourColumns.map()` over `c.header`, not a second list of words).
+
+         A `Select`, not a Combobox: the order's colourways are a closed list and a
          fifth spelling of NAVY here would split the fan-out `addPanel` builds.
          Blank is a real answer — `fabricSlices` reads it as "every colourway".
 
          THE STYLE RIDES WITH IT (`onPatchLine` applies `styleForCombo`), written
          on the CHANGE and never in an effect — an effect would rewrite every
          stored line's style when a saved BOM is opened. */
-      header: "Assort Color",
+      header: "Compo Color",
       width: "6rem",
       cell: (l) => (
         <Select
@@ -1643,7 +1652,7 @@ export function ComponentMapBody({
 
                  THE ORDINAL HAD NOTHING LEFT TO NUMBER once the panel fields
                  became this table's first columns. A row here is one COLOURWAY
-                 of one panel, named by its own Assort Color cell, and the panel
+                 of one panel, named by its own Compo Color cell, and the panel
                  above it is named by the rail and by the Component column — so
                  "3" was counting a thing nobody refers to by number. That is the
                  same test `hideIndex`'s own note applies ("in a one-column list
@@ -1692,7 +1701,7 @@ export function ComponentMapBody({
               onRemove={() => {}}
               renderMobileRow={(row, ri) => (
                 /* SIX ON ONE ROW (originally eight, client 2026-09-03; `Gsm`
-                   and `Specification` both dropped 2026-09-04): Assort
+                   and `Specification` both dropped 2026-09-04): Compo
                    Color, Fabric Type, Fabric, Type, Required Color, Required
                    Print.
 

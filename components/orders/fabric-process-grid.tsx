@@ -73,15 +73,26 @@ import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
   MAX_ROUTE_STAGES,
+  baseProcessMissing,
+  baseProcessesForStage,
   blankFabricProcess,
   dyeingBlocked,
   fabricProcessRowStarted,
   printBlocked,
   processesForFabric,
+  stageMismatchBlocked,
   type FabricProcessLookups,
   type FabricProcessOption,
   type FabricProcessRow,
 } from "@/lib/orders/fabric-bom/processes";
+/* THE SUPPRESSION TWIN (0564) — the rule AND its sentence, never a predicate or
+   a line written here, so the step this grid greys and the step `routeForSource`
+   drops from the arithmetic are decided by one function (both bottom out in
+   `stepSuppressedBySource`, with vectors pinning the correspondence). */
+import {
+  sourceSuppressedReason,
+  type FabricSource,
+} from "@/lib/orders/fabric-bom/fabric-source";
 
 export function FabricProcessGrid({
   itemId,
@@ -94,6 +105,7 @@ export function FabricProcessGrid({
   newKey,
   printDeclared,
   fabricIsYarnDyed = false,
+  source = "yarn_knit",
   canCreate = false,
   canEdit = false,
   readOnly = false,
@@ -108,7 +120,20 @@ export function FabricProcessGrid({
    *  `YarnProcessGrid`'s `combos`. */
   colours?: readonly string[] | null;
   /** THE FABRIC'S OWN PANELS when its route is split "Component Wise" — a
-   *  Component ▾ column appears, same contract as `colours`. */
+   *  Component ▾ column appears, same contract as `colours`.
+   *
+   *  THE TOGGLE THAT TURNS THIS ON IS GONE FROM THE SCREEN (2026-09-16,
+   *  `doc/order/fabriprocess.md` §6: "remove the Component-Wise flag … to
+   *  avoid unnecessary complexity"). **This prop, this column and everything
+   *  under them are deliberately intact.** Component Wise was wired end to end
+   *  on 2026-09-15 — `stagesForGroup`, `comboUplift`, `comboUpliftBreakdown`,
+   *  both reports and ten vectors in `scripts/check-fabric-bom-reports.mts` —
+   *  and that wiring is what fixed a silent yarn over-purchase (uplift 1.201
+   *  where 1.107 was right). So a route SAVED component-split still renders
+   *  its Component ▾ and still computes correctly; what went is only the
+   *  operator's ability to split a NEW one. See the caller
+   *  (`fabric-bom-screen.tsx`, the Fabric Process section) for the notice that
+   *  keeps an already-split route from looking like a bug. */
   components?: readonly { id: string; name: string }[] | null;
   /** The whole fabric's steps, every branch together. */
   rows: FabricProcessRow[];
@@ -137,6 +162,25 @@ export function FabricProcessGrid({
    *  Fabric Dyeing step here would double it. Defaults `false` (never
    *  withhold) so an unfilled call site sees every process it always has. */
   fabricIsYarnDyed?: boolean;
+  /**
+   * WHERE THIS FABRIC COMES FROM (0564) — the Source ▾ on the panel above.
+   *
+   * IT DOES NOT NARROW THE PICKER, which is what makes it unlike the two gates
+   * beside it. `printDeclared` and `fabricIsYarnDyed` decide what a route may
+   * NAME; a source decides what a named route COSTS. A fabric bought as greige
+   * rolls is still allowed to record that it was knitted — by somebody else —
+   * so Knitting stays in the ▾ and stays on the row, and what changes is that
+   * the demand engine stops charging for it (`routeForSource`).
+   *
+   * So the only thing this prop does here is SAY SO: `sourceSuppressedRow`
+   * greys the step and `sourceSuppressedReason` supplies the line. A step the
+   * engine silently drops while the screen draws it in full is what makes an
+   * operator distrust the figure rather than the route.
+   *
+   * Defaults to Rule 1, so an unfilled call site greys nothing — the same
+   * "never silently start hiding things" default `fabricIsYarnDyed` takes.
+   */
+  source?: FabricSource;
   canCreate?: boolean;
   canEdit?: boolean;
   readOnly?: boolean;
@@ -169,6 +213,87 @@ export function FabricProcessGrid({
     positionInBranch.set(r.key, n);
   }
   const overCap = (r: FabricProcessRow) => (positionInBranch.get(r.key) ?? 0) > MAX_ROUTE_STAGES;
+
+  /* THE STAGE DECIDES THE PROCESS (0563, `doc/order/fabriprocess.md` §1 · §3).
+     The supervisor's own reason for this is a STOCK LEDGER one, not a tidiness
+     one: a step saved as Stage = DYED · Process = KNITTING books the roll's
+     weight into the Dyed Stock ledger while the cloth is still greige, and the
+     warehouse report, the valuation and the availability check all read it as
+     dyed. So the Process ▾ narrows to the processes the row's Stage allows, and
+     the FIRST step of a stage narrows further still — to that stage's mandatory
+     base process (Greige ▸ Knitting, Dyed ▸ Dyeing, Washed ▸ Washing, Printed
+     ▸ Printing), because that is the step that moves the cloth INTO the stage.
+
+     BOTH NARROWINGS ARE READ OFF THE STEPS ALREADY IN THIS BRANCH, which is why
+     they are computed here and not inside the cell: "is this the first step of
+     its stage" is a question about the row's NEIGHBOURS, and a split route has
+     one sequence per branch (see `branchKey` above — Bio-wash added to RED is
+     the first step of RED's Washed stage and says nothing about WHITE's).
+
+     WITHHELD FROM THE OFFERED LIST, NEVER BLOCKED AFTER THE FACT — the same
+     shape as `printDeclared` / `fabricIsYarnDyed`, with `stageMismatchBlocked`
+     and `baseProcessMissing` as the inline twins that name a held value the
+     operator could not pick again today. A route typed before 0563 existed
+     keeps every step it has. */
+  const branchRows = new Map<string, FabricProcessRow[]>();
+  for (const r of rows) {
+    const k = branchKey(r);
+    const xs = branchRows.get(k);
+    if (xs) xs.push(r);
+    else branchRows.set(k, [r]);
+  }
+  /** This row's own branch, in route order — what both stage helpers read. */
+  const rowsInBranch = (r: FabricProcessRow) => branchRows.get(branchKey(r)) ?? [r];
+  const indexInBranch = (r: FabricProcessRow) =>
+    Math.max(0, (positionInBranch.get(r.key) ?? 1) - 1);
+  /** Does this row OPEN its stage in this branch? A row with no Stage named
+   *  yet opens nothing — `processesForFabric` then narrows by neither, which
+   *  is the same list the grid offered before 0563. */
+  const opensStage = (r: FabricProcessRow) => {
+    if (!r.stage_id) return false;
+    const mine = rowsInBranch(r);
+    const at = indexInBranch(r);
+    return !mine.slice(0, at).some((x) => x.stage_id === r.stage_id);
+  };
+  /** The Stage's own word, for the two messages below. Read off the SAME
+   *  `lookups.stages` the Stage ▾ draws from — an operator who renamed GREY to
+   *  "Greige" reads their own word back, and a stage that has since been
+   *  removed from the lookup falls back rather than printing a uuid (the
+   *  `creatorName()` rule, one column along). */
+  const stageName = (id: string | null) =>
+    (id ? lookups.stages.find((s) => s.id === id)?.name : null) || "this stage";
+  /* THE LIST A BASE PROCESS IS NAMED FROM, gated exactly as the picker is — no
+     stage narrowing, since that is what `baseProcessesForStage` then applies.
+     Naming a base the operator could not pick (a Print base with no print
+     declared, Dyeing on a yarn-dyed fabric) would send them looking for a value
+     that is not in the ▾, which is the failure mode "empty-and-explain" exists
+     to avoid one step earlier. `baseProcessMissing` stands down in exactly that
+     case, so the two agree. */
+  const baseCandidates = processesForFabric(processes, { printDeclared, fabricIsYarnDyed });
+  /**
+   * Does this fabric's SOURCE stop the engine charging for this step? (0564.)
+   *
+   * T2's `sourceSuppressedRow`, NOT a predicate written here — and the first cut
+   * of this grid did write one, which is the mistake worth recording. Both it
+   * and `routeForSource` bottom out in `stepSuppressedBySource`, with vectors
+   * asserting the correspondence, so **a row this greys and a step the ladder
+   * drops cannot disagree.** A local copy would have been a second answer to
+   * "is this step counted?", and the two would have parted the first time the
+   * suppression rule gained a case.
+   *
+   * It takes its options STRUCTURALLY (`{ id } & SourceKindedStep`) rather than
+   * as `FabricProcessOption`, so `processes` goes straight in: typing it
+   * properly would close the `processes → yarn-process → fabric-source` chain
+   * into a cycle.
+   *
+   * Three behaviours come free and all three matter: a row with no process yet
+   * is NOT greyed (work in progress, not a suppressed step); a process the
+   * master no longer lists is NOT greyed (the engine cannot tell its kind, so
+   * the screen must not claim to); and the reason is `null`, never `""`, so a
+   * counted step draws no empty line.
+   */
+  const suppressedReason = (r: FabricProcessRow) =>
+    sourceSuppressedReason(r, processes, source);
   const branchesFull =
     [...stepsInBranch.values()].filter((n) => n >= MAX_ROUTE_STAGES).length >= branchCount;
 
@@ -198,7 +323,22 @@ export function FabricProcessGrid({
           {
             header: "Colour",
             width: "8rem",
-            required: rows.some(fabricProcessRowStarted),
+            /* NOT `required`, AND IT WAS UNTIL 2026-09-16 — the whole
+               declaration went, not just the hold. `ChildGridColumn.required`
+               draws the header `*` and the cell's own `required` stamps
+               `data-required-empty`, and AGENTS.md's "one declaration, four
+               enforcers" rule is that those cannot come apart: leaving the
+               star would ship a `*` with nothing behind it, which is the exact
+               divergence the rule exists to make impossible.
+
+               A BLANK COLOUR IS NOW AN ANSWER, not an omission. It means the
+               step treats EVERY colourway — the client's 99% case, where all
+               colours share one sequence and one dark shade needs an extra
+               step. Holding the cursor on it would cage the operator on the
+               most common value in the column. `normalizeProcesses` keeps it
+               (one-way guard), `stageCoversCombo` has always read it that way,
+               and the option below says so in words rather than leaving the
+               operator to infer it from an empty box. */
             cell: (r: FabricProcessRow) => {
               const held = r.combo ?? "";
               const options = held && !colours!.includes(held) ? [...colours!, held] : [...colours!];
@@ -209,10 +349,14 @@ export function FabricProcessGrid({
                   aria-label="Colour"
                   value={held}
                   disabled={readOnly}
-                  required={fabricProcessRowStarted(r)}
                   onChange={(e) => patch(r.key, { combo: e.target.value || null })}
                 >
-                  <option value="">{""}</option>
+                  {/* NAMED, NOT EMPTY. A blank row in a ▾ reads as "not
+                      answered yet"; this one is a choice, and it is the
+                      choice most steps take. The de-clutter rule blanks
+                      PLACEHOLDERS — text standing in for an unmade choice —
+                      and this is the opposite: a value with a meaning. */}
+                  <option value="">All colours</option>
                   {options.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -319,11 +463,28 @@ export function FabricProcessGrid({
       width: "12rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
-        <div className="min-w-0">
+        /* A SUPPRESSED STEP IS GREYED, NOT REMOVED (0564, user ruling
+           2026-09-16). The source drops it from the ARITHMETIC; the route still
+           declares it, because the cloth really was knitted — by the supplier.
+           So it stays typed, stays editable and stays in the document, and the
+           only thing that changes is that it reads as not counting and says
+           why. Auto-deleting it would destroy a planner's route on a dropdown
+           change, and refusing the source change would be the post-hoc block
+           this module refuses everywhere else. */
+        <div className={`min-w-0${suppressedReason(r) ? " opacity-60" : ""}`}>
           <RecordPicker
             label=""
             compact
-            items={processesForFabric(processes, { currentValue: r.process_id, printDeclared, fabricIsYarnDyed })}
+            items={processesForFabric(processes, {
+              currentValue: r.process_id,
+              printDeclared,
+              fabricIsYarnDyed,
+              /* 0563 — the two stage narrowings. Both are OPTIONAL opts that
+                 default to no narrowing, so a row with no Stage named yet sees
+                 exactly the list this grid offered before they existed. */
+              stageId: r.stage_id,
+              isFirstOfStage: opensStage(r),
+            })}
             value={r.process_id}
             onChange={(id) => patch(r.key, { process_id: id })}
             disabled={readOnly}
@@ -356,6 +517,68 @@ export function FabricProcessGrid({
             <div className="mt-0.5 text-xs text-warning">
               Dyeing is not needed here — this fabric is Yarn Dyed, so its
               dyeing loss is carried on the Yarn Process tab instead.
+            </div>
+          )}
+          {/* 0563 — this row holds a process its own Stage does not allow: a
+              route typed before `process_fabric_stages` existed, or a mapping
+              changed on the Process master since. Same "held value survives,
+              tagged" idiom as `printBlocked` and `dyeingBlocked` above — the
+              step is NEVER dropped, because dropping it would take the route
+              the planner typed away without telling them. What it costs is
+              the stock ledger the spec's §1 is about, so the message names
+              the ledger rather than saying "invalid". */}
+          {/* SAME `gates` AS `baseProcessMissing` BELOW (T1, 2026-09-16). With
+              the default gates the floor is tested against the plain
+              `for_fabric` list rather than the one the ▾ actually offered,
+              which differs when a stage's only allowed process is print-gated
+              — so the twin could name a mismatch the narrowing had already
+              permitted. */}
+          {stageMismatchBlocked(r, processes, { printDeclared, fabricIsYarnDyed }) && (
+            <div className="mt-0.5 text-xs text-warning">
+              {stageName(r.stage_id)} does not run {""}
+              {processes.find((p) => p.id === r.process_id)?.name ?? "this process"} — the
+              roll&apos;s weight would be booked to the {stageName(r.stage_id)} stock ledger in
+              the wrong state. Change the Stage or pick another process.
+            </div>
+          )}
+          {/* 0563 — this row OPENS its stage and does not hold that stage's
+              base process. Named rather than refused: the operator may be
+              part-way through typing the route, and a step that has not yet
+              been corrected is still the step they meant. The base process is
+              named on screen, so the message says what to pick rather than
+              that something is wrong. */}
+          {/* `gates` MUST BE THE ONES THE PICKER ABOVE WAS GIVEN — the twin
+              mirrors `processesForFabric`'s flag test rather than importing
+              it (`stage-routes.ts` would be a runtime cycle the other way),
+              so a twin handed different gates warns about a row the
+              narrowing itself permitted. */}
+          {baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, {
+            printDeclared,
+            fabricIsYarnDyed,
+          }) && (
+            <div className="mt-0.5 text-xs text-warning">
+              A {stageName(r.stage_id)} route opens with{" "}
+              {baseProcessesForStage(baseCandidates, r.stage_id)
+                .map((p) => p.name)
+                .join(" or ") || "that stage's base process"}{" "}
+              — that is the step that moves the cloth into {stageName(r.stage_id)} stock.
+            </div>
+          )}
+          {/* 0564 — this step is declared but not costed, because the fabric
+              is BOUGHT past it. The other twins on this cell say "you could
+              not pick this today"; this one says "this is still yours, it
+              just isn't in the number" — a different sentence for a different
+              fact, and the reason the step is greyed rather than withheld.
+
+              THE SENTENCE IS `sourceSuppressedReason`'s, not this file's. A
+              hand-written line here could say a step is ignored for a reason
+              the engine does not hold — and it very nearly did: the first cut
+              read "this fabric is purchased past this step", which names
+              neither the Source the operator set nor the fact that changing it
+              brings the step back. */}
+          {suppressedReason(r) && (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {suppressedReason(r)}
             </div>
           )}
           {/* A FIFTH STEP IN ONE BRANCH while "+ Add process" is still up for
@@ -531,10 +754,14 @@ export function FabricProcessGrid({
          the NEXT one. Silently dropping a fifth stage because a rule changed is
          data loss dressed up as validation. */
       hideAdd={readOnly || branchesFull}
-      /* A NEW ROW NAMES NO BRANCH — the operator picks its Colour / Component
-         in the row, and the required hold refuses to move on until they do.
-         Defaulting it to the first colourway would be the "helpful default"
-         AGENTS.md warns turns a blank-row test into a constant. */
+      /* A NEW ROW NAMES NO BRANCH, and since 2026-09-16 that is a VALID
+         ANSWER on the colour axis rather than a hold: a blank Colour means the
+         step treats every colourway, which is what most steps do. The Component
+         cell still holds (its axis is unchanged), so the sentence that used to
+         cover both now covers only that one. Defaulting either to the first
+         value would be the "helpful default" AGENTS.md warns turns a blank-row
+         test into a constant — and on the colour axis it would now be worse
+         than useless, since it would scope a shared step to one colour. */
       onAdd={() => onChange([...rows, blankFabricProcess(newKey(), itemId)])}
       onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
       addLabel="+ Add process"

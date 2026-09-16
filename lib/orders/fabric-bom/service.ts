@@ -13,6 +13,7 @@ import {
 import { FABRIC_CLASS_CODE, type FabricOption } from "./fabric-options";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { FabricProcessLookups, FabricProcessOption } from "./processes";
+import type { FabricStageRole } from "./stage-routes";
 import type { FabricComposition, YarnProcessOption } from "./yarn-process";
 import type { FabricBom, OrderFabricSeedRow, OrderPalette } from "./types";
 import type { StyleComponentDecl } from "./component-map";
@@ -72,7 +73,13 @@ export async function listFabricBomTasks(): Promise<BomTaskRow[]> {
     });
   }
 
-  return withCreators(bomTaskRows(orders, tiers, byOrder));
+  /* `full_target` — THE FABRIC RULE (2026-09-16). This queue's `production_qty`
+     is read beside each BOM's stored `computed_for_qty`, and that is now
+     stamped with the fabric rule too (`headerOnly`, actions.ts); leaving this
+     on the default would print the TRIMS total next to the fabric one and
+     invite the operator to read a 30-piece difference as a change in the
+     order. See `totalProductionOf`'s header for why the two rules exist. */
+  return withCreators(bomTaskRows(orders, tiers, byOrder, "full_target"));
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +104,12 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
            entries and re-associate them without repeating this join. */
         "manualEntries:order_fabric_bom_manual_entries(*, " +
         "components:order_fabric_bom_manual_components(*), " +
+        /* THE COLOURWAY SET (0567) — a third grandchild beside the panels and
+           the sizes, keyed on `entry_id` like both of them, so it nests here
+           for the same reason they do. One FK to one parent, so the bare embed
+           is unambiguous (AGENTS.md, "A SECOND FK BREAKS EVERY EXISTING
+           EMBED"). */
+        "combos:order_fabric_bom_manual_combos(*), " +
         "sizes:order_fabric_bom_manual_sizes(*)), " +
         "requirements:order_fabric_bom_requirements(*), " +
         "dias:order_fabric_bom_dias(*), " +
@@ -144,6 +157,9 @@ export async function listFabricBoms(): Promise<FabricBom[]> {
         .map((e) => ({
           ...e,
           components: e.components ?? [],
+          /* A SET, like the components beside it — no `sno` to sort by, and
+             order carries no meaning in a multi-select. */
+          combos: e.combos ?? [],
           sizes: [...(e.sizes ?? [])].sort((a, b) => a.sno - b.sno),
         })),
       requirements: [...(r.requirements ?? [])].sort((a, b) => a.sno - b.sno),
@@ -702,14 +718,68 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
   // select over a MISSING column with an error rather than nulls.
   const { data, error } = await s
     .from("processes")
-    .select("id, name, inactive, for_fabric, is_print, is_dyeing")
+    /* `is_knitting` JOINED THIS SELECT ON 2026-09-16 (0564) — the third kind
+       flag, read for the same reason as the other two and by the same rule
+       file. The Fabric Process screen carries it onto each route step so the
+       preview suppresses exactly what the save path suppresses; see
+       `./fabric-source.ts`. */
+    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting")
     .order("name");
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md) — `data ?? []`
   // on a missing column (e.g. `is_dyeing` before 0557 is applied) turns a
   // broken schema into "the Process master has nothing flagged Fabric",
   // which is exactly wrong and sent an operator to re-tick a flag that was
   // never the problem.
+  //
+  // A PRE-MIGRATION RETRY LIVED HERE ON 2026-09-16 and came out the same day,
+  // once 0564 was applied. Worth recording why rather than only that: a retry
+  // that re-issues this select WITHOUT `is_knitting` hands back rows that look
+  // complete with every process unflagged — and an unflagged Knitting step
+  // restores a knitting loss to a fabric bought as cloth, a wrong purchase
+  // weight with nothing on screen. That is this same `?? []` failure one level
+  // up, so the window is better served by throwing than by degrading.
   if (error) throw new Error(`Could not load the Process master: ${error.message}`);
+
+  // THE STAGE ROUTES (0563) COME AS A SECOND QUERY, NOT AS AN EMBED.
+  //
+  // `process_fabric_stages(stage_id, is_base)` would read as the obvious edit,
+  // and it is one FK from that table to `processes` so it is not ambiguous
+  // today — but AGENTS.md's "A SECOND FK BREAKS EVERY EXISTING EMBED" is about
+  // the day it stops being one, and this table has exactly the shape that
+  // invites a second (a `stage_id` and a `process_id` both pointing at rows an
+  // operator maintains). Two reasons decide it beyond that:
+  //
+  //   - A missing TABLE fails an embed as a 300/PGRST200 against `processes`,
+  //     so the whole Process master would fail to load with an error naming
+  //     processes — sending the reader to a table that is fine. Asked
+  //     separately, the message names `process_fabric_stages`, which is the
+  //     thing that is actually absent until 0563 is applied.
+  //   - The select string above is shared ground with two other lanes; adding
+  //     a line beside it is a narrower edit than rewriting it.
+  //
+  // A FAILED QUERY IS STILL AN ERROR, NOT AN EMPTY LIST — the failure mode this
+  // guards is the quiet one: with `data ?? []` every process would come back
+  // UNCLASSIFIED, which `stage-routes.ts` reads as "allowed in every stage", so
+  // a broken query would silently switch the whole ledger rule off and look
+  // exactly like a master nobody has classified yet.
+  const { data: roleRows, error: roleError } = await s
+    .from("process_fabric_stages")
+    .select("process_id, stage_id, is_base");
+  if (roleError) {
+    throw new Error(`Could not load the fabric stage routes: ${roleError.message}`);
+  }
+  const rolesByProcess = new Map<string, FabricStageRole[]>();
+  for (const r of (roleRows ?? []) as {
+    process_id: string;
+    stage_id: string;
+    is_base: boolean | null;
+  }[]) {
+    const list = rolesByProcess.get(r.process_id);
+    const role = { stage_id: r.stage_id, is_base: r.is_base ?? false };
+    if (list) list.push(role);
+    else rolesByProcess.set(r.process_id, [role]);
+  }
+
   return ((data ?? []) as {
     id: string;
     name: string;
@@ -717,6 +787,7 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     for_fabric: boolean | null;
     is_print: boolean | null;
     is_dyeing: boolean | null;
+    is_knitting: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
@@ -725,6 +796,8 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     for_fabric: p.for_fabric ?? false,
     is_print: p.is_print ?? false,
     is_dyeing: p.is_dyeing ?? false,
+    is_knitting: p.is_knitting ?? false,
+    stage_roles: rolesByProcess.get(p.id) ?? [],
   }));
 }
 

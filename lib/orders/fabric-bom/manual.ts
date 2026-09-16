@@ -82,8 +82,12 @@ const num = (v: unknown): number | null =>
 export type ManualSizeInput = {
   /** `config_lookups` id. NULL is a size the order no longer states. */
   size_id: string | null;
-  /** The knitting / finishing diameter — 60 Dia, 52 Dia, 28 Dia. */
-  dia: number | null;
+  /** The knitting / finishing diameter — 60 Dia, 52 Dia, 28 Dia. FREE TEXT
+   *  since 0566 so it can carry the unit the operator writes ("23 CM"). It is
+   *  carried through this module and never computed with: `calculatedGrams`
+   *  multiplies `table_width` by `length` by GSM and has never read the dia,
+   *  which is what made the column safe to convert. */
+  dia: string | null;
   /** The commercial width the cloth is PURCHASED at. A second width, not a
    *  restatement of the dia: cloth is knitted at one and invoiced at another. */
   purchase_width: number | null;
@@ -374,6 +378,36 @@ export function consumptionMap(
   return out;
 }
 
+/**
+ * ONE ENTRY'S AVERAGE WEIGHT PER GARMENT, IN KILOGRAMS.
+ *
+ * Built on `consumptionMap` rather than beside it, which is the whole point:
+ * that function already resolves the mode (typed grams vs the calculated
+ * formula), already folds `consQtyOf` in — so a garment with two cuffs counts
+ * both — and already drops a size with no weight. A footer that re-derived any
+ * of that would be a second arithmetic free to disagree with the stored
+ * requirement, which is the divergence this module's header exists to forbid.
+ *
+ * AVERAGED OVER THE SIZES THAT HAVE A WEIGHT, never over every size the order
+ * declares. A half-typed grid is the ordinary state of one being typed, and
+ * dividing by the sizes not yet reached would report a garment getting lighter
+ * with every size added — a figure that moves while nothing about the garment
+ * has changed.
+ *
+ * NULL, NOT 0, when nothing is typed yet. `0 g` is a claim that the garment
+ * weighs nothing; the caller shows the row only when there is an answer. Same
+ * call `calculatedGrams` makes one section up.
+ */
+export function averageWeightKg(
+  mode: string | null | undefined,
+  rows: readonly ManualSizeInput[],
+  gsm: number | null | undefined,
+): number | null {
+  const vals = Object.values(consumptionMap(mode, rows, gsm));
+  if (vals.length === 0) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
 // ---------------------------------------------------------------------------
 // The rules a screen and a save both enforce
 // ---------------------------------------------------------------------------
@@ -397,6 +431,47 @@ export type ManualEntryLike = {
   structure_id: string | null;
   calc_mode: string | null;
   component_ids: readonly string[];
+  /** Legacy's "Assort Color wise" checkbox (0522). OFF means this weight is for
+   *  EVERY colourway of its style — which is what the engine has always done,
+   *  and what it still does. ON means `combos` names them. */
+  /**
+   * REQUIRED, NOT OPTIONAL — and the `?` is what this bug was (2026-09-16).
+   *
+   * `entryLike` on the screen builds this object from six fields and never
+   * passed this one. Declared optional, that OMISSION TYPECHECKED: the gate
+   * read `undefined`, `manualProblem`'s colour-wise branch never ran, and Save
+   * was never blocked. The preview then explodes across every colourway and
+   * shows a weight while the server stores a refusal with a NULL
+   * `required_qty` — the screen and the stored figure disagreeing, which
+   * `yarn-process.ts`'s header calls the one thing that must never happen.
+   *
+   * Making it required is the durable half: the NEXT field added to this rule
+   * cannot be silently dropped by a caller, because the compiler names it.
+   * A stated rule nothing passes the input to is the "stated vs enforced"
+   * hole, and an optional field is how a rule states without enforcing.
+   */
+  assort_color_wise: boolean;
+  /** The colourways this weight is for, when `assort_color_wise` is on (0567).
+   *  Read by nothing while the toggle is off, so the ticks survive being
+   *  switched off and back on. */
+  /**
+   * REQUIRED, FOR THE REASON `assort_color_wise` ABOVE IS (2026-09-16, hours
+   * apart — and the gap between the two fixes is the lesson).
+   *
+   * Making that one required did NOT catch this one: `entryLike` began passing
+   * the flag and still did not pass the set, and `combos?` let that typecheck.
+   * The result was worse than the original bug rather than better — with the
+   * flag now visible and the set still `undefined`, `manualProblem`'s
+   * `(entry.combos ?? []).length === 0` was true no matter what the operator
+   * ticked, so a colour-wise entry was refused with "no colourway is ticked"
+   * WHILE THREE WERE. A gate that cannot be satisfied, created by half-fixing
+   * a gate that never fired.
+   *
+   * FIXING ONE OPTIONAL FIELD IN A SHAPE IS NOT FIXING THE SHAPE. Every field
+   * these rules read must be required, so that a caller building this object
+   * is told about all of them at once rather than one bug at a time.
+   */
+  combos: readonly string[];
   sizes: readonly ManualSizeInput[];
 };
 
@@ -499,6 +574,21 @@ export function manualProblem(
   if (entry.component_ids.length === 0) {
     return { refused: "Choose which components this weight covers" };
   }
+  /* ASSORT COLOUR-WISE WITH NO COLOUR TICKED (0567) — asked here, between the
+     panels and the weights, because that is the order the planner fills the row
+     in: which cloth, which panels, which colours, how much.
+
+     THE SAME SENTENCE `fabricSlices` REFUSES WITH. The engine cannot read an
+     empty set as "every colourway" — that is precisely what switching the
+     toggle OFF means — so without this the Save button would be live on a
+     document the save then rejects, which is the two-spellings failure this
+     function's own header names. */
+  if (entry.assort_color_wise && (entry.combos ?? []).length === 0) {
+    return {
+      refused:
+        "Assort Colour-Wise is on but no colourway is ticked — choose the colourways this weight is for, or switch Assort Colour-Wise off to use it for all of them",
+    };
+  }
   if (needed.length === 0) {
     return { refused: "This order states no sizes for this fabric" };
   }
@@ -525,4 +615,88 @@ export function manualProblem(
     return { refused: `Enter the ${what} for ${names}${more}` };
   }
   return null;
+}
+
+/**
+ * WHICH ORDER COLOURWAYS NO ENTRY PLANS CLOTH FOR (0567).
+ *
+ * The client's spec asks for `⚠ Unassigned Combos: [CRANBERRY]` under the grid:
+ * "if any defined order colorway is left unassigned ACROSS THE COMPONENT ROWS".
+ *
+ * ## IT IS PER COMPONENT, WHICH IS THE WHOLE DIFFICULTY
+ *
+ * "Is CRANBERRY covered?" has no answer at the document level. A BOM can plan
+ * the front body in every colour and the neck rib in two of three — CRANBERRY
+ * is then perfectly well covered for one panel and has no cloth at all for the
+ * other, and a check that asked only "does any entry mention CRANBERRY?" would
+ * answer yes and let a garment be planned with no rib.
+ *
+ * So a colourway is unassigned when ANY component that this BOM plans fails to
+ * cover it. `manualProblem` already guarantees that a component appears with a
+ * fabric and a weight; this is the other axis of the same completeness.
+ *
+ * ## AN ENTRY WITH THE TOGGLE OFF COVERS EVERYTHING
+ *
+ * Which is not a special case bolted on — it is the meaning of the toggle, and
+ * the same reading `requirementRows` passes to `fabricSlices` (`combos` only
+ * when `assort_color_wise`). One non-colour-wise entry for a panel is therefore
+ * enough to cover that panel entirely, and this returns nothing for it.
+ *
+ * ## IT WARNS AND DOES NOT REFUSE
+ *
+ * Deliberately: a half-entered BOM is the ordinary state of a document being
+ * typed, and a Save gate here would block the planner between their first row
+ * and their last. The engine's refusals are for what cannot be COMPUTED; this
+ * is for what has not been DECIDED, and the client asked for it as "a subtle
+ * warning indicator" rather than a stop.
+ *
+ * Returns the unassigned colourways in the ORDER'S own order, which is the one
+ * the operator reads them in elsewhere — never alphabetical, and never the
+ * order the entries happen to be in.
+ */
+export function unassignedCombos(
+  entries: readonly ManualEntryLike[],
+  orderCombos: readonly string[],
+): string[] {
+  const wanted = orderCombos.filter((c) => (c ?? "").trim() !== "");
+  if (wanted.length === 0) return [];
+
+  /* PER COMPONENT: the colourways its entries between them cover. `null` is the
+     "covers everything" marker — a component with at least one entry whose
+     toggle is off can never be short of a colour. */
+  const covered = new Map<string, Set<string> | null>();
+  for (const e of entries) {
+    // Scaffolding: a row naming no panel plans no cloth and is `manualProblem`'s
+    // business, not this one's.
+    if (e.component_ids.length === 0) continue;
+    const all = !e.assort_color_wise;
+    const mine = all ? null : new Set((e.combos ?? []).map((c) => comboKeyOf(c)));
+    for (const id of e.component_ids) {
+      const held = covered.get(id);
+      if (held === null) continue; // already covers everything
+      if (mine === null) {
+        covered.set(id, null);
+        continue;
+      }
+      if (!held) covered.set(id, new Set(mine));
+      else for (const c of mine) held.add(c);
+    }
+  }
+  if (covered.size === 0) return [];
+
+  return wanted.filter((c) => {
+    const key = comboKeyOf(c);
+    for (const set of covered.values()) {
+      if (set !== null && !set.has(key)) return true;
+    }
+    return false;
+  });
+}
+
+/** Colourways are compared the way every other reader of this document compares
+ *  them — trimmed and case-folded. Same rule as `requirement.ts`'s `comboKey`,
+ *  restated rather than imported for the reason this module states at the top:
+ *  it stays free of the production machinery. */
+function comboKeyOf(v: string | null | undefined): string {
+  return (v ?? "").trim().toUpperCase();
 }

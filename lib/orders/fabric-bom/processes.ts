@@ -49,6 +49,34 @@
 import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { narrowToStage } from "./stage-routes";
+import type { FabricStageRole } from "./stage-routes";
+
+/* THE STAGE ROUTE RULE LIVES NEXT DOOR (0563), AND IS RE-EXPORTED HERE so that
+   a screen reads one import for the whole Fabric Process contract — the
+   narrowing, its two inline twins and the two predicates they are built from
+   arrive together, the way `printBlocked` and `dyeingBlocked` already sit
+   beside `processesForFabric` below. EVERY public name in that file is
+   re-exported here deliberately: a consumer reaching past this barrel for one
+   sibling is how a module comes to have two import paths. It is a
+   separate FILE because it is a separate rule with a long reasoning of its own
+   (which stage a process may run in, and what an unclassified process is
+   offered for); see `./stage-routes.ts`. The dependency runs one way only —
+   that file imports nothing from here but types. */
+export {
+  baseProcessesForStage,
+  baseProcessMissing,
+  narrowToStage,
+  stageAllowsProcess,
+  stageMismatchBlocked,
+} from "./stage-routes";
+export type { FabricStageGates, FabricStageRole } from "./stage-routes";
+import { FABRIC_SOURCES, type FabricSource } from "./fabric-source";
+/* ONE DEFINITION OF "NAMES A COLOURWAY", shared with `stageCoversCombo` — see
+   `processRowInScope`'s header for the whitespace case that makes borrowing it
+   different from writing `!!combo`. One-way import: `./yarn-process` reaches
+   nothing here, directly or transitively. */
+import { comboKey } from "./yarn-process";
 
 /**
  * A process as the picker needs it: identity, the disable flag, and the one
@@ -75,6 +103,24 @@ export type FabricProcessOption = {
    *  it to withhold Dyeing from a Yarn-Dyed fabric's offered route (doc/order/
    *  update.md §7.3: "skip the standard Fabric Dyeing stage logic"). */
   is_dyeing: boolean;
+  /**
+   * Is this the GREIGE KNITTING step? (0564.)
+   *
+   * READ BY THE DEMAND ENGINE, NOT BY THE PICKER, which is what makes it the
+   * odd one of the three. `is_print` and `is_dyeing` decide what a route may
+   * NAME; this one decides what a declared route COSTS — a fabric bought as
+   * greige rolls does not pay for the knitting its supplier did, so the step
+   * leaves the ladder (`./fabric-source.ts`). Nothing withholds Knitting from
+   * anyone's offered list, and nothing should: a purchased cloth's route is
+   * still allowed to record that it was knitted, by somebody else.
+   */
+  is_knitting: boolean;
+  /** Which fabric stages this process may run in, and where it is that stage's
+   *  mandatory entry step (0563, `process_fabric_stages`). Empty =
+   *  UNCLASSIFIED, which this module reads as "offered in every stage" — the
+   *  call and its reasoning are in `./stage-routes.ts`'s header, and it is a
+   *  deliberate choice rather than a fallback. */
+  stage_roles: FabricStageRole[];
 };
 
 /**
@@ -178,16 +224,49 @@ export const blankFabricProcess = (
  * for the same "most callers are not this screen" reason `printDeclared`
  * defaults `true` — an unfilled call site should see every process it always
  * has, not silently start hiding Dyeing.
+ *
+ * `stageId` / `isFirstOfStage` ARE THE 0563 GATE (doc/order/fabriprocess.md
+ * §1, §3) — a process may only be offered in a stage `process_fabric_stages`
+ * allows it in, and the step that OPENS a stage may only be that stage's
+ * mandatory base process. This is the one narrowing here that is a stock-ledger
+ * rule rather than a costing one: the stage decides which of the four fabric
+ * stock ledgers a step's weight is logged against, so `Stage = Dyed,
+ * Process = Knitting` files greige cloth as dyed. The rule, the stand-down when
+ * a stage has no pickable base, and what an UNCLASSIFIED process is offered
+ * for all live in `./stage-routes.ts`; only the delegation is here.
+ *
+ * Both default to NOT narrowing, for the third time in this function's history
+ * and the same reason each time: an unfilled call site must see every process
+ * it always has, rather than have a gate activate itself silently.
+ *
+ * THE HELD VALUE IS RE-ADMITTED ONCE, AFTER EVERY NARROWING, which is why the
+ * stage rule is applied here rather than inside the filter above — a rule that
+ * re-admitted `currentValue` itself would let the next rule withhold it again.
  */
 export function processesForFabric(
   options: readonly FabricProcessOption[],
-  opts: { currentValue?: string | null; printDeclared?: boolean; fabricIsYarnDyed?: boolean } = {},
+  opts: {
+    currentValue?: string | null;
+    printDeclared?: boolean;
+    fabricIsYarnDyed?: boolean;
+    /** 0563 — the stage this row enters the fabric in. `undefined`/`null` = no
+     *  stage narrowing at all. */
+    stageId?: string | null;
+    /** 0563 — is this the FIRST step of its stage in this route? Then only that
+     *  stage's mandatory BASE process(es) are offered — unless none of them is
+     *  pickable, where the restriction stands down rather than offering an
+     *  empty list. See `narrowToStage`. */
+    isFirstOfStage?: boolean;
+  } = {},
 ): FabricProcessOption[] {
   const held = opts.currentValue ?? null;
   const printDeclared = opts.printDeclared ?? true;
   const fabricIsYarnDyed = opts.fabricIsYarnDyed ?? false;
-  const flagged = options.filter(
-    (p) => p.for_fabric && (printDeclared || !p.is_print) && (!fabricIsYarnDyed || !p.is_dyeing),
+  const flagged = narrowToStage(
+    options.filter(
+      (p) => p.for_fabric && (printDeclared || !p.is_print) && (!fabricIsYarnDyed || !p.is_dyeing),
+    ),
+    { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
   );
   if (!held || flagged.some((p) => p.id === held)) return flagged;
   const kept = options.find((p) => p.id === held);
@@ -271,13 +350,115 @@ export type FabricProcessScope = {
   item_id: string;
   assort_color_wise: boolean;
   component_wise: boolean;
+  /** WHERE THIS CLOTH COMES FROM (0564) — Default Rule 1 vs Rule 2. It sits
+   *  on this row rather than on a table of its own because it is the third
+   *  fact that reshapes ONE fabric's route, beside the two toggles above.
+   *  The rule, and what each source suppresses, is `./fabric-source.ts`. */
+  source: FabricSource;
 };
 
 export const blankFabricProcessScope = (itemId: string): FabricProcessScope => ({
   item_id: itemId,
   assort_color_wise: false,
   component_wise: false,
+  /* RULE 1, which is what every fabric in this database was before 0564 —
+     the same default the column, the Zod schema and `asFabricSource` each
+     state, so a fabric with no scope row at all reads identically. */
+  source: "yarn_knit",
 });
+
+/**
+ * DOES THIS STEP BELONG TO THE FABRIC'S ROUTE AS THE TOGGLES NOW STAND?
+ *
+ * ONE FUNCTION, TWO READERS, and this file is where that pattern already lives
+ * (`fabricProcessRowStarted` above is the same shape, for the same reason: the
+ * save path drops what it calls false and the screen marks required what it
+ * calls true). Here the readers are `normalizeProcesses` in `actions.ts`, which
+ * decides which rows are WRITTEN, and `inScope` in the Fabric Process panel of
+ * `fabric-bom-screen.tsx`, which decides which rows are SHOWN.
+ *
+ * ## THE TWO READERS DISAGREED, AND THAT IS WHY THIS FUNCTION EXISTS
+ *
+ * Until 2026-09-16 the save path tested `scope.assort_color_wise !== !!p.combo`
+ * — the toggle and the value must agree in BOTH directions — while the screen
+ * tested `scope.assort_color_wise || !p.combo`, which on a colour-wise route is
+ * true before the value is even read. So a step with no colour was SHOWN and
+ * then DELETED: the operator typed it, saw it, saved, and it was gone. Nothing
+ * was empty, nothing errored, and the document looked right until the step's
+ * loss failed to appear in the arithmetic. A rule stated twice is a rule that
+ * drifts; this is the same conclusion `normalizeDias`' own note reaches about
+ * two places deciding what counts as an empty row.
+ *
+ * ## A BLANK `combo` MEANS EVERY COLOURWAY
+ *
+ * That is not new — `stageCoversCombo` (`./yarn-process.ts`, 0504, restored
+ * 0529) has read it that way since the colour axis existed, and says so: "A
+ * BLANK `stageCombo` MEANS EVERY COLOURWAY — the ordinary case, and the only
+ * thing a blank box can mean here." The save guard was the one place in the
+ * module that disagreed with the arithmetic it feeds.
+ *
+ * It is also the case the feature is FOR. The client's description is that all
+ * colours share one sequence and one dark shade needs an extra step; a route
+ * that cannot carry an uncoloured step forces the shared sequence to be
+ * re-typed per colourway, which on four colourways is thirteen rows for what
+ * is four.
+ *
+ * ## THE COLOUR TEST IS ONE-WAY; THE COMPONENT TEST IS STILL TWO-WAY
+ *
+ * A step carrying a COLOUR while the toggle is off is still dropped — it names
+ * a branch a unified route has nowhere to put, which is the orphan rule that
+ * makes flipping the toggle off mean something. What went is only the
+ * converse.
+ *
+ * The component axis keeps the two-way test deliberately (client decision,
+ * 2026-09-16). It reads as the same asymmetry and is not being fixed with it:
+ * the Component Wise toggle was removed from the screen the same day, so no NEW
+ * route can be component-split, and relaxing this would only change how
+ * already-split routes save. Widening it was offered and declined.
+ *
+ * ## "NAMES A COLOUR" IS `comboKey`'s DEFINITION, NOT A `!!`
+ *
+ * Three different things reach this function meaning "no colour": `null` from
+ * the screen (`e.target.value || null`), `undefined` from the save path (Zod's
+ * `.optional()` on `capsTextNullable`), and `""` — which `capsTextNullable`
+ * produces from a whitespace-only import, because it `.trim()`s and does NOT
+ * null an emptied string.
+ *
+ * All three must mean the same thing as they mean to the ARITHMETIC, and the
+ * arithmetic's definition is `comboKey(c) === ""` (`./yarn-process.ts`), which
+ * trims before it compares. A plain `!!row.combo` agrees with that on all
+ * three — but only BY COINCIDENCE, because two separate transforms happen to
+ * have trimmed first. `"  "` is falsy to `comboKey` and TRUTHY to `!!`, so a
+ * whitespace combo arriving by any route that skips the Zod trim would be kept
+ * here as a colour-scoped step and read by `stageCoversCombo` as an uncoloured
+ * one — the row surviving under one meaning and computing under the other.
+ *
+ * That is the exact class of divergence this function was extracted to end, so
+ * it borrows `comboKey` rather than restating the test. The import runs one way
+ * (`./yarn-process` imports nothing from here, directly or transitively), which
+ * is the same check `requirement.ts` records making before importing
+ * `requiredKg`.
+ */
+export function processRowInScope(
+  /* STRUCTURAL, NOT `Pick<FabricProcessRow, …>`, and the difference is load-
+     bearing: the two readers hold the row in two shapes. The screen has a
+     `FabricProcessRow` (`combo: string | null`); the save path has a
+     `FabricBomProcessInput`, where Zod's `.default(null)` makes the field
+     OPTIONAL on the input side (`combo?: string | null`). A `Pick` off either
+     one rejects the other, and the point of this function is that neither
+     reader gets its own copy of the rule. */
+  row: { combo?: string | null; component_id?: string | null },
+  scope: Pick<FabricProcessScope, "assort_color_wise" | "component_wise">,
+): boolean {
+  /* `comboKey` — the arithmetic's own test, see the header. NOT `!!row.combo`. */
+  const namesAColour = comboKey(row.combo) !== "";
+  if (!scope.assort_color_wise && namesAColour) return false;
+  /* The component axis is an id, not free text: there is no whitespace form of
+     a uuid, so `!!` is the whole question there and no shared key exists to
+     borrow. */
+  if (scope.component_wise !== !!row.component_id) return false;
+  return true;
+}
 
 /** One GROUP a fabric's route is split into — the unit `FabricProcessGrid`
  *  renders one grid for. `combo`/`component_id` null mean that axis is not
@@ -289,6 +470,79 @@ export type FabricProcessGroup = {
   /** What the panel over this group's grid is headed with. */
   label: string;
 };
+
+/**
+ * MULTI-SELECT COLOURS ON ONE ROW (client spec 2026-09-16 §2.2), WITHOUT A
+ * SECOND WAY TO STORE A ROUTE.
+ *
+ * The spec's grid shows one row serving several colourways — `DYEING` at 5.00%
+ * for `GREEN, RED` — while a third row gives `GREEN` alone an extra `BRUSHING`.
+ * Storage does NOT change to match: `order_fabric_bom_processes.combo` stays one
+ * colourway per row, because `stageCoversCombo` matches it exactly and every
+ * ladder, both reports and the whole §8/§9 vector estate read it that way. A
+ * comma-list in that column would make an exact match silently match nothing —
+ * the failure AGENTS.md records for the supply-type enum compared with `===`.
+ *
+ * So the multi-select is a VIEW. `gatherByRoute` folds stored rows that agree on
+ * everything except colour into one editable row; `expandByColour` unfolds them
+ * again. Both are pure, both live here rather than in the grid, and they are
+ * inverses — which is the property worth testing, since a gather that loses a
+ * field would silently delete it on the next save.
+ *
+ * DELIBERATELY NOT IN THE SAVE PATH. The screen's state and the payload stay one
+ * row per colour, so `normalizeProcesses`, the engine and the reports are
+ * untouched by this feature and cannot drift from it. The fold lives entirely
+ * inside `FabricProcessGrid`.
+ */
+export type GatheredProcessRow = FabricProcessRow & {
+  /** Every colourway this displayed row serves. Empty = all colours (a blank
+   *  `combo`), which is the 99% case and is NOT the same as "none". */
+  combos: string[];
+  /** The keys of the stored rows folded into this one, so an edit can rewrite
+   *  exactly those and nothing else. */
+  memberKeys: string[];
+};
+
+/** What makes two stored rows the same step but for their colour. `component_id`
+ *  is IN the key: a component-wise split is a different branch, not a colour of
+ *  one. `loss_pct` is compared as typed text, so "5" and "5.0" stay apart —
+ *  folding them would rewrite one of them on the next save. */
+const routeKeyOf = (r: FabricProcessRow) =>
+  [r.item_id, r.component_id ?? "", r.stage_id ?? "", r.process_id ?? "", r.loss_for_id ?? "", r.loss_pct.trim(), r.type_id ?? ""].join(" ");
+
+export function gatherByRoute(rows: readonly FabricProcessRow[]): GatheredProcessRow[] {
+  const out: GatheredProcessRow[] = [];
+  const at = new Map<string, GatheredProcessRow>();
+  for (const r of rows) {
+    /* AN UNSTARTED ROW NEVER FOLDS. Two blank rows the operator has just added
+       agree on every field, so folding them would silently merge one away as it
+       was being typed into. */
+    const key = fabricProcessRowStarted(r) ? routeKeyOf(r) : ` unstarted:${r.key}`;
+    const held = at.get(key);
+    if (held) {
+      if (r.combo && !held.combos.includes(r.combo)) held.combos.push(r.combo);
+      held.memberKeys.push(r.key);
+      continue;
+    }
+    const g: GatheredProcessRow = { ...r, combos: r.combo ? [r.combo] : [], memberKeys: [r.key] };
+    at.set(key, g);
+    out.push(g);
+  }
+  return out;
+}
+
+/** The inverse: one displayed row back to the stored rows it stands for. Reuses
+ *  `memberKeys` in order so a re-render does not re-key rows the operator is
+ *  typing in; only a colour ADDED beyond the members needs a fresh key. */
+export function expandByColour(g: GatheredProcessRow, newKey: () => string): FabricProcessRow[] {
+  const colours = g.combos.length ? g.combos : [null];
+  const spare = [...g.memberKeys];
+  return colours.map((combo) => {
+    const { combos: _c, memberKeys: _m, ...row } = g;
+    return { ...row, key: spare.shift() ?? newKey(), combo };
+  });
+}
+
 
 /**
  * The groups one fabric's route renders as, from its two toggles and the
@@ -411,6 +665,12 @@ export const fabricBomProcessScopeInput = z.object({
   item_id: z.string().uuid(),
   assort_color_wise: z.coerce.boolean().default(false),
   component_wise: z.coerce.boolean().default(false),
+  /* WHERE THE CLOTH COMES FROM (0564). `.default` and not `.optional()`, so a
+     payload written before this field existed — and a `lib/data-io` import —
+     lands on Rule 1 rather than on `undefined`, which the suppression rule
+     would then have to guess about. The CHECK on the column restates the same
+     three values; this is the half a stale client cannot walk past. */
+  source: z.enum(FABRIC_SOURCES).default("yarn_knit"),
 });
 
 export type FabricBomProcessScopeInput = z.infer<typeof fabricBomProcessScopeInput>;

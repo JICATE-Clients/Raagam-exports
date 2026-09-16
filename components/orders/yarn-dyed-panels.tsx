@@ -70,6 +70,23 @@ type PickerRow = { id: string; code: string | null; name: string; inactive?: boo
 export type YdCombinationColorRow = {
   key: string;
   yarn_color: string;
+  /**
+   * PER-SHADE DYEING LOSS (0568) — CARRIED, NOT YET TYPED ANYWHERE.
+   *
+   * There is no Loss cell on this panel yet. It is in this type so that a SAVE
+   * RE-SENDS WHAT IS ALREADY STORED, because the Fabric BOM's write is
+   * delete-then-reinsert and `fabricBomYdCombinationColorInput.dyeing_loss_pct`
+   * defaults to 0 — so a column missing from this row type is not ignored on
+   * save, it is overwritten with the default.
+   *
+   * THIS WAS ARMED, NOT HYPOTHETICAL. GREEN 5 / RED 4 / WHITE 3 were stored on
+   * a live order to verify 0568's arithmetic, and the next Save from this
+   * screen would have reset all three to 0 with nothing said. That is the third
+   * time today one hand-maintained client row type has silently dropped a
+   * column: `dia` and `consumption` on `LineRow` were the first two. The shape
+   * is always the same — a subset type over a wholesale rewrite.
+   */
+  dyeing_loss_pct: number | null;
 };
 
 /** One typed row of the Combinations panel. */

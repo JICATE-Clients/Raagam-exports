@@ -13,6 +13,7 @@ import {
   type ComponentWeight,
   type SeedTargetLine,
 } from "./weights";
+import { kilogramUom } from "@/lib/uom/kilogram";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -286,26 +287,11 @@ export type CadSeedResult =
   | { ok: true; seeded: number; outcomes: SeedLineOutcome[]; wrote: boolean }
   | { ok: false; error: string };
 
-/**
- * A KILOGRAM UNIT, RESOLVED FROM THE MASTER AND NEVER ASSUMED.
- *
- * A marker weight is in grams and there is no gram UOM in this database (the
- * live `uoms` master holds CONE, DZN, GROSS, KGS, LTR, MTR, NOS, PCS and an
- * INACTIVE `kg`), so kilograms is the only unit a seeded consumption can be in.
- * A Fabric BOM line that has not chosen a unit yet is given this one; a line
- * that has chosen a different one is REFUSED by name rather than overwritten —
- * re-unitting somebody's line under them is how a metre becomes a kilo.
- */
-async function kilogramUom(
-  s: Awaited<ReturnType<typeof createClient>>,
-): Promise<{ id: string; code: string } | null> {
-  const { data } = await s.from("uoms").select("id, code, is_active");
-  const rows = (data ?? []) as { id: string; code: string; is_active: boolean }[];
-  const match = rows.find(
-    (r) => r.is_active && ["KG", "KGS", "KILOGRAM", "KILOGRAMS"].includes(r.code.trim().toUpperCase()),
-  );
-  return match ? { id: match.id, code: match.code.trim().toUpperCase() } : null;
-}
+/* `kilogramUom` LIVES IN `lib/uom/kilogram.ts` since 2026-09-16 — the Fabric
+   BOM requirement needed the same lookup, and two spellings of "which row is
+   kg" is how a metre becomes a kilo on one screen and not the other. The
+   reasoning that used to sit here (grams have no UOM; a chosen unit is refused
+   by name, never overwritten) is unchanged and is applied below. */
 
 type PlannedSeed = {
   weights: ComponentWeight[];

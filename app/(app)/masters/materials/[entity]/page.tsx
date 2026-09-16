@@ -208,8 +208,18 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "processes") {
-      const processes = await listProcesses();
-      screen = <ProcessMasterScreen rows={processes} perms={perms} />;
+      // `fabric_stage` feeds the Fabric Stages grid (0563) — GREIGE / DYED /
+      // WASH / PRINT on the live master, the same lookup kind the Fabric BOM ▸
+      // Fabric Process tab picks from, so a stage added or renamed on either
+      // screen is the same row.
+      const [processes, all] = await Promise.all([listProcesses(), listConfigLookups()]);
+      screen = (
+        <ProcessMasterScreen
+          rows={processes}
+          stages={all.filter((l) => l.kind === "fabric_stage")}
+          perms={perms}
+        />
+      );
     } else if (child.custom === "components") {
       const components = await listComponents();
       screen = <ComponentMasterScreen rows={components} perms={perms} />;

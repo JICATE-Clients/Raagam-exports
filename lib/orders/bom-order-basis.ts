@@ -4,7 +4,9 @@ import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import {
   basisFingerprint,
   isRefusal,
+  MATERIAL_BASE_QUANTITY,
   totalProductionOf,
+  type BaseQuantityRule,
   type OrderProductionInput,
 } from "@/lib/orders/material-bom/requirement";
 import { BOM_STATUS_RANK, bomStatusOf, type BomStatus } from "@/lib/orders/bom-status";
@@ -308,10 +310,19 @@ export function bomTaskRows(
   orders: readonly OrderWithProvenance[],
   tiers: Map<string, RejectionTier[]>,
   bomByOrder: Map<string, BomLite>,
+  /* WHICH BASE QUANTITY THIS QUEUE'S DOCUMENTS PLAN AGAINST (2026-09-16).
+     The default is the TRIMS rule, which is what Material BOM wants and what
+     every caller silently got before this parameter existed. Fabric BOM passes
+     `full_target`, because that is the rule `fabricSlices` explodes its
+     requirement with — and `production_qty` below sits in the same column of
+     the same queue as the stored `computed_for_qty` it is meant to be read
+     against, so the two must be produced by one rule or the operator is
+     comparing a fabric total with an accessory one. See `totalProductionOf`. */
+  rule: BaseQuantityRule = MATERIAL_BASE_QUANTITY,
 ): BomTaskRow[] {
   const rows: BomTaskRow[] = orders.map((o) => {
     const input = orderProductionInput(o, tiers);
-    const total = totalProductionOf(input);
+    const total = totalProductionOf(input, rule);
     const bom = bomByOrder.get(o.id) ?? null;
 
     const now = {

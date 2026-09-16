@@ -67,6 +67,7 @@ export default async function FabricRequirementPage({
           <FabricRequirementToolbar
             rows={fabricRequirementSheetRows(data.rows, data.names)}
             yarns={yarnSheetRows(data.yarns, data.names)}
+            cloth={data.cloth}
             meta={{
               company: data.company.name ?? "RAAGAM EXPORTS",
               address: data.company.address,

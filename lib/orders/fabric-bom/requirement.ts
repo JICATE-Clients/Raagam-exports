@@ -121,7 +121,53 @@ export type FabricLineScope = {
   style_ref_no: string | null;
   /** NULL = every colourway. */
   combo: string | null;
+  /**
+   * A SET of colourways, for a Manual entry that is Assort Colour-Wise (0567).
+   *
+   * `combo` above answers "this one colourway"; this answers "these several",
+   * which is what the client's multi-select asks for — WHITE and DUTCH BLUE at
+   * one weight, PARISIAN NIGHT at another, without typing the row twice.
+   *
+   * THREE STATES, AND THE EMPTY ARRAY IS NOT THE ABSENT ONE:
+   *
+   *   undefined / null   this axis is not being used — fall back to `combo`
+   *   [] (empty)         REFUSED. An entry declaring itself colour-wise and
+   *                      naming no colour has not been answered; reading it as
+   *                      "every colourway" would silently plan the thing the
+   *                      operator switched the toggle OFF to get.
+   *   ["WHITE", …]       exactly these
+   *
+   * Setting this AND `combo` is refused rather than resolved: two statements of
+   * one axis can disagree, and picking one of them is how a caller's bug
+   * becomes a quietly wrong purchase weight.
+   */
+  combos?: readonly string[] | null;
 };
+
+/**
+ * The colourways a scope asks for — `null` meaning every one.
+ *
+ * ONE RESOLVER FOR BOTH FIELDS, so `combo` and `combos` cannot be read
+ * differently in two places. Every refusal this can produce is about the SCOPE
+ * being self-contradictory or unanswered, never about the order.
+ */
+function wantedCombos(scope: FabricLineScope): Set<string> | null | Refusal {
+  const many = scope.combos;
+  if (many == null) return scope.combo == null ? null : new Set([comboKey(scope.combo)]);
+  if (scope.combo != null) {
+    return {
+      refused:
+        "This line names both a single colourway and a colourway list — it can only be scoped one way",
+    };
+  }
+  if (many.length === 0) {
+    return {
+      refused:
+        "Assort Colour-Wise is on but no colourway is ticked — choose the colourways this weight is for, or switch Assort Colour-Wise off to use it for all of them",
+    };
+  }
+  return new Set(many.map((c) => comboKey(c)));
+}
 
 /** A fabric BOM line, as much of it as the requirement needs. */
 export type FabricLineInput = {
@@ -243,13 +289,37 @@ export function fabricSlices(
   if (isRefusal(all)) return all;
 
   const wantStyle = scope.style_ref_no == null ? null : styleKey(scope.style_ref_no);
-  const wantCombo = scope.combo == null ? null : comboKey(scope.combo);
+  const wantCombo = wantedCombos(scope);
+  if (isRefusal(wantCombo)) return wantCombo;
 
   const mine = all.filter(
     (s) =>
       (wantStyle === null || styleKey(s.style_ref_no) === wantStyle) &&
-      (wantCombo === null || comboKey(s.combo) === wantCombo),
+      (wantCombo === null || wantCombo.has(comboKey(s.combo))),
   );
+
+  /* A COLOURWAY THE SCOPE NAMED AND THE ORDER DOES NOT HAVE IS REFUSED, EVEN
+     WHEN THE OTHERS MATCHED — and this is checked BEFORE the empty test below,
+     because it is strictly the more informative answer. A multi-select holding
+     WHITE, NAVY and a since-renamed CRANBERRY would otherwise explode two of
+     three and produce a smaller total that reads exactly like a correct one:
+     the partial-explosion failure `fabricRequirementRows` names one level up
+     ("emitting two colours of three yields a smaller total that looks exactly
+     like a correct answer").
+
+     IT ALSO OWNS THE NONE-MATCHED CASE, which is why it runs first. Left to the
+     generic refusal below, a list of two unknown colours came out as
+     "CRANBERRY, OLIVE is not a colourway on this order" — one verb for two
+     names, and the style prefixed to a sentence that is not about the style. */
+  if (wantCombo && scope.combos) {
+    const found = new Set(mine.map((s) => comboKey(s.combo)));
+    const missing = [...scope.combos].filter((c) => !found.has(comboKey(c)));
+    if (missing.length) {
+      return {
+        refused: `${missing.join(", ")} ${missing.length === 1 ? "is not a colourway" : "are not colourways"} on this order`,
+      };
+    }
+  }
 
   if (mine.length === 0) {
     // Name what was asked for. "No slices" tells the operator nothing; "NAVY is

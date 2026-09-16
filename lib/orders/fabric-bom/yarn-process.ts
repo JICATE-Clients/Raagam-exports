@@ -103,17 +103,48 @@
  * than replacing them — forward-compatible with a real per-yarn treatment
  * (e.g. a yarn dip) that happens in addition to what its cloth goes through.
  *
+ * ## AND A FABRIC MAY NOT BE KNITTED HERE AT ALL (0564, 2026-09-16)
+ *
+ * Everything above assumes the factory buys yarn and knits it — Default Rule
+ * No. 1. `doc/order/fabriprocess.md` §2 adds two more sources, declared per
+ * FABRIC on `order_fabric_bom_process_scope.source`, and they reach this file
+ * in two places and only two:
+ *
+ *  - `stagesForGroup` DROPS a suppressed step from the ladder — never leaves
+ *    it standing at 0% loss, which would divide by 1 and change nothing. It
+ *    is the last filter, after the component resolution, and
+ *    `./fabric-source.ts` says why that order is load-bearing.
+ *  - `yarnPurchase` SKIPS a fabric that is bought as cloth, before it asks
+ *    about the blend or the requirement, and says so in its own words when
+ *    that leaves a yarn with nothing.
+ *
+ * `clothPurchase` below is the demand that replaces the yarn — the same
+ * arithmetic asked about rolls instead of cones, deliberately written as
+ * `yarnPurchase`'s mirror rather than as a new kind of figure.
+ *
  * ## IT COMPUTES ONCE AND IS READ TWICE
  *
  * The screen previews it as the planner types and `writeYarns` stores what it
  * returns, exactly as `fabricRequirementRows` is used one section up. Two
  * implementations of one formula is how a preview and a saved figure come to
  * disagree, and here the saved one is what a yarn purchase is raised against.
+ *
+ * THAT RULE IS WHAT MAKES `sourceByFabric` A REQUIRED ARGUMENT IN SPIRIT
+ * THOUGH IT DEFAULTS TO EMPTY. Its default keeps every old call site correct,
+ * but a caller that previews a figure the save path will store MUST pass it —
+ * otherwise the screen shows Rule 1's yarn and the save stores Rule 2's, and
+ * the disagreement is invisible because both numbers look like answers.
  */
 
 import { z } from "zod";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import { isRefusal, type Refusal } from "./requirement";
+import {
+  clothPurchaseLabel,
+  routeForSource,
+  sourceBuysYarn,
+  type FabricSource,
+} from "./fabric-source";
 
 export { isRefusal };
 export type { Refusal };
@@ -422,7 +453,7 @@ export function yarnNetByCombo(
       return {
         refused:
           "The fabrics using this yarn are measured in different units, so their " +
-          "requirements cannot be added — give them one unit on Fabric Lines",
+          "requirements cannot be added — give them one unit on Fabric Allocation",
       };
     }
     if (f.uom_id) uomId = f.uom_id;
@@ -460,6 +491,20 @@ export type RouteStage = {
   loss_pct: number | null;
   stage_id?: string | null;
   process_id?: string | null;
+  /* WHAT KIND OF STEP THIS IS (0564), straight off the process master's own
+     `is_knitting` / `is_dyeing` flags — carried ON THE STEP, exactly the way
+     `component_id` came to be carried on it (2026-09-15), rather than passed
+     beside the route as a second lookup every caller would have to assemble.
+     A route is built in four places (the screen's `routesByFabric`,
+     `routesByFabricOf` in actions.ts, and both reports); a fact the engine
+     needs and the step does not carry is a fact three of those four forget.
+
+     BOTH OPTIONAL AND BOTH MEANING "not that kind" WHEN ABSENT, so every
+     pre-0564 caller composes a route that suppresses nothing. See
+     `./fabric-source.ts` for what an absent flag costs and why it costs it in
+     the safe direction. */
+  is_knitting?: boolean | null;
+  is_dyeing?: boolean | null;
 };
 
 /**
@@ -515,14 +560,29 @@ export function stagesForGroup<S extends RouteStage>(
   stages: readonly S[],
   combo: string,
   componentIds: readonly string[] = [],
+  /** WHERE THE CLOTH COMES FROM (0564) — see `./fabric-source.ts`. Defaults
+   *  to Rule 1, so every pre-0564 call site walks the route whole, exactly as
+   *  it always has. */
+  source: FabricSource = "yarn_knit",
 ): S[] | Refusal {
   const forColour = stages.filter((s) => stageCoversCombo(s.combo, combo));
   const named = resolveRouteComponents(forColour, componentIds);
   if (isRefusal(named)) return named;
-  if (named.length === 0) return forColour.filter((s) => !s.component_id);
-  /* `named[0]` stands for all of them — `resolveRouteComponents` has just
-     proved every name in the list declares the identical sequence. */
-  return forColour.filter((s) => !s.component_id || s.component_id === named[0]);
+  const resolved =
+    named.length === 0
+      ? forColour.filter((s) => !s.component_id)
+      : /* `named[0]` stands for all of them — `resolveRouteComponents` has just
+           proved every name in the list declares the identical sequence. */
+        forColour.filter((s) => !s.component_id || s.component_id === named[0]);
+  /* THE SOURCE FILTER RUNS LAST, AFTER THE COMPONENT RESOLUTION, AND THE
+     ORDER IS LOAD-BEARING. `resolveRouteComponents` refuses when two panels
+     declare DIFFERENT sequences, comparing `(stage, process, loss)` — and
+     Body-with-knitting and Rib-without still genuinely differ whatever the
+     cloth is bought as. Suppressing first would make two routes that the
+     operator must reconcile look identical, and the entry would be grossed by
+     a sequence neither panel declares. What a source changes is which
+     declared steps COST something, never what was declared. */
+  return routeForSource(resolved, source);
 }
 
 /**
@@ -590,8 +650,12 @@ export function comboUplift(
    *  `stagesForGroup` for what the engine does with them, and why an empty
    *  list means "unscoped steps only", never "every component's steps". */
   componentIds: readonly string[] = [],
+  /** WHERE THE CLOTH COMES FROM (0564). Same fourth argument as
+   *  `comboUpliftBreakdown` below and for the same reason the third one is
+   *  shared: the two must walk the IDENTICAL stage list. */
+  source: FabricSource = "yarn_knit",
 ): number | Refusal {
-  const treating = stagesForGroup(stages, combo, componentIds);
+  const treating = stagesForGroup(stages, combo, componentIds, source);
   if (isRefusal(treating)) return treating;
   let factor = 1;
   for (const s of treating) {
@@ -645,8 +709,13 @@ export function comboUpliftBreakdown(
    *  must walk the IDENTICAL stage list or the ledger a report prints stops
    *  matching the total a purchase was raised against. */
   componentIds: readonly string[] = [],
+  /** Same fourth argument as `comboUplift`, for the same reason (0564). A
+   *  ledger that printed a KNITTING row for a fabric the engine did not
+   *  charge knitting on would be the report and the purchase disagreeing in
+   *  the one place a reader would not think to check. */
+  source: FabricSource = "yarn_knit",
 ): { factor: number; steps: StageUpliftStep[] } | Refusal {
-  const treating = stagesForGroup(stages, combo, componentIds);
+  const treating = stagesForGroup(stages, combo, componentIds, source);
   if (isRefusal(treating)) return treating;
   let factor = 1;
   const steps: StageUpliftStep[] = [];
@@ -715,6 +784,88 @@ export type YarnFabricWeight = {
  * markup at all — and is kept for whatever wants that; this function no
  * longer builds its own total from it.
  */
+/**
+ * One DYED SHADE of one yarn, within one cloth and one colourway (0568).
+ *
+ * `share` is that shade's fraction OF THE YARN — `MixingDetailRow`'s
+ * `calculated_pct / 100`, which sums to 1 across a yarn's dyed stripes — and
+ * NOT its share of the cloth (`mixing_pct`). The yarn's own weight is what is
+ * being divided here; the cloth was already divided by the blend, one step
+ * earlier.
+ *
+ * `loss_pct` is the dye house's loss for that shade, off
+ * `order_fabric_bom_yd_combination_colors.dyeing_loss_pct` (0568) — a property
+ * of the dyestuff, which is why it travels with the colour and not with the
+ * feeder slot that happened to knit it.
+ */
+export type YarnShade = {
+  fabric_id: string;
+  yarn_id: string;
+  /** The assort colourway whose combination declared this shade. */
+  combo: string | null;
+  /** 0..1 of the YARN. */
+  share: number;
+  loss_pct: number;
+};
+
+/**
+ * WHAT ONE YARN'S DYED WEIGHT MUST BE GROSSED BY to become grey yarn to buy.
+ *
+ *     Σ over the yarn's shades:  share_s / (1 - loss_s/100)
+ *
+ * ## IT IS A WEIGHTED SUM, NOT ONE DIVISION
+ *
+ * Each shade is dyed in its own lot and loses its own percentage, so the yarn's
+ * grey requirement is the sum of its shades' grey requirements — it cannot be
+ * expressed as a single loss applied to the whole. The legacy printout's own
+ * numbers are the proof: 1021.000 kg splitting 50 / 33.33 / 16.67 at 5% / 4% /
+ * 3% buys 1067.311 kg, where a single averaged loss would buy 1066.9-something.
+ *
+ * ## A YARN WITH NO SHADES DECLARED GROSSES BY NOTHING
+ *
+ * Returns 1, which is what this engine did before 0568 and what an all-solid
+ * order will always want. The same reading a `dyeing_loss_pct` of 0 gets: a
+ * loss nobody declared is not a loss to invent.
+ *
+ * ## THE SHARES ARE NOT RE-NORMALISED, AND A GAP IS REFUSED
+ *
+ * Shares that do not sum to 1 mean the caller's mixing panel is half-answered.
+ * Scaling them to fit would silently redistribute a missing stripe's weight
+ * across the others — inventing a split nobody typed, which is the failure
+ * `yarnShareOf` refuses for the blend one level up. Tolerance is a thousandth,
+ * which is past any rounding `calculated_pct` can produce.
+ */
+export function shadeDyeFactor(
+  shades: readonly YarnShade[],
+  fabricId: string,
+  yarnId: string,
+  combo: string,
+): number | Refusal {
+  const mine = shades.filter(
+    (h) => h.fabric_id === fabricId && h.yarn_id === yarnId && comboKey(h.combo) === combo,
+  );
+  if (mine.length === 0) return 1;
+
+  const total = mine.reduce((sum, h) => sum + h.share, 0);
+  if (Math.abs(total - 1) > 0.001) {
+    return {
+      refused:
+        "This fabric's yarn-dyed stripes do not account for the whole yarn, so its dyeing loss cannot be worked out — check the Mixing Details on Yarn Dyed Details",
+    };
+  }
+
+  let factor = 0;
+  for (const h of mine) {
+    if (!Number.isFinite(h.loss_pct) || h.loss_pct < 0 || h.loss_pct >= 100) {
+      return {
+        refused: `A dyeing loss of ${h.loss_pct}% is out of range — enter a percentage under 100`,
+      };
+    }
+    factor += h.share / (1 - h.loss_pct / 100);
+  }
+  return factor;
+}
+
 export function yarnPurchase(
   yarnId: string,
   fabrics: readonly FabricGross[],
@@ -722,10 +873,46 @@ export function yarnPurchase(
   routesByFabric: ReadonlyMap<string, readonly RouteStage[]>,
   yarnOwnStages: readonly { combo: string | null; loss_pct: number | null }[],
   decimals: number | null,
+  /** EACH FABRIC'S OWN SOURCE (0564) — see `./fabric-source.ts`. A fabric
+   *  bought as cloth buys no yarn, so it leaves this sum entirely. Defaults
+   *  to empty, which reads Rule 1 for every fabric: a caller that has not
+   *  been taught about sources gets the arithmetic it always got. */
+  sourceByFabric: ReadonlyMap<string, FabricSource> = new Map(),
+  /**
+   * THE DYED SHADES OF THIS YARN (0568) — see `shadeDyeFactor`.
+   *
+   * DEFAULTS TO EMPTY, WHICH GROSSES BY NOTHING, and that default is a real
+   * hazard rather than a convenience: omitting it on a document that DOES have
+   * shades under-buys the yarn by every shade's dye loss, silently. It is kept
+   * for the reason `sourceByFabric` one parameter above keeps its own — making
+   * it required costs 55 call sites in `check-yarn-process.mts` an argument
+   * that says nothing (`[]` on every solid-fabric vector), and burying the
+   * intent of 55 assertions to guard 2 callers is the worse trade.
+   *
+   * SO THE TWO CALLERS ARE ENUMERATED INSTEAD, and both pass it today:
+   *
+   *   `yarnShadesOf`  (./actions.ts)              — the SAVE, per document
+   *   `yarnShades`    (fabric-bom-screen.tsx)     — the PREVIEW, per render
+   *
+   * A THIRD CALLER MUST PASS IT TOO. Those two are the same figure computed
+   * once and read twice (this file's own header), so a new reader that skips
+   * this argument does not merely get old arithmetic — it disagrees with the
+   * stored purchase weight on every yarn-dyed order. `yarnShadesFrom`
+   * (./yarn-dyed.ts) is the one-line way to build it; never assemble the
+   * repeats/combinations join a second time.
+   */
+  shades: readonly YarnShade[] = [],
 ): { qty: number; uom_id: string | null; byCombo: YarnComboWeight[]; byFabric: YarnFabricWeight[] } | Refusal {
   const dp = uomPrecision(decimals);
   let uomId: string | null = null;
   let used = 0;
+  /* HOW MANY OF THIS YARN'S CLOTHS ARE BOUGHT READY-MADE — counted, not just
+     skipped, so the refusal below can tell "no fabric uses this yarn" apart
+     from "every cloth that uses it is bought as cloth". They are opposite
+     situations: the first is a stale row, the second is the operator's own
+     answer working correctly, and a buyer reading the first sentence under
+     the second would go looking for a data problem that is not there. */
+  let boughtAsCloth = 0;
   const byFabric: YarnFabricWeight[] = [];
   const comboNet = new Map<string, number>();
   const comboGross = new Map<string, number>();
@@ -733,6 +920,18 @@ export function yarnPurchase(
   for (const f of fabrics) {
     const comp = compositions.get(f.fabric_id);
     if (!comp) continue;
+
+    /* RULE 2 LEAVES THE YARN SUM ALTOGETHER (§2: "disables and suppresses
+       Yarn Purchase"), and it is tested BEFORE the share and before the
+       `gross == null` guard on purpose. A greige roll bought from the market
+       has no yarn to buy whether or not its blend is declared and whether or
+       not its own requirement could be worked out — refusing here on a
+       composition problem would be refusing a figure nobody is asking for,
+       and would block every OTHER fabric's contribution to the same yarn. */
+    if (!sourceBuysYarn(sourceByFabric.get(f.fabric_id) ?? "yarn_knit")) {
+      boughtAsCloth++;
+      continue;
+    }
 
     const share = yarnShareOf(comp, yarnId);
     if (isRefusal(share)) return share;
@@ -754,7 +953,7 @@ export function yarnPurchase(
       return {
         refused:
           "The fabrics using this yarn are measured in different units, so their " +
-          "requirements cannot be added — give them one unit on Fabric Lines",
+          "requirements cannot be added — give them one unit on Fabric Allocation",
       };
     }
     if (f.uom_id) uomId = f.uom_id;
@@ -775,14 +974,33 @@ export function yarnPurchase(
     const factor = comboUplift([...route, ...yarnOwnStages], combo);
     if (isRefusal(factor)) return factor;
 
-    const gross = net * factor;
-    byFabric.push({ fabric_id: f.fabric_id, combo, net, gross, factor });
+    /* THE DYE HOUSE'S LOSS, LAST (0568) — and the order of these two markups
+       is the physical order read backwards. `factor` walks the CLOTH's route
+       back from the cutting floor to grey-knitted weight; the yarn was dyed
+       BEFORE it was knitted, so its own loss grosses what comes out of that,
+       never the other way round. Legacy's own numbers pin it: 1021.000 kg of
+       cloth-at-knitting becomes 1067.311 kg of grey yarn, not the reverse. */
+    const dye = shadeDyeFactor(shades, f.fabric_id, yarnId, combo);
+    if (isRefusal(dye)) return { refused: `${comp.fabric_name || "One fabric"}: ${dye.refused}` };
+
+    const gross = net * factor * dye;
+    byFabric.push({ fabric_id: f.fabric_id, combo, net, gross, factor: factor * dye });
     comboNet.set(combo, (comboNet.get(combo) ?? 0) + net);
     comboGross.set(combo, (comboGross.get(combo) ?? 0) + gross);
     used++;
   }
 
-  if (used === 0) return { refused: "No fabric on this BOM uses this yarn" };
+  if (used === 0) {
+    /* TWO WAYS TO HAVE NO WEIGHT, AND ONLY ONE OF THEM IS A PROBLEM (0564).
+       Naming the second in its own words is what stops a correct Rule 2
+       document reading as a broken Rule 1 one. */
+    return {
+      refused: boughtAsCloth
+        ? "Every fabric using this yarn is bought as cloth, so no yarn is " +
+          "purchased for it — see the fabric purchase requirement instead"
+        : "No fabric on this BOM uses this yarn",
+    };
+  }
 
   const byCombo: YarnComboWeight[] = [];
   let qty = 0;
@@ -797,6 +1015,131 @@ export function yarnPurchase(
   }
 
   return { qty: ceilToPrecision(qty, dp), uom_id: uomId, byCombo, byFabric };
+}
+
+/** One purchased cloth's line of the answer, per colourway — the same shape
+ *  `YarnComboWeight` takes one document up, because it is the same question
+ *  asked of rolls instead of cones. */
+export type ClothComboWeight = { combo: string; net: number; gross: number };
+
+/**
+ * THE RULE 2 DEMAND LINE (0564) — the roll weight to buy for ONE fabric the
+ * factory does not knit.
+ *
+ * §2: "On the Material Requirement Sheet, the demand shifts directly to
+ * Greige Fabric Roll Weight (in Kg) rather than raw grey yarn." This is the
+ * figure that replaces the yarn `yarnPurchase` no longer buys, and it is the
+ * DELIBERATE MIRROR of that function rather than a new kind of calculation —
+ * same per-colourway split, same ladder, same round-up-per-lot, same
+ * refusal-propagation — because the two are one arithmetic asked about two
+ * goods, and a second shape would be a second place for them to drift.
+ *
+ * ## THE UNIT IS THE KILOGRAM AND IS NOT CONVERTED HERE
+ *
+ * `f.gross` is `order_fabric_bom_requirements.required_qty`, which has been a
+ * weight in kilograms on every row since 0494 and has been LABELLED one since
+ * 0562 ("a Manual entry states grams per garment and the engine divides by
+ * 1,000"). So "roll weight in Kg" needs no conversion and gets none: what
+ * changes under Rule 2 is what is being weighed, not the scale. A conversion
+ * invented here would be a conversion between units that never differed —
+ * 0562's own words about why it relabelled rather than multiplied.
+ *
+ * ## THE LADDER IS THE SUPPRESSED ONE, WHICH IS THE WHOLE POINT
+ *
+ * A greige roll arrives already knitted, so the knitting loss belongs to
+ * whoever knitted it, and the weight to buy is the cutting-floor net grossed
+ * by the losses the factory still incurs AFTER the roll lands — dyeing,
+ * compacting, whatever the route declares. `stagesForGroup` with this
+ * fabric's own `source` is exactly that list; passing `"yarn_knit"` here
+ * would ask for enough greige to survive a knitting the factory is not doing
+ * and over-buy every roll.
+ *
+ * ## IT TAKES `FabricGross[]` WHOLE AND FILTERS ITSELF
+ *
+ * Callers hold one array covering every fabric on the BOM (`fabricGrossOf`
+ * builds exactly one), and handing this function a pre-filtered slice would
+ * put the filter at four call sites. It also lets the "no requirement yet"
+ * refusal below name the same fabric the yarn side would have named.
+ */
+export function clothPurchase(
+  fabricId: string,
+  source: FabricSource,
+  fabrics: readonly FabricGross[],
+  routesByFabric: ReadonlyMap<string, readonly RouteStage[]>,
+  decimals: number | null,
+  fabricName = "This fabric",
+): { qty: number; uom_id: string | null; label: string; byCombo: ClothComboWeight[] } | Refusal {
+  const label = clothPurchaseLabel(source);
+  if (!label) {
+    /* RULE 1 RAISES NO SUCH LINE, and this refuses rather than returning 0.
+       A zero here would print a "Greige Fabric Roll Weight 0.000" row under
+       a document that knits its own cloth — the "0 is not an answer" failure
+       this module names in three other places. */
+    return { refused: "This fabric is knitted in-house, so no cloth is purchased for it" };
+  }
+
+  const dp = uomPrecision(decimals);
+  let uomId: string | null = null;
+  let used = 0;
+  const comboNet = new Map<string, number>();
+  const comboGross = new Map<string, number>();
+
+  for (const f of fabrics) {
+    if (f.fabric_id !== fabricId) continue;
+
+    if (f.gross == null) {
+      /* THE ENGINE'S OWN SENTENCE WINS — `yarnPurchase`'s identical guard,
+         which this loop otherwise mirrors exactly. */
+      return {
+        refused: f.refusal
+          ? `${fabricName}: ${f.refusal}`
+          : `${fabricName} has no calculated requirement yet, so the cloth to buy ` +
+            "cannot be worked out — answer its weight on Manual",
+      };
+    }
+
+    if (f.uom_id && uomId && f.uom_id !== uomId) {
+      return {
+        refused:
+          "This fabric's requirement is stored in two different units, so the " +
+          "roll weight cannot be added up — give it one unit on Fabric Allocation",
+      };
+    }
+    if (f.uom_id) uomId = f.uom_id;
+
+    const combo = comboKey(f.combo);
+    const route = stagesForGroup(
+      routesByFabric.get(fabricId) ?? [],
+      combo,
+      f.component_ids ?? [],
+      source,
+    );
+    if (isRefusal(route)) return { refused: `${fabricName}: ${route.refused}` };
+    /* `comboUplift` OVER THE ALREADY-RESOLVED LIST, exactly as `yarnPurchase`
+       does it: the resolution happens here so the refusal can name the fabric,
+       and the uplift then walks a list that needs no further narrowing. */
+    const factor = comboUplift(route, combo);
+    if (isRefusal(factor)) return factor;
+
+    comboNet.set(combo, (comboNet.get(combo) ?? 0) + f.gross);
+    comboGross.set(combo, (comboGross.get(combo) ?? 0) + f.gross * factor);
+    used++;
+  }
+
+  if (used === 0) return { refused: "This fabric has no requirement on this BOM" };
+
+  const byCombo: ClothComboWeight[] = [];
+  let qty = 0;
+  /* ROUNDED PER COLOURWAY — `yarnPurchase`'s rule and its reason word for
+     word: a purchase per colour is a real lot, and rounding a total DOWN buys
+     less than the order needs. */
+  for (const [combo, gross] of [...comboGross].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const rounded = ceilToPrecision(gross, dp);
+    byCombo.push({ combo, net: comboNet.get(combo) ?? 0, gross: rounded });
+    qty += rounded;
+  }
+
+  return { qty: ceilToPrecision(qty, dp), uom_id: uomId, label, byCombo };
 }
 
 /**

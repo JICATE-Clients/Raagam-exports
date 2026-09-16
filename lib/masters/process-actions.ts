@@ -21,10 +21,14 @@ function rev(): void {
 }
 
 /** Clear sub-categories when Has Sub Categories is off; else drop blank-name
- *  rows and renumber sno 1..n so persisted lines mirror the checkbox. */
+ *  rows and renumber sno 1..n so persisted lines mirror the checkbox.
+ *
+ *  `short_description` is NOT here: the client removed it from both the header
+ *  and this grid (2026-09-16, doc/order/fabriprocess.md §4) and 0565 dropped the
+ *  columns — see `lib/masters/process-types.ts`. */
 function normalizeSubCategories(
   data: ProcessInput,
-): { sno: number; sub_category: string; short_description: string | null; hsn_code: string | null }[] {
+): { sno: number; sub_category: string; hsn_code: string | null }[] {
   if (!data.has_sub_categories) return [];
   return data.sub_categories
     .map((c) => ({ ...c, sub_category: c.sub_category.trim() }))
@@ -32,9 +36,41 @@ function normalizeSubCategories(
     .map((c, i) => ({
       sno: i + 1,
       sub_category: c.sub_category,
-      short_description: c.short_description?.trim() || null,
       hsn_code: c.hsn_code?.trim() || null,
     }));
+}
+
+/**
+ * THE FABRIC-STAGE MAPPING, blank rows dropped (0563).
+ *
+ * Three things it enforces, and each is a rule the grid states on screen:
+ *
+ * - **A row with no stage is not a statement** and is dropped. The grid opens
+ *   with one blank row by contract (AGENTS.md, "Editable sub-tables open with a
+ *   row"), so the untouched seed row must never reach the table — and the test
+ *   is the field the OPERATOR has to fill, never the `is_base` tick beside it,
+ *   which defaults to `false` and would make its clause the constant `true`
+ *   wearing the shape of evidence (the Material BOM phantom-line bug this
+ *   repo's `check-blank-row-filter.mts` exists for).
+ * - **One row per stage.** `unique (process_id, stage_id)` is the DB's half; the
+ *   grid withholds already-taken stages from the picker (`usedIds`). This is the
+ *   third half — a duplicate arriving any other way is dropped rather than
+ *   failing the whole save.
+ * - **A process that is not `for_fabric` has no stage route at all.** A stage is
+ *   a state of CLOTH; a garment or trims process running "in the Dyed stage" is
+ *   not a thing the ledger can mean. Same shape as `has_sub_categories` gating
+ *   the grid above.
+ */
+function normalizeFabricStages(data: ProcessInput): { stage_id: string; is_base: boolean }[] {
+  if (!data.for_fabric) return [];
+  const seen = new Set<string>();
+  const out: { stage_id: string; is_base: boolean }[] = [];
+  for (const s of data.fabric_stages) {
+    if (!s.stage_id || seen.has(s.stage_id)) continue;
+    seen.add(s.stage_id);
+    out.push({ stage_id: s.stage_id, is_base: s.is_base });
+  }
+  return out;
 }
 
 export async function createProcess(data: ProcessInput): Promise<Result> {
@@ -42,8 +78,9 @@ export async function createProcess(data: ProcessInput): Promise<Result> {
   const p = processInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { sub_categories: _drop, ...header } = p.data;
+  const { sub_categories: _drop, fabric_stages: _dropStages, ...header } = p.data;
   void _drop;
+  void _dropStages;
   const {
     data: { user },
   } = await s.auth.getUser();
@@ -71,6 +108,13 @@ export async function createProcess(data: ProcessInput): Promise<Result> {
       .insert(rows.map((r) => ({ ...r, process_id: created.id })));
     if (cErr) return fail(cErr.message);
   }
+  const stages = normalizeFabricStages(p.data);
+  if (stages.length) {
+    const { error: sErr } = await s
+      .from("process_fabric_stages")
+      .insert(stages.map((r) => ({ ...r, process_id: created.id })));
+    if (sErr) return fail(sErr.message);
+  }
   rev();
   return { ok: true };
 }
@@ -95,6 +139,20 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
       .from("process_sub_categories")
       .insert(rows.map((r) => ({ ...r, process_id: id })));
     if (cErr) return fail(cErr.message);
+  }
+  // The stage mapping, replaced wholesale for the same reason the grid above is:
+  // a small, fully-loaded set the screen always holds in its entirety. Nothing
+  // else in the app writes this table, so there is no row here that the editor
+  // did not just send back (contrast `material_attributes`, where a wholesale
+  // replace over an `ON DELETE SET NULL` FK orphaned rows).
+  const { error: sDelErr } = await s.from("process_fabric_stages").delete().eq("process_id", id);
+  if (sDelErr) return fail(sDelErr.message);
+  const stages = normalizeFabricStages(p.data);
+  if (stages.length) {
+    const { error: sErr } = await s
+      .from("process_fabric_stages")
+      .insert(stages.map((r) => ({ ...r, process_id: id })));
+    if (sErr) return fail(sErr.message);
   }
   rev();
   return { ok: true };

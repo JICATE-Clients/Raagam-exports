@@ -77,11 +77,15 @@ import {
   stageProcessQty,
   yarnNetByCombo,
   yarnPurchase,
+  shadeDyeFactor,
+  type YarnShade,
   yarnShareOf,
   type FabricComposition,
   type FabricGross,
   type YarnAnswer,
 } from "../lib/orders/fabric-bom/yarn-process.ts";
+/* §10 — WHERE THE CLOTH COMES FROM (0564). */
+import type { FabricSource } from "../lib/orders/fabric-bom/fabric-source.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -142,6 +146,21 @@ const RIB: FabricComposition = {
 const PIQUE: FabricComposition = {
   fabric_id: "pique",
   fabric_name: "SOLID PIQUE",
+  components: [{ yarn_id: COTTON, blend_pct: null }],
+};
+
+/* TWO MORE SINGLE-YARN CLOTHS OF THE SAME YARN — HO/RE/26-27/0007's own shape,
+   where the three cloths feeding 10'S COMBED COTTON are mastered in three
+   DIFFERENT buying units (KGS, NOS, MTR) while their requirements are all
+   kilograms. See the 0562 vector in section 8. */
+const SOLID_CUFF: FabricComposition = {
+  fabric_id: "rib2",
+  fabric_name: "SOLID CUFF",
+  components: [{ yarn_id: COTTON, blend_pct: null }],
+};
+const SOLID_CHAMBRAY: FabricComposition = {
+  fabric_id: "yd2",
+  fabric_name: "SOLID CHAMBRAY",
   components: [{ yarn_id: COTTON, blend_pct: null }],
 };
 
@@ -580,12 +599,43 @@ check(
     ),
   ),
   "The fabrics using this yarn are measured in different units, so their " +
-    "requirements cannot be added — give them one unit on Fabric Lines",
+    "requirements cannot be added — give them one unit on Fabric Allocation",
 );
 check(
   "a yarn no listed fabric uses refuses",
   refusalOf(yarnPurchase(MELANGE, [gross("rib", 1000)], map(RIB), NO_ROUTES, NO_OWN_STAGES, 2)),
   "No fabric on this BOM uses this yarn",
+);
+
+/* ...AND THE SAME THREE FIGURES SUM ONCE THEY ARE LABELLED ALIKE — the live
+   defect behind 0562, pinned here because the two vectors differ in NOTHING
+   but the label.
+
+   On HO/RE/26-27/0007 one yarn (10'S COMBED COTTON) feeds three cloths whose
+   requirements are 214, 16.05 and 10.7 — all three computed by `consumptionMap`
+   as `cons_qty x grams / 1000`, i.e. all three KILOGRAMS. `requirementRows`
+   stamped each row with its cloth's `items.base_uom_id` instead (KGS, NOS and
+   MTR), so the refusal above fired over three weights that were never in
+   different units, `purchase_qty` stored NULL, and the Yarn & Fabric
+   Requirement Report printed a TOTAL YARN PURCHASE REQUIREMENT of 0.
+
+   The refusal is RIGHT and stays: kg genuinely cannot be added to metres. What
+   was wrong was upstream, and the guard against it recurring is that these two
+   vectors sit side by side — anything that re-derives a requirement's unit
+   per fabric turns the second one back into the first. */
+check(
+  "three cloths of one yarn, all in one unit, sum: 214 + 16.05 + 10.7 = 240.75",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("pique", 214), gross("rib2", 16.05), gross("yd2", 10.7)],
+      map(PIQUE, SOLID_CUFF, SOLID_CHAMBRAY),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+    ),
+  ),
+  240.75,
 );
 
 // ---------------------------------------------------------------------------
@@ -666,6 +716,412 @@ check(
     yarnPurchase(COTTON, [gross("pique", 100)], map(PIQUE), routes("pique", [stage(1)]), [stage(5)], 2),
   ),
   106.33,
+);
+
+// ---------------------------------------------------------------------------
+// 10. A FABRIC BOUGHT AS CLOTH BUYS NO YARN (0564, 2026-09-16) —
+//     `doc/order/fabriprocess.md` §2, Default Rule No. 2.
+//
+//     "Selecting Greige Fabric Purchase disables and suppresses Yarn Purchase
+//     and Knitting in the calculation engine." The LADDER half of that
+//     sentence is pinned in `check-fabric-bom-reports.mts` §9; this section is
+//     the YARN half, which is the expensive one — the largest single quantity
+//     in a knitted order, and a figure a purchase order is raised against.
+//
+//     ## THE SKIP IS NOT FLAG-DEPENDENT, AND THAT IS DELIBERATE
+//
+//     The ladder's suppression needs the process master's `is_knitting` flag
+//     and therefore degrades quietly if nobody ticks it (it over-buys by a
+//     percent or two — see §9). This half needs no flag at all: the fabric's
+//     own source is enough, so the yarn cannot be re-bought by an unticked
+//     checkbox. The vectors below assert the skip happens on the SOURCE and
+//     nothing else.
+//
+//     DEMONSTRATED FAILING FIRST (2026-09-16) — see the report for the counts.
+// ---------------------------------------------------------------------------
+
+const sources = (...pairs: [string, FabricSource][]) => new Map(pairs);
+
+check(
+  "Rule 1 is untouched: passing no source map at all buys exactly what it always did",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", 500)],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+    ),
+  ),
+  1450,
+);
+check(
+  "…and naming every fabric `yarn_knit` explicitly is the same figure, not a near one",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", 500)],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["rib", "yarn_knit"], ["pique", "yarn_knit"]),
+    ),
+  ),
+  1450,
+);
+
+check(
+  "a cloth bought as GREIGE ROLLS drops out of the yarn sum — 1450 becomes 950, " +
+    "the rib's share alone",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", 500)],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["pique", "greige_purchase"]),
+    ),
+  ),
+  950,
+);
+refute(
+  "…and never 1450, which is the figure a Source ▾ the engine ignored would print",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", 500)],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["pique", "greige_purchase"]),
+    ),
+  ),
+  1450,
+);
+check(
+  "a cloth bought as DYED ROLLS drops out for the same reason",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", 500)],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["pique", "dyed_purchase"]),
+    ),
+  ),
+  950,
+);
+
+check(
+  "a yarn whose EVERY cloth is bought as cloth refuses in its own words — " +
+    "never 'no fabric uses this yarn', which sends a buyer chasing a data problem",
+  refusalOf(
+    yarnPurchase(
+      COTTON,
+      [gross("pique", 500)],
+      map(PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["pique", "greige_purchase"]),
+    ),
+  ),
+  "Every fabric using this yarn is bought as cloth, so no yarn is purchased " +
+    "for it — see the fabric purchase requirement instead",
+);
+check(
+  "…while a yarn genuinely on no fabric still says exactly that",
+  refusalOf(
+    yarnPurchase(MELANGE, [gross("pique", 500)], map(PIQUE), NO_ROUTES, NO_OWN_STAGES, 2),
+  ),
+  "No fabric on this BOM uses this yarn",
+);
+refute(
+  "…and a purchased cloth never answers 0, which on a purchase line reads as 'buy nothing'",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("pique", 500)],
+      map(PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["pique", "greige_purchase"]),
+    ),
+  ),
+  0,
+);
+
+check(
+  "THE SKIP COMES BEFORE THE BLEND GUARD: a purchased cloth whose blend is " +
+    "undeclared does not refuse the whole yarn — there is no yarn to work out",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("yd", 400)],
+      map(RIB, YD),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["yd", "greige_purchase"]),
+    ),
+  ),
+  950,
+);
+check(
+  "THE SKIP COMES BEFORE THE 'no requirement yet' GUARD too — a greige roll " +
+    "bought from the market has no yarn whether or not its weight was answered",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", null, null, KG, "Enter the consumption for WHITE · S")],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["pique", "greige_purchase"]),
+    ),
+  ),
+  950,
+);
+refute(
+  "…and the SAME pair under Rule 1 still refuses, so the skip is doing the " +
+    "work rather than the guard having been loosened",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", null, null, KG, "Enter the consumption for WHITE · S")],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+    ),
+  ),
+  950,
+);
+
+check(
+  "a source naming a fabric this yarn never touches changes nothing",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("rib", 1000)],
+      map(RIB),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["some-other-cloth", "greige_purchase"]),
+    ),
+  ),
+  950,
+);
+check(
+  "a purchased cloth leaves the byFabric breakdown too, not just the total — " +
+    "a drill-down showing a weight no purchase order exists for is the same lie",
+  (() => {
+    const r = yarnPurchase(
+      COTTON,
+      [gross("rib", 1000), gross("pique", 500)],
+      map(RIB, PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      sources(["pique", "greige_purchase"]),
+    );
+    return isRefusal(r) ? "refused" : r.byFabric.map((f) => f.fabric_id);
+  })(),
+  ["rib"],
+);
+
+// ---------------------------------------------------------------------------
+// THE DYE HOUSE'S PER-SHADE LOSS (0568)
+//
+// Legacy, "Yarndyed _Format.pdf", YARN DYEING — one yarn, three shades, three
+// different losses, and the total is what YARN PURCHASE (GREY) buys:
+//
+//   20'S COMBED COTTON  GREEN  510.500  5.00  537.368
+//                       RED    340.299  4.00  354.478
+//                       WHITE  170.201  3.00  175.465
+//                       Total 1021.000        1067.311
+//
+// Until 0568 nothing could hold a loss per shade, so every colour of a yarn
+// showed that yarn's single stage loss and the grey purchase was the dyed
+// weight un-grossed — step 3 of the client's formula was a no-op.
+// ---------------------------------------------------------------------------
+
+const KNIT_GROSS_YD = 1021;
+/** Legacy's three stripes: 6 / 4 / 2 of the yarn, at 5% / 4% / 3%. */
+const LEGACY_SHADES: YarnShade[] = [
+  { fabric_id: "yd", yarn_id: COTTON, combo: null, share: 6 / 12, loss_pct: 5 },
+  { fabric_id: "yd", yarn_id: COTTON, combo: null, share: 4 / 12, loss_pct: 4 },
+  { fabric_id: "yd", yarn_id: COTTON, combo: null, share: 2 / 12, loss_pct: 3 },
+];
+const dyeFactorOf = (v: number | Refusal) => (isRefusal(v) ? "refused" : v);
+
+/* 1067.312, WHERE THE LEGACY SHEET PRINTS 1067.311 — one gram, and it is
+   legacy's rounding rather than a disagreement about the arithmetic. It shows
+   33.33% and 16.67% and computed its rows FROM those rounded figures
+   (1021 x 33.33% = 340.299 exactly); this engine divides the exact thirds and
+   displays the rounded ones. The same gram is documented in
+   `check-fabric-bom-reports.mts` for the same reason. Pinned at the true value,
+   so a future "fix" toward legacy's printed total has to argue with this
+   comment first. */
+check(
+  "the three shades gross 1021.000 kg of dyed yarn to 1067.312 kg of grey",
+  Number(
+    (KNIT_GROSS_YD * (dyeFactorOf(shadeDyeFactor(LEGACY_SHADES, "yd", COTTON, "")) as number)).toFixed(3),
+  ),
+  1067.312,
+);
+/* IT IS A WEIGHTED SUM AND NOT ONE AVERAGED DIVISION, which is the whole reason
+   the factor is built per shade. The share-weighted mean loss here is 4.333%,
+   and applying that to the whole yarn buys 1067.246 — 65 grams light, on one
+   cloth, from an arithmetic shortcut that looks equivalent. */
+refute(
+  "…never by applying one averaged loss to the whole yarn",
+  Number((KNIT_GROSS_YD / (1 - 0.0433333333)).toFixed(3)),
+  1067.311,
+);
+/* GREEN MATCHES LEGACY TO THE GRAM (537.368), because a half is a half however
+   it is rounded. RED and WHITE differ — 354.514 against legacy's 354.478, and
+   175.430 against its 175.465 — for the reason above. */
+check(
+  "each shade alone: GREEN matches legacy exactly, RED and WHITE by its rounding",
+  [
+    Number(((KNIT_GROSS_YD * (6 / 12)) / (1 - 0.05)).toFixed(3)),
+    Number(((KNIT_GROSS_YD * (4 / 12)) / (1 - 0.04)).toFixed(3)),
+    Number(((KNIT_GROSS_YD * (2 / 12)) / (1 - 0.03)).toFixed(3)),
+  ],
+  [537.368, 354.514, 175.43],
+);
+
+check(
+  "a yarn with NO shades declared grosses by nothing — the pre-0568 answer",
+  dyeFactorOf(shadeDyeFactor([], "yd", COTTON, "")),
+  1,
+);
+check(
+  "…and so does a shade whose loss is 0: nothing declared is not a loss to invent",
+  dyeFactorOf(
+    shadeDyeFactor([{ fabric_id: "yd", yarn_id: COTTON, combo: null, share: 1, loss_pct: 0 }], "yd", COTTON, ""),
+  ),
+  1,
+);
+
+/* SCOPED THREE WAYS. A shade belongs to one cloth, one yarn and one colourway —
+   reading another's would gross a weight by a loss that was never about it. */
+check(
+  "shades of a DIFFERENT fabric are not read",
+  dyeFactorOf(shadeDyeFactor(LEGACY_SHADES, "other-fabric", COTTON, "")),
+  1,
+);
+check(
+  "shades of a DIFFERENT yarn are not read",
+  dyeFactorOf(shadeDyeFactor(LEGACY_SHADES, "yd", MELANGE, "")),
+  1,
+);
+check(
+  "shades of a DIFFERENT colourway are not read",
+  dyeFactorOf(shadeDyeFactor(LEGACY_SHADES, "yd", COTTON, "PURPLE")),
+  1,
+);
+
+/* SHARES THAT DO NOT ACCOUNT FOR THE WHOLE YARN ARE REFUSED, never scaled to
+   fit — rescaling would hand a missing stripe's weight to the others and invent
+   a split nobody typed. */
+check(
+  "stripes summing to less than the whole yarn refuse",
+  refusalOf(
+    shadeDyeFactor(
+      [{ fabric_id: "yd", yarn_id: COTTON, combo: null, share: 0.5, loss_pct: 5 }],
+      "yd",
+      COTTON,
+      "",
+    ),
+  )?.startsWith("This fabric's yarn-dyed stripes do not account for the whole yarn"),
+  true,
+);
+refute(
+  "…rather than quietly rescaling the half that is there",
+  dyeFactorOf(
+    shadeDyeFactor(
+      [{ fabric_id: "yd", yarn_id: COTTON, combo: null, share: 0.5, loss_pct: 5 }],
+      "yd",
+      COTTON,
+      "",
+    ),
+  ),
+  1 / (1 - 0.05),
+);
+check(
+  "a loss at or over 100% refuses rather than dividing by zero",
+  refusalOf(
+    shadeDyeFactor(
+      [{ fabric_id: "yd", yarn_id: COTTON, combo: null, share: 1, loss_pct: 100 }],
+      "yd",
+      COTTON,
+      "",
+    ),
+  ),
+  "A dyeing loss of 100% is out of range — enter a percentage under 100",
+);
+
+/* THE ORDER OF THE TWO MARKUPS IS THE PHYSICAL ORDER READ BACKWARDS — the
+   cloth's route grosses to grey-KNITTED weight, and the yarn was dyed before it
+   was knitted, so the dye loss grosses what comes out of that. Multiplication
+   commutes, so this vector pins the COMBINED factor rather than the sequence,
+   which is what any reordering would have to preserve. */
+check(
+  "route 1% then a 5% single shade = 100 / 0.99 / 0.95 = 106.33",
+  Number(
+    (
+      100 *
+      (dyeFactorOf(
+        shadeDyeFactor(
+          [{ fabric_id: "pique", yarn_id: COTTON, combo: null, share: 1, loss_pct: 5 }],
+          "pique",
+          COTTON,
+          "",
+        ),
+      ) as number) *
+      (comboUplift([stage(1)], "") as number)
+    ).toFixed(2),
+  ),
+  106.33,
+);
+
+/* END TO END THROUGH `yarnPurchase`, which is what actually writes
+   `purchase_qty` — the figure a yarn PO is raised against. */
+check(
+  "yarnPurchase grosses a single-yarn cloth by its shades: 1000 -> 1041.78",
+  qtyOf(
+    yarnPurchase(
+      COTTON,
+      [gross("pique", 1000)],
+      map(PIQUE),
+      NO_ROUTES,
+      NO_OWN_STAGES,
+      2,
+      new Map(),
+      [
+        { fabric_id: "pique", yarn_id: COTTON, combo: null, share: 0.5, loss_pct: 5 },
+        { fabric_id: "pique", yarn_id: COTTON, combo: null, share: 0.5, loss_pct: 3 },
+      ],
+    ),
+  ),
+  1041.78,
+);
+check(
+  "…and with no shades passed it is unchanged at 1000, as every caller before 0568 got",
+  qtyOf(yarnPurchase(COTTON, [gross("pique", 1000)], map(PIQUE), NO_ROUTES, NO_OWN_STAGES, 2)),
+  1000,
 );
 
 console.log(failed === 0 ? "\nOK — every yarn-process vector holds." : `\n${failed} FAILED`);
