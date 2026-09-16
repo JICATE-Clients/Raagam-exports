@@ -68,7 +68,7 @@ export function CardTitle({
 }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("text-sm font-semibold text-foreground", className)}
+      className={cn("ty-subsection text-sm font-semibold text-foreground", className)}
       {...props}
     />
   );

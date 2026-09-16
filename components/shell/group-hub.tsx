@@ -104,7 +104,7 @@ export function HubPage({
   return (
     <div className="space-y-4">
       {breadcrumb && (
-        <nav className="text-xs text-muted-foreground">
+        <nav className="ty-breadcrumb text-xs text-muted-foreground">
           <Link href={breadcrumb.href} className="hover:text-primary">
             {breadcrumb.label}
           </Link>{" "}

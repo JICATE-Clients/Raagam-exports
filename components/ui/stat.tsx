@@ -23,11 +23,11 @@ export function Stat({
 }) {
   return (
     <Card className="p-4">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="ty-label text-xs font-medium text-muted-foreground">{label}</p>
       <p className={cn("mt-1 text-2xl font-semibold tabular-nums", toneText[tone])}>
         {value}
       </p>
-      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="ty-helper mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </Card>
   );
 }

@@ -10,7 +10,7 @@ import { activeModule, visibleModules } from "./navigation-config";
 import { SidebarItem } from "./SidebarItem";
 
 /**
- * LEVEL 1 — the icon rail. Collapsed (64px) by default, floats out to ~250px
+ * LEVEL 1 — the icon rail. Collapsed (64px) by default, floats out to 208px
  * on hover without moving anything else on screen: the rail's real layout
  * width never changes, only a `fixed` overlay grows on top of it.
  *
@@ -35,7 +35,7 @@ export function GlobalSidebar() {
         className={cn(
           "fixed inset-y-0 left-0 z-40 flex flex-col overflow-hidden border-r border-border bg-surface",
           "transition-[width] duration-[220ms] ease-out",
-          expanded ? "w-44 shadow-md" : "w-16",
+          expanded ? "w-52 shadow-md" : "w-16",
         )}
       >
         <div className="flex h-12 shrink-0 items-center justify-center border-b border-border px-3">
@@ -52,7 +52,7 @@ export function GlobalSidebar() {
           />
         </div>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden p-1.5">
+        <nav className="scrollbar-slim flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden p-1.5">
           {items.map((item) => {
             const Icon = item.icon;
 
@@ -64,6 +64,13 @@ export function GlobalSidebar() {
                 icon={<Icon className="h-4 w-4 shrink-0" />}
                 collapsed={!expanded}
                 active={active?.href === item.href}
+                // BREATHING ROOM IN THE OPEN FLYOUT (client 2026-09-16: "in
+                // opening state the sidebar menu looks squeezed"). `h-10` is
+                // the collapsed icon's own height, so the rows no longer
+                // shrink 40px -> 32px as the panel opens and the icons stay
+                // put under the pointer; `w-full` makes the active pill a
+                // whole row instead of a tag hugging its label.
+                className={expanded ? "h-10 w-full gap-3" : undefined}
                 onClick={(e) => {
                   e.preventDefault();
                   openTab({ href: item.href, title: item.label });

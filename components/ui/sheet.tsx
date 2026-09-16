@@ -740,7 +740,7 @@ export function Sheet({
             >
               {/* header */}
               <div data-focus-region="header" className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3.5">
-                <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
+                <h2 className="ty-section-title truncate text-base font-semibold text-foreground">{title}</h2>
                 <div className="flex shrink-0 items-center gap-1">
                   {headerActions}
                   {headerActions && <div className="mx-1 h-5 w-px bg-border" />}
@@ -840,7 +840,7 @@ export function Sheet({
           >
             {/* header */}
             <div data-focus-region="header" className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3.5 md:px-8">
-              <h2 className="truncate text-base font-semibold text-foreground md:text-lg">{title}</h2>
+              <h2 className="ty-section-title truncate text-base font-semibold text-foreground md:text-lg">{title}</h2>
               <div className="flex shrink-0 items-center gap-1">
                 {headerActions}
                 {headerActions && <div className="mx-1 h-5 w-px bg-border" />}
@@ -947,7 +947,7 @@ export function Sheet({
         >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-border md:hidden" />
           <div data-focus-region="header" className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
-            <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
+            <h2 className="ty-section-title truncate text-base font-semibold text-foreground">{title}</h2>
             <div className="flex shrink-0 items-center gap-1">
               {headerActions}
               {headerActions && <div className="mx-1 h-5 w-px bg-border" />}

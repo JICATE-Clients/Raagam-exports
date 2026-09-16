@@ -171,7 +171,7 @@ export function Tabs({
                 // `overflow-x-auto` has already made scrollable on both axes.
                 // The accent now sits directly on top of the divider, which
                 // runs unbroken under every tab. Do not put it back.
-                "flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                "ty-tab flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
                 isActive
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground",

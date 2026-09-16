@@ -47,7 +47,7 @@ export const Label = forwardRef<
       // the system's identification tier, not its navigation tier — was
       // font-medium/500, which the spec reserves for nav/secondary-interactive
       // elements this is neither).
-      "text-xs font-semibold text-muted-foreground block",
+      "ty-label text-xs font-semibold text-muted-foreground block",
       LABEL_METRICS,
       className,
     )}

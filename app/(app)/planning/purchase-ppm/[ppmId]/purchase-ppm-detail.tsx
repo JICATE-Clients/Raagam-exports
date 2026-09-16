@@ -498,7 +498,7 @@ export function PurchasePpmDetail({
               </Button>
             )}
             {isSubmitted && canApprove && (
-              <Button disabled={isPending} onClick={handleApprove}>
+              <Button variant="approve" disabled={isPending} onClick={handleApprove}>
                 {isPending ? "Approving..." : "Approve"}
               </Button>
             )}

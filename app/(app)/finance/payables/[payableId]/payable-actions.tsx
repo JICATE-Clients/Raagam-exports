@@ -29,7 +29,7 @@ export function ApproveButton({ payableId }: { payableId: string }) {
   }
 
   return (
-    <Button size="sm" onClick={handleApprove} disabled={isPending}>
+    <Button variant="approve" size="sm" onClick={handleApprove} disabled={isPending}>
       {isPending ? "Approving…" : "Approve"}
     </Button>
   );

@@ -783,7 +783,7 @@ export function Field({
       >
         {control}
       </RequiredScope>
-      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="ty-helper mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
