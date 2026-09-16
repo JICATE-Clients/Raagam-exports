@@ -12,12 +12,10 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   DISABILITY_TYPES,
   GUARDIAN_RELATIONS,
-  PAY_MODES,
   BLOOD_GROUPS,
   MARITAL_STATUSES,
   PAY_FREQUENCIES,
   GENDERS,
-  STATUTORY_STATUSES,
   EMPLOYMENT_TYPES,
   WEEK_DAYS,
   WORKER_TYPES,
@@ -49,12 +47,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
+import { SectionColumn, SectionGrid } from "@/components/masters/section-grid";
 import {
   ChildGrid,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { Toggle } from "@/components/ui/toggle";
-import { PhotoUpload } from "@/components/ui/photo-upload";
+import { PersonProfileAside } from "./person-profile-aside";
+import { useCurrentLocationId } from "@/lib/auth/location-context";
+import { PersonProfileView } from "./person-profile-view";
 import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
@@ -210,15 +212,6 @@ type BankAccountRow = {
   ifsc_code: string;
   branch: string;
 };
-const blankBankAccount = (key: string): BankAccountRow => ({
-  key,
-  bank_type: "",
-  bank_id: "",
-  ac_type: "",
-  ac_no: "",
-  ifsc_code: "",
-  branch: "",
-});
 
 /**
  * An external referee and an emergency contact (0547).
@@ -339,6 +332,15 @@ function monthsBetween(from: string, to: string): string | null {
   const y = Math.floor(months / 12);
   const m = months % 12;
   return y ? `${y}y ${m}m` : `${m}m`;
+}
+
+/** The display name of a picked master option, or null when nothing is picked. */
+function nameOfOption(
+  options: { id: string; name: string }[],
+  id: string | null | undefined,
+): string | null {
+  if (!id) return null;
+  return options.find((o) => o.id === id)?.name ?? null;
 }
 
 /** An option row from a master, carrying its disabled flag — see page.tsx. */
@@ -644,7 +646,32 @@ export default function PersonClient({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
-  useCreateIntent(() => setShowForm(true));
+  /**
+   * The record whose Details page is open, or null. A row opens its Details
+   * first (the TeamHub-style read page, client 2026-09-15) and "Edit" hands
+   * over to the editor below; a NEW record skips straight to the editor.
+   */
+  const [viewing, setViewing] = useState<PersonRow | null>(null);
+  /**
+   * THE LOCATION FIELD OPENS ON THE UNIT SELECTED AT THE TOP (client
+   * 2026-09-16: "if the location at the top is HO, inside the staff location
+   * also should show default HO").
+   *
+   * The column already did this on the SERVER — `staff.location_id` defaults
+   * to `current_location()` and `withoutBlankLocation` leaves a null off the
+   * insert so that default fires — but a default the database applies is one
+   * the operator never sees, and a blank box on screen reads as "not chosen".
+   * So the same value is pre-filled on the form from the session's own
+   * `LocationProvider`, which is seeded from the same `profiles.current_location_id`
+   * the trigger reads. Nothing about what gets SAVED changes; only that the
+   * operator can now see it and change it before saving.
+   */
+  const currentLocationId = useCurrentLocationId();
+  /** A new record's starting values: the defaults, with the unit filled in. */
+  const freshForm = (): PersonInput => ({
+    ...DEFAULTS,
+    location_id: currentLocationId ?? DEFAULTS.location_id,
+  });
   const [editId, setEditId] = useState<string | null>(null);
   /**
    * The record's ID No. Not part of `form`: `staff.code` is assigned by a
@@ -654,9 +681,9 @@ export default function PersonClient({
    */
   const [editCode, setEditCode] = useState<string | null>(null);
   const [form, setForm] = useState<PersonInput>(DEFAULTS);
+  const shellRef = useRef<MasterFullScreenHandle>(null);
   const [saved, setSaved] = useState<PersonInput>(DEFAULTS);
   const sel = useRowSelection();
-  const shellRef = useRef<MasterFullScreenHandle>(null);
 
   const set = (patch: Partial<PersonInput>) =>
     setForm((f) => ({ ...f, ...patch }));
@@ -702,8 +729,9 @@ export default function PersonClient({
   });
 
   function openAdd() {
-    setForm(DEFAULTS);
-    setSaved(DEFAULTS);
+    const fresh = freshForm();
+    setForm(fresh);
+    setSaved(fresh);
     // The child lists are state of their own, so they have to be cleared here
     // as well — otherwise a new record opens holding the last one's family.
     setFamily([]);
@@ -1109,13 +1137,6 @@ export default function PersonClient({
    * has an empty array, `account` falls back to a blank, and `childPayload`
    * drops it unless something was actually typed.
    */
-  const account = bankAccounts[0] ?? blankBankAccount("bank-0");
-  const setAccount = (patch: Partial<BankAccountRow>) =>
-    setBankAccounts((xs) =>
-      xs.length
-        ? xs.map((x, i) => (i === 0 ? { ...x, ...patch } : x))
-        : [{ ...account, ...patch }],
-    );
 
   /**
    * ONE DECLARATION PER GRID — `ChildGrid` renders the header and every cell
@@ -1756,6 +1777,16 @@ export default function PersonClient({
    * `*`, the cursor hold and this list cannot disagree.
    */
   // Shifts is a worker row only; `personSections` is where that is decided.
+  /**
+   * "+ Add" from the command palette / URL intent opens the SAME blank record
+   * the button does — the pre-filled unit and the cleared child lists come
+   * with it. Declared HERE, below every piece of state `openAdd` resets,
+   * because a hook callback may not name a variable declared later in the
+   * component (react-hooks/immutability) — and still above the early return,
+   * where every hook in this file lives (AGENTS.md).
+   */
+  useCreateIntent(openAdd);
+
   const railSections = personSections(kind);
 
   const validity = sectionValidity({
@@ -1772,6 +1803,12 @@ export default function PersonClient({
     ],
   });
 
+  /**
+   * A BLOCKED SAVE EXPLAINS ITSELF AND GOES THERE. `goToSection` opens the
+   * section holding the field (only one pane is mounted at a time) and lands
+   * the cursor on it — the reason `sectionValidity` reports a section key and
+   * not just a message.
+   */
   const revealFirstProblem = () => {
     const p = validity.first;
     if (!p) return;
@@ -1960,10 +1997,23 @@ export default function PersonClient({
                   answer to a single question.
                 */}
                 <Field label="Guardian" size="sm" htmlFor="st-guardian-name">
-                  <div className="flex items-center gap-2">
+                  {/* `data-field-pair`: two controls that make ONE line. Under the lines
+                      style the 75% cap goes on the pair, not on each half —
+                      otherwise the relation box took 75% of its own width and
+                      the name box 75% of what was left, and the pair ran past
+                      every other line in the column (client 2026-09-16: "the
+                      guardian line is too big"). */}
+                  <div data-field-pair className="flex items-center gap-2">
                     <Select
                       aria-label="Guardian relation"
-                      className="w-24 shrink-0"
+                      // 4.5rem (72px), down from `w-24` (96px) — the smallest
+                      // this can be without clipping: the arrow slot is `w-7`
+                      // (28px) and the input carries `pr-8` (32px) for it, so
+                      // "S/O" needs ~28px of the remaining 40px. Every pixel
+                      // taken off here goes to the name beside it (client
+                      // 2026-09-16: "still S/O line is big, i want it small so
+                      // that guardian can be a lil bit bigger").
+                      className="w-[4.5rem] shrink-0"
                       value={form.guardian_relation ?? ""}
                       onChange={(e) =>
                         set({
@@ -1982,6 +2032,13 @@ export default function PersonClient({
                     </Select>
                     <Input
                       id="st-guardian-name"
+                      // The relation is fixed at `w-24` above and the NAME
+                      // takes what is left (client 2026-09-16: "that S/O line
+                      // can be small, guardian name line should be long").
+                      // `min-w-0` is not optional beside it: a flex item will
+                      // not shrink below its content without it, so a long name
+                      // would push the pair past the end of its line.
+                      className="min-w-0 flex-1"
                       uppercase
                       value={form.guardian_name ?? ""}
                       onChange={(e) =>
@@ -2038,21 +2095,32 @@ export default function PersonClient({
                   />
                 </Field>
 
-                <Field label="Location" size="sm" htmlFor="st-location">
-                  <Select
+                {/*
+                  THE UNIT IS THE SESSION'S UNIT, AND NOBODY PICKS IT HERE
+                  (client 2026-09-16: "i don't even want the dropdown for it,
+                  if it's head office in the top, as a whole in staff location
+                  it should be default as HO, nobody should edit it").
+
+                  A person belongs to the unit they are entered under — the
+                  Location switcher in the top bar — so this box only SHOWS
+                  it. On a new record that is the session's current unit; on an
+                  existing one it is the unit the record was created under,
+                  which is what the row actually stores. `readOnly`, never
+                  `disabled`: a read-only field leaves the Tab path on its own
+                  and stays selectable, and it never holds (AGENTS.md). The
+                  save path is unchanged — `location_id` is on the form, just
+                  not on a control.
+                */}
+                <Field label="Location" size="sm" htmlFor="st-location" skipTab>
+                  <Input
                     id="st-location"
-                    value={form.location_id ?? ""}
-                    onChange={(e) =>
-                      set({ location_id: e.target.value || null })
+                    readOnly
+                    value={
+                      nameOfOption(locations, form.location_id) ??
+                      nameOfOption(locations, currentLocationId) ??
+                      ""
                     }
-                  >
-                    <option value=""></option>
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </Select>
+                  />
                 </Field>
 
                 <Field label="Division" size="sm" htmlFor="st-division">
@@ -2061,31 +2129,6 @@ export default function PersonClient({
                     options={divisions}
                     value={form.division_id}
                     onChange={(v) => set({ division_id: v })}
-                  />
-                </Field>
-
-                {/*
-                  THE PHOTO CLOSES THE IDENTITY BLOCK (client 2026-09-12).
-
-                  LAST, not first, and that is about the keyboard rather than
-                  looks: `PhotoUpload` is a button, and Tab lands on fields —
-                  so wherever it sits, the typing path steps over it. Putting
-                  it at the end means the operator types ID No → … → Division
-                  in one unbroken run and reaches the picture when the words
-                  are done, instead of meeting an unreachable control in the
-                  middle of the block.
-
-                  `md` (4 of 12) beside Division's `sm` (3) leaves the row at
-                  7 — a partial LAST row of the group, which is what the rest
-                  of this screen does too. It is a control with a preview
-                  rather than a box, so the row it sits on is taller; the last
-                  row is the one place that costs nothing.
-                */}
-                <Field label="Photo" size="md">
-                  <PhotoUpload
-                    value={form.photo_url}
-                    onChange={(url) => set({ photo_url: url })}
-                    folder={isWorker ? "workers" : "staff"}
                   />
                 </Field>
               </FieldGrid>
@@ -2641,8 +2684,56 @@ export default function PersonClient({
               {childrenLoading ? (
                 <LoadingRows />
               ) : (
+                /*
+                  EVERY GRID ON THIS EDITOR IS A ROW OF LABELLED FIELDS, not a
+                  table line — Family Details and Work Experience went first
+                  (client 2026-09-12: "i want like this freely not in a in
+                  line box") and the rest followed on the same day ("do the
+                  same for the other grids also"), so no two lists on one
+                  record read differently.
+
+                  `forceCards` + `flatRows` are a pair: the second is a
+                  cards-mode modifier and is a no-op alone. Labels and cells
+                  are read off `columns`; `required` is forwarded because in
+                  cards mode the grid renders the row itself and a required
+                  column would otherwise draw the star and lose the hold
+                  (AGENTS.md ▸ "A GRID THAT RENDERS ITS OWN ROW").
+                */
                 <ChildGrid<ShiftRow>
                   columns={shiftColumns}
+                  forceCards
+                  flatRows
+                  renderMobileRow={(row, i) => (
+                    <div className="flex gap-3">
+                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                          2026-09-16: "the numbering looks odd ... it should show at
+                          the 1st line of the content"). It was `rowSummary`, which
+                          draws a band ABOVE the fields — a whole line spent on one
+                          digit. As a gutter it sits beside the first field instead,
+                          and the row's ✕ goes back to the corner where a grid with no
+                          band puts it.
+                          `h-9` matches the field row it aligns with, so the digit is
+                          centred on that line rather than floating above it. */}
+                      <span
+                        aria-hidden
+                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                      >
+                        {i + 1}
+                      </span>
+                      <FieldGrid className="min-w-0 flex-1">
+                        {shiftColumns.map((c, ci) => (
+                          <Field
+                            key={ci}
+                            label={c.header}
+                            required={c.required}
+                            size="sm"
+                          >
+                            {c.cell(row, i)}
+                          </Field>
+                        ))}
+                      </FieldGrid>
+                    </div>
+                  )}
                   rows={shifts}
                   onAdd={() => setShifts((xs) => [...xs, blankShift(newKey())])}
                   onRemove={(r) =>
@@ -2656,571 +2747,210 @@ export default function PersonClient({
           ),
         };
 
-      case "salary-registry":
-        /* A CATEGORY ROW: everything it used to hold is now a child of its
-           own below, so it owns no pane. `goToSection` resolves it to the
-           first child, which is why `content` is never rendered. */
-        return { ...base, content: null };
-
-      case "pay-statutory":
-        return {
-          ...base,
-          done: form.stat_gross > 0,
-          content: (
-            <div className="space-y-6">
-              {/*
-                FOUR HEADS, TWICE. The two panels hold the same four names, so
-                the heading is the only thing saying which set a figure belongs
-                to — the same reason PF/ESI Control's captions moved into its
-                labels rather than being deleted.
-
-                OTHERS is absent from both, as in 0534: legacy greys it and
-                computes it (gross less the named heads), and a stored copy
-                would drift from the arithmetic.
-              */}
-              <FieldGrid>
-                <MoneyField
-                  id="st-stat-gross"
-                  label={copy.gross}
-                  value={form.stat_gross}
-                  onChange={(v) => set({ stat_gross: v })}
-                />
-                <MoneyField
-                  id="st-stat-basic"
-                  label="Basic"
-                  value={form.stat_basic}
-                  onChange={(v) => set({ stat_basic: v })}
-                />
-                <MoneyField
-                  id="st-stat-da"
-                  label="DA"
-                  value={form.stat_da}
-                  onChange={(v) => set({ stat_da: v })}
-                />
-                <MoneyField
-                  id="st-stat-hra"
-                  label="HRA"
-                  value={form.stat_hra}
-                  onChange={(v) => set({ stat_hra: v })}
-                />
-                <DerivedMoney
-                  size="xs"
-                  label="Others"
-                  value={
-                    form.stat_gross -
-                    form.stat_basic -
-                    form.stat_da -
-                    form.stat_hra
-                  }
-                />
-              </FieldGrid>
-            </div>
-          ),
-        };
-
-      case "pay-actual":
-        return {
-          ...base,
-          done: form.act_gross > 0,
-          content: (
-            <div className="space-y-6">
-              <FieldGrid>
-                <MoneyField
-                  id="st-act-gross"
-                  label={copy.gross}
-                  value={form.act_gross}
-                  onChange={(v) => set({ act_gross: v })}
-                />
-                <MoneyField
-                  id="st-act-basic"
-                  label="Basic"
-                  value={form.act_basic}
-                  onChange={(v) => set({ act_basic: v })}
-                />
-                <MoneyField
-                  id="st-act-da"
-                  label="DA"
-                  value={form.act_da}
-                  onChange={(v) => set({ act_da: v })}
-                />
-                <MoneyField
-                  id="st-act-hra"
-                  label="HRA"
-                  value={form.act_hra}
-                  onChange={(v) => set({ act_hra: v })}
-                />
-                <DerivedMoney
-                  size="xs"
-                  label="Others"
-                  value={
-                    form.act_gross - form.act_basic - form.act_da - form.act_hra
-                  }
-                />
-              </FieldGrid>
-            </div>
-          ),
-        };
-
-      case "esi":
-        return {
-          ...base,
-          done: form.esi_status !== "No",
-          content: (
-            <div className="space-y-6">
-              <FieldGrid>
-                <Field label="ESI" size="xs" htmlFor="st-esi-status">
-                  <Select
-                    id="st-esi-status"
-                    value={form.esi_status}
-                    onChange={(e) =>
-                      set({
-                        esi_status: e.target.value as PersonInput["esi_status"],
-                      })
-                    }
-                  >
-                    {STATUTORY_STATUSES.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <TextField
-                  size="md"
-                  id="st-esi-no"
-                  label="ESI No."
-                  value={form.esi_no}
-                  onChange={(v) => set({ esi_no: v })}
-                />
-                <DateField
-                  id="st-esi-doj"
-                  label="Date of Joining"
-                  value={form.esi_date_of_joining}
-                  onChange={(v) => set({ esi_date_of_joining: v })}
-                />
-                <DateField
-                  id="st-esi-dol"
-                  label="Date of Leaving"
-                  value={form.esi_date_of_leaving}
-                  onChange={(v) => set({ esi_date_of_leaving: v })}
-                />
-                <TextField
-                  id="st-esi-disp"
-                  label="Dispensary"
-                  value={form.esi_dispensary}
-                  onChange={(v) => set({ esi_dispensary: v })}
-                />
-              </FieldGrid>
-            </div>
-          ),
-        };
-
-      case "pf":
-        return {
-          ...base,
-          done: form.pf_status !== "No",
-          content: (
-            <div className="space-y-6">
-              <FieldGrid>
-                <Field label="PF" size="xs" htmlFor="st-pf-status">
-                  <Select
-                    id="st-pf-status"
-                    value={form.pf_status}
-                    onChange={(e) =>
-                      set({
-                        pf_status: e.target.value as PersonInput["pf_status"],
-                      })
-                    }
-                  >
-                    {STATUTORY_STATUSES.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <TextField
-                  size="md"
-                  id="st-pf-no"
-                  label="PF No."
-                  value={form.pf_no}
-                  onChange={(v) => set({ pf_no: v })}
-                />
-                <DateField
-                  id="st-pf-doj"
-                  label="Date of Joining"
-                  value={form.pf_date_of_joining}
-                  onChange={(v) => set({ pf_date_of_joining: v })}
-                />
-                <DateField
-                  id="st-pf-dol"
-                  label="Date of Leaving"
-                  value={form.pf_date_of_leaving}
-                  onChange={(v) => set({ pf_date_of_leaving: v })}
-                />
-              </FieldGrid>
-            </div>
-          ),
-        };
-
-      case "bank":
-        return {
-          ...base,
-          done:
-            childPayload.bankAccounts.length > 0 || form.pay_mode === "Bank",
-          content: (
-            <div className="space-y-6">
-              {/*
-                ONLY PAY MODE AND THE ACCOUNT LIVE HERE.
-
-                This tab used to hold PAN, TDS, Police Station and five payroll
-                balances as well — everything legacy draws near Pay Mode on its
-                Detail tab. None of them is a banking fact (client 2026-09-09),
-                so each went where it belongs: PAN and TDS to Detail ▸
-                Statutory, Police Station to General ▸ Identifiers, and the
-                balances to Salary Registry.
-              */}
-              <FieldGrid>
-                <Field label="Pay Mode" size="sm" htmlFor="st-pay-mode">
-                  <Select
-                    id="st-pay-mode"
-                    value={form.pay_mode}
-                    onChange={(e) =>
-                      set({
-                        pay_mode: e.target.value as PersonInput["pay_mode"],
-                      })
-                    }
-                  >
-                    {PAY_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </FieldGrid>
-
-              <div className="space-y-2">
-                <GroupHeading>Account</GroupHeading>
-                {/*
-                  ONE ACCOUNT, AS FIELDS — not a grid with an "+ Add account"
-                  button (client 2026-09-09: "why we need to add more account
-                  only one account needed right").
-
-                  Legacy draws this as a Banks GRID, which is why 0535 made
-                  `staff_bank_accounts` a table; a staff member CAN hold a
-                  salary account and a savings account. The client says one is
-                  what this business records, and that is the decision.
-
-                  THE TABLE STAYS, and the fields below are its first row. The
-                  alternative — moving six columns onto `staff` — would be the
-                  tidier model for a strict 1:1, but it throws away the shape
-                  that supports the answer changing back. Rendering one row
-                  costs nothing and means "actually some staff have two" is a UI
-                  change rather than another migration and a data move.
-
-                  A record with no account yet has no row at all: `account`
-                  falls back to a blank, and `childPayload` drops it unless
-                  something was typed.
-                */}
-                {childrenLoading ? (
-                  <LoadingRows />
-                ) : (
-                  <FieldGrid>
-                    <Field label="Bank" size="md" htmlFor="st-bank">
-                      <MasterSelect
-                        id="st-bank"
-                        options={banks}
-                        value={account.bank_id || null}
-                        onChange={(v) => setAccount({ bank_id: v ?? "" })}
-                      />
-                    </Field>
-
-                    <Field label="Branch" size="md" htmlFor="st-bank-branch">
-                      <Input
-                        id="st-bank-branch"
-                        uppercase
-                        value={account.branch}
-                        onChange={(e) => setAccount({ branch: e.target.value })}
-                      />
-                    </Field>
-
-                    {/*
-                      The LINE's own word for how this account is held (SALARY,
-                      SAVINGS…), which is not `banks.bank_type` on the master —
-                      that says what kind of institution it is. 0535 keeps them
-                      apart for that reason.
-                    */}
-                    <Field label="Bank Type" size="xs" htmlFor="st-bank-type">
-                      <Input
-                        id="st-bank-type"
-                        uppercase
-                        value={account.bank_type}
-                        onChange={(e) =>
-                          setAccount({ bank_type: e.target.value })
-                        }
-                      />
-                    </Field>
-
-                    <Field label="A/c Type" size="xs" htmlFor="st-ac-type">
-                      <Input
-                        id="st-ac-type"
-                        uppercase
-                        value={account.ac_type}
-                        onChange={(e) =>
-                          setAccount({ ac_type: e.target.value })
-                        }
-                      />
-                    </Field>
-
-                    <Field label="A/c No" size="md" htmlFor="st-ac-no">
-                      {/* caps-input: exempt -- an account number is digits, so
-                          uppercasing is a no-op that still reads as if the field
-                          rewrote what was typed. */}
-                      <Input
-                        id="st-ac-no"
-                        uppercase={false}
-                        value={account.ac_no}
-                        onChange={(e) => setAccount({ ac_no: e.target.value })}
-                      />
-                    </Field>
-
-                    {/*
-                      Four letters, a zero, then six characters. Typing
-                      lowercase is fine: the Zod schema uppercases before it
-                      checks, and the column carries the same regex (0535).
-                    */}
-                    <Field label="IFSC Code" size="sm" htmlFor="st-ifsc">
-                      <Input
-                        id="st-ifsc"
-                        uppercase
-                        maxLength={11}
-                        value={account.ifsc_code}
-                        onChange={(e) =>
-                          setAccount({ ifsc_code: e.target.value })
-                        }
-                      />
-                    </Field>
-                  </FieldGrid>
-                )}
-              </div>
-            </div>
-          ),
-        };
-
       case "general":
         /* A CATEGORY ROW: everything it used to hold is now a child of its
            own below, so it owns no pane. `goToSection` resolves it to the
            first child, which is why `content` is never rendered. */
         return { ...base, content: null };
 
-      case "perm-address":
+      case "addresses":
         return {
           ...base,
-          done: !!form.perm_address1,
+          done: !!form.perm_address1 || !!form.corr_address1,
           content: (
-            <div className="space-y-6">
-              <FieldGrid>
-                {/*
-                  EACH LINE IS NAMED (client 2026-09-09). They were one
-                  "Address" label over three boxes, the second and third
-                  carrying `label=""` — which keeps the label ROW while
-                  drawing no text, so the boxes still lined up. That solved the
-                  alignment and left the operator guessing what went in the
-                  second box.
+            /*
+              PERMANENT AND CORRESPONDENCE SIDE BY SIDE, EACH ONE LINE PER FIELD
+              (client 2026-09-16: "for addresses temp and permanent can be in
+              same field side by side, and address can be stack one by one
+              like no, address like one line by line").
 
-                  "No." is the door or building number and the two lines under
-                  it are the rest, which is how an address is dictated here.
-                  The columns are unchanged: `perm_address1..3` (0535) are
-                  three free-text lines and always were.
-                */}
-                <Field label="No." size="xs" htmlFor="st-perm-1">
-                  <Input
-                    id="st-perm-1"
-                    uppercase
-                    value={form.perm_address1 ?? ""}
-                    onChange={(e) =>
-                      set({ perm_address1: e.target.value || null })
-                    }
-                  />
-                </Field>
-                <Field label="Address Line 1" size="md" htmlFor="st-perm-2">
-                  <Input
-                    id="st-perm-2"
-                    uppercase
-                    value={form.perm_address2 ?? ""}
-                    onChange={(e) =>
-                      set({ perm_address2: e.target.value || null })
-                    }
-                  />
-                </Field>
-                <Field label="Address Line 2" size="sm" htmlFor="st-perm-3">
-                  <Input
-                    id="st-perm-3"
-                    uppercase
-                    value={form.perm_address3 ?? ""}
-                    onChange={(e) =>
-                      set({ perm_address3: e.target.value || null })
-                    }
-                  />
-                </Field>
+              `SectionGrid` + two `SectionColumn`s is the repo's own two-column
+              shape, so the screen writes no `grid-cols-*` of its own and the
+              columns fall to one below `@4xl`. Inside each column every field
+              is `size="full"`: LAYOUT.md §3 keeps `full` for things that are
+              not fields, and this is the client asking for the paper-form
+              reading — a column of lines, No. then the address then City —
+              which is a decision about THIS pane, not a new default.
 
-                {/*
-                  `md`, NOT `sm`. With Mobile gone (0549) the row was
-                  City + Pin + Phone = 9 of 12, so it no longer closed and its
-                  columns stopped lining up with the three address lines above
-                  it. At `md` the row is 4 + 4 + 4 and both rows are three
-                  columns wide.
-                */}
-                <Field label="City" size="sm" htmlFor="st-perm-city">
-                  <Input
-                    id="st-perm-city"
-                    uppercase
-                    value={form.perm_city ?? ""}
-                    onChange={(e) => set({ perm_city: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="Pin" size="xs" htmlFor="st-perm-pin">
-                  <Input
-                    id="st-perm-pin"
-                    value={form.perm_pin ?? ""}
-                    onChange={(e) => set({ perm_pin: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="Phone" size="sm" htmlFor="st-perm-ph">
-                  <Input
-                    id="st-perm-ph"
-                    value={form.perm_phone ?? ""}
-                    onChange={(e) =>
-                      set({ perm_phone: e.target.value || null })
-                    }
-                  />
-                </Field>
-              </FieldGrid>
-            </div>
-          ),
-        };
-
-      case "corr-address":
-        return {
-          ...base,
-          done: !!form.corr_address1,
-          content: (
-            <div className="space-y-6">
-              {/*
-                THE TOGGLE SITS ON ITS OWN ROW, and that is arithmetic, not
-                taste. `FieldGrid` is a 12-column track and a row only closes
-                when its spans fill it — with the switch (3) sharing a row
-                with two address lines (4 + 4) the row summed to 11, so the
-                THIRD address line wrapped and every field below it started at
-                a different column from its opposite number in the permanent
-                block. That is the "scattered" the client saw
-                (2026-09-09); the permanent block was already 4+4+4 and 3+3+3+3
-                and looked right for exactly that reason.
-              */}
-              <FieldGrid>
-                {/*
-                  "SAME AS PERMANENT" COPIES ONCE AND KEEPS THE FLAG.
-                  Ticking it fills the correspondence fields from the
-                  permanent ones so the operator can see what will be saved —
-                  the flag is stored as well (0535), because it records the
-                  INTENT to keep them in step, which the copied values alone
-                  cannot express.
-                */}
-                <Field label="Same as Permanent" size="sm">
-                  <div className="flex h-8 items-center">
-                    <Toggle
-                      checked={form.corr_same_as_permanent}
-                      onChange={(v) =>
-                        set(
-                          v
-                            ? {
-                                corr_same_as_permanent: true,
-                                corr_address1: form.perm_address1,
-                                corr_address2: form.perm_address2,
-                                corr_address3: form.perm_address3,
-                                corr_city: form.perm_city,
-                                corr_pin: form.perm_pin,
-                                corr_phone: form.perm_phone,
-                              }
-                            : { corr_same_as_permanent: false },
-                        )
+              "No." is the door or building number and the two lines under it
+              are the rest, which is how an address is dictated here. The
+              columns are `perm_address1..3` / `corr_address1..3` (0535), three
+              free-text lines each, and always were.
+            */
+            <SectionGrid>
+              {/* `frameless`: the two blocks had a box each, and a box around
+                  a column of lines is the grid look the lines style exists to
+                  leave behind (client 2026-09-16: "there is a box over both
+                  addresses, i don't want that"). The label and its inset stay
+                  so the two columns still read as two. */}
+              <SectionColumn>
+                <DetailSection label="Permanent Address" cols={12} frameless>
+                  <Field label="No." size="full" htmlFor="st-perm-1">
+                    <Input
+                      id="st-perm-1"
+                      uppercase
+                      value={form.perm_address1 ?? ""}
+                      onChange={(e) =>
+                        set({ perm_address1: e.target.value || null })
                       }
-                      label="Copy from permanent"
                     />
-                  </div>
-                </Field>
-              </FieldGrid>
+                  </Field>
+                  <Field label="Address Line 1" size="full" htmlFor="st-perm-2">
+                    <Input
+                      id="st-perm-2"
+                      uppercase
+                      value={form.perm_address2 ?? ""}
+                      onChange={(e) =>
+                        set({ perm_address2: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Address Line 2" size="full" htmlFor="st-perm-3">
+                    <Input
+                      id="st-perm-3"
+                      uppercase
+                      value={form.perm_address3 ?? ""}
+                      onChange={(e) =>
+                        set({ perm_address3: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="City" size="full" htmlFor="st-perm-city">
+                    <Input
+                      id="st-perm-city"
+                      uppercase
+                      value={form.perm_city ?? ""}
+                      onChange={(e) =>
+                        set({ perm_city: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Pin" size="full" htmlFor="st-perm-pin">
+                    <Input
+                      id="st-perm-pin"
+                      value={form.perm_pin ?? ""}
+                      onChange={(e) =>
+                        set({ perm_pin: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Phone" size="full" htmlFor="st-perm-ph">
+                    <Input
+                      id="st-perm-ph"
+                      value={form.perm_phone ?? ""}
+                      onChange={(e) =>
+                        set({ perm_phone: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                </DetailSection>
+              </SectionColumn>
 
-              <FieldGrid>
-                {/*
-                  Read-only while the tick is on, not hidden: an operator who
-                  ticked it needs to SEE what will be saved, and a row that
-                  disappears makes the form jump under the cursor.
-                */}
-                <Field label="No." size="xs" htmlFor="st-corr-1">
-                  <Input
-                    id="st-corr-1"
-                    uppercase
-                    readOnly={form.corr_same_as_permanent}
-                    value={form.corr_address1 ?? ""}
-                    onChange={(e) =>
-                      set({ corr_address1: e.target.value || null })
-                    }
-                  />
-                </Field>
-                <Field label="Address Line 1" size="md" htmlFor="st-corr-2">
-                  <Input
-                    id="st-corr-2"
-                    uppercase
-                    readOnly={form.corr_same_as_permanent}
-                    value={form.corr_address2 ?? ""}
-                    onChange={(e) =>
-                      set({ corr_address2: e.target.value || null })
-                    }
-                  />
-                </Field>
-                <Field label="Address Line 2" size="sm" htmlFor="st-corr-3">
-                  <Input
-                    id="st-corr-3"
-                    uppercase
-                    readOnly={form.corr_same_as_permanent}
-                    value={form.corr_address3 ?? ""}
-                    onChange={(e) =>
-                      set({ corr_address3: e.target.value || null })
-                    }
-                  />
-                </Field>
-
-                <Field label="City" size="sm" htmlFor="st-corr-city">
-                  <Input
-                    id="st-corr-city"
-                    uppercase
-                    readOnly={form.corr_same_as_permanent}
-                    value={form.corr_city ?? ""}
-                    onChange={(e) => set({ corr_city: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="Pin" size="xs" htmlFor="st-corr-pin">
-                  <Input
-                    id="st-corr-pin"
-                    readOnly={form.corr_same_as_permanent}
-                    value={form.corr_pin ?? ""}
-                    onChange={(e) => set({ corr_pin: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="Phone" size="sm" htmlFor="st-corr-ph">
-                  <Input
-                    id="st-corr-ph"
-                    readOnly={form.corr_same_as_permanent}
-                    value={form.corr_phone ?? ""}
-                    onChange={(e) =>
-                      set({ corr_phone: e.target.value || null })
-                    }
-                  />
-                </Field>
-              </FieldGrid>
-            </div>
+              <SectionColumn>
+                <DetailSection
+                  label="Correspondence Address"
+                  cols={12}
+                  frameless
+                >
+                  {/*
+                    "SAME AS PERMANENT" COPIES ONCE AND KEEPS THE FLAG. Ticking
+                    it fills the correspondence fields from the permanent ones
+                    so the operator can see what will be saved — the flag is
+                    stored as well (0535), because it records the INTENT to
+                    keep them in step, which the copied values alone cannot.
+                    The fields below stay visible and read-only while it is on:
+                    an operator who ticked it needs to SEE what will be saved.
+                  */}
+                  <Field label="Same as Permanent" size="full">
+                    <div className="flex h-8 items-center">
+                      <Toggle
+                        checked={form.corr_same_as_permanent}
+                        onChange={(v) =>
+                          set(
+                            v
+                              ? {
+                                  corr_same_as_permanent: true,
+                                  corr_address1: form.perm_address1,
+                                  corr_address2: form.perm_address2,
+                                  corr_address3: form.perm_address3,
+                                  corr_city: form.perm_city,
+                                  corr_pin: form.perm_pin,
+                                  corr_phone: form.perm_phone,
+                                }
+                              : { corr_same_as_permanent: false },
+                          )
+                        }
+                        label="Copy from permanent"
+                      />
+                    </div>
+                  </Field>
+                  <Field label="No." size="full" htmlFor="st-corr-1">
+                    <Input
+                      id="st-corr-1"
+                      uppercase
+                      readOnly={form.corr_same_as_permanent}
+                      value={form.corr_address1 ?? ""}
+                      onChange={(e) =>
+                        set({ corr_address1: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Address Line 1" size="full" htmlFor="st-corr-2">
+                    <Input
+                      id="st-corr-2"
+                      uppercase
+                      readOnly={form.corr_same_as_permanent}
+                      value={form.corr_address2 ?? ""}
+                      onChange={(e) =>
+                        set({ corr_address2: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Address Line 2" size="full" htmlFor="st-corr-3">
+                    <Input
+                      id="st-corr-3"
+                      uppercase
+                      readOnly={form.corr_same_as_permanent}
+                      value={form.corr_address3 ?? ""}
+                      onChange={(e) =>
+                        set({ corr_address3: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="City" size="full" htmlFor="st-corr-city">
+                    <Input
+                      id="st-corr-city"
+                      uppercase
+                      readOnly={form.corr_same_as_permanent}
+                      value={form.corr_city ?? ""}
+                      onChange={(e) =>
+                        set({ corr_city: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Pin" size="full" htmlFor="st-corr-pin">
+                    <Input
+                      id="st-corr-pin"
+                      readOnly={form.corr_same_as_permanent}
+                      value={form.corr_pin ?? ""}
+                      onChange={(e) =>
+                        set({ corr_pin: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Phone" size="full" htmlFor="st-corr-ph">
+                    <Input
+                      id="st-corr-ph"
+                      readOnly={form.corr_same_as_permanent}
+                      value={form.corr_phone ?? ""}
+                      onChange={(e) =>
+                        set({ corr_phone: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                </DetailSection>
+              </SectionColumn>
+            </SectionGrid>
           ),
         };
 
@@ -3549,6 +3279,39 @@ export default function PersonClient({
                 <GroupHeading>Education Details</GroupHeading>
                 <ChildGrid<EducationRow>
                   columns={educationColumns}
+                  forceCards
+                  flatRows
+                  renderMobileRow={(row, i) => (
+                    <div className="flex gap-3">
+                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                          2026-09-16: "the numbering looks odd ... it should show at
+                          the 1st line of the content"). It was `rowSummary`, which
+                          draws a band ABOVE the fields — a whole line spent on one
+                          digit. As a gutter it sits beside the first field instead,
+                          and the row's ✕ goes back to the corner where a grid with no
+                          band puts it.
+                          `h-9` matches the field row it aligns with, so the digit is
+                          centred on that line rather than floating above it. */}
+                      <span
+                        aria-hidden
+                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                      >
+                        {i + 1}
+                      </span>
+                      <FieldGrid className="min-w-0 flex-1">
+                        {educationColumns.map((c, ci) => (
+                          <Field
+                            key={ci}
+                            label={c.header}
+                            required={c.required}
+                            size="sm"
+                          >
+                            {c.cell(row, i)}
+                          </Field>
+                        ))}
+                      </FieldGrid>
+                    </div>
+                  )}
                   rows={education}
                   onAdd={() =>
                     setEducation((xs) => [...xs, blankEducation(newKey())])
@@ -3564,6 +3327,39 @@ export default function PersonClient({
                 <GroupHeading>Technical Details</GroupHeading>
                 <ChildGrid<TechnicalRow>
                   columns={technicalColumns}
+                  forceCards
+                  flatRows
+                  renderMobileRow={(row, i) => (
+                    <div className="flex gap-3">
+                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                          2026-09-16: "the numbering looks odd ... it should show at
+                          the 1st line of the content"). It was `rowSummary`, which
+                          draws a band ABOVE the fields — a whole line spent on one
+                          digit. As a gutter it sits beside the first field instead,
+                          and the row's ✕ goes back to the corner where a grid with no
+                          band puts it.
+                          `h-9` matches the field row it aligns with, so the digit is
+                          centred on that line rather than floating above it. */}
+                      <span
+                        aria-hidden
+                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                      >
+                        {i + 1}
+                      </span>
+                      <FieldGrid className="min-w-0 flex-1">
+                        {technicalColumns.map((c, ci) => (
+                          <Field
+                            key={ci}
+                            label={c.header}
+                            required={c.required}
+                            size="sm"
+                          >
+                            {c.cell(row, i)}
+                          </Field>
+                        ))}
+                      </FieldGrid>
+                    </div>
+                  )}
                   rows={technical}
                   onAdd={() =>
                     setTechnical((xs) => [...xs, blankTechnical(newKey())])
@@ -3587,6 +3383,39 @@ export default function PersonClient({
             <div className="space-y-6">
               <ChildGrid<LanguageRow>
                 columns={languageColumns}
+                forceCards
+                flatRows
+                renderMobileRow={(row, i) => (
+                  <div className="flex gap-3">
+                    {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                        2026-09-16: "the numbering looks odd ... it should show at
+                        the 1st line of the content"). It was `rowSummary`, which
+                        draws a band ABOVE the fields — a whole line spent on one
+                        digit. As a gutter it sits beside the first field instead,
+                        and the row's ✕ goes back to the corner where a grid with no
+                        band puts it.
+                        `h-9` matches the field row it aligns with, so the digit is
+                        centred on that line rather than floating above it. */}
+                    <span
+                      aria-hidden
+                      className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                    >
+                      {i + 1}
+                    </span>
+                    <FieldGrid className="min-w-0 flex-1">
+                      {languageColumns.map((c, ci) => (
+                        <Field
+                          key={ci}
+                          label={c.header}
+                          required={c.required}
+                          size="sm"
+                        >
+                          {c.cell(row, i)}
+                        </Field>
+                      ))}
+                    </FieldGrid>
+                  </div>
+                )}
                 rows={languages}
                 onAdd={() =>
                   setLanguages((xs) => [...xs, blankLanguage(newKey())])
@@ -3994,18 +3823,35 @@ export default function PersonClient({
               forceCards
               flatRows
               renderMobileRow={(row, i) => (
-                <FieldGrid>
-                  {familyColumns.map((c, ci) => (
-                    <Field
-                      key={ci}
-                      label={c.header}
-                      required={c.required}
-                      size="sm"
-                    >
-                      {c.cell(row, i)}
-                    </Field>
-                  ))}
-                </FieldGrid>
+                <div className="flex gap-3">
+                  {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                      2026-09-16: "the numbering looks odd ... it should show at
+                      the 1st line of the content"). It was `rowSummary`, which
+                      draws a band ABOVE the fields — a whole line spent on one
+                      digit. As a gutter it sits beside the first field instead,
+                      and the row's ✕ goes back to the corner where a grid with no
+                      band puts it.
+                      `h-9` matches the field row it aligns with, so the digit is
+                      centred on that line rather than floating above it. */}
+                  <span
+                    aria-hidden
+                    className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                  >
+                    {i + 1}
+                  </span>
+                  <FieldGrid className="min-w-0 flex-1">
+                    {familyColumns.map((c, ci) => (
+                      <Field
+                        key={ci}
+                        label={c.header}
+                        required={c.required}
+                        size="sm"
+                      >
+                        {c.cell(row, i)}
+                      </Field>
+                    ))}
+                  </FieldGrid>
+                </div>
               )}
               onAdd={() => setFamily((xs) => [...xs, blankFamily(newKey())])}
               onRemove={(r) =>
@@ -4050,18 +3896,35 @@ export default function PersonClient({
               forceCards
               flatRows
               renderMobileRow={(row, i) => (
-                <FieldGrid>
-                  {experienceColumns.map((c, ci) => (
-                    <Field
-                      key={ci}
-                      label={c.header}
-                      required={c.required}
-                      size="sm"
-                    >
-                      {c.cell(row, i)}
-                    </Field>
-                  ))}
-                </FieldGrid>
+                <div className="flex gap-3">
+                  {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                      2026-09-16: "the numbering looks odd ... it should show at
+                      the 1st line of the content"). It was `rowSummary`, which
+                      draws a band ABOVE the fields — a whole line spent on one
+                      digit. As a gutter it sits beside the first field instead,
+                      and the row's ✕ goes back to the corner where a grid with no
+                      band puts it.
+                      `h-9` matches the field row it aligns with, so the digit is
+                      centred on that line rather than floating above it. */}
+                  <span
+                    aria-hidden
+                    className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                  >
+                    {i + 1}
+                  </span>
+                  <FieldGrid className="min-w-0 flex-1">
+                    {experienceColumns.map((c, ci) => (
+                      <Field
+                        key={ci}
+                        label={c.header}
+                        required={c.required}
+                        size="sm"
+                      >
+                        {c.cell(row, i)}
+                      </Field>
+                    ))}
+                  </FieldGrid>
+                </div>
               )}
               onAdd={() =>
                 setExperience((xs) => [...xs, blankExperience(newKey())])
@@ -4092,6 +3955,39 @@ export default function PersonClient({
               ) : (
                 <ChildGrid<ExternalRefRow>
                   columns={externalRefColumns}
+                  forceCards
+                  flatRows
+                  renderMobileRow={(row, i) => (
+                    <div className="flex gap-3">
+                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                          2026-09-16: "the numbering looks odd ... it should show at
+                          the 1st line of the content"). It was `rowSummary`, which
+                          draws a band ABOVE the fields — a whole line spent on one
+                          digit. As a gutter it sits beside the first field instead,
+                          and the row's ✕ goes back to the corner where a grid with no
+                          band puts it.
+                          `h-9` matches the field row it aligns with, so the digit is
+                          centred on that line rather than floating above it. */}
+                      <span
+                        aria-hidden
+                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                      >
+                        {i + 1}
+                      </span>
+                      <FieldGrid className="min-w-0 flex-1">
+                        {externalRefColumns.map((c, ci) => (
+                          <Field
+                            key={ci}
+                            label={c.header}
+                            required={c.required}
+                            size="sm"
+                          >
+                            {c.cell(row, i)}
+                          </Field>
+                        ))}
+                      </FieldGrid>
+                    </div>
+                  )}
                   rows={externalRefs}
                   onAdd={() =>
                     setExternalRefs((xs) => [...xs, blankExternalRef(newKey())])
@@ -4118,6 +4014,39 @@ export default function PersonClient({
               ) : (
                 <ChildGrid<EmergencyRow>
                   columns={emergencyColumns}
+                  forceCards
+                  flatRows
+                  renderMobileRow={(row, i) => (
+                    <div className="flex gap-3">
+                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                          2026-09-16: "the numbering looks odd ... it should show at
+                          the 1st line of the content"). It was `rowSummary`, which
+                          draws a band ABOVE the fields — a whole line spent on one
+                          digit. As a gutter it sits beside the first field instead,
+                          and the row's ✕ goes back to the corner where a grid with no
+                          band puts it.
+                          `h-9` matches the field row it aligns with, so the digit is
+                          centred on that line rather than floating above it. */}
+                      <span
+                        aria-hidden
+                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                      >
+                        {i + 1}
+                      </span>
+                      <FieldGrid className="min-w-0 flex-1">
+                        {emergencyColumns.map((c, ci) => (
+                          <Field
+                            key={ci}
+                            label={c.header}
+                            required={c.required}
+                            size="sm"
+                          >
+                            {c.cell(row, i)}
+                          </Field>
+                        ))}
+                      </FieldGrid>
+                    </div>
+                  )}
                   rows={emergencyContacts}
                   onAdd={() =>
                     setEmergencyContacts((xs) => [
@@ -4149,6 +4078,39 @@ export default function PersonClient({
               ) : (
                 <ChildGrid<InternalRefRow>
                   columns={internalRefColumns}
+                  forceCards
+                  flatRows
+                  renderMobileRow={(row, i) => (
+                    <div className="flex gap-3">
+                      {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                          2026-09-16: "the numbering looks odd ... it should show at
+                          the 1st line of the content"). It was `rowSummary`, which
+                          draws a band ABOVE the fields — a whole line spent on one
+                          digit. As a gutter it sits beside the first field instead,
+                          and the row's ✕ goes back to the corner where a grid with no
+                          band puts it.
+                          `h-9` matches the field row it aligns with, so the digit is
+                          centred on that line rather than floating above it. */}
+                      <span
+                        aria-hidden
+                        className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                      >
+                        {i + 1}
+                      </span>
+                      <FieldGrid className="min-w-0 flex-1">
+                        {internalRefColumns.map((c, ci) => (
+                          <Field
+                            key={ci}
+                            label={c.header}
+                            required={c.required}
+                            size="sm"
+                          >
+                            {c.cell(row, i)}
+                          </Field>
+                        ))}
+                      </FieldGrid>
+                    </div>
+                  )}
                   rows={internalRefs}
                   onAdd={() =>
                     setInternalRefs((xs) => [...xs, blankInternalRef(newKey())])
@@ -4179,6 +4141,39 @@ export default function PersonClient({
                 ) : (
                   <ChildGrid<NominationRow>
                     columns={nominationColumns}
+                    forceCards
+                    flatRows
+                    renderMobileRow={(row, i) => (
+                      <div className="flex gap-3">
+                        {/* THE ROW'S NUMBER, ON THE FIRST LINE OF ITS CONTENT (client
+                            2026-09-16: "the numbering looks odd ... it should show at
+                            the 1st line of the content"). It was `rowSummary`, which
+                            draws a band ABOVE the fields — a whole line spent on one
+                            digit. As a gutter it sits beside the first field instead,
+                            and the row's ✕ goes back to the corner where a grid with no
+                            band puts it.
+                            `h-9` matches the field row it aligns with, so the digit is
+                            centred on that line rather than floating above it. */}
+                        <span
+                          aria-hidden
+                          className="flex h-9 w-4 shrink-0 items-center text-xs font-semibold tabular-nums text-muted-foreground"
+                        >
+                          {i + 1}
+                        </span>
+                        <FieldGrid className="min-w-0 flex-1">
+                          {nominationColumns.map((c, ci) => (
+                            <Field
+                              key={ci}
+                              label={c.header}
+                              required={c.required}
+                              size="sm"
+                            >
+                              {c.cell(row, i)}
+                            </Field>
+                          ))}
+                        </FieldGrid>
+                      </div>
+                    )}
                     rows={nominations}
                     onAdd={() =>
                       setNominations((xs) => [...xs, blankNomination(newKey())])
@@ -4252,7 +4247,11 @@ export default function PersonClient({
       ),
     },
     rowActionsColumn((r) => (
-      <RowActions label={r.name} onEdit={() => openEdit(r)} />
+      <RowActions
+        label={r.name}
+        onView={() => setViewing(r)}
+        onEdit={() => openEdit(r)}
+      />
     )),
   ];
 
@@ -4282,28 +4281,65 @@ export default function PersonClient({
    * one now, and a hook added below it would run on one render and be skipped
    * on the next. `npm run check:hooks` is the gate.
    */
-  if (showForm) {
+  if (viewing && !showForm) {
     return (
-      // `flex h-full flex-col` is what a page-mounted MasterFullScreen requires:
-      // it takes `flex-1 min-h-0` and needs a definite height to divide. `h-full`
-      // resolves against `<main className="flex-1 overflow-y-auto">` in
-      // app/(app)/layout.tsx. Leave it `space-y-4` and the editor sizes to its
-      // content instead, stranding the footer above a strip of empty page.
-      <div className="flex h-full flex-col gap-4">
-        {/**
-         * A DIVIDER, NOT A PAGE HEADER — the same band Order Entry draws, and
-         * every class here is copied from it rather than re-invented, so a
-         * reader who knows one recognises the other. It carries exactly what
-         * the overlay's `header` block used to: which record, and the way out.
-         *
-         * `data-focus-region="header"` IS NOT OPTIONAL. Without it `regionOf`
-         * (lib/focus.ts) sorts "← Back to list" as a CONTENT field, and Tab off
-         * the last field of a section lands on it instead of wrapping to the
-         * next section.
-         */}
+      <PersonProfileView
+        key={viewing.id}
+        kind={kind}
+        entity={copy.entity}
+        row={viewing as unknown as Record<string, unknown> & { id: string }}
+        designations={designations}
+        departments={departments}
+        locations={locations}
+        categories={categories}
+        divisions={divisions}
+        banks={banks}
+        onBack={() => setViewing(null)}
+        onEdit={() => {
+          const r = viewing;
+          setViewing(null);
+          openEdit(r);
+        }}
+      />
+    );
+  }
+
+  if (showForm) {
+    const address = [
+      form.perm_address1,
+      form.perm_address2,
+      form.perm_address3,
+      [form.perm_city, form.perm_pin].filter(Boolean).join(" - "),
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return (
+      // THREE COLUMNS (client 2026-09-15: "i want the left side rail back ...
+      // what is left can go to the right side, so that remaining can be in
+      // center"): the section rail and its pane are `MasterFullScreen`, page-
+      // mounted, exactly as before; the template's profile card stands to its
+      // RIGHT as `PersonProfileAside`.
+      //
+      // `flex h-full flex-col` is what a page-mounted MasterFullScreen requires
+      // — a definite height to divide — and the row beneath the band carries
+      // `min-h-0 flex-1` for the same reason: the shell's root is `min-h-0
+      // flex-1` too, so in a ROW it takes the remaining width while its height
+      // is the row's, and its pane keeps scrolling inside itself with the
+      // footer as its last line rather than floating over the fields.
+      // `data-field-style="lines"`: underlines instead of boxes for every field
+      // in this editor (client 2026-09-16) — the rule and its reasoning are in
+      // globals.css. One attribute, this screen only.
+      <div data-field-style="lines" className="flex h-full flex-col gap-4">
+        {/*
+          A THIN BAND, NOT A PROFILE: the profile is the column on the right
+          now, so this line only says which mode the screen is in and offers
+          the way out. `data-focus-region="header"` IS NOT OPTIONAL — without
+          it `regionOf` (lib/focus.ts) sorts "← Back to list" as a CONTENT
+          field and Tab off a section's last field lands on it.
+        */}
         <div
           data-focus-region="header"
-          className="mb-3 flex w-full flex-wrap items-baseline gap-x-6 gap-y-2"
+          className="flex w-full flex-wrap items-baseline gap-x-6 gap-y-2"
         >
           <div className="flex shrink-0 items-baseline gap-2">
             <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
@@ -4323,50 +4359,70 @@ export default function PersonClient({
                 ● Unsaved
               </span>
             )}
-            {/* `size="sm"` to match the compact band. AGENTS.md's `md` header-row
-               rule is about matching a LIST toolbar's search box, and there is no
-               toolbar here — the same call Order Entry's band makes. */}
             <Button variant="outline" size="sm" onClick={cancel}>
               ← Back to list
             </Button>
           </div>
         </div>
 
-        <MasterFullScreen
-          ref={shellRef}
-          mount="page"
-          // The rail truncates at this depth, so the pane names the section in
-          // full (client 2026-09-11). See `paneHeading` for why it is opt-in.
-          paneHeading
-          open
-          onClose={cancel}
-          // The band above already says "New Staff" / "Edit Staff", so the
-          // shell's own mode chip would announce it twice.
-          modeLabel={null}
-          // On a page mount the SHELL owns the reload guard
-          // (`useUnsavedGuard(mount === "page" && ...)`), so it has to be told.
-          // This screen still declares its own beside it — the counter in
-          // `lib/reload-guard.ts` composes, and `--check unsaved-guard` reads
-          // the screen's call, not the shell's.
-          dirty={dirty}
-          sections={sections}
-          footer={{
-            status: dirty
-              ? "Unsaved changes"
-              : editId
-                ? "All changes saved"
-                : `New ${copy.lower}`,
-            onCancel: cancel,
-            onSave: submit,
-            // Names the ENTITY — a bare "Save" could belong to any record.
-            saveLabel: `Save ${copy.lower}`,
-            canSave: validity.canSave,
-            // Keeps Save clickable when blocked so it explains itself, and so
-            // Ctrl+S and Enter-off-the-last-field reach the same handler.
-            onBlockedSave: revealFirstProblem,
-            isPending,
-          }}
-        />
+        <div className="flex min-h-0 flex-1 gap-4">
+          <MasterFullScreen
+            ref={shellRef}
+            mount="page"
+            // The rail truncates at this depth, so the pane names the section
+            // in full (client 2026-09-11). See `paneHeading` for why it is
+            // opt-in.
+            paneHeading
+            open
+            onClose={cancel}
+            // The band above already says "New Staff" / "Edit Staff".
+            modeLabel={null}
+            // On a page mount the SHELL owns the reload guard
+            // (`useUnsavedGuard(mount === "page" && ...)`), so it has to be
+            // told. This screen still declares its own beside it — the counter
+            // in `lib/reload-guard.ts` composes.
+            dirty={dirty}
+            sections={sections}
+            footer={{
+              status: dirty
+                ? "Unsaved changes"
+                : editId
+                  ? "All changes saved"
+                  : `New ${copy.lower}`,
+              onCancel: cancel,
+              onSave: submit,
+              // Names the ENTITY — a bare "Save" could belong to any record.
+              saveLabel: `Save ${copy.lower}`,
+              canSave: validity.canSave,
+              // Keeps Save clickable when blocked so it explains itself, and so
+              // Ctrl+S and Enter-off-the-last-field reach the same handler.
+              onBlockedSave: revealFirstProblem,
+              isPending,
+            }}
+          />
+
+          <PersonProfileAside
+            entity={copy.entity}
+            isEditing={!!editId}
+            code={editCode}
+            name={form.name}
+            isActive={form.is_active}
+            photoUrl={form.photo_url ?? null}
+            onPhotoChange={(url) => set({ photo_url: url })}
+            photoFolder={isWorker ? "workers" : "staff"}
+            designation={nameOfOption(designations, form.designation_id)}
+            department={nameOfOption(departments, form.department_id)}
+            location={nameOfOption(locations, form.location_id)}
+            employmentType={form.employment_type ?? null}
+            joinedDate={form.joined_date ?? null}
+            gender={form.gender ?? null}
+            dateOfBirth={form.date_of_birth ?? null}
+            email={form.email ?? null}
+            phone={form.perm_phone ?? null}
+            address={address || null}
+            bloodGroup={form.blood_group ?? null}
+          />
+        </div>
       </div>
     );
   }
@@ -4518,34 +4574,6 @@ function LoadingRows() {
  * typed rather than clamped: it means the heads add up to more than the gross,
  * which is a data-entry error the operator needs to SEE, not one to hide.
  */
-function DerivedMoney({
-  label,
-  value,
-  size = "sm",
-}: {
-  label: string;
-  value: number;
-  /** Same prop `MoneyField` carries — a derived box is sized like any other. */
-  size?: FieldSize;
-}) {
-  /**
-   * BLANK AT ZERO, matching `MoneyField` — an empty panel showed `0.00` in this
-   * box while every field feeding it was empty, which reads as a figure
-   * somebody entered (client 2026-09-09).
-   *
-   * Rounded BEFORE the comparison, and that is not fussiness: the value is a
-   * subtraction of four floats, so heads that genuinely cancel can land on
-   * `-2.8e-14` — truthy, and rendered as `-0.00`. Rounding to paise first makes
-   * "they cancel" and "nothing typed" the same answer, which is what an empty
-   * box should mean here.
-   */
-  const paise = Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
-  return (
-    <Field label={label} size={size} hint="Gross less the heads" skipTab>
-      <Input readOnly value={paise === 0 ? "" : paise.toFixed(2)} />
-    </Field>
-  );
-}
 
 /** A money cell — same shape everywhere, so twenty of them cannot drift. */
 function MoneyField({

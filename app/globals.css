@@ -1190,6 +1190,193 @@ body {
   background: #f2f9e6;
 }
 
+/* ===========================================================================
+ * FIELDS AS LINES — a paper form, not a grid of boxes. OPT-IN.
+ *
+ * `data-field-style="lines"` on a surface turns every field inside it from a
+ * bordered box into a single underline (client 2026-09-16, the staff record:
+ * "instead of boxes thing why can't we make it as just lines, so that it looks
+ * form for their personal details right, usually forms will be in lines").
+ *
+ * OPT-IN, NOT A SKIN CHANGE. The Raagam skin is client-approved on Orders and
+ * Master Data, and a form of boxes is right for a grid of prices; an underline
+ * is right for a page of personal particulars. One attribute on one editor,
+ * so the ~160 pickers and every order screen are untouched.
+ *
+ * UNLAYERED ON PURPOSE. Tailwind v4 puts every utility in `@layer utilities`
+ * and an unlayered rule beats a layered one whatever its specificity — which
+ * is exactly what is needed to override `rounded-md border bg-surface px-2.5`
+ * on the `Input` primitive without touching that file. The focus-ring note
+ * below records the trap this creates: an unlayered rule silently overrides
+ * anything it names. This one names only border, radius, background, inline
+ * padding and box-shadow, and it replaces the ring it removes with a 2px
+ * underline in the brand blue so focus never goes invisible.
+ *
+ * Checkboxes, radios and toggles are not fields of this kind and are left as
+ * they are; a picker trigger (`[data-field-trigger]`) IS a field and follows.
+ * ======================================================================== */
+[data-field-style="lines"] input:not([type="checkbox"]):not([type="radio"]),
+[data-field-style="lines"] select,
+[data-field-style="lines"] textarea,
+[data-field-style="lines"] [data-field-trigger] {
+  border-width: 0 0 1px 0;
+  border-radius: 0;
+  background-color: transparent;
+  padding-inline: 0.125rem;
+  box-shadow: none;
+  /* THREE-QUARTERS OF ITS CELL, NOT THE WHOLE (client 2026-09-16: "why there
+     is full line, i want 3/4 is ok so that it will be neat, apply this for
+     whole staff"). A line running edge to edge reads as a rule between rows
+     rather than a place to write; stopping short leaves air on the right and
+     the eye can tell one field's line from the next. `max-width` rather than
+     `width`, so a control that is already narrower than its cell — a date, a
+     checkbox-sized select — is not stretched OUT to 75%. */
+  max-width: 75%;
+}
+[data-field-style="lines"] input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+[data-field-style="lines"] select:focus-visible,
+[data-field-style="lines"] textarea:focus-visible,
+[data-field-style="lines"] [data-field-trigger]:focus-visible,
+[data-field-style="lines"] [data-field-trigger]:focus-within {
+  border-bottom-width: 2px;
+  border-bottom-color: var(--primary);
+  box-shadow: none;
+}
+/* LABEL BESIDE THE LINE — "Address Line 1 : ______________" (client
+   2026-09-16: "instead of this why don't it can be like this ... change
+   everything like this").
+   Each `Field` becomes a two-cell row: the label in a fixed column ending in
+   a colon, the control filling the rest. Only when there IS a label — a field
+   with none (a bare toggle, the photo control) keeps the whole width, which
+   `:has(> [data-field-label])` is what decides — the FIELD'S own label,
+   not any `<label>` in the cell: `Toggle` renders one as its root, so a
+   looser selector gave every toggle a stray colon and the label column
+   (client 2026-09-16, the Languages pane).
+   THE 75% CAP IS LIFTED HERE, deliberately. That cap existed to stop a line
+   running the full width of its cell; with the label taking the first 9.5rem
+   the line already starts short, and capping again would shorten it twice —
+   the same double-shrink that made the dropdown arrows look detached. The
+   label column IS the inset now.
+   A `label=""` spacer is `aria-hidden` and draws no colon: a colon after
+   nothing would mark a field that is not there. */
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  column-gap: 0.75rem;
+  align-items: center;
+}
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) > [data-field-label] {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) > [data-field-label]:not([aria-hidden])::after {
+  content: " :";
+}
+/* The hint, when a field has one, sits under the line rather than under the
+   label. */
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) > p {
+  grid-column: 2;
+}
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) input:not([type="checkbox"]):not([type="radio"]),
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) select:not([hidden]):not([disabled]),
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) *:has(> [data-field-affordance]),
+[data-field-style="lines"] [data-field]:has(> [data-field-label]) [data-field-pair] {
+  max-width: 100%;
+}
+
+/* TWO COLUMNS, ONE FIELD PER LINE (client 2026-09-16: "in every fields you
+   can do like left side right side, so that it will look compacted, and
+   everything will look neat and tidy"). Every `FieldGrid` under the lines
+   style becomes a left column and a right column, and each field takes one
+   cell whatever `size` it declared — the 12-column arithmetic still governs
+   every other screen, and this editor reads across, left then right, in the
+   order the fields are declared, which is also the Tab order.
+   `DetailSection`'s own track is deliberately NOT matched: the two address
+   blocks use it to stack one-per-line inside their columns, and a second
+   split there would undo the layout the client had just approved. */
+[data-field-style="lines"] [data-field-grid] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 2rem;
+  /* AIR BETWEEN A LINE AND THE NEXT LABEL (client 2026-09-16: "every line,
+     under there is the next field's name, isn't it too close, it is a bit
+     confusing"). A boxed field has its own bottom edge and 8px is enough; a
+     bare line has nothing below it but the next label, so the row gap
+     triples. `DetailSection`'s track carries the same marker, so the address
+     columns get it too — but stay single-column, since `grid-template-columns`
+     there is overridden back below. */
+  row-gap: 1.5rem;
+}
+/* DetailSection tracks stay ONE column (the address blocks stack one per line
+   by design); only FieldGrid tracks split in two. `data-field-grid` marks both,
+   so the split is undone for the ones inside a section frame. */
+[data-field-style="lines"] [data-detail-section] [data-field-grid] {
+  grid-template-columns: minmax(0, 1fr);
+}
+[data-field-style="lines"] [data-field-grid] > * {
+  grid-column: span 1 / span 1;
+}
+
+/* A PAIR OF CONTROLS IS ONE LINE. `data-field-pair` marks a row of two
+   controls that together mean one field (Guardian: the relation and the name).
+   The 75% cap lands on the pair, and everything inside it fills its share —
+   so the pair ends exactly where a single-control line ends. */
+[data-field-style="lines"] [data-field-pair] {
+  max-width: 75%;
+}
+[data-field-style="lines"] [data-field-pair] input:not([type="checkbox"]):not([type="radio"]),
+[data-field-style="lines"] [data-field-pair] select:not([hidden]):not([disabled]),
+[data-field-style="lines"] [data-field-pair] *:has(> [data-field-affordance]) {
+  max-width: 100%;
+}
+
+/* THE ARROW STAYS ON THE LINE (client 2026-09-16: "the drop down arrows are
+   hanging"). A dropdown or picker is a `relative` wrapper holding the input
+   AND an absolutely-positioned affordance slot (`[data-field-affordance]`,
+   field-affordance.tsx) pinned to the wrapper's right edge. Capping only the
+   input at 75% left the wrapper full width, so the ▼ sat a quarter of a cell
+   past the end of its own line. The cap moves to whichever element holds the
+   slot, and the input inside it fills that element again — so the line and
+   its arrow end together, on every dropdown and picker in the editor. */
+[data-field-style="lines"] *:has(> [data-field-affordance]) {
+  max-width: 75%;
+}
+/* DESCENDANT, not child: the combobox input sits inside a Tooltip wrapper
+   under the same relative root, so `> input` never matched it and the line
+   came out at 75% of an already-75% box while the arrow stayed at the edge —
+   the second "hanging" report. Anything that draws a line under this root
+   fills it; the root is what carries the cap. */
+/* THE SAME `:not()` PAIR AS THE 75% RULE ABOVE, and that is specificity, not
+   copy-paste: `:has()` counts as its most specific argument, so without them
+   this override sat at (0,2,1) against the cap's (0,3,1) and LOST even though
+   it comes later — the line stayed at 75% of the box while the arrow moved
+   to the box's edge (the third "hanging" report). Match the count and the
+   later rule wins as it should. */
+[data-field-style="lines"] *:has(> [data-field-affordance]) input:not([type="checkbox"]):not([type="radio"]),
+[data-field-style="lines"] *:has(> [data-field-affordance]) select:not([hidden]):not([disabled]),
+[data-field-style="lines"] *:has(> [data-field-affordance]) [data-field-trigger]:not([hidden]):not([disabled]) {
+  max-width: 100%;
+}
+/* THE HAND POINTER ON A DROPDOWN (client 2026-09-16: "the hand pointer should
+   work properly"). The arrow slot is `pointer-events-none` by design — a click
+   on it must reach the input beneath — so the cursor has to be declared on
+   what IS under the mouse: the box and the read-only combobox text. */
+[data-field-style="lines"] *:has(> [data-field-affordance]),
+[data-field-style="lines"] *:has(> [data-field-affordance]) input[role="combobox"],
+[data-field-style="lines"] *:has(> [data-field-affordance]) [data-field-trigger] {
+  cursor: pointer;
+}
+
+/* A held field — a blank mandatory one, or a live duplicate — keeps its
+   warning colour on the one edge that is still drawn. */
+[data-field-style="lines"] input[data-required-empty],
+[data-field-style="lines"] select[data-required-empty],
+[data-field-style="lines"] textarea[data-required-empty],
+[data-field-style="lines"] input[aria-invalid="true"],
+[data-field-style="lines"] input[data-dup-error] {
+  border-bottom-color: var(--danger);
+}
+
 /* THE FOCUSED FIELD IS THE BLUE. `--ring` is already the brand blue, so this
    only widens the halo so a curved field shows it — at 0.75rem radius a 1px
    ring disappears into the corner. */

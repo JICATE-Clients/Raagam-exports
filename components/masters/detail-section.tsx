@@ -91,6 +91,7 @@ export function DetailSection({
 }) {
   return (
     <div
+      data-detail-section
       className={cn(
         // The `@2xl/editor:` classes here and below are compact density: a
         // section's own chrome (padding + header + the gap under it) costs real
@@ -123,6 +124,9 @@ export function DetailSection({
         {action}
       </div>
       <div
+        // The same marker `FieldGrid` puts on its track, so a surface that
+        // re-spaces one re-spaces both (the lines style, globals.css).
+        data-field-grid
         className={cn(
           // `cols={12}` IS `FIELD_TRACK` — the same string `FieldGrid` uses, so
           // a card body and a section can never lay fields out differently.

@@ -518,6 +518,20 @@ def check_editor_declares_itself(path: Path, code: str):
         return
 
 
+# A page-level editor whose SURFACE is built by a sibling component: the guard
+# lives with the state in one file, the `data-focus-scope` with the DOM in the
+# other. Keyed by the file that declares the guard -> the file that carries the
+# marker. The check READS the sibling and confirms the marker is there, so this
+# is a redirection rather than a blind exemption -- move the marker out of the
+# sibling and the finding comes back.
+PAGE_SCOPE_IN_SIBLING: dict[str, str] = {
+    # Empty today. The staff/worker editor used this for one afternoon
+    # (2026-09-15) while its surface lived in a sibling component; it is back on
+    # `MasterFullScreen`, which carries its own marker. Kept for the next screen
+    # that splits state and surface across two files.
+}
+
+
 def check_page_editor_declares_itself(path: Path, code: str):
     """A page-level editor that Tab cannot recognise keeps native tab order.
 
@@ -546,6 +560,20 @@ def check_page_editor_declares_itself(path: Path, code: str):
     if re.search(r"data-focus-scope|data-focus-region", code):
         return
     if re.search(r"<(Sheet|MasterFullScreen|SimpleMasterScreen)\b", code):
+        return
+    sibling = PAGE_SCOPE_IN_SIBLING.get(path.name)
+    if sibling:
+        sib = path.with_name(sibling)
+        sib_code = (
+            strip_comments(sib.read_text(encoding="utf-8")) if sib.exists() else ""
+        )
+        if re.search(r"data-focus-scope", sib_code):
+            return
+        yield Finding(
+            "tab-page-form", path, 1,
+            f"declared as scoped by {sibling}, but that file carries no "
+            "data-focus-scope -- the marker moved or the file is gone",
+        )
         return
     m = re.search(r"\buseUnsavedGuard\b|\buseFormDraft\b", code)
     yield Finding(

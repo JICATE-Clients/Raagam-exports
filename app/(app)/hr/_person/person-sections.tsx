@@ -13,18 +13,13 @@ import {
   HeartHandshake,
   Info,
   Home,
-  Landmark,
   Languages,
-  Mailbox,
   Paperclip,
   PhoneCall,
-  PiggyBank,
-  ShieldCheck,
   ToggleLeft,
   UserRound,
   Users,
   UsersRound,
-  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -81,12 +76,7 @@ export type PersonSectionKey =
   | "dates"
   | "statutory"
   | "status"
-  | "pay-statutory"
-  | "pay-actual"
-  | "esi"
-  | "pf"
-  | "perm-address"
-  | "corr-address"
+  | "addresses"
   | "personal"
   | "identifiers"
   | "enclosure"
@@ -98,8 +88,6 @@ export type PersonSectionKey =
   | "emergency"
   | "internal-ref"
   | "shifts"
-  | "salary-registry"
-  | "bank"
   | "general"
   | "family"
   | "experience"
@@ -148,32 +136,24 @@ const ALL_SECTIONS: {
   // Dated spells, not a field on Detail — see `hr_shift_assignments` (0554).
   // WORKERS ONLY — filtered out for staff by `personSections` below.
   { key: "shifts", label: "Shifts", icon: Clock },
-  /**
-   * SALARY REGISTRY IS A CATEGORY, NOT A PANE (client 2026-09-11: "now do the
-   * same for all fields in left side bar like a detail").
+  /*
+   * NO SALARY REGISTRY AND NO BANK ACCOUNT ON THE RECORD (client 2026-09-16:
+   * "in add new staff, remove salary and bank bcz it is outside is there right
+   * that is enough").
    *
-   * Detail could keep a pane because it had content of its own — the identity
-   * block, which sits under no heading. This one is nothing BUT its four
-   * groups, so a pane here would be an empty screen with a footer; `groupOnly`
-   * makes the row open Pay - Statutory instead. Same for General and Reference
-   * below. That is one rule, not three exceptions: a parent shows whatever is
-   * not in a child, and where that is nothing it becomes pure navigation.
+   * Both are HR sub-modules of their own since 2026-09-12 — `/hr/salary-registry`
+   * and `/hr/bank-details` list every person, count who is still pending, and
+   * fill the details in from the list through the same server actions. Two
+   * places to enter one salary was the drift this screen's own comments warned
+   * about, and the client has now chosen which one stays.
+   *
+   * The COLUMNS stay on the record and still round-trip through this editor
+   * unchanged (`openEdit` loads them, save writes them back), so saving a person
+   * here cannot blank a salary entered on the worklist. Only the panes are gone.
    */
-  { key: "salary-registry", label: "Salary Registry", icon: Wallet, groupOnly: true },
-  // Both panels hold Basic / DA / HRA / Others, so these two labels are the
-  // only thing saying which set a figure belongs to — they were load-bearing as
-  // headings and stay load-bearing as rail rows.
-  { key: "pay-statutory", label: "Pay — Statutory", icon: Wallet, sub: true },
-  { key: "pay-actual", label: "Pay — Actual", icon: Wallet, sub: true },
-  { key: "esi", label: "ESI Details", icon: ShieldCheck, sub: true },
-  { key: "pf", label: "PF Details", icon: PiggyBank, sub: true },
-  // "Bank Account", not "Bank Account Details" (client 2026-09-09). The rail is
-  // 228px and truncates — the longer label rendered as "Bank Account …", so the
-  // word that got cut was the one word carrying no information anyway.
-  { key: "bank", label: "Bank Account", icon: Landmark },
   { key: "general", label: "General", icon: Contact, groupOnly: true },
-  { key: "perm-address", label: "Permanent Address", icon: Home, sub: true },
-  { key: "corr-address", label: "Correspondence Address", icon: Mailbox, sub: true },
+  // Both addresses on one pane, side by side (client 2026-09-16).
+  { key: "addresses", label: "Addresses", icon: Home, sub: true },
   { key: "personal", label: "Personal", icon: UserRound, sub: true },
   { key: "identifiers", label: "Identifiers", icon: Fingerprint, sub: true },
   /**
@@ -189,16 +169,31 @@ const ALL_SECTIONS: {
    * physical particulars and documents.
    */
   { key: "enclosure", label: "Enclosure", icon: Paperclip, sub: true },
-  { key: "education", label: "Education & Technical", icon: GraduationCap, sub: true },
+  {
+    key: "education",
+    label: "Education & Technical",
+    icon: GraduationCap,
+    sub: true,
+  },
   { key: "languages", label: "Languages", icon: Languages, sub: true },
   { key: "background", label: "Background", icon: ClipboardList, sub: true },
   { key: "other-details", label: "Other Details", icon: Info, sub: true },
   { key: "family", label: "Family Details", icon: Users },
   { key: "experience", label: "Work Experience", icon: Briefcase },
   { key: "reference", label: "Reference", icon: Contact, groupOnly: true },
-  { key: "external-refs", label: "External References", icon: UsersRound, sub: true },
+  {
+    key: "external-refs",
+    label: "External References",
+    icon: UsersRound,
+    sub: true,
+  },
   { key: "emergency", label: "Emergency Contacts", icon: PhoneCall, sub: true },
-  { key: "internal-ref", label: "Internal Reference", icon: Contact, sub: true },
+  {
+    key: "internal-ref",
+    label: "Internal Reference",
+    icon: Contact,
+    sub: true,
+  },
   { key: "nomination", label: "Nomination", icon: HeartHandshake },
 ];
 
