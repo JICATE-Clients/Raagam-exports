@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Plus, X } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
 import { useRequiredHold } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { GRID_FRAME } from "@/components/masters/child-grid";
@@ -118,6 +119,7 @@ export function MultiSelect({
   compact,
   className,
   triggerClassName,
+  inputClassName,
   panelClassName,
   groupBy,
   gridded,
@@ -150,6 +152,16 @@ export function MultiSelect({
    * different measurements in one cell, which a span alone cannot express.
    */
   triggerClassName?: string;
+  /**
+   * Classes for the trigger `<input>` ITSELF — height, text size, border —
+   * the same hook `<Select>` threads into `Combobox` as `inputClassName`, so
+   * a bar that sizes its controls to one rhythm (the top bar's `h-8` /
+   * `text-xs`) can size this one too instead of accepting the primitive's
+   * `h-9` beside an `h-8` neighbour (topbar.tsx, 2026-09-15). Merged LAST,
+   * so a caller's `h-8` wins over the base `h-9`. `triggerClassName` above
+   * reaches only the wrapper (its width); it cannot do this job.
+   */
+  inputClassName?: string;
   /**
    * WIDTH FOR THE POPUP, SEPARATELY FROM THE TRIGGER.
    *
@@ -685,19 +697,49 @@ export function MultiSelect({
           onKeyDown={onTriggerKeyDown}
           className={cn(
             // Same metrics as Input / DataPicker — these share rows with both.
-            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface pl-2.5 pr-9 text-base md:text-sm",
+            // `AFFORDANCE_PAD`, not a hand-typed `pr-*` — the pad and the slot
+            // are ONE measurement (28px of slot plus a 4px gutter) and
+            // field-affordance.tsx says in writing that they must never be
+            // edited apart. It was `pr-9`, cut for a chevron floating at
+            // `right-3`; the slot that replaced it is 28px wide.
+            cn("h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface pl-2.5 text-base md:text-sm", AFFORDANCE_PAD),
             // truncate-reveal: exempt -- the full selection is rendered in the
             // chip line below, so nothing here is the only copy of a value.
             "text-ellipsis placeholder:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "disabled:cursor-not-allowed disabled:opacity-50",
             "border-border hover:border-primary",
+            inputClassName,
           )}
         />
-        <ChevronDown
-          aria-hidden
-          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-        />
+        {/* THE SEGMENTED RIGHT EDGE, NOT A GLYPH ADRIFT IN THE BOX — the same
+            `FieldAffordance` `Combobox` and `DataPicker` draw, so this control
+            now answers "does this field have a list?" the way every other
+            dropdown in the app does.
+
+            THIS IS THE COMPONENT'S OWN CLAIM BEING MADE TRUE. field-affordance.tsx
+            says it is "the app's entire answer to the question" because "every
+            dropdown the operator sees is one of these two" — `Combobox` and
+            `DataPicker`. `MultiSelect` is a THIRD and was never migrated, so it
+            kept the pre-2026-08-18 treatment: a bare ▼ at `right-3`, centred on
+            nothing, which is exactly what the client asked to have removed
+            ("that close, drop down button icon look floating into the screen").
+            It showed up as two dropdowns side by side in the top bar with
+            different right edges — Location segmented and filled, the role
+            preview bare (2026-09-16).
+
+            `compact` IS DELIBERATELY NOT THREADED THROUGH, and the two props
+            are false friends. `MultiSelect`'s `compact` means "the caller draws
+            the label" (see the `{!compact && <Label>}` above); `FieldAffordance`'s
+            means "a dense grid cell — a 20px slot and a 12px glyph". Passing one
+            to the other would give the top bar's role preview a 20px slot beside
+            the Location box's 28px one, which is the mismatch this change exists
+            to close. This control is `h-9 @2xl/editor:h-8` — a full field at
+            every width — so the full slot is right for it everywhere.
+
+            No `onClear`: the slot shows ▼ when none is given, and clearing here
+            is per-chip, not whole-field. */}
+        <FieldAffordance disabled={disabled} />
         {open && (
           /* THE PANEL IS A BOX AROUND THE LIST, not the list itself.
              The footer has to sit OUTSIDE the scroll region — a bulk action that

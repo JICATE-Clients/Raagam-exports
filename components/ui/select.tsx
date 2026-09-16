@@ -132,8 +132,22 @@ export const Select = forwardRef<
      * real one, which would warn about an unknown DOM property.
      */
     compact?: boolean;
+    /**
+     * Classes for the CONTROL ONLY — height, text size, padding, border — the
+     * same hook `MultiSelect` carries under the same name. `className` below
+     * is deliberately sent to BOTH the wrapper and the input (see the note on
+     * the `Combobox` call), so a `border` / `bg-*` / `pl-*` in it draws a
+     * second box around the control and insets the input inside it. That is
+     * exactly what the top bar's Location switcher did on 2026-09-16: its
+     * `BAR_CONTROL` (`h-8 border … pl-2.5`) went through `className` and the
+     * box rendered double-bordered and shifted beside the role preview, which
+     * had had `inputClassName` since 09-15. Merged LAST, so a caller's `h-8`
+     * wins over the base `h-9`. On the native branch there is one element, so
+     * the two merge into it.
+     */
+    inputClassName?: string;
   }
->(({ className, children, compact, ...props }, ref) => {
+>(({ className, inputClassName, children, compact, ...props }, ref) => {
   // Keep native for multi-select and uncontrolled (defaultValue) usage — the
   // listbox is single-select and controlled-only.
   const nativeOnly = Boolean(props.multiple) || props.value == null;
@@ -155,7 +169,7 @@ export const Select = forwardRef<
       // branch below is a Combobox and stamps its own — this is the touch / SSR
       // / multiple / uncontrolled branch.
       {...hold}
-      className={cn(NATIVE_CLASS, className)}
+      className={cn(NATIVE_CLASS, className, inputClassName)}
       {...props}
     >
       {children}
@@ -232,11 +246,13 @@ export const Select = forwardRef<
         // (the chevron and popup anchor to it); the input needs it for height,
         // text size and padding.
         //
-        // The one thing a caller must therefore NOT pass is `border` / `bg-*` —
-        // the control already draws those, and duplicating them on the wrapper
-        // is what produced the double-boxed Location switcher in the topbar.
+        // The one thing a caller must therefore NOT pass HERE is `border` /
+        // `bg-*` / `pl-*` — the control already draws those, and duplicating
+        // them on the wrapper is what produced the double-boxed Location
+        // switcher in the topbar, twice. Anything that must reach only the
+        // control goes through `inputClassName` (its note above), merged last.
         className={className}
-        inputClassName={className}
+        inputClassName={cn(className, inputClassName)}
         openOnFocus={false}
       />
       {props.name ? <input type="hidden" name={props.name} value={value} /> : null}

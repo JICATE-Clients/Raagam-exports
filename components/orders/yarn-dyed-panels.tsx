@@ -454,11 +454,6 @@ export function MixingDetailsPanel({
           {colourCountNote(declaredColourCount, dyedColourCount(repeats))}
         </p>
       )}
-      <p className="text-xs text-muted-foreground">
-        Worked out from the Repeats tab — Calculated % is each colour&rsquo;s
-        share of its own yarn, Mixing % is its share of the whole cloth. Nothing
-        here is typed.
-      </p>
       <ChildGrid<MixingDetailWithNet>
         columns={columns}
         rows={rows}

@@ -25,6 +25,37 @@ function sameRoleSet(a: string[], b: string[]): boolean {
   return b.every((id) => s.has(id));
 }
 
+/**
+ * THE ONE SIZE EVERY CONTROL IN THE TOP BAR TAKES (operator, 2026-09-15:
+ * "Make the 'Location' dropdown, the '1 selected' dropdown, and the 'Search'
+ * input field ... strictly uniform in size and styling ... the exact same
+ * height, padding, text size, and border classes").
+ *
+ * Three controls from three primitives — a native `<Select>`, a `MultiSelect`
+ * trigger and a plain `<button>` — each of which carries its own height and
+ * text size (`h-9 ... text-base md:text-sm`), so "the same" has to be said
+ * once and merged last on all three, or they drift the way they did: h-9
+ * beside h-8, text-sm beside text-xs, px-2 beside px-2.5. Stated as classes
+ * the primitives already understand rather than raw colours (`border-border`,
+ * not `border-gray-300`; `bg-surface`, not `bg-white`) so the bar follows the
+ * theme like everything else does.
+ *
+ * `md:text-xs` alongside `text-xs`: the controls declare `text-base
+ * md:text-sm`, so a bare `text-xs` wins only BELOW `md` — both halves are
+ * needed, or the bar goes back to `text-sm` on a desktop.
+ *
+ * LEFT PADDING ONLY, AND THAT IS NOT AN OVERSIGHT. The two dropdowns each
+ * reserve their right edge for a chevron — `Combobox` (what a desktop
+ * `<Select>` renders) with `AFFORDANCE_PAD` (`pr-8`), `MultiSelect` with
+ * `pr-9` — and `cn()` is tailwind-merge, where a later `px-*` REMOVES an
+ * earlier `pl-*`/`pr-*`. The first cut said `px-2.5` here, and the merge
+ * quietly dropped both reservations: "1 selected" ran under its own arrow.
+ * So this states `pl-2.5` — the edge the text starts from, which is the one
+ * the eye lines up — and leaves each control its own right edge. The Search
+ * button is the one with nothing on its right, so it adds `pr-2.5` itself.
+ */
+const BAR_CONTROL = "h-8 rounded-md border border-border bg-surface pl-2.5 text-xs md:text-xs";
+
 export function Topbar({
   previewableRoles,
 }: {
@@ -139,6 +170,8 @@ export function Topbar({
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
+      {/* `BAR_CONTROL` (top of file) is the ONE size every control in this bar
+          takes — Location, the role preview, Search. See its own note. */}
       {/* Location switcher (two GST entities) */}
       {/* `min-w-0`: without it this group is sized by the Select's fixed width
           and cannot give a pixel back, which is half of why the bar had a hard
@@ -147,11 +180,20 @@ export function Topbar({
         <span className="hidden text-xs text-muted-foreground sm:inline">
           Location
         </span>
-        {/* Border, background, radius and focus ring all come from the control
-            itself — repeating them here drew a SECOND box around it. `h-8`
-            matches the Search trigger opposite; `md:text-xs` has to be spelled
-            out because the control declares `text-base md:text-sm`, and a bare
-            `text-xs` only wins below the md breakpoint.
+        {/* `className` IS THE WRAPPER'S WIDTH AND NOTHING ELSE. On a desktop
+            `<Select>` renders a `Combobox` — a wrapper `<div>` around an
+            `<input>` — and forwards `className` to BOTH, so `BAR_CONTROL`'s
+            `border … bg-surface … pl-2.5` sent that way drew a SECOND box
+            around the control and shoved the input 10px right inside it: the
+            "double border" beside the role preview (2026-09-16). That box had
+            been fixed once before, by stripping border/bg from this className
+            — and the 09-15 uniformity pass put them straight back, because
+            `BAR_CONTROL` has to carry them for the `<button>` Search trigger,
+            which draws none of its own. So the constant now goes through
+            `inputClassName`, the hook `MultiSelect` beside this already takes
+            it on, and the two controls are styled by the identical string on
+            the identical element. `font-medium` rides with it: it is the
+            control's text, not the wrapper's.
 
             `w-28` UNTIL `sm`, AND THAT IS THE WHOLE MOBILE FIX. Every element
             in this bar was a fixed width with no shrink allowance: 176px here,
@@ -174,7 +216,8 @@ export function Topbar({
           disabled={switching || allowed.length === 0}
           aria-label="Location"
           aria-describedby={error ? "location-switch-error" : undefined}
-          className="h-8 w-28 text-xs font-medium sm:w-44 md:text-xs"
+          className="w-28 sm:w-44"
+          inputClassName={cn(BAR_CONTROL, "font-medium")}
         >
           {/* No unit resolved. Shown rather than auto-picking `allowed[0]`,
               which is how the old code answered "which company's books?" by
@@ -241,14 +284,13 @@ export function Topbar({
             no width to spare for one, and it would wrap the header onto a
             second line on every pick.
 
-            `triggerClassName` only reaches the trigger's WIDTH — the input
-            itself (height, text size) has no exposed className hook (unlike
-            `<Select>`, which threads one into `Combobox`'s `inputClassName`),
-            so this renders at the primitive's own h-9 default rather than
-            matching the bar's h-8 rhythm. Accepted rather than forked: this
-            is an admin-only, desktop-only control, and reusing the real
-            multi-select — full keyboard contract, search, required-hold —
-            is worth a few px of height mismatch. */}
+            `triggerClassName` reaches the trigger's WIDTH; `inputClassName`
+            (added 2026-09-15, the same hook `<Select>` threads into
+            `Combobox`) reaches the input itself, so this now takes
+            `BAR_CONTROL` and sits at the bar's h-8 / text-xs exactly like the
+            Location box and the Search trigger beside it. It used to render
+            at the primitive's own h-9 — "accepted rather than forked" — until
+            the operator asked for the three to be strictly uniform. */}
         {user.realIsSuperAdmin && previewableRoles.length > 0 && (
           <div className="hidden items-center gap-1.5 md:flex">
             <MultiSelect
@@ -262,6 +304,7 @@ export function Topbar({
               disabled={previewing}
               placeholder="Super Admin (you)"
               triggerClassName="w-40"
+              inputClassName={BAR_CONTROL}
             />
             {previewDirty && (
               <button
@@ -293,13 +336,14 @@ export function Topbar({
           onClick={search.open}
           aria-label="Search everywhere"
           className={cn(
-            "flex items-center gap-2 rounded-md border border-border text-muted-foreground",
-            "h-8 px-2 hover:bg-surface-muted",
-            "md:w-56 md:justify-start md:px-2.5",
+            BAR_CONTROL,
+            // `pr-2.5`: the one bar control with no chevron — see BAR_CONTROL.
+            "pr-2.5 flex items-center gap-2 text-muted-foreground hover:bg-surface-muted",
+            "md:w-56 md:justify-start",
           )}
         >
           <Search className="h-4 w-4 shrink-0" />
-          <span className="hidden flex-1 text-left text-xs md:inline">
+          <span className="hidden flex-1 text-left md:inline">
             Search…
           </span>
           <kbd className="hidden shrink-0 rounded border border-border bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] md:inline">
