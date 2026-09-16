@@ -55,7 +55,7 @@
  * panel a dye house acts on.
  */
 
-import { yarnShareOf, type FabricComposition, type Refusal } from "./yarn-process";
+import { yarnShareOf, type FabricComposition, type Refusal, type YarnShade } from "./yarn-process";
 
 const isRefusal = (v: unknown): v is Refusal =>
   typeof v === "object" && v !== null && "refused" in v;
@@ -239,4 +239,88 @@ export function colorNetWeight(
  */
 export function ydRepeatsAnswered(repeats: readonly YdRepeatRow[]): boolean {
   return repeats.some((r) => r.yarn_item_id || r.color_name.trim() || r.value != null);
+}
+
+/** One Combinations row, as `yarnShadesFrom` needs to see it (0512 · 0560 · 0568). */
+export type YdCombinationLike = {
+  combo: string | null;
+  /** The colours this combination puts at each stripe POSITION, in `sno`
+   *  order, each carrying its own dye-house loss. */
+  colors: readonly { sno: number; dyeing_loss_pct: number | null }[];
+};
+
+/**
+ * THE DYED SHADES OF ONE CLOTH, ready for `yarnPurchase` (0568).
+ *
+ * ## IT JOINS THE TWO HALVES THAT LIVE IN DIFFERENT TABLES, ONCE
+ *
+ * A stripe's SHARE is on `order_fabric_bom_yd_repeats` — a feeder slot, the
+ * same for every colourway. A stripe's COLOUR and that colour's dyeing LOSS are
+ * on `order_fabric_bom_yd_combination_colors`, per colourway, because the same
+ * slot holds GREEN on one combo and WHITE on the next (0560). Joined BY
+ * POSITION, which is the only thing the two have in common and exactly how the
+ * report's own Details cell already pairs them.
+ *
+ * ONE FUNCTION, TWO CALLERS, for this module's standing reason: the screen
+ * previews `yarnPurchase` as the planner types and `writeYarns` stores what it
+ * returns. Assembling the shades differently in those two places is how a
+ * preview and a stored purchase weight come to disagree — the thing
+ * `yarn-process.ts`'s header calls the one that must never happen.
+ *
+ * ## THE SHARE IS `calculated_pct`, NOT `mixing_pct`
+ *
+ * `calculated_pct` is a stripe's share of its own YARN and sums to 100 across
+ * that yarn's dyed stripes; `mixing_pct` is its share of the CLOTH. By the time
+ * `yarnPurchase` applies this, the cloth has already been divided by the blend,
+ * so what is left to divide is the yarn — and dividing it by a share of the
+ * cloth would shrink every shade by the blend a second time.
+ *
+ * On a single-yarn cloth the two are equal, which is exactly the case the
+ * legacy printout captured and why the distinction has to be stated rather than
+ * inferred from its numbers.
+ *
+ * ## A STRIPE WITH NO SHARE IS DROPPED, AND THAT REFUSES DOWNSTREAM
+ *
+ * `calculated_pct` is null when a yarn's repeats are all blank or all zero —
+ * "not yet answered", which `mixingDetailRows` is careful to distinguish from
+ * 0%. Dropping it leaves that yarn's shares short of 1, and `shadeDyeFactor`
+ * refuses rather than grossing a partial split. Filling in a 0 here would make
+ * the total look complete and buy short.
+ *
+ * ## A GREY REMAINDER IS NOT A SHADE
+ *
+ * `mixingDetailRows` already excludes `dye_type: 'grey'` — the undyed part of
+ * the yarn goes through no dye house and loses nothing there. It is not in
+ * these rows, and its share is not in the denominator.
+ */
+export function yarnShadesFrom(
+  fabricId: string,
+  repeats: readonly YdRepeatRow[],
+  fabric: FabricComposition | null,
+  combinations: readonly YdCombinationLike[],
+  yarnName: (id: string | null) => string = () => "",
+): YarnShade[] {
+  const mixing = mixingDetailRows(repeats, fabric, yarnName);
+  if (mixing.length === 0) return [];
+
+  const out: YarnShade[] = [];
+  for (const c of combinations) {
+    const byPosition = [...c.colors].sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0));
+    mixing.forEach((m, i) => {
+      if (!m.yarn_item_id || m.calculated_pct == null) return;
+      out.push({
+        fabric_id: fabricId,
+        yarn_id: m.yarn_item_id,
+        combo: c.combo,
+        share: m.calculated_pct / 100,
+        /* A COLOUR THE COMBINATION NEVER NAMED LOSES NOTHING. The stripe still
+           exists and still carries its share — it is the LOSS that is
+           undeclared, and 0 is what undeclared means here (the column's own
+           default). Skipping the row instead would short its yarn's shares and
+           refuse the whole cloth over a blank percentage. */
+        loss_pct: Number(byPosition[i]?.dyeing_loss_pct ?? 0),
+      });
+    });
+  }
+  return out;
 }

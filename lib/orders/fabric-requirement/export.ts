@@ -29,6 +29,10 @@ import {
   fabricSheetQty,
   type FabricSheetRow,
 } from "./sheet";
+/* THE RULE 2 DEMAND LINE (0564) — declared by the report that computes it, so
+   the on-screen sheet, this file and the printed report all name one type
+   rather than three structurally identical ones. */
+import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
 
 export type FabricSheetMeta = {
   company: string;
@@ -100,6 +104,11 @@ export function exportFabricRequirementPdf(
   rows: readonly FabricSheetRow[],
   yarns: readonly FabricSheetRow[],
   meta: FabricSheetMeta,
+  /** THE RULE 2 DEMAND (0564) — greige or dyed rolls to buy, from the sheet's
+   *  own `cloth`. Defaults to none, so every existing call site (and an
+   *  all-Rule-1 document, which is every BOM before 2026-09-16) prints the
+   *  file it always did. */
+  cloth: readonly ClothPurchaseLine[] = [],
 ): void {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
@@ -182,6 +191,35 @@ export function exportFabricRequirementPdf(
     });
   }
 
+  /* FABRIC PURCHASE (0564) — A THIRD TABLE, for the YARN PURCHASE table's own
+     reason one step along: these quantities answer a different purchase again
+     (a cloth merchant's order, not a spinner's), and a reader who sums a Qty
+     column must not find rolls mixed into cones. Omitted entirely on an
+     all-Rule-1 document, like the yarn table above it. */
+  if (cloth.length) {
+    const after = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
+    const startY = (after?.finalY ?? y) + 24;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("FABRIC PURCHASE", M, startY - 8);
+    autoTable(doc, {
+      head: [["Fabric", "Buying", "Colour", "UOM", "Net Wt", "Purchase Wt"]],
+      body: cloth.map((l) => [
+        l.component ? `${l.fabricName} · ${l.component}` : l.fabricName,
+        l.label,
+        l.combo ?? "",
+        l.uomCode ?? "",
+        String(l.netWt),
+        String(l.purchaseWt),
+      ]),
+      startY,
+      margin: { left: M, right: M },
+      styles: { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 },
+      headStyles: { fillColor: [235, 237, 240], textColor: 20, fontStyle: "bold" },
+      columnStyles: { 4: { halign: "right" }, 5: { halign: "right" } },
+    });
+  }
+
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
@@ -220,6 +258,8 @@ export function exportFabricRequirementPdf(
 export function fabricRequirementCsv(
   rows: readonly FabricSheetRow[],
   yarns: readonly FabricSheetRow[],
+  /** See `exportFabricRequirementPdf`'s own note (0564). */
+  cloth: readonly ClothPurchaseLine[] = [],
 ): string {
   const out: string[][] = [
     [
@@ -288,6 +328,29 @@ export function fabricRequirementCsv(
     ]);
   }
 
+  /* FABRIC PURCHASE (0564) — the rows that REPLACE the yarn above for a cloth
+     this order does not knit. In the same sheet and keyed by a different first
+     column, the way the Yarn rows already are: a spreadsheet that split them
+     into tabs would let a reader total one and believe they had the demand.
+     The `Buying` word goes in the slice column so greige and dyed rolls stay
+     tellable apart after the file leaves this app. */
+  for (const l of cloth) {
+    out.push([
+      "Fabric Purchase",
+      "",
+      l.component ? `${l.fabricName} · ${l.component}` : l.fabricName,
+      "",
+      l.label,
+      l.combo ?? "",
+      "",
+      String(l.netWt),
+      "",
+      l.uomCode ?? "",
+      String(l.purchaseWt),
+      "",
+    ]);
+  }
+
   return out
     .map((line) => line.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(","))
     .join("\n");
@@ -297,9 +360,11 @@ export function exportFabricRequirementCsv(
   rows: readonly FabricSheetRow[],
   yarns: readonly FabricSheetRow[],
   meta: FabricSheetMeta,
+  /** See `exportFabricRequirementPdf`'s own note (0564). */
+  cloth: readonly ClothPurchaseLine[] = [],
 ): void {
   // The BOM prefix keeps Excel from reading a leading `=` or `+` as a formula.
-  const blob = new Blob(["﻿" + fabricRequirementCsv(rows, yarns)], {
+  const blob = new Blob(["﻿" + fabricRequirementCsv(rows, yarns, cloth)], {
     type: "text/csv;charset=utf-8;",
   });
   const url = URL.createObjectURL(blob);

@@ -1883,10 +1883,40 @@ function fnv1a64(s: string): string {
   return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
 }
 
-/** Total production across the whole order — the figure shown beside the hash so
- *  an operator can read WHAT it was computed for, not just whether it moved. */
-export function totalProductionOf(order: OrderProductionInput): number | Refusal {
-  const targets = targetsOf(order);
+/**
+ * Total production across the whole order — the figure shown beside the hash so
+ * an operator can read WHAT it was computed for, not just whether it moved.
+ *
+ * ## IT TAKES THE RULE, BECAUSE A FABRIC BOM AND A TRIMS BOM PLAN AGAINST
+ *    DIFFERENT QUANTITIES (2026-09-16)
+ *
+ * This defaulted to `MATERIAL_BASE_QUANTITY` and had no way to say otherwise,
+ * so every caller got the TRIMS base — `po_excess_approval`, which excludes the
+ * rejection allowance for the reason that constant's own header gives (a
+ * garment rejected in processing has already consumed its fabric and has NOT
+ * consumed its buttons). Fabric planning uses `full_target` and includes it,
+ * which is the "vital distinction" the client drew on 2026-08-21.
+ *
+ * Fabric BOM was stamping its header with the accessory quantity: on
+ * HO/RE/26-27/0007 `computed_for_qty` read 1040 (1000 + 30 excess + 10
+ * approval) while every requirement row beneath it was computed for 1070 —
+ * the same order, two totals, and the document disagreeing with its own rows.
+ *
+ * THE DEFAULT IS UNCHANGED so no existing caller moves. Fabric BOM's two call
+ * sites pass `full_target` explicitly; that is the whole change.
+ *
+ * IT IS A DISPLAY FIGURE AND NOT A STALENESS TEST, which is what makes fixing
+ * it safe rather than a migration: `bomFreshness` compares
+ * `computed_basis_hash` and never this number (see its own header on why a
+ * total cannot detect WHITE 300/NAVY 200 becoming WHITE 200/NAVY 300). A BOM
+ * stored under the old rule therefore reads a stale QUANTITY beside a correct
+ * status until its next save, and nothing downstream branches on it.
+ */
+export function totalProductionOf(
+  order: OrderProductionInput,
+  rule: BaseQuantityRule = MATERIAL_BASE_QUANTITY,
+): number | Refusal {
+  const targets = targetsOf(order, rule);
   if (isRefusal(targets)) return targets;
   return targets.reduce((a, t) => a + t.qty, 0);
 }

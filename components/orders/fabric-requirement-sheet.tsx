@@ -182,6 +182,78 @@ export function FabricRequirementSheetDocument({ data }: { data: FabricRequireme
           </section>
         )}
 
+        {/* FABRIC PURCHASE (0564) — Default Rule 2's demand, and the reason
+            the Yarn Purchase section above may legitimately be absent. A
+            fabric bought as greige or dyed rolls buys no yarn; what it buys
+            is roll WEIGHT, in the same kilograms the requirement above is
+            stated in, grossed by the losses the factory still incurs after
+            the roll lands. Omitted rather than drawn empty, for the same
+            reason the yarn section is: a heading over nothing states a
+            purchase that does not exist. */}
+        {data.cloth.length > 0 && (
+          <section>
+            <div className="flex items-baseline gap-3 border-b border-t border-border bg-[#eaf7fd] px-5 py-2">
+              <h2 className="m-0 text-[12.5px] font-bold uppercase tracking-[.14em] text-[#037bb8]">
+                Fabric Purchase
+              </h2>
+              <span className="ml-auto font-mono text-[11px] text-[#5b6472]">
+                {data.cloth.length} line{data.cloth.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="fab-scroll">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr>
+                    <Th>Fabric</Th>
+                    <Th>Buying</Th>
+                    <Th>Colour</Th>
+                    <Th>UOM</Th>
+                    <Th right>Net Wt</Th>
+                    <Th right>Purchase Wt</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.cloth.map((l, i) => (
+                    <tr key={`${l.fabricId}-${l.combo ?? ""}-${i}`}>
+                      <td className="border-b border-border px-2.5 py-1.5 font-medium">
+                        {l.fabricName}
+                        {l.component && (
+                          <span className="ml-1 text-[11px] text-[#5b6472]">· {l.component}</span>
+                        )}
+                      </td>
+                      <td className="border-b border-border px-2.5 py-1.5">{l.label}</td>
+                      <td className="border-b border-border px-2.5 py-1.5">{l.combo ?? "—"}</td>
+                      <td className="border-b border-border px-2.5 py-1.5">{l.uomCode || "—"}</td>
+                      <td className="border-b border-border px-2.5 py-1.5 text-right font-mono">
+                        {fmtNumber(l.netWt)}
+                      </td>
+                      <td className="border-b border-border px-2.5 py-1.5 text-right font-mono font-semibold">
+                        {fmtNumber(l.purchaseWt)}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* A TOTAL ONLY WHERE THERE IS ONE — null the moment two
+                      lines disagree on a unit, and a missing total is the
+                      honest answer there rather than a sum of kilograms and
+                      metres. */}
+                  {data.clothTotal && (
+                    <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                      <td className="border-b border-border px-2.5 py-1.5" colSpan={4}>
+                        Total Fabric Purchase Requirement
+                        {data.clothTotal.uomCode ? ` (${data.clothTotal.uomCode})` : ""}
+                      </td>
+                      <td className="border-b border-border px-2.5 py-1.5" />
+                      <td className="border-b border-border px-2.5 py-1.5 text-right font-mono">
+                        {fmtNumber(data.clothTotal.qty)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         <div className="grid grid-cols-3 border-t-2 border-[#16181d]">
           {["Prepared By", "Checked By", "Approved By"].map((s) => (
             <div key={s} className="border-r border-border px-5 pb-3 pt-8 text-center last:border-r-0">

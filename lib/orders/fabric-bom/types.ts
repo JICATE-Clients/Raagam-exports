@@ -6,6 +6,9 @@ import { capsTextNullable } from "@/lib/validation/formats";
    see that file's header for why the rule is not in SQL. */
 import { fabricBomProcessInput, fabricBomProcessScopeInput } from "./processes";
 import { fabricBomYarnInput } from "./yarn-process";
+/* WHERE A FABRIC COMES FROM (0564) — a type only; the rule itself is
+   client-safe and lives in `./fabric-source.ts`. */
+import type { FabricSource } from "./fabric-source";
 
 // ============================================================================
 // Orders ▸ Fabric BOM (0426). Step 3 of the client's order flow: which fabric,
@@ -154,6 +157,10 @@ export interface FabricBomManualEntry {
    *  every size. */
   size_wise: boolean;
   components: FabricBomManualComponent[];
+  /** Which colourways this weight is for (0567) — EMPTY unless
+   *  `assort_color_wise` is on, in which case the engine reads exactly these
+   *  and refuses an empty set rather than planning every colour. */
+  combos: FabricBomManualCombo[];
   sizes: FabricBomManualSize[];
 }
 
@@ -162,6 +169,14 @@ export interface FabricBomManualComponent {
   id: string;
   entry_id: string;
   component_id: string;
+}
+
+/** One colourway an entry's weight is for (0567). BY NAME, like every combo on
+ *  this document — see the migration on why it is not an FK. */
+export interface FabricBomManualCombo {
+  id: string;
+  entry_id: string;
+  combo: string;
 }
 
 /**
@@ -178,8 +193,13 @@ export interface FabricBomManualSize {
   sno: number;
   size_id: string | null;
   /** The fabric ROLL diameter this size is knitted at — a constraint, picked
-   *  from the dias the BOM declares (0490). NOT what the weight multiplies. */
-  dia: number | null;
+   *  from the dias the BOM declares (0490). NOT what the weight multiplies.
+   *
+   *  `string | number` THROUGHOUT THE 0566 TRANSITION: the column is text from
+   *  that migration on, but a row written before it reads back as a number, and
+   *  PostgREST hands a `numeric` over as a string in some shapes anyway. Every
+   *  consumer already treats it as a label, so read it through `String()`. */
+  dia: string | number | null;
   /** The commercial width the cloth is purchased at. */
   purchase_width: number | null;
   /** Fabric weight in GRAMS for one garment of this size. */
@@ -234,8 +254,10 @@ export interface FabricBomDia {
   sno: number;
   /** 'circular' | 'flat_knit' | 'woven'. */
   knit_type: string | null;
-  /** Diameter for a circular knit, width for a flat knit or a woven. */
-  dia: number | null;
+  /** Diameter for a circular knit, width for a flat knit or a woven — free
+   *  text since 0566, so it can carry the unit the operator writes ("23 CM",
+   *  "36 x 44"). `string | number` while rows written before 0566 remain. */
+  dia: string | number | null;
 }
 
 /**
@@ -425,6 +447,9 @@ export interface FabricBomYdCombinationColor {
   id: string;
   sno: number;
   yarn_color: string | null;
+  /** The dye house's process loss for this shade, 0-100 exclusive (0568).
+   *  0 means nothing was declared and grosses by nothing. */
+  dyeing_loss_pct: number | null;
 }
 
 /**
@@ -469,10 +494,11 @@ export interface FabricBomProcess {
 }
 
 /**
- * One fabric's two split toggles (0528) — legacy's "[Assort Color]" /
- * "[Components]" on the Fabric Process outer row, read as CONTROLS. See
- * `processGroupsFor` in `./processes.ts` for how these turn into the groups a
- * screen renders.
+ * One fabric's ROUTE SCOPE — the two split toggles (0528), legacy's
+ * "[Assort Color]" / "[Components]" on the Fabric Process outer row read as
+ * CONTROLS, and since 0564 where the cloth comes from. See `processGroupsFor`
+ * in `./processes.ts` for how the toggles turn into the groups a screen
+ * renders, and `./fabric-source.ts` for what a source suppresses.
  */
 export interface FabricBomProcessScope {
   id: string;
@@ -480,6 +506,13 @@ export interface FabricBomProcessScope {
   item_id: string;
   assort_color_wise: boolean;
   component_wise: boolean;
+  /** `yarn_knit` | `greige_purchase` | `dyed_purchase` (0564). TYPED AS THE
+   *  UNION rather than as `string`, though the column is `text`: the CHECK
+   *  constraint is what makes that honest, and a reader who has to remember
+   *  three literals is a reader who will spell one of them wrong. A row from
+   *  before the column existed reads the column default, so this is never
+   *  null. */
+  source: FabricSource;
 }
 
 const nullableText = z.string().optional().nullable();
@@ -502,7 +535,10 @@ const numN = z.coerce.number().nullable().default(null);
 export const fabricBomManualSizeInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   size_id: uuidN,
-  dia: numN,
+  /* TEXT SINCE 0566, and it MUST match the type of the list it picks from or a
+     picked "23 CM" cannot be stored. `purchase_width` below stays numeric — it
+     is a commercial width nobody states a unit on. */
+  dia: capsTextNullable(),
   purchase_width: numN,
   /** GRAMS per garment. Stored in both modes — see `gramsFor` in ./manual.ts. */
   grams: numN,
@@ -576,6 +612,11 @@ export const fabricBomManualEntryInput = z.object({
      the row then read back size-wise having never been switched on. */
   size_wise: z.coerce.boolean().default(false),
   component_ids: z.array(z.string().uuid()).default([]),
+  /* WHICH COLOURWAYS THIS WEIGHT IS FOR (0567) — read only when
+     `assort_color_wise` above is ON, in which case an EMPTY list is refused by
+     `fabricSlices` rather than read as "every colourway". Plain strings and not
+     uuids, because a combo is text on this whole document (0426). */
+  combos: z.array(z.string()).default([]),
   sizes: z.array(fabricBomManualSizeInput).default([]),
 });
 
@@ -711,7 +752,18 @@ export const fabricBomLineInput = z
 export const fabricBomDiaInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   knit_type: z.enum(["circular", "flat_knit", "woven"]).nullable().default(null),
-  dia: numN,
+  /**
+   * TEXT SINCE 0566, NOT A NUMBER (client 2026-09-16: "i need to allow it 23 cm
+   * also"). `capsTextNullable()` and not a bare string, so it trims, nulls an
+   * empty box and uppercases — a dia is a stored VALUE and the CAPITALS rule
+   * applies to it exactly as it does to a colour name. `23 cm` lands as
+   * `23 CM`, which also means the de-duplication that builds the Manual tab's
+   * option list cannot be fooled by casing.
+   *
+   * `numN` is deliberately still the type of `fabricBomLineInput.dia` — that is
+   * the CAD-written column and it stays numeric. See 0566's header.
+   */
+  dia: capsTextNullable(),
 });
 
 /**
@@ -757,6 +809,12 @@ export const fabricBomYdRepeatInput = z.object({
 export const fabricBomYdCombinationColorInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   yarn_color: capsTextNullable(),
+  /* THE DYE HOUSE'S LOSS FOR THIS SHADE (0568) — grey weight = dyed weight /
+     (1 - this/100). On the COLOUR and not on the repeat because it is a
+     property of the dyestuff: a feeder slot holds different colours across
+     combinations, and a loss attached to the slot would float with the stripe
+     arrangement. Under 100, or the markup divides by zero. */
+  dyeing_loss_pct: z.coerce.number().min(0).max(99.99).nullable().default(0),
 });
 
 /**

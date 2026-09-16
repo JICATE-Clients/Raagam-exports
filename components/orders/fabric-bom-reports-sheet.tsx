@@ -16,6 +16,7 @@ import type {
   BomDocHeader,
   EntryRegister,
   EntryRegisterComponentGroup,
+  StageBreakdownLine,
   YarnFabricRequirementReport,
 } from "@/lib/orders/fabric-bom/reports";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
@@ -157,7 +158,7 @@ function Letterhead({ title, docNo }: { title: string; docNo: string | null }) {
  * shared row: each report's own title sits beside it, and the two are free
  * to diverge again the moment either report's spec does. `QuantityBand`
  * right below IS still shared — its five facts
- * (Order/Excess/Rejection/Approval/SQ Qty) are the client's Row 2 verbatim
+ * (Order/Excess/Rejection/Approval/Cut Qty) are the client's Row 2 verbatim
  * for BOTH reports, so there was nothing to fork there.
  */
 function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
@@ -167,6 +168,10 @@ function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
       <YarnFact label="SC No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
       <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
+      {/* THE `Style` COLUMN beside `Style Ref No`, legacy's own pairing —
+          blank on a BOM whose lines cover styles that do not agree, the same
+          abstain the ref itself makes. */}
+      <YarnFact label="Style" value={header.styleName} />
       <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
     </div>
   );
@@ -193,24 +198,30 @@ function QuantityBand({ header }: { header: BomDocHeader }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border border-t-0 border-border bg-[#f1f3f5] px-5 py-2.5 font-mono text-[12.5px]">
       <span>
-        <span className="text-[#8b95a3]">Cut Qty</span> {fmtNumber(qty.orderQty)}
+        <span className="text-[#8b95a3]">Order Qty</span> {fmtNumber(qty.orderQty)}
       </span>
       <span>
         <span className="text-[#8b95a3]">Excess Qty{header.excessPct != null ? ` ${header.excessPct}%` : ""}</span>{" "}
         {fmtNumber(qty.excessQty)}
       </span>
+      {/* THE PERCENTAGES ARE THE REPORT'S OWN (`approvalPct` / `rejectionPct`,
+          derived in lib/orders/fabric-bom/reports.ts). This band used to
+          divide them here while the PDF printed none at all — two renderings
+          of one figure, which is what the derived fields exist to stop. */}
       <span>
         <span className="text-[#8b95a3]">
-          Rejection Allowance
-          {qty.orderQty > 0 ? ` ${((qty.rejectionQty / qty.orderQty) * 100).toFixed(2)}%` : ""}
+          Rejection Allowance{qty.rejectionPct != null ? ` ${qty.rejectionPct.toFixed(2)}%` : ""}
         </span>{" "}
         {fmtNumber(qty.rejectionQty)}
       </span>
       <span>
-        <span className="text-[#8b95a3]">Approval Allowance</span> {fmtNumber(qty.approvalQty)}
+        <span className="text-[#8b95a3]">
+          Approval Allowance{qty.approvalPct != null ? ` ${qty.approvalPct.toFixed(2)}%` : ""}
+        </span>{" "}
+        {fmtNumber(qty.approvalQty)}
       </span>
       <span className="ml-auto font-semibold text-[#037bb8]">
-        SQ Qty {fmtNumber(qty.sqQty)}
+        Cut Qty {fmtNumber(qty.sqQty)}
       </span>
     </div>
   );
@@ -331,7 +342,7 @@ const ENTRY_GRID_DETAILED_COLS = [
   { label: "Size", width: 110 },
   { label: "Dia/Size", width: 65 },
   { label: "Width", width: 60 },
-  { label: "SQ Qty", width: 60 },
+  { label: "Cut Qty", width: 60 },
   { label: "Piece Wt", width: 65 },
   { label: "Wastage %", width: 70 },
   { label: "Net Req Wt", width: 75 },
@@ -346,7 +357,7 @@ const ENTRY_GRID_SUMMARY_COLS = [
   { label: "Fabric", width: 260 },
   { label: "Item Form", width: 90 },
   { label: "GSM", width: 55 },
-  { label: "SQ Qty", width: 70 },
+  { label: "Cut Qty", width: 70 },
   { label: "Avg Piece Wt", width: 90 },
   { label: "Net Req Wt", width: 85 },
   { label: "Loss %", width: 75 },
@@ -476,7 +487,7 @@ const NUMERIC_ENTRY_COLS = new Set([
   "GSM",
   "Dia/Size",
   "Width",
-  "SQ Qty",
+  "Cut Qty",
   "Piece Wt",
   "Avg Piece Wt",
   "Wastage %",
@@ -541,7 +552,7 @@ function EntryComponentDetailedRows({ colour, comp }: { colour: string; comp: En
           <Td><ItemFormBadge form={comp.itemForm} /></Td>
           <Td right mono>{comp.gsm != null ? fmtNumber(comp.gsm) : "—"}</Td>
           <Td>{s.sizeLabel}</Td>
-          <Td right mono>{s.dia != null ? fmtNumber(s.dia) : "—"}</Td>
+          <Td mono>{s.dia != null && String(s.dia).trim() ? String(s.dia) : "—"}</Td>
           <Td right mono>{s.purchaseWidth != null ? fmtNumber(s.purchaseWidth) : "—"}</Td>
           <Td right mono>{fmtNumber(s.sqQty)}</Td>
           <Td right mono>{s.pieceWt != null ? fmtNumber(s.pieceWt) : "—"}</Td>
@@ -722,6 +733,43 @@ const STAGE_BADGE_TONE: Record<string, string> = {
  *  state at a glance rather than parsing a word in a dense table. Falls back
  *  to a neutral tone for any other stage-state word rather than refusing to
  *  render one this app hasn't seen yet. */
+/**
+ * The ledger's `Details` cell — the cloth, its composition, its form and GSM,
+ * with the knitting floor's `[YD Combo Name]` beneath.
+ *
+ * The SAME sentence the PDF builds (`detailsCell` in reports-export.ts), set
+ * differently on purpose: here the combo name is its own tagged line, there a
+ * second text line. That is why the parts arrive separately on
+ * `StageBreakdownLine` rather than pre-joined by the report.
+ *
+ * A COMPOSITION THE NAME ALREADY STATES IS NOT REPEATED — this app's fabric
+ * masters are named for their blend ("SOLID CHAMBRAY (10'S COMBED COTTON)
+ * 100%") where legacy's are not, so appending it unconditionally printed the
+ * same phrase twice. Compared with punctuation stripped, because the two
+ * strings are generated by different code and differ in exactly that. A
+ * yarn-dyed cloth's COLOUR-WISE split is in no name, so it always survives.
+ */
+function DetailsCell({ line }: { line: StageBreakdownLine }) {
+  const squash = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const mixing =
+    line.mixingText && !squash(line.fabricName).includes(squash(line.mixingText)) ? line.mixingText : null;
+  const tail = [line.formLabel, line.gsm != null ? `${fmtNumber(line.gsm)} GSM` : null]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <span>
+      {line.fabricName}
+      {mixing ? <span className="text-[#5b6472]"> {mixing}</span> : null}
+      {tail ? <span className="text-[#8b95a3]"> / {tail}</span> : null}
+      {line.ydComboName ? (
+        <span className="ml-1 rounded bg-[#eaf7fd] px-1 font-mono text-[10.5px] text-[#037bb8]">
+          [{line.ydComboName}]
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function StageBadge({ state }: { state: string }) {
   return (
     <span
@@ -752,10 +800,14 @@ function RequirementReportView({
   }
 
   const openYarnLine = data.yarns.find((y) => y.itemId === openYarn) ?? null;
-  const toggleStage = (name: string) => {
+  /* KEYED BY `processId`, NEVER BY THE NAME. Two processes may legitimately
+     share a label, and an unresolved name makes every section share ONE — at
+     which point collapsing any of them collapsed all four at once, and React
+     refused the duplicate keys outright. See `StageBreakdownGroup.processId`. */
+  const toggleStage = (id: string) => {
     const next = new Set(collapsed);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setCollapsed(next);
   };
 
@@ -832,6 +884,74 @@ function RequirementReportView({
                 <Td right mono className="font-semibold">{fmtNumber(data.yarnGrandTotal.qty)}</Td>
               </tr>
             )}
+            {/* YARN DYEING — the legacy printout's second Yarn Requirement
+                block, in the SAME table as the purchase rows because that is
+                what it is: the grey yarn above, and which colours of it the
+                dye house is given. Absent entirely on an all-solid document
+                rather than drawn empty. See `YarnDyeingLine` for why every
+                colour of one yarn shows that yarn's own single loss today. */}
+            {data.yarnDyeing.map((l, i) => (
+              <tr key={`dye-${i}`} className="odd:bg-white even:bg-[#fafbfc]">
+                <Td>{i === 0 ? <StageBadge state="DYED" /> : ""}</Td>
+                <Td>{i === 0 ? "YARN DYEING" : ""}</Td>
+                <Td>{l.yarnName}</Td>
+                <Td>{l.colorName}</Td>
+                <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                <Td right mono>{l.lossPct ? `${l.lossPct.toFixed(2)}%` : "—"}</Td>
+                <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+              </tr>
+            ))}
+            {data.yarnDyeingTotal && (
+              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                <Td colSpan={4}>Total Yarn Dyeing Requirement</Td>
+                <Td right mono className="font-semibold">{fmtNumber(data.yarnDyeingTotal.plannedWt)}</Td>
+                <Td>{""}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(data.yarnDyeingTotal.toOrderedWt)}</Td>
+              </tr>
+            )}
+            {/* FABRIC PURCHASE (0564) — Default Rule 2's demand, in the SAME
+                table as the yarn it REPLACES. A cloth the factory does not
+                knit buys no yarn at all, so it is absent from the rows above;
+                if this block were a section of its own, a reader could total
+                the yarn table and believe they had the whole demand. The Yarn
+                Description column carries the CLOTH's name here, and the Type
+                column names which roll is being bought — greige or dyed are
+                different suppliers and different money. Absent entirely on an
+                all-Rule-1 document, like YARN DYEING above it. */}
+            {data.clothPurchase.map((l, i) => (
+              <tr key={`cloth-${i}`} className="odd:bg-white even:bg-[#fafbfc]">
+                <Td>{i === 0 ? <StageBadge state={l.source === "dyed_purchase" ? "DYED" : "GREY"} /> : ""}</Td>
+                <Td>{i === 0 ? "FABRIC PURCHASE" : ""}</Td>
+                <Td>
+                  {l.fabricName}
+                  {l.component && <span className="ml-1 text-muted-foreground">· {l.component}</span>}
+                </Td>
+                <Td>{l.combo ?? "—"}</Td>
+                <Td right mono>{fmtNumber(l.netWt)}</Td>
+                <Td right mono>
+                  {/* THE LOSS THE LADDER IMPLIES, never a second figure — the
+                      same reading the YARN DYEING rows use. A dash rather
+                      than 0.00% where the route declares nothing after the
+                      roll lands: "no loss was declared" and "the loss is
+                      zero" are the same arithmetic and different sentences. */}
+                  {l.purchaseWt > l.netWt
+                    ? `${(((l.purchaseWt - l.netWt) / l.purchaseWt) * 100).toFixed(2)}%`
+                    : "—"}
+                </Td>
+                <Td right mono>{fmtNumber(l.purchaseWt)}</Td>
+              </tr>
+            ))}
+            {data.clothPurchaseTotal && (
+              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                <Td colSpan={4}>
+                  Total Fabric Purchase Requirement
+                  {data.clothPurchaseTotal.uomCode ? ` (${data.clothPurchaseTotal.uomCode})` : ""}
+                </Td>
+                <Td>{""}</Td>
+                <Td>{""}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(data.clothPurchaseTotal.qty)}</Td>
+              </tr>
+            )}
           </tbody>
         </ReportTable>
       </div>
@@ -879,12 +999,12 @@ function RequirementReportView({
         <div>
           <SectionHeader>Process Stage Ledger</SectionHeader>
           {data.stageBreakdown.map((g, gi) => {
-            const isOpen = !collapsed.has(g.processName);
+            const isOpen = !collapsed.has(g.processId);
             return (
-              <div key={g.processName}>
+              <div key={g.processId}>
                 <button
                   type="button"
-                  onClick={() => toggleStage(g.processName)}
+                  onClick={() => toggleStage(g.processId)}
                   className={`flex w-full items-center justify-between border-x border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-[#5b6472] hover:bg-[#eef0f2] ${gi === 0 ? "" : "border-t"}`}
                 >
                   <span>{g.processName}</span>
@@ -895,12 +1015,20 @@ function RequirementReportView({
                 {isOpen && (
                   <ReportTable>
                     <thead>
+                      {/* LEGACY'S OWN COLUMNS — `Color` leads (the CLOTH's
+                          colour, or its YD Combo Name; the assort colourway
+                          still bands the rows beneath), `Dia/Size` and the
+                          `Nos/Mtrs` counts sit beside each weight. A cloth
+                          bought by weight leaves the count blank. */}
                       <tr>
+                        <Th>Color</Th>
                         <Th>Details</Th>
-                        <Th>Colour</Th>
                         <Th>Component</Th>
+                        <Th right>Dia/Size</Th>
+                        <Th right>Planned Nos/Mtrs</Th>
                         <Th right>Planned Wt</Th>
                         <Th right>Loss %</Th>
+                        <Th right>To Ordered Nos/Mtrs</Th>
                         <Th right>To Ordered Wt</Th>
                       </tr>
                     </thead>
@@ -916,18 +1044,23 @@ function RequirementReportView({
                         return (
                           <Fragment key={i}>
                             <tr className="odd:bg-white even:bg-[#fafbfc]">
-                              <Td>{l.fabricName}</Td>
-                              <Td>{l.combo ?? "—"}</Td>
+                              <Td>{l.fabricColour ?? "—"}</Td>
+                              <Td>
+                                <DetailsCell line={l} />
+                              </Td>
                               <Td>{l.component ?? "—"}</Td>
+                              <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
+                              <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
                               <Td right mono>{fmtNumber(l.plannedWt)}</Td>
                               <Td right mono>{l.lossPct.toFixed(2)}%</Td>
+                              <Td right mono>{l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : "—"}</Td>
                               <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
                             </tr>
                             {subtotal && (
                               <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
-                                <Td colSpan={3} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
+                                <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
                                 <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
-                                <Td>{""}</Td>
+                                <Td colSpan={2}>{""}</Td>
                                 <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
                               </tr>
                             )}
@@ -935,9 +1068,9 @@ function RequirementReportView({
                         );
                       })}
                       <tr className="bg-[#f1f3f5] font-semibold">
-                        <Td colSpan={3}>Grand Total</Td>
+                        <Td colSpan={5}>Grand Total</Td>
                         <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
-                        <Td>{""}</Td>
+                        <Td colSpan={2}>{""}</Td>
                         <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
                       </tr>
                     </tbody>

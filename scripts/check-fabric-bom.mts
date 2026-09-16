@@ -44,6 +44,7 @@ import {
 } from "../lib/orders/fabric-bom/requirement.ts";
 import {
   productionSlices,
+  totalProductionOf,
   type ApprovalRow,
   type ComboRow,
   type AssortSizeRow,
@@ -58,6 +59,7 @@ import {
   gramsFor,
   requiredKg,
   manualProblem,
+  unassignedCombos,
   netKg,
   takenComponentIds,
   type ManualSizeInput,
@@ -1026,6 +1028,204 @@ check(
   "and its rows name the style they belong to",
   rows("colour_size", unscoped, perSize, twoStyles).length,
   4,
+);
+
+// ---------------------------------------------------------------------------
+// THE HEADER QUANTITY IS THE FABRIC RULE, NOT THE TRIMS ONE (2026-09-16)
+//
+// `totalProductionOf` defaults to MATERIAL_BASE_QUANTITY (`po_excess_approval`),
+// which leaves the rejection allowance OUT — a garment rejected in processing
+// has consumed its fabric and has not consumed its buttons. Fabric BOM stamps
+// `computed_for_qty` with it and feeds its queue's `production_qty` from it,
+// and both must use `full_target` — the same rule `fabricSlices` explodes the
+// requirement with.
+//
+// They did not, and the document disagreed with its own rows: on
+// HO/RE/26-27/0007 the header stored 1040 over requirement rows computed
+// for 1070.
+//
+// THE THREE VECTORS SIT TOGETHER ON PURPOSE. The first two differ in nothing
+// but the rule, so anything that "simplifies" the parameter away collapses
+// them into one and fails here rather than in a header six months later. The
+// third is why this went unnoticed: with no rejection rule chosen the two
+// rules agree exactly, which is every order in this repo's own fixtures.
+// ---------------------------------------------------------------------------
+
+check(
+  "the TRIMS rule leaves the rejection allowance out: 600 + 60 excess = 660",
+  totalProductionOf(withRejection),
+  660,
+);
+check(
+  "...and the FABRIC rule includes it: 600 + 60 excess + 30 rejection = 690",
+  totalProductionOf(withRejection, "full_target"),
+  690,
+);
+check(
+  "with no rejection rule chosen the two agree, which is why this hid",
+  JSON.stringify([totalProductionOf(withExcess), totalProductionOf(withExcess, "full_target")]),
+  JSON.stringify([660, 660]),
+);
+
+// ---------------------------------------------------------------------------
+// ASSORT COLOUR-WISE: ONE WEIGHT FOR A SET OF COLOURWAYS (0567)
+//
+// The client's multi-select — WHITE and DUTCH BLUE at one weight, PARISIAN
+// NIGHT at another, rather than the same row typed twice. Until 0567 the
+// entry's `assort_color_wise` was stored and read by NOTHING, so a weight
+// exploded across every colourway whatever the toggle said.
+//
+// `order()` quantifies WHITE 600 and NAVY 400.
+// ---------------------------------------------------------------------------
+
+/** The colourways an explosion actually produced, in order. */
+function combosOf(v: ReturnType<typeof fabricSlices>): string[] | string {
+  return isRefusal(v) ? "refused" : [...new Set(v.map((s) => s.combo ?? ""))];
+}
+const comboScope = (combos: string[] | null) => ({ style_ref_no: S1, combo: null, combos });
+
+check(
+  "no list = every colourway, which is what the toggle being OFF means",
+  combosOf(fabricSlices("colour", { style_ref_no: S1, combo: null }, order())),
+  ["WHITE", "NAVY"],
+);
+check("a list of one narrows to it", combosOf(fabricSlices("colour", comboScope(["WHITE"]), order())), [
+  "WHITE",
+]);
+check(
+  "a list of both is both, and not duplicated",
+  combosOf(fabricSlices("colour", comboScope(["WHITE", "NAVY"]), order())),
+  ["WHITE", "NAVY"],
+);
+check(
+  "compared case- and space-insensitively, like every other combo on this document",
+  combosOf(fabricSlices("colour", comboScope([" white "]), order())),
+  ["WHITE"],
+);
+
+/* THE EMPTY LIST IS THE ONE THAT MATTERS. Reading it as "every colourway" is
+   exactly what switching the toggle OFF asks for, so a colour-wise entry naming
+   nothing must refuse rather than silently plan all of them. */
+check(
+  "colour-wise with nothing ticked REFUSES",
+  refusalOf(fabricSlices("colour", comboScope([]), order()))?.startsWith(
+    "Assort Colour-Wise is on but no colourway is ticked",
+  ),
+  true,
+);
+refute(
+  "…and never quietly returns every colourway instead",
+  combosOf(fabricSlices("colour", comboScope([]), order())),
+  ["WHITE", "NAVY"],
+);
+
+/* A PARTIAL MATCH IS A REFUSAL. Two of three colourways exploding gives a
+   smaller total that reads exactly like a correct one — the failure
+   `fabricRequirementRows` names one level up. */
+check(
+  "a list naming a colourway the order lacks refuses, though the others matched",
+  refusalOf(fabricSlices("colour", comboScope(["WHITE", "CRANBERRY"]), order())),
+  "CRANBERRY is not a colourway on this order",
+);
+refute(
+  "…rather than exploding the one that did match",
+  combosOf(fabricSlices("colour", comboScope(["WHITE", "CRANBERRY"]), order())),
+  ["WHITE"],
+);
+check(
+  "…and it names every missing one, not just the first",
+  refusalOf(fabricSlices("colour", comboScope(["CRANBERRY", "OLIVE"]), order())),
+  "CRANBERRY, OLIVE are not colourways on this order",
+);
+
+/* NAMING THE AXIS TWICE IS A CALLER BUG, and resolving it one way or the other
+   is how that becomes a quietly wrong purchase weight. */
+check(
+  "a scope naming both a single colourway and a list refuses",
+  refusalOf(
+    fabricSlices("colour", { style_ref_no: S1, combo: "WHITE", combos: ["NAVY"] }, order()),
+  ),
+  "This line names both a single colourway and a colourway list — it can only be scoped one way",
+);
+
+// ---------------------------------------------------------------------------
+// THE COVERAGE WARNING — `unassignedCombos`, the `⚠ Unassigned Combos` strip.
+//
+// PER COMPONENT, which is the whole difficulty: a colourway planned for the
+// body and not for the rib is a garment with no rib, and a document-level "is
+// CRANBERRY mentioned anywhere?" answers yes to it.
+// ---------------------------------------------------------------------------
+
+const FRONT = "c-front";
+const RIB = "c-rib";
+
+check(
+  "an entry with the toggle OFF covers every colourway, so nothing is unassigned",
+  unassignedCombos([entry()], ["WHITE", "NAVY"]),
+  [],
+);
+check(
+  "a colour-wise entry covering one of two leaves the other unassigned",
+  unassignedCombos([entry({ assort_color_wise: true, combos: ["WHITE"] })], ["WHITE", "NAVY"]),
+  ["NAVY"],
+);
+check(
+  "two colour-wise entries on ONE component add up and cover it between them",
+  unassignedCombos(
+    [
+      entry({ assort_color_wise: true, combos: ["WHITE"] }),
+      entry({ assort_color_wise: true, combos: ["NAVY"] }),
+    ],
+    ["WHITE", "NAVY"],
+  ),
+  [],
+);
+check(
+  "a colourway covered for the FRONT and not the RIB is still unassigned",
+  unassignedCombos(
+    [
+      entry({ component_ids: [FRONT] }),
+      entry({ component_ids: [RIB], assort_color_wise: true, combos: ["WHITE"] }),
+    ],
+    ["WHITE", "NAVY"],
+  ),
+  ["NAVY"],
+);
+check(
+  "…which a document-level 'is it mentioned anywhere' check would have missed",
+  unassignedCombos(
+    [
+      entry({ component_ids: [FRONT], assort_color_wise: true, combos: ["WHITE", "NAVY"] }),
+      entry({ component_ids: [RIB], assort_color_wise: true, combos: ["WHITE"] }),
+    ],
+    ["WHITE", "NAVY"],
+  ),
+  ["NAVY"],
+);
+check(
+  "the ORDER's own order is kept, never alphabetical",
+  unassignedCombos([entry({ assort_color_wise: true, combos: [] })], ["NAVY", "CRANBERRY", "WHITE"]),
+  ["NAVY", "CRANBERRY", "WHITE"],
+);
+check(
+  "a row naming no component is scaffolding and reports nothing",
+  unassignedCombos([entry({ component_ids: [] })], ["WHITE", "NAVY"]),
+  [],
+);
+
+/* THE PER-ENTRY GATE, in the SAME words the engine refuses with, so the Save
+   button and the save itself cannot disagree. */
+check(
+  "manualProblem stops a colour-wise entry with nothing ticked",
+  manualProblem(entry({ assort_color_wise: true, combos: [] }), NEEDED, null)?.refused?.startsWith(
+    "Assort Colour-Wise is on but no colourway is ticked",
+  ),
+  true,
+);
+check(
+  "…and lets one WITH a colourway ticked through",
+  manualProblem(entry({ assort_color_wise: true, combos: ["WHITE"] }), NEEDED, null),
+  null,
 );
 
 console.log(failed === 0 ? "\nOK — every fabric requirement vector holds." : `\n${failed} FAILED`);

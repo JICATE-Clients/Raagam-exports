@@ -45,10 +45,15 @@ export function ProcessPicker({
       processes.map((p) => ({
         id: p.id,
         label: p.name,
-        // The old dialog's second column — the short description — is now
-        // SEARCHABLE rather than displayed (client 2026-08-31, "fix it
-        // globally"). Two similar processes are still told apart by typing it.
-        search: p.short_description ?? undefined,
+        /* NO `search`. It carried the old dialog's second column — the short
+           description — which was made SEARCHABLE rather than displayed (client
+           2026-08-31, "fix it globally"). The client then removed the field
+           itself from the Process master (2026-09-16,
+           doc/order/fabriprocess.md §4, "the redundant short description
+           textbox") and 0565 dropped both columns, so there is nothing left to
+           search by: a process is told apart by its NAME here. Do not reach for
+           `hsn_code` to refill this — a tax code is not a way of saying which
+           process you meant. */
         inactive: isInactive(p),
       })),
     [processes],

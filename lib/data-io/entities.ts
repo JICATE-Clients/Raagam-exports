@@ -274,9 +274,15 @@ export const IO_ENTITIES: IoEntity[] = [
     module: "masters",
     revalidate: ["/masters/materials/processes"],
     schema: processInput,
+    // NO `short_description`. The client removed the field from the Process
+    // master (2026-09-16, doc/order/fabriprocess.md §4) and 0565 dropped the
+    // column — and THIS is the door that made dropping it necessary rather than
+    // optional: an import descriptor is a write path straight to Postgres, so a
+    // field left listed here would keep accepting a value the form no longer
+    // collects. See the `rate` / `description` notes in
+    // `lib/orders/fabric-bom/processes.ts` for the same lesson.
     fields: [
       { key: "name", header: "Name", kind: "string", required: true },
-      { key: "short_description", header: "Short Description", kind: "string" },
       { key: "hsn_code", header: "HSN Code", kind: "string" },
     ],
   },

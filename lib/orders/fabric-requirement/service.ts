@@ -1,6 +1,11 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { EntryFacts, FabricSheetNames, StoredFabricRequirement, StoredYarn } from "./sheet";
+/* THE RULE 2 ROLL WEIGHTS (0564) come from the report that already computes
+   them — see `FabricRequirementSheetData.cloth`. One demand, one walk of one
+   route, two documents. */
+import { yarnFabricRequirementReport, isReportRefusal } from "@/lib/orders/fabric-bom/reports";
+import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
 
 /**
  * Reading one order's Fabric Requirement.
@@ -66,6 +71,36 @@ export type FabricRequirementSheetData = {
   };
   rows: StoredFabricRequirement[];
   yarns: StoredYarn[];
+  /**
+   * THE RULE 2 DEMAND (0564) — greige or dyed ROLLS to buy, for the fabrics
+   * this order does not knit. `doc/order/fabriprocess.md` §2: "On the
+   * Material Requirement Sheet, the demand shifts directly to Greige Fabric
+   * Roll Weight (in Kg) rather than raw grey yarn."
+   *
+   * ## IT IS BORROWED, NOT COMPUTED HERE, AND THAT IS THE WHOLE DESIGN
+   *
+   * These lines come from `yarnFabricRequirementReport` — the Yarn & Fabric
+   * Requirement Report's own `clothPurchase` section, grossed by the same
+   * single walk of the same route it prints its stage ledger from. Deriving
+   * them again here would be two implementations of one demand, and the two
+   * would part company the first time a rounding or a suppression changed on
+   * one side; this file's own header forbids exactly that for the requirement
+   * and the reasoning does not stop at the requirement.
+   *
+   * IT IS LIVE-COMPUTED RATHER THAN STORED, which is a real departure from
+   * "IT NEVER RECOMPUTES" above and is stated rather than hidden: nothing
+   * persists a ladder today (see `comboUpliftBreakdown`'s header), so there
+   * is no stored roll weight to read. The report has printed its stage ledger
+   * on the same footing since it was built. Persisting it — a small additive
+   * child written by `writeYarns` at save time — is the real next step and is
+   * what would let this array be read instead of derived.
+   *
+   * EMPTY on an all-Rule-1 document, which is every BOM before 2026-09-16.
+   */
+  cloth: ClothPurchaseLine[];
+  /** Summed across `cloth`, or null where the lines disagree on a unit — the
+   *  report's own "one unit or nothing" rule, carried rather than restated. */
+  clothTotal: { qty: number; uomCode: string | null } | null;
   names: FabricSheetNames;
 };
 
@@ -243,6 +278,17 @@ export async function getFabricRequirementSheet(
     names.entries[e.id] = facts;
   }
 
+  /* THE ROLL WEIGHTS (0564), borrowed from the Yarn & Fabric Requirement
+     Report. ITS REFUSAL IS NOT THIS DOCUMENT'S REFUSAL: that report declines
+     a BOM with no stored yarn and nothing purchased, which is a perfectly
+     printable Fabric Requirement Sheet — the requirement rows this page is
+     actually about are already in hand. So a refusal degrades this section to
+     empty rather than taking the page with it, and an all-Rule-1 document
+     (every BOM before today) reaches that branch on purpose. */
+  const clothReport = await yarnFabricRequirementReport(bom.id);
+  const cloth = isReportRefusal(clothReport) ? [] : clothReport.clothPurchase;
+  const clothTotal = isReportRefusal(clothReport) ? null : clothReport.clothPurchaseTotal;
+
   const co = coRes.data as Record<string, unknown> | null;
   const str = (k: string) => (typeof co?.[k] === "string" ? (co[k] as string) : null);
 
@@ -274,6 +320,8 @@ export async function getFabricRequirementSheet(
     },
     rows,
     yarns,
+    cloth,
+    clothTotal,
     names,
   };
 }

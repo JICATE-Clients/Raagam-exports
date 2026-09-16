@@ -5,6 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { missingFabricLineFields } from "./fabric-line-rules";
+/* THE ONE RULE DECIDING WHICH ROUTE STEPS SURVIVE (2026-09-16). It lives in
+   `./processes.ts` beside `fabricProcessRowStarted` rather than here because
+   the SCREEN reads it too, and a `"use server"` file can export nothing but
+   async Server Functions — so this file cannot be the home of a predicate two
+   readers share. See its own header for the drift that made it one function. */
+import { processRowInScope } from "./processes";
+import { yarnShadesFrom } from "./yarn-dyed";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
 import {
   getBomYarnComposition,
@@ -49,14 +56,19 @@ import {
   yarnStageStarted,
   type FabricComposition,
   type FabricGross,
+  type YarnShade,
   type RouteStage,
 } from "./yarn-process";
+/* WHERE EACH FABRIC COMES FROM (0564) — the rule is client-safe and shared
+   with the screen, so the preview and this write suppress the same steps. */
+import { asFabricSource, type FabricSource } from "./fabric-source";
 import {
   basisFingerprint,
   totalProductionOf,
   isRefusal as isOrderRefusal,
   type OrderProductionInput,
 } from "@/lib/orders/material-bom/requirement";
+import { kilogramUom } from "@/lib/uom/kilogram";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -198,6 +210,19 @@ function normalizeManualEntries(data: FabricBomInput) {
          and take the whole save with it. The multi-select cannot produce one
          today; a `lib/data-io` import could. */
       component_ids: [...new Set(e.component_ids ?? [])],
+      /* WHICH COLOURWAYS THIS WEIGHT IS FOR (0567). Deduped for
+         `uq_ofbmcb_entry_combo`'s sake, exactly as the panels above are, and
+         TRIMMED because the value is compared with `comboKey` downstream while
+         being stored verbatim — an untrimmed " WHITE" would store a second row
+         the index cannot see as a duplicate.
+
+         KEPT EVEN WHEN THE TOGGLE IS OFF. The rows are only READ when
+         `assort_color_wise` is on (see `requirementRows`), and dropping them
+         here would make the toggle destructive: switch it off to check a total,
+         switch it back, and the ticks are gone. Same reasoning
+         `normalizeManualSizes` gives for keeping a calculated mode's
+         measurements after a switch back to Direct. */
+      combos: [...new Set((e.combos ?? []).map((c) => c.trim()).filter(Boolean))],
       sizes: normalizeManualSizes(e.sizes ?? []),
     }))
     /* A ROW SAYS SOMETHING WHEN IT NAMES A CLOTH OR A PANEL. `item_id` replaced
@@ -303,14 +328,44 @@ function normalizeDias(data: FabricBomInput) {
  * A LOSS OR A RATE WITH NO PROCESS GOES TOO, for that reason and one more: both
  * are figures about a step that does not exist.
  *
- * ## RENUMBERED PER GROUP, WHICH `uq_ofbp_item_sno` REQUIRES
+ * ## RENUMBERED PER FABRIC, AND IT WAS PER GROUP UNTIL 2026-09-16
  *
  * 0492's unique index was (bom_id, item_id, sno); 0528 widened it to
- * (bom_id, item_id, combo, component_id, sno) for the split routes, so the
- * counter now restarts per (fabric, combo, component) GROUP rather than per
- * fabric alone. A colour-wise route's WHITE steps and BLACK steps are two
- * routes that happen to share a fabric, so each counts its own steps 1, 2, 3 —
- * exactly as two different fabrics already did before this migration.
+ * (bom_id, item_id, combo, component_id, sno) for the split routes, and the
+ * counter then restarted per (fabric, combo, component) GROUP — WHITE's steps
+ * and BLACK's each counting 1, 2, 3, on the reading that they were two routes
+ * that happened to share a fabric.
+ *
+ * THAT READING DIED WITH THE BLANK COMBO (below). Once a step with no colour
+ * belongs to EVERY colour, WHITE's route is no longer a self-contained list:
+ * it is the unscoped steps and WHITE's own steps, and somebody has to say in
+ * what order. Per-group numbering cannot answer that — Knitting, Dyeing and
+ * Compacting count 1, 2, 3 in the unscoped group while RED's single Bio-wash
+ * counts 1 in its own, so any merge by `sno` puts the Bio-wash SECOND, before
+ * the dyeing it is supposed to follow.
+ *
+ * So `sno` is now the step's position in THE FABRIC'S WHOLE ROUTE, across
+ * every group, exactly as the screen's rows are ordered. RED's Bio-wash
+ * between Dyeing and Compacting is 3, and the unscoped steps around it are
+ * 1, 2 and 4. `stagesForGroup` filters without re-sorting (its own header says
+ * so), both readers already fetch ascending — `service.ts:158` sorts the
+ * screen's embed, `reports.ts` orders the ladder's query — so **the interleave
+ * needs no walker and no new sequencing concept.** It falls out of a numbering
+ * that was always implied by "ascending `sno` is chronological".
+ *
+ * THE ALTERNATIVE WAS CONSIDERED AND REJECTED: append each colour's extras
+ * after the shared steps, so a colour's route is "everything unscoped, then
+ * its own". That is simpler to compute and wrong for the case the feature
+ * exists for — a Bio-wash belongs BETWEEN dyeing and compacting, and the
+ * client's own example (a dark shade needing an extra step the light ones do
+ * not) says nothing about that step being last. A rule that can only add to
+ * the END of a route would silently re-order the one thing an operator came
+ * here to position, and compound its loss in the wrong place.
+ *
+ * `uq_ofbp_item_sno` is satisfied more easily than before, not less: every row
+ * of a fabric now holds a distinct `sno`, so the five-column unique cannot
+ * collide whatever the combo and component are. The widened index stays as it
+ * is — it is still correct, merely no longer load-bearing.
  *
  * ## ORPHANS GO SILENTLY, AND THAT IS THE INTENDED READING
  *
@@ -323,13 +378,24 @@ function normalizeDias(data: FabricBomInput) {
  * A step whose GROUP no longer matches the fabric's current toggles is
  * dropped the same way — a colour-wise step left over from before "Assort
  * Color Wise" was switched off (it carries a `combo` a now-unified route has
- * nowhere to put), or a unified step left over from before it was switched ON
- * (it carries no `combo` for a route that now requires one). Checked against
+ * nowhere to put). Checked against
  * the SCOPE, not against which colourway/component values still exist on the
  * fabric's lines — the same trust level `stage_id` / `process_id` already get
  * here (the database's own FK is what refuses a value naming nothing real).
- * The screen's own `orphanedProcessCount` warns before Save from the identical
- * rule, so the two can never disagree about which rows survive.
+ *
+ * THE SCREEN'S MIRROR IS `inScope` in `fabric-bom-screen.tsx`'s Fabric Process
+ * panel — `(scope.assort_color_wise || !p.combo) && (scope.component_wise ||
+ * !p.component_id)` — which decides which rows the grid SHOWS. This docblock
+ * named `orphanedProcessCount` until 2026-09-16 and that function no longer
+ * exists: it drove the drop-on-save warning the client had removed on
+ * 2026-09-04 ("remove this messag too"), and the reference outlived it.
+ *
+ * The two now agree, and until 2026-09-16 they did not — which is precisely
+ * how the blank-combo bug hid. `inScope` has always SHOWN a blank-combo row on
+ * a colour-wise route (its first clause is `scope.assort_color_wise ||`, true
+ * before the value is even read), while this function deleted it. The operator
+ * typed a shared step, saw it on screen, saved, and it was gone: visible,
+ * plausible and wrong, with nothing empty and nothing raised.
  */
 function normalizeProcesses(
   data: FabricBomInput,
@@ -343,10 +409,32 @@ function normalizeProcesses(
     if (!p.process_id) continue;
     if (!fabricIds.has(p.item_id)) continue;
     const scope = scopeByItem.get(p.item_id) ?? { assort_color_wise: false, component_wise: false };
-    if (scope.assort_color_wise !== !!p.combo) continue;
-    if (scope.component_wise !== !!p.component_id) continue;
-    const groupKey = `${p.combo ?? ""}::${p.component_id ?? ""}`;
-    const snoKey = `${p.item_id}::${groupKey}`;
+    /* A BLANK `combo` ON A COLOUR-WISE ROUTE MEANS EVERY COLOUR (2026-09-16),
+       and it used to mean the row was deleted. The guard was
+       `scope.assort_color_wise !== !!p.combo`, i.e. "the toggle and the value
+       must agree in BOTH directions", which made the 99% case of the feature
+       unwritable: the client's own description is that all colours share one
+       sequence and one dark shade needs an extra step, and a route that could
+       not carry an uncoloured step forced the shared sequence to be re-typed
+       per colourway — four colours x three steps + 1 = thirteen rows for what
+       is four.
+
+       THE ENGINE HAS ALWAYS READ IT THIS WAY. `stageCoversCombo` (0504,
+       restored 0529) is `comboKey(stageCombo) === "" || … === combo`, and its
+       own header says "A BLANK `stageCombo` MEANS EVERY COLOURWAY — the
+       ordinary case, and the only thing a blank box can mean here." So this
+       guard was the one place in the module that disagreed with the rule the
+       arithmetic runs on, and it disagreed by silently deleting rows.
+
+       THE OTHER DIRECTION STILL DROPS, and that half is deliberate: a step
+       carrying a colour while the toggle is OFF has nowhere to put it, which
+       is the orphan rule the docblock above describes and the screen's own
+       `orphanedProcessCount` mirrors. So the test is now one-way. */
+    if (!processRowInScope(p, scope)) continue;
+    /* PER FABRIC, NOT PER GROUP — see "RENUMBERED PER FABRIC" above for why
+       the merge needs one sequence and why appending each colour's extras
+       after the shared steps was the wrong answer. */
+    const snoKey = p.item_id;
     const sno = (nextSno.get(snoKey) ?? 0) + 1;
     nextSno.set(snoKey, sno);
     out.push({
@@ -365,19 +453,42 @@ function normalizeProcesses(
 }
 
 /**
- * The two split toggles worth storing (0528) — one row per fabric that still
- * exists on the BOM AND has at least one toggle on. A fabric with neither
- * toggle needs no row: absence already reads as "both off", 0492's original
- * unified shape, so persisting a false/false row would only be a second way
- * to say nothing.
+ * The per-fabric route SCOPE worth storing (0528 · 0564) — one row per fabric
+ * that still exists on the BOM and has something to say about its route.
+ *
+ * ## "SOMETHING TO SAY" GREW A THIRD MEANING AND THE FILTER HAD TO GROW WITH IT
+ *
+ * 0528's rule was "at least one toggle on", and it was exactly right while
+ * the row held nothing but those two toggles: a fabric with neither needs no
+ * row, because absence already reads as "both off" — 0492's original unified
+ * shape — so a false/false row would only be a second way to say nothing.
+ *
+ * 0564 put `source` on the same row, and that sentence stopped being true.
+ * A fabric that is `greige_purchase` with NEITHER toggle on is a real answer
+ * the operator gave, and the old filter would have dropped it on the floor:
+ * the Source ▾ would have saved on a colour-wise fabric and silently forgotten
+ * on a unified one, which is worse than not having the control. So the test is
+ * now "any toggle on OR a source other than Rule 1", and the default source is
+ * what keeps absence meaning what it always meant.
  */
 function normalizeProcessScopes(data: FabricBomInput, fabricIds: Set<string>) {
   return data.processScopes
-    .filter((s) => fabricIds.has(s.item_id) && (s.assort_color_wise || s.component_wise))
+    .filter(
+      (s) =>
+        fabricIds.has(s.item_id) &&
+        (s.assort_color_wise || s.component_wise || asFabricSource(s.source) !== "yarn_knit"),
+    )
     .map((s) => ({
       item_id: s.item_id,
       assort_color_wise: s.assort_color_wise,
       component_wise: s.component_wise,
+      /* THROUGH `asFabricSource`, NOT `?? "yarn_knit"` — the Zod schema has
+         already defaulted an absent field, and this is the second guard for
+         the value the schema cannot refuse: a `lib/data-io` import, or a
+         stale client, posting a string that is not one of the three. The
+         column's own CHECK would reject it and take the whole save with it,
+         naming a constraint rather than a fabric. */
+      source: asFabricSource(s.source),
     }));
 }
 
@@ -445,60 +556,61 @@ type EntryRowWithId = ReturnType<typeof normalizeManualEntries>[number] & { id: 
  * Naming the cloth removes the question instead of answering it better. Two
  * refusals, a component-narrowing pass and a style-matching pass go with it.
  *
- * ## THE UNIT COMES OFF THE CLOTH, NOT OFF THE LINES
+ * ## THE UNIT IS THE KILOGRAM, BECAUSE THE FIGURE IS `grams / 1000`
  *
- * `items.base_uom_id` — the same fact `FabricOption.base_uom_id` already feeds
- * into a line's `consumption_uom_id` (0513), so this reads it one hop earlier
- * and the two cannot disagree. It also removes the second reason this function
- * needed the lines: two lines of one fabric measured differently used to make
- * the requirement's own unit a coin toss.
+ * Until 2026-09-16 this section read "THE UNIT COMES OFF THE CLOTH" and the
+ * row was stamped with `items.base_uom_id`. That was right while a LINE's
+ * `consumption` was typed in the cloth's own unit (0426); 0494 made the Manual
+ * entry the counting unit, and an entry's figure is a gram weight per garment
+ * in BOTH modes (`order_fabric_bom_manual_sizes.grams`, "THE FIGURE EVERYTHING
+ * DOWNSTREAM MULTIPLIES"), so `required_qty` has been `cons_qty x grams / 1000`
+ * — kilograms — on every row this function has written since. The label kept
+ * coming from the old source, and a NOS-based cuff and an MTR-based chambray
+ * beside a KGS-based body on ONE yarn (HO/RE/26-27/0007) made `yarnPurchase`
+ * refuse "measured in different units" over three figures that were all kg.
+ * The Budget priced 16.05 "NOS" of that cuff, and the Entry Register's Unit
+ * column printed NOS beside a weight. One mislabel, three readers.
  *
- * NULL is a real answer (a master row created without a base unit) and falls
- * through to `uomPrecision`, which floors at 2 decimals.
+ * So the unit is resolved ONCE per save (`kilogramUom`, shared with the CAD
+ * seed) and stamped on every row, and `decimals` is the kilogram's precision.
+ * A master with no active kg row REFUSES the save by name rather than writing
+ * a weight with no unit behind it. 0562 relabels the rows saved before this.
  */
-type EntryFabric = { item_id: string; uom_id: string | null };
+type EntryFabric = { item_id: string };
 
 /**
  * What the entries' cloths say about themselves — `items.category_id` (which IS
- * the structure, 0405 · 0415 · 0426) and `items.base_uom_id` (the unit), by item
- * id.
+ * the structure, 0405 · 0415 · 0426), by item id. `base_uom_id` is no longer
+ * read here: it is the unit the cloth is BOUGHT in, not the unit its weight is
+ * planned in (see the section above).
  *
  * READ ONCE PER SAVE rather than joined per entry: a BOM has a handful of
  * entries and they routinely name the same cloth.
  */
-type FabricFacts = Map<string, { category_id: string | null; base_uom_id: string | null }>;
+type FabricFacts = Map<string, { category_id: string | null }>;
 
-function entryFabric(
-  entry: { item_id: string | null },
-  fabrics: FabricFacts,
-): EntryFabric | Refusal {
+function entryFabric(entry: { item_id: string | null }): EntryFabric | Refusal {
   if (!entry.item_id) {
     /* THE SAME SENTENCE `manualProblem` USES for the same state, deliberately:
        "two spellings of one refusal is how an operator comes to believe there
        are two different problems" (./manual.ts). */
     return { refused: "Choose the fabric this weight is for" };
   }
-  return {
-    item_id: entry.item_id,
-    uom_id: fabrics.get(entry.item_id)?.base_uom_id ?? null,
-  };
+  return { item_id: entry.item_id };
 }
 
 function requirementRows(
   entries: EntryRowWithId[],
-  /* THE CLOTHS, NOT THE LINES (0522). This used to take `LineRowWithId[]` so
-     `entryFabric` could search them for the entry's fabric; the entry names it
-     now, and all this needs is what that cloth's own master row says. */
-  fabrics: FabricFacts,
   order: OrderProductionInput,
-  uomDecimals: Map<string, number | null>,
+  /* THE ONE UNIT EVERY ROW IS IN — see the section above `EntryFabric`. */
+  kg: { id: string; decimals: number | null },
   gsmByStructure: Map<string, number>,
 ): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   let sno = 0;
 
   for (const entry of entries) {
-    const fabric = entryFabric(entry, fabrics);
+    const fabric = entryFabric(entry);
 
     /* A REFUSAL STILL PRODUCES A ROW, and it still has to satisfy the table's
        own constraints: `basis` is NOT NULL with a CHECK, `consumption` and
@@ -524,7 +636,7 @@ function requirementRows(
         basis_qty: 0,
         consumption: 0,
         wastage_pct: entry.wastage_pct ?? 0,
-        consumption_uom_id: isRefusal(fabric) ? null : fabric.uom_id,
+        consumption_uom_id: kg.id,
         required_qty: null,
         refusal_reason: reason,
       });
@@ -551,12 +663,28 @@ function requirementRows(
          `fabricSlices` has given it since 0426 — so an unscoped entry behaves
          exactly as it did under 0494 and a single-style order is unaffected.
 
-         NEVER SCOPED BY COMBO. Fabric is dyed per colourway, so the requirement
-         must SPLIT by it, but the gram weight does not depend on it: an entry
-         states one weight per size and the explosion applies it to every
-         colourway of the style. That is the whole reason the basis is
-         `colour_size` rather than `size`. */
-      { style_ref_no: entry.style_ref_no, combo: null },
+         SCOPED BY COLOURWAY ONLY WHEN THE ENTRY SAYS SO (0567). The default is
+         still every colourway of the style, and for the reason this comment has
+         always given: fabric is dyed per colourway so the requirement must
+         SPLIT by it, but the gram weight does not depend on it — one weight per
+         size, applied to every colour. That is why the basis is `colour_size`
+         and not `size`.
+
+         Assort Colour-Wise reverses only the FIRST half: the entry now names
+         which colourways its weight is for, so two shades needing 220g and one
+         needing 230g are two entries rather than one weight pretending to
+         cover all three. The split itself is unchanged.
+
+         `combos` IS PASSED ONLY WHEN THE TOGGLE IS ON, and that is what keeps
+         the stored ticks from acting while it is off — `fabricSlices` reads an
+         EMPTY list as a refusal, never as "all", so handing it the rows of an
+         entry whose toggle is off would refuse a document that saved
+         perfectly well yesterday. */
+      {
+        style_ref_no: entry.style_ref_no,
+        combo: null,
+        combos: entry.assort_color_wise ? entry.combos : null,
+      },
       {
         /* NO SCALAR. `bySize` being PRESENT is what tells the engine to plan per
            size, and an entry has no single consumption to fall back to — which
@@ -572,7 +700,7 @@ function requirementRows(
            come from ONE formula (`requiredKg`), differing only by this route's
            ceiling. */
         endbit_loss_pct: entry.endbit_loss_pct,
-        decimals: fabric.uom_id ? (uomDecimals.get(fabric.uom_id) ?? null) : null,
+        decimals: kg.decimals,
         bySize,
       },
       order,
@@ -602,7 +730,7 @@ function requirementRows(
            is what makes a stored requirement auditable rather than just a total. */
         consumption: (r.size_id ? bySize[r.size_id] : undefined) ?? 0,
         wastage_pct: entry.wastage_pct ?? 0,
-        consumption_uom_id: fabric.uom_id,
+        consumption_uom_id: kg.id,
         required_qty: r.required,
         refusal_reason: null,
       });
@@ -650,7 +778,13 @@ async function uomDecimalMap(
 // ---------------------------------------------------------------------------
 
 function headerOnly(data: FabricBomInput, order: OrderProductionInput | null) {
-  const total = order ? totalProductionOf(order) : null;
+  /* `full_target`, THE FABRIC RULE — not `totalProductionOf`'s default, which
+     is the TRIMS base and leaves the rejection allowance out (2026-09-16).
+     This document's own requirement rows are exploded by `fabricSlices`, which
+     passes `full_target`, so anything else here stamps the header with a
+     quantity the rows beneath it were never computed for: 1040 against 1070 on
+     HO/RE/26-27/0007. See `totalProductionOf`'s header. */
+  const total = order ? totalProductionOf(order, "full_target") : null;
   return {
     garment_order_id: data.garment_order_id,
     bom_date: data.bom_date,
@@ -726,11 +860,18 @@ type NormalizedYarn = {
 function routesByFabricOf(
   data: FabricBomInput,
   fabricIds: ReadonlySet<string>,
+  /** THE PROCESS MASTER'S OWN KIND FLAGS (0564), read server-side — see
+   *  `processKindsOf`. Empty means "nothing is a Knitting or a Dyeing step",
+   *  which suppresses nothing; that is the right reading for a database where
+   *  0564's seed has not run, and it errs by buying slightly too much cloth
+   *  rather than too little. */
+  kinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }> = new Map(),
 ): Map<string, RouteStage[]> {
   const out = new Map<string, RouteStage[]>();
   for (const p of data.processes) {
     if (!p.process_id || !fabricIds.has(p.item_id)) continue;
     const list = out.get(p.item_id) ?? [];
+    const kind = kinds.get(p.process_id);
     list.push({
       combo: p.combo ?? null,
       /* CARRIED SINCE 2026-09-15. Without it a "Component Wise" route (0528)
@@ -740,10 +881,124 @@ function routesByFabricOf(
       loss_pct: p.loss_pct ?? null,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
+      /* CARRIED SINCE 2026-09-16 (0564) for the same reason `component_id` is:
+         the engine needs to know what KIND of step this is, and a route built
+         without it suppresses nothing under Rule 2. */
+      is_knitting: kind?.is_knitting ?? false,
+      is_dyeing: kind?.is_dyeing ?? false,
     });
     out.set(p.item_id, list);
   }
   return out;
+}
+
+/**
+ * WHICH PROCESSES ARE KNITTING AND WHICH ARE DYEING (0564) — read from the
+ * master, server-side, never from the payload.
+ *
+ * `requirementRows`' own rule, restated: a figure the browser could set is a
+ * figure a client could set, and these two flags decide whether a stage's loss
+ * compounds into a purchase weight. A payload that could declare its own
+ * Knitting step could declare that no step is one, and buy the yarn twice.
+ *
+ * SCOPED TO THE PROCESSES THIS DOCUMENT ACTUALLY NAMES, so a BOM with no route
+ * makes no query at all.
+ */
+async function processKindsOf(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<Map<string, { is_knitting: boolean; is_dyeing: boolean }>> {
+  const ids = [...new Set(data.processes.map((p) => p.process_id).filter(Boolean))] as string[];
+  if (ids.length === 0) return new Map();
+  /* `.select()` WITHOUT `!inner` AND WITH NO EMBED — `processes` is a plain
+     master here, so AGENTS.md's ambiguous-embed rule has nothing to bite on.
+     The error is read rather than coalesced away: a failed read would make
+     every step look like neither kind, which under Rule 2 silently restores
+     the knitting loss this migration exists to remove. */
+  const { data: rows, error } = await s
+    .from("processes")
+    .select("id, is_knitting, is_dyeing")
+    .in("id", ids);
+  if (error) {
+    /* NOT A THROW AND NOT A SILENT EMPTY MAP. The save must not fail over a
+       flag that only refines a markup, but the caller has to be able to tell
+       "no process is a knitting step" from "we could not find out" — so the
+       failure is surfaced by the one thing every caller already reads, the
+       refusal on the affected yarn/cloth row. See `writeYarns`. */
+    throw new Error(`Could not read the process master's kind flags: ${error.message}`);
+  }
+  return new Map(
+    ((rows ?? []) as { id: string; is_knitting: boolean | null; is_dyeing: boolean | null }[]).map(
+      (r) => [r.id, { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false }],
+    ),
+  );
+}
+
+/**
+ * EACH FABRIC'S DECLARED SOURCE (0564), straight off the FORM's own
+ * `processScopes` — the same rows `normalizeProcessScopes` is about to write,
+ * not a second fetch, for `routesByFabricOf`'s stated reason: the yarn total
+ * and the source it was computed under must come from the SAME save, or a
+ * Save that flips a fabric to Greige Purchase and edits a loss % in one go
+ * could price the yarn against the source it is about to replace.
+ *
+ * DELIBERATELY NOT FILTERED BY `fabricIds` the way `normalizeProcessScopes`
+ * is. That filter exists to stop a row being WRITTEN for cloth the BOM no
+ * longer plans; a lookup that refuses to answer for such a fabric would just
+ * fall back to Rule 1 and quietly re-buy its yarn.
+ */
+function sourceByFabricOf(data: FabricBomInput): Map<string, FabricSource> {
+  return new Map(data.processScopes.map((s) => [s.item_id, asFabricSource(s.source)]));
+}
+
+/**
+ * THE DYED SHADES THIS SAVE IS STORING, for `yarnPurchase` (0568).
+ *
+ * BUILT FROM THE FORM'S OWN ROWS, not from a re-read, for `requirementRows`'
+ * stated reason one axis over: the purchase weight and the stripes it was
+ * divided by must come from the SAME save. A Save that edits a dyeing loss and
+ * a stripe width in one go would otherwise price the yarn against the
+ * combination it is about to replace.
+ *
+ * `yarnShadesFrom` (./yarn-dyed.ts) is the join — shares off the repeats,
+ * colours and losses off the combinations, paired by stripe POSITION. One
+ * implementation, because the screen's own preview must build them the same
+ * way or the two figures diverge.
+ */
+function yarnShadesOf(
+  data: FabricBomInput,
+  compositions: ReadonlyMap<string, FabricComposition>,
+): YarnShade[] {
+  const fabricIds = [
+    ...new Set((data.yd_repeats ?? []).map((r) => r.item_id).filter(Boolean)),
+  ] as string[];
+  return fabricIds.flatMap((fabricId) =>
+    yarnShadesFrom(
+      fabricId,
+      (data.yd_repeats ?? [])
+        .filter((r) => r.item_id === fabricId)
+        .map((r) => ({
+          key: `${fabricId}:${r.sno}`,
+          sno: r.sno,
+          yarn_item_id: r.yarn_item_id ?? null,
+          dye_type: r.dye_type === "grey" ? ("grey" as const) : ("dyed" as const),
+          color_name: r.color_name ?? "",
+          uom_id: r.uom_id ?? null,
+          value: r.value ?? null,
+          twisted_yarn: r.twisted_yarn ?? "",
+        })),
+      compositions.get(fabricId) ?? null,
+      (data.yd_combinations ?? [])
+        .filter((c) => c.item_id === fabricId)
+        .map((c) => ({
+          combo: c.combo ?? null,
+          colors: (c.colors ?? []).map((x) => ({
+            sno: x.sno,
+            dyeing_loss_pct: x.dyeing_loss_pct ?? 0,
+          })),
+        })),
+    ),
+  );
 }
 
 function normalizeYarns(
@@ -751,10 +1006,24 @@ function normalizeYarns(
   fabrics: readonly FabricGross[],
   compositions: ReadonlyMap<string, FabricComposition>,
   uomDecimals: Map<string, number | null>,
+  /** THE PROCESS MASTER'S KIND FLAGS (0564) — see `processKindsOf`. Read by
+   *  the caller so this stays a pure function, the same division `writeYarns`
+   *  already draws for `compositions` and `uomDecimals`. */
+  processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }> = new Map(),
 ): NormalizedYarn[] {
+  /* THE DYED SHADES (0568) — built once for the whole save rather than per
+     yarn: `yarnPurchase` filters them itself by (fabric, yarn, colourway), and
+     rebuilding the join inside the loop would run `mixingDetailRows` once per
+     yarn over the same rows. */
+  const shades = yarnShadesOf(data, compositions);
   const seen = new Set<string>();
   const out: NormalizedYarn[] = [];
-  const routesByFabric = routesByFabricOf(data, new Set(fabrics.map((f) => f.fabric_id)));
+  const routesByFabric = routesByFabricOf(
+    data,
+    new Set(fabrics.map((f) => f.fabric_id)),
+    processKinds,
+  );
+  const sourceByFabric = sourceByFabricOf(data);
 
   for (const y of data.yarns) {
     if (!y.item_id || seen.has(y.item_id)) continue;
@@ -791,6 +1060,16 @@ function normalizeYarns(
          `yarnPurchase`'s 2026-09-11 header) — not the sole source any more. */
       kept.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
+      /* WHERE EACH CLOTH COMES FROM (0564) — a fabric bought as greige or dyed
+         rolls buys no yarn, so it leaves this sum. The SAME map the screen's
+         `weightFor` must pass, for the reason that function's own comment
+         gives: the preview and the stored figure are one computation. */
+      sourceByFabric,
+      /* THE DYED SHADES (0568) — each colour of this yarn grossed by its OWN
+         dye-house loss before it becomes grey yarn to buy. The SAME array the
+         screen's `weightFor` must pass, for the reason the two arguments above
+         already carry: the preview and the stored figure are one computation. */
+      shades,
     );
 
     const refused = isRefusal(weight);
@@ -847,9 +1126,15 @@ function normalizeYarns(
  * the same `FabricGross` figures the requirement does — so it runs AFTER the
  * requirement rather than before, and the caller passes them in.
  *
- * NO DELETE HERE. The caller has already cleared `order_fabric_bom_yarns` on
- * `bom_id`, and the stages went with them by cascade — they cannot be in that
- * loop, because it deletes on `bom_id` and a stage has no such column.
+ * IT DELETES ITS OWN ROWS, and that moved here on 2026-09-16. The caller's
+ * delete loop used to clear `order_fabric_bom_yarns` along with every other
+ * child — which meant a payload that named no yarns (because the screen's
+ * composition fetch had not resolved) destroyed the stored purchase and put
+ * nothing back. The delete now sits one statement before the insert that
+ * replaces the rows, so "the screen does not know yet" can be told apart from
+ * "this BOM has no yarns" and only the second one clears anything. The stages
+ * still go by cascade — they carry `yarn_id`, not `bom_id`, which is why they
+ * could never have been in that loop either way.
  */
 async function writeYarns(
   s: Awaited<ReturnType<typeof createClient>>,
@@ -859,8 +1144,57 @@ async function writeYarns(
   compositions: ReadonlyMap<string, FabricComposition>,
   uomDecimals: Map<string, number | null>,
 ): Promise<Result> {
-  const yarns = normalizeYarns(data, fabrics, compositions, uomDecimals);
-  if (yarns.length === 0) return { ok: true };
+  /* THE KIND FLAGS FIRST (0564), and its failure is a SAVE failure rather than
+     a silent empty map. A read that failed would make every step look like
+     neither a Knitting nor a Dyeing one, so a Rule 2 fabric would be grossed
+     by the very stages its source exists to suppress — a wrong purchase weight
+     with nothing on screen saying anything went wrong, which is precisely the
+     shape this module's own history warns about. Refusing the save is loud and
+     recoverable; storing the figure is neither. */
+  let processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }>;
+  try {
+    processKinds = await processKindsOf(s, data);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "Could not read the process master's kind flags");
+  }
+
+  const yarns = normalizeYarns(data, fabrics, compositions, uomDecimals, processKinds);
+
+  /* AN EMPTY PAYLOAD IS NOT AUTOMATICALLY AN EMPTY ANSWER (2026-09-16).
+     A yarn row exists because a cloth on this BOM is MADE of that yarn —
+     `deriveYarnRows`' first rule, "never because someone added it". So the
+     cloths' own compositions, read server-side here, say what the payload
+     SHOULD have contained, and the two disagreeing means the screen sent a
+     list it had not finished deriving (see the delete loop's note in
+     `updateFabricBom`).
+
+     REFUSED, NOT PAPERED OVER, AND REFUSED BEFORE THE DELETE. Writing nothing
+     and returning ok would leave the stored purchase standing against a
+     requirement this save has just rewritten — the two-figures-disagreeing
+     failure this module's header calls its worst. Refusing keeps the rows that
+     ARE there, names what happened, and costs the operator one more Save. */
+  if (yarns.length === 0) {
+    const clothDeclaresYarn = [...compositions.values()].some((c) => c.components.length > 0);
+    if (clothDeclaresYarn) {
+      return fail(
+        "The yarn rows had not finished loading, so this save could not work out the yarn " +
+          "purchase — the previously saved figures have been kept. Reopen the BOM, wait for " +
+          "Yarn Process to fill in, and save again.",
+      );
+    }
+    /* NO COMPOSITION ON ANY CLOTH — genuinely no yarns to buy, which is the
+       ordinary state of an all-purchased-fabric BOM. Clear whatever a previous
+       save left, since nothing is going to replace it. */
+    const { error: delErr } = await s.from("order_fabric_bom_yarns").delete().eq("bom_id", bomId);
+    if (delErr) return fail(delErr.message);
+    return { ok: true };
+  }
+
+  /* CLEARED HERE, one statement before the insert that replaces them, so no
+     window exists in which the rows are gone and nothing is coming. The stages
+     go with them by cascade — they carry `yarn_id`, not `bom_id`. */
+  const { error: clearErr } = await s.from("order_fabric_bom_yarns").delete().eq("bom_id", bomId);
+  if (clearErr) return fail(clearErr.message);
 
   const { data: inserted, error } = await s
     .from("order_fabric_bom_yarns")
@@ -944,17 +1278,32 @@ async function writeLines(
     "order_fabric_bom_process_scope",
     "order_fabric_bom_lines",
     "order_fabric_bom_dias",
-    /* THE YARNS, AND THEIR ROUTES BY CASCADE (0493).
-       `order_fabric_bom_yarn_processes` is absent from this list for the reason
-       it cannot be in it: the loop deletes on `bom_id` and that table has no
-       such column. It is a GRANDCHILD — same shape and same note as 0491's
-       `order_fabric_bom_line_sizes`, which the lines' own delete clears. */
-    "order_fabric_bom_yarns",
+    /* THE YARNS ARE NOT IN THIS LOOP ANY MORE (2026-09-16) — `writeYarns`
+       deletes them itself, immediately before it writes their replacements.
+
+       THEY WERE HERE, AND IT COST A DOCUMENT ITS YARN PURCHASE. The rows are
+       DERIVED from the cloths' compositions, which the screen loads in an
+       async effect (`compState`); until it resolves, `comp` is null and
+       `yarnRows` is `[]`. A Save in that window sent `yarns: []` — and `[]`
+       reaching this loop meant "delete every yarn row", while reaching
+       `writeYarns` a moment later meant "nothing to insert". The BOM came out
+       the far side with no stored yarn purchase at all and the report saying
+       so, over a browser fetch that had merely not finished (five
+       `TypeError: Failed to fetch` in the log the day this was found).
+
+       ONE ARRAY, TWO MEANINGS — "this BOM has no yarns" and "the screen does
+       not know yet" — which is this repo's most-recorded failure wearing a
+       client-side hat. Deleting where we insert is what makes the two
+       distinguishable: see `writeYarns`. */
     /* THE MANUAL ENTRIES, AND THEIR COMPONENTS AND SIZES BY CASCADE (0494).
        `order_fabric_bom_manual_components` and `_manual_sizes` are absent from
        this list for the reason they cannot be in it: the loop deletes on
        `bom_id` and both are keyed on `entry_id`. They are GRANDCHILDREN — the
        same shape and the same note the yarn routes carry just above. */
+    /* THE MANUAL ENTRIES, AND THEIR COMPONENTS, COLOURWAYS AND SIZES BY
+       CASCADE (0494 · 0567). The three grandchildren are absent from this list
+       for the reason they cannot be in it: the loop deletes on `bom_id` and all
+       three are keyed on `entry_id`. */
     "order_fabric_bom_manual_entries",
     /* THE YARN DYED DETAILS PANELS (0512). In the loop because they carry
        `bom_id`; their position in it is free, like the dias and the routes,
@@ -1029,6 +1378,10 @@ async function writeLines(
           combination_id: inserted.id,
           sno: c.sno,
           yarn_color: c.yarn_color,
+          /* THE SHADE'S OWN DYEING LOSS (0568). `?? 0` matches the column
+             default and this module's reading of every other undeclared
+             allowance: nothing said is no markup, never an invented one. */
+          dyeing_loss_pct: c.dyeing_loss_pct ?? 0,
         })),
     );
     if (colorRows.length) {
@@ -1097,12 +1450,15 @@ async function writeLines(
   /**
    * WHAT EACH ENTRY'S CLOTH SAYS ABOUT ITSELF, read once (0522).
    *
-   * `items.category_id` IS the structure (0405 · 0415 · 0426) and
-   * `items.base_uom_id` is the unit the requirement is measured in. Both are
-   * facts of the MASTER, so they are read from it rather than trusted from the
-   * form — the same call this action already makes for the GSM one block down,
-   * and for the same reason: a figure the browser could set is a figure a client
-   * could set, and both of these reach a purchase weight.
+   * `items.category_id` IS the structure (0405 · 0415 · 0426) — a fact of the
+   * MASTER, so it is read from it rather than trusted from the form, the same
+   * call this action already makes for the GSM one block down and for the same
+   * reason: a figure the browser could set is a figure a client could set, and
+   * the structure reaches a purchase weight through the GSM it keys.
+   *
+   * `base_uom_id` USED TO BE READ HERE TOO and no longer is: the requirement's
+   * unit is the kilogram by construction (see `requirementRows`), and the
+   * cloth's buying unit was being stamped on a gram-derived weight.
    *
    * A FAILED QUERY IS AN ERROR, NOT AN EMPTY MAP. Swallowing it would silently
    * derive every structure as NULL and store a BOM whose requirement rows cannot
@@ -1119,15 +1475,11 @@ async function writeLines(
   if (entryFabricIds.length) {
     const { data: fRows, error: fErr } = await s
       .from("items")
-      .select("id, category_id, base_uom_id")
+      .select("id, category_id")
       .in("id", entryFabricIds);
     if (fErr) return fail(fErr.message);
-    for (const r of (fRows ?? []) as {
-      id: string;
-      category_id: string | null;
-      base_uom_id: string | null;
-    }[]) {
-      fabricFacts.set(r.id, { category_id: r.category_id, base_uom_id: r.base_uom_id });
+    for (const r of (fRows ?? []) as { id: string; category_id: string | null }[]) {
+      fabricFacts.set(r.id, { category_id: r.category_id });
     }
   }
 
@@ -1147,14 +1499,17 @@ async function writeLines(
   if (entries.length) {
     const { data: inserted, error } = await s
       .from("order_fabric_bom_manual_entries")
-      /* `component_ids` AND `sizes` ARE STRIPPED HERE, BY NAME. They ride on the
-         normalized entry so that both can be paired with the id this insert
-         reads back; PostgREST would reject the whole batch on an unknown
-         column, which is the good failure. The bad one is a rename that makes
-         either resolve to something real, so the strip is written out at the one
-         place it has to happen rather than left to a spread. */
+      /* `component_ids`, `combos` AND `sizes` ARE STRIPPED HERE, BY NAME. They
+         ride on the normalized entry so that each can be paired with the id
+         this insert reads back; PostgREST would reject the whole batch on an
+         unknown column, which is the good failure. The bad one is a rename that
+         makes any of them resolve to something real, so the strip is written out
+         at the one place it has to happen rather than left to a spread. */
       .insert(
-        entries.map(({ component_ids: _c, sizes: _z, ...e }) => ({ ...e, bom_id: bomId })),
+        entries.map(({ component_ids: _c, combos: _cb, sizes: _z, ...e }) => ({
+          ...e,
+          bom_id: bomId,
+        })),
       )
       .select("id, sno");
     if (error) return fail(error.message);
@@ -1176,6 +1531,16 @@ async function writeLines(
         .from("order_fabric_bom_manual_components")
         .insert(componentRows);
       if (cErr) return fail(cErr.message);
+    }
+
+    /* THE COLOURWAY SET (0567), beside the panels and for the same reason —
+       a grandchild keyed on the entry id this insert has just read back. */
+    const comboRows = savedEntries.flatMap((e) =>
+      e.combos.map((combo) => ({ entry_id: e.id, combo })),
+    );
+    if (comboRows.length) {
+      const { error: cbErr } = await s.from("order_fabric_bom_manual_combos").insert(comboRows);
+      if (cbErr) return fail(cbErr.message);
     }
 
     const manualSizeRows = savedEntries.flatMap((e) =>
@@ -1201,16 +1566,23 @@ async function writeLines(
        Same call 0413 makes for the approval tiers and 0426 for the production
        target: a figure the browser could set is a figure a client could set, and
        this one multiplies into a purchase weight in `calculated` mode. */
-    const [dp, seed] = await Promise.all([
+    const [dp, seed, kg] = await Promise.all([
       uomDecimalMap(s),
       getOrderFabricSeed(data.garment_order_id),
+      kilogramUom(s),
     ]);
     decimals = dp;
+    /* NO KILOGRAM ROW, NO REQUIREMENT — refused by name, never written with a
+       NULL unit: `required_qty` is a weight in kilograms whatever the master
+       says, and a row whose unit cannot be named is a figure the Budget
+       would price with no unit behind it. */
+    if (!kg) {
+      return fail("No active kilogram unit on the UOM master — add KGS before saving a Fabric BOM weight");
+    }
     requirement = requirementRows(
       savedEntries,
-      fabricFacts,
       order,
-      decimals,
+      { id: kg.id, decimals: decimals.get(kg.id) ?? null },
       gsmByStructureOf(seed),
     );
     if (requirement.length) {
