@@ -1440,6 +1440,7 @@ export function ChildGrid<T extends { key: string }>({
   onRemove,
   addLabel = "+ Add row",
   addClassName,
+  headerClassName,
   bodyClassName,
   renderMobileRow,
   pageSize,
@@ -1528,6 +1529,26 @@ export function ChildGrid<T extends { key: string }>({
    * change nobody asked for.
    */
   addClassName?: string;
+  /**
+   * EXTRA CLASSES ON EVERY COLUMN-HEADER CELL — the table's `<th>` and the
+   * inline band's header `<div>`, so a caller restyling its headings cannot get
+   * one layout and miss the other.
+   *
+   * IT IS A PROP RATHER THAN A DESCENDANT SELECTOR AT THE CALL SITE because
+   * `ChildGridColumn.header` is typed `string`: a caller cannot wrap its own
+   * heading in a styled span, and the band's cells carry no marker to aim a
+   * `[&_…]` rule at. The alternative on offer was
+   * `[&_[data-grid-body]>div:not([data-grid-row])>div]`, which also matches the
+   * totals band and the empty-state label band — a selector that is wrong the
+   * day a grid grows a total.
+   *
+   * MERGED LAST, so it outranks the built-in metrics rather than fighting them
+   * (`cn` is tailwind-merge). Deliberately NOT a default: the header's size and
+   * colour were argued out per layout — see `GRID_HEADER_TEXT`'s own note, and
+   * `LABEL_METRICS` on the inline band — and this exists for a screen the
+   * client has overridden directly, not for a new house style.
+   */
+  headerClassName?: string;
   /**
    * EXTRA CLASSES ON THE ROWS CONTAINER — the `data-grid-body` element, in
    * whichever of the four layouts is rendering.
@@ -2710,6 +2731,13 @@ export function ChildGrid<T extends { key: string }>({
    * both stay unconditional: they are row-dependent, and a column appearing the
    * moment a second row is added is the drift this cell was made unconditional
    * to prevent.
+   *
+   * IT NOW GOVERNS THE INLINE LAYOUT'S THREE `w-8` TRACKS TOO (2026-09-16) —
+   * the row's, the header band's and the totals row's. They were unconditional,
+   * so `hideRemove` took the button away and left the 32px, and a grid moving
+   * its ✕ into a cell of its own could not reclaim the space. Same rule as the
+   * table's `<col>` / `<th>` / `<td>`, and the same "all three or none" the
+   * `hideIndex` tracks follow.
    */
   const removeColumn = !hideRemove;
 
@@ -2880,6 +2908,7 @@ export function ChildGrid<T extends { key: string }>({
                       // up on its decimal point.
                       centerHeaders ? "text-center" : align[c.align ?? "left"],
                       c.className,
+                      headerClassName,
                     )}
                   >
                     {c.header}
@@ -3205,6 +3234,7 @@ export function ChildGrid<T extends { key: string }>({
                       "min-w-0 text-xs font-semibold leading-[inherit] text-muted-foreground",
                       c.width ? "shrink-0" : "flex-1",
                       align[c.align ?? "left"],
+                      headerClassName,
                     )}
                     style={c.width ? { width: c.width } : undefined}
                   >
@@ -3212,7 +3242,11 @@ export function ChildGrid<T extends { key: string }>({
                     {c.required && <span className="ml-0.5 text-danger">*</span>}
                   </div>
                 ))}
-                <span className="w-8 shrink-0" />
+                {/* The ✕ track, mirrored. Gated with the row's own span —
+                    see the note there: `hideRemove` takes all three away
+                    together, or the headings sit 40px left of the cells
+                    they name. */}
+                {removeColumn && <span className="w-8 shrink-0" />}
               </div>
             )}
             {view.map((row, localI) => {
@@ -3297,7 +3331,23 @@ export function ChildGrid<T extends { key: string }>({
                     "misaligning and drifting" after a row is added or deleted.
 
                     `w-8` on the span reproduces the button's own width exactly,
-                    so nothing moves on a row that still has its ✕. */}
+                    so nothing moves on a row that still has its ✕.
+
+                    AND `removeColumn` IS THE ONE THING THAT DOES GATE IT, which
+                    is not a contradiction of the paragraphs above but the same
+                    distinction they draw, applied. Everything they warn about is
+                    ROW-dependent — `lockExisting` and `keepOne` withhold the ✕
+                    from some rows and not others, so a track that came and went
+                    with them would put two rows on two widths. `hideRemove` is
+                    stated once for the whole grid and cannot change while it is
+                    mounted: every row loses the ✕ together, so the track is 32px
+                    of guaranteed emptiness rather than a width two rows might
+                    disagree about. The table layout has always gated its `<col>`,
+                    `<th>` and `<td>` on exactly this (`removeColumn`); the inline
+                    layout did not, so `hideRemove` freed the button and not the
+                    space. The three `w-8` tracks leave together, the way
+                    `hideIndex`'s three `w-4` tracks do. */}
+                {removeColumn && (
                 <span className="flex min-h-9 w-8 shrink-0 items-center @2xl/editor:min-h-8">
                   {!locked(row) && (
                   <Button
@@ -3313,6 +3363,7 @@ export function ChildGrid<T extends { key: string }>({
                   </Button>
                   )}
                 </span>
+                )}
               </div>
               );
             })}
@@ -3346,7 +3397,11 @@ export function ChildGrid<T extends { key: string }>({
                     {renderTotal(c.total, rows)}
                   </div>
                 ))}
-                <span className="w-8 shrink-0" />
+                {/* The ✕ track, mirrored. Gated with the row's own span —
+                    see the note there: `hideRemove` takes all three away
+                    together, or the headings sit 40px left of the cells
+                    they name. */}
+                {removeColumn && <span className="w-8 shrink-0" />}
               </div>
             )}
           </div>

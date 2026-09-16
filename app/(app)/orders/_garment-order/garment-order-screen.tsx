@@ -34,6 +34,10 @@ import {
   RowRemoveChip,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
+// The app's one trailing field-edge mark — see T&A ▸ Approvals ▸ Due Date, the
+// only place in this file that draws one itself rather than getting it from a
+// picker.
+import { FieldAffordance } from "@/components/ui/field-affordance";
 import { Input } from "@/components/ui/input";
 // PO No is `format="doc_ref"` — the kind declares the regex, the message AND
 // the uppercase keystroke transform, so the screen and the server cannot
@@ -317,12 +321,7 @@ import {
   orderUnitLabel,
   type GarmentOrderAmendment,
   type AmendmentTaActivity,
-  type AmendmentTaApproval,
 } from "@/lib/orders/amendments/types";
-import {
-  OrderApprovalFollowup,
-  type OrderApprovalRow,
-} from "@/components/orders/order-approval-followup";
 // `StylePickerRow` left this import on 2026-08-25 with the Style picker itself —
 // the type describes a master row, and nothing on this screen holds one now.
 import type {
@@ -1479,6 +1478,171 @@ const TA_OWNER_COL_W = "8rem";
  * order and fourteen on the next.
  */
 const TA_DEPT_COL_W = "7rem";
+/**
+ * TARGET / ACTUAL (2026-09-16). One width for both, read by the header band and
+ * the row alike — they were four hand-typed `w-[4.75rem]`s, and the day the
+ * cell's content changed all four had to be found by grep. 76px held a bare
+ * `dd/mm/yyyy` (10 mono chars at 11px); ACTUAL now shows the planned end as
+ * `→ dd/mm/yyyy` (12 chars, ~73–79px by mono font), which the old width let
+ * spill on Menlo. 84px clears it on every stack with room for the `px-2`.
+ */
+const TA_DATE_COL_W = "5.25rem";
+
+/**
+ * T&A ▸ APPROVALS ▸ THE COLUMN HEADINGS, at the metrics the operator dictated
+ * (2026-09-16, verbatim: "text-[10px] uppercase font-semibold text-gray-500").
+ * Handed to `ChildGrid`'s `headerClassName`, which merges last onto both the
+ * inline band's header cells and the table's `<th>`.
+ *
+ * ONE SUBSTITUTION AND ONE ADDITION, THE SAME TWO `DENSE_LABELS` MADE on
+ * Packing Advice the day before for the same instruction, and for the same
+ * reasons. `text-muted-foreground` for `text-gray-500`: it is the token this
+ * band already uses and the one that survives the dark theme — a raw
+ * `gray-500` is the same colour in both, which on the dark surface is a
+ * heading you cannot read. `tracking-wide`: 10px capitals with no tracking
+ * close up into a smear.
+ *
+ * `whitespace-nowrap` IS NOT COSMETIC. "ITEM #" at 10px semibold with
+ * `tracking-wide` measures ~40px, which is the whole of its 40px track — a
+ * hair over on one font stack and the heading wraps to two lines and pushes
+ * the band away from the row it heads. It overhangs into the band's own 8px
+ * `gap-2` instead, where there is nothing to collide with.
+ *
+ * KNOWN DEPARTURE, SCOPED TO THIS GRID. `GRID_HEADER_TEXT` was moved UP to
+ * 13px on purpose (client 2026-08-18 — on a fourteen-column row the heading is
+ * the only thing naming the cell). This grid has three columns, two of them
+ * labelled fields, so the heading is doing far less work here. It is an
+ * override for this grid and must not be lifted into `ChildGrid`'s own default.
+ */
+const TA_APPROVAL_HEADERS =
+  "text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap text-muted-foreground";
+
+/**
+ * T&A ▸ APPROVALS ▸ THE BOXES, STRICTLY UNIFORM (operator, 2026-09-16:
+ * "h-8 text-xs border-green-600/40 rounded-md", tightened the same day to
+ * "h-7 ... px-2 ... text-[11px]").
+ *
+ * A DESCENDANT SELECTOR ON THE PANEL, NOT A PROP ON EACH CONTROL, because the
+ * two controls in this grid take their classes by different routes and one of
+ * them takes none: `Input` merges a `className`, and `RecordPicker` forwards
+ * nothing to `DataPicker`, whose trigger `<input>` is styled entirely inside
+ * the primitive. The primitive sits behind ~160 pickers and must not learn this
+ * screen's green, so the one place both boxes can be reached at once is the
+ * element above them. `.scope input` is (0,1,1) and beats the primitives' own
+ * bare `h-9` / `border-border` / `md:text-sm` (0,1,0), and the `@2xl/editor:h-8`
+ * container query too — which is the point of "strictly": the boxes are 28px at
+ * every pane width, rather than 36px dropping to 32px once the editor is wide
+ * enough.
+ *
+ * THE PANEL'S OWN `<Input>`s ARE THE ONLY ONES IN REACH. `DataPicker` renders
+ * its open list through `createPortal` to `document.body`, so the panel's search
+ * box is outside this subtree and keeps the app's ordinary field metrics. Put
+ * this on a container that holds anything else and it would repaint that too.
+ *
+ * `border-success/40`, NOT `border-green-600/40`, and this is the same
+ * substitution `TA_APPROVAL_HEADERS` makes above: `--success` IS the green of
+ * this app — re-hued to the logo's 83deg at matched luminance (see the brand
+ * block in globals.css) and given its own dark-theme value. Tailwind's
+ * `green-600` is a different, bluer green that would read as a second brand
+ * beside every status pill on the screen, and would not lighten in the dark
+ * theme.
+ *
+ * THE TWO EXCLUSIONS ARE THE "SHOW AND FLAG" RULE SURVIVING A SKIN. A green
+ * arriving by descendant selector (0,1,1) quietly outranks a `border-danger`
+ * arriving on the control's own `className` (0,1,0), so a red box would go
+ * green and a conflicted approval would look agreed:
+ *
+ *   `[data-conflict]` — the Due Date cell stamps it when
+ *   `computeApprovalSchedule` returns a date outside the order's window, or
+ *   when the approval is not configured for this customer at all.
+ *
+ *   `[aria-invalid]` — nothing here sets it today (`DataPicker`'s `invalid`
+ *   defaults false and this call site does not pass it), and that is exactly
+ *   why it is written down now: the day the picker is marked invalid, its red
+ *   border must not need someone to remember this constant exists. Styling
+ *   only — no hold is keyed off it, which AGENTS.md forbids.
+ *
+ * `hover:border-primary` needs no exclusion: a pseudo-class puts the
+ * primitive's own hover at (0,2,0), above this rule, so the boxes still answer
+ * the pointer.
+ */
+/**
+ * `[&_[data-grid-row]>*]:min-h-7` IS THE ✕'s ALIGNMENT, AND IT IS THE SAME
+ * ARGUMENT AS THE `h-7` BESIDE IT — IT MOVES WITH IT, ALWAYS (2026-09-16).
+ * `inlineCards` gives every direct child of a row — each cell, and the `<span>`
+ * holding the ✕ — a `min-h-9 @2xl/editor:min-h-8` slot and centres its content
+ * inside it, so the boxes and the ✕ line up with each other by construction.
+ * That pairing breaks the moment something pins the INPUT without pinning the
+ * slot too, which is what the rule above does: the box went to 32px everywhere,
+ * the slot stayed 36px until the editor container hit `2xl`, and every row
+ * carried 4px of slack with the ✕ centred in the taller of the two. Both, or
+ * neither — the same "both halves or it is right in one density and wrong in
+ * the other" this file's `Segmented` override records. The box is 28px now, so
+ * this is 28px; the two numbers are one number and must never be edited apart.
+ *
+ * `[&_input]:px-2` (operator, same day: "text-xs py-1 px-2"). The primitives
+ * are `px-2.5`, standardised across all six on 2026-09-08; this panel is the
+ * one place that steps in 2px tighter, and it does it here rather than at each
+ * call site for the same reason as everything else in this constant.
+ *
+ * NO `py-1` AND NO `py-0.5`, DELIBERATELY — asked for twice (2026-09-16) and a
+ * no-op both times. These boxes are fixed-height single-line `<input>`s under
+ * `box-sizing: border-box`: the height is pinned, the UA centres the single
+ * line in whatever content box is left, so padding-block cannot move the text
+ * or the box by a pixel. Shipping it would be a class that looks like a setting
+ * and is not, which is the shape `--check text-size-noop` exists to catch one
+ * property along. `h-7` below is what actually delivers the tighter box.
+ *
+ * `[&_input]:pr-6` ON A BOX THAT HAS A TRAILING SLOT, AND THAT IS NOT A SECOND
+ * OPINION ABOUT PADDING — it is the repair for `px-2` above. `field-affordance.
+ * tsx` states in writing that the slot's width and the input's right pad are ONE
+ * measurement (`AFFORDANCE_PAD_COMPACT`, 20px of slot + 4px of gutter), and a
+ * descendant `px-2` (0,1,1) overrules the primitive's own `pr-6` (0,1,0) — so
+ * the approval name ran the last ~12px of itself UNDERNEATH its own ✕, which
+ * has an opaque `bg-surface-muted` fill and hid it. Restated here at the same
+ * specificity, and Tailwind emits `pr-*` after `px-*` in its own sort order, so
+ * the longhand wins where both apply.
+ *
+ * `:has(+[data-field-affordance])` RATHER THAN NAMING THE PICKER. The pad is
+ * owed to a box that HAS a slot drawn on it, whatever control that is — that is
+ * the rule, and stating it that way means a box that gains a slot later gets
+ * the gutter without anyone remembering this constant exists, while Due Date,
+ * which has none, keeps its 8px. `data-field-affordance` is the marker
+ * `field-affordance.tsx` publishes for exactly this kind of styling hook, and
+ * the slot is the input's next sibling inside the picker's `Tooltip` wrapper.
+ * `:not([readonly])` was the obvious alternative and is wrong: `DataPicker`
+ * marks its own trigger `readOnly` on a coarse pointer, so on touch it would
+ * match Due Date and the picker alike.
+ */
+const TA_APPROVAL_FIELDS =
+  "[&_input]:h-7 [&_input]:rounded-md [&_input]:px-2 [&_input:has(+[data-field-affordance])]:pr-6 [&_input]:text-xs [&_input:not([data-conflict]):not([aria-invalid])]:border-success/40 [&_[data-grid-row]>*]:min-h-7";
+
+/**
+ * T&A ▸ APPROVALS ▸ THE GAP BETWEEN ROWS, cut to 4px (operator, 2026-09-16:
+ * "reduce the vertical spacing between the rows to a bare minimum"). Handed to
+ * `ChildGrid`'s `bodyClassName`, so it lands on `data-grid-body` and reaches
+ * every row from above instead of being restated per row.
+ *
+ * IT MIRRORS THE PRIMITIVE'S TWO RULES RATHER THAN FLATTENING THEM, which is
+ * why this is two selectors and not one `py-1`. A `flushRows` row carries
+ * `pb-1.5` always and `pt-1.5` only from the SECOND row on — the first row has
+ * no top pad, so the grid starts exactly where a `Field`'s control does beside
+ * it, which is the whole reason `flushRows` exists. A blanket `py-1` would give
+ * the first row a top pad and push the grid off the band above it, undoing that
+ * alignment in the name of tightening it.
+ *
+ * `~` IS WHAT STANDS IN FOR THE PRIMITIVE'S `localI > 0`. `:not(:first-child)`
+ * would be wrong here: the header band is a sibling inside `data-grid-body`, so
+ * the first ROW is the container's SECOND child and every row would match it. A
+ * general sibling combinator on `[data-grid-row]` matches exactly the rows that
+ * have a row before them, whatever else shares the container.
+ *
+ * THE RULE BETWEEN ROWS STAYS (`border-b`). At 4px of clearance it is the only
+ * thing left separating two rows; drop it and a two-row grid reads as one field
+ * that has wrapped.
+ */
+const TA_APPROVAL_ROWS =
+  "[&>[data-grid-row]]:pb-1 [&>[data-grid-row]~[data-grid-row]]:pt-1";
 
 /**
  * A STYLE FIELD'S WIDTH, KEYED BY ITS HEADER.
@@ -1888,21 +2052,6 @@ export function GarmentOrderScreen({
   const [taApprovalRows, setTaApprovalRows] = useState<TaApprovalRow[]>([]);
 
   /**
-   * THE SAVED HALF OF T&A ▸ APPROVALS — `id` / `status` / `actual_sent_date` /
-   * `actual_received_date` / `proof_path` / `active_version`, none of which
-   * `TaApprovalRow` carries (see that type's own note on why not: `id` is
-   * re-minted on every save by `writeChildren`'s delete-and-reinsert, so it
-   * cannot live in the editable-grid state the way `row_uid` does).
-   *
-   * Populated ONLY in `openEdit` from `r.ta_approvals` — a fresh/seeded order
-   * has no saved approval rows to act on yet, so this stays `[]` until the
-   * order itself has been saved at least once. The "TA Followup" tab below
-   * joins this by `row_uid` onto `taApprovalRows` to know which declared
-   * approvals are actionable and which are still unsaved.
-   */
-  const [savedApprovals, setSavedApprovals] = useState<AmendmentTaApproval[]>([]);
-
-  /**
    * THE LADDER'S SAVED ROWS, KEPT WHOLE — so the Activity table can show an
    * ACTUAL column (operator, 2026-09-12).
    *
@@ -1911,7 +2060,8 @@ export function GarmentOrderScreen({
    * dashboard days later by somebody else and must never ride this screen's
    * save payload (see `TaRow`'s own note, and `normalizeTaActivities`). That
    * rule is untouched here — this is a SECOND, read-only copy of the same
-   * rows, exactly as `savedApprovals` above stands beside `taApprovalRows`.
+   * rows, standing beside the editable `taRows` the same way `taApprovalRows`
+   * holds the Approvals grid.
    *
    * The data was already arriving: `service.ts` selects
    * `ta_activities(*)` and says why in its own comment — the dashboard-owned
@@ -3883,7 +4033,6 @@ export function GarmentOrderScreen({
        order's completion records. */
     setTaRows([]);
     setTaApprovalRows([]);
-    setSavedApprovals([]);
     setSavedTaActivities([]);
     setTaEditingCell(null);
     setAttachments([]);
@@ -4006,11 +4155,6 @@ export function GarmentOrderScreen({
          reason. */
       taApprovals: r.ta_approvals,
     });
-    /* THE RAW SAVED ROWS, separately from the grid mapping above — `toRows`
-       strips `id`/`status`/dates down to `row_uid`/`approval_id` for the
-       editable grid, but the "TA Followup" tab needs the full saved shape to
-       know what it can act on. See `savedApprovals`'s own note. */
-    setSavedApprovals(r.ta_approvals ?? []);
     /* The same rows `applyRows` just mapped into `taRows`, kept whole for
        the ACTUAL column — see `savedTaActivities`'s own note. Read-only
        here; nothing in the save payload reads this. */
@@ -9320,14 +9464,156 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
   /**
    * T&A ▸ Approvals ▸ the grid's own columns — one field on screen
-   * (`approval_id`); Target Date is derived, never typed. Plain table
-   * (`ChildGrid` default), not `forceCards` — the ladder above is already
-   * the one place on this tab that reads as a schedule rather than a grid.
+   * (`approval_id`); Due Date is derived, never typed.
+   *
+   * THREE DECLARED COLUMNS ON `inlineCards` (2026-09-16: "restructure it
+   * into a clean 3-column grid: 'Item #', 'Approval Name', and 'Due Date'").
+   * The grid used to be `forceCards` + `flatRows` + a hand-rolled
+   * `renderMobileRow` — a flex row with its own `py-1.5`, an unlabelled
+   * `flex-1` picker and a `w-24` date, no header, and the ✕ arriving as the
+   * cards layout's CORNER chip. That chip's `top-[22px]` is derived for a
+   * card whose first row is a LABELLED field (see `RowRemoveChip`'s own
+   * note, "KNOWN REMAINDER"), and this row had no label: the chip hung 14px
+   * below the picker's centre-line and read as a stray ✕ half inside the
+   * green-skin field border. `inlineCards` is the layout that already
+   * answers every half of the request — one shared header band, each
+   * column's declared `width` honoured, every cell centred within one
+   * control's height, the ✕ in its own reserved `w-8` track level with the
+   * row, and the "+ Add" beneath the grid — so the hand-rolled row went
+   * rather than gaining a fourth alignment patch.
+   *
+   * `#` IS A DECLARED COLUMN, NOT THE GRID'S OWN INDEX. The inline band draws
+   * a blank `w-4` spacer over its built-in ordinal, so the header could not
+   * say "Item #" through it; the grid passes `hideIndex` and this column
+   * prints the same number under its own title instead.
+   *
+   * THE TRACKS ARE `40px 12.5rem 7rem`, ALL THREE DECLARED, AND EVERY ONE OF
+   * THEM HAS MOVED IN ONE DAY (2026-09-16). Due Date went `1fr` in the morning,
+   * `9rem` in the afternoon on "around 150px, just enough to hold the date",
+   * then `7rem` on "constrain the 'Due Date' column to be as narrow as possible
+   * ... so it exactly fits the DD/MM/YYYY format without extra blank space";
+   * Approval Name was `18rem`, then the `1fr` that absorbed the remainder, then
+   * `18rem` again on "much more compact in width so they don't stretch across
+   * the empty space ... instead of 1fr", and is now `12.5rem` on
+   * "grid-cols-[40px_200px_110px]".
+   *
+   * THE DIRECTION HAS BEEN THE SAME EVERY TIME, so the direction is the thing
+   * to preserve rather than any one of the three numbers: each track holds its
+   * own value and nothing holds the surplus. There is no flexible track left
+   * here — the panel's cap absorbs what the tracks do not, which is why that
+   * cap is now derived from their sum rather than chosen a step above it. The
+   * first version's own note called `1fr` on the DATE a "KNOWN DEPARTURE FROM
+   * `erp-form-compact`" — a dd/mm/yyyy value given half the panel; with the
+   * last fraction gone there is no departure left to record on either.
+   *
+   * `7rem` IS `range` FROM `lib/ui/sizes.ts`, NOT A HAND-TYPED 110px, and the
+   * request's own "e.g." is what licenses the 2px. `erp-form-compact` is
+   * explicit that a screen wanting a width the vocabulary does not have makes
+   * the case for a NEW step rather than "a local map of `w-[110px]`" (there is
+   * one such map in this app, `IDENTITY_W`, and it says not to copy itself).
+   * `range` is described there as "a derived pair or short code" — and this
+   * value is derived, by `computeApprovalSchedule`, which is the same fact that
+   * makes it `readOnly`. At `text-xs` "31/12/2026" measures ~61px and the
+   * box spends 16px on `px-2`, so 112px holds it with ~35px to spare — which is
+   * exactly what the row's ✕ then moved in and took: a 20px slot plus its 4px
+   * gutter, leaving the date ~11px of clearance. The step below would not have
+   * fitted it, which is the next paragraph.
+   *
+   * WHY NOT SMALLER STILL, since "as narrow as possible" invites it: the next
+   * step down is `hug` (85px), and `hug` is documented as LABEL-bound — a field
+   * takes it when its own label, not its value, is what stops it going further.
+   * "Due Date" is a short header and the value is fixed-width, so nothing here
+   * is label-bound; 85px would leave the date ~11px of slack and no room for a
+   * slot at all.
+   *
+   * THE PANEL IS CAPPED TOO, AND THAT IS THE OTHER HALF. Narrowing a track
+   * does not narrow the card — `erp-form-compact` rule 3 — so the surplus a
+   * `1fr` name column used to eat does not disappear when the column is fixed:
+   * it moves into the card as trailing blank. The wrapper therefore carries
+   * `max-w-[394px]`, DERIVED from the three tracks above plus the gaps and the
+   * padding — there is no ✕ track in the sum any more, because the row's ✕ now
+   * sits inside the Due Date box. See the cap for the arithmetic, and change it
+   * in the same edit as any track here.
    */
   const taApprovalColumns: ChildGridColumn<TaApprovalRow>[] = [
     {
-      header: "Approval",
-      width: "16rem",
+      /* THE 40px ORDINAL TRACK — the first track of `40px 1fr 1fr` (operator,
+         2026-09-16). The cell is a bare `<span>` in a `flex-col justify-center`
+         slot, so it stretches the track and its text sits on the track's own
+         left edge; the header cell above declares the identical width and the
+         same default `align: "left"`, which is what makes "01" land exactly
+         under the "I" of ITEM #. Never centre one of the two. */
+      header: "Item #",
+      width: "40px",
+      cell: (_r, i) => (
+        <span className="text-xs text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
+      ),
+    },
+    {
+      /* `12.5rem` — THE SIXTH WIDTH IN `lib/ui/sizes.ts`, AND THE LAST
+         FLEXIBLE TRACK IN THIS GRID IS NOW FIXED AND NARROW (operator,
+         2026-09-16: "much more compact in width so they don't stretch across
+         the empty space … a fixed or smaller max-width for the 'Approval Name'
+         column instead of 1fr", then "grid-cols-[40px_200px_110px]").
+         `inlineCards` gives a column with no declared width `flex-1 min-w-0`
+         and one with a width `shrink-0`, so all three tracks are stated
+         outright rather than two stated and one left over: 40px, 12.5rem, 7rem.
+         It has been `18rem`, then `1fr` with Due Date at `1fr` beside it, then
+         `18rem` again; every move has been in the same direction but this is
+         the first that goes BELOW where it started.
+
+         ONE DECLARATION, BOTH BANDS. The request names the header and the rows
+         as two things to change, and `width` IS both — `ChildGrid`'s inline
+         layout reads `c.width` into the header cell, the row cell and the
+         totals row from this one place, so there is no second track list to
+         keep in step and no way for the band to drift off the boxes under it.
+         The same prop is why the picker needs no `max-w` of its own: the CELL
+         is 12.5rem and the control is `w-full` inside it, so a width on the
+         control could only ever disagree with the track above it — and an
+         input 8px narrower than its own header is exactly the drift the
+         single declaration exists to prevent.
+
+         THE ✕ NEEDS NOTHING EITHER. `FieldAffordance` draws the picker's clear
+         slot at `absolute inset-y-px right-px` inside a `relative block w-full`
+         wrapper, so it is glued to the control's inner border at whatever width
+         the track gives it; it tracked the `1fr`, it tracked 18rem, and it
+         tracks 12.5rem. A
+         per-screen offset here would be a call site patching one property of a
+         primitive that is already correct.
+
+         12.5rem IS THE REQUEST'S 200px IN THE VOCABULARY THAT ALREADY EXISTS
+         (operator, 2026-09-16: "grid-cols-[40px_200px_110px]"). It is the SIXTH
+         width `sizes.ts` carries, added 2026-09-09 for Consignee ▸ General ▸
+         Bank and described there as "a short proper noun that `term` clips and
+         `name` oversizes" — 200px exactly, so the request needs no rounding and
+         no hand-typed `w-[200px]`, which `erp-form-compact` names as the thing a
+         shared vocabulary exists to prevent. It was `18rem`/`name` (288px) for
+         part of this afternoon, and before that `1fr`.
+
+         IT NO LONGER HOLDS THE LONGEST VALUE, AND THAT IS THE TRADE THIS TRACK
+         MAKES — said plainly because the previous width was chosen precisely to
+         avoid it. "FABRIC LAB TEST APPROVAL" is the longest in the master today;
+         it measured ~240px at `text-[11px]`, and at the `text-xs` this grid now
+         uses it is ~262px, plus the 24px its clear-✕ gutter reserves. Against
+         200px of track that is ~86px over, so it ellipsises. Two things make
+         that a degradation rather than a loss, and both are already built: the
+         picker's own `text-ellipsis` puts the "…" there, and its `Tooltip`
+         reveals the whole value on hover — the standing truncated-values rule,
+         which is that an ellipsis is a promise the rest is reachable. The
+         previous note called exactly this "the behaviour the cap is chosen for
+         rather than a regression from it"; the only thing that changed is that
+         it is now the ordinary case for the longest name rather than a hedge
+         against a longer one arriving later.
+
+         WHAT IT GIVES UP, said plainly because it is a real trade: with no
+         flexible track the row can no longer absorb a pane narrower than its
+         own 368px, and the card's `overflow-hidden` clips the ✕ rather than
+         squeezing the name. That is the bargain `Item #` and `Due Date` have
+         made here all along, not a new hazard this column introduces — and the
+         cap below is DERIVED from the row's fixed total so the two cannot
+         disagree by accident. */
+      header: "Approval Name",
+      width: "12.5rem",
       cell: (r) => {
         /* SCOPED TO THIS ORDER'S CUSTOMER (operator, 2026-09-09: "that
            approval listing totally from approval master but it should
@@ -9366,8 +9652,17 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       },
     },
     {
-      header: "Target Date",
-      width: "9rem",
+      /* "Due Date" on screen (2026-09-16); the field and everything that
+         computes it stay `target_date` — the TA Followup tab and the
+         customer's Approvals tab both still call it that in code.
+
+         `7rem` — `range` in the value-width vocabulary, the narrowest step
+         that holds a dd/mm/yyyy date with room for a trailing slot. See the
+         tracks note at the head of this array for why this is not the `1fr`
+         it was this morning, not the `9rem` it was this afternoon, and not a
+         hand-typed 110px. */
+      header: "Due Date",
+      width: "7rem",
       cell: (r) => {
         const d = taApprovalDates.get(r.row_uid);
         /* SHOW AND FLAG, NEVER CLAMP — the same AGENTS.md rule the
@@ -9378,68 +9673,83 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            visibly impossible rather than a plain black box that reads as
            agreed. */
         return (
-          <Input
-            readOnly
-            className={d?.isConflicted ? "border-danger text-danger" : undefined}
-            title={d?.isConflicted ? (d.errorMessage ?? undefined) : undefined}
-            value={d?.target_date ? fmtDate(d.target_date) : ""}
-          />
+          /* `relative` IS THE WHOLE WRAPPER, and it is what `FieldAffordance`
+             needs rather than a preference: the slot is `absolute inset-y-px
+             right-px`, so it reads its box from the nearest positioned
+             ancestor. `DataPicker` gives it a `relative block w-full` label for
+             exactly this; without one here the ✕ would anchor to the row. */
+          <div className="relative">
+            <Input
+              readOnly
+              /* `data-conflict` IS WHAT KEEPS THE RED, and it is a marker rather
+                 than a style. `TA_APPROVAL_FIELDS` below paints this grid's boxes
+                 green through a DESCENDANT selector (`.scope input`, 0-1-1), which
+                 outranks any `border-danger` arriving on this call site's own
+                 `className` (0-1-0) — so a conflicted date would have gone green
+                 and the "SHOW AND FLAG" rule would have been broken by a skin. The
+                 green rule excludes `[data-conflict]`; the attribute is the thing
+                 it excludes by. Text colour is unaffected either way and stays on
+                 `className`. */
+              data-conflict={d?.isConflicted ? "" : undefined}
+              className={d?.isConflicted ? "border-danger text-danger" : undefined}
+              title={d?.isConflicted ? (d.errorMessage ?? undefined) : undefined}
+              value={d?.target_date ? fmtDate(d.target_date) : ""}
+            />
+            {/**
+              * THE ROW'S ✕, MOVED INSIDE THE LAST BOX (operator, 2026-09-16:
+              * "move the ✕ clear icon for the Due Date so it is perfectly
+              * positioned inside the green-bordered input field, just like the
+              * Approval Name input"). It is the SAME button that stood in
+              * `inlineCards`' own 32px track a moment ago, not a second one and
+              * not a new "clear the date" — this value is derived and read-only,
+              * so it has nothing of its own to clear. The grid passes
+              * `hideRemove`, which now takes that track away with it, and the
+              * 40px it frees (32px + an 8px gap) comes off the panel cap.
+              *
+              * IT LOOKS LIKE A FIELD-CLEAR AND DELETES THE ROW, WHICH IS THE
+              * TRADE THAT WAS TAKEN KNOWINGLY, not an oversight to tidy up. The
+              * blast radius is what makes it safe here: a row is one approval
+              * plus the date derived from it, so "clear this" and "delete this
+              * row" differ by an empty line. Do not copy the pattern to a grid
+              * whose row holds anything the operator typed.
+              *
+              * `FieldAffordance` RATHER THAN A HAND-DRAWN ✕. It is the app's
+              * whole answer to "a mark on a field's right edge" and the reason
+              * the picker and the combobox stopped drifting apart; drawing a
+              * second one here at `compact`'s 20px would be the third copy. It
+              * also means this box needs no `pr-*` of its own —
+              * `TA_APPROVAL_FIELDS` reserves the gutter for any input that HAS
+              * a slot next to it, which this one now does.
+              *
+              * CTRL+DEL STILL WORKS AND IS NOT A LUCKY ACCIDENT. `gridKeyNav`
+              * finds a row's remove control by `[data-row-remove], [aria-label^=
+              * "Remove" i]` — `FieldAffordance` takes no data attributes, so the
+              * LABEL is the half that carries it, and "Remove approval" has to
+              * keep starting with that word. The same prefix keeps it off the
+              * Tab path (`isFieldLike`, lib/focus.ts), as the outboard ✕ was.
+              *
+              * `length > 1` IS `keepOne`, RESTATED BECAUSE `hideRemove` SILENCED
+              * IT. `ChildGrid` locks the sole survivor's ✕ (`keepOne`, on by
+              * default) so a grid can never be emptied to a bare button; that
+              * gate lives inside `locked()`, which `hideRemove` short-circuits.
+              * Moving the button out of the primitive means bringing its
+              * condition along — or the last approval becomes deletable here and
+              * nowhere else in the app.
+              */}
+            {taApprovalRows.length > 1 && (
+              <FieldAffordance
+                compact
+                clearLabel="Remove approval"
+                onClear={() =>
+                  setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))
+                }
+              />
+            )}
+          </div>
         );
       },
     },
   ];
-
-  /**
-   * ONE ROW, ALWAYS (operator, 2026-09-09: "make approval date in single
-   * row") — `ChildGrid`'s own responsive fallback (no `forceCards`) hides
-   * its table BELOW `@lg` of the GRID'S OWN width (512px), which the
-   * Approvals panel can easily be once it is sharing the T&A pane with the
-   * ladder beside it (see the two-column grid above `taColumns`). Below
-   * that the default card layout would stack Approval and Target Date onto
-   * two lines — exactly what was asked NOT to happen. A hand-drawn row,
-   * the same shape `taRenderMobileRow` already uses for the ladder, sizes
-   * to its own two fields (a name and a date) rather than to a 512px
-   * threshold that has nothing to do with how much space they need.
-   */
-  /**
-   * SAME LEFT-EDGE LANGUAGE AS THE LADDER (2026-09-10) — a plain
-   * `rounded-lg … shadow-sm` card here was the one place on this tab still
-   * drawing the OLD look after `taRenderMobileRow` was rebuilt beside it,
-   * which is exactly the "still updating only on this old UI" complaint: two
-   * panels sharing one tab, one restyled and one not. `border-l` carries the
-   * same signal the ladder's status chip carries for a row — RED for a
-   * genuinely conflicted date (`isConflicted`, unchanged logic), the neutral
-   * `border-strong` otherwise. No status word is invented here, unlike the
-   * ladder's chip: this panel only DECLARES which approvals apply and by
-   * when, it does not track Sent/Approved/Rework — that lifecycle is the TA
-   * Followup tab's, and a status word here would be a second, competing
-   * answer to a question that tab already owns.
-   */
-  const taApprovalRenderMobileRow = (r: TaApprovalRow, i: number) => {
-    const d = taApprovalDates.get(r.row_uid);
-    return (
-      <div
-        className={cn(
-          "flex flex-wrap items-center gap-2 border-l-[3px] bg-surface px-2 py-1.5 text-left",
-          d?.isConflicted ? "border-l-danger" : "border-l-border-strong",
-        )}
-      >
-        <span className="w-4 flex-none text-[10px] font-medium text-muted-foreground">
-          {String(i + 1).padStart(2, "0")}
-        </span>
-        <div className="min-w-0 flex-1">
-          <RequiredScope required={taApprovalColumns[0].required} label={taApprovalColumns[0].header}>
-            {taApprovalColumns[0].cell(r, i)}
-          </RequiredScope>
-        </div>
-        <div className="w-24 flex-none">
-          <RequiredScope required={taApprovalColumns[1].required} label={taApprovalColumns[1].header}>
-            {taApprovalColumns[1].cell(r, i)}
-          </RequiredScope>
-        </div>
-      </div>
-    );
-  };
 
   /**
    * EVERY APPROVAL ROW CURRENTLY CONFLICTED, SAID IN ONE PLACE — the
@@ -9459,52 +9769,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   }
 
   /**
-   * T&A ▸ TA FOLLOWUP — every DECLARED approval (`taApprovalRows`, the
-   * Approvals grid above) joined by `row_uid` onto its SAVED counterpart
-   * (`savedApprovals`) for the status/dates/proof only a save produces, and
-   * onto the master (`data.taApprovals`) for its name/department/proof
-   * requirement — the same three-way join the Approvals grid's own cells
-   * make independently (`taApprovalDates`, the `RecordPicker`'s `items`).
-   *
-   * A row with no `savedApprovals` match (freshly added, never saved) still
-   * appears here — `id: null` — so the tab shows every approval that WILL
-   * exist rather than silently hiding what the operator just typed; the
-   * component itself is what disables actions on it and says why.
-   */
-  const approvalFollowupRows: OrderApprovalRow[] = taApprovalRows.map((r) => {
-    const saved = savedApprovals.find((s) => s.row_uid === r.row_uid);
-    const opt = data.taApprovals.find((o) => o.id === r.approval_id);
-    const d = taApprovalDates.get(r.row_uid);
-    return {
-      id: saved?.id ?? null,
-      rowUid: r.row_uid,
-      approvalId: r.approval_id,
-      approvalName: opt?.name ?? "—",
-      department: opt?.department ?? null,
-      requiresProof: opt?.requires_proof ?? true,
-      targetDate: d?.target_date ?? null,
-      status: saved?.status ?? "pending",
-      actualSentDate: saved?.actual_sent_date ?? null,
-      actualSentTime: saved?.actual_sent_time ?? null,
-      actualReceivedDate: saved?.actual_received_date ?? null,
-      proofPath: saved?.proof_path ?? null,
-      proofReference: saved?.proof_reference ?? null,
-      activeVersion: saved?.active_version ?? 1,
-    };
-  });
-
-  /**
    * "NEEDS A LOOK" ON THE APPROVAL SIDE, mirroring `taAttentionCount` below —
-   * a SENT approval whose own target date has already passed with nobody
-   * having recorded the buyer's decision yet, plus every genuine scheduling
-   * conflict `taApprovalProblems` already counts. Added rather than
-   * deduplicated: a row can be both overdue and conflicted, and each is
-   * worth a look on its own.
+   * every genuine scheduling conflict `taApprovalProblems` already counts.
+   * It used to add the SENT-and-overdue approvals from the Pending / Sent /
+   * Approved follow-up board that sat under the Declare grid; that board was
+   * removed from this screen (2026-09-16), and with no status shown here a
+   * red badge for one would point at nothing the operator could see.
    */
-  const taApprovalAttentionCount =
-    approvalFollowupRows.filter(
-      (r) => r.status === "sent" && r.targetDate != null && r.targetDate < today(),
-    ).length + taApprovalProblems.length;
+  const taApprovalAttentionCount = taApprovalProblems.length;
 
   /**
    * THE SEGMENTED ACTIVITY/APPROVAL SWITCHER — now the ONLY way this one
@@ -9522,7 +9794,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           type="button"
           onClick={() => setTaView("activity")}
           className={cn(
-            "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold",
+            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
             taView === "activity" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
           )}
         >
@@ -9541,7 +9813,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           type="button"
           onClick={() => setTaView("approval")}
           className={cn(
-            "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold",
+            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
             taView === "approval" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground",
           )}
         >
@@ -9557,7 +9829,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   : "bg-surface text-muted-foreground",
             )}
           >
-            {approvalFollowupRows.length}
+            {taApprovalRows.length}
           </span>
         </button>
       </div>
@@ -9739,12 +10011,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                minimize the whitespace between rows"). The mock's airy 60px row
                lasted three days; with every cell now plain text the row is
                as tall as its tallest line and nothing else.
-               `px-2` + `leading-none`, and every cell at text-[11px] / the
-               subtitles at text-[10px] with no `mt-*` between them — the
-               second pass the same day ("noticeably smaller ... line spacing
-               as tight as possible ... py-1 px-2"). Header and footer carry
-               the same `px-2`, or the columns drift. */
-            "flex items-center gap-x-2 border-l-[3px] bg-surface px-2 py-1 leading-none",
+               `px-2` + `leading-none`, and the subtitles at text-[10px] with
+               no `mt-*` between them — the second pass the same day
+               ("noticeably smaller ... line spacing as tight as possible ...
+               py-1 px-2"). Header and footer carry the same `px-2`, or the
+               columns drift.
+               `py-1.5` and every VALUE cell at `text-xs` (2026-09-16 pass) —
+               one step back off the 09-15 `py-1` / text-[11px], asked for by
+               name with the header and footer moved to match, so the three
+               still share one padding and the columns still line up. The
+               subtitles stay text-[10px]: they are the contrast that makes a
+               value read as the value. */
+            "flex items-center gap-x-2 border-l-[3px] bg-surface px-2 py-1.5 leading-none",
             "transition-colors hover:bg-surface-muted/40",
             /* The hairline is drawn on the row's TOP so the last row never
                paints a trailing rule above the footer band — the same
@@ -9762,7 +10040,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               number and there is no `sequence` field to read instead. It walks
               `taRowsDisplay`, so the number matches what the operator sees
               rather than the array order underneath. */}
-          <span className="w-6 flex-none font-mono text-[11px] leading-none tabular-nums text-muted-foreground">
+          <span className="w-6 flex-none text-center font-mono text-xs leading-none tabular-nums text-muted-foreground">
             {i + 1}
           </span>
 
@@ -9814,10 +10092,22 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             {deptName ?? "—"}
           </span>
 
-          {/* OWNER — medium-weight text while assigned, the picker while
-              blank (which is also where its required-while-filled hold lives)
-              or being changed. Null is not a gap: an unclaimed rung belongs to
-              every eligible member of its department (0547). */}
+          {/* OWNER — plain text while assigned, the picker while blank (which
+              is also where its required-while-filled hold lives) or being
+              changed. Null is not a gap: an unclaimed rung belongs to every
+              eligible member of its department (0547).
+
+              TYPOGRAPHY IS DEPARTMENT'S, NOT THE DATE COLUMNS' (2026-09-16):
+              `text-xs leading-none text-foreground` and no font or weight
+              class at all. It carried `font-mono font-medium`, which made a
+              person's name the one value on the row set in a different
+              typeface from the other words beside it. The mono elsewhere on
+              this row is NOT the same choice and stays: #, Days, Target and
+              Actual are digits, and they pair it with `tabular-nums` so the
+              figures line up in their columns. A name has no columns to line
+              up. Activity keeps `font-semibold` for the same kind of reason —
+              it is the row's subject — so the plain weight here is what marks
+              Owner and Department as the row's two ordinary name cells. */}
           <div
             className="min-w-0 flex-none"
             style={{ width: TA_OWNER_COL_W }}
@@ -9825,7 +10115,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           >
             {ownerAsText ? (
               <span
-                className="block cursor-pointer truncate rounded font-mono text-[11px] font-medium leading-none text-foreground hover:bg-surface-muted"
+                className="block cursor-pointer truncate rounded text-xs leading-none text-foreground hover:bg-surface-muted"
                 title={`${ownerName} — click to change`}
                 onClick={() => setTaEditingCell(`${r.key}:owner`)}
               >
@@ -9850,7 +10140,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             {daysAsText ? (
               <span
                 className={cn(
-                  "block font-mono text-[11px] leading-none tabular-nums text-foreground",
+                  "block font-mono text-xs leading-none tabular-nums text-foreground",
                   !fixedDays && "cursor-pointer rounded hover:bg-surface-muted",
                 )}
                 title={fixedDays ? undefined : `${daysShown} days — click to change`}
@@ -9865,35 +10155,57 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             )}
           </div>
 
-          {/* TARGET, with the end date beneath it ON EVERY DATED ROW (client
-              2026-09-15: "every task should follow the same visual format" —
-              a 1-day Inspection reads `08/12 → 08/12`, not a bare date beside
-              ranges; carried over from master's chip when this table replaced
-              it). An em dash for a rung the backward walk could not date: it
-              stops at the first row with no Days, and a plan is read as a
-              promise, so no date is shown rather than a guessed one. */}
-          <div className="w-[4.75rem] flex-none whitespace-nowrap">
-            <div className="font-mono text-[11px] leading-none tabular-nums text-foreground">
-              {d ? fmtDate(d.target_date) : "—"}
-            </div>
-            {d?.end_date && (
-              <div className="mt-0 font-mono text-[10px] leading-none tabular-nums text-muted-foreground">
-                <span aria-hidden>→</span> {fmtDate(d.end_date)}
-              </div>
-            )}
+          {/* TARGET — the start date alone, one line (client 2026-09-16: "Keep
+              only the first date in the 'TARGET' column"). The `→ end date`
+              that used to stack beneath it on every dated row (client
+              2026-09-15, "every task should follow the same visual format";
+              carried over from master's chip when this table replaced it) now
+              sits in the ACTUAL cell beside it — see there. An em dash for a
+              rung the backward walk could not date: it stops at the first row
+              with no Days, and a plan is read as a promise, so no date is
+              shown rather than a guessed one. */}
+          <div className="flex-none whitespace-nowrap font-mono text-xs leading-none tabular-nums text-foreground" style={{ width: TA_DATE_COL_W }}>
+            {d ? fmtDate(d.target_date) : "—"}
           </div>
 
           {/* ACTUAL — the dashboard half of the row, read-only here (see
-              `savedTaActivities`). An em dash means "not recorded", and on the
-              day an order is raised that is the honest answer for nearly every
-              rung. Red on a critical row: the dash IS the problem. */}
+              `savedTaActivities`). THREE ANSWERS, IN THIS ORDER:
+
+              1. A RECORDED actual date, plain. That is what this column IS
+                 (written on the dashboard, only read here), so once one
+                 exists nothing else may stand in its place.
+              2. Otherwise the row's PLANNED END, `→ dd/mm/yyyy` (client
+                 2026-09-16: "Move the second date (the one with the arrow)
+                 into the 'ACTUAL' column, replacing the current dash"). It
+                 keeps its arrow and its muted colour on purpose: a planned
+                 end is not an actual, and the glyph is the one thing that
+                 says so once the two share a column. Present on every dated
+                 row (a 1-day rung ends the day it starts), so the dash below
+                 is now rare rather than the day-one default.
+              3. An em dash, "not recorded and not even planned" — an undated
+                 rung, the same case TARGET shows a dash for.
+
+              Red on a critical row while no actual is recorded: what is shown
+              there — a planned end already gone by, or nothing — IS the
+              problem, exactly as the dash was before the end date moved in.
+              The same width and metrics as TARGET, so the two dates sit on
+              one baseline under their own headers. */}
           <div
             className={cn(
-              "w-[4.75rem] flex-none whitespace-nowrap font-mono text-[11px] leading-none tabular-nums",
+              "flex-none whitespace-nowrap font-mono text-xs leading-none tabular-nums",
               actualDate ? "text-foreground" : critical ? "text-danger" : "text-muted-foreground",
             )}
+            style={{ width: TA_DATE_COL_W }}
           >
-            {actualDate ? fmtDate(actualDate) : "—"}
+            {actualDate ? (
+              fmtDate(actualDate)
+            ) : d?.end_date ? (
+              <>
+                <span aria-hidden>→</span> {fmtDate(d.end_date)}
+              </>
+            ) : (
+              "—"
+            )}
           </div>
         </div>
     );
@@ -19459,14 +19771,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             */}
           {!isRefusal(taLadder) && (
             <div className="flex flex-wrap overflow-hidden rounded-md border border-border">
-              <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 p-2 last:border-r-0">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 px-3 py-1.5 last:border-r-0">
+                <div className="text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground">
                   Anchor
                 </div>
-                <div className="text-sm font-semibold tabular-nums text-foreground">
+                <div className="text-sm font-semibold leading-tight tabular-nums text-foreground">
                   {fmtDate(taLadder.anchor.date)}
                 </div>
-                <div className="text-[10px] text-muted-foreground">
+                <div className="text-[10px] leading-none text-muted-foreground">
                   {taLadder.anchor.source === "earlier_shipment"
                     ? "Earliest Earlier Shipment Dt"
                     : "Order's Delivery Date"}
@@ -19474,13 +19786,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               </div>
               {taLadder.startDate != null ? (
                 <>
-                  <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 p-2 last:border-r-0">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="min-w-[9rem] flex-1 border-r border-border bg-surface-muted/40 px-3 py-1.5 last:border-r-0">
+                    <div className="text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground">
                       Work starts
                     </div>
                     <div
                       className={cn(
-                        "text-sm font-semibold tabular-nums",
+                        "text-sm font-semibold leading-tight tabular-nums",
                         taLadder.float! < 0
                           ? "text-danger"
                           : taLadder.float === 0
@@ -19492,7 +19804,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     </div>
                     <div
                       className={cn(
-                        "text-[10px] font-medium",
+                        "text-[10px] font-medium leading-none",
                         taLadder.float! < 0
                           ? "text-danger"
                           : taLadder.float === 0
@@ -19508,26 +19820,26 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     </div>
                   </div>
                   {taAttentionCount > 0 && (
-                    <div className="min-w-[9rem] flex-1 bg-surface-muted/40 p-2">
-                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <div className="min-w-[9rem] flex-1 bg-surface-muted/40 px-3 py-1.5">
+                      <div className="text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground">
                         Needs attention
                       </div>
-                      <div className="text-sm font-semibold text-warning">
+                      <div className="text-sm font-semibold leading-tight text-warning">
                         {taAttentionCount} row{taAttentionCount === 1 ? "" : "s"}
                       </div>
-                      <div className="text-[10px] text-muted-foreground">
+                      <div className="text-[10px] leading-none text-muted-foreground">
                         Past its target date, or no Task Owner yet
                       </div>
                     </div>
                   )}
                 </>
               ) : (
-                <div className="min-w-[9rem] flex-1 bg-surface-muted/40 p-2">
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-[9rem] flex-1 bg-surface-muted/40 px-3 py-1.5">
+                  <div className="text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground">
                     Work starts
                   </div>
-                  <div className="text-sm font-semibold text-muted-foreground">Not yet known</div>
-                  <div className="text-[10px] text-warning">
+                  <div className="text-sm font-semibold leading-tight text-muted-foreground">Not yet known</div>
+                  <div className="text-[10px] leading-none text-warning">
                     {taLadder.incomplete?.reason ?? "Enter Days on every row to compute this"}
                   </div>
                 </div>
@@ -19671,6 +19983,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                     name="ta-pp-trigger-mode"
                     value={form.pp_approval_trigger_mode}
                     onChange={(pp_approval_trigger_mode) => set({ pp_approval_trigger_mode })}
+                    /* COMPACTED AT THE CALL SITE, NEVER IN THE PRIMITIVE
+                       (2026-09-16). `Segmented` is sized to stand exactly as
+                       tall as the `Input`/`Select` beside it — `min-h-9
+                       @2xl/editor:min-h-8`, and its own comment records the
+                       client report that earned both halves. That rule is
+                       right everywhere a Segmented sits in a field row, and
+                       this one sits in a table's chrome instead, where the
+                       neighbouring control is a 10px header. Both density
+                       variants are overridden together, or the control is
+                       compact on one surface and not the other — the same
+                       trap the primitive itself fell into. */
+                    className="min-h-0 @2xl/editor:min-h-0 [&_label]:px-2 [&_label]:py-0.5 [&_label]:text-[11px]"
                     options={[
                       { value: "CUTTING_BASED", label: "Cutting Based PP Approval" },
                       { value: "YARN_PURCHASE_BASED", label: "Yarn Based PP Approval" },
@@ -19714,14 +20038,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 line up whether or not any row is late. Same `gap-x-4` /
                 `px-3` as the row, because that is the only way the two can
                 agree on where a column sits. */}
-            <div className="flex items-center gap-x-2 border-b border-l-[3px] border-b-border border-l-transparent px-2 py-1 text-[10px] font-medium uppercase leading-none tracking-[0.14em] text-muted-foreground">
-              <span className="w-6 flex-none">#</span>
+            <div className="flex items-center gap-x-2 border-b border-l-[3px] border-b-border border-l-transparent px-2 py-1.5 text-[10px] font-semibold uppercase leading-none tracking-[0.14em] text-muted-foreground">
+              <span className="w-6 flex-none text-center">#</span>
               <span className="flex-none" style={{ width: TA_ACTIVITY_COL_W }}>Activity</span>
               <span className="flex-none" style={{ width: TA_DEPT_COL_W }}>Department</span>
               <span className="flex-none" style={{ width: TA_OWNER_COL_W }}>Owner</span>
               <span className="w-14 flex-none text-center">Days</span>
-              <span className="w-[4.75rem] flex-none">Target</span>
-              <span className="w-[4.75rem] flex-none">Actual</span>
+              <span className="flex-none" style={{ width: TA_DATE_COL_W }}>Target</span>
+              <span className="flex-none" style={{ width: TA_DATE_COL_W }}>Actual</span>
             </div>
             <div
               /* `!border-t-0` / `!py-0` cancel `flatRows`'s own 2px rule and
@@ -19742,10 +20066,38 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                    already has more columns than the compact row needs. */
                 forceCards
                 /* `flatRows` drops `ChildGrid`'s own "rounded-lg border p-2.5"
-                   box around each row — `taRenderMobileRow` draws its OWN
+                   box around each ROW — `taRenderMobileRow` draws its OWN
                    left-edge border instead, and without this the two would
                    nest. */
                 flatRows
+                /* AND `frameless` DROPS THE SAME BOX AROUND THE WHOLE GRID
+                   (2026-09-16). `flatRows` and this are the same fix at two
+                   scales and only ever looked like one: `GRID_FRAME`
+                   ("rounded-lg border border-border p-2.5 @2xl/editor:p-2")
+                   sits on the `data-grid-card` wrapper, INSIDE the card this
+                   screen already draws — so the ladder had two borders down
+                   its left edge, two rounded corners and two right-hand
+                   edges, the inner pair floating 10px in from the outer.
+                   `frameless`'s own prop doc describes this case exactly:
+                   "drop the outer bordered card so the grid can nest INSIDE
+                   a DetailSection without a double border".
+
+                   THE PADDING WAS THE HALF THAT DID REAL DAMAGE. `p-2.5`
+                   inset every ROW by 10px while the header and footer bands
+                   — siblings of this grid, not children of it — kept their
+                   own `px-2`. The row's own comment says "Header and footer
+                   carry the same `px-2`, or the columns drift"; all three did
+                   carry it, and the columns drifted anyway, because a wrapper
+                   between them was adding a gutter no cell could see. With
+                   the frame gone the three bands share one left edge again
+                   and `px-2` means on the rows what it means above and below
+                   them.
+
+                   The row's `border-l-[3px]` STAYS and is not a third border:
+                   it is the critical stripe's slot, transparent until
+                   `taIsCritical` colours it, and the header reserves the same
+                   3px so a row going red cannot shunt its columns sideways. */
+                frameless
                 renderMobileRow={taRenderMobileRow}
                 /* THE CLIENT-NAMED 9-STEP CHAIN IS FIXED, NOT JUST DEFAULT
                    (client, 2026-09-07 — the same day 0541 seeded it: "make it
@@ -19769,6 +20121,25 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 onAdd={() => setTaRows((xs) => [blankTaRow(), ...xs])}
                 onRemove={(r) => setTaRows((xs) => xs.filter((x) => x.key !== r.key))}
                 addLabel="+ Add activity"
+                /* HEIGHT, PADDING AND TEXT TOGETHER, never one of the three.
+                   AGENTS.md's header-row rule names the bug this avoids:
+                   `FilterBar` once patched a control's height alone
+                   (`size="sm" className="h-9"`) and got the right height with
+                   everything else — font size, icon gap — still belonging to
+                   the other size, which is exactly why it read as deliberate
+                   for months. `size="sm"` (h-8) stays correct for a grid's
+                   "+ Add line" everywhere else in this app and is untouched;
+                   this one grid's chrome is denser than that by request
+                   (2026-09-16), so it says so in full here rather than in the
+                   primitive. */
+                /* `ml-2` replaces the gutter `frameless` just removed, for
+                   this one control. The rows do not need it — each carries
+                   its own `px-2`, which is precisely what had to stop being
+                   doubled — but the "+ Add" is a bare child of the card, and
+                   at zero inset its outline sat against the card's own
+                   border. 8px is the header's and footer's `px-2`, so the
+                   button lines up with the band above and the band below. */
+                addClassName="ml-2 h-6 gap-1 px-2 text-[11px] font-medium"
               />
             </div>
             {/* THE FOOTER BAND: rows, total days, and the critical count in
@@ -19782,7 +20153,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 the non-red rows: "target passed with no actual date" is the
                 only thing this screen can honestly say, since `actual_date`
                 is written on the dashboard and only READ here. */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-0 border-t border-border bg-surface-muted/40 px-2 py-1 font-mono text-[10px] leading-none text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-0 border-t border-border bg-surface-muted/40 px-2 py-1.5 font-mono text-[10px] leading-none text-muted-foreground">
               <span className="uppercase tracking-[0.14em]">
                 Rows <span className="font-semibold text-foreground">{taRowsDisplay.length}</span>
               </span>
@@ -19814,16 +20185,75 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             * SECOND, fuller one for acting on them (Send / Approve /
             * Rework). Two panels both named "Approvals" was never two
             * features, it was one feature the first pass split down the
-            * wrong seam. Now there is exactly one: declare a milestone here,
-            * and its card appears in whichever of the three columns below
-            * matches its live status.
+            * wrong seam. Now there is exactly one: declare a milestone here.
+            * The Pending / Sent / Approved follow-up board that used to sit
+            * beneath this grid was removed on 2026-09-16; acting on an
+            * approval (Send / Approve / Rework) lives on Orders ▸ TA Followup.
             *
             * SAME "conditionally rendered, not hidden" REASONING AS ACTIVITY
             * ABOVE — `taApprovalRows` is this component's own state too.
             */}
           {taView === "approval" && (
           <div className="space-y-4">
-          <div className="overflow-hidden rounded-lg border border-border">
+          {/* `max-w-[394px]` — THE CARD IS WHAT CARRIES THE WIDTH, not the grid
+              inside it (operator, 2026-09-16: "wrap the entire approvals grid
+              in a max-width container so it stays compact", tightened the same
+              day to "constrain the total width of this section, e.g.
+              max-w-xl"). This is `erp-form-compact` rule 3 exactly: narrowing
+              the fields does not narrow the card, because a `DetailSection` —
+              or this panel — is a block box and goes on filling the pane,
+              leaving the shrunk controls floating in the surplus. Capping the
+              CARD is also what keeps the "Declare approvals" header band the
+              same width as the rows beneath it; a cap on the grid alone would
+              have left the band stretched across the pane above a narrow table.
+
+              THE CAP IS NOW THE ROW'S OWN TOTAL, NOT A TAILWIND STEP ABOVE IT.
+              Every track is declared, so the panel has an exact width rather
+              than a budget: 40px (Item #) + 200px (Approval Name) + 112px (Due
+              Date) + 2 × 8px gaps = 368px of row, + 24px of `p-3` panel padding
+              + the card's own 2px of border = 394px.
+
+              IT CAME DOWN AGAIN, 88px, WHEN APPROVAL NAME WENT 18rem → 12.5rem
+              (operator, 2026-09-16). One number, one edit, because it is
+              derived — which is the whole reason it is written as arithmetic
+              rather than picked off the Tailwind scale.
+
+              IT CAME DOWN 40px WHEN THE ✕ MOVED INSIDE THE DUE DATE BOX. That
+              is 32px of track plus the 8px gap before it — `inlineCards` used
+              to reserve both, `hideRemove` now frees both, and the row is three
+              tracks and two gaps rather than four and three. A derived number
+              is the only reason that was one edit and not a hunt: see the Due
+              Date cell for where the button went.
+
+              LEAVING IT AT `max-w-xl` WOULD HAVE MOVED THE COMPLAINT, NOT FIXED
+              IT. 576px against a 368px row is 208px of blank inside the card —
+              the same surplus the operator asked us to take out of the input,
+              parked one box further right. `erp-form-compact` rule 3 is that
+              narrowing the fields does not narrow the card and that both are
+              owed; step 3 of its conversion is to DERIVE one width and give it
+              two readers, which is what this is. The arithmetic above IS the
+              derivation, so a track that moves again makes this number wrong in
+              a way the next reader can check rather than one they must notice.
+
+              IT IS STILL A MAX, and with nothing flexible left in the row that
+              matters more than it used to: below 394px the row overflows and
+              `overflow-hidden` clips the right edge of the Due Date box —
+              which, since the ✕ moved into it, is the ✕. See the Approval Name
+              column's own note for why that trade was taken.
+
+              THE ~512px STACKED-CARDS WALL IS NOW PAST, DELIBERATELY.
+              `ChildGrid`'s RESPONSIVE table gives way to stacked cards below a
+              ~512px container and this panel's inner box is now 370px — `md`
+              sub-detail sheets have hit that exact wall, and
+              `style-process-sheet.tsx` records it at length. This grid is
+              `inlineCards`, which is not that layout and has no such
+              breakpoint, so the number is crossed with no effect today. What it
+              costs is the escape route: switching this grid to `responsive`
+              later would now silently drop it to cards with no column headers.
+              That is the thing to re-check before changing the MODE here, and
+              it is why the crossing is written down rather than the cap being
+              rounded up to keep the margin. */}
+          <div className="max-w-[394px] overflow-hidden rounded-lg border border-border">
             <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-3 py-2">
               <CheckCheck className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
               <div>
@@ -19833,17 +20263,57 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 </div>
               </div>
             </div>
-            <div className="space-y-2 bg-surface p-3">
+            {/* `TA_APPROVAL_FIELDS` sits HERE, on the panel that holds nothing
+                but this grid — see the constant for why the uniform box metrics
+                are a descendant rule rather than a prop on each control, and for
+                what is deliberately out of its reach. */}
+            <div className={cn("space-y-2 bg-surface p-3", TA_APPROVAL_FIELDS)}>
               <ChildGrid<TaApprovalRow>
                 columns={taApprovalColumns}
                 rows={taApprovalRows}
-                /* See `taApprovalRenderMobileRow`'s own comment — forced so a
-                   narrow pane never drops Target Date onto its own line. */
-                forceCards
-                flatRows
-                renderMobileRow={taApprovalRenderMobileRow}
+                /* THE 3-COLUMN GRID — see `taApprovalColumns`' own note for
+                   why this is `inlineCards` and no longer a hand-rolled row.
+                   `inlineCards` honours each column's `width` at every pane
+                   width, so it keeps the one promise the old `forceCards`
+                   row was there for (operator, 2026-09-09: "make approval
+                   date in single row") without any of its own layout.
+
+                   `flushRows`: rows separated by a rule, not a box each, and
+                   the header band at `Label`'s own metrics — the client's
+                   one-frame preference (`flatRows` on every other grid on
+                   this tab). `frameless`: this grid already sits inside the
+                   panel's own `rounded-lg border` card with its own header
+                   band above, so the grid's frame would be a box in a box.
+                   `hideIndex`: the ordinal is the declared `Item #` column
+                   instead, so it can carry a title. */
+                inlineCards
+                flushRows
+                frameless
+                hideIndex
+                /* `hideRemove`: THE ✕ LIVES IN THE DUE DATE BOX NOW — see that
+                   cell for why, and for the `keepOne` condition that had to
+                   travel with it. The prop is what takes the 32px track away as
+                   well as the button; it gated only the button until
+                   2026-09-16, and `child-grid.tsx` records that half-fix beside
+                   the three `w-8` spans it now governs. `onRemove` below is
+                   consequently dead on this grid and is kept because the prop
+                   is required — the SAME expression as the cell's, deliberately,
+                   so a reader comparing them finds one behaviour rather than
+                   two that might differ. */
+                hideRemove
+                headerClassName={TA_APPROVAL_HEADERS}
+                bodyClassName={TA_APPROVAL_ROWS}
                 onAdd={() => setTaApprovalRows((xs) => [...xs, blankTaApprovalRow()])}
                 onRemove={(r) => setTaApprovalRows((xs) => xs.filter((x) => x.key !== r.key))}
+                /* "+ Add approval" NEEDS NO ALIGNMENT PROP AND MUST NOT GROW
+                   ONE. `frameless` leaves the grid card unpadded and the button
+                   is the card's last child, so its left edge already sits on the
+                   Item # track's left edge — the same 0 the header band and
+                   every row start from. `size="sm"` is `h-8`, which is now the
+                   height of every box above it. A `ml-*`/`pl-*` here would be a
+                   call site patching one property of a layout the grid already
+                   states, which is the bug AGENTS.md's header-row section is
+                   about. */
                 addLabel="+ Add approval"
               />
               {/* SHOW AND FLAG (see `taApprovalProblems`'s own comment) — RED,
@@ -19859,12 +20329,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               )}
             </div>
           </div>
-
-          <OrderApprovalFollowup
-            amendmentId={editId}
-            rows={approvalFollowupRows}
-            canAct={perms.canEdit}
-          />
           </div>
           )}
         </div>
