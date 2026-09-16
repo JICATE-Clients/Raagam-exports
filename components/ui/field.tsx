@@ -1,4 +1,10 @@
-import { cloneElement, createContext, isValidElement, useContext, type ReactNode } from "react";
+import {
+  cloneElement,
+  createContext,
+  isValidElement,
+  useContext,
+  type ReactNode,
+} from "react";
 import { Label } from "@/components/ui/label";
 import type { FieldSize, FieldWidth } from "@/lib/ui/sizes";
 import { cn } from "@/lib/utils";
@@ -449,7 +455,8 @@ export const FIELD_ROW_TOP = `${FIELD_ROW_BASE} items-start`;
  * its own 85px box wraps to two lines and its control still sits on the row's
  * line with the others.
  */
-const FIELD_ROW_NOWRAP_BASE = "flex flex-nowrap gap-x-2.5 gap-y-2 [&>*]:shrink-0";
+const FIELD_ROW_NOWRAP_BASE =
+  "flex flex-nowrap gap-x-2.5 gap-y-2 [&>*]:shrink-0";
 
 /** The nowrap row, bottom-aligned — the same axis `FIELD_ROW` uses. */
 export const FIELD_ROW_NOWRAP = `${FIELD_ROW_NOWRAP_BASE} items-end`;
@@ -555,7 +562,13 @@ export function FieldRow({
   // container query does not apply to its own container, so any `@lg/section:`
   // class on this div would resolve against an ANCESTOR named `section`.
   return (
-    <div className={cn("@container/section", nowrap && "overflow-x-auto", className)}>
+    <div
+      className={cn(
+        "@container/section",
+        nowrap && "overflow-x-auto",
+        className,
+      )}
+    >
       <div
         className={cn(
           nowrap
@@ -698,7 +711,9 @@ export function Field({
   // explicit `tabIndex={-1}` at the call site is the escape hatch. An existing
   // tabIndex always wins — the caller is being more specific than we are.
   const control =
-    skipTab && isValidElement<{ tabIndex?: number }>(children) && children.props.tabIndex == null
+    skipTab &&
+    isValidElement<{ tabIndex?: number }>(children) &&
+    children.props.tabIndex == null
       ? cloneElement(children, { tabIndex: -1 })
       : children;
 
@@ -720,6 +735,10 @@ export function Field({
      * fail to compile; this one accepted the instruction and dropped it.
      */
     <div
+      // `data-field` names the label + control pair so a SURFACE can re-lay it
+      // — the lines style puts the label BESIDE the line instead of above it
+      // (globals.css). A marker, not a prop: the screen still declares nothing.
+      data-field
       className={cn(w ? FIELD_WIDTH[w] : SPAN[size], "min-w-0", className)}
       // `"" : undefined` rather than a boolean: React drops an `undefined`
       // attribute entirely, and `[data-focus-optional]` matches an empty value —
@@ -729,6 +748,12 @@ export function Field({
     >
       {label != null && (
         <Label
+          // `data-field-label` is the FIELD'S OWN label, told apart from any
+          // other `<label>` in the cell. `Toggle` renders a `<label>` as its
+          // root, so a selector as loose as `> label` matched the control too:
+          // under the lines style every toggle grew a stray " :" of its own and
+          // took the label column (client 2026-09-16, the Languages pane).
+          data-field-label
           htmlFor={htmlFor}
           // Nothing to announce when there is no label text, and a screen
           // reader reading out a blank one is worse than silence.
@@ -752,7 +777,10 @@ export function Field({
       )}
       {/* The same `required` that draws the star above reaches the control
           through here, so the two can never disagree. See FieldCtx. */}
-      <RequiredScope required={required} label={typeof label === "string" ? label : null}>
+      <RequiredScope
+        required={required}
+        label={typeof label === "string" ? label : null}
+      >
         {control}
       </RequiredScope>
       {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
@@ -800,9 +828,18 @@ export function FieldGrid({
 }) {
   return (
     <div className={cn("@container/section", className)}>
+      {/* `data-field-grid` names the track so a SURFACE can re-lay it — the
+          staff editor's `data-field-style="lines"` turns every grid into two
+          columns of one-per-line fields (globals.css). A marker, not a prop:
+          the screen still writes no `grid-cols-*` of its own. */}
       <div
+        data-field-grid
         className={
-          cols === 32 ? FIELD_TRACK_32 : cols === 14 ? FIELD_TRACK_14 : FIELD_TRACK
+          cols === 32
+            ? FIELD_TRACK_32
+            : cols === 14
+              ? FIELD_TRACK_14
+              : FIELD_TRACK
         }
       >
         {children}
