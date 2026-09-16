@@ -117,3 +117,13 @@ __pycache__/
 
 # Supabase CLI scratch (version cache), not project source.
 /supabase/.temp/
+
+# Exported reports, written into the repo root by the browser's own download —
+# the Fabric BOM's two documents (`reports-export.ts`) and the Fabric
+# Requirement sheet. They are GENERATED from stored figures on demand, so a
+# committed copy is a stale duplicate of a document the app rebuilds, and every
+# re-export shows up as a diff. One reached `master` this way on 2026-09-16.
+/YarnFabricRequirement_*.pdf
+/FabricBomEntryRegister_*.pdf
+/FabricRequirement_*.pdf
+/*.csv
