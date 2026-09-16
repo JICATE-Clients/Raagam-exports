@@ -260,6 +260,31 @@ import {
 let keySeq = 0;
 const nextKey = () => `k${keySeq++}`;
 
+/**
+ * IS THE `Source` CONTROL OFFERED? (client, 2026-09-16 — "just hide it, if may
+ * need can enable it".)
+ *
+ * 0564 built it for the client's own Rule 1 / Rule 2 spec earlier the same day:
+ * a fabric bought as ready-knitted greige or as finished dyed rolls buys no
+ * yarn and runs no Knitting, so the demand shifts to the purchased roll weight.
+ * Real and useful — for a factory that buys cloth. This one knits its own, so
+ * the control is one nobody would ever move.
+ *
+ * HIDDEN, NOT DELETED, and the distinction is the whole point of the flag.
+ * Everything behind it stays: the column, its CHECK, `suppressedBySource`,
+ * `routeForSource`, `yarnPurchase`'s exclusion and their vectors. Flip this to
+ * `true` and the feature is back, with no migration and nothing to rebuild.
+ *
+ * SAFE BECAUSE THE DEFAULT IS THE ANSWER. Every scope row reads `yarn_knit`
+ * whether or not anything can set it — the column default, `asFabricSource`'s
+ * fallback and `blankFabricProcessScope` all say so — and `yarn_knit`
+ * suppresses nothing. So hiding this changes no figure on any document; it
+ * removes a choice, not a behaviour. That is exactly what made it safe to hide
+ * and what would make it unsafe to hide the `Assort Colour-Wise` toggle beside
+ * it, whose off-state is not its stored state.
+ */
+const SHOW_FABRIC_SOURCE = false;
+
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 /** One editable line. `key` is React's, never the database id — `ChildGrid`
@@ -9064,14 +9089,62 @@ export function FabricBomScreen({
                         already took on 2026-09-04 ("look too much broader
                         bigger box … compact it"). */}
                     <div className="flex flex-wrap items-center gap-3">
+                    {/* "ROUTE PER", NOT "GROUP BY" (2026-09-16) — AND THE OLD
+                        LABEL DESCRIBED A DESIGN THAT NO LONGER EXISTS.
+
+                        Until 2026-09-15 this toggle really did group: the
+                        caller rendered one instance of `FabricProcessGrid` per
+                        colourway. That went (client screenshot 2876, "the ui
+                        for those filters needs a better fix") and the toggle
+                        now ADDS A COLUMN to one grid. It groups nothing.
+
+                        THE REPLACEMENT HAD TO AVOID A COLLISION, which is why
+                        it is not the client's bare phrase. The Manual tab
+                        carries its OWN `assort_color_wise` — on
+                        `order_fabric_bom_manual_entries`, a different table and
+                        a different fact: that one scopes a WEIGHT to some
+                        colourways, this one splits a ROUTE per colourway.
+                        Labelling both "Assort Color-Wise" would put one name on
+                        two settings, which is worse than the mismatch it fixed:
+                        a wrong label makes an operator hesitate, a matching one
+                        makes them confident and wrong. 5f records that the
+                        Manual flag went stored-and-read-by-nothing for months
+                        precisely because nobody could tell the two apart in the
+                        code. "Route per" says what THIS control does. */}
                     <div className="inline-flex w-fit items-center gap-4 rounded-md border border-border px-2.5 py-1.5">
                       <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-                        Group by
+                        Route per
                       </span>
+                      {/* DISABLED WHEN THE FABRIC HAS NOTHING TO VARY (2026-09-16).
+                          A fabric serving ONE colourway cannot have a per-colour
+                          route: the Assort Color ▾ this reveals would offer "All
+                          colours" plus that single colour, and on a one-colourway
+                          fabric those are the same set. So the toggle was fully
+                          operable and could not change anything — switch it on,
+                          every row still reads "All colours", which is the OFF
+                          state. A control that is always offered but only
+                          sometimes capable teaches operators it does nothing.
+
+                          DISABLED WITH A REASON, NEVER SILENTLY ABSENT. A missing
+                          control is a feature the operator cannot find; a greyed
+                          one with a line under it is a feature that does not
+                          apply yet, and the difference is whether they go looking.
+                          Same treatment the Manual tab's own colour toggle takes
+                          (raagam-6d, same day, same defect found by generalising
+                          this one).
+
+                          `r.combos` is THE FABRIC'S OWN colourways, the identical
+                          list handed to the grid as `colours` below — never the
+                          order's whole set, which is the cascading-filter rule. */}
                       <Toggle
-                        label="Assort Color"
+                        /* "COMPO COLOR" (client, 2026-09-16) — their own word
+                           for this value, already on the Components tab's
+                           identical column. `Route per Compo Color` still says
+                           what the control does and still cannot be read as the
+                           Manual tab's weight scoping. */
+                        label="Compo Color"
                         checked={scope.assort_color_wise}
-                        disabled={readOnly}
+                        disabled={readOnly || r.combos.length < 2}
                         onChange={(next) =>
                           setFabricScope(r.item_id, { assort_color_wise: next })
                         }
@@ -9110,6 +9183,19 @@ export function FabricBomScreen({
                           stop. Restoring the toggle needs a client decision,
                           not a tidy-up. */}
                     </div>
+                    {/* WHY THE TOGGLE IS GREYED, SAID RATHER THAN LEFT TO BE
+                        INFERRED. Sits beside the strip rather than under it so
+                        the `flex-wrap` row keeps its shape, and it appears ONLY
+                        in the disabled case — a fabric that can vary its route
+                        needs no explanation, and a permanent caption would be
+                        the heading sentence the de-clutter rule removes. */}
+                    {r.combos.length < 2 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {r.combos.length === 1
+                          ? "One assort colour on this fabric — no route to vary."
+                          : "No assort colour on this fabric yet."}
+                      </span>
+                    )}
                     {/* WHERE THIS FABRIC COMES FROM (0564,
                         `doc/order/fabriprocess.md` §2) — the planner's
                         "Default Rule No. 1" vs "No. 2".
@@ -9133,6 +9219,7 @@ export function FabricBomScreen({
                         `fabric-source.ts` — a CLOSED list, so it is not a
                         `config_lookups` kind (the same test `KNIT_TYPE_OPTIONS`
                         passes and `fabric_stage` fails). */}
+                    {SHOW_FABRIC_SOURCE && (
                     <div className="inline-flex w-fit items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
                       <label
                         htmlFor={`fb-src-${r.item_id}`}
@@ -9165,6 +9252,7 @@ export function FabricBomScreen({
                         ))}
                       </Select>
                     </div>
+                    )}
                     </div>
                     {/* WHAT THE SOURCE HAS SUPPRESSED, SAID OUT LOUD.
                         `suppressedBySource` drops Yarn Purchase, Knitting

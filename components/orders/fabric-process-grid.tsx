@@ -321,7 +321,26 @@ export function FabricProcessGrid({
     ...(colourWise
       ? [
           {
-            header: "Colour",
+            /* "ASSORT COLOR", NOT "COLOUR" (2026-09-16). One field was reading
+               under three names on one screen: the fabric-line grid directly
+               above this one heads it `ASSORT COLOR`, the toggle that reveals
+               this column says `Assort Color`, and the column itself said
+               `Colour`. The operator has to recognise them as the same thing to
+               use the feature at all, and a route column named after a plain
+               colour invites the reading that it means the FABRIC's colour
+               rather than which of the order's assort colourways this step
+               serves. Spelled the client's way (`doc/order/fabriprocess.md`
+               §2.2), including their -or, so nothing on the screen has to be
+               translated.
+
+               RENAMED AGAIN TO "COMPO COLOR" (client, 2026-09-16, later the
+               same day). That is the client's own word for this value on the
+               Components tab, where they renamed the identical column from
+               `Assort Color` earlier today — and it IS the identical value:
+               `combo`, the order's assort colourway, on all three surfaces.
+               So this is the third name this column has carried in one day and
+               the first one the client chose for it. */
+            header: "Compo Color",
             width: "8rem",
             /* NOT `required`, AND IT WAS UNTIL 2026-09-16 — the whole
                declaration went, not just the hold. `ChildGridColumn.required`
@@ -346,7 +365,7 @@ export function FabricProcessGrid({
                 <Select
                   compact
                   className="h-8"
-                  aria-label="Colour"
+                  aria-label="Compo Color"
                   value={held}
                   disabled={readOnly}
                   onChange={(e) => patch(r.key, { combo: e.target.value || null })}
