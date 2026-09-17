@@ -1876,7 +1876,13 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               Add coordinates first — a component is a part of one of them.
             </p>
           )}
-          <FieldGrid>
+          {/* `items-start` ON THE TRACK (operator, 2026-09-17: "ensure the
+              parent container holding both the Sizes block and the Components
+              table has items-start"). `FieldGrid`'s `className` lands on its
+              `@container` wrapper, so `[&>div]` reaches the grid inside it. Each
+              half now sits at the top of the row at its own height instead of
+              being stretched to the taller one. */}
+          <FieldGrid className="[&>div]:items-start">
             {/* A `ChildGrid` is not a `<Field>` and has no span of its own, so an
                 UNLABELLED `<Field size>` around it is the sanctioned way to give
                 it one (LAYOUT.md §3, "a not-field that SHARES its row"). No
@@ -1941,7 +1947,24 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                    THE CHIPS ARE NOT CAPPED, deliberately — they are the value,
                    and a wrapping line of them is exactly what the extra width is
                    good for. */
-                triggerClassName="max-w-[280px]"
+                triggerClassName="h-8 max-h-8 max-w-[280px]"
+                /* ONE FIXED-HEIGHT LINE, NO CHIPS (operator, 2026-09-17: "when
+                   multiple sizes are selected the multi-select expands
+                   vertically, which pushes down the adjacent Components table").
+                   The chips below the trigger were `flex-wrap`, so every tick
+                   could add a line and grow this half of the row. Now the
+                   trigger says it — "S, M", then "5 sizes selected" — and there
+                   is nothing under it to grow. Same props, same reason, as Order
+                   Entry ▸ Styles Details ▸ Sizes. Removing one size is untick in
+                   the list, or the list's Clear.
+
+                   THIS REVERSES THE NOTE ABOVE that the chips are "the horizontal
+                   line that was asked for" (client 2026-08-18); the later
+                   instruction wins. */
+                summarizeLabels
+                summaryNoun="sizes"
+                hideChips
+                inputClassName="h-8 max-h-8"
                 /* THE LIST IS NOT THE TRIGGER (client screenshot 2392,
                    2026-08-19: "we need a lot of sizes, it will take too much
                    scrolling").
