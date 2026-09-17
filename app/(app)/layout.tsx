@@ -14,11 +14,7 @@ import { ShortcutsProvider } from "@/components/shell/shortcuts-provider";
 import { KeyboardNavProvider } from "@/components/shell/keyboard-nav-provider";
 import { listStoreNavLinks } from "@/lib/stores/service";
 
-export default async function AppLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await requireUser();
 
   // THE UNIT IS RESOLVED ONCE, HERE, FOR THE WHOLE REQUEST.
@@ -42,16 +38,16 @@ export default async function AppLayout({
   return (
     <PermissionProvider user={user}>
       <LocationProvider value={{ current: location, allowed, source }}>
-      <SearchProvider>
-        <ShortcutsProvider>
-          <KeyboardNavProvider>
-          <div data-app-shell className="flex h-screen overflow-hidden">
-            <Sidebar stores={stores} />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <Topbar previewableRoles={previewableRoles} />
-              <RolePreviewBanner />
-              <WorkspaceTabsBar />
-              {/* `pb-20` below md is clearance for MobileNav's floating bar;
+        <SearchProvider>
+          <ShortcutsProvider>
+            <KeyboardNavProvider>
+              <div data-app-shell className="flex h-screen overflow-hidden">
+                <Sidebar stores={stores} />
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <Topbar previewableRoles={previewableRoles} />
+                  <RolePreviewBanner />
+                  <WorkspaceTabsBar />
+                  {/* `pb-20` below md is clearance for MobileNav's floating bar;
                   `md:pb-6` is ordinary page padding, and a page-mounted
                   MasterFullScreen's footer deliberately sits ON that 24px
                   rather than cancelling it.
@@ -65,15 +61,27 @@ export default async function AppLayout({
                   the full history — both complaints, and why the later one
                   wins. A comment naming an offset that no longer exists sends
                   the next reader looking for a bug in the wrong file. */}
-              <main className="ty-workspace flex-1 overflow-y-auto p-4 pb-20 md:pb-6">
-                {children}
-              </main>
-              <MobileNav stores={stores} />
-            </div>
-          </div>
-          </KeyboardNavProvider>
-        </ShortcutsProvider>
-      </SearchProvider>
+                  {/* `flex flex-col`: a page-mounted editor FILLS this without a
+                  percentage. `h-full` on the editor resolves only while every
+                  ancestor has a definite height, and that chain is long enough
+                  to break quietly — on the deployed build the staff editor came
+                  out half-height with dead page beneath it (client 2026-09-16:
+                  "still there is some extra space in bottom"), while the same
+                  markup filled the screen locally. A flex parent asks nothing of
+                  the ancestors: the child says `min-h-0 flex-1` and gets what is
+                  left.
+                  Harmless for an ordinary page: a single `space-y-*` child
+                  stretches to the same height it already had, and its own
+                  children are unaffected. */}
+                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-20 md:pb-6">
+                    {children}
+                  </main>
+                  <MobileNav stores={stores} />
+                </div>
+              </div>
+            </KeyboardNavProvider>
+          </ShortcutsProvider>
+        </SearchProvider>
       </LocationProvider>
     </PermissionProvider>
   );
