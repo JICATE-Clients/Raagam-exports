@@ -6147,9 +6147,13 @@ export function FabricBomScreen({
        * planner telling us something is still missing, which a self-counting cell
        * can never say because it always agrees with itself.
        *
-       * THE COUNT IS STILL COMPARED — `colourCountNote` puts the mismatch on the
-       * Repeats and Mixing Details panels. Advisory, never a hold: the two
-       * legitimately disagree while the mapping is half done.
+       * THE COMPARISON IS NO LONGER SHOWN (2026-09-16). `colourCountNote` used
+       * to put the mismatch on the Repeats and Mixing Details panels —
+       * "3 colours declared on the fabric line, 4 mapped here" — advisory,
+       * never a hold. The operator asked for that sentence off both panels, so
+       * the declaration above is now recorded and saved but nothing reads it
+       * back on screen. It never gated Save, so nothing about what this column
+       * accepts has changed; only the reminder is gone.
        *
        * NOT MANDATORY, though the spec calls it "active". Only Mixing UOM is
        * "mandatory only if Fabric Type is Yarn Dyed"; this one is offered, so a
@@ -9858,10 +9862,6 @@ export function FabricBomScreen({
               }`
             : ""
         }`}
-        /* THE COUNT THE PLANNER DECLARED ON THE LINE (0513), so the panels can
-           say when it disagrees with what has actually been mapped. Advisory —
-           see `colourCountNote`. */
-        declaredColourCount={detailLine?.no_of_colors ?? null}
         ydRepeats={detailYd.repeats}
         ydCombinations={detailYd.combinations}
         yarnOptions={ydYarnOptions}

@@ -1489,6 +1489,27 @@ const TA_DEPT_COL_W = "7rem";
 const TA_DATE_COL_W = "5.25rem";
 
 /**
+ * T&A ▸ APPROVALS ▸ THE LADDER'S GUTTERS, ONE DECLARATION FOR THE HEADER BAND
+ * AND THE ROW (operator, 2026-09-17: "add a slight amount of breathing room …
+ * the data doesn't feel like it's touching the borders or neighboring text").
+ *
+ * THIS LADDER HAS NO `<th>` / `<td>`. It is flex rows — `taRenderMobileRow`
+ * under `forceCards` — so "cell padding" lands in two places: `px-3` is the
+ * inset from the card's edges, and `gap-x-4` is the space BETWEEN columns,
+ * which is what a `<td>`'s horizontal padding does in a real table. Both were
+ * hand-typed twice (`gap-x-2 px-2`, header and row), and those two copies
+ * agreeing is the only thing that keeps a column under its heading; a shared
+ * constant is what stops the next pass widening one and not the other.
+ *
+ * THE FONT SIZES ARE NOT TOUCHED — asked for by name. Only the air moves.
+ *
+ * IT COSTS WIDTH, AND THAT IS PAID BY THE SCROLLER. Six gaps grow 8px each,
+ * 48px across the row; the card is `w-fit` inside its own `overflow-x-auto`,
+ * so a narrow pane scrolls the table rather than wrapping a column.
+ */
+const TA_ROW_GUTTER = "gap-x-4 px-3";
+
+/**
  * T&A ▸ APPROVALS ▸ THE COLUMN HEADINGS, at the metrics the operator dictated
  * (2026-09-16, verbatim: "text-[10px] uppercase font-semibold text-gray-500").
  * Handed to `ChildGrid`'s `headerClassName`, which merges last onto both the
@@ -9892,14 +9913,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     const d = taDates.get(r.row_uid);
     return !!d && d.float < 0 && !taSavedByUid.get(r.row_uid)?.actual_date;
   };
-  const taCriticalCount = taRowsDisplay.filter(taIsCritical).length;
-  /* THE SAME FIGURE THE DAYS CELL SHOWS — `computedTaDays` wins over the
-     stored value there, so the total must read it the same way or the
-     column and its sum disagree on a PP Send row. */
-  const taTotalDays = taRowsDisplay.reduce((sum, r) => {
-    const days = computedTaDays(taActivityById.get(r.activity_id ?? "")?.short_name) ?? r.days_required;
-    return sum + (Number(days) || 0);
-  }, 0);
+  /* `taCriticalCount` AND `taTotalDays` WENT WITH THE FOOTER BAND (2026-09-16)
+     — it was the only reader of either. `taIsCritical` above STAYS: it draws
+     the row's red left edge and feeds the row's `slip` tooltip, which are the
+     two places this state is said now. */
 
   /**
    * THE ROW, RESTYLED TO THE "T&A ORDER VIEW" MOCK (operator, 2026-09-15,
@@ -9908,8 +9925,10 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * (`py-1`, operator 2026-09-15), and ONE coloured edge, red, meaning exactly one thing: the target
    * has passed and no actual date has been recorded. Everything the previous
    * row carried on top of its values — the four-tone stripe, the clock/alert
-   * glyph, the "2 days late" caption under Actual — is gone from the row and
-   * said ONCE, in words, in the footer band under the table (`taCriticalCount`).
+   * glyph, the "2 days late" caption under Actual — is gone from the row. It
+   * moved to a footer band under the table, and on 2026-09-16 that band was
+   * removed too, so the red edge and the row's own hover `title` (`slip`) are
+   * now the whole of what this table says about a late rung.
    *
    * ## ACTIVITY AND OWNER ARE TEXT, NOT INPUTS (operator, 2026-09-15)
    *
@@ -10021,8 +10040,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                name with the header and footer moved to match, so the three
                still share one padding and the columns still line up. The
                subtitles stay text-[10px]: they are the contrast that makes a
-               value read as the value. */
-            "flex items-center gap-x-2 border-l-[3px] bg-surface px-2 py-1.5 leading-none",
+               value read as the value.
+               `TA_ROW_GUTTER` + `py-2` + `min-h-9` (2026-09-17, "a slight
+               amount of breathing room") — see the constant. `min-h-9`, not
+               `h-9`: a row is plain text at rest and a picker while being
+               edited, and 36px is what holds both at one height; a MINIMUM
+               rather than a fixed height because a Bypass subtitle adds a
+               second line under Activity, and `h-9` would clip it. */
+            TA_ROW_GUTTER,
+            "flex min-h-9 items-center border-l-[3px] bg-surface py-2 leading-none",
             "transition-colors hover:bg-surface-muted/40",
             /* The hairline is drawn on the row's TOP so the last row never
                paints a trailing rule above the footer band — the same
@@ -20038,7 +20064,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 line up whether or not any row is late. Same `gap-x-4` /
                 `px-3` as the row, because that is the only way the two can
                 agree on where a column sits. */}
-            <div className="flex items-center gap-x-2 border-b border-l-[3px] border-b-border border-l-transparent px-2 py-1.5 text-[10px] font-semibold uppercase leading-none tracking-[0.14em] text-muted-foreground">
+            {/* `TA_ROW_GUTTER` + `py-2` (2026-09-17) — the row's own gutters,
+                so the headings stay over their columns. */}
+            <div className={cn(TA_ROW_GUTTER, "flex items-center border-b border-l-[3px] border-b-border border-l-transparent py-2 text-[10px] font-semibold uppercase leading-none tracking-[0.14em] text-muted-foreground")}>
               <span className="w-6 flex-none text-center">#</span>
               <span className="flex-none" style={{ width: TA_ACTIVITY_COL_W }}>Activity</span>
               <span className="flex-none" style={{ width: TA_DEPT_COL_W }}>Department</span>
@@ -20139,37 +20167,23 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                    at zero inset its outline sat against the card's own
                    border. 8px is the header's and footer's `px-2`, so the
                    button lines up with the band above and the band below. */
-                addClassName="ml-2 h-6 gap-1 px-2 text-[11px] font-medium"
+                /* `ml-3` since 2026-09-17, following `TA_ROW_GUTTER`'s `px-3`. */
+                addClassName="ml-3 h-6 gap-1 px-2 text-[11px] font-medium"
               />
             </div>
-            {/* THE FOOTER BAND: rows, total days, and the critical count in
-                words (the mock's "2 critical activities — target passed with
-                no actual date"). This is where the row's old four-stripe
-                legend and "N days late" caption went: ONE colour on the rows,
-                ONE sentence saying what it means, and nothing at all when no
-                row is late. `taCriticalCount` reads the same `taIsCritical`
-                the row's stripe does, so the count and the red rows cannot
-                disagree. The band deliberately does NOT claim completion for
-                the non-red rows: "target passed with no actual date" is the
-                only thing this screen can honestly say, since `actual_date`
-                is written on the dashboard and only READ here. */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-0 border-t border-border bg-surface-muted/40 px-2 py-1.5 font-mono text-[10px] leading-none text-muted-foreground">
-              <span className="uppercase tracking-[0.14em]">
-                Rows <span className="font-semibold text-foreground">{taRowsDisplay.length}</span>
-              </span>
-              <span className="uppercase tracking-[0.14em]">
-                Total days <span className="font-semibold text-foreground">{taTotalDays}</span>
-              </span>
-              {taCriticalCount > 0 && (
-                <span className="flex items-center gap-2">
-                  <span className="inline-block h-3.5 w-[3px] bg-danger" aria-hidden />
-                  <span>
-                    {taCriticalCount} critical activit{taCriticalCount === 1 ? "y" : "ies"} — target
-                    passed with no actual date
-                  </span>
-                </span>
-              )}
-            </div>
+            {/* NO FOOTER BAND (operator, 2026-09-16: "completely remove this
+                text and its entire container div so the bottom of the table is
+                clean"). It counted rows, summed Total days and spelled out the
+                critical count — "3 critical activities — target passed with no
+                actual date". The table now ends on its last row.
+
+                WHAT THAT SENTENCE WAS FOR IS STILL ON THE ROW, which is why
+                removing it costs nothing the screen needs: red is still drawn
+                per row by `taIsCritical` (the same predicate the band counted,
+                kept for exactly that), and the row's own `title` still says
+                "N days past target, no actual date recorded" on hover — see
+                `slip` in `taRenderMobileRow`. What is gone is the restatement
+                in words underneath, not the flag itself. */}
             </div>
           </div>
           </div>
