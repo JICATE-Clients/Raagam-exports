@@ -4320,7 +4320,7 @@ export default function PersonClient({
       // mounted, exactly as before; the template's profile card stands to its
       // RIGHT as `PersonProfileAside`.
       //
-      // `flex h-full flex-col` is what a page-mounted MasterFullScreen requires
+      // `min-h-0 flex-1` (not `h-full`) is what a page-mounted MasterFullScreen requires
       // — a definite height to divide — and the row beneath the band carries
       // `min-h-0 flex-1` for the same reason: the shell's root is `min-h-0
       // flex-1` too, so in a ROW it takes the remaining width while its height
@@ -4329,7 +4329,10 @@ export default function PersonClient({
       // `data-field-style="lines"`: underlines instead of boxes for every field
       // in this editor (client 2026-09-16) — the rule and its reasoning are in
       // globals.css. One attribute, this screen only.
-      <div data-field-style="lines" className="flex h-full flex-col gap-4">
+      <div
+        data-field-style="lines"
+        className="flex min-h-0 flex-1 flex-col gap-4"
+      >
         {/*
           A THIN BAND, NOT A PROFILE: the profile is the column on the right
           now, so this line only says which mode the screen is in and offers
