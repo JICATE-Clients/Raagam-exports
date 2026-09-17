@@ -41,7 +41,8 @@ import {
  * different visual languages. This was a `<table>`; Quantities ▸ Assort is a CSS
  * grid with a computed track. It is that grid now: one `data-grid-body`, rows of
  * `display: contents`, a sticky identity column, a sticky header band of size
- * tokens, a sticky value edge on the right and a band underneath.
+ * tokens and a band underneath (the sticky Qty edge on the right was removed
+ * 2026-09-17).
  *
  * **Three things deliberately did NOT come across with the look:**
  *
@@ -148,9 +149,10 @@ const cellKey = (combo: string, sizeId: string | null) =>
 /** The identity column: floor fits "COLOUR", ceiling stops a long combo name. */
 const ID_MIN = 80;
 const ID_MAX = 200;
-/** The value edge: floor fits "QTY", ceiling is Assort's own Qty width. */
-const QTY_MIN = 56;
-const QTY_MAX = 88;
+/* NO QTY EDGE (client 2026-09-17: "in price section remove the Qty
+   column"). The sticky right-hand column restated each colour's piece count
+   beside its rates; the per-size counts in the Pieces band beneath, and the
+   per-cell counts behind "Show quantities", still carry the weights. */
 /**
  * THE COLLAPSED COLUMN IS MONEY, AND `sizeColPx` DOES NOT MEASURE MONEY.
  *
@@ -171,8 +173,8 @@ const QTY_MAX = 88;
  * So the fix is the column, not a padding: narrow the box and the digits sit
  * where the box ends.
  *
- * THE NUMBERS HERE ARE THE COLUMN, AND THE BOX IS 20px LESS. The cell spends
- * `VALUE_CELL`'s 10px a side (see `PAD_X`), so 92–100 declared is the 72–80 the
+ * THE NUMBERS HERE ARE THE COLUMN, AND THE BOX IS 12px LESS. The cell spends
+ * `VALUE_CELL`'s 6px a side (see `PAD_X`), so 84–92 declared is the 72–80 the
  * client asked for once the padding is taken out. Written this way round
  * because a grid track sizes the CELL; stating the box width here and letting
  * the padding eat it is how the box quietly stops being the size it was set to.
@@ -186,8 +188,9 @@ const QTY_MAX = 88;
  * THIS COLUMN IS ALSO THE ONE THAT MAY NOT ABSORB SLACK — see `CARD_W` and the
  * track below, where widening it back is exactly what the floor must not do.
  */
-const RATE_MIN = 92;
-const RATE_MAX = 100;
+/* 84–92 SINCE 2026-09-17 — the same 72–80px box, now that `PAD_X` is 12. */
+const RATE_MIN = 84;
+const RATE_MAX = 92;
 
 /**
  * THE WIDTH OF THE GROUP TABLE THIS MATRIX HANGS UNDER (client 2026-09-06:
@@ -212,7 +215,12 @@ const RATE_MAX = 100;
  * excluded outright, and a Size-wise grid already measuring past 392px is left
  * exactly as it is. The track below states the distribution.
  */
-const CARD_W = 392;
+/* 320 = 20rem, NOT 392 (operator, 2026-09-17: "variant and prices table
+   compact"). The group table above lost its 4.5rem Unit column on 2026-09-11
+   and is now Style 10 + Price Type 10; this floor was never moved with it, so
+   every Style-wise and Color-wise matrix ran 72px past the table it hangs
+   under — the exact mismatch the note above exists to prevent. */
+const CARD_W = 320;
 
 /**
  * THE VALUE CELL'S OWN PADDING — `px-2.5 py-1.5`, i.e. 6px 10px (client
@@ -239,8 +247,12 @@ const CARD_W = 392;
  * row. The sticky bands keep `ROW_H` and stay 30px: they hold a token and a
  * total, not a control, so nothing in them is touching anything.
  */
-const PAD_X = 20;
-const VALUE_CELL = "px-2.5 py-1.5";
+/* TIGHTENED 2026-09-17 (operator: "compact"): 6px a side and 4px top and
+   bottom, down from 10px and 6px. The box still clears the hairline — the
+   2026-09-06 complaint was about ZERO padding, not about this much — and a
+   body row comes down from 40px to 36px. `PAD_X` moves with the class. */
+const PAD_X = 12;
+const VALUE_CELL = "px-1.5 py-1";
 
 /**
  * 32px, UP FROM THE 26 BOUGHT ON 2026-08-21 — and it is the box below that
@@ -254,7 +266,9 @@ const VALUE_CELL = "px-2.5 py-1.5";
  * the horizontal padding went the other way in the same change (`px-3` -> `px-2`
  * on the identity and value edges, with `textColPx`'s `pad` moved with it).
  */
-const ROW_H = "min-h-[30px]";
+/* 28px bands since 2026-09-17 (compact) — they hold a token and a total, and
+   28 is still the box height, so nothing in them is cramped. */
+const ROW_H = "min-h-[28px]";
 
 /**
  * THE CELL'S BOX, IN ONE PLACE — two call sites have to agree or the rows go
@@ -339,9 +353,6 @@ export function PriceMatrix({
   /** Pieces down a column — what the band states, and what widens the column. */
   const colPieces = (z: { id: string } | null) =>
     rowKeys.reduce((a, c) => a + (qtyOf(c ?? "", z?.id ?? null) || 0), 0);
-  const rowPieces = (c: string | null) =>
-    colKeys.reduce((a, z) => a + (qtyOf(c ?? "", z?.id ?? null) || 0), 0);
-  const allPieces = rowKeys.reduce((a, c) => a + rowPieces(c), 0);
 
   /**
    * The widest thing this column has to hold — every rate typed into it, its
@@ -410,12 +421,6 @@ export function PriceMatrix({
     RATE_MIN,
     RATE_MAX,
   );
-  const qtyW = textColPx(
-    Math.max(3, String(allPieces).length + 1),
-    16,
-    QTY_MIN,
-    QTY_MAX,
-  );
 
   /**
    * THE MEASURED TRACK, THEN THE FLOOR — see `CARD_W`.
@@ -452,15 +457,13 @@ export function PriceMatrix({
     /* `+ PAD_X` on a SIZE column and not on the rate one: `sizeColPx` measures
        the box, so the cell's padding is added on top, while `RATE_MIN`/`MAX`
        are already stated as column widths with the padding inside them. Both
-       end up as "box + 20px"; only the starting point differs. */
+       end up as "box + PAD_X"; only the starting point differs. */
     ...colKeys.map((z) => (z ? sizeColPx(z.label, colDigits(z)) + PAD_X : rateW)),
-    qtyW,
   ];
   /** What each column may take before the width stops being usable. */
   const headroom = [
     ID_MAX - idW,
     ...colKeys.map((z) => (z ? Number.POSITIVE_INFINITY : 0)),
-    QTY_MAX - qtyW,
   ];
   const grown = [...measured];
   let left = Math.max(0, CARD_W - measured.reduce((a, b) => a + b, 0));
@@ -597,9 +600,6 @@ export function PriceMatrix({
             )}
           </div>
         ))}
-        <div className={HEAD + " sticky right-0 z-30 justify-end pr-2"}>
-          Qty
-        </div>
 
         {/* ---- one row per colour ---- */}
         {rowKeys.map((c) => {
@@ -685,8 +685,7 @@ export function PriceMatrix({
                              So the size token in the header, this rate, and the
                              piece count in the band beneath it are ALL
                              `justify-end`/`text-right` — the identity column is
-                             still left in all three bands and the Qty edge still
-                             right in all three. Moving one of the three back is
+                             still left in all three bands. Moving one of the three back is
                              what re-opens 2641. */
                           "px-1 text-right hover:bg-surface-muted",
                           /* Unanswered and mandatory: a calm tint, not a red
@@ -744,18 +743,6 @@ export function PriceMatrix({
                   </div>
                 );
               })}
-              {/* The weight behind this colour's rates. BLANK, never `0`, when
-                  the order has not been broken down yet — `0` is a claim
-                  ("nothing is ordered in this colour") that an unfilled
-                  Quantities tab is not making. */}
-              <div
-                className={cn(
-                  CELL,
-                  "sticky right-0 z-10 justify-end border-l bg-surface px-2 text-[11px] tabular-nums text-muted-foreground",
-                )}
-              >
-                {rowPieces(c) ? fmtNumber(rowPieces(c)) : ""}
-              </div>
             </div>
           );
         })}
@@ -785,15 +772,10 @@ export function PriceMatrix({
                 directly beneath a money heading, which reads as a price total
                 (client 2026-09-02, screenshot 2638). It is not a formatting
                 slip: under Color-wise the figure was the style's whole run, so
-                the number was both wrong-looking and unarguable. The row's
-                pieces are on the Qty edge and their sum is at the end of this
-                band; neither needs restating under a rate. */}
+                the number was both wrong-looking and unarguable. */}
             {z && colPieces(z) ? fmtNumber(colPieces(z)) : ""}
           </div>
         ))}
-        <div className={FOOT + " sticky right-0 z-30 justify-end pr-2"}>
-          {allPieces ? fmtNumber(allPieces) : ""}
-        </div>
       </div>
     </div>
   );

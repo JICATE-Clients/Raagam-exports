@@ -6931,29 +6931,9 @@ export function FabricBomScreen({
 
   const ydYarnName = (id: string | null) =>
     (id ? (comp?.yarns ?? []).find((y) => y.id === id)?.name : "") ?? "";
-  const ydUomName = (id: string | null) =>
-    (id ? data.uoms.find((u) => u.id === id)?.name : "") ?? "";
 
   /** The [Detail] popup's own scope — the line it was opened from. */
   const detailYd = ydFor(detailLine);
-
-  /**
-   * THE OPEN FABRIC'S OWN REQUIREMENT — Mixing Details' "Net Wt" column
-   * (Formula 3), off the SAME `fabricGross` `yarnNetByCombo` reads, never a
-   * second figure for one fabric. Summed across every colourway this cloth
-   * serves; `null` when there is none to sum (no fabric open) or when ANY
-   * of that fabric's slices refused (a partial total would understate what
-   * a dye house needs, which is worse than saying nothing).
-   */
-  const detailFabricGross = detailLine?.item_id
-    ? fabricGross.filter((f) => f.fabric_id === detailLine.item_id)
-    : [];
-  const detailFabricTotalGross =
-    detailFabricGross.length === 0 || detailFabricGross.some((f) => f.gross == null)
-      ? null
-      : detailFabricGross.reduce((sum, f) => sum + (f.gross ?? 0), 0);
-  const detailFabricUomName =
-    ydUomName(detailFabricGross.find((f) => f.uom_id)?.uom_id ?? null) || "";
 
   /**
    * The purchase weight for one yarn, its per-colourway breakdown, or the
@@ -9859,9 +9839,10 @@ export function FabricBomScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
-        /* "Fabric Allocation" clipped on the 192px rail (operator,
-           2026-09-17) — see the prop. 200px wide, fitted to that label. */
-        wideRail
+        /* A compact 200px Sections rail whose labels still fit — "Fabric
+           Allocation" clipped at 192px, and 240px read as too wide (operator,
+           2026-09-17). See the prop. */
+        fitRail
         open={mode === "edit"}
         onClose={() => setMode("list")}
         modeLabel={
@@ -10005,8 +9986,6 @@ export function FabricBomScreen({
         yarnColourOptions={declaredYarnColours}
         composition={detailYd.composition}
         yarnName={ydYarnName}
-        fabricTotalGross={detailFabricTotalGross}
-        fabricUomName={detailFabricUomName}
         onPatchYdRepeat={patchYdRepeat}
         onAddYdRepeat={detailYd.addRepeat}
         onRemoveYdRepeat={removeYdRepeat}
