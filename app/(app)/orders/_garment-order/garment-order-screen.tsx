@@ -17213,7 +17213,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           True, and beside the point: the client's four sections are the ones on
           THIS line, and the fourth is a button — which costs ~150px, not the
           512px a second grid would have. Nothing had to move to make room. */}
-      <div className="min-w-0 flex-[1_1_220px]">
+      {/* A STRICT 220px COLUMN (operator, 2026-09-17: "the row height and
+          column width must remain strictly fixed regardless of how many sizes
+          are selected"). It was `flex-[1_1_220px]` — a basis, free to grow and
+          shrink with its neighbours — and its chip line below the trigger
+          wrapped a line deeper as sizes were ticked, so the whole Style row
+          grew under the operator. `flex-none` + `w-[220px]` holds the width;
+          `self-start` keeps the chip line's height to this column alone. */}
+      <div className="w-[220px] min-w-[220px] flex-none self-start">
         {/* `required` HERE AS WELL AS ON THE CONTROL, and it is the star that
             needs it (client 2026-08-31: "styles sizes field is a mandatory but
             there is no star").
@@ -17261,12 +17268,39 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              tick grid: ~40 visible at once instead of 8, and ↑/↓ move a row
              while ←/→ move a cell. */
           gridded
+          /* THREE TO A LINE, STRICTLY (operator, 2026-09-17: "strictly display
+             3 items per row"). The auto-fill track settled on three only while
+             the widest label stayed short; a fixed count does not depend on it. */
+          gridColumns={3}
           /* BANDS, DERIVED FROM THE NAMES. At fifty-plus sizes one label stops
              meaning one thing — `M` is Medium AND `3M` is three months — and a
              flat list has nothing to tell them apart however well it is sorted.
              Derived rather than read from Size Groups because there is ONE size
              group in this database; see `size-order.ts`. */
           groupBy={(o) => sizeFamily(o.label)}
+          /* "5 selected" IN THE TRIGGER, THE SIZES AS CHIPS BENEATH IT
+             (operator, 2026-09-17, screenshot 115032: "size input field like
+             this screenshot"). This withdraws the same day's one-line
+             `summarizeLabels` + `hideChips` summary: the chips are back, each
+             with its ✕. They no longer push the Components table — the row
+             is `items-start` and this column is `self-start` at a fixed
+             220px, so a second chip line grows only this column, downward.
+             `h-8` pins the trigger at 32px at every container width (the
+             primitive's base is `h-9` below the compact breakpoint). */
+          inputClassName="h-8 max-h-8"
+          /* The trigger's WRAPPER is pinned too, so nothing inside it — the
+             tooltip span, the ▼ slot — can make it taller than the 32px box.
+             Height only, NOT `overflow-hidden`: the list panel is an absolute
+             child of this same wrapper and has to float out below it. */
+          triggerClassName="h-8 max-h-8"
+          /* THE LIST IS THE TRIGGER'S WIDTH (operator, 2026-09-17, screenshot
+             115610: "ithuvum intha size la than visible aaganum"). No
+             `panelClassName` width, so the panel takes the primitive's default
+             `--ms-trigger-w` — this 220px column — and the gridded ticks sit
+             three to a line (XXS · XS · S) under their band headings. The
+             same-day 22rem panel is withdrawn: it spread past the Sizes column
+             over the Components grid. The panel is portaled and fixed, so
+             opening it still pushes nothing. */
           options={sizeOpts.map((o) => ({
             id: o.id,
             label: o.name,
@@ -17321,6 +17355,40 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           `label=""` is NOT an oversight: it reserves the label row so this
           table's header band starts level with the two labelled cells. */}
       <Field label="" size="full">
+        {/* `table-fixed` — THE COLUMNS STOP MOVING WHILE THE OPERATOR TYPES
+            (operator, 2026-09-17: "component field updating the alignment
+            while entering data").
+
+            Only Coordinate declares a width here, so `ChildGrid` does not hug
+            and leaves the table at `table-layout: auto` — where the browser
+            re-divides the row from its CONTENT on every render. Picking or
+            typing a Coordinate, Component or Structure changed that content,
+            so the three columns re-split and every cell slid sideways under
+            the cursor. (`componentColumns`' own note already admitted the
+            content-driven half: "a long GAR name may push a few pixels past"
+            120px.)
+
+            Fixed layout sizes the columns from the `<colgroup>` alone:
+            Coordinate holds its 120px, the other three split what is left
+            evenly, and nothing a value does can move them. A value longer
+            than its column ellipsises and the picker's `Truncated` tooltip
+            reveals it — the app's rule for a clipped value.
+
+            A descendant selector, the call-site reach this repo already uses
+            for a primitive's `<td>` (Fabric BOM's `[&_td]:px-2`); the ~90
+            other `ChildGrid`s are untouched.
+
+            AND NO SCROLLBAR UNDER IT (operator, 2026-09-17: "table la kela
+            irukka coordinate structure ku kela irukka scroll-a remove pannu").
+            The grid's table wrapper is `overflow-x-auto`, and a `w-full`
+            table under `border-collapse` measures a pixel or so past it —
+            half of each collapsed outer border lands outside the 100% — so a
+            scrollbar was drawn for that sliver under Coordinate … Structure.
+            With `table-fixed` above the columns can no longer outgrow the
+            wrapper, so there is nothing real to scroll to: the wrapper is
+            `overflow-hidden` here, and a value too long for its cell still
+            ellipsises inside the cell rather than being cut at the edge. */}
+        <div className="[&_table]:table-fixed [&_.overflow-x-auto]:overflow-hidden">
         <ChildGrid<StyleComponentRow>
           columns={componentColumns(r)}
           rows={r.components}
@@ -17336,6 +17404,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           }
           addLabel="+ Add component"
         />
+        </div>
       </Field>
       </div>
       {/**

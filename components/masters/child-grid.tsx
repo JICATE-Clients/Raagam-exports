@@ -2915,7 +2915,13 @@ export function ChildGrid<T extends { key: string }>({
                     {c.required && <span className="ml-0.5 text-danger">*</span>}
                   </th>
                 ))}
-                {removeColumn && <th className="w-8 border-l border-border" />}
+                {/* 48px, NOT 32 (operator, 2026-09-17: the ✕ sat flush against
+                    this column's left border). The button below is a fixed 32px
+                    square; `w-8` left it no room at all, and under a caller's
+                    `table-fixed` (Order Entry ▸ Styles ▸ Components) the old
+                    40px `sm` button overflowed the 32px track and hugged its
+                    left line. 48px is the square plus 8px each side. */}
+                {removeColumn && <th className="w-12 min-w-12 border-l border-border" />}
               </tr>
             </thead>
             )}
@@ -2997,7 +3003,10 @@ export function ChildGrid<T extends { key: string }>({
                     </td>
                   ))}
                   {removeColumn && (
-                  <td className="border-l border-border px-1 py-1.5 text-center align-top">
+                  <td className="w-12 min-w-12 border-l border-border px-2 py-1.5 align-top">
+                    {/* The border is the cell's; the ✕ is centred in a flex box
+                        padded away from it — see the `<th>` above. */}
+                    <div className="flex h-8 items-center justify-center">
                     {!locked(row) && (
                     <Button
                       type="button"
@@ -3013,13 +3022,14 @@ export function ChildGrid<T extends { key: string }>({
                       // every surface, so the marker is all this needs — and being
                       // focusable again keeps it in screen-reader order.
                       data-row-remove
-                      className="text-muted-foreground hover:text-danger"
+                      className="h-8 w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
                       onClick={() => onRemove(row)}
                       aria-label="Remove row"
                     >
                       <X className="h-4 w-4 shrink-0" />
                     </Button>
                     )}
+                    </div>
                   </td>
                   )}
                 </tr>

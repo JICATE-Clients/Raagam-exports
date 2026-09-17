@@ -66,6 +66,7 @@ import {
   ChildGrid,
   GRID_HEADER_TEXT,
   gridKeyNav,
+  RowRemoveChip,
   type ChildGridColumn,
 } from "@/components/masters/child-grid";
 import { StyleIdentityBand } from "@/components/orders/style-identity-band";
@@ -1318,6 +1319,10 @@ export function FabricBomScreen({
     setEntries(fn);
     setDirty(true);
   };
+  /** One fabric off the Manual grid — the entry bar's own ✕ and the grid's
+   *  `onRemove` both call this, so the two can never remove differently. */
+  const removeManualEntry = (e: ManualEntryRow) =>
+    mutEntries((xs) => xs.filter((x) => x.key !== e.key));
   const setEntryCell = (key: string, patch: Partial<ManualEntryRow>) =>
     mutEntries((xs) => xs.map((e) => (e.key === key ? { ...e, ...patch } : e)));
   /**
@@ -4527,8 +4532,8 @@ export function FabricBomScreen({
       /* THIS `width` IS DEAD HERE, AND DELIBERATELY LEFT AT ITS OLD VALUE —
          the ChildGrid it was written for (`manualEntryColumns` as a
          `<table>`) is gone; the entry row is now the hand-rolled flex line
-         below (`MANUAL_FIELD_W`, client 2026-09-04), which reads `cardLabel`
-         and `cell` off this column but never `width`. See `MANUAL_FIELD_W`
+         below (`MANUAL_FIELD_W` (now `MANUAL_TRACK`), client 2026-09-04), which reads `cardLabel`
+         and `cell` off this column but never `width`. See `MANUAL_FIELD_W` (now `MANUAL_TRACK`)
          for the box that actually sizes "Roll form" on screen. */
       width: "6rem",
       cell: (e) => (
@@ -4921,7 +4926,7 @@ export function FabricBomScreen({
    * wrap — it overflows, which is the failure this number exists to avoid.
    *
    * IT WAS `Assort Color wise` UNTIL 2026-09-16 (client rename, alongside
-   * Components ▸ `Assort Color` → `Compo Color`). `MANUAL_FIELD_W` IS KEYED BY
+   * Components ▸ `Assort Color` → `Compo Color`). `MANUAL_FIELD_W` (now `MANUAL_TRACK`) IS KEYED BY
    * THE HEADER STRING, so the key had to move with the word or the column
    * silently loses its width and overflows again — the failure the paragraph
    * below is an account of. The mentions further down keep the OLD word where
@@ -4957,17 +4962,75 @@ export function FabricBomScreen({
    * happened to be wide enough by coincidence). Re-measured against the real
    * font below; the LABELS THEMSELVES ARE UNCHANGED — this is a width fix,
    * not a wording one.
+   *
+   * ## AND THE KEY FELL BEHIND THE RENAME A SECOND TIME (2026-09-17)
+   *
+   * The column's header became `Assort Colour-Wise` on 2026-09-16 (see the
+   * column), but this table still said `Compo Color wise` — so the lookup
+   * missed, the box fell back to `w-24`, and "ASSORT COLOUR-WISE" ran into
+   * "SIZE WISE" again: the exact failure the rename paragraph above warns
+   * of. Re-measured at `GRID_HEADER_TEXT` (12.5px bold uppercase, ~9.5px a
+   * character, plus `px-2`): `ASSORT COLOUR-WISE` ~187px → `w-48`;
+   * `SIZE WISE` ~102px, over `w-24`'s 96 → `w-28`; `ASSORT COLOR` ~130px,
+   * over `w-32`'s 128 → `w-36`.
+   *
+   * EACH WIDTH IS ALSO A `min-w-*` OF THE SAME SIZE (client 2026-09-17).
+   * `shrink-0` already stops the flex row squeezing a cell. The `min-w-*`
+   * spells that floor out in the class itself, so a cell keeps its width even
+   * if the `shrink-0` beside it is ever removed. Keep the two numbers equal:
+   * a `min-w` wider than its `w` quietly becomes the real width.
    */
-  const MANUAL_FIELD_W: Record<string, string> = {
-    Fabric: "w-36",
-    Type: "w-32",
-    Calculated: "w-28",
-    "Compo Color wise": "w-44",
-    "Size Wise": "w-24",
-    "EndBit Loss %": "w-32",
-    Components: "w-28",
-    "Assort Color": "w-32",
+  /*
+   * ## FIT THE PANE, NO SIDEWAYS SCROLL (operator, 2026-09-17, later the same
+   * ## day: "eliminate the horizontal scrollbar … fit all columns from the
+   * ## FABRIC dropdown to the ✕ within the visible screen width")
+   *
+   * THIS REVERSES THE MORNING'S "ONE LINE, SCROLLED" and replaces the fixed
+   * flex widths above with ONE CSS grid template both bands read. The fixed
+   * widths summed to ~1124px with the ✕, wider than the detail pane on an
+   * ordinary laptop, so the bar always scrolled.
+   *
+   * EACH TRACK IS `minmax(floor, share)`. The floor is the least the cell can
+   * hold without clipping its CONTROL — "Open Width" and "Calculated" in a
+   * compact Select with its chevron (~104px → 6.5rem), a fabric name in the
+   * picker with its ✕ slot (8rem), "COMPONENTS" as one unbreakable header word
+   * (~107px at `GRID_HEADER_TEXT` with `px-1.5` → 6.75rem). The share splits
+   * whatever is left, so on a wide pane the columns grow in proportion and the
+   * bar still ends at the card's right edge.
+   *
+   * THE FLOORS SUM TO 49.25rem (788px) with the ✕ track, and that is the width
+   * below which the safety scroller in the render can still appear — a floor
+   * is the point where shrinking further would clip a value, which is worse.
+   *
+   * THE TOGGLE AND SHORT-NUMBER HEADINGS MAY NOW WRAP, and that is the price
+   * of the fit. "ASSORT COLOUR-WISE" alone is ~187px on one line against a
+   * 36px switch; held nowrap it was the widest column on the row. Its floor is
+   * sized for two lines ("ASSORT / COLOUR-WISE"), as are Size Wise, EndBit
+   * Loss % and Assort Color. On a pane wide enough, the share gives them room
+   * and they stay on one line as before; the header band aligns to the bottom,
+   * so a wrapped heading never moves the control under it.
+   *
+   * KEYED BY HEADER, like the map it replaces — so the rename trap recorded
+   * above still applies: rename a column, move its key. An unknown header
+   * falls back to `minmax(6rem,1fr)`, which fits rather than overflows.
+   */
+  const MANUAL_TRACK: Record<string, string> = {
+    Fabric: "minmax(8rem,2fr)",
+    Type: "minmax(6.5rem,1.2fr)",
+    Calculated: "minmax(6.5rem,1.2fr)",
+    "Assort Colour-Wise": "minmax(5.5rem,1fr)",
+    "Size Wise": "minmax(4.5rem,0.8fr)",
+    "EndBit Loss %": "minmax(4.5rem,0.9fr)",
+    Components: "minmax(6.75rem,1.1fr)",
+    "Assort Color": "minmax(4.5rem,0.9fr)",
   };
+  /** The ✕ track: a 32px chip box plus `px-1`. */
+  const MANUAL_REMOVE_TRACK = "2.5rem";
+  const manualGridCols = (withRemove: boolean) =>
+    [
+      ...manualEntryColumns.map((c) => MANUAL_TRACK[c.header] ?? "minmax(6rem,1fr)"),
+      ...(withRemove ? [MANUAL_REMOVE_TRACK] : []),
+    ].join(" ");
 
   /**
    * THE SIZE GRID'S OWN FIELD SIZES — spans on the 32-column track, for the
@@ -4976,7 +5039,7 @@ export function FabricBomScreen({
    *
    * THIS IS THE LAST OF THE PAIR. `MANUAL_FIELD_SIZES` stood beside it and
    * did the same job for the ENTRY row above; that row became a flex line on
-   * 2026-09-04 (see `MANUAL_FIELD_W`), where a `col-span-*` is inert, so its
+   * 2026-09-04 (see `MANUAL_FIELD_W` (now `MANUAL_TRACK`)), where a `col-span-*` is inert, so its
    * lookup was deleted rather than left as a table nothing reads. The size
    * grid's own `renderMobileRow` is still a `FieldGrid cols={32}`, so this one
    * is live and the vocabulary is still the right one HERE.
@@ -5145,7 +5208,7 @@ export function FabricBomScreen({
              `railWidthPx` IS THE ONE EXCEPTION, AND IT IS NEW (client
              2026-09-09: "the assort color went second row .. reduce that
              new fabric rail width, move the field again to the first row").
-             The header-width fix above (`MANUAL_FIELD_W`, "the title look
+             The header-width fix above (`MANUAL_FIELD_W` (now `MANUAL_TRACK`), "the title look
              messed to the table lables") made the entry bar itself ~180px
              wider — it had to be, the old widths were undersized for
              `GRID_HEADER_TEXT` — and the bar plus the default 268px rail no
@@ -5265,6 +5328,13 @@ export function FabricBomScreen({
           renderFoldedRow={(e) => (
             <span className="text-sm font-medium">{entryFabricRow(e)?.name || "New fabric"}</span>
           )}
+          /* THE GRID DRAWS NO ✕ OF ITS OWN (client 2026-09-17). Its corner
+             chip hung `absolute` at the pane's top-right, so it lined up with
+             nothing in the entry bar. The ✕ is now the bar's own last cell
+             (see "THE ✕ COLUMN" below), where the body band's `items-center`
+             centres it on the inputs. `hideRemove` also drops the `pr-10`
+             gutter that was reserved for the floating chip. */
+          hideRemove
           /* THE DETAIL PANE, AND `renderMobileRow` IS THE ROW BODY BELOW
              `masterDetail`'s breakpoint TOO — one definition. */
           renderMobileRow={(e) => (
@@ -5279,7 +5349,9 @@ export function FabricBomScreen({
                pane-width row wrapper, and the fabric card below is `w-fit`
                and sits on the LEFT of that wrapper — the two no longer share
                any horizontal space to collide over, however far down the
-               spacer pushed the card.
+               spacer pushed the card. (Since 2026-09-17 the grid draws no
+               corner ✕ here at all — see `hideRemove` above — so there is
+               nothing left for a spacer to clear.)
 
                THE REMAINING 8px WAS A PRIMITIVE BUG, FIXED THERE, NOT HERE
                (operator: "which is global issue need to fix it global").
@@ -5297,7 +5369,7 @@ export function FabricBomScreen({
               {/* ONE COMPACT ROW — the artifact's confirmed shape ("row 1, row
                  2 as single row compacted"), and since 2026-09-04 a real flex
                  line rather than the 32-column track, sized per field by
-                 `MANUAL_FIELD_W`.
+                 `MANUAL_FIELD_W` (now `MANUAL_TRACK`).
 
                  THE TRACK COULD NOT KEEP THE LABELS ON ONE LINE, which is what
                  the client asked for. `FIELD_TRACK_32` gives each field a
@@ -5353,7 +5425,7 @@ export function FabricBomScreen({
                  eight are a Select, three checkboxes and a number, whose
                  LABELS are long where their controls are tiny. On that track
                  the labels wrapped to two lines. The flex row sizes each cell
-                 to its own content instead (`MANUAL_FIELD_W`), which is what
+                 to its own content instead (`MANUAL_FIELD_W` (now `MANUAL_TRACK`)), which is what
                  `whitespace-nowrap` below is holding to one line.
 
                  THE BASELINE RULE SURVIVES THE MOVE, which is the half that
@@ -5405,7 +5477,7 @@ export function FabricBomScreen({
                   the looser thing Components was at the time.
 
                   THE FIELD WIDTHS ARE ALREADY IN RANGE and are deliberately not
-                  touched: `MANUAL_FIELD_W` runs w-20…w-36 (80—144px) against
+                  touched: `MANUAL_FIELD_W` (now `MANUAL_TRACK`) runs w-20…w-36 (80—144px) against
                   Components' own 5rem—10rem columns (80—160px). The looseness was
                   never in the fields.
 
@@ -5435,29 +5507,58 @@ export function FabricBomScreen({
                   `rounded-lg` corners the border draws — a filled band ignores
                   its ancestor's radius unless something clips it.
 
-                  BOTH BANDS CARRY `flex-wrap`, DELIBERATELY IN SYNC: every
-                  column in both bands is the SAME `MANUAL_FIELD_W` width, so
-                  the two rows are the same total px wide and wrap at the same
-                  point on a narrow pane — a header cell and its control can
-                  never end up misaligned by one wrapping before the other. */}
-              <div className="w-fit overflow-hidden rounded-lg border border-border-strong bg-surface">
+                  ## ONE LINE, SCROLLED — NOT WRAPPED (client 2026-09-17)
+
+                  Both bands used to carry `flex-wrap`, in sync, so a narrow
+                  pane broke the row onto a second line. The client asked for
+                  the row from Fabric to the ✕ to stay on ONE line always, and
+                  to scroll sideways when the pane is too narrow. This goes
+                  against `raagam-screen-layout`'s "wrap, don't scroll" on
+                  purpose, and only for this bar. So both bands are
+                  `flex-nowrap` and the card is `w-max` inside an
+                  `overflow-x-auto` scroller capped at `max-w-full`. The
+                  detail pane's column is `minmax(0,1fr)` (`child-grid.tsx`),
+                  so that cap really is the pane's width, and the ✕ is safe
+                  in the row's own `pr-10` strip, outside the scroller.
+
+                  The two bands still share `MANUAL_FIELD_W` (now `MANUAL_TRACK`) widths, so they
+                  scroll as one block and a heading can never slide off the
+                  control under it. `overflow-hidden` stays on the card, where
+                  it still clips the header fill to the rounded corners. */}
+              {/* FIT, NOT SCROLL (2026-09-17, second pass — see `MANUAL_TRACK`).
+                  The card is `w-full` and the bands are one grid template, so
+                  the bar ends at the pane's edge. `min-w-fit` + the scroller
+                  are a SAFETY NET only: they engage below the tracks' summed
+                  floors (788px), where shrinking further would clip values.
+                  At any ordinary pane width no scrollbar is drawn. */}
+              <div className="max-w-full overflow-x-auto">
+              <div className="w-full min-w-fit overflow-hidden rounded-lg border border-border-strong bg-surface">
                 {/* THE HEADER BAND. Plain text, not a second `<Field>` — a
                     label has nothing to hold a cursor or a value, so it needs
                     none of what `Field` provides beyond the words themselves. */}
-                <div className="flex flex-wrap bg-surface-muted">
+                <div
+                  className="grid bg-surface-muted"
+                  style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
+                >
                   {manualEntryColumns.map((c, ci) => (
                     <div
                       key={c.header + ci}
+                      /* `flex items-end` so a heading that wraps grows UPWARD
+                         and its last line stays on the band's baseline. */
                       className={cn(
-                        "shrink-0 whitespace-nowrap px-2 py-1.5",
+                        "flex min-w-0 items-end break-words px-1.5 py-1.5 leading-tight",
                         GRID_HEADER_TEXT,
                         ci > 0 && "border-l border-border-strong",
-                        MANUAL_FIELD_W[c.header] ?? "w-24",
                       )}
                     >
                       {c.cardLabel ?? c.header}
                     </div>
                   ))}
+                  {manualEntries.length > 1 && (
+                    /* The ✕ column's header: blank, the same width as the
+                       cell below it, so the two bands stay the same width. */
+                    <div aria-hidden />
+                  )}
                 </div>
                 {/* THE BODY BAND — one control per column, `RequiredScope`
                     reset to `false` for every one exactly as the `Field` this
@@ -5475,14 +5576,18 @@ export function FabricBomScreen({
                     whole restructure exists to remove. Vertical breathing
                     room survives as `py-2`, which cannot desync anything
                     horizontal. */}
-                <div className="flex flex-wrap items-center gap-y-2 border-t border-border-strong py-2">
+                <div
+                  className="grid items-center border-t border-border-strong py-2"
+                  style={{ gridTemplateColumns: manualGridCols(manualEntries.length > 1) }}
+                >
                   {manualEntryColumns.map((c, ci) => (
                     <div
                       key={c.header + ci}
+                      /* `min-w-0` lets the control shrink to its track instead
+                         of pushing the track wider than its floor. */
                       className={cn(
-                        "shrink-0 px-2",
+                        "min-w-0 px-1.5",
                         ci > 0 && "border-l border-border-strong",
-                        MANUAL_FIELD_W[c.header] ?? "w-24",
                       )}
                     >
                       <RequiredScope required={false} label={c.cardLabel ?? c.header}>
@@ -5490,7 +5595,35 @@ export function FabricBomScreen({
                       </RequiredScope>
                     </div>
                   ))}
+                  {/* THE ✕ COLUMN (client 2026-09-17: "neatly positioned
+                      inline with the rest of the row data"). It is this band's
+                      last cell, so this band's `items-center` centres it on the
+                      inputs. The shell is 52px (`w-13`): `pl-2` of breathing
+                      room from the last field, a fixed 32px `h-8 w-8` box
+                      holding the 28px chip, and `pr-3` so it never touches the
+                      card's right border or the scroller's edge. No `border-l`:
+                      this is an action gutter, not a data column.
+
+                      `RowRemoveChip` is the grid's own chip, so `data-row-remove`
+                      comes with it and Ctrl+Del still finds it inside the row.
+                      `length > 1` is the grid's `keepOne` rule, which it can no
+                      longer apply for us since it draws no ✕ here: the last
+                      fabric cannot be removed. */}
+                  {manualEntries.length > 1 && (
+                    /* `MANUAL_REMOVE_TRACK` (40px) sizes this cell now; `px-1`
+                       leaves the 32px box that holds the 28px chip. */
+                    <div className="flex items-center justify-center px-1">
+                      <div className="flex h-8 w-8 items-center justify-center">
+                        <RowRemoveChip
+                          inFlow
+                          label="Remove fabric"
+                          onClick={() => removeManualEntry(e)}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
+              </div>
               </div>
               {/* THE ENTRY'S OWN PROBLEM, RIGHT UNDER ITS OWN FIELDS — moved
                  here from a single line at the foot of the whole style pane
@@ -5589,7 +5722,7 @@ export function FabricBomScreen({
           onAdd={() =>
             mutEntries((xs) => [...xs, blankManualEntry(newKey(), styleRow.style_ref_no)])
           }
-          onRemove={(e) => mutEntries((xs) => xs.filter((x) => x.key !== e.key))}
+          onRemove={removeManualEntry}
           /* "+ Add fabric" GOES IN THE RAIL, under the fabrics it adds to
              (client 2026-09-04: the button below the list items, matching
              Components').
@@ -9726,6 +9859,9 @@ export function FabricBomScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        /* "Fabric Allocation" clipped on the 192px rail (operator,
+           2026-09-17) — see the prop. 200px wide, fitted to that label. */
+        wideRail
         open={mode === "edit"}
         onClose={() => setMode("list")}
         modeLabel={
