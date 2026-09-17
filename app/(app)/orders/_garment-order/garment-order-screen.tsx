@@ -29,7 +29,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   ChildGrid,
-  GRID_HEADER_TEXT,
   gridKeyNav,
   RowRemoveChip,
   type ChildGridColumn,
@@ -1780,55 +1779,34 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
   Description: "range",
 };
 
+/* `COORDINATE_DENSE` IS GONE (operator, 2026-09-17: "standardize the
+   COORDINATE input to exactly match the top-row input fields"). It held the
+   Coordinate picker at 30px with a `pl-2` left edge in both places it appears
+   (the pane and the Components table's first column) — 2px shorter and 2px
+   tighter than every other field on the tab. Without it the picker is the
+   primitive's own box, `h-9 @2xl/editor:h-8 px-2.5 text-sm rounded-md`, the
+   same classes `Input` carries on Style / Article No. / PO Qty, and its ✕ / ▼
+   slot is centred by `field-affordance.tsx` (`inset-y-px … items-center`) at
+   either height. The 120px WIDTH (client 2026-09-07) is unchanged. */
+
 /**
- * THE COORDINATE CELL'S OWN DENSITY (client 2026-09-07: "make the Coordinate
- * input field and the Coordinate column in the table narrower and compact").
+ * STYLES DETAILS ▸ THE LOWER SECTION'S LABELS READ LIKE THE TOP ROW'S
+ * (operator, 2026-09-17: Coordinate / Sizes / Process / Files and the
+ * `# · Coordinate · Component · Structure` headings were bold 12.5px capitals
+ * under a row of plain "Style *", "Approved Sample No" labels).
  *
- * Coordinate is the SHORTEST value on this line — a GAR master name, typically
- * TOP / BOTTOM / PIECES — and it was carrying the same 220px pane and the same
- * 36px trigger as a Fabric picker. Both places it appears on Styles Details are
- * narrowed to 120px and dropped to a 30px control: the pane on the left of the
- * composition line, and the first column of the Components table beside it.
+ * `Label`'s own classes, restated for the grid headings — the four field
+ * labels simply became plain strings, so `Label` styles them itself. Handed to
+ * `ChildGrid`'s `headerClassName`, which is merged last, so `normal-case` and
+ * `tracking-normal` undo `GRID_HEADER_TEXT`'s capitals and letter-spacing and
+ * `text-xs` / `font-semibold` / `text-muted-foreground` replace its size,
+ * weight and colour. `ty-label` is what takes the weight to 500 under the
+ * compact type scale, exactly as it does on the labels above.
  *
- * ## WHY THIS IS A CLASS AND NOT A PROP ON THE PICKER
- *
- * `DataPicker`'s trigger is deliberately `h-9 @2xl/editor:h-8`, and its own
- * comment says why — "height and rhythm must match Input/Combobox exactly, these
- * sit in a row with them". That is a statement about the app, and it stays true:
- * a density prop on the primitive would be an invitation to make any field 30px,
- * which is the drift the one-width rule exists to stop. This overrides the
- * height for TWO named cells from outside, in the screen that asked for it.
- *
- * ## `pl-2` AND NOT `px-2`
- *
- * The right-hand padding is `AFFORDANCE_PAD_COMPACT` (`pr-6`), and it is not
- * decoration: it is the 20px slot the ▼ / ✕ occupies, stated in
- * `field-affordance.tsx` beside the slot's own width because "the pad and the
- * slot are one measurement and must never be edited apart". A blanket `px-2`
- * from out here outranks it (a descendant selector beats a class) and runs the
- * value under the chevron. Only the LEFT edge is tightened.
- *
- * The descendant selector is what lets a class written OUTSIDE the control win:
- * `[&_input]:…` compiles to `.cls input` (0,1,1) against the trigger's own
- * `.h-8` (0,1,0), so no `!important` and no prop-drilling is needed.
- *
- * ## IT KEEPS THE CONTAINER QUERY — THE SAME HALF `COLOR_PRINT_BOX` KEEPS
- *
- * The trigger ships `h-9 @2xl/editor:h-8` — 36px, dropping to 32px in a wide
- * editor pane — and that is a query, not a fixed size. A bare `[&_input]:h-[30px]`
- * would flatten it, which is the defect `COLOR_PRINT_BOX` records below
- * (client 2026-08-21, "make even look"): the box opts out of the responsive tier
- * and stands 30px against a 36px control in the nested ~440px picker and on
- * touch. So only the COMPACT tier moves, 32px -> 30px, and the touch tier is
- * left alone — a 30px target on a phone is not what "compact" asked for.
- *
- * `@2xl/editor:[&_input]:…` and not `[&_input]:@2xl/editor:…`: the container
- * variant goes OUTSIDE. Verified by compiling both through this project's own
- * Tailwind before either was committed — a variant order that does not compile
- * emits no CSS at all and fails silently, which is the warning `FIELD_TRACK`
- * already carries about interpolated classes.
+ * Scoped to these two grids; `GRID_HEADER_TEXT` stays the app's default.
  */
-const COORDINATE_DENSE = "@2xl/editor:[&_input]:h-[30px] [&_input]:pl-2";
+const STYLE_SECTION_HEAD =
+  "ty-label text-xs font-semibold normal-case tracking-normal text-muted-foreground";
 
 /**
  * The narrowed Coordinate width — 7.5rem = 120px.
@@ -16680,8 +16658,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       header: "Coordinate",
       /* NARROWED TO 120px AND TIGHTENED (client 2026-09-07) — the same
          instruction as the Coordinate pane beside this table, and the same two
-         numbers, so `COORDINATE_W` and `COORDINATE_DENSE` are stated once and
-         read twice.
+         numbers, so `COORDINATE_W` is stated once and read twice. The cell
+         keeps the grid's own padding and the picker its own height, the same
+         as Component and Structure beside it (2026-09-17).
 
          THE OTHER THREE COLUMNS ARE UNTOUCHED and gain the width: with no
          `width` of their own they flex, so Component / Structure / Fabric split
@@ -16701,7 +16680,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          cap. That is the right end of the trade for a value this short — a long
          GAR name may push a few pixels past it instead of ellipsing at 120. */
       width: COORDINATE_W,
-      className: cn("px-1 py-0.5", COORDINATE_DENSE),
       cell: (c) => (
         <RecordPicker
           label="Coordinate"
@@ -16916,7 +16894,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
      * would leave a line `styleProblems` refuses to save with no way on screen
      * to fix it. The function's own note carries the full argument.
      */
-    const locked = coordinatesLocked(r.unit_kind, r.coordinates);
     return (
       <ChildGrid<StyleCoordRow>
         narrow
@@ -16931,6 +16908,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            grid reads like every other one again, which is what "same for all"
            asks for. */
         frameless
+        headerClassName={STYLE_SECTION_HEAD}
         columns={[
           {
             header: "Coordinate",
@@ -16945,13 +16923,6 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               <RecordPicker
                 label="Coordinate"
                 compact
-                /* NO IN-BOX ✕ (operator, 2026-09-17, screenshot 140444:
-                   "remove this X"). The row's own ✕ sits beside the box
-                   (`removeBeside` below), so the clear ✕ inside it was a
-                   second X a few pixels away — and it took ~24px of a 84px
-                   box, clipping BOTTOM to "BOTT…". Changing a coordinate is
-                   re-picking from the list; removing one is the row's ✕. */
-                clearable={false}
                 /* NEVER GREYED — SEEDED, AND STILL YOURS TO CHANGE (client
                    2026-08-29, screenshot 2544: "if choose the PCS it
                    automatically choosing coordinate field PIECES automatically,
@@ -17007,30 +16978,32 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            twice, and one predicate is what makes it impossible. Its own note
            carries why the count is of ROWS rather than of filled ones. */
         hideAdd={coordinatesFull(r.unit_kind, r.coordinates)}
-        /* NO ✕ ON A SETTLED PCS LINE. Removing the one coordinate drops the
-           line to zero, which `styleProblems` refuses ("A Piece style needs
-           exactly 1 coordinate") and which orphans every component the
-           back-fill just filed under it. The grid's own Ctrl+Del reads the same
-           flag, so the keyboard cannot get past a hidden button — the same
-           agreement `hideAdd` and `addStyleCoordinate` already have. */
-        hideRemove={locked}
-        /* ALIGNED ROWS (operator, 2026-09-17, screenshot 135700: "coordinate
-           align properly"). Three faults in a 120px pane, one fix each:
+        /* NO ROW ✕ AT ALL (operator, 2026-09-17: "remove the redundant
+           external delete icons … ONLY the inline ✕ inside the input
+           remains"). The ✕ beside each box (`removeBeside`, added the same
+           day) and the picker's own clear ✕ inside it were two X's a few
+           pixels apart. What is left is the clear: it blanks the coordinate,
+           and a blank coordinate row is dropped at save, so on the stored
+           record clearing IS removing.
 
-           - `removeBeside` — the corner ✕ floated across the right half of the
-             TOP / BOTTOM box it deletes (a one-column, unlabelled row is the
-             shape that prop exists for). It now sits beside the box, centred
-             on it.
-           - `bodyClassName` — each row was its own `p-2.5` bordered card with
-             8px between cards, so two coordinates stood ~40px apart and their
-             boxes were inset from the COORDINATE heading. The rows now sit
-             flush on that heading's left edge, 6px apart — the editor's own
-             field rhythm. A descendant selector, because the card classes are
-             the primitive's and this is one call site's density.
-           - `addClassName` — "+ Add coordinate" wrapped to two lines at `sm`'s
-             `px-3`. `px-2` + `whitespace-nowrap` fits it on one line inside
-             the pane, and `w-full` squares it with the rows above. */
-        removeBeside
+           `hideRemove` takes Ctrl+Del with it, which is also what the settled
+           PCS line needed on its own (the one coordinate there cannot go —
+           `styleProblems`: "A Piece style needs exactly 1 coordinate").
+
+           KNOWN COST, stated: a cleared row stays on screen until save, and
+           `coordinatesFull` counts ROWS — so on a line at its allowance the
+           blank row is re-picked rather than removed and re-added. */
+        hideRemove
+        /* ALIGNED ROWS (operator, 2026-09-17, screenshot 135700: "coordinate
+           align properly"). `bodyClassName` — each row was its own `p-2.5`
+           bordered card with 8px between cards, so two coordinates stood
+           ~40px apart and their boxes were inset from the COORDINATE heading.
+           The rows now sit flush on that heading's left edge, 6px apart. A
+           descendant selector, because the card classes are the primitive's
+           and this is one call site's density. `addClassName` — "+ Add
+           coordinate" wrapped to two lines at `sm`'s `px-3`; `px-2` +
+           `whitespace-nowrap` keeps it on one, `w-full` squares it with the
+           rows above. */
         bodyClassName="space-y-1.5 [&>[data-row-box]]:rounded-none [&>[data-row-box]]:border-0 [&>[data-row-box]]:p-0"
         addClassName="w-full whitespace-nowrap px-2"
         seedRow
@@ -17209,8 +17182,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         * and a list with its own "+ Add coordinate" button does not belong in a
         * row of single-line fields.
         */}
-      <div className="flex flex-wrap items-start gap-3 @lg/section:col-span-14">
-      {/* 120px AND NOT 220 (client 2026-09-07) — see `COORDINATE_DENSE`. The
+      {/* `gap-x-6 gap-y-3` (operator, 2026-09-17: "separate COORDINATE from
+          SIZES … they are attached or too close"). 24px between sections,
+          not 12 — the Coordinate row's ✕ sits on its pane's right edge, so
+          12px read as the ✕ touching the Sizes box. Paid for by the Process
+          pane going from 152px to its button's ~80px the same day: four gaps
+          x 12px + Coordinate's 8px below = 56px of the ~72px that freed, so
+          the line is no nearer its wrap point than before. */}
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-3 @lg/section:col-span-14">
+      {/* 120px AND NOT 220 (client 2026-09-07). The
           arithmetic in the note above is unchanged in shape and 100px slacker:
           the line now measures Coordinate 120 + Sizes 220 + Components 512 +
           Process 152 + Files 152 plus four 12px gaps = ~1,204 against the ~1,224
@@ -17222,8 +17202,12 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           120px asked for. That is the shape Process and Files beside it already
           use, for the same reason — a pane sized to its content does not want
           the remainder. */}
-      <div className={cn("min-w-0 flex-[0_1_7.5rem]", COORDINATE_DENSE)}>
-      <Field label={<span className={GRID_HEADER_TEXT}>Coordinate</span>} size="full">
+      {/* A FIXED 128px (`w-32 flex-none`), operator 2026-09-17: "the
+          COORDINATE input box does not stretch fully". It was a 120px basis
+          free to shrink; now it is one width, box + ✕ inside it, and the
+          breathing room before Sizes is the row's `gap-x-6`. */}
+      <div className="w-32 min-w-32 flex-none">
+      <Field label="Coordinate" size="full">
         {/* THE HAND-ROLLED FRAME IS GONE (2026-08-27). It was added on "add the
             border for the coordinate section" (screenshot 2519) while
             `GRID_FRAME` did not exist, and its own note said the classes "must
@@ -17266,7 +17250,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             any surrounding `<Field required>`, so the hold is unchanged and does
             not fire twice. */}
         <Field
-          label={<span className={GRID_HEADER_TEXT}>Sizes</span>}
+          label="Sizes"
           required
           size="full"
         >
@@ -17417,6 +17401,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         <div className="[&_table]:table-fixed [&_.overflow-x-auto]:overflow-hidden">
         <ChildGrid<StyleComponentRow>
           columns={componentColumns(r)}
+          headerClassName={STYLE_SECTION_HEAD}
           rows={r.components}
           /* OPENS ON A ROW rather than on a bare button. `ChildGrid`'s own note
              is the reason and it is the keyboard contract, not a preference: Tab
@@ -17468,8 +17453,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         * empty state would use — one rule, so the tooltip and any other reader
         * cannot word it differently.
         */}
-      <div className="min-w-0 flex-[0_1_9.5rem]">
-        <Field label={<span className={GRID_HEADER_TEXT}>Process</span>} size="full">
+      {/* SIZED TO THE BUTTON, NOT 152px (operator, 2026-09-17: "compact the
+          width of the field under Process … only wide enough to fit Click").
+          It was `flex-[0_1_9.5rem]` with a `w-full` button, so "Click" sat in
+          a 152px box. The pane is now `flex-none` and takes the button's own
+          width; the button is `w-fit` from an 80px floor, which holds "Click"
+          plus `sm`'s padding and lets "12 processes" grow it rather than clip.
+          The label sits on the same left edge as the button, as before. */}
+      <div className="flex-none">
+        <Field label="Process" size="full">
           {(() => {
             const blocked = processGateReason(r);
             const started = r.processes.filter(styleProcessRowStarted).length;
@@ -17478,7 +17470,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               type="button"
               variant="outline"
               size="sm"
-              className="w-full"
+              className="w-fit min-w-20"
               disabled={!!blocked}
               /* NAMES THE FIELD THAT TURNS IT ON rather than greying out in
                  silence — the rule the Assort gate states. A disabled control with
@@ -17583,17 +17575,15 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         */}
       <div className="min-w-0 flex-[0_1_9.5rem]">
         <Field
-          label={<span className={GRID_HEADER_TEXT}>Files</span>}
+          label="Files"
           required
           size="full"
         >
           <FileAttachments
             variant="cell"
             /* The label the HOLD announces, and the trigger's `aria-label`. The
-               `<Field>` label is a ReactNode (it carries `GRID_HEADER_TEXT`), and
-               `useRequiredHold` falls back to "This field" for one of those — so
-               the word is stated here or the operator is told "This field is
-               required." on a line with five of them. */
+               `<Field>` label is a plain string now, but the control still
+               states its own so the hold never depends on the wrapper's. */
             label="Files"
             required
             rows={filesForStyle(r)}
