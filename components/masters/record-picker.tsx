@@ -61,6 +61,7 @@ export function RecordPicker({
   id,
   identity = "name",
   placeholder,
+  clearable,
   onAddOverride,
 }: {
   label: string;
@@ -96,6 +97,14 @@ export function RecordPicker({
    * through to `DataPicker`; a selected value always wins over it.
    */
   placeholder?: string;
+  /**
+   * `false` drops the in-box ✕ that blanks the value. Straight through to
+   * `DataPicker` (default `true`). For a grid row whose own ✕ beside the box
+   * already removes the row — two ✕ a few pixels apart, one blanking and one
+   * deleting, and the first costing ~24px of a narrow box (Order Entry ▸
+   * Styles ▸ Coordinate, operator 2026-09-17).
+   */
+  clearable?: boolean;
   /**
    * "+ Add" opens a CALLER-SUPPLIED create surface, and commits the id it
    * returns.
@@ -174,6 +183,7 @@ export function RecordPicker({
       disabled={disabled}
       id={id}
       placeholder={placeholder}
+      clearable={clearable}
       onAddOverride={onAddOverride}
     />
   );

@@ -16945,6 +16945,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               <RecordPicker
                 label="Coordinate"
                 compact
+                /* NO IN-BOX ✕ (operator, 2026-09-17, screenshot 140444:
+                   "remove this X"). The row's own ✕ sits beside the box
+                   (`removeBeside` below), so the clear ✕ inside it was a
+                   second X a few pixels away — and it took ~24px of a 84px
+                   box, clipping BOTTOM to "BOTT…". Changing a coordinate is
+                   re-picking from the list; removing one is the row's ✕. */
+                clearable={false}
                 /* NEVER GREYED — SEEDED, AND STILL YOURS TO CHANGE (client
                    2026-08-29, screenshot 2544: "if choose the PCS it
                    automatically choosing coordinate field PIECES automatically,
@@ -17007,6 +17014,25 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            flag, so the keyboard cannot get past a hidden button — the same
            agreement `hideAdd` and `addStyleCoordinate` already have. */
         hideRemove={locked}
+        /* ALIGNED ROWS (operator, 2026-09-17, screenshot 135700: "coordinate
+           align properly"). Three faults in a 120px pane, one fix each:
+
+           - `removeBeside` — the corner ✕ floated across the right half of the
+             TOP / BOTTOM box it deletes (a one-column, unlabelled row is the
+             shape that prop exists for). It now sits beside the box, centred
+             on it.
+           - `bodyClassName` — each row was its own `p-2.5` bordered card with
+             8px between cards, so two coordinates stood ~40px apart and their
+             boxes were inset from the COORDINATE heading. The rows now sit
+             flush on that heading's left edge, 6px apart — the editor's own
+             field rhythm. A descendant selector, because the card classes are
+             the primitive's and this is one call site's density.
+           - `addClassName` — "+ Add coordinate" wrapped to two lines at `sm`'s
+             `px-3`. `px-2` + `whitespace-nowrap` fits it on one line inside
+             the pane, and `w-full` squares it with the rows above. */
+        removeBeside
+        bodyClassName="space-y-1.5 [&>[data-row-box]]:rounded-none [&>[data-row-box]]:border-0 [&>[data-row-box]]:p-0"
+        addClassName="w-full whitespace-nowrap px-2"
         seedRow
         onAdd={() => addStyleCoordinate(r.key)}
         onRemove={(c) =>
