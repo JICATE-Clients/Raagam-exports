@@ -329,6 +329,7 @@ export function MasterFullScreen({
   sections,
   onEnterSection,
   railCollapsed = false,
+  fitRail = false,
   onExpandRail,
   initialSection,
   footer,
@@ -451,6 +452,24 @@ export function MasterFullScreen({
    * route to it would be the "requiring a hidden field" failure one level up.
    */
   railCollapsed?: boolean;
+  /**
+   * A 200px RAIL WITH TIGHTER ROWS, WHOSE LABELS STILL FIT (operator,
+   * 2026-09-17, Fabric BOM ▸ Sections).
+   *
+   * It was a 240px `wideRail` earlier the same day, added because "Fabric
+   * Allocati…" clipped on the 192px default — and was then reported as too
+   * wide. The label was never short of rail; it was short of ROW. The default
+   * item spends ~72px on chrome (the rail's `p-3`, the row's `px-2.5`, a 10px
+   * icon gap, borders), leaving ~120px at 192. This mode takes the rail to
+   * `p-2`, the row to `px-2` and the gap to `gap-2` — ~58px — so a 200px rail
+   * leaves ~142px, and "Fabric Allocation" (~130px semibold) sits whole.
+   *
+   * `truncate` STAYS ON, as a guard rather than an expectation: a label that
+   * did outgrow the row would otherwise push past the active row's border and
+   * fill. Opt-in per screen, not a new default — the 192px rail and its
+   * spacing are the client's own (2026-08-27).
+   */
+  fitRail?: boolean;
   /**
    * Bring the rail back. Required in spirit by `railCollapsed`: without it the
    * fold is a one-way door, and the operator has no way to reach another section
@@ -1294,7 +1313,11 @@ export function MasterFullScreen({
              from truncate-reveal (see the item below) — a clipped label has no
              bubble to recover it, only the click. So this is about as narrow as
              it goes without the rail needing that exemption revisited. */
-          railCollapsed ? "md:grid-cols-[1fr]" : "md:grid-cols-[192px_1fr]",
+          railCollapsed
+            ? "md:grid-cols-[1fr]"
+            : fitRail
+              ? "md:grid-cols-[200px_1fr]"
+              : "md:grid-cols-[192px_1fr]",
         )}
       >
         <nav
@@ -1328,6 +1351,7 @@ export function MasterFullScreen({
             /* `md:hidden`, NOT `hidden`: the horizontal chip strip below the
                breakpoint is the only section nav a phone has, and collapsing is
                a desktop answer to a desktop problem. */
+            fitRail && "md:p-2",
             railCollapsed && "md:hidden",
           )}
         >
@@ -1417,6 +1441,9 @@ export function MasterFullScreen({
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
                   "ty-sidebar flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
+                  // `min-w-0` so the row — and its active fill — is bounded by
+                  // the rail, never widened by its label. See `fitRail`.
+                  fitRail && "min-w-0 gap-2 px-2",
                   isActive
                     ? "border-border bg-surface font-semibold text-foreground shadow-sm"
                     : "border-transparent text-muted-foreground hover:bg-surface hover:text-foreground",
@@ -1444,7 +1471,7 @@ export function MasterFullScreen({
                 {/* truncate-reveal: exempt -- rail chrome, not a value. The
                     vocabulary is fixed and short, and clicking the step shows
                     the section whose heading names it again in full. */}
-                <span className="flex-1 truncate whitespace-nowrap">{s.label}</span>
+                <span className="min-w-0 flex-1 truncate">{s.label}</span>
                 {/* The count REPLACES the done dot rather than sitting beside
                     it: a section with blocking problems is not "done", and two
                     indicators on a 192px rail item is where the label starts

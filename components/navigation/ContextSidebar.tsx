@@ -126,7 +126,10 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       </div>
 
       {newAction && activeHref && (
-        <div className="px-2 pt-2">
+        /* `mt-3` (12px) matches the gap BELOW the button — the nav's `p-2`
+           plus the first section label's `pt-1` — so it sits evenly between
+           the header rule and the list (operator, 2026-09-17). */
+        <div className="mt-3 px-2">
           <Link
             href={createHref(activeHref, newAction)}
             className={buttonClasses({ size: "sm", className: "w-full" })}

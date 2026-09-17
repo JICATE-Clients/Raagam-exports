@@ -44,9 +44,8 @@ import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { fmtNumber } from "@/lib/format";
 import {
-  colorNetWeight,
   mixingDetailRows,
-  type MixingDetailWithNet,
+  type MixingDetailRow,
   type YdRepeatRow,
 } from "@/lib/orders/fabric-bom/yarn-dyed";
 import type { FabricComposition } from "@/lib/orders/fabric-bom/yarn-process";
@@ -545,32 +544,24 @@ export function MixingDetailsPanel({
   repeats,
   composition,
   yarnName,
-  fabricTotalGross,
-  fabricUomName,
 }: {
   repeats: readonly YdRepeatRow[];
   composition: FabricComposition | null;
   yarnName: (id: string | null) => string;
-  /**
-   * THIS FABRIC'S OWN CALCULATED REQUIREMENT — Backend calc spec, Formula 3
-   * ("Net Color Yarn Weight_i = Total Fabric Consumption Weight x P_i/100").
-   * Summed across whatever colourways (order combos) this cloth serves, off
-   * the SAME `FabricGross[]` `./yarn-process.ts`'s `yarnNetByCombo` reads —
-   * never a second requirement figure for one fabric. `null` when this
-   * fabric has no calculated requirement yet, which `colorNetWeight` reads
-   * as "unanswerable", not zero.
-   */
-  fabricTotalGross: number | null;
-  /** The requirement's own unit — printed beside Net Wt so a kg figure is
-   *  never read as a metre one. */
-  fabricUomName: string;
 }) {
   const rows = useMemo(
-    () => colorNetWeight(mixingDetailRows(repeats, composition, yarnName), fabricTotalGross),
-    [repeats, composition, yarnName, fabricTotalGross],
+    () => mixingDetailRows(repeats, composition, yarnName),
+    [repeats, composition, yarnName],
   );
 
-  const columns: ChildGridColumn<MixingDetailWithNet>[] = [
+  /* NO "Net Wt" COLUMN (operator, 2026-09-17: "remove the 'Net Wt' field from
+     the 'Yarn Dyed Details' section"). It printed Formula 3's per-colour
+     weight (`colorNetWeight`, yarn-dyed.ts — kept, and still covered by
+     check-yarn-dyed.mts). Every column left declares a width, so the grid
+     still hugs its content (`hugsContent`) and simply closes up 6.5rem —
+     no blank track where it stood, and the four `SHARED_W` columns stay
+     aligned with Repeats above. */
+  const columns: ChildGridColumn<MixingDetailRow>[] = [
     /* THE FOUR SHARED TRACKS — `SHARED_W`, not this panel's own figures. See
        that object for why the derived table takes the editable one's widths
        rather than the reverse. */
@@ -607,21 +598,6 @@ export function MixingDetailsPanel({
           <NumCell value={r.mixing_pct} />
         ),
     },
-    {
-      /* Formula 3's own figure — `fabricGross x mixing_pct/100`, computed in
-         `colorNetWeight`. Never printed over a refusal: a Mixing % the
-         operator cannot see the reason for should not be followed by a
-         number that looks trustworthy. */
-      header: "Net Wt",
-      align: "right",
-      width: "6.5rem",
-      cell: (r) =>
-        r.refusal ? (
-          <span className="text-sm text-muted-foreground">—</span>
-        ) : (
-          <NumCell value={r.net_weight} suffix={r.net_weight != null ? ` ${fabricUomName}` : ""} />
-        ),
-    },
   ];
 
   return (
@@ -629,7 +605,7 @@ export function MixingDetailsPanel({
        so a second element added here later inherits the sheet's spacing rather
        than reintroducing the 12px this pass removed. */
     <div className="space-y-2">
-      <ChildGrid<MixingDetailWithNet>
+      <ChildGrid<MixingDetailRow>
         columns={columns}
         rows={rows}
         /* TABLE MODE, NOT `inlineCards` — every cell here is plain text, and
@@ -868,8 +844,6 @@ export function YarnDyedSheet({
   yarnColourOptions,
   composition,
   yarnName,
-  fabricTotalGross,
-  fabricUomName,
   onPatchYdRepeat,
   onAddYdRepeat,
   onRemoveYdRepeat,
@@ -899,9 +873,6 @@ export function YarnDyedSheet({
   /** This fabric's mixing rows, or null when the master states none. */
   composition: FabricComposition | null;
   yarnName: (id: string | null) => string;
-  /** See `MixingDetailsPanel`'s own note — Formula 3's net-weight column. */
-  fabricTotalGross: number | null;
-  fabricUomName: string;
   onPatchYdRepeat: (key: string, patch: Partial<YdRepeatRow>) => void;
   onAddYdRepeat: () => void;
   onRemoveYdRepeat: (row: YdRepeatRow) => void;
@@ -1076,8 +1047,6 @@ export function YarnDyedSheet({
             repeats={ydRepeats}
             composition={composition}
             yarnName={yarnName}
-            fabricTotalGross={fabricTotalGross}
-            fabricUomName={fabricUomName}
           />
         </div>
         {/* THE `border-t` STAYS AND ITS INSET SHRINKS — `pt-2`, not `pt-4`. The
