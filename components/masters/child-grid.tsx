@@ -2882,7 +2882,7 @@ export function ChildGrid<T extends { key: string }>({
                     See `hideIndex` for what the three tracks are and why they
                     have to leave together. */}
                 {!hideIndex && (
-                  <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT)}>#</th>
+                  <th className={cn("w-10 px-2 py-2 text-center", GRID_HEADER_TEXT, headerClassName)}>#</th>
                 )}
                 {columns.map((c, i) => (
                   <th

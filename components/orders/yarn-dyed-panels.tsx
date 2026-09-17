@@ -210,11 +210,16 @@ const BLUE_HEAD =
  * that does not exist, which is how a shared vocabulary turns back into a local
  * map of numbers.
  */
+/* 150 / 100 / 120 / 100px (operator, 2026-09-17: "compact the column widths
+   in the yarn details table … YARN, TYPE, COLOR and VALUE are too wide").
+   Still shared, so Repeats narrows with Mixing Details and the columns keep
+   lining up. The cost lands on Repeats' Yarn picker, which now clips a long
+   yarn name with `…` and reveals it on hover (the picker's own tooltip). */
 const SHARED_W = {
-  yarn: "13rem",
-  type: "6rem",
-  color: "8rem",
-  value: "6rem",
+  yarn: "150px",
+  type: "100px",
+  color: "120px",
+  value: "100px",
 } satisfies Record<string, string>;
 
 /** The shape every picker in this module takes. `code` is `string | null` and
@@ -557,9 +562,8 @@ export function MixingDetailsPanel({
   /* NO "Net Wt" COLUMN (operator, 2026-09-17: "remove the 'Net Wt' field from
      the 'Yarn Dyed Details' section"). It printed Formula 3's per-colour
      weight (`colorNetWeight`, yarn-dyed.ts — kept, and still covered by
-     check-yarn-dyed.mts). Every column left declares a width, so the grid
-     still hugs its content (`hugsContent`) and simply closes up 6.5rem —
-     no blank track where it stood, and the four `SHARED_W` columns stay
+     check-yarn-dyed.mts). Every column declares a width, so the grid
+     hugs its content (`hugsContent`) and the four `SHARED_W` columns stay
      aligned with Repeats above. */
   const columns: ChildGridColumn<MixingDetailRow>[] = [
     /* THE FOUR SHARED TRACKS — `SHARED_W`, not this panel's own figures. See
@@ -578,7 +582,8 @@ export function MixingDetailsPanel({
     {
       header: "Calculated %",
       align: "right",
-      width: "6.5rem",
+      /* The heading's own width at `GRID_HEADER_TEXT` plus the `<th>`'s px-2. */
+      width: "110px",
       cell: (r) => <NumCell value={r.calculated_pct} />,
     },
     {
@@ -589,8 +594,15 @@ export function MixingDetailsPanel({
          serves — and a Mixing % guessed at 100 would price a dye-house purchase
          off a number nobody stated. */
       header: "Mixing %",
+      /* A WIDTH AGAIN, SO THE TABLE HUGS (operator, 2026-09-17: "it stretches
+         to the full width of the modal … only take up exactly as much space as
+         its columns require"). This reverses the same day's widthless
+         fill-the-rest column. Every column declaring a width is what makes
+         `ChildGrid` render `w-fit` + `table-fixed`, left-aligned under
+         Repeats. 100px fits the heading; a refusal clips to `…` and
+         `Truncated` reveals it whole on hover. */
       align: "right",
-      width: "6.5rem",
+      width: "100px",
       cell: (r) =>
         r.refusal ? (
           <Truncated className="text-xs text-warning">{r.refusal}</Truncated>
