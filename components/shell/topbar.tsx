@@ -13,7 +13,7 @@ import { confirmDiscard } from "@/lib/reload-guard";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
-import { TypeScaleToggle } from "@/components/shell/type-scale-toggle";
+import { AppearanceMenu } from "@/components/shell/appearance-menu";
 import { Select } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { bugPortalUrl, bugReporterConfigured } from "@/lib/bug-reporter";
@@ -353,7 +353,7 @@ export function Topbar({
         </button>
 
         <ThemeToggle />
-        <TypeScaleToggle />
+        <AppearanceMenu />
 
         <NotificationsBell />
 

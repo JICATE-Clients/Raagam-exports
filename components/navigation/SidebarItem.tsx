@@ -18,6 +18,9 @@ export interface SidebarItemProps {
   /** Left indent step for nested rows (context sidebar's grandchildren). */
   indent?: 0 | 1 | 2;
   onClick?: (e: MouseEvent<HTMLAnchorElement>) => void;
+  /** Rendered after the label, pushed to the row's end (the flyout's
+   *  current-module dot). Hidden while collapsed, like the label. */
+  trailing?: ReactNode;
   /** Extra classes for one use of the row (the hover flyout's roomier rows). */
   className?: string;
 }
@@ -35,6 +38,7 @@ export function SidebarItem({
   collapsed,
   indent = 0,
   onClick,
+  trailing,
   className,
 }: SidebarItemProps) {
   function handleClick(e: MouseEvent<HTMLAnchorElement>) {
@@ -67,14 +71,23 @@ export function SidebarItem({
         // old `text-primary` blue-on-blue-tint pairing doesn't carry over.
         // One component backs the icon rail, the context sidebar and its
         // grandchild rows, so this is the ONE place to change for all three.
+        //
+        // SIDEBAR REFRESH (client 2026-09-17, option A of the mock-ups): the
+        // solid pill stays and gains a soft lift (`shadow-elev`); hover moves
+        // from grey to `--cell-active`, the pre-mixed blue tint that stays
+        // readable under body text in BOTH themes (`bg-primary/10` does not
+        // compile here, and `--primary-soft` is too dark under text in dark
+        // mode — see globals.css). A hover is a row state, not a surface, so
+        // the "no tinted column" decision above is untouched.
         active
-          ? "bg-primary font-medium text-primary-foreground hover:bg-primary-hover"
-          : "text-muted-foreground hover:bg-border hover:text-foreground",
+          ? "bg-primary font-semibold text-primary-foreground shadow-elev hover:bg-primary-hover"
+          : "text-muted-foreground hover:bg-[var(--cell-active)] hover:text-foreground",
         className,
       )}
     >
       {icon}
-      {!collapsed && <span className="min-w-0 truncate">{label}</span>}
+      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
+      {!collapsed && trailing}
     </Link>
   );
 }
