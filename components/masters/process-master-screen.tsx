@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createProcess, updateProcess, deleteProcess } from "@/lib/masters/process-actions";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { baseStageProblem } from "@/lib/masters/process-types";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
@@ -263,6 +264,30 @@ export function ProcessMasterScreen({
   function addStage() {
     setStageRows((ss) => [...ss, blankStage(newKey())]);
   }
+  /* DERIVED, NEVER HAND-ASSEMBLED (AGENTS.md, the Save footer's `canSave`):
+     the same function the server action refuses with, so the button and the
+     save cannot disagree about what a base tick may be. */
+  const baseProblem = baseStageProblem({
+    for_fabric: form.for_fabric,
+    fabric_stages: stageRows,
+  });
+
+  /* AN ADVISORY, NOT A REFUSAL — a stage may legitimately have two entry steps
+     (GREIGE has KNITTING and FABRIC PURCHASE), so this only says what is
+     already true elsewhere and leaves the decision alone. Read off the rows the
+     list already holds; the editing row is excluded so a saved process never
+     warns about itself. */
+  const baseElsewhere = stageRows
+    .filter((s) => s.stage_id && s.is_base)
+    .flatMap((s) => {
+      const other = rows.find(
+        (r) =>
+          r.id !== editId &&
+          (r.fabric_stages ?? []).some((f) => f.stage_id === s.stage_id && f.is_base),
+      );
+      return other ? [other.name] : [];
+    });
+
   function setStageAt(key: string, patch: Partial<StageRow>) {
     setStageRows((ss) => ss.map((s) => (s.key === key ? { ...s, ...patch } : s)));
   }
@@ -516,7 +541,11 @@ export function ProcessMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim() || !!dupError} onClick={submit}>
+            <Button
+              size="md"
+              disabled={isPending || !form.name.trim() || !!dupError || !!baseProblem}
+              onClick={submit}
+            >
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -929,6 +958,30 @@ export function ProcessMasterScreen({
               },
             ]}
           />
+          {/* THE REFUSAL, where the tick that caused it is (client
+              2026-09-18, after COMPACTING [OPEN WIDTH] was saved as the base
+              of all four stages). Red and beside the grid rather than a toast
+              on Save: the operator is looking at the four ticks, and a
+              message that arrives after the button is one they read with the
+              cause off screen. Save is disabled on the same value, so the two
+              cannot disagree. */}
+          {baseProblem && (
+            <p role="alert" className="mt-1.5 text-xs font-medium text-danger">
+              {baseProblem}
+            </p>
+          )}
+          {/* AN ADVISORY AND NOT A SECOND REFUSAL — a stage may legitimately
+              have two entry steps (GREIGE: KNITTING and FABRIC PURCHASE), so
+              this says what is already true elsewhere and leaves the decision
+              alone. Amber, unwired to Save: the "advisory stays plain amber
+              text" half of AGENTS.md's duplicate rule. */}
+          {!baseProblem && baseElsewhere.length > 0 && (
+            <p className="mt-1.5 text-xs text-warning">
+              {baseElsewhere.length === 1
+                ? `${baseElsewhere[0]} is already an entry step of that stage. Two are allowed, so this is only worth a look.`
+                : `${baseElsewhere.slice(0, 2).join(" and ")} are already entry steps of those stages. Two are allowed, so this is only worth a look.`}
+            </p>
+          )}
           </div>
         )}
           </SectionGrid>

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { processInput, type ProcessInput } from "./process-types";
+import { baseStageProblem, processInput, type ProcessInput } from "./process-types";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
 
@@ -71,6 +71,8 @@ export async function createProcess(data: ProcessInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = processInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  const baseProblem = baseStageProblem(p.data);
+  if (baseProblem) return fail(baseProblem);
   const s = await createClient();
   const { sub_categories: _drop, fabric_stages: _dropStages, ...header } = p.data;
   void _drop;
@@ -117,6 +119,8 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const p = processInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  const baseProblem = baseStageProblem(p.data);
+  if (baseProblem) return fail(baseProblem);
   const s = await createClient();
   /* BOTH CHILD GRIDS COME OFF THE HEADER, and `fabric_stages` was missed when
      0563 added it — `createProcess` above strips both, this one stripped only

@@ -150,6 +150,54 @@ export const processFabricStageInput = z.object({
   is_base: z.boolean().default(false),
 });
 
+/**
+ * THE ONE THING A BASE TICK CANNOT BE: this process being the ENTRY STEP OF
+ * TWO STAGES.
+ *
+ * ## IT HAPPENED, AND THE FORM LET IT (2026-09-18)
+ *
+ * COMPACTING [OPEN WIDTH] was saved as the base of GREIGE, DYED, WASH *and*
+ * PRINT. Compacting is a finishing step — it cannot be what moves cloth INTO a
+ * stage, let alone into all four — and the consequences were live: the first
+ * step of every stage offered Compacting as a way in (`isFirstOfStage` narrows
+ * to the stage's bases), and compacting twice inside one stage began to read as
+ * "this stage was entered twice" and blocked Save (`baseProcessRepeated`).
+ *
+ * ## WHAT IS AND IS NOT THE RULE
+ *
+ * NOT "one base per stage": a stage may have several, and GREIGE really does —
+ * KNITTING and FABRIC PURCHASE both open it (0570). The grid's own note argues
+ * that at length and it stands.
+ *
+ * NOT "every stage must have a base" either: Wash and Print had none on day one
+ * and `narrowToStage` stands down rather than offering an empty list.
+ *
+ * The invariant is the OTHER WAY ROUND, and `stage-routes.ts` states it in as
+ * many words: "a process is the base of at most one stage while being a
+ * secondary step in several". A process is one physical operation; the stage it
+ * is the entry to is the state that operation PRODUCES, and an operation
+ * produces one. Being a secondary step in every stage is ordinary — Compacting
+ * is exactly that, and stays mapped to all four.
+ *
+ * Read by the form (Save is blocked and the message shown under the grid), by
+ * both server actions (an import reaches those directly, and a gate that only
+ * disables a button is a gate an import walks through — AGENTS.md, Duplicates)
+ * and by `npm run check:process-base`.
+ */
+export function baseStageProblem(input: {
+  for_fabric: boolean;
+  fabric_stages: readonly { stage_id: string | null; is_base: boolean }[];
+}): string | null {
+  /* A process that is not `for_fabric` HAS no stage route — `normalizeFabricStages`
+     drops the rows entirely — so there is nothing here to be wrong about. */
+  if (!input.for_fabric) return null;
+  const based = new Set(
+    input.fabric_stages.filter((s) => s.stage_id && s.is_base).map((s) => s.stage_id as string),
+  );
+  if (based.size <= 1) return null;
+  return `A process is the entry step of at most one stage, and Base is ticked on ${based.size}. Leave it ticked on the stage this process moves cloth INTO, and untick the rest — a process may still RUN in every stage without being the way into it.`;
+}
+
 export const processInput = z.object({
   name: capsName("Process name is required"),
   /* NO `short_description` AND NO `sl_no`. Both were here and the client
