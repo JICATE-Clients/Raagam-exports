@@ -165,10 +165,13 @@ export interface FabricBomManualEntry {
   sizes: FabricBomManualSize[];
 }
 
-/** One panel an entry's weight covers. The `components` MASTER (0228). */
+/** One panel an entry's weight covers — a (coordinate, component) PAIR since
+ *  0569. `component_id` is the `components` MASTER (0228); `coordinate_id` is
+ *  `items` of class GAR, NULL where the coordinate was never stated. */
 export interface FabricBomManualComponent {
   id: string;
   entry_id: string;
+  coordinate_id: string | null;
   component_id: string;
 }
 
@@ -612,7 +615,15 @@ export const fabricBomManualEntryInput = z.object({
      omits the field used to save TRUE against a screen showing the toggle off —
      the row then read back size-wise having never been switched on. */
   size_wise: z.coerce.boolean().default(false),
-  component_ids: z.array(z.string().uuid()).default([]),
+  /* WHICH PANELS THIS WEIGHT COVERS — (coordinate, component) PAIRS since
+     0569, where it was a bare list of component ids. A Set item declares one
+     component under TWO coordinates, so the id alone cannot say which panel is
+     meant; `fabricBomLineInput` below has carried the same pair since 0495.
+     `coordinate_id` NULL is "unstated", which `panelTaken` reads as a claim on
+     every coordinate of that component — never as "no coordinate". */
+  panels: z
+    .array(z.object({ coordinate_id: uuidN, component_id: z.string().uuid() }))
+    .default([]),
   /* WHICH COLOURWAYS THIS WEIGHT IS FOR (0567) — read only when
      `assort_color_wise` above is ON, in which case an EMPTY list is refused by
      `fabricSlices` rather than read as "every colourway". Plain strings and not
