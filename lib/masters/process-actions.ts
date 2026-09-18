@@ -124,8 +124,16 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
   const p = processInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { sub_categories: _drop, ...header } = p.data;
+  /* BOTH CHILD GRIDS COME OFF THE HEADER, and `fabric_stages` was missed when
+     0563 added it — `createProcess` above strips both, this one stripped only
+     `sub_categories`, so every EDIT sent the stage rows to `processes` as if
+     they were a column and PostgREST refused the save outright:
+     "Could not find the 'fabric_stages' column of 'processes'" (client
+     2026-09-17). A child grid's rows are written by their own insert below;
+     nothing here may reach the header update. */
+  const { sub_categories: _drop, fabric_stages: _dropStages, ...header } = p.data;
   void _drop;
+  void _dropStages;
   const dup = await checkDuplicateName(s, "processes", header.name, { excludeId: id });
   if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("processes").update(header).eq("id", id);
