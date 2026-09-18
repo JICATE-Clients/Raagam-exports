@@ -61,7 +61,9 @@ import {
   manualProblem,
   unassignedCombos,
   netKg,
-  takenComponentIds,
+  panelTaken,
+  takenPanels,
+  type ManualPanel,
   type ManualSizeInput,
 } from "../lib/orders/fabric-bom/manual.ts";
 import type { RejectionTier } from "../lib/masters/rejection-rule.ts";
@@ -162,6 +164,23 @@ const sizeRow = (size_id: string, grams: number | null): ManualSizeInput => ({
 });
 
 /** One entry, as `manualProblem` wants it. */
+/* THE COORDINATES OF A SET ITEM (0569). A Set declares one component under
+   two of them — "ALL BODY of TOP" and "ALL BODY of BOTTOM" are two panels of one
+   garment wearing one master row (client 2026-09-17, Order #9). */
+const CO_TOP = "co-top";
+const CO_BOTTOM = "co-bottom";
+
+/** A panel, as every rule in `manual.ts` now takes one. */
+const P = (coordinate_id: string | null, component_id: string): ManualPanel => ({
+  coordinate_id,
+  component_id,
+});
+
+/** A panel as a vector prints it — "TOP|c-front", "·|c-front" where the
+ *  coordinate is unstated, so a failure names which panel it was about. */
+const label = (p: ManualPanel): string =>
+  `${p.coordinate_id === CO_TOP ? "TOP" : p.coordinate_id === CO_BOTTOM ? "BOTTOM" : "·"}|${p.component_id}`;
+
 const entry = (over: Partial<Parameters<typeof manualProblem>[0]> = {}) => ({
   style_ref_no: S1,
   /* THE CLOTH, which is what an entry names since 0522 — legacy's Manual row has
@@ -170,7 +189,7 @@ const entry = (over: Partial<Parameters<typeof manualProblem>[0]> = {}) => ({
   item_id: "i-1",
   structure_id: "s-1",
   calc_mode: "direct",
-  component_ids: ["c-front"],
+  panels: [P(CO_TOP, "c-front")],
   sizes: [sizeRow(SZ_S, 200), sizeRow(SZ_M, 220)],
   ...over,
 });
@@ -877,25 +896,45 @@ check(
    the counting unit, so the garment's weight is their sum — and that sum is only
    right while the entries partition the panels. */
 const S2 = "PLO-002";
-const ENTRIES = [
-  { key: "e1", style_ref_no: S1, component_ids: ["c-front", "c-back"] },
-  { key: "e2", style_ref_no: S1, component_ids: ["c-sleeve"] },
-  { key: "e3", style_ref_no: S2, component_ids: ["c-front"] },
-  { key: "e4", style_ref_no: null, component_ids: ["c-collar"] },
+
+/** Every panel of the tee, under TOP — the candidate list the vectors below
+ *  filter, standing in for what the sheet offers. */
+const ALL_TOP: ManualPanel[] = [
+  P(CO_TOP, "c-front"),
+  P(CO_TOP, "c-back"),
+  P(CO_TOP, "c-sleeve"),
+  P(CO_TOP, "c-collar"),
 ];
+
+const ENTRIES = [
+  { key: "e1", style_ref_no: S1, panels: [P(CO_TOP, "c-front"), P(CO_TOP, "c-back")] },
+  { key: "e2", style_ref_no: S1, panels: [P(CO_TOP, "c-sleeve")] },
+  { key: "e3", style_ref_no: S2, panels: [P(CO_TOP, "c-front")] },
+  { key: "e4", style_ref_no: null, panels: [P(CO_TOP, "c-collar")] },
+];
+
+/** The panels one entry may still choose, as names, so a vector reads as the
+ *  sheet does. `panelTaken` is the rule; this only spells its answer. */
+const offered = (
+  candidates: readonly ManualPanel[],
+  except: { key: string; style_ref_no: string | null },
+) => {
+  const taken = takenPanels(ENTRIES, except);
+  return candidates.filter((p) => !panelTaken(taken, p)).map(label).sort();
+};
 
 check(
   "a component used by another entry ON THE SAME STYLE is withdrawn",
-  [...takenComponentIds(ENTRIES, { key: "e2", style_ref_no: S1 })].sort(),
-  ["c-back", "c-collar", "c-front"],
+  offered(ALL_TOP, { key: "e2", style_ref_no: S1 }),
+  ["TOP|c-sleeve"],
 );
 /* AN ENTRY'S OWN CHOICES ALWAYS SURVIVE. Without the `except`, opening a saved
    entry would show it as having selected nothing and the first edit would clear
    it — silent data loss dressed up as a filter. */
 check(
   "…but never its own",
-  [...takenComponentIds(ENTRIES, { key: "e1", style_ref_no: S1 })].sort(),
-  ["c-collar", "c-sleeve"],
+  offered(ALL_TOP, { key: "e1", style_ref_no: S1 }).sort(),
+  ["TOP|c-back", "TOP|c-front"],
 );
 
 /* THE STYLE SCOPE, WHICH IS THE WHOLE OF 0495's CHANGE HERE. FRONT BODY is used
@@ -904,13 +943,13 @@ check(
    not have named it at all. */
 check(
   "a component used on ANOTHER style is not withdrawn",
-  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: S2 })].sort(),
-  ["c-collar", "c-front"],
+  offered(ALL_TOP, { key: "e5", style_ref_no: S2 }),
+  ["TOP|c-back", "TOP|c-sleeve"],
 );
 refute(
   "…so the tee's back and sleeve do not block the polo",
-  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: S2 })].sort(),
-  ["c-back", "c-collar", "c-front", "c-sleeve"],
+  offered(ALL_TOP, { key: "e5", style_ref_no: S2 }),
+  [],
 );
 
 /* AN UNSCOPED ENTRY COLLIDES BOTH WAYS, and that is the safe reading rather than
@@ -919,13 +958,72 @@ refute(
    unscoped entry silently double-count against a scoped one. */
 check(
   "an unscoped entry's panels are withdrawn from every style",
-  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: S2 })].includes("c-collar"),
-  true,
+  offered(ALL_TOP, { key: "e5", style_ref_no: S2 }).includes("TOP|c-collar"),
+  false,
 );
 check(
   "and an unscoped entry sees every style's panels",
-  [...takenComponentIds(ENTRIES, { key: "e5", style_ref_no: null })].sort(),
-  ["c-back", "c-collar", "c-front", "c-sleeve"],
+  offered(ALL_TOP, { key: "e5", style_ref_no: null }),
+  [],
+);
+
+/* ========================================================================
+   THE SET ITEM (0569) — one component, two coordinates, two panels.
+   ======================================================================== */
+
+/* TOP's ALL BODY IS TICKED; BOTTOM's MUST STILL BE OFFERED. This is the client's
+   report of 2026-09-17 stated as an assertion: keyed by component alone, the
+   second row vanished and half the garment could be given no cloth at all. */
+const SET_ENTRIES = [
+  { key: "s1", style_ref_no: S1, panels: [P(CO_TOP, "c-allbody"), P(CO_TOP, "c-collar")] },
+];
+const SET_CANDIDATES = [
+  P(CO_TOP, "c-allbody"),
+  P(CO_BOTTOM, "c-allbody"),
+  P(CO_BOTTOM, "c-bottomfabric"),
+];
+const setOffered = (except: { key: string; style_ref_no: string | null }) => {
+  const taken = takenPanels(SET_ENTRIES, except);
+  return SET_CANDIDATES.filter((p) => !panelTaken(taken, p)).map(label).sort();
+};
+
+check(
+  "a Set item's BOTTOM panel survives its TOP twin being taken",
+  setOffered({ key: "s2", style_ref_no: S1 }),
+  ["BOTTOM|c-allbody", "BOTTOM|c-bottomfabric"],
+);
+refute(
+  "…and the twin is not withdrawn along with it (the 09-17 defect)",
+  setOffered({ key: "s2", style_ref_no: S1 }),
+  ["BOTTOM|c-bottomfabric"],
+);
+check(
+  "…while TOP's own is still withdrawn from a second entry",
+  setOffered({ key: "s2", style_ref_no: S1 }).includes("TOP|c-allbody"),
+  false,
+);
+
+/* AN UNSTATED COORDINATE COLLIDES BOTH WAYS — a row stored before 0569, or one
+   the backfill could not settle. It is a claim on the component whatever its
+   coordinate, so it blocks TOP and BOTTOM alike; the alternative lets a legacy
+   entry stop blocking a panel it is already planning cloth for, and the garment
+   is bought twice. */
+const LEGACY = [{ key: "l1", style_ref_no: S1, panels: [P(null, "c-allbody")] }];
+const legacyTaken = takenPanels(LEGACY, { key: "l2", style_ref_no: S1 });
+check(
+  "an unstated coordinate blocks every coordinate of its component",
+  [P(CO_TOP, "c-allbody"), P(CO_BOTTOM, "c-allbody"), P(CO_TOP, "c-collar")]
+    .filter((p) => !panelTaken(legacyTaken, p))
+    .map(label),
+  ["TOP|c-collar"],
+);
+/* …AND THE OTHER DIRECTION: a stated claim blocks an unstated candidate for the
+   same component, which is the half that is easy to leave out. */
+const STATED = [{ key: "t1", style_ref_no: S1, panels: [P(CO_TOP, "c-allbody")] }];
+check(
+  "…and a stated claim blocks an unstated candidate",
+  panelTaken(takenPanels(STATED, { key: "t2", style_ref_no: S1 }), P(null, "c-allbody")),
+  true,
 );
 
 // -- what the Save gate and the Done button both read ------------------------
@@ -950,7 +1048,7 @@ check(
 );
 check(
   "…then one with no components",
-  manualProblem(entry({ component_ids: [] }), NEEDED, null)?.refused,
+  manualProblem(entry({ panels: [] }), NEEDED, null)?.refused,
   "Choose which components this weight covers",
 );
 check(
@@ -1184,8 +1282,8 @@ check(
   "a colourway covered for the FRONT and not the RIB is still unassigned",
   unassignedCombos(
     [
-      entry({ component_ids: [FRONT] }),
-      entry({ component_ids: [RIB], assort_color_wise: true, combos: ["WHITE"] }),
+      entry({ panels: [P(CO_TOP, FRONT)] }),
+      entry({ panels: [P(CO_TOP, RIB)], assort_color_wise: true, combos: ["WHITE"] }),
     ],
     ["WHITE", "NAVY"],
   ),
@@ -1195,8 +1293,8 @@ check(
   "…which a document-level 'is it mentioned anywhere' check would have missed",
   unassignedCombos(
     [
-      entry({ component_ids: [FRONT], assort_color_wise: true, combos: ["WHITE", "NAVY"] }),
-      entry({ component_ids: [RIB], assort_color_wise: true, combos: ["WHITE"] }),
+      entry({ panels: [P(CO_TOP, FRONT)], assort_color_wise: true, combos: ["WHITE", "NAVY"] }),
+      entry({ panels: [P(CO_TOP, RIB)], assort_color_wise: true, combos: ["WHITE"] }),
     ],
     ["WHITE", "NAVY"],
   ),
@@ -1209,7 +1307,7 @@ check(
 );
 check(
   "a row naming no component is scaffolding and reports nothing",
-  unassignedCombos([entry({ component_ids: [] })], ["WHITE", "NAVY"]),
+  unassignedCombos([entry({ panels: [] })], ["WHITE", "NAVY"]),
   [],
 );
 

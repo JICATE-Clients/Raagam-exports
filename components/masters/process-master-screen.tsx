@@ -31,7 +31,7 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
-type SubRow = { key: string; sub_category: string; hsn_code: string };
+type SubRow = { key: string; sub_category: string };
 /** One row of the Fabric Stages grid — see `ProcessFabricStage` (0563). */
 type StageRow = { key: string; stage_id: string; is_base: boolean };
 
@@ -45,11 +45,7 @@ const BLANK = {
   for_garments: false,
   for_components: false,
   no_planning: false,
-  designwise_delivery: false,
   is_conversion: false,
-  is_print: false,
-  is_dyeing: false,
-  is_knitting: false,
   has_sub_categories: false,
   inactive: false,
 };
@@ -68,7 +64,7 @@ const blankStage = (key: string): StageRow => ({ key, stage_id: "", is_base: fal
 
 /** One blank Sub Category row — same rule as `blankStage`: every key empty, and
  *  `normalizeSubCategories` drops a row whose `sub_category` was never typed. */
-const blankSub = (key: string): SubRow => ({ key, sub_category: "", hsn_code: "" });
+const blankSub = (key: string): SubRow => ({ key, sub_category: "" });
 
 const FOR_FLAGS: { key: keyof typeof BLANK; label: string }[] = [
   { key: "for_yarn", label: "Yarn" },
@@ -98,6 +94,14 @@ const FOR_FLAGS: { key: keyof typeof BLANK; label: string }[] = [
  *   spreadsheet can still walk through. Sl No in particular was the legacy
  *   hand-typed step order, and step order is now governed by the 5 standard
  *   process routes: "manual serial numbers cause sequencing errors".
+ * - **Sub-category HSN Code, Requires Designwise Delivery, and Is Print / Is
+ *   Dyeing / Is Knitting Process** — removed by the client on 2026-09-18 as
+ *   unnecessary. The first two had no reader and 0571 dropped their columns.
+ *   The three KIND flags are read by the Fabric BOM, so they left the FORM
+ *   only: they stay in the database as system-maintained data, seeded by
+ *   migrations — see `Process` in `lib/masters/process-types.ts` for why the
+ *   Fabric Stages grid cannot stand in for them. Use Conversion Process was
+ *   kept.
  */
 export function ProcessMasterScreen({
   rows,
@@ -207,19 +211,11 @@ export function ProcessMasterScreen({
       for_garments: r.for_garments,
       for_components: r.for_components,
       no_planning: r.no_planning,
-      designwise_delivery: r.designwise_delivery,
       is_conversion: r.is_conversion,
-      is_print: r.is_print,
-      is_dyeing: r.is_dyeing,
-      is_knitting: r.is_knitting,
       has_sub_categories: r.has_sub_categories,
       inactive: r.inactive,
     });
-    const loaded = r.sub_categories.map((c) => ({
-      key: newKey(),
-      sub_category: c.sub_category,
-      hsn_code: c.hsn_code ?? "",
-    }));
+    const loaded = r.sub_categories.map((c) => ({ key: newKey(), sub_category: c.sub_category }));
     // A record that HAS sub-categories switched on but no lines saved against it
     // opens with a row standing ready, the same as a new one — the second of the
     // three statements in the rule above, and the one an `openEdit` that merely
@@ -286,21 +282,13 @@ export function ProcessMasterScreen({
         for_garments: form.for_garments,
         for_components: form.for_components,
         no_planning: form.no_planning,
-        designwise_delivery: form.designwise_delivery,
         is_conversion: form.is_conversion,
-        is_print: form.is_print,
-        is_dyeing: form.is_dyeing,
-        is_knitting: form.is_knitting,
         has_sub_categories: form.has_sub_categories,
         inactive: form.inactive,
         sub_categories: form.has_sub_categories
           ? subs
               .filter((s) => s.sub_category.trim())
-              .map((s, i) => ({
-                sno: i + 1,
-                sub_category: s.sub_category.trim(),
-                hsn_code: s.hsn_code.trim() || null,
-              }))
+              .map((s, i) => ({ sno: i + 1, sub_category: s.sub_category.trim() }))
           : [],
         /* THE BLANK-ROW FILTER, and it tests `stage_id` and nothing else.
            `is_base` must never join it. A tick defaulting to `false` in an
@@ -370,10 +358,8 @@ export function ProcessMasterScreen({
         </span>
       ),
     },
-    {
-      header: "Designwise",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.designwise_delivery ? "Yes" : "—"}</span>,
-    },
+    /* NO "Designwise" COLUMN — its flag left the master on 2026-09-18 (see
+       `Process` in process-types.ts). */
     /* NO "Sl No" COLUMN. It was here, last before Status, and the client removed
        the field outright (doc/order/fabriprocess.md §4). Nothing sorts by it —
        this list is ordered by name in `listProcesses`, and the one feed that DID
@@ -653,8 +639,17 @@ export function ProcessMasterScreen({
 
           {/* Stacked, not paired: these read as sentences, and two of them side
               by side would wrap where "For"'s single words do not. (It said
-              "these three" while there were five and now six — the count was
-              never the argument, the sentence length is.) */}
+              "these three" while there were five, then six, and now two — the
+              count was never the argument, the sentence length is.)
+
+              FOUR FLAGS LEFT THIS SECTION ON 2026-09-18 (client: "unnecessary
+              backend flags"). Requires Designwise Delivery had no reader and
+              its column is gone (0571). Is Print / Is Dyeing / Is Knitting
+              Process are still READ by the Fabric BOM, so their columns stay
+              and migrations seed them; they are just no longer the operator's
+              to tick. Do not re-add them here without the client asking — and
+              do not "derive them from Fabric Stages" either; `Process` in
+              process-types.ts records why that under-buys. */}
           <DetailSection label="Planning">
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -665,15 +660,10 @@ export function ProcessMasterScreen({
               />
               <span className="text-sm text-foreground">Doesn&apos;t require planning for Receipt / Delivery</span>
             </label>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.designwise_delivery}
-                onChange={(e) => set({ designwise_delivery: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Requires Designwise Delivery</span>
-            </label>
+            {/* The one flag the client KEPT (2026-09-18), for the 10–20% of
+                processes run as a conversion job. Labelled in their words —
+                "Use Conversion Process" — rather than the old "Is …", which
+                read like the kind flags that left beside it. */}
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
@@ -681,50 +671,7 @@ export function ProcessMasterScreen({
                 checked={form.is_conversion}
                 onChange={(e) => set({ is_conversion: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Is Conversion Process</span>
-            </label>
-            {/* 0528 — read by the Fabric BOM ▸ Fabric Process picker to refuse
-                "Print" until the order has an AOP / Roll form print declared. */}
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.is_print}
-                onChange={(e) => set({ is_print: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Is Print Process</span>
-            </label>
-            {/* 0557 — read by the Fabric BOM ▸ Fabric Process picker to
-                withhold Dyeing from a Yarn-Dyed fabric's offered route. */}
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.is_dyeing}
-                onChange={(e) => set({ is_dyeing: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Is Dyeing Process</span>
-            </label>
-            {/* 0564 — read by the Fabric BOM demand engine to DROP Knitting
-                from the ladder of a fabric bought as ready-knitted greige or
-                dyed rolls (§2's Default Rule 2). Third of the same shape as the
-                two above, and the one whose consequence is worth knowing before
-                you decide: LEAVING IT UNTICKED ERRS UPWARD, NEVER DOWNWARD. The
-                yarn half of the suppression ignores this flag entirely, so an
-                unticked box cannot make the app buy too little yarn; what it
-                costs is a greige demand grossed by a knitting loss the cloth
-                never had — an over-buy of a percent or two. Do NOT tick it on
-                Knitting Dia, Flat Knitting or Knit Fabric Inspection: it means
-                the step that MAKES greige cloth, not any process with KNIT in
-                its name. */}
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.is_knitting}
-                onChange={(e) => set({ is_knitting: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Is Knitting Process</span>
+              <span className="text-sm text-foreground">Use Conversion Process</span>
             </label>
           </DetailSection>
 
@@ -741,8 +688,9 @@ export function ProcessMasterScreen({
               ships, at the section scale exactly as at the field scale. At
               `span={1}` the four tile 2 × 2 with nothing left over, and the
               section holds two checkboxes that never needed the width. The
-              grids it gates are rendered BELOW `SectionGrid` entirely, so they
-              are full width either way. */}
+              grids it gates are rendered BELOW this `SectionGrid`, in a row of
+              their own (compact tables side by side since 2026-09-18), so
+              this section's span never decided their width. */}
           <DetailSection label="Structure" cols={2}>
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -767,47 +715,79 @@ export function ProcessMasterScreen({
           </DetailSection>
         </SectionGrid>
 
-        {/* FULL WIDTH, below the sections. It was pinned in the right column,
-            which is what forced the permanent two-column split — and a child grid
-            of three columns is exactly the thing that wants the whole sheet. */}
-        {form.has_sub_categories && (
-            <ChildGrid<SubRow>
-              lockExisting
-              label="Sub Categories"
-              pageSize={10}
-              forceCards
-              flatRows
-              rows={subs}
-              onAdd={addSub}
-              onRemove={(s) => removeSub(s.key)}
-              addLabel="+ Add sub category"
-              renderMobileRow={(s) => (
-                <>
-                  <Input uppercase value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} placeholder="Sub Category" className="text-base md:text-sm" />
-                  {/* The row's second cell used to be a Short Description beside
-                      this one, two-per-row inside the card; the client removed
-                      that field from both places it appeared (2026-09-16,
-                      doc/order/fabriprocess.md §4) and 0565 dropped the column,
-                      so HSN Code now takes the line on its own. */}
-                  <Input uppercase value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
-                </>
-              )}
-              columns={[
-                {
-                  header: "Sub Category",
-                  cell: (s) => (
-                    <Input uppercase value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} className="text-base md:text-sm" />
-                  ),
-                },
-                {
-                  header: "HSN Code",
-                  cell: (s) => (
-                    <Input uppercase value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} className="text-base md:text-sm" />
-                  ),
-                },
-              ]}
-          />
-        )}
+        {/* ## TWO COMPACT TABLES, SIDE BY SIDE (client 2026-09-18, option B)
+
+            Sub Categories used to be `forceCards` + `flatRows`: one full-pane
+            card per row. It was sized for the two fields a row once held, and
+            after Short Description (0565) and HSN Code (0571) left, a 7-letter
+            name got a ~1,470px box with `flatRows`' `py-3` making a ~32px gap
+            under every row (screenshot 2026-09-18 123322: "why this much gap").
+            The client picked, from a mockup, a real table for it with Fabric
+            Stages moved up beside it.
+
+            THIS IS THE COLOR/PRINT DETAILS PATTERN (garment-order-screen.tsx),
+            not a new one: `SectionGrid wrap`, one flex basis per pane, and
+            `tableAlways` on each grid. `tableAlways` is needed because a
+            pane this narrow sits below `ChildGrid`'s `@lg` (512px) table
+            breakpoint, so without it both grids would fall back to the stacked
+            cards we are replacing. That is safe only because both tables fit
+            a phone (≤ 22.5rem); the rule is written on the prop.
+
+            EACH BASIS IS DERIVED FROM ITS COLUMNS, not rounded. `ChildGrid`'s
+            table is `#` 2.5rem (`w-10`) + the declared widths + ✕ 3rem, plus
+            the frame's 2px. The ✕ is 3rem because its `<th>` is
+            `w-12 min-w-12`; its `<col>` says 2rem but under `table-fixed` the
+            header cell's min-width wins. The first cut of this row used 2rem
+            and both tables came out ~10px wider than their panes.
+              Sub Categories  2.5 + 15        + 3 = 20.5rem → basis 21rem
+              Fabric Stages   2.5 + 8.5 + 8.5 + 3 = 22.5rem → basis 23rem
+            Change a column width and change its basis with it.
+
+            A PHONE IS THE TIGHT CASE. The Sheet body is `px-5`, which leaves
+            ~348px (21.75rem): Sub Categories fits; Fabric Stages (360px) goes
+            ~12px over and scrolls that much. Getting below that would take
+            either wrapping the "BASE PROCESS" header or a Stage box too small
+            for a stage name, both of which were the complaint on a desk.
+
+            GROW 0, UNLIKE THE COLOR/PRINT PANES (`flex-[1_1_…]`). Those three
+            fill a row between them; these two are meant to sit next to each
+            other at the left, as in the mockup. Grow 1 would stretch each pane
+            to half the sheet and push Fabric Stages out to the middle, with the
+            tables' hug leaving empty space inside each pane. `flex-wrap` still
+            drops Fabric Stages under Sub Categories on a narrow pane. */}
+        {(form.has_sub_categories || form.for_fabric) && (
+          <SectionGrid wrap>
+            {form.has_sub_categories && (
+              <div className="min-w-0 flex-[0_1_21rem]">
+                <ChildGrid<SubRow>
+                  lockExisting
+                  label="Sub Categories"
+                  pageSize={10}
+                  tableAlways
+                  rows={subs}
+                  onAdd={addSub}
+                  onRemove={(s) => removeSub(s.key)}
+                  addLabel="+ Add sub category"
+                  /* ONE CELL PER ROW. The row carried a Short Description
+                     until 2026-09-16 (0565) and an HSN Code until 2026-09-18
+                     (0571); the client removed both. HSN is stated once, on the
+                     process header above, which is the only HSN anything reads.
+                     No `renderMobileRow`: `tableAlways` never renders cards, so
+                     a second copy of the cell would be dead code. */
+                  columns={[
+                    {
+                      header: "Sub Category",
+                      /* 15rem: whatever keeps this table within a phone's
+                         width. See the row's arithmetic above. */
+                      width: "15rem",
+                      cell: (s) => (
+                        <Input uppercase value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} className="text-base md:text-sm" />
+                      ),
+                    },
+                  ]}
+                />
+              </div>
+            )}
 
         {/**
          * FABRIC STAGES (0563) — which stages this process may run in, and where
@@ -819,9 +799,13 @@ export function ProcessMasterScreen({
          * Printing of Print — one stage each, so a flag would have done. But
          * Stentering and Compacting are secondary steps in three different
          * stages at once, and a process's stage list is therefore a SET, not a
-         * value. `is_print` (0528) and `is_dyeing` (0557) up in Planning are the
-         * one-stage shape; this is the general one, and like both of those it is
-         * seeded once by its migration and operator-maintained from then on.
+         * value. It is seeded once by 0563 and operator-maintained from then on.
+         *
+         * The Is Print / Is Dyeing / Is Knitting ticks that once sat in Planning
+         * above (removed from the form 2026-09-18) looked like the one-stage
+         * special case of this grid and are NOT: a stage can have two bases
+         * (0570 — KNITTING and FABRIC PURCHASE both open GREIGE), so "base of
+         * Greige" cannot tell the knitting step from the purchase.
          *
          * ## "BASE" IS A TICK PER ROW AND NOT A CHOICE ACROSS THE STAGE
          *
@@ -859,17 +843,18 @@ export function ProcessMasterScreen({
          * opens with is dropped on save, so leaving it untouched says nothing.
          */}
         {form.for_fabric && (
+          <div className="min-w-0 flex-[0_1_23rem]">
           <ChildGrid<StageRow>
             label="Fabric Stages"
-            /* NO `forceCards` / `renderMobileRow`, unlike the Sub Categories grid
-               above — and that is deliberate rather than an oversight. A grid
-               that renders its own row states every cell TWICE (once in
-               `columns`, once in the row), and under `forceCards` the `columns`
-               half is then dead weight that nothing renders: the trap AGENTS.md
+            /* NO `forceCards` / `renderMobileRow`, deliberately. A grid that
+               renders its own row states every cell TWICE (once in `columns`,
+               once in the row), and under `forceCards` the `columns` half is
+               then dead weight that nothing renders: the trap AGENTS.md
                records for `ChildGridColumn.required`, where the header `*` draws
-               from a declaration the control never receives. Two cells is small
-               enough to say once. The responsive default gives a real two-column
-               table on the sheet and falls back to cards in a narrow pane. */
+               from a declaration the control never receives. `tableAlways`,
+               because this pane (23rem) is below the `@lg` table breakpoint; see
+               the row's note above for the widths and why they fit a phone. */
+            tableAlways
             rows={stageRows}
             onAdd={addStage}
             onRemove={(s) => removeStage(s.key)}
@@ -877,7 +862,14 @@ export function ProcessMasterScreen({
             columns={[
               {
                 header: "Stage",
-                width: "12rem",
+                /* 8.5rem (136px), down from 12 when the grid moved into its
+                   half-row pane (2026-09-18). The live stages are GREIGE · DYED
+                   · WASH · PRINT: after the cell's `px-1.5` and the control's
+                   `px-3` that leaves ~100px, with the chevron overlaid rather
+                   than reserving space (`combobox.tsx`), and GREIGE needs ~55.
+                   The width went to Base Process, whose header must fit on one
+                   line. */
+                width: "8.5rem",
                 cell: (s) => (
                   <LookupDialogPicker
                     kind="fabric_stage"
@@ -902,18 +894,44 @@ export function ProcessMasterScreen({
                    for Greige, Dyeing for Dyed, Washing for Washed, Printing for
                    Printed. Everything else in a stage is a secondary step. */
                 header: "Base Process",
+                /* A width is required here, not optional: `hugsContent` (and
+                   with it the compact `w-auto table-fixed` table) turns on only
+                   when EVERY column declares one. Without it the table goes back
+                   to `w-full min-w-[420px]`, wider than its pane.
+
+                   8.5rem, NOT 7 (client screenshot 2026-09-18 124421: the
+                   header broke onto two lines). `GRID_HEADER_TEXT` is 12.5px
+                   bold, upper case, 0.06em tracking, so "BASE PROCESS" is ~111px
+                   of text plus the `<th>`'s `px-2` and its border: ~128px. 8.5rem
+                   is 136px, a little spare for font rendering that differs from
+                   one machine to the next. */
+                width: "8.5rem",
+                align: "center",
                 cell: (s) => (
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={s.is_base}
-                    onChange={(e) => setStageAt(s.key, { is_base: e.target.checked })}
-                    aria-label="Base process for this stage"
-                  />
+                  /* LEVEL WITH THE PICKER, NOT AT THE CELL'S TOP. Every
+                     `ChildGrid` cell is `align-top`, deliberately (its own note:
+                     centring made mixed-height rows look like a staircase). So
+                     a 16px checkbox starts where a 32px (`h-8`) control starts,
+                     and sits visibly high beside the Stage picker (same
+                     screenshot). `h-8 items-center` puts it on the control's
+                     centre line, the same thing the grid's own ✕ cell does
+                     (`flex h-8 items-center justify-center`). */
+                  <div className="flex h-8 items-center justify-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={s.is_base}
+                      onChange={(e) => setStageAt(s.key, { is_base: e.target.checked })}
+                      aria-label="Base process for this stage"
+                    />
+                  </div>
                 ),
               },
             ]}
           />
+          </div>
+        )}
+          </SectionGrid>
         )}
       </Sheet>
     </div>

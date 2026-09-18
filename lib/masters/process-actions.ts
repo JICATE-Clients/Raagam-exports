@@ -23,21 +23,15 @@ function rev(): void {
 /** Clear sub-categories when Has Sub Categories is off; else drop blank-name
  *  rows and renumber sno 1..n so persisted lines mirror the checkbox.
  *
- *  `short_description` is NOT here: the client removed it from both the header
- *  and this grid (2026-09-16, doc/order/fabriprocess.md §4) and 0565 dropped the
- *  columns — see `lib/masters/process-types.ts`. */
-function normalizeSubCategories(
-  data: ProcessInput,
-): { sno: number; sub_category: string; hsn_code: string | null }[] {
+ *  `short_description` and `hsn_code` are NOT here: the client removed the first
+ *  on 2026-09-16 (doc/order/fabriprocess.md §4, dropped by 0565) and the second
+ *  on 2026-09-18 (dropped by 0571) — see `lib/masters/process-types.ts`. */
+function normalizeSubCategories(data: ProcessInput): { sno: number; sub_category: string }[] {
   if (!data.has_sub_categories) return [];
   return data.sub_categories
-    .map((c) => ({ ...c, sub_category: c.sub_category.trim() }))
-    .filter((c) => c.sub_category.length > 0)
-    .map((c, i) => ({
-      sno: i + 1,
-      sub_category: c.sub_category,
-      hsn_code: c.hsn_code?.trim() || null,
-    }));
+    .map((c) => c.sub_category.trim())
+    .filter((name) => name.length > 0)
+    .map((sub_category, i) => ({ sno: i + 1, sub_category }));
 }
 
 /**
@@ -124,8 +118,16 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
   const p = processInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { sub_categories: _drop, ...header } = p.data;
+  /* BOTH CHILD GRIDS COME OFF THE HEADER, and `fabric_stages` was missed when
+     0563 added it — `createProcess` above strips both, this one stripped only
+     `sub_categories`, so every EDIT sent the stage rows to `processes` as if
+     they were a column and PostgREST refused the save outright:
+     "Could not find the 'fabric_stages' column of 'processes'" (client
+     2026-09-17). A child grid's rows are written by their own insert below;
+     nothing here may reach the header update. */
+  const { sub_categories: _drop, fabric_stages: _dropStages, ...header } = p.data;
   void _drop;
+  void _dropStages;
   const dup = await checkDuplicateName(s, "processes", header.name, { excludeId: id });
   if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("processes").update(header).eq("id", id);

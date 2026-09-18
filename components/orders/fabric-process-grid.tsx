@@ -74,6 +74,7 @@ import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
   MAX_ROUTE_STAGES,
   baseProcessMissing,
+  baseProcessRepeated,
   baseProcessesForStage,
   blankFabricProcess,
   dyeingBlocked,
@@ -81,6 +82,11 @@ import {
   printBlocked,
   processesForFabric,
   stageMismatchBlocked,
+  /* 0570 — the forward-only half of the stage rule. Both come from the same
+     barrel as everything above, so this grid still reads ONE import for the
+     whole Fabric Process contract. */
+  stageRegressionBlocked,
+  stagesForRow,
   type FabricProcessLookups,
   type FabricProcessOption,
   type FabricProcessRow,
@@ -436,17 +442,40 @@ export function FabricProcessGrid({
       width: "7rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
-        <LookupDialogPicker
-          kind="fabric_stage"
-          label="Stage"
-          compact
-          options={lookups.stages}
-          value={r.stage_id}
-          onChange={(id) => patch(r.key, { stage_id: id || null })}
-          required={fabricProcessRowStarted(r)}
-          canCreate={canCreate && !readOnly}
-          canEdit={canEdit && !readOnly}
-        />
+        <div className="min-w-0">
+          <LookupDialogPicker
+            kind="fabric_stage"
+            label="Stage"
+            compact
+            /* 0570 — A ROUTE ONLY MOVES FORWARD. The list is narrowed to the
+               stage this branch has already reached and anything after it, so
+               a fabric cannot be sent back to Greige once it is dyed, washed
+               or printed (client spec 2026-09-18 §2, "Irreversible State
+               Transitions"). Withheld from the list rather than blocked after
+               the fact — the same idiom as the Process narrowing below — and
+               the value a row already HOLDS always survives, with the twin
+               underneath naming it. An operator-invented stage is unranked and
+               therefore never withheld; see `stageRank`. */
+            options={stagesForRow(lookups.stages, rowsInBranch(r), indexInBranch(r))}
+            value={r.stage_id}
+            onChange={(id) => patch(r.key, { stage_id: id || null })}
+            required={fabricProcessRowStarted(r)}
+            canCreate={canCreate && !readOnly}
+            canEdit={canEdit && !readOnly}
+          />
+          {/* INLINE TWIN of that narrowing — a stored route that already goes
+              backwards (one exists in production: DYEING, then HEAT SETTING
+              tagged Greige, then DYEING again). It names the ledger
+              consequence, because that is the reason the rule exists and the
+              operator cannot see a ledger from here. */}
+          {stageRegressionBlocked(rowsInBranch(r), indexInBranch(r), lookups.stages) && (
+            <p className="mt-1 text-xs text-warning">
+              This route has already reached a later stage — a fabric cannot go
+              back to{" "}
+              {lookups.stages.find((s) => s.id === r.stage_id)?.name ?? "an earlier stage"}.
+            </p>
+          )}
+        </div>
       ),
     },
     {
@@ -571,6 +600,18 @@ export function FabricProcessGrid({
               it (`stage-routes.ts` would be a runtime cycle the other way),
               so a twin handed different gates warns about a row the
               narrowing itself permitted. */}
+          {/* 0570, client rule 2 — the step that opened this stage, claimed a
+              second time. NARROW ON PURPOSE: a process repeated in ANOTHER
+              stage is fine (chains 2 and 4 compact after dyeing and again
+              after printing), so only a stage's own entry step is refused. No
+              gates: "is this process a base of this stage" is a question about
+              the classification alone. */}
+          {baseProcessRepeated(rowsInBranch(r), indexInBranch(r), processes) && (
+            <div className="mt-0.5 text-xs text-warning">
+              {processes.find((p) => p.id === r.process_id)?.name ?? "This step"} already
+              moved this fabric into {stageName(r.stage_id)} — a stage is entered once.
+            </div>
+          )}
           {baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, {
             printDeclared,
             fabricIsYarnDyed,

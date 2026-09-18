@@ -4,17 +4,19 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import { missingFabricLineFields } from "./fabric-line-rules";
+import { isYarnDyed, missingFabricLineFields } from "./fabric-line-rules";
 /* THE ONE RULE DECIDING WHICH ROUTE STEPS SURVIVE (2026-09-16). It lives in
    `./processes.ts` beside `fabricProcessRowStarted` rather than here because
    the SCREEN reads it too, and a `"use server"` file can export nothing but
    async Server Functions — so this file cannot be the home of a predicate two
    readers share. See its own header for the drift that made it one function. */
-import { processRowInScope } from "./processes";
+import { processRowInScope, stageRouteProblems } from "./processes";
 import { yarnShadesFrom } from "./yarn-dyed";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
 import {
   getBomYarnComposition,
+  getFabricProcessLookupRows,
+  getFabricProcessRows,
   getOrderFabricSeed,
   getOrderPalette,
   getOrderProduction,
@@ -33,7 +35,7 @@ import {
   isRefusal,
   type Refusal,
 } from "./requirement";
-import { consumptionMap } from "./manual";
+import { componentIdsOf, consumptionMap, panelKeyOf, type ManualPanel } from "./manual";
 import { fabricBomEntryRegister, yarnFabricRequirementReport } from "./reports";
 /* Color/Print Details' three panels write the ORDER's palette (client
    2026-09-02). The diff and the citation guard are pure and shared with the
@@ -206,10 +208,16 @@ function normalizeManualEntries(data: FabricBomInput) {
          the belt on the braces rather than a second opinion. */
       size_wise: e.size_wise ?? false,
       sno: 0,
-      /* DEDUPED, because `uq_ofbmc_entry_component` would reject the second copy
-         and take the whole save with it. The multi-select cannot produce one
-         today; a `lib/data-io` import could. */
-      component_ids: [...new Set(e.component_ids ?? [])],
+      /* DEDUPED ON THE PAIR (0569), because `uq_ofbmc_entry_panel` would reject
+         the second copy and take the whole save with it. Keyed through
+         `panelKeyOf` rather than by hand: that index counts an unstated
+         coordinate as one value (`coalesce` to the all-zero uuid) and so does
+         the key, so the two cannot disagree about what a duplicate is. The
+         sheet cannot produce one today; a `lib/data-io` import could.
+
+         TOP's ALL BODY AND BOTTOM's ALL BODY SURVIVE EACH OTHER, which is the
+         whole of 0569: one component, two coordinates, two panels. */
+      panels: dedupePanels(e.panels ?? []),
       /* WHICH COLOURWAYS THIS WEIGHT IS FOR (0567). Deduped for
          `uq_ofbmcb_entry_combo`'s sake, exactly as the panels above are, and
          TRIMMED because the value is compared with `comboKey` downstream while
@@ -229,8 +237,28 @@ function normalizeManualEntries(data: FabricBomInput) {
        `structure_id` here in 0522 for the reason the whole entry changed grain:
        the structure is no longer typed, so a row carrying one and nothing else
        is a row the planner never started. */
-    .filter((e) => e.item_id !== null || e.component_ids.length > 0)
+    .filter((e) => e.item_id !== null || e.panels.length > 0)
     .map((e, i) => ({ ...e, sno: i + 1 }));
+}
+
+/**
+ * THE PANELS ONE ENTRY STORES, deduped on the (coordinate, component) PAIR.
+ *
+ * `uq_ofbmc_entry_panel` (0569) counts an unstated coordinate as one value — it
+ * indexes `coalesce(coordinate_id, <all-zero uuid>)` — and `panelKeyOf` spells
+ * the same thing, so a payload that names one panel twice is thinned here
+ * rather than taking the whole save down at the insert.
+ */
+function dedupePanels(panels: readonly ManualPanel[]): ManualPanel[] {
+  const seen = new Set<string>();
+  const out: ManualPanel[] = [];
+  for (const p of panels) {
+    const k = panelKeyOf(p);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ coordinate_id: p.coordinate_id ?? null, component_id: p.component_id });
+  }
+  return out;
 }
 
 /**
@@ -1499,14 +1527,14 @@ async function writeLines(
   if (entries.length) {
     const { data: inserted, error } = await s
       .from("order_fabric_bom_manual_entries")
-      /* `component_ids`, `combos` AND `sizes` ARE STRIPPED HERE, BY NAME. They
+      /* `panels`, `combos` AND `sizes` ARE STRIPPED HERE, BY NAME. They
          ride on the normalized entry so that each can be paired with the id
          this insert reads back; PostgREST would reject the whole batch on an
          unknown column, which is the good failure. The bad one is a rename that
          makes any of them resolve to something real, so the strip is written out
          at the one place it has to happen rather than left to a spread. */
       .insert(
-        entries.map(({ component_ids: _c, combos: _cb, sizes: _z, ...e }) => ({
+        entries.map(({ panels: _c, combos: _cb, sizes: _z, ...e }) => ({
           ...e,
           bom_id: bomId,
         })),
@@ -1523,8 +1551,14 @@ async function writeLines(
       return fail("Could not read back the saved manual entries");
     }
 
+    /* THE PAIR IS WRITTEN WHOLE (0569) — `coordinate_id` beside the component,
+       so the row says which half of a Set item its weight is for. */
     const componentRows = savedEntries.flatMap((e) =>
-      e.component_ids.map((component_id) => ({ entry_id: e.id, component_id })),
+      e.panels.map((p) => ({
+        entry_id: e.id,
+        coordinate_id: p.coordinate_id,
+        component_id: p.component_id,
+      })),
     );
     if (componentRows.length) {
       const { error: cErr } = await s
@@ -1645,10 +1679,15 @@ function fabricGrossOf(
   requirement: readonly Record<string, unknown>[],
   entries: readonly EntryRowWithId[],
 ): FabricGross[] {
-  /* WHICH PANELS EACH ENTRY COVERS — the same `component_ids` written to
+  /* WHICH COMPONENTS EACH ENTRY COVERS — the same panels written to
      `order_fabric_bom_manual_components` a few lines up, so a "Component
-     Wise" route (0528) can be resolved per bucket (`stagesForGroup`). */
-  const componentsByEntry = new Map(entries.map((e) => [e.id, e.component_ids]));
+     Wise" route (0528) can be resolved per bucket (`stagesForGroup`).
+
+     THE COORDINATE STOPS HERE, deliberately (0569). A route step names a
+     component and knows nothing of coordinates, so a Set item's TOP and BOTTOM
+     All Body run the same sequence; `componentIdsOf` is the one place that
+     flattening lives, and it dedupes so one route cannot be applied twice. */
+  const componentsByEntry = new Map(entries.map((e) => [e.id, componentIdsOf(e.panels)]));
   /* KEYED BY (entry, COLOURWAY) SINCE 0504, not by entry alone. A stage may
      treat PURPLE and not GREEN, so the yarn has to be weighed per colourway
      before any loss is applied — summing an entry's slices into one figure first
@@ -1754,6 +1793,115 @@ async function yarnDyedProblem(
     if (problems.length) return problems[0].message;
   }
   return null;
+}
+
+/**
+ * THE STAGE RULES, AS A GUARD RATHER THAN AS A DROPDOWN (0570).
+ *
+ * Client spec 2026-09-18 §2: a fabric line that has moved to DYED / WASH /
+ * PRINT cannot revert to GREY, and a stage's primary process is locked to it
+ * ("You cannot select Dyeing under a GREY stage tag"). The client chose the
+ * strict reading when asked — refuse the save.
+ *
+ * ## WHY THIS EXISTS WHEN THE PICKER ALREADY NARROWS
+ *
+ * Because until today the ONLY enforcement was the picker. `normalizeProcesses`
+ * writes `stage_id` straight through, `order_fabric_bom_processes.stage_id` is a
+ * plain nullable FK whose only CHECKs are on `loss_pct` and `rate`, and the
+ * Fabric Process section declared no Save problem at all — so a stale page, a
+ * replayed request or a future writer stored any pair at all. AGENTS.md's
+ * standing split, which `checkDuplicateName` states in as many words: the
+ * screen check is a courtesy, this one is the guard. And the stakes are the four
+ * stock ledgers rather than a tidy grid: a live route already carries
+ * `[DYED] FABRIC PURCHASE` — greige cloth booked as dyed.
+ *
+ * ## IT READS THE CLASSIFICATION, IT DOES NOT TRUST THE PAYLOAD
+ *
+ * `getFabricProcessRows()` is the SAME reader the screen's options come from
+ * (exported for this), so "what the grid offered" and "what the save accepts"
+ * cannot drift into two select strings. It throws rather than defaulting if
+ * `process_fabric_stages` is unreadable, which is deliberate there: an empty map
+ * would read as "nothing is classified" and switch the whole rule off silently.
+ * Same argument as `processKindsOf` above.
+ *
+ * ## THE GATES, AND THE ONE RESIDUAL DIVERGENCE, STATED
+ *
+ * `stageMismatchBlocked`'s floor test runs on the GATED list, so this guard has
+ * to gate the same way the screen did or it reports rows the operator was never
+ * warned about — the narrowing/twin divergence this module has already suffered
+ * three times. `fabricIsYarnDyed` is resolved from `items.fabric_type` here, the
+ * same way `yarnDyedProblem` above resolves it and for the same reason (the
+ * payload must not be able to answer it).
+ *
+ * `printDeclared` is passed TRUE rather than re-read from the order's prints,
+ * and that is a judgement with a cost worth naming. It only ever WITHHOLDS
+ * print-flagged processes from the offered list, so the only way it can matter
+ * here is if a stage's ONLY allowed processes are print-flagged: then the screen
+ * sees an empty stage (floor in effect, silent) while this guard sees one and
+ * refuses. With the shipped classification that cannot happen — the Printed
+ * stage also holds DIP-WASH, GUM CUTTING and COMPACTING, and no other stage
+ * holds a print-flagged process at all. If someone later classifies a stage to
+ * print steps ALONE, the symptom is one refusal the screen did not predict, not
+ * lost data; the fix then is to read the order's prints here too.
+ */
+async function stageRouteProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<string | null> {
+  const rows = data.processes.filter((p) => p.stage_id || p.process_id);
+  if (rows.length === 0) return null;
+
+  const [options, lookups] = await Promise.all([
+    getFabricProcessRows(),
+    getFabricProcessLookupRows(),
+  ]);
+  if (!lookups.stages.length) return null;
+
+  const fabricIds = [...new Set(rows.map((r) => r.item_id))];
+  const { data: itemRows } = await s
+    .from("items")
+    .select("id, fabric_type:config_lookups!fabric_type_id(name)")
+    .in("id", fabricIds);
+  /* THE EMBED IS AN ARRAY OR AN OBJECT depending on how PostgREST reads the
+     relationship — normalised, never cast away, exactly as `yarnDyedProblem`
+     does it. A cast that lies here reads a yarn-dyed fabric as untyped and
+     hands the rule the wrong gate. */
+  const nameOf = (v: { name: string | null } | { name: string | null }[] | null) =>
+    Array.isArray(v) ? (v[0]?.name ?? null) : (v?.name ?? null);
+  const typeById = new Map(
+    ((itemRows ?? []) as unknown as {
+      id: string;
+      fabric_type: { name: string | null } | { name: string | null }[] | null;
+    }[]).map((r) => [r.id, nameOf(r.fabric_type)]),
+  );
+
+  /* THE PAYLOAD ROW IS NOT A SCREEN ROW: it carries no `key` (that is client
+     state) and its `sno` is already the position the screen sent. The rule
+     needs a stable row identity only to report WHICH row, and the payload's
+     own order is the route order — the same order `normalizeProcesses` turns
+     into `sno` a few lines below. */
+  const problems = stageRouteProblems(
+    rows.map((r, i) => ({
+      key: String(i),
+      item_id: r.item_id,
+      combo: r.combo ?? null,
+      component_id: r.component_id ?? null,
+      stage_id: r.stage_id ?? null,
+      process_id: r.process_id ?? null,
+      loss_for_id: r.loss_for_id ?? null,
+      loss_pct: r.loss_pct == null ? "" : String(r.loss_pct),
+      type_id: r.type_id ?? null,
+    })),
+    options,
+    lookups.stages,
+    {
+      gatesFor: (itemId) => ({
+        printDeclared: true,
+        fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null),
+      }),
+    },
+  );
+  return problems[0]?.message ?? null;
 }
 
 /**
@@ -1972,6 +2120,13 @@ export async function createFabricBom(data: FabricBomFormInput): Promise<Result>
   const ydProblem = await yarnDyedProblem(s, p.data);
   if (ydProblem) return fail(ydProblem);
 
+  /* THE STAGE RULES (0570) — beside the yarn-dyed guard and before anything is
+     written, for the reason `writePalette` states: a refusal must leave nothing
+     behind, and on the create path the header insert is what mints the
+     document. */
+  const routeProblem = await stageRouteProblem(s, p.data);
+  if (routeProblem) return fail(routeProblem);
+
   // BEFORE THE HEADER INSERT — see `writePalette`. A refused palette must not
   // leave a BOM behind that the operator was never told about.
   const paletteRes = await writePalette(s, p.data.garment_order_id, p.data.palette);
@@ -2021,6 +2176,13 @@ export async function updateFabricBom(id: string, data: FabricBomFormInput): Pro
      (AGENTS.md, Duplicates). */
   const ydProblem = await yarnDyedProblem(s, p.data);
   if (ydProblem) return fail(ydProblem);
+
+  /* THE STAGE RULES (0570) — beside the yarn-dyed guard and before anything is
+     written, for the reason `writePalette` states: a refusal must leave nothing
+     behind, and on the create path the header insert is what mints the
+     document. */
+  const routeProblem = await stageRouteProblem(s, p.data);
+  if (routeProblem) return fail(routeProblem);
 
   // Before the update, for the same reason as create: a refusal leaves the
   // document exactly as it was rather than half-written.

@@ -78,6 +78,53 @@ export function calcModeOf(v: string | null | undefined): CalcMode {
 const num = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
 
+/**
+ * ONE PANEL A MANUAL ENTRY'S WEIGHT COVERS — a (coordinate, component) PAIR
+ * (0569), and the pair is the whole point.
+ *
+ * A SET ITEM DECLARES ONE COMPONENT UNDER TWO COORDINATES. The order's own
+ * declaration is keyed that way already —
+ * `garment_order_amendment_style_components (style_ref_no, coordinate_id,
+ * component_id, fabric_category_id)` — so "ALL BODY of TOP" and "ALL BODY of
+ * BOTTOM" are two panels of one garment wearing one master row. Holding a
+ * component id alone cannot tell them apart: the picker listed them once, the
+ * Coordinate column printed whichever declaration it found first, and ticking
+ * one made the other unreachable (client 2026-09-17, Order #9).
+ *
+ * `coordinate_id` NULL MEANS "UNSTATED", NEVER "NO COORDINATE" — every row
+ * stored before 0569, plus any the migration's backfill could not settle. It
+ * collides with every coordinate of its component in `panelTaken`, both ways,
+ * exactly as an unscoped `style_ref_no` collides with every style.
+ *
+ * The LINES side has carried this pair since 0495 (`fabricBomLineInput`'s own
+ * comment argues it in as many words). Manual was the outlier.
+ */
+export type ManualPanel = {
+  coordinate_id: string | null;
+  component_id: string;
+};
+
+/** The identity of a panel, for a Set / Map key. One function, so the picker,
+ *  the rules and the screen cannot spell the pair three different ways.
+ *  `|` is safe as the separator: neither half is anything but a uuid. */
+export function panelKeyOf(p: ManualPanel): string {
+  return `${p.coordinate_id ?? ""}|${p.component_id}`;
+}
+
+/**
+ * THE COMPONENTS A SET OF PANELS TOUCHES, deduped — for the readers that are
+ * about the CLOTH rather than about the garment's parts.
+ *
+ * `stagesForGroup` (yarn-process.ts) resolves a "Component Wise" route by
+ * component, because a route step names a component and knows nothing of
+ * coordinates; a Set item's two All Body panels run the same route. So the
+ * coordinate stops here deliberately: it is what the planner allocates by, not
+ * something the arithmetic divides on.
+ */
+export function componentIdsOf(panels: readonly ManualPanel[]): string[] {
+  return [...new Set(panels.map((p) => p.component_id))];
+}
+
 /** One size row of one entry, as much of it as the arithmetic needs. */
 export type ManualSizeInput = {
   /** `config_lookups` id. NULL is a size the order no longer states. */
@@ -275,6 +322,30 @@ export function consQtyOf(row: Pick<ManualSizeInput, "cons_qty">): number {
 }
 
 /**
+ * IS THIS A CONS QTY THE COLUMN WILL REFUSE? (client 2026-09-17: Save failed
+ * with `order_fabric_bom_manual_sizes_cons_qty_check`.)
+ *
+ * The header above says the column refuses zero "so this never has to decide
+ * what no cloth per garment would mean" — true, but nothing on the way TO the
+ * column refused it, so a planner typing 0 for "none" got the raw Postgres
+ * error at Save. Blank is the answer for "one per garment"; a typed 0 is NOT
+ * rewritten to blank, because that would silently turn it into 1.
+ *
+ * The test is on the value AS STORED: `numeric(12,4)` rounds first and checks
+ * after, so 0.00004 lands as 0.0000 and is refused exactly like 0. One
+ * function, read by `manualProblem` (the screen's Save gate) and by the
+ * `fabricBomInput` schema (every save path, drafts included).
+ */
+export function consQtyRefused(v: unknown): boolean {
+  const n = num(v);
+  return n != null && Math.round(n * 10000) <= 0;
+}
+
+/** The sentence both refusals use, so the screen and the server agree. */
+export const CONS_QTY_REFUSAL =
+  "Cons Qty must be more than 0 — leave it blank for one per garment";
+
+/**
  * Step 1 — Net Weight (Kg) = Order Quantity x Cons Qty x Cons Wt(g) / 1000.
  *
  * The client's worked example: 500 pcs x 1 x 120 g = 60,000 g = 60 kg.
@@ -430,7 +501,9 @@ export type ManualEntryLike = {
    *  Kept on the shape because `consumptionMap`'s callers still key GSM by it. */
   structure_id: string | null;
   calc_mode: string | null;
-  component_ids: readonly string[];
+  /** WHICH PANELS THIS WEIGHT COVERS — (coordinate, component) PAIRS since
+   *  0569, never component ids. See `ManualPanel`. */
+  panels: readonly ManualPanel[];
   /** Legacy's "Assort Color wise" checkbox (0522). OFF means this weight is for
    *  EVERY colourway of its style — which is what the engine has always done,
    *  and what it still does. ON means `combos` names them. */
@@ -503,17 +576,29 @@ export type ManualEntryLike = {
  * entry's own components would be missing from its own dropdown, so opening a
  * saved entry would show it as having selected nothing and the first edit would
  * clear it.
+ *
+ * ## KEYED BY THE (COORDINATE, COMPONENT) PAIR SINCE 0569
+ *
+ * It was keyed by component alone, which is right for a Piece item and wrong for
+ * a Set: TOP's ALL BODY and BOTTOM's ALL BODY are two panels, and withdrawing
+ * the second because the first was ticked left half the garment with no cloth
+ * and no way to ask for any (client 2026-09-17, Order #9). The returned shape is
+ * a Map of component -> the coordinates claimed, read through `panelTaken`
+ * below — never by looking inside it, which is where the wildcard would get
+ * spelled a second way.
  */
-export function takenComponentIds(
+export type TakenPanels = Map<string, Set<string>>;
+
+export function takenPanels(
   entries: readonly {
     key: string;
     style_ref_no: string | null;
-    component_ids: readonly string[];
+    panels: readonly ManualPanel[];
   }[],
   except: { key: string; style_ref_no: string | null },
-): Set<string> {
+): TakenPanels {
   const mine = styleKeyOf(except.style_ref_no);
-  const out = new Set<string>();
+  const out: TakenPanels = new Map();
   for (const e of entries) {
     if (e.key === except.key) continue;
     /* SCOPED TO THE STYLE (0495), and this is what the rule always wanted. 0494
@@ -529,9 +614,37 @@ export function takenComponentIds(
     if (mine !== null && styleKeyOf(e.style_ref_no) !== null && styleKeyOf(e.style_ref_no) !== mine) {
       continue;
     }
-    for (const id of e.component_ids) out.add(id);
+    for (const p of e.panels) {
+      const coords = out.get(p.component_id) ?? new Set<string>();
+      coords.add(p.coordinate_id ?? "");
+      out.set(p.component_id, coords);
+    }
   }
   return out;
+}
+
+/**
+ * IS THIS PANEL ALREADY SPOKEN FOR? — the membership half of the rule above,
+ * kept beside it so the wildcard is stated once.
+ *
+ * "" IS THE UNSTATED COORDINATE and it collides BOTH WAYS (0569):
+ *
+ *   · a claim with no coordinate covers every coordinate of its component — a
+ *     legacy entry planning ALL BODY is planning cloth for it whichever half of
+ *     the Set it turns out to belong to, and letting TOP's ALL BODY be ticked
+ *     beside it buys the panel twice;
+ *   · a candidate with no coordinate is blocked by any claim on its component,
+ *     for the same reason read from the other end.
+ *
+ * TOP AND BOTTOM DO NOT COLLIDE, which is the whole change: two coordinates of
+ * one Set item are two panels, and the garment needs cloth for both.
+ */
+export function panelTaken(taken: TakenPanels, p: ManualPanel): boolean {
+  const coords = taken.get(p.component_id);
+  if (!coords) return false;
+  if (coords.has("")) return true;
+  if (p.coordinate_id === null) return true;
+  return coords.has(p.coordinate_id);
 }
 
 /** Styles are keyed by VALUE throughout orders, so they are compared the way
@@ -571,7 +684,7 @@ export function manualProblem(
   if (!entry.item_id) {
     return { refused: "Choose the fabric this weight is for" };
   }
-  if (entry.component_ids.length === 0) {
+  if (entry.panels.length === 0) {
     return { refused: "Choose which components this weight covers" };
   }
   /* ASSORT COLOUR-WISE WITH NO COLOUR TICKED (0567) — asked here, between the
@@ -601,6 +714,17 @@ export function manualProblem(
       refused:
         "This fabric's structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
     };
+  }
+
+  /* A ZERO CONS QTY BEFORE THE MISSING WEIGHTS: it is a typed value the save
+     will reject outright, where a missing weight is only unfinished work.
+     Named by size, capped at three, the same shape as the sentence below. */
+  const zeroed = entry.sizes.filter((z) => z.size_id && consQtyRefused(z.cons_qty));
+  if (zeroed.length > 0) {
+    const labelOf = (id: string | null) => needed.find((n) => n.size_id === id)?.label ?? "a size";
+    const names = zeroed.slice(0, 3).map((z) => labelOf(z.size_id)).join(", ");
+    const more = zeroed.length > 3 ? ` and ${zeroed.length - 3} more` : "";
+    return { refused: `${CONS_QTY_REFUSAL} (${names}${more})` };
   }
 
   const map = consumptionMap(entry.calc_mode, entry.sizes, gsm);
@@ -661,17 +785,23 @@ export function unassignedCombos(
   const wanted = orderCombos.filter((c) => (c ?? "").trim() !== "");
   if (wanted.length === 0) return [];
 
-  /* PER COMPONENT: the colourways its entries between them cover. `null` is the
-     "covers everything" marker — a component with at least one entry whose
-     toggle is off can never be short of a colour. */
+  /* PER PANEL: the colourways its entries between them cover. `null` is the
+     "covers everything" marker — a panel with at least one entry whose toggle
+     is off can never be short of a colour.
+
+     KEYED BY THE PAIR SINCE 0569, like the allocation rule above. On a Set item
+     TOP's ALL BODY and BOTTOM's ALL BODY are planned separately, so a colourway
+     covered on one and missed on the other is exactly the gap this reports —
+     keying by component alone would let the first hide the second. */
   const covered = new Map<string, Set<string> | null>();
   for (const e of entries) {
     // Scaffolding: a row naming no panel plans no cloth and is `manualProblem`'s
     // business, not this one's.
-    if (e.component_ids.length === 0) continue;
+    if (e.panels.length === 0) continue;
     const all = !e.assort_color_wise;
     const mine = all ? null : new Set((e.combos ?? []).map((c) => comboKeyOf(c)));
-    for (const id of e.component_ids) {
+    for (const panel of e.panels) {
+      const id = panelKeyOf(panel);
       const held = covered.get(id);
       if (held === null) continue; // already covers everything
       if (mine === null) {
