@@ -275,6 +275,30 @@ export function consQtyOf(row: Pick<ManualSizeInput, "cons_qty">): number {
 }
 
 /**
+ * IS THIS A CONS QTY THE COLUMN WILL REFUSE? (client 2026-09-17: Save failed
+ * with `order_fabric_bom_manual_sizes_cons_qty_check`.)
+ *
+ * The header above says the column refuses zero "so this never has to decide
+ * what no cloth per garment would mean" — true, but nothing on the way TO the
+ * column refused it, so a planner typing 0 for "none" got the raw Postgres
+ * error at Save. Blank is the answer for "one per garment"; a typed 0 is NOT
+ * rewritten to blank, because that would silently turn it into 1.
+ *
+ * The test is on the value AS STORED: `numeric(12,4)` rounds first and checks
+ * after, so 0.00004 lands as 0.0000 and is refused exactly like 0. One
+ * function, read by `manualProblem` (the screen's Save gate) and by the
+ * `fabricBomInput` schema (every save path, drafts included).
+ */
+export function consQtyRefused(v: unknown): boolean {
+  const n = num(v);
+  return n != null && Math.round(n * 10000) <= 0;
+}
+
+/** The sentence both refusals use, so the screen and the server agree. */
+export const CONS_QTY_REFUSAL =
+  "Cons Qty must be more than 0 — leave it blank for one per garment";
+
+/**
  * Step 1 — Net Weight (Kg) = Order Quantity x Cons Qty x Cons Wt(g) / 1000.
  *
  * The client's worked example: 500 pcs x 1 x 120 g = 60,000 g = 60 kg.
@@ -601,6 +625,17 @@ export function manualProblem(
       refused:
         "This fabric's structure states no single GSM on the order, so a weight cannot be calculated — enter it directly, or fix the GSM on the order",
     };
+  }
+
+  /* A ZERO CONS QTY BEFORE THE MISSING WEIGHTS: it is a typed value the save
+     will reject outright, where a missing weight is only unfinished work.
+     Named by size, capped at three, the same shape as the sentence below. */
+  const zeroed = entry.sizes.filter((z) => z.size_id && consQtyRefused(z.cons_qty));
+  if (zeroed.length > 0) {
+    const labelOf = (id: string | null) => needed.find((n) => n.size_id === id)?.label ?? "a size";
+    const names = zeroed.slice(0, 3).map((z) => labelOf(z.size_id)).join(", ");
+    const more = zeroed.length > 3 ? ` and ${zeroed.length - 3} more` : "";
+    return { refused: `${CONS_QTY_REFUSAL} (${names}${more})` };
   }
 
   const map = consumptionMap(entry.calc_mode, entry.sizes, gsm);

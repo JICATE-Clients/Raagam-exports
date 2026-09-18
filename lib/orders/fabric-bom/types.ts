@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FABRIC_BASES } from "./requirement";
+import { CONS_QTY_REFUSAL, consQtyRefused } from "./manual";
 import { capsTextNullable } from "@/lib/validation/formats";
 /* The route rows' own schema lives beside their narrowing rule, in
    `./processes.ts`, which is client-safe and is imported by the grid as well —
@@ -550,7 +551,7 @@ export const fabricBomManualSizeInput = z.object({
   /* "Cons Qty" — units of cloth per garment. NULLABLE and NULL MEANS 1: a
      column default would make an untouched row indistinguishable from a
      deliberate 1. `consQtyOf` is the one place that reading lives. */
-  cons_qty: numN,
+  cons_qty: numN.refine((v) => !consQtyRefused(v), CONS_QTY_REFUSAL),
   /* THE "Widths" POPUP'S ONE OTHER REAL FIELD (0526, replacing 0525's
      roll_width/roll_width_tolerance — see `FabricBomManualSize.finished_width`
      above). `purchase_width` above is the popup's second field. */
