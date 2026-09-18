@@ -15184,15 +15184,108 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                ~350px of content on a 414px phone: the row could not shrink, so
                it overflowed its own card.
 
-               So the four-column track now starts at `sm` (640px → ~576px of
-               content, comfortably over the 480px this needs) and the phone
-               gets two columns, ~163px each — still wide enough for a `compact`
-               picker, and half the height a full stack would cost on a card
-               that repeats per part. The ✕ takes the row under them
-               (`col-span-2 justify-self-end` on the Button) rather than being
-               auto-placed into a field's column. Desktop is byte-for-byte what
-               it was. */
-            className="grid grid-cols-2 items-end gap-x-3 gap-y-2 border-t border-border/60 pt-2 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(104px,1fr)_minmax(104px,1fr)_minmax(104px,1fr)_minmax(104px,1fr)_auto]"
+               EVERY FLOOR ABOVE IS NOW A CAP, AND THAT IS THE HEADLINE OF THE
+               2026-09-18 PASS (operator instruction: make the four "ultra-compact
+               and properly aligned", fitting "without overflowing or forcing
+               horizontal scrolling"). The track is
+               `minmax(0,7.5rem) minmax(0,7.5rem) minmax(0,6.5rem) minmax(0,6.5rem) auto`
+               — 120 / 120 / 104 / 104.
+
+               `minmax(0,X)` RATHER THAN A BARE `X`, AND THE ZERO IS THE WHOLE
+               POINT. A fixed column cannot give ground, so a row of them
+               overflows the instant its container is narrower than their sum —
+               which is precisely what "without overflowing" rules out, and what
+               the 452px-floor version above did on a 414px phone. A `minmax(0,X)`
+               column is never WIDER than X and always able to shrink, so the
+               row's width is capped and its overflow is impossible in the same
+               declaration. That is why this reads as four caps and not as
+               `w-32` on four controls: a width on the CONTROL leaves the CELL at
+               its old size (AGENTS.md's compact standard), and a fixed width on
+               the cell trades the too-wide bug for a scrollbar.
+
+               THE TWO PAIRS ARE SIZED BY WHAT THEY HOLD. Coordinate and Component
+               carry part names — "FRONT BODY" is the long one — so they cap at
+               120px; Colour ("BROWN") and Roll form print are shorter values and
+               cap at 104px. Nothing here is measured against a longest VALUE:
+               these are the compact standard's short-options and text bands, and
+               every one of the four truncates with an ellipsis and reveals on
+               hover, because all four are pickers or a Combobox (LAYOUT.md §14).
+
+               THE SUM, AGAINST THE PANE: 120 + 120 + 104 + 104 = 448, plus four
+               8px gaps and the ✕'s ~32px is ~512px inside this half's
+               `basis-[34rem]` (544px) — ~32px of slack where the previous track
+               had none. Below that the caps collapse rather than scroll.
+
+               `gap-x-2`, DOWN FROM `gap-x-3` (same instruction). 8px rather than
+               `FIELD_ROW`'s 12px, which is a deliberate local override and not a
+               new default: this is a hand-rolled grid, not a `FieldRow`, so the
+               12px the compact standard hands every field row is not being
+               changed for anything else. It buys 16px across the four gaps.
+
+               `items-center`, DOWN FROM `items-end` (same instruction). For five
+               cells that are each one control tall this is the same picture
+               `items-end` drew — the fields were never the misaligned part. The
+               ✕ is the one child it would have moved, and it opts out with
+               `self-end`; its own comment says why.
+
+               WHAT WAS ACTUALLY UNEVEN WAS NOT IN THIS TRACK AT ALL. Three of the
+               four controls pass `compact` and the Colour `Combobox` did not, so
+               it drew `field-affordance.tsx`'s full 28px ▼/✕ slot and `pr-8`
+               against its neighbours' 20px and `pr-6` — one cell in four with a
+               bigger trailing segment, truncating 8px sooner, at identical column
+               widths. Fixed on the control, where it lived. The lesson is the one
+               the 8.5rem paragraph below already teaches from the other side:
+               look at what the cell RESERVES before re-cutting what it is given.
+
+               THE FIRST CUT OF ROLL FORM PRINT WAS 8.5rem AND IT FAILED IN A WAY
+               WORTH RECORDING. 136px was borrowed from `printColumns` on the
+               Color/Print tab, which took this same field from 16rem to 8.5rem on
+               the client's own "compact size, tighten" (2026-09-05) and wrote down
+               the arithmetic: ~96px of text after padding, enough for "ALL OVER
+               PRINT". The number was right for THAT grid and wrong here, because a
+               width is only "compact" against its NEIGHBOURS: this half is
+               `basis-[34rem]`, so the three fluid columns resolved near 113px and a
+               136px cell made the field the operator had just called too wide into
+               the WIDEST column on the row. Borrowing a figure from another screen
+               carries its pixels but not the row it was measured in.
+
+               THE HORIZONTAL PADDING INSIDE THE BOXES IS DELIBERATELY UNCHANGED at
+               the primitives' `px-2.5`. `px-2` was asked for in the same
+               instruction and is not taken, for a reason worth stating rather than
+               silently ignoring: `DataPicker` exposes no `inputClassName`, so the
+               three pickers here could only get it by adding an escape hatch to a
+               primitive ~160 pickers render, and `select.tsx` records that the
+               whole control set moved `px-3` -> `px-2.5` together on 2026-09-08
+               with "keep it in step". The gain is 1px a side, 2px a field, 8px
+               across the row — against the caps above, which moved ~60px. If the
+               density is still wrong the answer is another 8px off a cap, not a
+               per-call-site override of a shared measurement.
+
+               THE CAP IS STATED TWICE ON PURPOSE — here on the track and again as
+               `sm:max-w-[7.5rem]` / `sm:max-w-[6.5rem]` on each of the four
+               `Field`s. The track alone is sufficient: `Field` is
+               `cn(FIELD_WIDTH[w], "min-w-0", className)`, so `className="w-full"`
+               makes the cell exactly its track and the `w-full` control inside it
+               cannot exceed 120px. The second statement is insurance against the
+               track being edited back to an `fr`, which is the one change that
+               would silently un-cap all four at once — and it puts the number
+               where someone reading the field expects to find it. Both are gated
+               at `sm`, because below it the row is two columns and the cells are
+               deliberately wider.
+
+               NOT `grid-cols-4`, WHICH WAS ASKED FOR AND WOULD UNDO THIS. Four
+               equal `1fr` columns are a FRACTION of whatever the half happens to
+               be, so they stretch to fill it — 136px each at this basis and wider
+               on a wider pane. That is the "a fraction cannot be made compact"
+               failure the compact standard opens with, and it is what the
+               `minmax(0,X)` caps exist to replace. It would also drop the fifth
+               track the ✕ stands in.
+
+               So the four-column track still starts at `sm` and the phone gets
+               two columns — but neither is a shrink-proof floor any more. The ✕
+               takes the row under them (`col-span-2 justify-self-end` on the
+               Button) rather than being auto-placed into a field's column. */
+            className="grid grid-cols-2 items-center gap-x-2 gap-y-2 border-t border-border/60 pt-2 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,7.5rem)_minmax(0,7.5rem)_minmax(0,6.5rem)_minmax(0,6.5rem)_auto]"
           >
             {/* NO `#N`, AND THEREFORE NO BAND (client 2026-08-17, screenshot
                 2332: "remove that #1, #2, all this kind of numbering, making huge
@@ -15230,6 +15323,22 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   matching Structure, Composition and Fabric Type in the structure
                   row above (client 2026-08-19: "field size also can update 176, it
                   will look uniform size").
+
+                  THAT UNIFORMITY IS SPENT, FIELD BY FIELD, ON OPERATOR ASK
+                  (2026-09-18). The structure card above went to five fixed cells
+                  sized to their own values (152 / 176 / 80 / 96 / 120) and Roll
+                  form print here went to 136px, each time on a "compact tighten"
+                  naming the specific fields. What SURVIVES of 08-19 is the part
+                  that was ever enforceable: the `w="term"` props below are
+                  untouched and still govern the stacked case, and Composition
+                  above is still 176px — so the two rows still AGREE wherever they
+                  both hold a name. What is gone is the claim that one number
+                  covers a four-digit GSM and a fabric blend alike, which is the
+                  claim the compact standard exists to refuse.
+
+                  DO NOT "RESTORE" 176px ACROSS EITHER ROW as a tidy-up. Three
+                  separate instructions on one day took it apart deliberately;
+                  putting it back needs a new one.
 
                   THIRD AND FINAL SHAPE, and the first two are why this left the
                   span scale for good:
@@ -15270,7 +15379,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 * The HOLD is unaffected on every row, because it comes from
                 * `RequiredScope` inside `Field`, never from the label text.
                 */}
-              <Field label={j === 0 ? "Coordinate" : undefined} required w="term" className="w-full">
+              <Field label={j === 0 ? "Coordinate" : undefined} required w="term" className="w-full sm:max-w-[7.5rem]">
                 {/* The style's own coordinates (client 2026-08-12). */}
                 <RecordPicker
                   label="Coordinate"
@@ -15295,7 +15404,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   }
                 />
               </Field>
-              <Field label={j === 0 ? "Component" : undefined} required w="term" className="w-full">
+              <Field label={j === 0 ? "Component" : undefined} required w="term" className="w-full sm:max-w-[7.5rem]">
                 {/* Narrowed by the coordinate beside it: the style declares the
                     PAIR (FRONT BODY *of* PIECES), so an unscoped list would
                     offer a collar under a coordinate that has none. */}
@@ -15372,7 +15481,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 label={j === 0 ? "Colour" : undefined}
                 required={colourRequired}
                 w="term"
-                className="w-full"
+                className="w-full sm:max-w-[6.5rem]"
               >
                 {/* WRAPPED SO THE HOLD KNOWS ITS NAME — and this is true of BOTH
                     branches below, which is why the scope is outside the choice
@@ -15444,8 +15553,25 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                        unanswered Fabric Type offers nothing and requires
                        nothing, and a dropdown that opens on nothing is honest
                        there in a way it is not under Yarn Dyed, because the
-                       operator can still fill the Fabric Type and have it fill. */
+                       operator can still fill the Fabric Type and have it fill.
+
+                       `compact`, LIKE THE THREE PICKERS BESIDE IT (operator
+                       instruction, 2026-09-18, asking for the row's boxes to line
+                       up and for text not to collide with the trailing icon).
+                       THIS WAS THE ROW'S ONE REAL UNEVENNESS and it was invisible
+                       in the track: Coordinate, Component and Roll form print all
+                       pass `compact`, which `field-affordance.tsx` reads as a 20px
+                       ▼/✕ slot and `pr-6` of text padding, while this control
+                       defaulted to the full 28px slot and `pr-8`. So the one cell
+                       in four drew a visibly bigger trailing segment and started
+                       truncating 8px sooner than its neighbours, at identical
+                       column widths — a difference no width change could have
+                       fixed, because it was never about the column.
+
+                       The `Input` branch above needs nothing: a plain text box has
+                       no trailing affordance, so there is no slot to match. */
                     <Combobox
+                      compact
                       options={colourOptionsFor(st)}
                       value={c.color_name}
                       onChange={(v) =>
@@ -15492,7 +15618,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                   prints that tab declared, so the two are one vocabulary — and two
                   names for one vocabulary, on one screen, is the thing the client
                   used the word "standardized" about. */}
-              <Field label={j === 0 ? "Roll form print" : undefined} w="term" className="w-full">
+              <Field label={j === 0 ? "Roll form print" : undefined} w="term" className="w-full sm:max-w-[6.5rem]">
                 {/* `print_id` is a uuid, so this stays a picker. The asymmetry
                     with Colour beside it is the columns', not a choice. */}
                 <RecordPicker
@@ -15508,13 +15634,21 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               variant="ghost"
               size="sm"
               data-row-remove
-              /* THE ROW'S LAST CELL, and the row is `items-end` — which is
-                 what keeps this level with the controls rather than with the
-                 label row above them. Only the FIRST part carries the column
-                 titles, so a top-aligned ✕ would sit right on every row except
-                 that one, where the titles push the controls ~20px down. The
-                 statement is unchanged from when this was absolutely placed;
-                 the grid just makes it without an offset to maintain.
+              /* THE ROW'S LAST CELL, and it must sit level with the CONTROLS
+                 rather than with the label row above them. Only the FIRST part
+                 carries the column titles, so a ✕ that aligns to anything but
+                 the controls sits right on every row except that one, where the
+                 titles push the controls ~20px down.
+
+                 `self-end` IS WHAT STATES THAT NOW, AND IT USED TO BE THE ROW'S
+                 `items-end` (operator instruction, 2026-09-18: align the row on
+                 `items-center`). The row aligns its FIELDS centre-to-centre,
+                 which for five one-control-tall cells is the same picture it
+                 already had; this one child opts back out, because on row 0 it is
+                 the only child that is NOT label-plus-control, and centring it
+                 against the tall ones would park it on the seam between a label
+                 and its box. Same statement as before, made per-child instead of
+                 per-row — do not "simplify" it away by dropping `self-end`.
 
                  ON A PHONE THE ROW IS TWO COLUMNS, so the five children fill
                  two rows and leave this one auto-placed at the START of a
@@ -15523,7 +15657,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                  the trailing edge, which is where it sits on the wide track. It
                  is a cells-and-alignment statement only: `data-row-remove`, the
                  handler and Ctrl+Del are untouched. */
-              className="col-span-2 justify-self-end text-muted-foreground hover:text-danger sm:col-span-1 sm:justify-self-auto"
+              className="col-span-2 justify-self-end self-end text-muted-foreground hover:text-danger sm:col-span-1 sm:justify-self-auto"
               onClick={() =>
                 mutComps(r.key, st.key, (cs) =>
                   cs.filter((x) => x.key !== c.key),
@@ -15800,8 +15934,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                for.
 
                WHAT NOWRAP COSTS, AND IT IS REAL BETWEEN 1250px AND ~1450px. The
-               card's five columns floor at 666px and the parts half at ~504px, so
-               the row wants ~1194px of content while the pane gives about 990px at
+               card's five columns are a fixed 672px (2026-09-18; they were a 666px
+               FLOOR when this was written) and the parts half at ~504px, so
+               the row wants ~1200px of content while the pane gives about 990px at
                the breakpoint. Neither half may wrap now, so what shows there is
                the overflow the track's own note already records as "squeezed and
                deliberately unfixed". `flex-1` on a zero basis means the card
@@ -15923,26 +16058,61 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 starts under its own label, which is all "column alignment" asks
                 for and is what a row split into two items could not promise.
 
-                THE HOUR IN BETWEEN, AND WHAT IT LEFT. Earlier the same day the
+                THE HOUR IN BETWEEN, AND WHAT IT LEFT. Earlier on 2026-09-11 the
                 four were made uniform and Tolerance was pulled OUT of the track,
-                compact and behind a rule. Both halves of that are kept here —
-                Structure, Composition, GSM and Fabric Type still share one width
-                (`minmax(130px,1fr)` each) and Tolerance is still the short cell
-                (`6rem`) — but it stands in its stated place in the row rather
-                than beside it. The reversal is deliberate and costs nothing that
-                was gained: it restores the pair, since GSM and Tolerance are
-                neighbours again.
+                compact and behind a rule. The ORDER from that hour is what stuck;
+                the uniform width did not (see below). Tolerance has been the
+                short cell (`6rem`) throughout, and it stands in its stated place
+                in the row rather than beside it — which is what restores the
+                pair, since GSM and Tolerance are neighbours again.
 
-                BEFORE EITHER OF THOSE it was five columns each sized to its own
-                field — `minmax(150px,1.3fr)`, `minmax(170px,1.7fr)`, `4.5rem`,
-                `6rem`, `minmax(130px,1fr)` — which is this app's compact standard
-                stated exactly: an input is as wide as the KIND of value it holds.
-                Uniformity overrules it on this card, and the accepted cost is a
-                four-digit GSM box at ~176px. If that reads wrong on screen the
-                fix is to take GSM out of the uniform group the way Tolerance is
-                out of it, never to shrink the control inside its cell — that
-                leaves the CELL at its old width and floats the value in dead
-                space.
+                THE UNIFORM GROUP IS GONE, IN TWO ASKS ONE AFTER THE OTHER
+                (operator, 2026-09-18: first GSM, Tolerance and Fabric Type
+                "compact tighten", then Structure and Composition the same). GSM
+                and Fabric Type left `minmax(130px,1fr)` for `5rem` and `7.5rem`;
+                Structure and Composition then left it for `9.5rem` and `11rem`.
+                **THERE IS NO `1fr` LEFT ON THIS TRACK** — all five cells are sized
+                to the KIND of value they hold, which is the compact standard
+                stated exactly and the fix this comment already named for GSM,
+                now taken for every column. NEVER answer it with a narrower
+                control inside a `1fr` cell: that leaves the CELL at its old width
+                and floats the value in dead space.
+
+                WHY THESE FIGURES, each derived rather than picked:
+
+                - Structure `9.5rem` (152px) — a fabric category name, and the
+                  original bespoke track's own floor for it was 150px.
+                - Composition `11rem` (176px) — `term`, the width its `w` prop
+                  already declares, and the widest cell because a blend
+                  ("95% COTTON 5% SPANDEX") is the longest value on the card.
+                - GSM `5rem` (80px) — four digits plus `px-2.5` either side with
+                  room for the number spinner; `num` (72px) rounded up for the
+                  spinner, not measured against a value.
+                - Tolerance `6rem` (96px) — unchanged, and sized by the
+                  `(175 - 185)` hint underneath it rather than by its two digits.
+                - Fabric Type `7.5rem` (120px) — a three-option `<Select>` whose
+                  longest label is "Yarn Dyed" (~68px at `text-sm`) plus 20px of
+                  padding and the native chevron: the TOP of the compact
+                  standard's 90-120px short-options band and not a hair more.
+
+                COMPOSITION TRUNCATES SOONER AND THAT IS ACCEPTED — the same
+                trade its own `w="term"` note records. It is a picker, so it
+                carries the `text-ellipsis` + hover/hold reveal every picker gets
+                (LAYOUT.md §14) and the whole value stays reachable.
+
+                THE CARD STILL GROWS PAST THE ROW, DELIBERATELY. `flex-1` on the
+                wrapper is an operator instruction of its own (2026-09-11,
+                "increase the width of the bordered container ... applying flex-1
+                or w-full so it expands neatly") and a fixed track does not
+                reverse it, so above ~1450px there is space to the right of Fabric
+                Type INSIDE the card. Hugging the row instead is one class
+                (`lg:max-w-fit` on the wrapper, which hands the slack to the parts
+                table beside it) — it is left off because it undoes a dated
+                instruction, and that needs asking, not tidying.
+
+                THE ORIGINAL BESPOKE TRACK, for the record, was
+                `minmax(150px,1.3fr)`, `minmax(170px,1.7fr)`, `4.5rem`, `6rem`,
+                `minmax(130px,1fr)`. This is that shape with every `fr` spent.
 
                 `items-start`, NOT `items-end`, AND IT IS WHAT MAKES THE ROW LINE
                 UP. Tolerance carries the derived range under its box, so it is
@@ -15971,13 +16141,21 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 class, which is why the `w` prop can stay for the stacked case
                 below `lg`.
 
-                THE FLOORS ADD UP TO ~634px — three 130px columns, the 96px
-                Tolerance box, a 130px Fabric Type and four 12px gaps. It was 666px
-                as five bespoke columns and ~705px while Tolerance stood outside
-                with a rule and its own padding. This half gets about 527px at a
-                1250px window, so the row is still squeezed there and still
-                deliberately unfixed: the outer row's own note records what nowrap
-                costs between 1250px and ~1450px.
+                THE TRACK IS NOW EXACTLY 672px AND NO LONGER HAS A "FLOOR" — with
+                no `fr` left it is one width at every size above `lg`, not a range:
+                152 + 176 + 80 + 96 + 120 and four 12px gaps. The floors it
+                replaces were ~604px (GSM and Fabric Type fixed, the other two
+                still `1fr`), ~634px (the uniform group), 666px (five bespoke
+                columns) and ~705px (Tolerance standing outside with a rule and
+                its own padding).
+
+                WHAT THAT COSTS BETWEEN 1250px AND ~1450px IS UNCHANGED IN KIND AND
+                SLIGHTLY WORSE IN DEGREE. This half gets about 527px at a 1250px
+                window against 672px of track, and neither half of the outer row
+                may wrap — so the squeeze the outer row's own note calls "deliberately
+                unfixed" is still here, now at a fixed 672px rather than a floor
+                that could not go below 604px. It is the same overflow, not a new
+                failure mode. Below `lg` none of this applies (see the gate).
 
                 GATED AT `lg`, AND THAT IS THE PART THAT MUST NOT BE RELAXED. A
                 floored track cannot shrink, and against ~350px of content on a
@@ -15985,7 +16163,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
                 300px — the worst mobile break in this module. Below `lg` the five
                 stack one per line at full width, which is the same answer the
                 outer track at `min-[1250px]` gives the two halves. */}
-            <div className="grid items-start gap-x-3 gap-y-2 lg:grid-cols-[repeat(3,minmax(130px,1fr))_6rem_minmax(130px,1fr)]">
+            <div className="grid items-start gap-x-3 gap-y-2 lg:grid-cols-[9.5rem_11rem_5rem_6rem_7.5rem]">
               {/* `term` (176px), NOT `name` (288px) — client 2026-08-19, asking for
                   Structure and Composition "as xs(2) size" like the part row below.
 

@@ -35,10 +35,18 @@
  * tab that ends up open is whichever real screen the operator lands on.
  */
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, MoreHorizontal, X, type LucideIcon } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  LayoutDashboard,
+  MoreHorizontal,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useWorkspaceTabs } from "@/lib/workspace-tabs";
 import { NAV } from "@/components/shell/nav";
 import { isHubRoute } from "@/lib/nav/module-groups";
@@ -89,6 +97,34 @@ function isUnderModule(pathname: string, moduleHref: string): boolean {
 function iconForPath(pathname: string, modules: { href: string; icon: LucideIcon }[]) {
   return modules.find((m) => isUnderModule(pathname, m.href))?.icon;
 }
+
+/**
+ * NOTEPAD-STYLE TABS (operator, 2026-09-17, a Windows Notepad screenshot:
+ * "intha mari nav bar la venum but antha . mattum vendam").
+ *
+ * A tab is a piece of the page showing through the bar, not a pill floating
+ * on it: every tab sits on the bar's bottom edge (`self-end`), rounded on
+ * top only, and the ACTIVE one takes the page's own surface so it reads as
+ * joined to the screen beneath. Inactive tabs are flat text on the bar,
+ * separated by a short hairline, hidden beside the active tab, where the
+ * tab's own edge already separates them, exactly as Notepad draws it.
+ *
+ * "ANTHA . MATTUM VENDAM": the unsaved dot is gone. Notepad marks a dirty
+ * tab with it; this bar did the same off `tab.dirty`. The store still tracks
+ * the flag (the reload guard reads dirtiness on its own, not from here), so
+ * nothing but the mark is removed.
+ */
+const TAB =
+  "ty-tab group relative flex h-8 flex-none items-center gap-2 self-end whitespace-nowrap rounded-t-md text-[13px] transition-colors duration-150";
+const TAB_ACTIVE = "bg-surface font-bold text-foreground";
+const TAB_IDLE = "font-medium text-white/90 hover:bg-white/10";
+/** The hairline on a tab's right edge. */
+const TAB_DIVIDER =
+  "after:absolute after:right-0 after:top-1/2 after:h-4 after:w-px after:-translate-y-1/2 after:bg-white/30";
+/** How far one scroll-arrow press moves the strip, roughly one tab. */
+const SCROLL_STEP = 180;
+const ARROW =
+  "flex h-7 w-6 flex-none items-center justify-center rounded text-white transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
 
 export function WorkspaceTabsBar() {
   const pathname = usePathname();
@@ -145,6 +181,45 @@ export function WorkspaceTabsBar() {
   // actually on screen, not from that pointer.
   const currentTab = openTabs.find((t) => t.href === pathname);
 
+  /**
+   * ARROWS INSTEAD OF A SCROLLBAR, Notepad's answer to more tabs than fit.
+   * Each arrow is live only while there is somewhere to go in its direction,
+   * measured off the strip on scroll and on resize.
+   */
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+  const measure = useCallback(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 1);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro.disconnect();
+    };
+  }, [measure]);
+  // A new or closed tab changes the strip's content without resizing the
+  // strip itself; and the tab on screen is scrolled into view, so navigating
+  // to one that sits past the edge never leaves it hidden.
+  useEffect(() => {
+    measure();
+    stripRef.current
+      ?.querySelector<HTMLElement>('[data-tab-active="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [measure, openTabs.length, pathname]);
+  const scrollStrip = (dx: number) =>
+    stripRef.current?.scrollBy({ left: dx, behavior: "smooth" });
+  const activeIndex = openTabs.findIndex((t) => t.href === pathname);
+
   const overflowItems: DropdownItem[] = [
     ...openTabs.map(
       (t): DropdownItem => ({
@@ -188,7 +263,7 @@ export function WorkspaceTabsBar() {
     // bar never carried one either.
     // `ty-chrome`: a gradient colour option (lib/appearance.ts) paints this
     // bar; every solid option leaves it `bg-primary`.
-    <div className="ty-chrome flex h-9 flex-none items-center gap-1.5 bg-primary px-2">
+    <div className="ty-chrome flex h-9 flex-none items-center gap-1 bg-primary px-2">
       {showHome && (
         <button
           type="button"
@@ -196,12 +271,7 @@ export function WorkspaceTabsBar() {
             if (!isPlainLeftClick(e)) return;
             openTab({ href: "/", title: "Home" });
           }}
-          className={cn(
-            "ty-tab flex h-8 flex-none items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors duration-150",
-            isHomeActive
-              ? "bg-surface font-bold text-foreground shadow-sm"
-              : "font-medium text-white/90 hover:bg-white/10",
-          )}
+          className={cn(TAB, "gap-1.5 px-3", isHomeActive ? TAB_ACTIVE : TAB_IDLE)}
         >
           <LayoutDashboard className={cn("h-3.5 w-3.5 flex-none", isHomeActive && "text-primary")} />
           Home
@@ -238,38 +308,50 @@ export function WorkspaceTabsBar() {
 
       {openTabs.length > 0 && <span aria-hidden className="h-5 w-px flex-none bg-white/30" />}
 
-      {/* THE BAR IS A HAIRLINE. Enough open tabs overflow the strip, and the
-         default scrollbar under them is a 12-17px grey band across the top of
-         the app that reads as a second chrome edge. A 4px rounded thumb on a
-         transparent track still says "there are more tabs to the right"
-         without drawing one. Chrome / Safari take the `::-webkit-scrollbar`
-         parts, Firefox reads `scrollbar-width: thin` + `scrollbar-color` —
-         the same two halves `scrollbar-none` (globals.css) declares, but thin
-         rather than hidden: nothing else tells the operator a tab is off-screen. */}
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:thin] [scrollbar-color:var(--color-gray-300)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
-        {openTabs.map((tab) => {
-          const active = tab.href === pathname;
+      {/* Scroll left. Chrome, not a field: off the Tab path like every
+          control here. */}
+      {openTabs.length > 0 && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Scroll tabs left"
+          disabled={!canLeft}
+          onClick={() => scrollStrip(-SCROLL_STEP)}
+          className={ARROW}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
+
+      {/* THE STRIP. `h-full` so each tab can sit on the bar's bottom edge;
+          no scrollbar, because the arrows either side are the way along it. */}
+      <div
+        ref={stripRef}
+        className="scrollbar-none flex h-full min-w-0 flex-1 items-end overflow-x-auto"
+      >
+        {openTabs.map((tab, i) => {
+          const active = i === activeIndex;
           const Icon = iconForPath(tab.href, modules);
+          /* No hairline on the active tab, nor on the one just before it:
+             the active tab's own edge is the separator there. */
+          const divider = !active && i + 1 !== activeIndex && i < openTabs.length - 1;
           return (
             <button
               key={tab.id}
               type="button"
+              data-tab-active={active}
               onClick={() => activate(tab.id)}
               className={cn(
-                "ty-tab group flex h-8 min-w-[130px] flex-none items-center gap-2 whitespace-nowrap rounded-md pl-3 pr-1.5 text-[13px] transition-colors duration-150",
-                active
-                  ? "bg-surface font-bold text-foreground shadow-sm"
-                  : "font-medium text-white/90 hover:bg-white/10",
+                TAB,
+                "min-w-[130px] pl-3 pr-1.5",
+                active ? TAB_ACTIVE : TAB_IDLE,
+                divider && TAB_DIVIDER,
               )}
             >
               {Icon && <Icon className={cn("h-3.5 w-3.5 flex-none", active && "text-primary")} />}
               <span className="max-w-[160px] flex-1 truncate text-left">{tab.title}</span>
-              {tab.dirty && (
-                <span
-                  aria-label="Unsaved changes"
-                  className="h-1.5 w-1.5 flex-none rounded-full bg-warning"
-                />
-              )}
+              {/* The close X shows on the active tab always and on the others
+                  on hover: Notepad's arrangement, less its unsaved dot. */}
               <span
                 role="button"
                 aria-label={`Close ${tab.title}`}
@@ -279,8 +361,8 @@ export function WorkspaceTabsBar() {
                   close(tab.id);
                 }}
                 className={cn(
-                  "flex h-5 w-5 flex-none items-center justify-center rounded-full opacity-0 transition-opacity duration-150 hover:bg-foreground/10 group-hover:opacity-100 group-focus-visible:opacity-100",
-                  active && "opacity-60",
+                  "flex h-5 w-5 flex-none items-center justify-center rounded transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100",
+                  active ? "opacity-100 hover:bg-foreground/10" : "opacity-0 hover:bg-white/15",
                 )}
               >
                 <X className="h-3.5 w-3.5" />
@@ -289,6 +371,20 @@ export function WorkspaceTabsBar() {
           );
         })}
       </div>
+
+      {/* Scroll right. */}
+      {openTabs.length > 0 && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Scroll tabs right"
+          disabled={!canRight}
+          onClick={() => scrollStrip(SCROLL_STEP)}
+          className={ARROW}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
 
       {openTabs.length > 0 && (
         <DropdownMenu
