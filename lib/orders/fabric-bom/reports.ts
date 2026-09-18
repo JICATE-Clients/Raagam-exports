@@ -430,7 +430,10 @@ async function routeComponentNames(
   return names;
 }
 
-function qtyBreakdownOf(order: OrderProductionInput): QtyBreakdown | ReportRefusal {
+/* EXPORTED for the Budget (0574) — CMT and Garment Processes read the legacy
+   "SQ Qty" per STYLE by calling this over one style's approval rows. One
+   arithmetic, so the budget's pieces-made and this report's Cut Qty agree. */
+export function qtyBreakdownOf(order: OrderProductionInput): QtyBreakdown | ReportRefusal {
   if (order.approvals.length === 0) {
     return { refused: "No production quantity yet — fill Approval Qty on the order" };
   }
@@ -1081,6 +1084,10 @@ export type YarnRequirementLine = {
  *  is `order_fabric_bom_processes` — the Fabric Process tab's own declared
  *  sequence — never a yarn-level stage (see `yarnPurchase`'s header on why). */
 export type StageBreakdownLine = {
+  /** The fabric's `items.id` — the IDENTITY `fabricName` is only a label for.
+   *  Added for the Budget's Fabric Processes pull (0573), which keys a line
+   *  to the fabric and cannot key on a name two cloths may share. */
+  itemId: string | null;
   fabricName: string;
   combo: string | null;
   /** The panel(s) this line's weight belongs to under a "Component Wise"
@@ -2006,6 +2013,7 @@ export async function yarnFabricRequirementReport(
           const plannedWt = Number((net * step.factorBefore).toFixed(6));
           const toOrderedWt = Number((net * step.factorAfter).toFixed(6));
           group.lines.push({
+            itemId: fabricId,
             fabricName,
             combo: combo || null,
             component,

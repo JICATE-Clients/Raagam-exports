@@ -7,10 +7,17 @@ import { writeAudit } from "@/lib/audit";
 import {
   canTransition,
   orderBudgetInput,
+  type BudgetLine,
   type BudgetStatus,
+  type CopyableBudget,
   type OrderBudgetInput,
 } from "./types";
-import { pullCostLines, type PulledCostLine } from "./service";
+import {
+  fabricProcessBreakdown,
+  pullCostLines,
+  type FabricProcessGroup,
+  type PulledCostLine,
+} from "./service";
 import { budgetTotals } from "./totals";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
@@ -83,6 +90,32 @@ async function writeChildren(
     uom_id: l.uom_id ?? null,
     rate: l.rate ?? null,
     notes: clean(l.notes),
+    // 0572. `currency_code` / `ex_rate` arrive already paired, and INR already
+    // folded to null, by `budgetLineInput` — `chk_obl_currency_pair` is the
+    // same rule underneath.
+    specification: clean(l.specification),
+    currency_code: l.currency_code ?? null,
+    ex_rate: l.currency_code ? (l.ex_rate ?? null) : null,
+    is_foc: l.is_foc,
+    is_import: l.is_import,
+    // 0573 — Process Rates. A blank multiplier is stored NULL, which is 1.
+    process_id: l.process_id ?? null,
+    basis: l.basis ?? null,
+    combo: clean(l.combo),
+    rate_type: l.rate_type,
+    no_of_pcs: l.no_of_pcs ?? null,
+    no_of_units: l.no_of_units ?? null,
+    style_ref_no: clean(l.style_ref_no),
+    component_id: l.component_id ?? null,
+    // 0574 — the CMT breakup. `rate` above is already its sum (the schema's
+    // transform), which is what `chk_obl_cmt_breakup` requires.
+    cutting_rate: l.cutting_rate ?? null,
+    making_rate: l.making_rate ?? null,
+    checking_rate: l.checking_rate ?? null,
+    ironing_rate: l.ironing_rate ?? null,
+    packing_rate: l.packing_rate ?? null,
+    // 0575 — the Expense / Income Head.
+    cost_head_id: l.cost_head_id ?? null,
   }));
 
   if (lines.length) {
@@ -441,7 +474,15 @@ export async function loadCostLines(garmentOrderIds: string[]): Promise<PullResu
   if (garmentOrderIds.length === 0) {
     return { ok: false, error: "Add the garment orders first — the costs come from their BOMs" };
   }
-  const { lines, skipped } = await pullCostLines(garmentOrderIds);
+  let pulled: Awaited<ReturnType<typeof pullCostLines>>;
+  try {
+    pulled = await pullCostLines(garmentOrderIds);
+  } catch (e) {
+    // A READ THAT FAILED IS SAID, not reported as "no recorded BOM yet" — the
+    // sentence below that an empty result would otherwise produce.
+    return { ok: false, error: e instanceof Error ? e.message : "The BOMs could not be read" };
+  }
+  const { lines, skipped } = pulled;
   if (lines.length === 0) {
     // EMPTY-AND-EXPLAIN, and the two cases send the operator to different
     // screens: nothing recorded at all, versus recorded but every figure
@@ -455,4 +496,136 @@ export async function loadCostLines(garmentOrderIds: string[]): Promise<PullResu
     };
   }
   return { ok: true, lines, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// Copy From — an earlier budget's lines as a starting point
+// ---------------------------------------------------------------------------
+
+/**
+ * Every budget, labelled well enough to pick one to copy rates from.
+ *
+ * NOTHING IS EXCLUDED BY STATUS. An approved budget is the best source of
+ * rates there is — it is the one somebody signed — and a rejected one may
+ * still hold the right prices for the lines that were not the problem. Which
+ * budget is being edited is the screen's to filter; this has no budget in
+ * scope.
+ */
+export async function listCopyableBudgets(): Promise<
+  { ok: true; budgets: CopyableBudget[] } | { ok: false; error: string }
+> {
+  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+  const { data, error } = await s
+    .from("order_budgets")
+    .select(
+      "id, code, budget_date, description, status, " +
+        "lines:order_budget_lines(id), " +
+        "orders:order_budget_orders(sno, garment_order:garment_order_amendments(" +
+        "customer:customers(name), sales_order:sales_orders(order_number), " +
+        // Named FK column — see `listBudgetableOrders`.
+        "sq_detail:sq_details!sq_detail_id(code)))",
+    )
+    .order("budget_date", { ascending: false })
+    .order("created_at", { ascending: false });
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — an empty picker reads as
+  // "there is nothing to copy from", which is believable and wrong.
+  if (error) return { ok: false, error: `Could not read the budgets: ${error.message}` };
+
+  type Row = {
+    id: string;
+    code: string | null;
+    budget_date: string;
+    description: string | null;
+    status: BudgetStatus;
+    lines: { id: string }[] | null;
+    orders:
+      | {
+          sno: number;
+          garment_order: {
+            customer: { name: string } | null;
+            sales_order: { order_number: string | null } | null;
+            sq_detail: { code: string | null } | null;
+          } | null;
+        }[]
+      | null;
+  };
+
+  const budgets = ((data ?? []) as unknown as Row[]).map((b): CopyableBudget => {
+    const first = [...(b.orders ?? [])].sort((a, c) => a.sno - c.sno)[0]?.garment_order ?? null;
+    return {
+      id: b.id,
+      code: b.code,
+      budget_date: b.budget_date,
+      description: b.description,
+      status: b.status,
+      order_count: b.orders?.length ?? 0,
+      line_count: b.lines?.length ?? 0,
+      first_order: first
+        ? {
+            re_no: first.sales_order?.order_number ?? null,
+            sq_no: first.sq_detail?.code ?? null,
+            customer_name: first.customer?.name ?? null,
+          }
+        : null,
+    };
+  });
+  return { ok: true, budgets };
+}
+
+/**
+ * One budget's lines, in `sno` order, for `copyRatesFrom` to match against.
+ *
+ * Read-only and gated on `view`, like `loadCostLines`: copying writes nothing
+ * until the operator saves the budget they are editing, and that save passes
+ * `createOrderBudget` / `updateOrderBudget`'s own gates.
+ */
+export async function loadBudgetLinesForCopy(
+  budgetId: string,
+): Promise<{ ok: true; lines: BudgetLine[] } | { ok: false; error: string }> {
+  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+  const { data, error } = await s
+    .from("order_budget_lines")
+    .select("*")
+    .eq("budget_id", budgetId)
+    .order("sno", { ascending: true });
+  if (error) return { ok: false, error: `Could not read that budget's lines: ${error.message}` };
+  const lines = (data ?? []) as BudgetLine[];
+  if (lines.length === 0) {
+    // EMPTY-AND-EXPLAIN: a copy that silently changed nothing reads as a copy
+    // that worked.
+    return { ok: false, error: "That budget has no lines to copy" };
+  }
+  return { ok: true, lines };
+}
+
+// ---------------------------------------------------------------------------
+// Fabric Processes — the breakdown a group re-splits from
+// ---------------------------------------------------------------------------
+
+/**
+ * Every fabric process of these orders at FULL grain (process × fabric ×
+ * colourway × panel), for the screen to re-split a group when the operator
+ * changes For (`splitFabricProcess`).
+ *
+ * `refusals` are the report's own sentences for weights it could not place —
+ * the screen should show them rather than let a re-split look complete.
+ * Gated on `view` like `loadCostLines`: it reads, and writes nothing.
+ */
+export async function loadFabricProcessBreakdown(
+  garmentOrderIds: string[],
+): Promise<
+  { ok: true; groups: FabricProcessGroup[]; refusals: string[] } | { ok: false; error: string }
+> {
+  if (!(await can("orders", "view"))) return { ok: false, error: "Forbidden" };
+  if (garmentOrderIds.length === 0) {
+    return { ok: false, error: "Add the garment orders first — the processes come from their Fabric BOMs" };
+  }
+  try {
+    const { groups, refusals } = await fabricProcessBreakdown(garmentOrderIds);
+    return { ok: true, groups, refusals };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "The Fabric BOMs could not be read" };
+  }
 }

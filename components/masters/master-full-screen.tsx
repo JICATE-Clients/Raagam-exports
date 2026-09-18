@@ -332,6 +332,7 @@ export function MasterFullScreen({
   fitRail = false,
   onExpandRail,
   initialSection,
+  summary,
   footer,
 }: {
   ref?: Ref<MasterFullScreenHandle>;
@@ -501,6 +502,29 @@ export function MasterFullScreen({
    * screen — the pane would carry two names.
    */
   paneHeading?: boolean;
+  /**
+   * A BAND OF HEADLINE FIGURES PINNED DIRECTLY ABOVE THE FOOTER, on every
+   * section, outside the scrolling pane. OFF by default — omit it and nothing
+   * renders, not even an empty strip.
+   *
+   * FOR A DOCUMENT WHOSE BOTTOM LINE MUST STAY IN SIGHT WHILE ANY PART OF IT IS
+   * EDITED. The legacy budget carries its Sales and Profit / Loss figures in a
+   * bar along the bottom of the window (Orders ▸ Budgeting, 2026-09-18): the
+   * operator types a yarn rate on one tab and watches the margin move. As a
+   * section of its own those figures were one click away from every rate that
+   * changes them, which is the one place they are no use.
+   *
+   * CHROME, NEVER FIELDS. Read-only figures and sentences — nothing here may be
+   * focusable. It sits outside `data-focus-region="content"`, so a field put
+   * here would fall out of the Tab cycle's field region, and a button would be
+   * one more stop between the last field and Save. If a figure needs acting on,
+   * the action belongs in the section that owns the number.
+   *
+   * NOT PART OF `footer`, because it is not held back by `footerOnLastSection`:
+   * that prop hides the BUTTON BAR, and a bottom line that vanished on every
+   * section but the last would be the section it replaced, one tab further away.
+   */
+  summary?: ReactNode;
   footer: {
     /** Left status text; e.g. "Unsaved changes". */
     status?: ReactNode;
@@ -1612,6 +1636,22 @@ export function MasterFullScreen({
           </div>
         </div>
       </div>
+
+      {/* The pinned figures — see `summary`. Outside the scrolling pane, so it
+          stays put while a long grid scrolls under it, and capped to the same
+          width as the pane and the footer so its figures line up with both. */}
+      {summary != null && (
+        <div className="border-t border-border bg-background px-4 py-2">
+          <div
+            className={cn(
+              "mx-auto w-full",
+              active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
+            )}
+          >
+            {summary}
+          </div>
+        </div>
+      )}
 
       {/* sticky footer. On a page mount it sticks to the bottom of the viewport
           while the document scrolls behind it, with the safe-area inset Sheet

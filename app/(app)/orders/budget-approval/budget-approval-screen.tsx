@@ -136,8 +136,28 @@ export function BudgetApprovalScreen({
   const totals = useMemo(() => {
     if (!budget) return null;
     return budgetTotals(
-      (budget.lines ?? []).map((l) => ({ source: l.source, qty: l.qty, rate: l.rate })),
+      // EVERY FIELD THE ENGINE VALUES A LINE BY, not just qty and rate. Since
+      // 0572–0575 a line's amount also depends on its currency, FOC, rate type
+      // (flat / percent), pieces and units, and a percent line's scope — and an
+      // approver shown a total computed on fewer facts than the author's is
+      // approving a different number from the one that was submitted.
+      (budget.lines ?? []).map((l) => ({
+        source: l.source,
+        qty: l.qty,
+        rate: l.rate,
+        currency_code: l.currency_code,
+        ex_rate: l.ex_rate,
+        is_foc: l.is_foc,
+        rate_type: l.rate_type,
+        no_of_pcs: l.no_of_pcs,
+        no_of_units: l.no_of_units,
+        garment_order_id: l.garment_order_id,
+        style_ref_no: l.style_ref_no,
+        description: l.description,
+      })),
       (budget.orders ?? []).map((o) => ({
+        // The id is what an ORDER-scoped percent line resolves its sales by.
+        id: o.garment_order_id,
         label: o.garment_order?.sales_order?.order_number ?? o.garment_order?.code ?? "This order",
         // THE SNAPSHOT, not a live re-read. The approver must see the figures the
         // author submitted — re-valuing the orders here would mean approving one
@@ -387,7 +407,16 @@ export function BudgetApprovalScreen({
                   .map((k) => (
                     <div key={k} className="flex justify-between gap-4">
                       <span>{BUDGET_SOURCE_LABELS[k]}</span>
-                      <span className="tabular-nums">{fmtNumber(totals.costBySource[k])}</span>
+                      {(() => {
+                        const v = totals.costBySource[k];
+                        // A SOURCE CAN REFUSE since 0575 — a percent line whose
+                        // sales base is unknown. Its sentence, never a 0.
+                        return isRefusal(v) ? (
+                          <span className="text-danger">{v.refused}</span>
+                        ) : (
+                          <span className="tabular-nums">{fmtNumber(v)}</span>
+                        );
+                      })()}
                     </div>
                   ))}
               </div>
@@ -397,6 +426,14 @@ export function BudgetApprovalScreen({
                   {totals.unpriced.length} cost{" "}
                   {totals.unpriced.length === 1 ? "line is" : "lines are"} unpriced and excluded
                   from these figures.
+                </p>
+              )}
+              {totals.pending.length > 0 && (
+                // Priced, but a percentage of a sales value not known yet — the
+                // totals it touches refuse above, and this says how many.
+                <p className="mt-1 text-xs text-danger">
+                  {totals.pending.length} {totals.pending.length === 1 ? "line is" : "lines are"}{" "}
+                  waiting on a sales value.
                 </p>
               )}
             </DetailSection>

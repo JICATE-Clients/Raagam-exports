@@ -19,12 +19,17 @@ import { BudgetScreen } from "./budget-screen";
 export default async function BudgetsPage() {
   await requirePermission("orders", "view");
 
-  const [budgets, data, canCreate, canEdit, canDelete] = await Promise.all([
+  const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit] = await Promise.all([
     listOrderBudgets(),
     getBudgetFormData(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
+    // The Cost Head / Income Head pickers add and rename `config_lookups` rows
+    // inline, which is MASTER data — gated on `masters`, as Packing Advice's
+    // Warehouse picker is, not on the order permission that opened the screen.
+    can("masters", "create"),
+    can("masters", "edit"),
   ]);
 
   return (
@@ -32,6 +37,7 @@ export default async function BudgetsPage() {
       budgets={budgets}
       data={data}
       perms={{ canCreate, canEdit, canDelete }}
+      masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
     />
   );
 }
