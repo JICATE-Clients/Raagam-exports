@@ -27,6 +27,7 @@
     "check:fabric-plan": "npx --yes tsx scripts/check-fabric-plan.mts",
     "check:yarn-process": "npx --yes tsx scripts/check-yarn-process.mts",
     "check:fabric-stage-routes": "npx --yes tsx scripts/check-fabric-stage-routes.mts",
+    "check:standard-routes": "npx --yes tsx scripts/check-standard-routes.mts",
     "check:yarn-dyed": "npx --yes tsx scripts/check-yarn-dyed.mts",
     "check:budget-totals": "npx --yes tsx scripts/check-budget-totals.mts",
     "check:style-rules": "node --experimental-strip-types scripts/check-style-rules.mts",

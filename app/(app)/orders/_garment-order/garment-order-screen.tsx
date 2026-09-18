@@ -108,13 +108,10 @@ import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { StatusPill } from "@/components/ui/status-pill";
 import {
   BOM_STATUSES,
   BOM_STATUS_RANK,
-  bomStatusHint,
   bomStatusText,
-  bomStatusTone,
   type BomStatus,
 } from "@/lib/orders/bom-status";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -280,6 +277,15 @@ import {
   assortBalance,
   assortBalanceMessage as balanceMessage,
   crossTabPoQtyMessage,
+  /* ALIASED, AND THE ALIAS IS LOAD-BEARING. The editor below declares its own
+     `const totalQuantityPoQty` over the `quantities` STATE — same function
+     scope as the list branch, so importing this under its own name would put
+     the list's call in that const's temporal dead zone and throw
+     "Cannot access before initialization" on a screen that renders fine in
+     review. (The early `return` does not save it: a `const` is block-scoped to
+     the whole function body, hoisted but uninitialised — the same trap this
+     file records about non-hoisted arrows.) */
+  totalQuantityPoQty as sumDestinationQty,
 } from "@/lib/orders/amendments/qty-balance";
 import * as AssortStyle from "@/lib/orders/amendments/assort-style";
 import * as PackExplode from "@/lib/orders/amendments/pack-type-explosion";
@@ -313,8 +319,6 @@ import {
   SEASON_OPTIONS,
   dyeTypeOptions,
   PAY_MODES,
-  amendmentStatusTone,
-  amendmentStatusText,
   collapseCaseDuplicates,
   merchandiserOptions,
   /* "EVERY STYLE CARRIES A DOCUMENT", AND THE SERVER READS THE SAME TWO
@@ -1849,6 +1853,20 @@ const STYLE_FIELD_W: Record<string, FieldWidth> = {
  * already carries about interpolated classes.
  */
 const COORDINATE_DENSE = "@2xl/editor:[&_input]:h-[30px] [&_input]:pl-2";
+
+/**
+ * THE PRICES TAB'S MONEY-TERMS TABLE HAS EXACTLY ONE ROW, and it is the order
+ * itself — Currency, Ex-Rate and Pay Mode are columns of it (client 2026-09-18).
+ *
+ * MODULE-LEVEL SO THE ARRAY IDENTITY NEVER CHANGES. `ChildGrid` takes `rows`,
+ * and a `[{ key: "terms" }]` written inline is a NEW array on every keystroke
+ * anywhere in this 22,000-line component — which is the whole cost the Prices
+ * tab already worries about ("every keystroke on Prices or Combos re-renders
+ * this component"). It holds no data: every cell reads `form` directly, so
+ * there is nothing here to keep in step with anything.
+ */
+type TermsRow = { key: string };
+const TERMS_ROWS: TermsRow[] = [{ key: "terms" }];
 
 /**
  * The narrowed Coordinate width — 7.5rem = 120px.
@@ -5116,6 +5134,30 @@ export function GarmentOrderScreen({
     const merchName = (id: string | null) =>
       (id && data.merchandisers.find((m) => m.id === id)?.name) || null;
     const bomOf = (r: GarmentOrderAmendment): BomStatus => bomStatus[r.id]?.status ?? "pending";
+    /**
+     * THE ORDER'S QUANTITY, for the column the client asked for on 2026-09-18.
+     *
+     * NO NEW QUERY AND NO NEW COLUMN: `getAmendments()` already embeds
+     * `quantities`, so this is a sum over rows the list is holding anyway. The
+     * figure is the destinations' PO Qty — the same Σ the editor's Quantities
+     * grid prints as "Total PO Qty" (`qty-balance.ts`'s own function, shared
+     * rather than re-added here, so the list and the tab cannot disagree —
+     * imported as `sumDestinationQty`, see the alias's note at the import).
+     *
+     * THE STYLE TOTAL IS THE FALLBACK, AND ONLY A FALLBACK. `crossTabPoQtyMessage`
+     * makes the two sides equal on every RECORDED order, so which one is read
+     * cannot matter there — but a DRAFT can be parked with styles typed and no
+     * destination rows yet, and a dash on an order that plainly states a
+     * quantity reads as "nobody entered one". Destinations first because that
+     * is what ships; `|| null` rather than `?? null` so a 0 falls through to it.
+     *
+     * A DASH IS STILL AN ANSWER where neither side has been typed — 0 pieces is
+     * not a quantity, and printing "0" claims the operator answered.
+     */
+    const orderQty = (r: GarmentOrderAmendment): number | null =>
+      sumDestinationQty(r.quantities ?? []) ||
+      (r.styles ?? []).reduce((a, s) => a + (Number(s.po_qty) || 0), 0) ||
+      null;
     const needle = listQuery.trim().toLowerCase();
     const visibleRows = rows.filter((r) => {
       if (listStatus && (r.is_draft ? "draft" : "recorded") !== listStatus) return false;
@@ -5220,40 +5262,44 @@ export function GarmentOrderScreen({
             <span className="text-sm">—</span>
           ),
       },
+      /**
+       * QUANTITY (client 2026-09-18), IN PLACE OF THREE COLUMNS THAT LEFT THE
+       * SAME DAY — Merchandiser, Material BOM and Status.
+       *
+       * How many pieces the order is for is the first thing asked of a row and
+       * the list never said it: every order read the same size, so nothing on
+       * screen distinguished a 500-piece sample from a 60,000-piece programme.
+       *
+       * ## WHAT WENT, AND WHAT KEPT EACH ONE'S JOB
+       *
+       * All three are DISPLAY withdrawals, so nothing is unwired — the same
+       * treatment "Code" and "Type" record above. `merchandiser_id` is still
+       * mandatory, stored and SEARCHED (the search box still reads it and still
+       * says so in its placeholder: "Kumar's orders"), and both status values
+       * are still FACETS in the Filters panel — Draft/Recorded counted from
+       * `is_draft`, Material BOM counted through `bomOf`. So each question is
+       * still answerable on this screen; it is the standing column that went.
+       *
+       * THE COST, STATED: a draft and a recorded order now look identical in
+       * the table, and the only thing that separates them is the Status facet.
+       * That is the client's call and it is cheap to reverse — the cell was
+       * five lines of `StatusPill`.
+       */
       {
-        header: "Merchandiser",
-        cell: (r) => <span className="text-sm">{merchName(r.merchandiser_id) ?? "—"}</span>,
-      },
-      /* MATERIAL BOM — the same pill the BOM dashboard shows, from the same
-         module (`lib/orders/material-bom-amendment/status.ts`).
-
-         It is here because the question "has this order's material been
-         planned?" is asked from BOTH sides: the merchandiser works down the BOM
-         queue, and whoever is looking at the order wants to know without
-         opening another screen. Two screens declaring their own tone map is what
-         the ~8 copy-pasted `bomStatusTone` functions across `planning/**` are.
-
-         BEFORE Status, so `withCreatedColumns` still finds the trailing run it
-         splices the Created pair ahead of. */
-      {
-        header: "Material BOM",
+        header: "Quantity",
+        /* Right-aligned tabular-nums, the repo's shape for a figure: the point
+           of a quantity column is comparing rows down it, and ragged digits of
+           different widths cannot be compared. `fmtNumber` for the grouping
+           (Indian, from `lib/format.ts`) rather than `toLocaleString` — see
+           [[raagam-fmtnumber-3dp]] on why the bare call is never used here. */
         cell: (r) => {
-          const b = bomStatus[r.id];
-          const st = bomOf(r);
+          const q = orderQty(r);
           return (
-            <span title={bomStatusHint(st, b?.qty ?? null)}>
-              <StatusPill tone={bomStatusTone(st)}>{bomStatusText(st)}</StatusPill>
+            <span className="block text-right tabular-nums text-sm">
+              {q == null ? "—" : fmtNumber(q)}
             </span>
           );
         },
-      },
-      {
-        header: "Status",
-        cell: (r) => (
-          <StatusPill tone={amendmentStatusTone(r)}>
-            {amendmentStatusText(r)}
-          </StatusPill>
-        ),
       },
       rowActionsColumn((r) => (
         <RowActions
@@ -12770,8 +12816,14 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       // 2026-09-17, when the client moved them to Prices and retired that tab
       // (Ship Type, Ship Mode and Pay Terms had already left it on 09-08).
       // Ex-Rate joined the gate in the same change. Order matches the row on
-      // screen, so a blocked Save names the FIRST blank field the operator
-      // will meet. Currency has no `id`: the picker's trigger carries none,
+      // screen — the three among themselves, left to right — so a blocked Save
+      // names the FIRST blank field the operator will meet. The ROW moved
+      // beneath the rate grids on 2026-09-18 (see its own note) and these three
+      // did not move with it, because they are still the only gated fields the
+      // Prices section has: a blank RATE holds the cursor in its cell and is
+      // refused by `styleRate`, it is not an entry here. Add one and it belongs
+      // ABOVE these three, matching the tab.
+      // Currency has no `id`: the picker's trigger carries none,
       // and the reveal falls back to its `data-required-empty` marker.
       {
         section: "prices",
@@ -18860,86 +18912,95 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
        * methods and their members are already in state.
        */
       content: (
-        <div className="space-y-4">
-          {/**
-            * THE ORDER'S MONEY TERMS — Currency, Ex-Rate, Pay Mode (client
-            * 2026-09-17: moved here from the Payment tab, which is retired).
-            *
-            * ABOVE BOTH BRANCHES, not inside one. This tab renders a pack
-            * version and a per-style version; a row placed in either vanishes
-            * the moment Pack flips, taking three mandatory fields out of sight
-            * while Save still refuses on them.
-            *
-            * FIRST ON THE TAB because every rate typed below is IN this
-            * currency — the operator states the unit before the figures.
-            *
-            * `FieldRow`, not `FieldGrid`, for the reason the Payment tab
-            * recorded on 2026-09-15 ("compact this tab"): twelfths are a SHARE
-            * of the pane, so a three-letter code would get a sixth of a wide
-            * monitor. Widths are the ones that tab settled on — `hug` (88px)
-            * for the two codes, `num` (72px) for the rate.
-            *
-            * The value fields that sat beside these (Avg Rate, Gross Value,
-            * INR Value) went to Quantities — see the note there. Ship Type,
-            * Ship Mode, Country, Pay Terms and Days left on 08-29/09-08; their
-            * columns and payload fields are untouched.
-            */}
-          <FieldRow>
-            {/* `CurrencyPicker` has no `required` prop of its own, so the scope
-                comes from the wrapper — its inner `DataPicker` ORs the context
-                (`data-picker.tsx:292`). `compact` because the Field draws the
-                label. */}
-            <Field label="Currency" required w="hug">
-              <CurrencyPicker
-                label="Currency"
-                compact
-                currencies={data.currencies}
-                value={form.currency_code}
-                onChange={(code) =>
-                  set({
-                    currency_code: code,
-                    /* A RUPEE ORDER CONVERTS AT 1, so Ex-Rate fills itself
-                       rather than holding the cursor on a question with one
-                       answer. Only into a BLANK box — a rate the operator
-                       typed is never overwritten — and it stays editable.
-                       Switching back to a foreign currency leaves the 1 in
-                       place on purpose: clearing a value the operator can see
-                       is worse than a figure they will visibly correct. */
-                    ...(code.trim().toUpperCase() === HOME_CURRENCY &&
-                    exRateMissing(form.ex_rate)
-                      ? { ex_rate: "1" }
-                      : {}),
-                  })
-                }
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-              />
-            </Field>
-            {/* MANDATORY since 2026-09-17 — the Save gate's `pr-exrate` entry
-                (blank or 0 both count, `exRateMissing`) is the other half. */}
-            <Field label="Ex-Rate" required w="num" htmlFor="pr-exrate">
-              <Input
-                id="pr-exrate"
-                type="number"
-                inputMode="decimal"
-                className="text-right"
-                value={form.ex_rate}
-                onChange={(e) => set({ ex_rate: e.target.value })}
-              />
-            </Field>
-            <Field label="Pay Mode" required w="hug" htmlFor="pr-paymode">
-              <Select
-                id="pr-paymode"
-                value={form.pay_mode}
-                onChange={(e) => set({ pay_mode: e.target.value })}
-              >
-                <option value=""></option>
-                {PAY_MODES.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </Select>
-            </Field>
-          </FieldRow>
+        /**
+         * TWO SIDES, NOT TWO STACKED BLOCKS (client 2026-09-18, screenshot
+         * 113414: "two splited side — one side the New style price, and second
+         * side that three field").
+         *
+         * The rates and the money terms are both narrow — a price group runs
+         * 320px and the three fields 272px — so stacked they used a quarter of
+         * a desk and left the right half of the tab empty (screenshot 2911).
+         * Side by side they read as one record: what is being charged, and on
+         * what terms.
+         *
+         * IT ALSO ANSWERS THE SEQUENCE ASK IN THE SAME CHANGE. The client's
+         * other line that day was that a quote is spoken "price rate 2.5 →
+         * currency exchange rate → pay mode", and left-to-right IS that order —
+         * on screen and in the DOM, so Tab and Enter walk the rates first and
+         * reach Currency after them. An earlier pass moved the row BENEATH the
+         * grids to get the same sequence; that was the wrong axis and is
+         * reverted. The row has never been INSIDE either branch, which is the
+         * one thing about its placement that must not change: this tab renders
+         * a pack version and a per-style version, and three mandatory fields
+         * that vanish when Pack flips are three fields Save still refuses on.
+         *
+         * `@3xl/editor` — the pane's own container query, the same split the
+         * T&A tab used before its approvals panel left. Below it the two sides
+         * stack, which is the narrow-pane layout this replaces.
+         *
+         * ## A GRID, BECAUSE FLEX COULD NOT STATE THIS WITHOUT COLLAPSING
+         *
+         * Two declared tracks: the rates take `minmax(26rem,max-content)` and
+         * the terms a flat 21rem. Nothing grows, so the leftover lands after
+         * both columns instead of between them.
+         *
+         * THE 26rem FLOOR IS LOAD-BEARING, not a minimum for looks. A track that
+         * is only `max-content` asks the CONTENT how wide to be, and this
+         * content cannot answer: every layer of it hugs (`ChildGrid` puts
+         * `w-fit max-w-full` on a card whose columns all declare widths, and
+         * `PriceMatrix` is a `w-fit` scroller inside that). Measured in
+         * isolation the chain resolves fine — a stripped copy of it reports
+         * 343px — but in place it resolved to nothing three times running, and
+         * the column rendered as two border slivers (screenshots 2917 · 2918 ·
+         * 2919). The floor makes that outcome impossible: 416px is the
+         * Style-wise pair (Style 10rem + Price Type 10rem plus the card's own
+         * chrome), so on the narrowest mode the track is exactly the tables and
+         * the terms sit 24px beyond them, which is what the approved mock shows.
+         * `max-content` above it still lets a Color-wise Size-wise matrix take
+         * the room it needs, and `PriceMatrix`'s own `overflow-x-auto` absorbs
+         * whatever the pane cannot give.
+         *
+         * IT TOOK THREE TRIES IN FLEX AND EACH FAILED THE SAME WAY, so the
+         * reason is written here rather than rediscovered: every part of this
+         * content hugs (`ChildGrid` puts `w-fit max-w-full` on a card whose
+         * columns all declare widths), and a hugging child cannot tell its
+         * parent how wide to be while asking the parent how wide IT may be.
+         * `flex-1` broke the loop by making the column grow — and posted the
+         * terms 780px away against the far edge (screenshot 2916). Dropping it
+         * left nothing definite at all, and the column measured 0: two border
+         * slivers where the tables had been (2917, 2918, the second after
+         * removing `min-w-0` as well). A grid track is a size declared by the
+         * PARENT, so the loop never forms.
+         */
+        <div className="flex flex-col gap-4 @3xl/editor:grid @3xl/editor:grid-cols-[minmax(26rem,max-content)_21rem] @3xl/editor:items-start @3xl/editor:gap-6">
+          {/* THE RATES.
+
+              NO `flex-1`, and that is the whole of the gap fix (client
+              2026-09-18: "see that central gap, I think can reduce it"). Growing
+              this column does not make it hold more — its tables are fixed
+              widths that hug — it just manufactures empty space and posts the
+              terms against the far edge of the pane, 780px from the rates they
+              belong to. With neither column growing, the row packs left and the
+              leftover lands harmlessly after both, which is the same answer the
+              T&A card reached ("eliminate all the excess empty whitespace on the
+              right side of the table", 2026-09-15).
+
+              AND NO `min-w-0` EITHER, which is the half that cost a round trip.
+              Dropping `flex-1` while keeping it collapsed this column to nothing
+              — two thin border slivers where the tables had been (client
+              2026-09-18, screenshot 2917). `min-w-0` removes a flex item's
+              automatic minimum, its min-content size; with no `flex-1` to give
+              it a definite width either, the only thing left to measure was a
+              `w-fit` card whose own `max-w-full` measures the column — each
+              deferring to the other, and 0 is what that resolves to. The
+              automatic minimum IS the floor here, so let it stand.
+
+              Nothing is lost by dropping it: a wide Color-wise Size-wise matrix
+              still shrinks, because `PriceMatrix` is an `overflow-x-auto`
+              scroller and a scroll container's min-content is small. The column
+              hugs its tables, and the matrix scrolls inside itself exactly as
+              before. */}
+          <div className="space-y-4">
           {packPricingActive ? (
         <div className="space-y-6">
           {declaredPackMethods.map((method) => {
@@ -19409,6 +19470,175 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           />
         </>
           )}
+          </div>
+          {/**
+            * THE ORDER'S MONEY TERMS — Currency, Ex-Rate, Pay Mode (client
+            * 2026-09-17: moved here from the Payment tab, which is retired;
+            * 2026-09-18: moved to this side of the tab, see the split above).
+            *
+            * ## THEY ARE A TABLE, NOT THREE LABELLED FIELDS (client 2026-09-18,
+            * from the alignment mock: option B)
+            *
+            * Three `Field`s beside a table do not line up with it and cannot be
+            * MADE to without hand-measuring: a label is 16px where a header band
+            * is 33, so the boxes sat a row high whatever the wrapper did. As a
+            * table they align by construction — same header band, same 8px cell
+            * padding, same input height as the Style / Price Type table beside
+            * them, so the two headers and the two input rows share their edges.
+            *
+            * IT IS ALSO THE CONVERSION THIS CLIENT ALREADY ASKED FOR ONE TAB
+            * ALONG. Style / Price Type / Unit became a table on 2026-09-05
+            * ("style price type unit aa oru table aa pannikudu") and the
+            * Color/Print grids the same day, for the stated reason that labelled
+            * fields floating on a line read as three adjacent controls while a
+            * headed table reads as a record. These three are a record: the
+            * order's money terms.
+            *
+            * `mt-8` IS THE BAND ABOVE THE GROUP, not a nudge. The left column
+            * opens with `ChildGrid`'s `flatRows` band — the style ref and its ✕
+            * — whose height is that ghost `Button size="sm"`, `h-8`. Matching it
+            * is what puts this table's header on the same line as the group's.
+            * It is stated as one number because the band is one control; if that
+            * button's size changes, this moves with it. Only at `@3xl`, where
+            * the two sit side by side: stacked there is nothing to align to.
+            *
+            * 7 / 6 / 7rem = 320px. `PAY_MODES` are three-to-six-letter codes
+            * (CAD … CHEQUE) and a currency is three, so the two 112px columns
+            * hold their values whole against `AFFORDANCE_PAD_COMPACT`; Ex-Rate
+            * gets 96 because a rate is right-aligned digits and nothing else.
+            * Every column declares a width, which is what makes `hugsContent`
+            * fire and stops the table before the empty half of the pane.
+            *
+            * `required` TWICE, the sanctioned double declaration (AGENTS.md):
+            * on the column, which draws the header `*` and opens the
+            * `RequiredScope` that holds the cursor, and on the control, which is
+            * what `useRequiredHold` ORs it with. `CurrencyPicker` has no
+            * `required` of its own and takes the scope alone — the same way it
+            * took the `Field`'s before this.
+            *
+            * ## WHAT THIS REPLACED, AND WHY THE OLD NOTE IS KEPT BELOW
+            *
+            * A `FieldRow` of three `Field`s, `hug` (88px) / `num` (72px) /
+            * `hug`. Those widths are not lost — they are where the 7 / 6 / 7rem
+            * columns above come from, a cell's own `px-1.5` added to each. The
+            * reason it was a `FieldRow` and never a `FieldGrid` still stands and
+            * is why nothing here returns to twelfths: they are a SHARE of the
+            * pane, so a three-letter code would take a sixth of a wide monitor
+            * (the Payment tab, 2026-09-15, "compact this tab").
+            *
+            * The value fields that sat beside these (Avg Rate, Gross Value,
+            * INR Value) went to Quantities — see the note there. Ship Type,
+            * Ship Mode, Country, Pay Terms and Days left on 08-29/09-08; their
+            * columns and payload fields are untouched.
+            */}
+          {/* `w-[21rem]` (336px) STATES THE COLUMN'S WIDTH RATHER THAN LETTING
+              THE FLEX ITEM FIND IT. The table hugs at 322px (7 + 6 + 7rem plus
+              its own borders and the card's `p-2`), so this is the next round
+              rem above it and the two never fight. It is stated because the
+              version of this row that shipped with an explicit width rendered
+              and the version without one did not (2026-09-18): a flex item with
+              no declared width takes its base from its content, and this
+              content is a `w-fit` card inside a `max-w-full` scroller — three
+              rules each deferring to the next for a number none of them
+              states. */}
+          <div className="@3xl/editor:mt-8 @3xl/editor:w-[21rem] @3xl/editor:shrink-0">
+            <ChildGrid<TermsRow>
+              columns={[
+                {
+                  header: "Currency",
+                  required: true,
+                  width: "7rem",
+                  /* `compact` for the reason every picker in a grid cell takes
+                     it: the column heading already names the value, so the
+                     affordance slot can give its 8px back to the text. */
+                  cell: () => (
+                    <CurrencyPicker
+                      label="Currency"
+                      compact
+                      currencies={data.currencies}
+                      value={form.currency_code}
+                      onChange={(code) =>
+                        set({
+                          currency_code: code,
+                          /* A RUPEE ORDER CONVERTS AT 1, so Ex-Rate fills itself
+                             rather than holding the cursor on a question with
+                             one answer. Only into a BLANK box — a rate the
+                             operator typed is never overwritten — and it stays
+                             editable. Switching back to a foreign currency
+                             leaves the 1 in place on purpose: clearing a value
+                             the operator can see is worse than a figure they
+                             will visibly correct. */
+                          ...(code.trim().toUpperCase() === HOME_CURRENCY &&
+                          exRateMissing(form.ex_rate)
+                            ? { ex_rate: "1" }
+                            : {}),
+                        })
+                      }
+                      canCreate={masterPerms.canCreate}
+                      canEdit={masterPerms.canEdit}
+                    />
+                  ),
+                },
+                {
+                  /* MANDATORY since 2026-09-17 — the Save gate's `pr-exrate`
+                     entry (blank or 0 both count, `exRateMissing`) is the other
+                     half, and it reveals by `id`, so the id stays on the input
+                     through the move into a cell. */
+                  header: "Ex-Rate",
+                  required: true,
+                  width: "6rem",
+                  align: "right",
+                  cell: () => (
+                    <Input
+                      id="pr-exrate"
+                      required
+                      aria-label="Ex-Rate"
+                      type="number"
+                      inputMode="decimal"
+                      className="text-right"
+                      value={form.ex_rate}
+                      onChange={(e) => set({ ex_rate: e.target.value })}
+                    />
+                  ),
+                },
+                {
+                  header: "Pay Mode",
+                  required: true,
+                  width: "7rem",
+                  cell: () => (
+                    <Select
+                      id="pr-paymode"
+                      required
+                      compact
+                      aria-label="Pay Mode"
+                      value={form.pay_mode}
+                      onChange={(e) => set({ pay_mode: e.target.value })}
+                    >
+                      <option value=""></option>
+                      {PAY_MODES.map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </Select>
+                  ),
+                },
+              ]}
+              /* ONE ROW, AND IT IS THE ORDER — `TERMS_ROWS` is a module-level
+                 constant so the array identity never changes between renders.
+                 The same shape the Style / Price Type table uses (`rows={[g]}`),
+                 and the same four flags for the same reasons: no `#` ordinal
+                 over a table of one, nothing to add (a declining `onAdd` so
+                 Enter off the last cell escalates instead of dying on a grid
+                 that cannot grow), and nothing to remove — an order cannot be
+                 saved without these three. */
+              rows={TERMS_ROWS}
+              tableAlways
+              hideIndex
+              hideAdd
+              onAdd={() => false}
+              hideRemove
+              onRemove={() => {}}
+            />
+          </div>
         </div>
       ),
     },

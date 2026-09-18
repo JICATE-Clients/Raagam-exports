@@ -711,7 +711,11 @@ async function getUomRows(): Promise<UomRow[]> {
  * `getProcessRows` in `lib/orders/amendments/service.ts` returns the same master
  * the same way, for the same reason, one tab over.
  */
-async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
+/* EXPORTED FOR THE SAVE GUARD (0570). `stageRouteProblem` in `./actions.ts`
+   must judge a save against the SAME classification the picker offered, and a
+   second select string there is how the two would come to disagree. Still the
+   aggregate loader's own reader; nothing else about it changed. */
+export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
   const s = await createClient();
   // `inactive`, not `is_active` — 0227's spelling. Reading the flag column from
   // memory is what leaves a picker silently empty, since PostgREST answers a
@@ -809,7 +813,9 @@ async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
  * the kinds are named once, here, and `LookupDialogPicker` is handed each list
  * whole (it hides an inactive row itself, and keeps the one a record holds).
  */
-async function getFabricProcessLookupRows(): Promise<FabricProcessLookups> {
+/* EXPORTED FOR THE SAVE GUARD (0570) — see `getFabricProcessRows` above. The
+   guard needs the stage list to rank the stages a route names. */
+export async function getFabricProcessLookupRows(): Promise<FabricProcessLookups> {
   const s = await createClient();
   const { data } = await s
     .from("config_lookups")

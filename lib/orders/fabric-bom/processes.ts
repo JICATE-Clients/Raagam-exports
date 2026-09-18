@@ -66,11 +66,20 @@ import type { FabricStageRole } from "./stage-routes";
 export {
   baseProcessesForStage,
   baseProcessMissing,
+  baseProcessRepeated,
   narrowToStage,
   stageAllowsProcess,
   stageMismatchBlocked,
+  /* The forward-only half of the same rule (0570) — see that file's second
+     block comment. `stageRouteProblems` is the one BOTH the screen's Save gate
+     and the server action read, which is what stops "what the grid warns
+     about" and "what Save refuses" from drifting apart. */
+  stageRank,
+  stageRegressionBlocked,
+  stageRouteProblems,
+  stagesForRow,
 } from "./stage-routes";
-export type { FabricStageGates, FabricStageRole } from "./stage-routes";
+export type { FabricStageGates, FabricStageLike, FabricStageRole } from "./stage-routes";
 import { FABRIC_SOURCES, type FabricSource } from "./fabric-source";
 /* ONE DEFINITION OF "NAMES A COLOURWAY", shared with `stageCoversCombo` — see
    `processRowInScope`'s header for the whitespace case that makes borrowing it
@@ -506,9 +515,20 @@ export type GatheredProcessRow = FabricProcessRow & {
 /** What makes two stored rows the same step but for their colour. `component_id`
  *  is IN the key: a component-wise split is a different branch, not a colour of
  *  one. `loss_pct` is compared as typed text, so "5" and "5.0" stay apart —
- *  folding them would rewrite one of them on the next save. */
+ *  folding them would rewrite one of them on the next save.
+ *
+ *  THE SEPARATOR IS WRITTEN AS THE ESCAPE (U+0000), NEVER AS A RAW BYTE (fixed
+ *  2026-09-18). NUL is the right separator — no id, uuid or typed loss figure
+ *  can contain one, so the join cannot be spoofed by a value — but this file
+ *  carried two LITERAL 0x00 bytes from 5e3a6fc, and one byte is all it takes
+ *  for every text tool to reclassify the file as binary: `grep -rn` reports
+ *  "Binary file … matches" and searches NOTHING in it, and the audit scripts
+ *  that read source the same way go quiet on it too. A rule can then be
+ *  missing here and every sweep for it still reports clean — the failure
+ *  [[raagam-audit-checks-can-be-blind]] is about, arriving through a file
+ *  nobody suspects. The escape is the identical runtime string. */
 const routeKeyOf = (r: FabricProcessRow) =>
-  [r.item_id, r.component_id ?? "", r.stage_id ?? "", r.process_id ?? "", r.loss_for_id ?? "", r.loss_pct.trim(), r.type_id ?? ""].join(" ");
+  [r.item_id, r.component_id ?? "", r.stage_id ?? "", r.process_id ?? "", r.loss_for_id ?? "", r.loss_pct.trim(), r.type_id ?? ""].join("\u0000");
 
 export function gatherByRoute(rows: readonly FabricProcessRow[]): GatheredProcessRow[] {
   const out: GatheredProcessRow[] = [];
@@ -517,7 +537,7 @@ export function gatherByRoute(rows: readonly FabricProcessRow[]): GatheredProces
     /* AN UNSTARTED ROW NEVER FOLDS. Two blank rows the operator has just added
        agree on every field, so folding them would silently merge one away as it
        was being typed into. */
-    const key = fabricProcessRowStarted(r) ? routeKeyOf(r) : ` unstarted:${r.key}`;
+    const key = fabricProcessRowStarted(r) ? routeKeyOf(r) : `\u0000unstarted:${r.key}`;
     const held = at.get(key);
     if (held) {
       if (r.combo && !held.combos.includes(r.combo)) held.combos.push(r.combo);
