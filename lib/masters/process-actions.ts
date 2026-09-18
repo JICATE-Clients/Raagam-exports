@@ -23,21 +23,15 @@ function rev(): void {
 /** Clear sub-categories when Has Sub Categories is off; else drop blank-name
  *  rows and renumber sno 1..n so persisted lines mirror the checkbox.
  *
- *  `short_description` is NOT here: the client removed it from both the header
- *  and this grid (2026-09-16, doc/order/fabriprocess.md §4) and 0565 dropped the
- *  columns — see `lib/masters/process-types.ts`. */
-function normalizeSubCategories(
-  data: ProcessInput,
-): { sno: number; sub_category: string; hsn_code: string | null }[] {
+ *  `short_description` and `hsn_code` are NOT here: the client removed the first
+ *  on 2026-09-16 (doc/order/fabriprocess.md §4, dropped by 0565) and the second
+ *  on 2026-09-18 (dropped by 0571) — see `lib/masters/process-types.ts`. */
+function normalizeSubCategories(data: ProcessInput): { sno: number; sub_category: string }[] {
   if (!data.has_sub_categories) return [];
   return data.sub_categories
-    .map((c) => ({ ...c, sub_category: c.sub_category.trim() }))
-    .filter((c) => c.sub_category.length > 0)
-    .map((c, i) => ({
-      sno: i + 1,
-      sub_category: c.sub_category,
-      hsn_code: c.hsn_code?.trim() || null,
-    }));
+    .map((c) => c.sub_category.trim())
+    .filter((name) => name.length > 0)
+    .map((sub_category, i) => ({ sno: i + 1, sub_category }));
 }
 
 /**

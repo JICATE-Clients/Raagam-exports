@@ -24,7 +24,12 @@ export interface ProcessSubCategory {
      Column, row field, payload schema and DB column all went together (0565),
      the same shape `rate` left in 0521 and `description` in 0528. The header's
      own Short Description went in the same change; see `Process` below. */
-  hsn_code: string | null;
+  /* NO `hsn_code` EITHER. The client removed HSN from the sub-category rows
+     (2026-09-18, Process Master flags & sub-category cleanup). HSN is stated
+     ONCE, on the process header — which is also the only place Master Data ▸
+     Process HSN Assign ever read or wrote it. Dropped from the DATABASE by
+     0571: nothing read it, and a column the form no longer fills is only a
+     door for a spreadsheet import. */
 }
 
 /**
@@ -37,10 +42,9 @@ export interface ProcessSubCategory {
  * once, so "which stage" has no single answer per process.
  *
  * Seeded once by 0563 from the master's own names, and OPERATOR-MAINTAINED from
- * then on — exactly as `is_print` (0528) and `is_dyeing` (0557) below are. The
- * grid on the Process master is where it is maintained, and it renders only when
- * `for_fabric` is ticked: a stage route is meaningless on a garment or trims
- * process.
+ * then on. The grid on the Process master is where it is maintained, and it
+ * renders only when `for_fabric` is ticked: a stage route is meaningless on a
+ * garment or trims process.
  */
 export interface ProcessFabricStage {
   id: string;
@@ -78,33 +82,38 @@ export interface Process {
   for_garments: boolean;
   for_components: boolean;
   no_planning: boolean;
-  designwise_delivery: boolean;
+  /** "Use Conversion Process" — the one planning flag the client KEPT in the
+   *  2026-09-18 cleanup, for the 10–20% of processes that run as a conversion
+   *  job (YARN DYEING on the live master). */
   is_conversion: boolean;
-  /** Is this a PRINT process (AOP, rotary, bit printing, …)? (0528) — read by
-   *  the Fabric BOM ▸ Fabric Process picker to refuse "Print" until the order
-   *  has declared a Roll form print / AOP. Seeded once from names already
-   *  containing PRINT; an operator-maintained flag from here on. */
-  is_print: boolean;
-  /** Is this a FABRIC-STAGE Dyeing process? (0557) — read by the Fabric BOM ▸
-   *  Fabric Process picker to withhold Dyeing from a Yarn-Dyed fabric's
-   *  offered route, same shape as `is_print` above. Seeded once from
-   *  `for_fabric` processes already named DYE/DYEING; operator-maintained. */
-  is_dyeing: boolean;
-  /** Is this THE GREIGE KNITTING step? (0564) — read by the Fabric BOM demand
-   *  engine to drop Knitting from the ladder of a fabric whose source is
-   *  `greige_purchase` or `dyed_purchase` (§2's Default Rule 2: the factory
-   *  buys ready-knitted rolls, so there is no knitting to plan). Third of the
-   *  same shape as `is_print` and `is_dyeing` above — seeded once, from
-   *  `for_fabric` processes named KNIT, and operator-maintained after.
-   *
-   *  **AN UNFLAGGED KNITTING STEP ERRS UPWARD, NEVER DOWNWARD**, and that
-   *  asymmetry is deliberate: the yarn half of the suppression does not read
-   *  this flag at all (`yarnPurchase` skips a purchased fabric outright), so
-   *  the expensive half of Rule 2 cannot be defeated by an unticked box. What a
-   *  missing flag costs is a greige demand grossed by a knitting loss it should
-   *  not carry — an over-buy of a percent or two. The flag must NOT catch
-   *  Knitting Dia, Flat Knitting or Knit Fabric Inspection. */
-  is_knitting: boolean;
+  /* NO `designwise_delivery`, `is_print`, `is_dyeing` OR `is_knitting`. The
+     client removed all four from the form as unnecessary (2026-09-18), and they
+     did NOT all leave the same way:
+
+     - `designwise_delivery` had no reader anywhere outside this master and was
+       false on every live row. 0571 dropped the column outright.
+
+     - THE THREE KIND FLAGS STAY IN THE DATABASE, as system-maintained data. The
+       Fabric BOM reads them — the print gate (0528), the Yarn-Dyed dyeing
+       withhold (0557) and §2 Rule 2's knitting suppression (0564) — through its
+       own selects in `lib/orders/fabric-bom/`, never through this type. They
+       are seeded by migrations (0570 sets `is_print` on PRINTING as it creates
+       it) and are no longer operator-editable.
+
+       WHY NOT DERIVE THEM FROM THE FABRIC STAGES GRID INSTEAD, which looks
+       like the same fact ("Knitting is the base of Greige")? Because it is not
+       the same fact. 0570 makes FABRIC PURCHASE a second BASE of GREIGE — how a
+       Rule 2 route opens — so "base of Greige" means "knitting OR buying
+       greige", and Rule 2 suppresses only the first. Derived, FABRIC PURCHASE
+       would read as a knitting step and a greige-bought fabric would DROP its
+       own purchase loss: an under-buy, the one direction a missing flag here
+       must never fail in. Dyed has the same trap waiting for its dyed-cloth
+       purchase process.
+
+       Absent from the Zod schema below, so neither this form nor a data-io
+       import can write them; `updateProcess` then leaves the stored values
+       exactly as they are, and a new process takes the column default (false),
+       which errs toward over-buying — the direction the engine accepts. */
   has_sub_categories: boolean;
   /* NO `sl_no`. IT WAS HERE AND THE CLIENT REMOVED IT (2026-09-16,
      doc/order/fabriprocess.md §4). 0293/0294 imported it verbatim from the
@@ -127,8 +136,9 @@ export interface Process {
 export const processSubCategoryInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   sub_category: z.string().min(1),
-  /* NO `short_description` — see `ProcessSubCategory` above. */
-  hsn_code: z.string().optional().nullable(),
+  /* NO `short_description` and NO `hsn_code` — see `ProcessSubCategory` above.
+     Gone from the schema and not just the grid: `lib/data-io` imports parse
+     with these schemas and write straight to Postgres. */
 });
 
 /** One (stage, base?) pairing the Process master maintains — see
@@ -157,11 +167,12 @@ export const processInput = z.object({
   for_garments: z.boolean().default(false),
   for_components: z.boolean().default(false),
   no_planning: z.boolean().default(false),
-  designwise_delivery: z.boolean().default(false),
   is_conversion: z.boolean().default(false),
-  is_print: z.boolean().default(false),
-  is_dyeing: z.boolean().default(false),
-  is_knitting: z.boolean().default(false),
+  /* NO `designwise_delivery` / `is_print` / `is_dyeing` / `is_knitting` — see
+     `Process` above. Out of the SCHEMA and not just off the screen: a key left
+     here defaults to `false` on every parse, so each Save would silently
+     overwrite a migration-seeded kind flag (KNITTING's `is_knitting`, say) with
+     false — and `designwise_delivery` no longer exists to write to. */
   has_sub_categories: z.boolean().default(false),
   inactive: z.boolean().default(false),
   sub_categories: z.array(processSubCategoryInput).default([]),

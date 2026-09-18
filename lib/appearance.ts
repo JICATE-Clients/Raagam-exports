@@ -115,6 +115,38 @@ export const FONTS: readonly FontOption[] = [
     source: "Google Material 3",
     family: "var(--font-roboto)",
   },
+  /**
+   * THE ONE SERIF, AND THE ONLY ONE ASKED FOR BY NAME (client 2026-09-18).
+   *
+   * A SYSTEM FACE, like Segoe above and for a stronger reason: Bookman Old
+   * Style is Monotype's, shipped with Microsoft Office rather than licensed for
+   * the web, so there is no `next/font` loader to add — it cannot be served
+   * from Google Fonts or self-hosted without a licence. It costs nothing to
+   * offer: a PC that has Office draws it, and one that does not falls through
+   * the stack to URW Bookman (the free metric-compatible clone on Linux),
+   * Georgia, and finally Inter — never an unstyled default.
+   *
+   * TWO THINGS TO WATCH, both of which are rules 7 and 8 of the skill and
+   * neither of which is a reason to refuse an option the client named:
+   *
+   * - **Figures.** The face carries no `tnum` feature, so the `tabular-nums`
+   *   class on every quantity and rate column has nothing to switch on. Its
+   *   digits are near-uniform by design, so columns still line up closely, but
+   *   they are not guaranteed to — look at a rate column before adopting it.
+   * - **Width.** It is a wide old-style serif, wider than Inter and wider than
+   *   Archivo, which was dropped on 2026-09-08 for overflowing fields. Field
+   *   widths were tuned on Inter, so check the dense screens (Garment Orders,
+   *   Fabric BOM, a report) before making it anyone's default.
+   *
+   * It stays LAST deliberately: the list is otherwise five sans faces, and the
+   * one serif belongs at the end of them rather than in the middle.
+   */
+  {
+    id: "bookman",
+    label: "Bookman Old Style",
+    source: "Microsoft Office serif (system font)",
+    family: '"Bookman Old Style", "URW Bookman", Bookman, Georgia, var(--font-inter)',
+  },
 ];
 
 export const ACCENTS: readonly AccentOption[] = [
