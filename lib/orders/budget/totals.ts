@@ -249,11 +249,46 @@ export const PROCESS_TABS: readonly ProcessTab[] = [
   { source: "garment_process", label: "Garment Processes" },
 ];
 
-/** What the screen prints when a figure cannot be produced. Never an empty
- *  string: a blank cell and a refused cell must not look alike. */
-export type Refusal = { refused: string };
+/**
+ * A budget line's editable fields that a refusal can be ABOUT.
+ *
+ * `base` is not a box on the line: it is the sales value a percent line takes
+ * its share of, which the operator fixes on the ORDER — the screen shows that
+ * one in the Amount cell, since there is no field of the line's own to put it
+ * under. `currency` is in the vocabulary for the screen's own checks; nothing
+ * in this engine refuses over it, since a blank currency is INR.
+ */
+export type LineField = "qty" | "no_of_pcs" | "no_of_units" | "rate" | "ex_rate" | "currency" | "base";
 
-export function isRefusal(v: unknown): v is Refusal {
+/**
+ * What the screen prints when a figure cannot be produced. Never an empty
+ * string: a blank cell and a refused cell must not look alike.
+ *
+ * ## A REFUSAL NAMES ITS FIELD (2026-09-18)
+ *
+ * A bare sentence can only be printed where the FIGURE goes — so "Enter a
+ * rate" sat in the Amount column, three cells from the Rate box it was about,
+ * and a blocked Save could only say so in a toast (user: "it should only show
+ * below the exact field"). `field` says which box, so the screen can put the
+ * sentence under it and land the cursor there. Optional: a refusal about a
+ * TOTAL (sales, cost, a margin) is about no single field, and says so by
+ * leaving it out.
+ */
+export type Refusal = { refused: string; field?: LineField | CmtOperationKey };
+
+/** A refusal about one line — always names its field. What `lineAmount`,
+ *  `lineInrRate` and `lineReqd` return, so a caller never has to guess. */
+export type LineRefusal = { refused: string; field: LineField };
+
+/* The guard names the BARE shape `{ refused: string }`, not `Refusal`, on
+   purpose. Since `field` joined `Refusal`, a caller whose own union spells the
+   bare shape (`number | { refused: string }`) was no longer narrowed by
+   `v is Refusal` — the bare shape is not a strict subtype of one with an
+   extra optional key — and seven lines of the budget screen stopped
+   compiling. Narrowing to the bare shape works for both spellings, and a
+   `number | Refusal` / `number | LineRefusal` input still narrows to that
+   type, `field` included. */
+export function isRefusal(v: unknown): v is { refused: string } {
   return typeof v === "object" && v !== null && typeof (v as Refusal).refused === "string";
 }
 
@@ -328,15 +363,19 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : n
  * Not rounded: it is a quantity (kilograms, on most sources), and `lineAmount`
  * rounds the money once at the end.
  */
-export function lineReqd(line: BudgetLineInput): number | Refusal {
+export function lineReqd(line: BudgetLineInput): number | LineRefusal {
   const qty = num(line.qty);
-  if (qty == null || qty <= 0) return { refused: "Enter a quantity — use 1 for a lump sum" };
+  if (qty == null || qty <= 0) {
+    return { refused: "Enter a quantity — use 1 for a lump sum", field: "qty" };
+  }
 
   const pcs = num(line.no_of_pcs);
-  if (pcs != null && pcs <= 0) return { refused: "No of Pcs must be more than 0 — leave it blank for 1" };
+  if (pcs != null && pcs <= 0) {
+    return { refused: "No of Pcs must be more than 0 — leave it blank for 1", field: "no_of_pcs" };
+  }
   const units = num(line.no_of_units);
   if (units != null && units <= 0) {
-    return { refused: "No of Units must be more than 0 — leave it blank for 1" };
+    return { refused: "No of Units must be more than 0 — leave it blank for 1", field: "no_of_units" };
   }
 
   return qty * (pcs ?? 1) * (units ?? 1);
@@ -382,18 +421,20 @@ const BUDGET_HOME_CURRENCY = "INR";
  * must read Qty x INR Rate = Amount like every other row. Showing a typed
  * notional rate beside an amount of 0 would be a row contradicting itself.
  */
-export function lineInrRate(line: BudgetLineInput): number | Refusal {
+export function lineInrRate(line: BudgetLineInput): number | LineRefusal {
   if (line.is_foc === true) return 0;
 
   const rate = num(line.rate);
-  if (rate == null) return { refused: "Enter a rate" };
-  if (rate < 0) return { refused: "A rate cannot be negative — use Other income instead" };
+  if (rate == null) return { refused: "Enter a rate", field: "rate" };
+  if (rate < 0) {
+    return { refused: "A rate cannot be negative — use Other income instead", field: "rate" };
+  }
 
   const code = (line.currency_code ?? "").trim().toUpperCase();
   if (code === "" || code === BUDGET_HOME_CURRENCY) return rate;
 
   const ex = num(line.ex_rate);
-  if (ex == null || ex <= 0) return { refused: `Enter the exchange rate for ${code}` };
+  if (ex == null || ex <= 0) return { refused: `Enter the exchange rate for ${code}`, field: "ex_rate" };
   return rate * ex;
 }
 
@@ -439,14 +480,15 @@ export function lineInrRate(line: BudgetLineInput): number | Refusal {
  * base is already INR. FOC is still 0. Without a resolver there is no base to
  * take a share of, and the line says so rather than answering 0.
  */
-export function lineAmount(line: BudgetLineInput, base?: SalesBase): number | Refusal {
+export function lineAmount(line: BudgetLineInput, base?: SalesBase): number | LineRefusal {
   if (line.rate_type === "percent") {
     if (line.is_foc === true) return 0;
     const pct = percentRate(line);
     if (isRefusal(pct)) return pct;
-    if (!base) return { refused: "A percentage needs the sales value" };
+    if (!base) return { refused: "A percentage needs the sales value", field: "base" };
     const of = base(line);
-    return isRefusal(of) ? of : money((of * pct) / 100);
+    // The base's own sentence (it names the order), filed under `base`.
+    return isRefusal(of) ? { refused: of.refused, field: "base" } : money((of * pct) / 100);
   }
 
   if (line.rate_type === "flat") {
@@ -481,12 +523,32 @@ export function lineAmount(line: BudgetLineInput, base?: SalesBase): number | Re
  * is a typo for a flat charge, and taken as typed it would cost the budget more
  * than the orders bring in.
  */
-function percentRate(line: BudgetLineInput): number | Refusal {
+function percentRate(line: BudgetLineInput): number | LineRefusal {
   const rate = num(line.rate);
-  if (rate == null) return { refused: "Enter a rate" };
-  if (rate < 0) return { refused: "A rate cannot be negative — use Other income instead" };
-  if (rate > 100) return { refused: "A percentage cannot be more than 100" };
+  if (rate == null) return { refused: "Enter a rate", field: "rate" };
+  if (rate < 0) {
+    return { refused: "A rate cannot be negative — use Other income instead", field: "rate" };
+  }
+  if (rate > 100) return { refused: "A percentage cannot be more than 100", field: "rate" };
   return rate;
+}
+
+/**
+ * The first thing wrong with a line, and WHICH FIELD it is in — or null when
+ * the line produces an amount.
+ *
+ * Exactly `lineAmount`'s first refusal, same sentence, same order: this is
+ * that function read for its field, not a second set of rules. The screen
+ * puts `message` under `field` and lands the cursor there on a blocked Save.
+ * `base` means the sales value is missing — nothing on the line to fix, so the
+ * screen shows it in the Amount cell.
+ */
+export function lineProblem(
+  line: BudgetLineInput,
+  base?: SalesBase,
+): { field: LineField; message: string } | null {
+  const a = lineAmount(line, base);
+  return isRefusal(a) ? { field: a.field, message: a.refused } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -612,11 +674,11 @@ export type BudgetTotals = {
   /** Lines that could not produce an amount, with the reason. Never silently
    *  dropped from the total: they are EXCLUDED and counted here, so a budget
    *  cannot look complete while a line is unanswered. */
-  unpriced: { index: number; reason: string }[];
+  unpriced: { index: number; reason: string; field?: LineField }[];
   /** Percent lines whose percentage is fine but whose sales base is not known
    *  yet. Not the line's fault, so NOT unpriced and does not hold Save — but
    *  their category refuses rather than leaving them out. */
-  pending: { index: number; reason: string }[];
+  pending: { index: number; reason: string; field: "base" }[];
 };
 
 /**
@@ -668,8 +730,11 @@ export function budgetTotals(
     expense: 0,
     income: 0,
   };
-  const unpriced: { index: number; reason: string }[] = [];
-  const pending: { index: number; reason: string }[] = [];
+  /* Each entry carries the FIELD so a blocked Save can land the cursor on the
+     box at fault. A line with no source has none (the source is not a
+     `LineField`), so that one entry leaves it out. */
+  const unpriced: { index: number; reason: string; field?: LineField }[] = [];
+  const pending: { index: number; reason: string; field: "base" }[] = [];
   let cost: number | Refusal = 0;
   let income: number | Refusal = 0;
   const base = salesBaseOf(orders);
@@ -695,7 +760,7 @@ export function budgetTotals(
           const r: Refusal = {
             refused: `${name}: no sales value to take ${pct}% of — ${of.refused}`,
           };
-          pending.push({ index: i, reason: r.refused });
+          pending.push({ index: i, reason: r.refused, field: "base" });
           costBySource[source] = poison(costBySource[source], r);
           if (source === "income") income = poison(income, r);
           else cost = poison(cost, r);
@@ -706,7 +771,7 @@ export function budgetTotals(
 
     const amount = lineAmount(l, base);
     if (isRefusal(amount)) {
-      unpriced.push({ index: i, reason: amount.refused });
+      unpriced.push({ index: i, reason: amount.refused, field: amount.field });
       return;
     }
     costBySource[source] = add(costBySource[source], amount);
@@ -1147,7 +1212,7 @@ export function cmtBreakupTotal(b: CmtBreakup): number | Refusal | null {
   for (const op of CMT_OPERATIONS) {
     const v = num(b[op.key]);
     if (v == null) continue;
-    if (v < 0) return { refused: `${op.label} rate cannot be negative` };
+    if (v < 0) return { refused: `${op.label} rate cannot be negative`, field: op.key };
     any = true;
     sum += round4(v);
   }

@@ -131,6 +131,26 @@ const files = [];
   }
 })(".");
 
+/**
+ * THE WIDTH VOCABULARY, READ FROM ITS SOURCE — `FIELD_WIDTH_CSS` in
+ * components/ui/field.tsx (`num: "4.5rem"`, …). A column written
+ * `width: FIELD_WIDTH_CSS.hug` is the house's own way to size a grid
+ * (lib/ui/sizes.ts), and until 2026-09-18 this script could not read it: it
+ * matched only literal `"Nrem"` strings, so a grid built from the vocabulary was
+ * not measured AT ALL and the run still ended in a clean summary. That is how all
+ * ten Budget grids shipped at `6xl` — a threshold this script exists to refuse.
+ * Parsed rather than copied, so a step changed there is a step changed here.
+ */
+const VOCAB = (() => {
+  const src = readFileSync(join("components", "ui", "field.tsx"), "utf8");
+  const block = src.match(/export const FIELD_WIDTH_CSS[^{]*\{([\s\S]*?)\n\};/);
+  if (!block) throw new Error("check-grid-budget: FIELD_WIDTH_CSS not found in components/ui/field.tsx");
+  const out = {};
+  for (const m of block[1].matchAll(/^\s*(\w+):\s*"([\d.]+)rem"/gm)) out[m[1]] = Number(m[2]);
+  if (Object.keys(out).length < 7) throw new Error(`check-grid-budget: read only ${Object.keys(out).length} vocabulary widths`);
+  return out;
+})();
+
 /** Comments removed, so prose ABOUT a prop is never read as the prop. */
 function strip(src) {
   return src
@@ -147,10 +167,19 @@ function strip(src) {
  */
 function grids(src) {
   const lines = strip(src).split("\n");
+  /* THE SAME ELEMENTS IN THE RAW FILE. `strip` deletes a multi-line block comment
+     with its newlines, so a stripped line number is not a file line number. The
+     k-th `<ChildGrid` opening a line is the same element in both (prose mentions
+     sit after `*` or `//`, never at the start of a line), so they are paired by
+     order — for the reported line and the exemption lookup. */
+  const raw = src.split("\n");
+  const rawAt = raw.flatMap((l, idx) => (/^\s*<ChildGrid/.test(l) ? [idx] : []));
+  let k = 0;
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(/^(\s*)<ChildGrid/);
     if (!m) continue;
+    const r = rawAt[k++] ?? i;
     const own = m[1].length + 2;
     const props = [];
     for (let j = i + 1; j < lines.length; j++) {
@@ -162,7 +191,16 @@ function grids(src) {
     const text = props.join("\n");
     const cols = text.match(/columns=\{(\w+)/);
     const tf = text.match(/tableFrom="(5xl|6xl|7xl)"/);
+    /* A PROP THIS SCRIPT CANNOT READ. A spread (`{...x}`) or an expression
+       `tableFrom={…}` can carry a threshold that is never seen — the Budget
+       screen passed `tableFrom` through `{...(opts.tableFrom ? … : …)}`, and
+       every grid behind it went unmeasured while the run reported clean. */
+    const unreadable = /^\s*\{\.\.\./m.test(text) || /^\s*tableFrom=\{/m.test(text);
+    const rawAbove = raw.slice(Math.max(0, r - 3), r + 1).join("\n");
     out.push({
+      line: r + 1,
+      unreadable,
+      exempt: /grid-budget: exempt --/.test(rawAbove),
       columns: cols ? cols[1] : null,
       tableFrom: tf ? tf[1] : null,
       cardsOnly: /^\s*(forceCards|inlineCards|across)\b/m.test(text),
@@ -198,9 +236,45 @@ for (const file of files) {
     const name = starts[k][1];
     const to = k + 1 < starts.length ? starts[k + 1][0] : lines.length;
     const raw = lines.slice(from, to).join("\n");
-    widthsOf[name] = /grid-budget: exempt --/.test(raw)
-      ? null
-      : [...strip(raw).matchAll(/width: "([\d.]+)rem"/g)].map((mm) => Number(mm[1]));
+    if (/grid-budget: exempt --/.test(raw)) {
+      widthsOf[name] = null;
+      continue;
+    }
+    /* A literal `"Nrem"`, or the vocabulary: `FIELD_WIDTH_CSS.hug` /
+       `FIELD_WIDTH_CSS["hug"]`. An unknown step is a FAILURE, not a zero — a
+       width silently read as nothing is the blindness this replaced. */
+    const widths = [];
+    for (const mm of strip(raw).matchAll(
+      /width: (?:"([\d.]+)rem"|FIELD_WIDTH_CSS(?:\.(\w+)|\["(\w+)"\]))/g,
+    )) {
+      if (mm[1]) widths.push(Number(mm[1]));
+      else {
+        const step = mm[2] ?? mm[3];
+        if (!(step in VOCAB)) {
+          failed++;
+          console.error(`FAIL  ${relative(".", file)}  ${name}\n      FIELD_WIDTH_CSS.${step} is not a vocabulary width (${Object.keys(VOCAB).join(", ")}).`);
+          continue;
+        }
+        widths.push(VOCAB[step]);
+      }
+    }
+    widthsOf[name] = widths;
+  }
+
+  /* UNMEASURED GRIDS FAIL. A grid this script cannot read is not a grid that
+     passed — reporting it as absent from an otherwise green run is exactly how
+     the Budget screen's ten grids went unchecked. Write the props literally on
+     the `<ChildGrid>` tag, or opt out with `grid-budget: exempt -- <reason>` on
+     one of the three lines above it. */
+  for (const g of found) {
+    if (!g.unreadable || g.exempt || g.cardsOnly) continue;
+    failed++;
+    console.error(
+      `FAIL  ${relative(".", file)}:${g.line}  <ChildGrid> UNMEASURED\n` +
+        `      its props include a spread or a tableFrom={…} expression, so its threshold\n` +
+        `      and columns cannot be read. Write tableFrom="5xl" (or forceCards) literally on the\n` +
+        `      tag and pass a named \`…Columns\` array, or add \`grid-budget: exempt -- <reason>\`.`,
+    );
   }
 
   /**

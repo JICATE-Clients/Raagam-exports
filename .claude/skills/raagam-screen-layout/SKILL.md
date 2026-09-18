@@ -1,6 +1,6 @@
 ---
 name: raagam-screen-layout
-description: "Raagam ERP's screen layout contract — which surface a screen uses (the list shell, a Sheet, or the section-rail editor mounted as an overlay or as a page route), the operator's five standing rules for a converted screen (its own name as the first rail row, no problem badge, an overlay that covers the app chrome, grids that wrap instead of scrolling sideways and do it in ONE frame rather than a box per row, everything on the keyboard contract), the de-clutter rule that blanks field placeholders and drops a grid's caption band and prose empty state, the one field width every field takes, line items as ChildGrid rather than a hand-rolled table, and the Cancel / Save as Draft / Save footer whose canSave is DERIVED rather than hand-assembled. This skill should be used when building or changing any screen under app/(app), when choosing between Sheet and MasterFullScreen, when a record needs sections or tabs, when wiring Save or a status/workflow bar, when a list screen needs its toolbar and row actions, and whenever a screen is about to write its own grid-cols-*, col-span-* or <table>. Keys and focus are raagam-keyboard-contract's; pickers and icon fields are raagam-masters-picker-wiring's; reports are raagam-report-data's."
+description: "Raagam ERP's screen layout contract — which surface a screen uses (the list shell, a Sheet, or the section-rail editor mounted as an overlay or as a page route), the operator's five standing rules for a converted screen (its own name as the first rail row, no problem badge, an overlay that covers the app chrome, grids that wrap instead of scrolling sideways and do it in ONE frame rather than a box per row, everything on the keyboard contract), the de-clutter rule that blanks field placeholders and drops a grid's caption band and prose empty state, BUILDING IT COMPACT THE FIRST TIME (fields and grid columns take the seven value widths of lib/ui/sizes.ts — FieldRow + Field w=, fixed-width tables with tableFrom="5xl" that fit 1155px, definite section caps — and check:grid-budget must list every grid by name before a screen is called done), line items as ChildGrid rather than a hand-rolled table, and the Cancel / Save as Draft / Save footer whose canSave is DERIVED rather than hand-assembled. This skill should be used when building or changing any screen under app/(app), when choosing between Sheet and MasterFullScreen, when a record needs sections or tabs, when wiring Save or a status/workflow bar, when a list screen needs its toolbar and row actions, and whenever a screen is about to write its own grid-cols-*, col-span-* or <table>. Keys and focus are raagam-keyboard-contract's; pickers and icon fields are raagam-masters-picker-wiring's; reports are raagam-report-data's."
 ---
 
 # Raagam screen layout
@@ -15,6 +15,49 @@ This was written down before and ignored by 58 of 60 master editors, because not
 checked. 92 screens had reached 29 different `grid-cols-*` values before anyone
 counted. `scripts/audit_layout.py` is the counter — and §"Verifying" below explains
 the one way it can still miss.
+
+## BUILD IT COMPACT THE FIRST TIME (STANDING, 2026-09-18)
+
+User, 2026-09-18: *"every time while developing the UI issue happens and we need to fix
+it … if I develop anything it should come with proper UI."* The Budget module is why this
+section exists. Five phases were built faithfully to this skill's OLD rules — every field
+`size="sm"`, any grid over ~6 columns `forceCards` — and a sixth phase then re-laid every
+screen to the house convention. Worse, `check:grid-budget` had measured NONE of its ten
+grids (it could not read a spread `tableFrom` or a vocabulary width) and still ended green.
+**A layout retrofitted after the fact is the defect.** New screens are width-laid-out from
+their first commit:
+
+- **Forms — `FieldRow` + `<Field w=…>`**, from the SEVEN steps in `lib/ui/sizes.ts`:
+  `num` 72 · `hug` 88 · `range` 112 · `code` 144 · `term` 176 · `party` 200 · `name` 288.
+  Sized by the KIND of value; a two-word label needs ≥ `hug`. Fractional `size=` (`xs`–`lg`)
+  and `FieldGrid` are legacy — new code uses `size` only for `full`/`xl` (a grid or
+  textarea taking the row). No literal `w-[…]` on a field, no new step.
+- **Caps — narrow fields do not narrow the card.** A section/card holding a `FieldRow`
+  gets a DEFINITE `max-w-[Nrem]` with its arithmetic in a comment; never `max-w-fit`
+  (`@container/section` makes a content-sized cap compute to 0 — the Vendor bug).
+- **Grids — fixed-width TABLES first, at any column count.** Every column
+  `width: FIELD_WIDTH_CSS.<step>`, in a NAMED `…Columns` const, and `tableFrom="5xl"`
+  written literally on the `<ChildGrid>` tag. Columns + 72px chrome ≤ **1155px** (a
+  1366×768 laptop at 100% — `scripts/check-grid-budget.mjs`). Over? Re-cut first — a
+  narrower step for the least-harmed column, or merge two small cells (Budget's
+  "FOC · Import") — and only then `forceCards` + `flatRows`.
+- **Density follows the closest Orders precedent** (`h-8` grid controls, `<Truncated>` for
+  long text). Invent nothing locally.
+- **A warning sits UNDER THE FIELD it is about** (user 2026-09-18: "it should only show below
+  the exact field"). `<Field error={…}>`, or `FieldError` in a table cell with no `Field` —
+  never in a neighbouring cell (Budget printed "Enter a rate" in the AMOUNT column), never
+  only in a toast, never in a hover `title`. A computed refusal names its field
+  (`Refusal.field`, `lineProblem()`) so the screen can place it. Show a row's messages once
+  that row was edited or a Save was attempted — a freshly loaded record is not a wall of red.
+  Toasts are for outcomes no field owns (a server failure).
+- **Copy the templates in `assets/`** — they are width-laid-out.
+
+**Definition of done** for any screen change, BEFORE saying it is done:
+`npm run check:grid-budget` lists every grid you touched as an `ok` line **by name** and
+prints no `UNMEASURED` line (absent is not ok — since 2026-09-18 the check fails on props
+it cannot read); both audits show zero findings in your files. **Whoever orchestrates
+teammates reruns these on the teammates' actual output** — never relays "clean" from a
+report.
 
 ## Pick the surface
 
@@ -155,8 +198,11 @@ leaves the card and the header disagreeing. `Field` supplies the label the `<th>
 to AND the `RequiredScope` that cards mode applies per column only when it renders the
 columns itself, so `required` must be forwarded or the cell's hold is silently lost.
 
-Below ~6 columns a table still fits and still reads better; the wrapping half of this
-rule is about the ones that do not. **The one-frame half has no exception** — a table
+**A fixed-width table is the FIRST choice at any column count** once every column declares
+a vocabulary width and the sum + 72px fits 1155px with `tableFrom="5xl"` (see "BUILD IT
+COMPACT THE FIRST TIME" — the ~6-column cut-off below predates fixed widths and sent the
+whole Budget module to cards it did not need). The wrapping half of this rule is for the
+grid that cannot fit even after re-cutting. **The one-frame half has no exception** — a table
 mode grid already draws a single frame, so "one frame per grid" is true of every grid
 either way, and a `forceCards` without `flatRows` is now the only way to break it.
 
@@ -265,10 +311,12 @@ the client on 2026-08-17. A rule about a field's box does not reach a page's sub
 
 ## Five rules that are decisions
 
-1. **One width.** Every field is `<Field size="sm">` — 3 of 12, four per row, ~280px.
-   Nothing is sized to its own data, so a Year box and a Customer picker line up down
-   the page. `lg` only inside a `SectionColumn`; `xl`/`full` are for a grid or a
-   textarea that takes the row, never to make a field wider. Reasoning: `LAYOUT.md` §3.
+1. **Width by the kind of value.** `<Field w=…>` from the seven steps in `lib/ui/sizes.ts`,
+   in a `FieldRow`, inside a definitely-capped section — see "BUILD IT COMPACT THE FIRST
+   TIME". The older "every field `size="sm"`, ~280px" rule is SUPERSEDED for new code
+   (2026-09-18); `size="full"` / `"xl"` remain for a grid or textarea that takes the row.
+   Reasoning: `lib/ui/sizes.ts`, whose header also records why a share of a track could
+   never make a 4-digit box narrow.
 
 2. **Line items are `ChildGrid`.** Never a hand-rolled `<table>`. The component brings
    Ctrl+Del row delete, `data-row-add`, required cells, pagination, mobile cards and a
@@ -331,10 +379,15 @@ fourth copy is a fourth thing to keep true.
 ## Verifying
 
 ```bash
+npm run check:grid-budget        # EXIT 1 on failure; every grid you touched by name, no UNMEASURED
 python scripts/audit_layout.py .                       # 18 layout checks
 python .claude/skills/raagam-keyboard-contract/scripts/audit_keyboard.py .
 npx tsc --noEmit && npx eslint <changed files>
 ```
+
+`check:grid-budget` is the one GATE here (it runs inside `npm run build:check`). Read its
+output for YOUR grid's name — a grid missing from an otherwise green run was, until
+2026-09-18, a grid it never measured.
 
 Both audits **always exit 0** — they are advisory, not gates. Read the findings.
 

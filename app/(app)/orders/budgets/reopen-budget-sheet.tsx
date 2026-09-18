@@ -22,7 +22,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,6 +64,13 @@ export function ReopenBudgetSheet({
   const [type, setType] = useState<AmendmentType>(AMENDMENT_TYPES[0].value);
   const [reason, setReason] = useState("");
   const ready = reason.trim().length > 0;
+  /* THE BUTTON EXPLAINS INSTEAD OF GOING DEAD (Phase 7). A disabled Reopen with
+     a blank Reason said nothing about why; now the press is taken and the
+     sentence lands UNDER Reason — the RPC's own words (0576), so the screen and
+     the database refuse alike. Shown only after a press: an empty box the
+     operator has not reached yet is not an error. */
+  const [tried, setTried] = useState(false);
+  const reasonError = tried && !ready ? "Say why this budget is being reopened" : undefined;
 
   return (
     <Sheet
@@ -80,16 +87,29 @@ export function ReopenBudgetSheet({
           </Button>
           <Button
             size="md"
-            disabled={!ready || isPending}
-            onClick={() => onReopen({ source, amendment_type: type, reason: reason.trim() })}
+            disabled={isPending}
+            onClick={() => {
+              if (!ready) {
+                setTried(true);
+                return;
+              }
+              onReopen({ source, amendment_type: type, reason: reason.trim() });
+            }}
           >
             {isPending ? "Reopening…" : "Reopen budget"}
           </Button>
         </>
       }
     >
-      <FieldGrid>
-        <Field label="Source" size="full" htmlFor="ro-source">
+      {/* ONE ROW OF TWO, THEN THE REASON (Phase 6, 2026-09-18).
+          Source is `code` (144px): "By Customer" / "By Us", a short enum read
+          as a word. Amendment Type is `term` (176px): "Delivery Date",
+          "Internal Error" are the two-word enum that step is named for.
+          144 + 12 + 176 = 332 inside the `sm` sheet's ~408px, so the pair holds
+          one line; the sheet is the cap. The Reason is a sentence and takes
+          the full width beneath — text, not a value with a maximum. */}
+      <FieldRow>
+        <Field label="Source" w="code" htmlFor="ro-source">
           <Select
             id="ro-source"
             value={source}
@@ -102,7 +122,7 @@ export function ReopenBudgetSheet({
             ))}
           </Select>
         </Field>
-        <Field label="Amendment Type" size="full" htmlFor="ro-type">
+        <Field label="Amendment Type" w="term" htmlFor="ro-type">
           <Select id="ro-type" value={type} onChange={(e) => setType(e.target.value as AmendmentType)}>
             {AMENDMENT_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -111,15 +131,15 @@ export function ReopenBudgetSheet({
             ))}
           </Select>
         </Field>
-        <Field label="Reason" required size="full" htmlFor="ro-reason">
-          <Textarea
-            id="ro-reason"
-            rows={3}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-          />
-        </Field>
-      </FieldGrid>
+      </FieldRow>
+      <Field label="Reason" required htmlFor="ro-reason" className="mt-3" error={reasonError}>
+        <Textarea
+          id="ro-reason"
+          rows={3}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </Field>
     </Sheet>
   );
 }

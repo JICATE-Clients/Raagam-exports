@@ -24,7 +24,7 @@
  */
 
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import {
@@ -35,6 +35,23 @@ import {
 } from "@/lib/orders/budget/totals";
 
 export type CmtBreakupValues = Record<CmtOperationKey, string>;
+
+/**
+ * THE SIX BOXES ARE `range` (112px), TWO ROWS OF THREE (Phase 6, 2026-09-18).
+ *
+ * The value decides it, not the label: a rate is `numeric(14,4)`, so a
+ * three-digit rate reads "123.4567" — 8 characters, ~67px of text plus the
+ * input's ~26px of padding and border, which `hug` (88) clips and `range`
+ * clears. `range` also holds "Sewing / Making" on one line (~95px at the
+ * label's 12px/600), so no label in the row wraps.
+ *
+ * THE SHEET IS THE CAP. `size="sm"` is `max-w-md` (448px, ~408 of content),
+ * and a row of three is 3 x 112 + 2 x 12 = 360 — it fits whole, and a fourth
+ * (484) would not, which is what makes the break fall after Checking on every
+ * screen rather than wherever the pane happens to end. No card here, so there
+ * is no second width to state.
+ */
+const RATE_W = "range" as const;
 
 const numOrNull = (v: string): number | null => {
   const t = v.trim();
@@ -69,6 +86,13 @@ export function CmtBreakupSheet({
   onChange: (key: CmtOperationKey, value: string) => void;
 }) {
   const total = cmtBreakupTotal(breakupOf(values));
+  /* A WARNING SITS UNDER THE FIELD IT IS ABOUT (Phase 7, 2026-09-18). The
+     engine's refusal names its operation (`Refusal.field`), so the sentence
+     goes under THAT box — "Ironing rate cannot be negative" under Ironing —
+     and nothing is printed under the row. A refusal naming no operation (none
+     today) falls back to the Total, the figure it stops. */
+  const refusal = isRefusal(total) ? total : null;
+  const refusedOp = CMT_OPERATIONS.find((op) => op.key === refusal?.field)?.key ?? null;
 
   return (
     <Sheet
@@ -80,9 +104,17 @@ export function CmtBreakupSheet({
       origin={origin}
       footer={<SubSheetFooter onDone={onClose} parent="budget" />}
     >
-      <FieldGrid>
+      {/* `align="start"`: a message renders UNDER its control, and a
+          bottom-aligned row would lift that one box above the others. */}
+      <FieldRow align="start">
         {CMT_OPERATIONS.map((op) => (
-          <Field key={op.key} label={op.label} size="full" htmlFor={`cmt-${op.key}`}>
+          <Field
+            key={op.key}
+            label={op.label}
+            w={RATE_W}
+            htmlFor={`cmt-${op.key}`}
+            error={refusedOp === op.key ? refusal?.refused : undefined}
+          >
             <Input
               id={`cmt-${op.key}`}
               className="text-right"
@@ -93,20 +125,24 @@ export function CmtBreakupSheet({
             />
           </Field>
         ))}
-        {/* THE TOTAL IS THE LINE'S RATE — printed, never typed, and a refusal
-            is its sentence rather than a blank or a 0. Blank while nothing is
-            broken up: there is no total of no operations. `String`, not
-            `fmtNumber`: that caps at three places, and a 4dp rate printed at
-            three would not be the figure the line is saved with. */}
-        <Field label="Total" size="full" htmlFor="cmt-total">
+        {/* THE TOTAL IS THE LINE'S RATE — printed, never typed. Blank while
+            nothing is broken up: there is no total of no operations. `String`,
+            not `fmtNumber`: that caps at three places, and a 4dp rate printed
+            at three would not be the figure the line is saved with. */}
+        <Field
+          label="Total"
+          w={RATE_W}
+          htmlFor="cmt-total"
+          error={refusal && !refusedOp ? refusal.refused : undefined}
+        >
           <Input
             id="cmt-total"
             readOnly
-            className={isRefusal(total) ? "text-danger" : "text-right tabular-nums"}
-            value={total == null ? "" : isRefusal(total) ? total.refused : String(total)}
+            className="text-right tabular-nums"
+            value={total == null || isRefusal(total) ? "" : String(total)}
           />
         </Field>
-      </FieldGrid>
+      </FieldRow>
     </Sheet>
   );
 }

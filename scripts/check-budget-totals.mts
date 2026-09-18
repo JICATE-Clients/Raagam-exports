@@ -40,6 +40,7 @@ import {
   isRefusal,
   lineAmount,
   lineInrRate,
+  lineProblem,
   lineReqd,
   orderSalesValue,
   pulledLineKey,
@@ -50,6 +51,7 @@ import {
   type BudgetLineInput,
   type BudgetOrderInput,
   type FabricProcessRow,
+  type Refusal,
   type SalesOrderFacts,
 } from "../lib/orders/budget/totals.ts";
 
@@ -219,8 +221,8 @@ check("but the profit figure survives", budgetTotals(LINES, [order("SC-1", 0)]).
 
 const HALF_TYPED = [...LINES, { source: "cmt", qty: 500, rate: null }];
 
-check("a rate-less line is reported", budgetTotals(HALF_TYPED, ORDERS).unpriced, [
-  { index: 2, reason: "Enter a rate" },
+check("a rate-less line is reported, with the field it is in", budgetTotals(HALF_TYPED, ORDERS).unpriced, [
+  { index: 2, reason: "Enter a rate", field: "rate" },
 ]);
 check("…and contributes nothing to the cost", budgetTotals(HALF_TYPED, ORDERS).cost, 250_000);
 check(
@@ -406,7 +408,7 @@ refute("…it does not cost the line at zero", lineAmount(fx(1000, 3, "USD", 0))
 check(
   "a line missing its exchange rate is excluded AND counted",
   budgetTotals([fx(1000, 3, "USD", null)], ORDERS).unpriced,
-  [{ index: 0, reason: "Enter the exchange rate for USD" }],
+  [{ index: 0, reason: "Enter the exchange rate for USD", field: "ex_rate" }],
 );
 check(
   "the RATE is the first question — a rate-less USD line asks for the rate",
@@ -1012,6 +1014,7 @@ check("a percent line waiting on sales is pending", WAITING.pending, [
   {
     index: 2,
     reason: "Agent commission: no sales value to take 5% of — SC-2: two prices for one style",
+    field: "base",
   },
 ]);
 check("…and is NOT in unpriced", WAITING.unpriced, []);
@@ -1068,7 +1071,9 @@ check(
 /* A TRULY UNPRICED LINE STILL BEHAVES AS IT ALWAYS DID: excluded, counted, and
    the cost total keeps answering — Save is what holds it, not the total. */
 const PCT_BLANK = budgetTotals([...LINES, pctLine(null)], ORDERS);
-check("a percent line with no rate is unpriced", PCT_BLANK.unpriced, [{ index: 2, reason: "Enter a rate" }]);
+check("a percent line with no rate is unpriced", PCT_BLANK.unpriced, [
+  { index: 2, reason: "Enter a rate", field: "rate" },
+]);
 check("…not pending", PCT_BLANK.pending, []);
 check("…and cost still answers without it", PCT_BLANK.cost, 250_000);
 
@@ -1166,6 +1171,127 @@ check(
   "shares refuse on zero sales rather than printing 0%",
   refusalOf(generalSummary(budgetTotals(LINES, [order("SC-1", 0)]), 100).rows[1].pctOfSales),
   "No sales value to measure against",
+);
+
+// ---------------------------------------------------------------------------
+// 21. EVERY LINE REFUSAL NAMES ITS FIELD (2026-09-18)
+//
+// A bare sentence can only be printed where the figure goes, which put "Enter
+// a rate" in the Amount column. Each refusal now says which box it is about —
+// and the SENTENCES and their ORDER are exactly what sections 5–19 pin.
+// ---------------------------------------------------------------------------
+
+const fieldOf = (v: unknown) => (isRefusal(v) ? [(v as Refusal).field ?? null, v.refused] : null);
+
+check("blank qty → qty", fieldOf(lineAmount({ source: "expense", qty: null, rate: 5 })), [
+  "qty",
+  "Enter a quantity — use 1 for a lump sum",
+]);
+check("0 No of Pcs → no_of_pcs", fieldOf(lineReqd(garment(5601, 0, 1, 3))), [
+  "no_of_pcs",
+  "No of Pcs must be more than 0 — leave it blank for 1",
+]);
+check("0 No of Units → no_of_units", fieldOf(lineAmount(garment(5601, 2, 0, 3))), [
+  "no_of_units",
+  "No of Units must be more than 0 — leave it blank for 1",
+]);
+check("blank rate → rate", fieldOf(lineInrRate({ source: "fabric", qty: 1, rate: null })), [
+  "rate",
+  "Enter a rate",
+]);
+check("negative rate → rate", fieldOf(lineAmount(line("expense", 1, -5))), [
+  "rate",
+  "A rate cannot be negative — use Other income instead",
+]);
+check("missing exchange rate → ex_rate", fieldOf(lineAmount(fx(1000, 3, "USD", null))), [
+  "ex_rate",
+  "Enter the exchange rate for USD",
+]);
+check("percent over 100 → rate", fieldOf(lineAmount(pctLine(120), PCT_BASE)), [
+  "rate",
+  "A percentage cannot be more than 100",
+]);
+check("percent with no resolver → base", fieldOf(lineAmount(pctLine(2))), [
+  "base",
+  "A percentage needs the sales value",
+]);
+check(
+  "percent waiting on a style's sales → base, with the base's own sentence",
+  fieldOf(lineAmount(pctLine(2, { garment_order_id: "o-1", style_ref_no: "TSH-999" }), PCT_BASE)),
+  ["base", "This style's own sales value isn't known — charge it on the order instead"],
+);
+check("a flat line with no rate → rate", fieldOf(lineAmount(flat(850, null))), ["rate", "Enter a rate"]);
+
+/* THE ORDER IS UNCHANGED: a line wrong in three places names the FIRST one —
+   qty before pcs before rate before exchange rate. */
+check(
+  "the first refusal wins, in the pinned order",
+  fieldOf(lineAmount({ source: "garment_process", qty: null, rate: null, no_of_pcs: 0, currency_code: "USD" })),
+  ["qty", "Enter a quantity — use 1 for a lump sum"],
+);
+check(
+  "…pcs before rate",
+  fieldOf(lineAmount({ ...garment(5601, 0, 1, null), currency_code: "USD" })),
+  ["no_of_pcs", "No of Pcs must be more than 0 — leave it blank for 1"],
+);
+check(
+  "…rate before exchange rate",
+  fieldOf(lineAmount(fx(1000, null, "USD", null))),
+  ["rate", "Enter a rate"],
+);
+
+check(
+  "a CMT operation's refusal names the operation",
+  fieldOf(cmtBreakupTotal({ cutting_rate: 1, ironing_rate: -1 })),
+  ["ironing_rate", "Ironing rate cannot be negative"],
+);
+
+/* A TOTAL's refusal is about no single field, and says so by having none. */
+check(
+  "a TOTAL's refusal (sales) has no field",
+  fieldOf(budgetTotals(LINES, []).sales),
+  [null, "No orders in this budget yet"],
+);
+check(
+  "a source refusal (not a line field) leaves field out of its unpriced entry",
+  budgetTotals([{ source: null, qty: 1, rate: 5 }], ORDERS).unpriced,
+  [{ index: 0, reason: "Choose what this line is for" }],
+);
+check(
+  "unpriced entries carry the field the cursor should land on",
+  budgetTotals(
+    [line("fabric", 1000, 200), { source: "yarn", qty: 5, rate: 3, currency_code: "EUR" }, garment(10, 0, 1, 3)],
+    ORDERS,
+  ).unpriced,
+  [
+    { index: 1, reason: "Enter the exchange rate for EUR", field: "ex_rate" },
+    {
+      index: 2,
+      reason: "No of Pcs must be more than 0 — leave it blank for 1",
+      field: "no_of_pcs",
+    },
+  ],
+);
+check("pending entries carry field base", WAITING.pending.map((p) => p.field), ["base"]);
+
+// lineProblem: lineAmount's first refusal, read for its field.
+check("lineProblem on a good line is null", lineProblem(line("fabric", 1000, 200)), null);
+check("lineProblem on a FOC line is null", lineProblem({ source: "material", qty: 5, rate: null, is_foc: true }), null);
+check("lineProblem names the field and the sentence", lineProblem(fx(1000, 3, "USD", 0)), {
+  field: "ex_rate",
+  message: "Enter the exchange rate for USD",
+});
+check(
+  "lineProblem takes the same base lineAmount does",
+  lineProblem(pctLine(2, { garment_order_id: "o-gone" }), PCT_BASE),
+  { field: "base", message: "This line's order is no longer in this budget" },
+);
+check("…and with the base resolved, no problem", lineProblem(pctLine(2), PCT_BASE), null);
+/* THE SAME SENTENCE lineAmount gives — never a second wording. */
+check(
+  "lineProblem's message IS lineAmount's refusal",
+  lineProblem(garment(5601, 2, -1, 3))?.message,
+  refusalOf(lineAmount(garment(5601, 2, -1, 3))),
 );
 
 console.log(failed === 0 ? "\nOK — every budget total vector holds." : `\n${failed} FAILED`);

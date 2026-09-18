@@ -1166,3 +1166,29 @@ real candidate list is the smaller set of nested `[Click]` sub-details scattered
 `components/orders/*-sheet.tsx` and similar, each of which needs to be looked at rather than
 mechanically re-flagged. Until an audit script exists, a new sub-detail sheet gets this right
 by reading this section, not by a check catching it after the fact.
+
+## Build the UI compact the first time (STANDING)
+
+**A screen is width-laid-out from its first commit — never built loose and compacted
+afterwards** (user, 2026-09-18: "every time while developing the UI issue happens and we
+need to fix it … if I develop anything it should come with proper UI"). The Budget module
+is the reason this is written down: five phases were built faithfully to the OLD layout
+rules (every field `size="sm"`, any grid over ~6 columns `forceCards`), and a sixth phase
+then re-laid every screen. The rules had moved on and the instructions had not.
+
+- **Fields:** `FieldRow` + `<Field w=…>`, the seven steps of `lib/ui/sizes.ts`, by the kind
+  of value. Fractional `size=` / `FieldGrid` are legacy for new code.
+- **Sections:** a definite `max-w-[Nrem]` cap with its arithmetic in a comment.
+- **Grids:** every column `width: FIELD_WIDTH_CSS.<step>` in a named `…Columns` array,
+  `tableFrom="5xl"` literal on the tag, columns + 72px ≤ 1155px. Re-cut before `forceCards`.
+
+The full rule is the **`raagam-screen-layout` skill's "BUILD IT COMPACT THE FIRST TIME"**;
+its `assets/` templates are width-laid-out, so copy them.
+
+**IT IS A GATE, NOT A NOTE.** `npm run check:grid-budget` (inside `build:check`) now FAILS a
+`<ChildGrid>` whose props it cannot read — a spread or a `tableFrom={…}` expression — and
+reads vocabulary widths (`FIELD_WIDTH_CSS.hug`) from `components/ui/field.tsx`. Before
+2026-09-18 it read neither, so all ten Budget grids were silently unmeasured, shipped at a
+`6xl` threshold the check exists to refuse, and the run still ended green. **A screen is not
+done until that check lists every grid it touched as an `ok` line by name** — absent is not
+ok. Verified by making it fail first against the Budget screen's `costGrid`.

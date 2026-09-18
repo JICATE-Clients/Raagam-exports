@@ -519,3 +519,74 @@ pieces that are never sold. Kept on Order Qty; flagged to the user for client co
 
 Shared-tree rule: `fabric-bom-screen.tsx` and `child-grid.tsx` are being edited by another
 session — surgical `Edit` only, re-read right before editing, never a whole-file `Write`.
+
+---
+
+# Phase 6 — compact, width-laid-out Budget screens (2026-09-18)
+
+User: "compact the field sizes — we already did a lot of customization work; the same needs to
+be applicable in budget". The house convention (commits 794b29e Payment tab, 77fb979 Advised
+Items / IWO / Packing Advice, 8f37c22 + c044405 masters, 1fb026d Entry Register, dc206b0
+yarn-dyed grids; vocabulary + reasoning in `lib/ui/sizes.ts`, rendering in
+`components/ui/field.tsx`):
+
+- **Forms leave the twelfths.** `FieldGrid` / `DetailSection cols={12}` + `size=` →
+  `FieldRow` + `<Field w=…>` from the SEVEN widths: num 72 · hug 88 (label floor) · range 112 ·
+  code 144 · term 176 · party 200 · name 288. A two-word label needs ≥ `hug`. Never a literal
+  `w-[…]`, never a new step.
+- **Narrow fields do not narrow the card** — every section/card that holds a FieldRow gets a
+  DEFINITE max width with its arithmetic stated once (steps + gaps + padding), never
+  `max-w-fit` (`@container/section` makes a content-sized cap compute to 0 — the Vendor bug).
+  Footers end where the row above ends.
+- **Grids become compact TABLES with fixed column widths** from `FIELD_WIDTH_CSS` (never retyped
+  rem literals) — every column declaring a width makes `ChildGrid` hug. Long text goes through
+  `<Truncated>`. Cards (`forceCards` + `flatRows`) only BELOW the width the table needs, via
+  `tableFrom` — never a sideways scroll (screen-layout rule 4 still holds).
+- **The width budget is the client's display**: 1920px at 125% = 1536 CSS px; the editor pane
+  after the 228px rail is ~1,270px usable. A grid's widths + row chrome must fit ~1,200px, or
+  it is re-cut (narrower step for the least harmed column, or merge two small cells — e.g. FOC +
+  Import as one "Flags" cell) — never wider than the budget.
+- Row height and type follow the Orders precedent (`h-8` grid controls; dense 28px rows only
+  where Orders already uses them). Nothing is invented locally: copy the closest precedent.
+
+Split: **ui** = `budget-screen.tsx` (Budget header section + every cost grid). **locks** =
+`budget-general.tsx`, `budget-summary-bar.tsx`, `cmt-breakup-sheet.tsx`, `copy-from-sheet.tsx`,
+`reopen-budget-sheet.tsx`, `budget-approval/budget-approval-screen.tsx`.
+
+---
+
+# Phase 7 — a warning sits UNDER THE FIELD it is about (2026-09-18)
+
+User: "why the warning message look un-located … it should only show below the exact field."
+Inventory (verified in code):
+
+| Shown today | Is about |
+|---|---|
+| Amount column of every cost grid — "Enter a rate", "Enter the exchange rate for USD", "Enter a quantity…", pcs/units | the Rate / Ex Rate / Qty / Pcs / Units field, columns away |
+| a TOAST on blocked Save (`revealFirstProblem`) and on a refused SQ Qty after picking Type | a specific field |
+| a hover `title` on the header's Order Qty / SQ Qty | the field itself — invisible until hovered |
+| under the whole row in the CMT Breakup sheet | one operation's rate |
+
+**Root cause:** the engine's `Refusal` is a bare sentence with no FIELD, so a screen can only
+print it where the AMOUNT goes. **Fix at the source:** a refusal names its field.
+
+## Contract
+- **engine** — `Refusal = { refused: string; field?: LineField }`,
+  `LineField = "qty" | "no_of_pcs" | "no_of_units" | "rate" | "ex_rate" | "currency" | "base"`
+  (`base` = the sales value a percent line needs) and `CmtOperationKey` for
+  `cmtBreakupTotal`. `lineAmount` / `lineInrRate` / `lineReqd` set it; `unpriced` / `pending`
+  entries carry it. `lineProblem(line, base?) → { field, message } | null`. Sentences and
+  refusal ORDER unchanged; vectors assert each field.
+- **ui** — `Field` gains `error?: ReactNode` (rendered under the control like `DuplicateError`:
+  `ty-error mt-1 text-xs text-danger`, `role="alert"`, `id=<htmlFor>-error`, and the single child
+  gets `aria-invalid` + `aria-describedby`); export `FieldError` for a table cell with no
+  `Field`. Budget screen: each message under ITS field in table and card modes; the Amount /
+  Value cell shows a sentence only for `base`; no toast for a field problem (blocked Save lands
+  the cursor on the field, whose message is already there); the SQ-Qty-after-Type refusal under
+  that row's Qty; header Order/SQ Qty refusal as the Field's `error`, not a `title`.
+- **When shown:** a row's messages appear once THAT row has been edited or a Save was attempted
+  — never a wall of red on a freshly pulled budget. Seeded blank rows never.
+- **locks** — CMT Breakup: the refusal under the operation it names; Reopen: "Say why…" under
+  Reason when the operator tries to reopen without one.
+- Toasts stay only for outcomes no field owns (a server/action failure).
+- The skill gains the rule so the next screen is built this way (right first time).

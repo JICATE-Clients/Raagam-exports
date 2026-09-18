@@ -632,6 +632,37 @@ export function FieldRow({
 /** See `FIELD_SPAN` above — this is the name the rest of this file uses. */
 const SPAN = FIELD_SPAN;
 
+/**
+ * A WARNING SITS UNDER THE FIELD IT IS ABOUT (STANDING, user 2026-09-18: "it
+ * should only show below the exact field").
+ *
+ * The one rendering of a field's message — `Field`'s `error`, and this for a
+ * table cell that has no `Field` around its control. Same markup as
+ * `DuplicateError` (`ty-error mt-1 text-xs text-danger`, `role="alert"`), so
+ * every message a field can carry reads as one kind of thing wherever it is.
+ *
+ * NEVER IN A NEIGHBOURING CELL, A TOAST OR A HOVER `title`. The Budget printed
+ * "Enter a rate" in the AMOUNT column, two cells from the Rate box it was
+ * about; a blocked Save said it in a toast that vanished before the operator
+ * found the field; a refused quantity hid in a `title` nobody hovers. A message
+ * that is not beside its field is a message the operator has to go looking for,
+ * and the looking is the bug.
+ *
+ * It WRAPS inside its cell rather than widening it — a table's column widths are
+ * a budget (`check:grid-budget`), and an error must not spend it.
+ *
+ * `id` should be the control's id + "-error", and the control should carry
+ * `aria-describedby` pointing at it (`Field` does that wiring itself).
+ */
+export function FieldError({ id, children }: { id?: string; children: ReactNode }) {
+  if (children == null || children === false || children === "") return null;
+  return (
+    <p id={id} role="alert" className="ty-error mt-1 whitespace-normal break-words text-xs text-danger">
+      {children}
+    </p>
+  );
+}
+
 export function Field({
   label,
   labelSuffix,
@@ -639,6 +670,7 @@ export function Field({
   w,
   required,
   hint,
+  error,
   htmlFor,
   skipTab,
   offTabPath,
@@ -688,6 +720,15 @@ export function Field({
   required?: boolean;
   /** Small helper text under the control. */
   hint?: ReactNode;
+  /**
+   * THIS FIELD'S WARNING, rendered directly under its control — see
+   * `FieldError`. When set and the child is a single element, the control is
+   * given `aria-invalid` and `aria-describedby` (merged with any it already
+   * carries) so a screen reader reads the message with the field. Pass nothing
+   * when there is nothing wrong: an empty field is not an error until the
+   * operator has had the chance to fill it.
+   */
+  error?: ReactNode;
   htmlFor?: string;
   /**
    * Auto-generated or derived value (a computed Age, an auto-built name) — Tab
@@ -746,12 +787,24 @@ export function Field({
   // left untouched rather than silently half-applied to the first child; an
   // explicit `tabIndex={-1}` at the call site is the escape hatch. An existing
   // tabIndex always wins — the caller is being more specific than we are.
-  const control =
-    skipTab &&
-    isValidElement<{ tabIndex?: number }>(children) &&
-    children.props.tabIndex == null
-      ? cloneElement(children, { tabIndex: -1 })
-      : children;
+  const hasError = error != null && error !== false && error !== "";
+  const errorId = hasError && htmlFor ? `${htmlFor}-error` : undefined;
+  let control: ReactNode = children;
+  if (isValidElement<{ tabIndex?: number; "aria-describedby"?: string }>(children)) {
+    const extra: Record<string, unknown> = {};
+    if (skipTab && children.props.tabIndex == null) extra.tabIndex = -1;
+    if (hasError) {
+      extra["aria-invalid"] = true;
+      // MERGED, never replaced: a control may already point at a hint or a
+      // duplicate message, and dropping that would silence it.
+      if (errorId) {
+        extra["aria-describedby"] = [children.props["aria-describedby"], errorId]
+          .filter(Boolean)
+          .join(" ");
+      }
+    }
+    if (Object.keys(extra).length > 0) control = cloneElement(children, extra);
+  }
 
   return (
     /**
@@ -819,6 +872,7 @@ export function Field({
       >
         {control}
       </RequiredScope>
+      {hasError && <FieldError id={errorId}>{error}</FieldError>}
       {hint && <p className="ty-helper mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );

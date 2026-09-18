@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { fmtDate } from "@/lib/format";
@@ -107,19 +107,28 @@ export function CopyFromSheet({
         </>
       }
     >
-      <FieldGrid>
-        <Field label="Budget" required size="full">
+      {/* `name` (288px): a budget is picked by a composed label — code, RE No,
+          customer, date — which is text with no hard maximum, LAYOUT.md §3's
+          one width; the trigger truncates the rest with its own reveal. The
+          sheet (`sm`, ~408px of content) is the cap. */}
+      {/* A FAILED LOAD IS THE PICKER'S PROBLEM, so it sits UNDER the picker
+          (Phase 7) rather than only inside an empty dropdown nobody has opened.
+          "Nothing to copy from" is not an error and stays the empty hint. A
+          failed COPY is the action's outcome and stays a toast. */}
+      <FieldRow align="start">
+        <Field label="Budget" required w="name" htmlFor="cf-budget" error={loadError ?? undefined}>
           <RecordPicker
+            id="cf-budget"
             label="Budget"
             compact
             required
             items={options}
             value={picked}
             onChange={setPicked}
-            emptyHint={loadError ?? "No other budget to copy from yet"}
+            emptyHint={loadError ? "Could not load the budgets" : "No other budget to copy from yet"}
           />
         </Field>
-      </FieldGrid>
+      </FieldRow>
     </Sheet>
   );
 }

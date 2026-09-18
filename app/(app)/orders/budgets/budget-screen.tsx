@@ -53,7 +53,14 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Tabs } from "@/components/ui/tabs";
-import { Field, FieldGrid } from "@/components/ui/field";
+import {
+  Field,
+  FieldGrid,
+  FieldRow,
+  FieldError,
+  FIELD_WIDTH_CSS,
+  RequiredScope,
+} from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
@@ -84,6 +91,7 @@ import {
   isRefusal,
   lineAmount,
   lineInrRate,
+  lineProblem,
   lineReqd,
   PROCESS_TABS,
   PULLED_SOURCES,
@@ -96,6 +104,7 @@ import {
   type BudgetSource,
   type CmtOperationKey,
   type FabricProcessRow,
+  type LineField,
   type ProcessBasis,
 } from "@/lib/orders/budget/totals";
 import { copyRatesFrom } from "@/lib/orders/budget/copy-from";
@@ -324,6 +333,15 @@ type LineLike = {
 
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
 
+/**
+ * SOURCES PRICED IN RUPEES ONLY — CMT and garment processes, both labour on
+ * the garments, quoted by job workers in INR (the client's CMT and Garment
+ * Processes blueprints carry no currency column). Their grids draw no Curr /
+ * Ex Rate, so a line of these sources is held at INR everywhere a currency
+ * could otherwise creep in: on load, on save and on Copy From.
+ */
+const INR_ONLY_SOURCES: ReadonlySet<string> = new Set(["cmt", "garment_process"]);
+
 const rowOf = (key: string, l: LineLike): CostRow => ({
   key,
   source: l.source,
@@ -334,8 +352,9 @@ const rowOf = (key: string, l: LineLike): CostRow => ({
   uom_id: l.uom_id,
   rate: str(l.rate),
   specification: l.specification ?? "",
-  currency_code: l.currency_code ?? "",
-  ex_rate: str(l.ex_rate),
+  // An INR-only source opens in rupees even if an older save said otherwise.
+  currency_code: INR_ONLY_SOURCES.has(l.source) ? "" : (l.currency_code ?? ""),
+  ex_rate: INR_ONLY_SOURCES.has(l.source) ? "" : str(l.ex_rate),
   is_foc: !!l.is_foc,
   is_import: !!l.is_import,
   process_id: l.process_id ?? null,
@@ -430,6 +449,72 @@ type CostCol = ChildGridColumn<CostRow> & {
 };
 
 /**
+ * A cost grid's per-ROW rules, applied once to its column list.
+ *
+ * `requiredFor` — a cell mandatory for SOME rows (Rate, not on a FOC line;
+ * Ex Rate, only in a foreign currency). The column declares `required` so the
+ * TABLE header draws its star, and the cell restates the ROW's answer in its
+ * own `RequiredScope`, which overrides the column's — context resolves to the
+ * nearest provider. Without the inner scope the column's `required` would hold
+ * the cursor on every seeded blank row.
+ *
+ * `showFor` — a cell that exists for some rows only renders nothing on the
+ * others, so a table column stays aligned with an empty cell.
+ *
+ * Every cost grid's `…Columns` array is `withRowRules([...])`, so the list
+ * `check:grid-budget` measures is the list the grid renders.
+ */
+function withRowRules(columns: CostCol[]): CostCol[] {
+  return columns.map((c) => {
+    const requiredFor = c.requiredFor;
+    const showFor = c.showFor;
+    if (!requiredFor && !showFor) return c;
+    return {
+      ...c,
+      required: requiredFor ? true : c.required,
+      cell: (r: CostRow, i: number) =>
+        showFor && !showFor(r) ? null : requiredFor ? (
+          <RequiredScope required={requiredFor(r)} label={c.header}>
+            {c.cell(r, i)}
+          </RequiredScope>
+        ) : (
+          c.cell(r, i)
+        ),
+    };
+  });
+}
+
+/**
+ * EVERY cost grid's stacked row, below its `tableFrom` — the labels and cells
+ * read off the SAME columns the table draws, never retyped beside them.
+ *
+ * `required` IS DECLARED TWICE, as AGENTS.md requires of a grid that renders
+ * its own row: the `Field` draws the star from `requiredFor(row)`, and the cell
+ * carries its own `RequiredScope` from `withRowRules`, so the hold is on the
+ * control. This one function is every cost grid's `renderMobileRow`, which is
+ * why the `grid-required-mobile` exemption below names it.
+ */
+// grid-required-mobile: exempt -- every cost grid's renderMobileRow is costCard(), which declares `required` on each Field from requiredFor(row), and withRowRules() gives each such cell its own RequiredScope, so the star and the hold come from one declaration
+function costCard(columns: CostCol[], row: CostRow, i: number) {
+  return (
+    <FieldGrid>
+      {columns.map((c, ci) =>
+        c.showFor && !c.showFor(row) ? null : (
+          <Field
+            key={ci}
+            label={c.labelFor ? c.labelFor(row) : c.header}
+            required={c.requiredFor ? c.requiredFor(row) : c.required}
+            size="sm"
+          >
+            {c.cell(row, i)}
+          </Field>
+        ),
+      )}
+    </FieldGrid>
+  );
+}
+
+/**
  * A SEEDED ROW HOLDS NOTHING until something is typed on it. The Rate and Qty
  * holds exist to finish a line the operator STARTED; on an untouched blank row
  * in Other Incomes they would cage the operator in a section they had no reason
@@ -493,6 +578,20 @@ export function BudgetScreen({
   /** The Amendment Protocol's sheet, and the button it grew from. */
   const [reopenOpen, setReopenOpen] = useState(false);
   const [reopenOrigin, setReopenOrigin] = useState<DOMRect | null>(null);
+  /**
+   * WHEN A ROW'S WARNINGS SHOW (Phase 7): once THAT row has been edited in this
+   * session, or once a Save / Submit has been attempted. A freshly pulled budget
+   * is full of lines nobody has priced yet, and opening it as a wall of red
+   * would say "wrong" about work that has not been started. Screen state only.
+   */
+  const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set());
+  const [saveAttempted, setSaveAttempted] = useState(false);
+  /** A per-row sentence with no engine behind it — the scope's refused SQ Qty
+   *  after a Type is picked (`rescope`) — shown under that row's Qty. */
+  const [rowNotes, setRowNotes] = useState<Readonly<Record<string, string>>>({});
+  /** A Fabric Processes group's note from its last re-split — shown under
+   *  that group's For select, the field that asked for it. */
+  const [foldNotes, setFoldNotes] = useState<Readonly<Record<string, string>>>({});
 
   useUnsavedGuard(dirty || isPending);
 
@@ -512,8 +611,22 @@ export function BudgetScreen({
     setCosts(fn);
     setDirty(true);
   };
-  const setCost = (key: string, patch: Partial<CostRow>) =>
+  /** Every cell edit comes through here, so this is where a row becomes
+   *  "edited" (see `touched`) — and where a typed Qty retires the row's note. */
+  const touch = (key: string) =>
+    setTouched((t) => (t.has(key) ? t : new Set(t).add(key)));
+  const setCost = (key: string, patch: Partial<CostRow>) => {
+    touch(key);
+    if ("qty" in patch) {
+      setRowNotes((n) => {
+        if (!(key in n)) return n;
+        const next = { ...n };
+        delete next[key];
+        return next;
+      });
+    }
     mutCosts((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+  };
 
   /** A budget stops being the operator's once it is submitted. Mirrors
    *  `assertEditable` in the actions — the screen closes the door and the server
@@ -545,6 +658,35 @@ export function BudgetScreen({
   const salesBase = salesBaseOf(orderInputs);
   /** One line's amount — the ONE call every cell, band and group sum makes. */
   const amountOf = (r: CostRow) => lineAmount(lineInput(r), salesBase);
+
+  // ---- a warning sits under ITS field (Phase 7) ---------------------------
+  //
+  // The engine names the field a refusal is about (`lineProblem`), so each
+  // message renders under that field's control — never in the Amount column,
+  // a toast or a `title`. `components/ui/field.tsx` ▸ `FieldError` has the rule.
+
+  /** Whether this row's warnings are on screen — see `touched`. A seeded blank
+   *  row never is. */
+  const shown = (r: CostRow) => !isBlankLine(r) && (saveAttempted || touched.has(r.key));
+  /** The id a row's control for `field` carries — what a blocked Save lands on. */
+  const cellId = (r: Pick<CostRow, "key">, field: string) => `bl-${r.key}-${field}`;
+  /** The row's message for one field, or null. */
+  const fieldProblem = (r: CostRow, field: LineField): string | null => {
+    if (field === "qty" && rowNotes[r.key]) return rowNotes[r.key];
+    if (!shown(r)) return null;
+    const p = lineProblem(lineInput(r), salesBase);
+    return p && p.field === field ? p.message : null;
+  };
+  /** The control's half: its id, and `aria-invalid` / `aria-describedby` while
+   *  its field has a message. */
+  const errProps = (r: CostRow, field: LineField) =>
+    fieldProblem(r, field)
+      ? { id: cellId(r, field), "aria-invalid": true, "aria-describedby": `${cellId(r, field)}-error` }
+      : { id: cellId(r, field) };
+  /** The message's half, directly under the control. */
+  const errNode = (r: CostRow, field: LineField) => (
+    <FieldError id={`${cellId(r, field)}-error`}>{fieldProblem(r, field)}</FieldError>
+  );
   /** Σ the orders' SQ Qty, or the first refusal — never a part-sum. */
   const groupSqQty = groupSqQtyOf(pickedFacts);
 
@@ -584,6 +726,10 @@ export function BudgetScreen({
     setProcessTab(PROCESS_TABS[0].source);
     setFabricOpenKey(null);
     setBreakupKey(null);
+    setTouched(new Set());
+    setSaveAttempted(false);
+    setRowNotes({});
+    setFoldNotes({});
     setDirty(false);
     setMode("edit");
   }
@@ -611,6 +757,10 @@ export function BudgetScreen({
     setProcessTab(PROCESS_TABS[0].source);
     setFabricOpenKey(null);
     setBreakupKey(null);
+    setTouched(new Set());
+    setSaveAttempted(false);
+    setRowNotes({});
+    setFoldNotes({});
     setDirty(false);
     setMode("edit");
   }
@@ -707,7 +857,21 @@ export function BudgetScreen({
         component_id: c.component_id,
         rate_type: c.rate_type,
       }));
-      const { lines, matched, ambiguous } = copyRatesFrom(target, res.lines);
+      // A FOREIGN RATE IS NEVER A CANDIDATE FOR A RUPEES-ONLY LINE. Its currency
+      // would be dropped on save (`INR_ONLY_SOURCES`), leaving a dollar figure
+      // read as rupees. Filtered BEFORE matching — source is part of the match,
+      // so these can only ever have matched a line of their own source — which
+      // keeps `matched` and `ambiguous` true: skipping after the match counted
+      // lines as "copied" that were then left blank.
+      const usable = res.lines.filter(
+        (l) =>
+          !(
+            INR_ONLY_SOURCES.has(l.source) &&
+            !!(l.currency_code ?? "").trim() &&
+            (l.currency_code ?? "").trim().toUpperCase() !== "INR"
+          ),
+      );
+      const { lines, matched, ambiguous } = copyRatesFrom(target, usable);
       setCopyOpen(false);
       // TWO RATES FOR ONE LINE IS SAID, NOT SETTLED. The earlier budget priced
       // the same thing twice, differently; picking either would be a number
@@ -729,7 +893,8 @@ export function BudgetScreen({
           const l = byKey.get(c.key);
           // RATE FACTS ONLY. A flat or percent rate travels WITH its type — a
           // flat 4,000 written onto a per-unit line would multiply — but FOC
-          // and Import are this budget's own answers and are never copied.
+          // and Import are this budget's own answers and are never copied. (A
+          // foreign rate never reaches a rupees-only line — see `usable` above.)
           return l
             ? {
                 ...c,
@@ -876,14 +1041,18 @@ export function BudgetScreen({
     header,
     requiredFor: qtyRequired,
     cell: (r) => (
-      <Input
-        className="h-8 text-right"
-        required={qtyRequired(r)}
-        readOnly={!editable}
-        inputMode="decimal"
-        value={r.qty}
-        onChange={(e) => setCost(r.key, { qty: e.target.value })}
-      />
+      <>
+        <Input
+          {...errProps(r, "qty")}
+          className="h-8 text-right"
+          required={qtyRequired(r)}
+          readOnly={!editable}
+          inputMode="decimal"
+          value={r.qty}
+          onChange={(e) => setCost(r.key, { qty: e.target.value })}
+        />
+        {errNode(r, "qty")}
+      </>
     ),
   });
 
@@ -941,22 +1110,26 @@ export function BudgetScreen({
   const currencyCol: CostCol = {
     header: "Curr",
     cell: (r) => (
-      <Select
-        compact
-        className="h-8"
-        disabled={!editable}
-        value={r.currency_code}
-        onChange={(e) => pickCurrency(r, e.target.value)}
-      >
-        <option value="">INR</option>
-        {data.currencies
-          .filter((c) => c.code !== "INR")
-          .map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.code}
-            </option>
-          ))}
-      </Select>
+      <>
+        <Select
+          {...errProps(r, "currency")}
+          compact
+          className="h-8"
+          disabled={!editable}
+          value={r.currency_code}
+          onChange={(e) => pickCurrency(r, e.target.value)}
+        >
+          <option value="">INR</option>
+          {data.currencies
+            .filter((c) => c.code !== "INR")
+            .map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code}
+              </option>
+            ))}
+        </Select>
+        {errNode(r, "currency")}
+      </>
     ),
   };
 
@@ -964,16 +1137,20 @@ export function BudgetScreen({
     header: "Ex Rate",
     requiredFor: exRateRequired,
     cell: (r) => (
-      <Input
-        className="h-8 text-right"
-        required={exRateRequired(r)}
-        // An INR line has no exchange rate to type — read-only, so Tab steps
-        // over it rather than stopping on a box that must stay empty.
-        readOnly={!editable || !r.currency_code}
-        inputMode="decimal"
-        value={r.ex_rate}
-        onChange={(e) => setCost(r.key, { ex_rate: e.target.value })}
-      />
+      <>
+        <Input
+          {...errProps(r, "ex_rate")}
+          className="h-8 text-right"
+          required={exRateRequired(r)}
+          // An INR line has no exchange rate to type — read-only, so Tab steps
+          // over it rather than stopping on a box that must stay empty.
+          readOnly={!editable || !r.currency_code}
+          inputMode="decimal"
+          value={r.ex_rate}
+          onChange={(e) => setCost(r.key, { ex_rate: e.target.value })}
+        />
+        {errNode(r, "ex_rate")}
+      </>
     ),
   };
 
@@ -983,24 +1160,28 @@ export function BudgetScreen({
     header,
     requiredFor: rateRequired,
     cell: (r) => (
-      <Input
-        className="h-8 text-right"
-        required={rateRequired(r)}
-        readOnly={!editable}
-        inputMode="decimal"
-        value={r.rate}
-        onChange={(e) => setCost(r.key, { rate: e.target.value })}
-      />
+      <>
+        <Input
+          {...errProps(r, "rate")}
+          className="h-8 text-right"
+          required={rateRequired(r)}
+          readOnly={!editable}
+          inputMode="decimal"
+          value={r.rate}
+          onChange={(e) => setCost(r.key, { rate: e.target.value })}
+        />
+        {errNode(r, "rate")}
+      </>
     ),
   });
 
-  /** A derived figure, or the engine's sentence for why there isn't one. */
+  /**
+   * A derived figure — or NOTHING when it cannot be computed. The sentence for
+   * why belongs under the field that is missing (Phase 7), not here: this cell
+   * used to print "Enter a rate" two columns from the Rate box it was about.
+   */
   const figure = (v: number | { refused: string }) =>
-    isRefusal(v) ? (
-      <span className="text-xs text-danger">{v.refused}</span>
-    ) : (
-      <span className="tabular-nums text-sm">{fmtNumber(v)}</span>
-    );
+    isRefusal(v) ? null : <span className="tabular-nums text-sm">{fmtNumber(v)}</span>;
 
   const inrRateCol: CostCol = {
     header: "INR Rate",
@@ -1020,7 +1201,17 @@ export function BudgetScreen({
         return isRefusal(a) ? 0 : a;
       },
     },
-    cell: (r) => figure(amountOf(r)),
+    cell: (r) => {
+      const a = amountOf(r);
+      if (!isRefusal(a)) return figure(a);
+      // THE ONE REFUSAL THAT BELONGS HERE: `base` — a percentage of a sales
+      // value the order does not have yet. No field on the line can fix it,
+      // so it sits on the amount it is keeping blank. Every other refusal is
+      // under its own field.
+      return a.field === "base" && shown(r) ? (
+        <FieldError id={`${cellId(r, "base")}-error`}>{a.refused}</FieldError>
+      ) : null;
+    },
   };
 
   // ---- Process Rates' cells --------------------------------------------------
@@ -1082,13 +1273,17 @@ export function BudgetScreen({
   const countCol = (header: string, key: "no_of_pcs" | "no_of_units"): CostCol => ({
     header,
     cell: (r) => (
-      <Input
-        className="h-8 text-right"
-        readOnly={!editable}
-        inputMode="decimal"
-        value={r[key]}
-        onChange={(e) => setCost(r.key, { [key]: e.target.value })}
-      />
+      <>
+        <Input
+          {...errProps(r, key)}
+          className="h-8 text-right"
+          readOnly={!editable}
+          inputMode="decimal"
+          value={r[key]}
+          onChange={(e) => setCost(r.key, { [key]: e.target.value })}
+        />
+        {errNode(r, key)}
+      </>
     ),
   });
 
@@ -1097,121 +1292,182 @@ export function BudgetScreen({
    *  would be three numbers stating two facts. */
   const derivedReqdCol: CostCol = {
     header: "Reqd",
-    cell: (r) => figure(lineReqd(lineInput(r))),
+    // THE PULLED QTY HAS NO BOX ON THIS GRID — Reqd is where it shows, so a
+    // refused quantity is said here. Pcs and Units carry their own.
+    cell: (r) => (
+      <>
+        {figure(lineReqd(lineInput(r)))}
+        {errNode(r, "qty")}
+      </>
+    ),
   };
 
   const garmentTypeCol: CostCol = {
     header: "Type",
+    cell: (r) => <Truncated className="text-sm">{BASIS_LABELS[r.basis ?? "process"]}</Truncated>,
+  };
+
+  /**
+   * FOC and Import as ONE cell — two 36px switches side by side, FOC first,
+   * each carrying its own `aria-label` (the header names the pair on screen).
+   * Merged because two separate `num` columns (144px) cost the yarn grid its
+   * table on the client's display, and the pair is 88px here (Phase 6's own
+   * suggested re-cut). `hug`: 36 + 4 + 36 + the cell's 12px padding = 88.
+   */
+  const flagsCol: CostCol = {
+    header: "FOC · Import",
     cell: (r) => (
-      <span className="text-sm">{BASIS_LABELS[r.basis ?? "process"]}</span>
+      <span className="inline-flex items-center gap-1">
+        {focCol.cell(r, 0)}
+        {importCol.cell(r, 0)}
+      </span>
     ),
   };
 
-  /** Purchase Rates' three grids, columns in the blueprint's order per tab. */
-  const purchaseColumns: Record<(typeof PURCHASE_TABS)[number]["source"], CostCol[]> = {
-    yarn: [
-      itemCol("Yarn"),
-      descCol("Description"),
-      specCol,
-      qtyCol("Reqd"),
-      unitCol,
-      focCol,
-      importCol,
-      currencyCol,
-      exRateCol,
-      rateCol("Rate"),
-      inrRateCol,
-      amountCol,
-    ],
-    fabric: [
-      itemCol("Fabric"),
-      descCol("Fabric & Colour"),
-      qtyCol("Reqd"),
-      unitCol,
-      rateCol("Rate"),
-      currencyCol,
-      exRateCol,
-      inrRateCol,
-      amountCol,
-    ],
-    material: [
-      itemCol("Item"),
-      descCol("Colour / Description"),
-      specCol,
-      unitCol,
-      qtyCol("Reqd"),
-      focCol,
-      importCol,
-      currencyCol,
-      exRateCol,
-      rateCol("Rate"),
-      inrRateCol,
-      amountCol,
-    ],
-  };
+  /*
+   * THE COLUMN WIDTHS — Phase 6, the house convention: every column takes one
+   * of the seven `FIELD_WIDTH_CSS` steps, written as the step itself
+   * (`FIELD_WIDTH_CSS.hug`) so `npm run check:grid-budget` can read and add
+   * them. Every column declaring a width makes `ChildGrid` hug.
+   *
+   * THE BUDGET IS THE SMALLEST SUPPORTED PANE, not the client's: a 1366x768
+   * laptop at 100% gives the editor 1155 CSS px (`check:grid-budget`). Row
+   * chrome is # 40 + ✕ 32 = 72, so a table's columns may sum to at most
+   * 1155 - 72 = 1083. Every grid takes `tableFrom="5xl"` (1024): `6xl` (1152)
+   * clears that pane by 3px, and a scrollbar or one notch of zoom flips it to
+   * cards. Each list states its sum against 1083.
+   */
 
-  /** Process Rates' flat grids — Fabric Processes is the fold list below. */
-  const processColumns: Record<"yarn_process" | "material_process" | "garment_process", CostCol[]> = {
-    yarn_process: [
-      processCol((p) => p.for_yarn),
-      descCol("Yarn Stage / Colour"),
-      unitCol,
-      qtyCol("Reqd"),
-      focCol,
-      rateTypeCol,
-      currencyCol,
-      exRateCol,
-      rateCol("Charges"),
-      inrRateCol,
-      amountCol,
-    ],
-    material_process: [
-      processCol((p) => p.for_trims),
-      itemCol("For"),
-      unitCol,
-      qtyCol("Reqd"),
-      focCol,
-      rateTypeCol,
-      currencyCol,
-      exRateCol,
-      rateCol("Charges"),
-      inrRateCol,
-      amountCol,
-    ],
-    garment_process: [
-      processCol((p) => p.for_garments || p.for_components),
-      garmentTypeCol,
-      descCol("For"),
-      unitCol,
-      countCol("No of Pcs", "no_of_pcs"),
-      countCol("No of Units", "no_of_units"),
-      derivedReqdCol,
-      focCol,
-      rateTypeCol,
-      currencyCol,
-      exRateCol,
-      rateCol("Charge"),
-      inrRateCol,
-      amountCol,
-    ],
-  };
+  /* Yarn Purchases — 144 + 88 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 112
+     = 1024, + 72 = 1096 <= 1155 -> 5xl. Re-cut from 1,312: FOC + Import merged
+     (-56), Yarn party -> code, Description term -> hug (the Yarn picker names
+     the yarn; the text is the pulled line's note), Curr and Rate -> num. */
+  const yarnPurchaseColumns: CostCol[] = withRowRules([
+    { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.code },
+    { ...descCol("Description"), width: FIELD_WIDTH_CSS.hug },
+    { ...specCol, width: FIELD_WIDTH_CSS.range },
+    { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
+    { ...unitCol, width: FIELD_WIDTH_CSS.num },
+    { ...flagsCol, width: FIELD_WIDTH_CSS.hug },
+    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
+    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+  ]);
+
+  /* Fabric Purchases — 176 + 200 + 88 + 72 + 72 + 72 + 88 + 88 + 112 = 968,
+     + 72 = 1040 <= 1155 -> 5xl. */
+  const fabricPurchaseColumns: CostCol[] = withRowRules([
+    { ...itemCol("Fabric"), width: FIELD_WIDTH_CSS.term },
+    { ...descCol("Fabric & Colour"), width: FIELD_WIDTH_CSS.party },
+    { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
+    { ...unitCol, width: FIELD_WIDTH_CSS.num },
+    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
+    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+  ]);
+
+  /* Accessories Purchases — 144 + 112 + 88 + 72 + 88 + 88 + 72 + 88 + 72 + 88
+     + 112 = 1024, + 72 = 1096 <= 1155 -> 5xl. Yarn's re-cut; Specifications
+     takes the `hug` here and Colour keeps `range`, because on a trim the colour
+     is the fact that varies. */
+  const accessoryPurchaseColumns: CostCol[] = withRowRules([
+    { ...itemCol("Item"), width: FIELD_WIDTH_CSS.code },
+    { ...descCol("Colour / Description"), width: FIELD_WIDTH_CSS.range },
+    { ...specCol, width: FIELD_WIDTH_CSS.hug },
+    { ...unitCol, width: FIELD_WIDTH_CSS.num },
+    { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
+    { ...flagsCol, width: FIELD_WIDTH_CSS.hug },
+    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
+    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+  ]);
+
+  /* Yarn Processes — 112 + 144 + 72 + 88 + 72 + 88 + 72 + 88 + 88 + 88 + 112
+     = 1024, + 72 = 1096 <= 1155 -> 5xl. Rate Type `hug`: "Per KGS" is seven
+     characters and the header two words. */
+  const yarnProcessColumns: CostCol[] = withRowRules([
+    { ...processCol((p) => p.for_yarn), width: FIELD_WIDTH_CSS.range },
+    { ...descCol("Yarn Stage / Colour"), width: FIELD_WIDTH_CSS.code },
+    { ...unitCol, width: FIELD_WIDTH_CSS.num },
+    { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
+    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
+    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
+    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+  ]);
+
+  /* Accessories Processes — the same steps as Yarn Processes: 1024, + 72 =
+     1096 <= 1155 -> 5xl. */
+  const accessoryProcessColumns: CostCol[] = withRowRules([
+    { ...processCol((p) => p.for_trims), width: FIELD_WIDTH_CSS.range },
+    { ...itemCol("For"), width: FIELD_WIDTH_CSS.code },
+    { ...unitCol, width: FIELD_WIDTH_CSS.num },
+    { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
+    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
+    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...rateCol("Charges"), width: FIELD_WIDTH_CSS.hug },
+    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+  ]);
+
+  /* Garment Processes — 112 + 112 + 112 + 72 + 88 + 88 + 88 + 72 + 88 + 88
+     + 112 = 1032, + 72 = 1104 <= 1155 -> 5xl.
+     THE CLIENT'S OWN COLUMNS (Process Rates blueprint): S No · Process · Type ·
+     For · UOM · No of Pcs · No of Units · Reqd · FOC · Rate Type · Charge
+     (INR). No currency — a garment step is job-worker labour quoted in rupees,
+     so these lines are INR like CMT (`INR_ONLY_SOURCES`). The Curr / Ex Rate /
+     INR Rate trio was added in Phase 2 for sameness, not because anyone asked,
+     and it kept this grid from being a table at all (1,256 with it).
+     Reqd is `hug`, not `num`: SQ Qty x pcs x units reaches five and six digits
+     on a real order ("50,000"). */
+  const garmentProcessColumns: CostCol[] = withRowRules([
+    { ...processCol((p) => p.for_garments || p.for_components), width: FIELD_WIDTH_CSS.range },
+    { ...garmentTypeCol, width: FIELD_WIDTH_CSS.range },
+    { ...descCol("For"), width: FIELD_WIDTH_CSS.range },
+    { ...unitCol, width: FIELD_WIDTH_CSS.num },
+    { ...countCol("No of Pcs", "no_of_pcs"), width: FIELD_WIDTH_CSS.hug },
+    { ...countCol("No of Units", "no_of_units"), width: FIELD_WIDTH_CSS.hug },
+    { ...derivedReqdCol, width: FIELD_WIDTH_CSS.hug },
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...rateTypeCol, width: FIELD_WIDTH_CSS.hug },
+    { ...rateCol("Charge (INR)"), width: FIELD_WIDTH_CSS.hug },
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+  ]);
 
   /** One Fabric Processes group's lines — the first cell names the grain the
-   *  group was split by, and is text: it came from the split, not a keyboard. */
-  const fabricLineColumns = (basis: string): CostCol[] => [
-    {
-      header: basis === "color" ? "Colour" : basis === "process" ? "Process" : "Fabric",
-      cell: (r) => <Truncated>{r.description}</Truncated>,
-    },
-    qtyCol("Reqd"),
-    focCol,
-    rateTypeCol,
-    currencyCol,
-    exRateCol,
-    rateCol("Rate"),
-    inrRateCol,
-    amountCol,
-  ];
+   *  group was split by, and is text: it came from the split, not a keyboard.
+   *
+   *  176 + 88 + 72 + 144 + 72 + 88 + 72 + 88 + 112 = 912, + 72 = 984 <= 1155
+   *  -> 5xl. It sits in the fold's panel, ~50px narrower than the pane (the
+   *  panel's indent and the list's frame) — still 1,105 at the smallest pane,
+   *  which this clears by 121. */
+  const fabricLineColumns = (basis: string): CostCol[] =>
+    withRowRules([
+      {
+        header: basis === "color" ? "Colour" : basis === "process" ? "Process" : "Fabric",
+        width: FIELD_WIDTH_CSS.term,
+        cell: (r) => <Truncated>{r.description}</Truncated>,
+      },
+      { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
+      { ...focCol, width: FIELD_WIDTH_CSS.num },
+      { ...rateTypeCol, width: FIELD_WIDTH_CSS.code },
+      { ...currencyCol, width: FIELD_WIDTH_CSS.num },
+      { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+      { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+      { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+      { ...amountCol, width: FIELD_WIDTH_CSS.range },
+    ]);
 
   // ---- CMTs -----------------------------------------------------------------
   //
@@ -1243,9 +1499,15 @@ export function BudgetScreen({
     </div>
   );
 
-  const cmtColumns: CostCol[] = [
+  /* CMTs — 112 + 176 + 144 + 144 + 88 + 88 + 88 + 88 + 112 = 1040, + 72 = 1112
+     <= 1155 -> 5xl.
+     A hand-added line shows its Description under "Style Ref No" in the table
+     (its style cells are empty — `showFor`); the card layout below the
+     threshold labels it as a Description. */
+  const cmtColumns: CostCol[] = withRowRules([
     {
       header: "Style Ref No",
+      width: FIELD_WIDTH_CSS.range,
       // A HAND-ADDED LINE HAS NO STYLE, so its first cell is what it IS — a
       // typed description, labelled as one.
       labelFor: (r) => (styleBound(r) ? "Style Ref No" : "Description"),
@@ -1263,11 +1525,13 @@ export function BudgetScreen({
     },
     {
       header: "Style / Article",
+      width: FIELD_WIDTH_CSS.term,
       showFor: styleBound,
       cell: (r) => twoTier(styleOf(r)?.style_description, styleOf(r)?.article_no),
     },
     {
       header: "SC No / Order No",
+      width: FIELD_WIDTH_CSS.code,
       showFor: styleBound,
       cell: (r) => {
         const o = r.garment_order_id ? orderById.get(r.garment_order_id) : null;
@@ -1276,11 +1540,13 @@ export function BudgetScreen({
     },
     {
       header: "Coordinate",
+      width: FIELD_WIDTH_CSS.code,
       showFor: styleBound,
       cell: (r) => <Truncated className="text-sm">{coordinateName(r)}</Truncated>,
     },
     {
       header: "Order Qty",
+      width: FIELD_WIDTH_CSS.hug,
       showFor: styleBound,
       cell: (r) => {
         const q = styleOf(r)?.order_qty;
@@ -1289,41 +1555,52 @@ export function BudgetScreen({
     },
     {
       header: "SQ Qty",
+      width: FIELD_WIDTH_CSS.hug,
       // PULLED, the style's SQ Qty — pieces MADE, not ordered (doc "Phase 3":
       // 5321 against an Order Qty of 5028). Read-only, like every pulled
       // quantity: re-typing it is a second answer to an answered question. A
       // hand-added line has nothing to pull and types its own.
       requiredFor: (r) => !styleBound(r) && qtyRequired(r),
       cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          required={!styleBound(r) && qtyRequired(r)}
-          readOnly={!editable || styleBound(r)}
-          inputMode="decimal"
-          value={r.qty}
-          onChange={(e) => setCost(r.key, { qty: e.target.value })}
-        />
+        <>
+          <Input
+            {...errProps(r, "qty")}
+            className="h-8 text-right"
+            required={!styleBound(r) && qtyRequired(r)}
+            readOnly={!editable || styleBound(r)}
+            inputMode="decimal"
+            value={r.qty}
+            onChange={(e) => setCost(r.key, { qty: e.target.value })}
+          />
+          {errNode(r, "qty")}
+        </>
       ),
     },
     {
       header: "CMT Rate",
+      width: FIELD_WIDTH_CSS.hug,
       requiredFor: rateRequired,
       cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          required={rateRequired(r)}
-          // WHILE A BREAKUP EXISTS THE RATE IS ITS TOTAL — shown here, edited
-          // there. Two boxes that could each set the rate would disagree the
-          // first time one of them was used (0574's check).
-          readOnly={!editable || hasBreakup(r)}
-          inputMode="decimal"
-          value={r.rate}
-          onChange={(e) => setCost(r.key, { rate: e.target.value })}
-        />
+        <>
+          <Input
+            {...errProps(r, "rate")}
+            className="h-8 text-right"
+            required={rateRequired(r)}
+            // WHILE A BREAKUP EXISTS THE RATE IS ITS TOTAL — shown here, edited
+            // there. Two boxes that could each set the rate would disagree the
+            // first time one of them was used (0574's check).
+            readOnly={!editable || hasBreakup(r)}
+            inputMode="decimal"
+            value={r.rate}
+            onChange={(e) => setCost(r.key, { rate: e.target.value })}
+          />
+          {errNode(r, "rate")}
+        </>
       ),
     },
     {
       header: "Breakup",
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <Button
           type="button"
@@ -1346,8 +1623,8 @@ export function BudgetScreen({
         </Button>
       ),
     },
-    amountCol,
-  ];
+    { ...amountCol, width: FIELD_WIDTH_CSS.range },
+  ]);
 
   /**
    * Write one operation's figure, and the line's rate with it.
@@ -1359,6 +1636,7 @@ export function BudgetScreen({
    * the sheet prints the sentence, and a rate is not written from a refusal.
    */
   function setBreakup(key: string, op: CmtOperationKey, value: string) {
+    touch(key);
     mutCosts((xs) =>
       xs.map((x) => {
         if (x.key !== key) return x;
@@ -1442,7 +1720,10 @@ export function BudgetScreen({
     }
     if (isRefusal(q)) {
       setCost(r.key, { ...patch, qty: "" });
-      toastError(q.refused);
+      // UNDER THIS ROW'S QTY, not a toast — the sentence is about the box
+      // that was just left blank (Phase 7). Set after `setCost`, which clears
+      // a row's note whenever its Qty changes.
+      setRowNotes((n) => ({ ...n, [r.key]: q.refused }));
       return;
     }
     setCost(r.key, { ...patch, qty: String(q) });
@@ -1491,15 +1772,23 @@ export function BudgetScreen({
     showFor: (r) => r.scope !== "sq",
     requiredFor: (r) => r.scope !== "sq",
     cell: (r) => (
-      <RecordPicker
-        label="Order"
-        compact
-        required={r.scope !== "sq"}
-        disabled={!editable}
-        items={orderItems}
-        value={r.garment_order_id}
-        onChange={(id) => rescope(r, { garment_order_id: id, style_ref_no: null })}
-      />
+      <>
+        <RecordPicker
+          id={cellId(r, "order")}
+          label="Order"
+          compact
+          required={r.scope !== "sq"}
+          disabled={!editable}
+          items={orderItems}
+          value={r.garment_order_id}
+          onChange={(id) => rescope(r, { garment_order_id: id, style_ref_no: null })}
+        />
+        <FieldError id={`${cellId(r, "order")}-error`}>
+          {shown(r) && r.scope !== "sq" && !r.garment_order_id
+            ? "Choose the order this expense is for"
+            : null}
+        </FieldError>
+      </>
     ),
   };
 
@@ -1508,27 +1797,35 @@ export function BudgetScreen({
     showFor: (r) => r.scope === "style",
     requiredFor: (r) => r.scope === "style",
     cell: (r) => (
-      <RecordPicker
-        label="Style"
-        compact
-        required={r.scope === "style"}
-        disabled={!editable || !r.garment_order_id}
-        // KEYED BY THE STYLE'S REF — the line stores `style_ref_no`, the same
-        // text key the order's style lines and the CMT lines use.
-        items={(
-          (r.garment_order_id && orderById.get(r.garment_order_id)?.styles) ||
-          []
-        ).map((st) => ({
-          id: st.style_ref_no,
-          code: st.style_ref_no,
-          name: [st.style_ref_no, st.style_description].filter(Boolean).join(" · "),
-          inactive: false,
-        }))}
-        // A STATE OF THE RECORD, which is what a placeholder may still say.
-        placeholder={r.garment_order_id ? undefined : "Pick the order first"}
-        value={r.style_ref_no}
-        onChange={(id) => rescope(r, { style_ref_no: id })}
-      />
+      <>
+        <RecordPicker
+          id={cellId(r, "style")}
+          label="Style"
+          compact
+          required={r.scope === "style"}
+          disabled={!editable || !r.garment_order_id}
+          // KEYED BY THE STYLE'S REF — the line stores `style_ref_no`, the same
+          // text key the order's style lines and the CMT lines use.
+          items={(
+            (r.garment_order_id && orderById.get(r.garment_order_id)?.styles) ||
+            []
+          ).map((st) => ({
+            id: st.style_ref_no,
+            code: st.style_ref_no,
+            name: [st.style_ref_no, st.style_description].filter(Boolean).join(" · "),
+            inactive: false,
+          }))}
+          // A STATE OF THE RECORD, which is what a placeholder may still say.
+          placeholder={r.garment_order_id ? undefined : "Pick the order first"}
+          value={r.style_ref_no}
+          onChange={(id) => rescope(r, { style_ref_no: id })}
+        />
+        <FieldError id={`${cellId(r, "style")}-error`}>
+          {shown(r) && r.scope === "style" && r.garment_order_id && !r.style_ref_no
+            ? "Choose the style this expense is for"
+            : null}
+        </FieldError>
+      </>
     ),
   };
 
@@ -1602,79 +1899,197 @@ export function BudgetScreen({
 
   const valueCol: CostCol = { ...amountCol, header: "Value (INR)" };
 
-  const expenseColumns: CostCol[] = [
-    headCol("expense_head", "Cost Head"),
-    descCol("Description"),
-    scopeCol,
-    scopeOrderCol,
-    scopeStyleCol,
-    otherRateTypeCol("Rate Type", ["per_unit", "flat", "percent"]),
-    otherUnitCol,
-    otherQtyCol,
-    otherRateCol,
-    valueCol,
-  ];
+  /* Other Expenses — 144 + 112 + 112 + 112 + 112 + 112 + 72 + 72 + 72 + 112
+     = 1032, + 72 = 1104 <= 1155 -> 5xl. Re-cut from 1,312: Order and Style are
+     COLUMNS in the table even on an SQ Wise row (their cells stay empty —
+     `showFor`), so they are paid for on every row; the text cells take the
+     steps that pay for them. "Order Wise" and "Percentage" are ~10
+     characters, which `range` holds with its chevron. */
+  const expenseColumns: CostCol[] = withRowRules([
+    { ...headCol("expense_head", "Cost Head"), width: FIELD_WIDTH_CSS.code },
+    { ...descCol("Description"), width: FIELD_WIDTH_CSS.range },
+    { ...scopeCol, width: FIELD_WIDTH_CSS.range },
+    { ...scopeOrderCol, width: FIELD_WIDTH_CSS.range },
+    { ...scopeStyleCol, width: FIELD_WIDTH_CSS.range },
+    { ...otherRateTypeCol("Rate Type", ["per_unit", "flat", "percent"]), width: FIELD_WIDTH_CSS.range },
+    { ...otherUnitCol, width: FIELD_WIDTH_CSS.num },
+    { ...otherQtyCol, width: FIELD_WIDTH_CSS.num },
+    { ...otherRateCol, width: FIELD_WIDTH_CSS.num },
+    { ...valueCol, width: FIELD_WIDTH_CSS.range },
+  ]);
 
-  /** Whole-budget scope, so no Type — an income is on the group's sales. */
-  const incomeColumns: CostCol[] = [
-    headCol("income_head", "Income Head"),
-    descCol("Description"),
-    otherRateTypeCol("Basis", ["percent", "flat"]),
-    { ...otherRateCol, header: "Rate / %" },
-    valueCol,
-  ];
+  /* Other Incomes — whole-budget scope, so no Type. 200 + 176 + 144 + 88 +
+     112 = 720, + 72 = 792 <= 1155 -> 5xl. */
+  const incomeColumns: CostCol[] = withRowRules([
+    { ...headCol("income_head", "Income Head"), width: FIELD_WIDTH_CSS.party },
+    { ...descCol("Description"), width: FIELD_WIDTH_CSS.term },
+    { ...otherRateTypeCol("Basis", ["percent", "flat"]), width: FIELD_WIDTH_CSS.code },
+    { ...{ ...otherRateCol, header: "Rate / %" }, width: FIELD_WIDTH_CSS.hug },
+    { ...valueCol, width: FIELD_WIDTH_CSS.range },
+  ]);
 
   /**
-   * One cost grid over `rows`. `add` absent = a grid that cannot grow (a
-   * Fabric Processes group, whose lines come from the split).
+   * THE COST GRIDS — one literal `<ChildGrid>` each, its `tableFrom` and its
+   * `…Columns` array written ON THE TAG, so `npm run check:grid-budget` can
+   * read both (it measured none of them while they went through a helper).
    *
-   * NINE TO FOURTEEN COLUMNS, so rule 4: `forceCards` + `flatRows` — the row
-   * wraps inside one frame instead of scrolling sideways. The labels and cells
-   * are read off `columns`, and `required` is declared on the `Field` (which
-   * draws the star) AND reaches the control through the column's own cell, both
-   * from `requiredFor` — skill rule 4, both props, never one.
+   * Every grid: a table from `5xl`, one-frame cards below it (`flatRows`),
+   * never a sideways scroll. A PULLED grid (every one but Other Expenses and
+   * Other Incomes) may be emptied — its rows come from the BOMs, and the last
+   * one removed is a cost the operator decided not to budget; a typed grid
+   * keeps its one row standing ready (AGENTS.md, default rows).
    *
-   * No `label=` caption: the section, and the tab inside it, names it.
+   * No `label=` caption: the section, and the tab inside it, names each grid.
    */
-  const costGrid = (
-    columns: CostCol[],
-    rows: CostRow[],
-    opts: { derived: boolean; add?: { source: BudgetSource; patch?: Partial<CostRow> } },
-  ) => (
-    <ChildGrid<CostRow>
-      columns={columns}
-      rows={rows}
-      forceCards
-      flatRows
-      renderMobileRow={(row, i) => (
-        <FieldGrid>
-          {columns.map((c, ci) =>
-            c.showFor && !c.showFor(row) ? null : (
-              <Field
-                key={ci}
-                label={c.labelFor ? c.labelFor(row) : c.header}
-                required={c.requiredFor ? c.requiredFor(row) : c.required}
-                size="sm"
-              >
-                {c.cell(row, i)}
-              </Field>
-            ),
-          )}
-        </FieldGrid>
-      )}
-      hideAdd={!editable || !opts.add}
-      lockExisting={!editable}
-      // A PULLED grid may be emptied — its rows come from the BOMs, and the
-      // last one removed is a cost the operator decided not to budget. A typed
-      // grid keeps its one row standing ready (AGENTS.md, default rows).
-      keepOne={!opts.derived}
-      onAdd={() => {
-        const add = opts.add;
-        if (add) mutCosts((xs) => [...xs, { ...blankCost(newKey(), add.source), ...add.patch }]);
-      }}
-      onRemove={(r) => mutCosts((xs) => xs.filter((x) => x.key !== r.key))}
-      addLabel="+ Add line"
-    />
+  const rowsOf = (source: string) => costs.filter((c) => c.source === source);
+  const addCost = (source: BudgetSource, patch: Partial<CostRow> = {}) =>
+    mutCosts((xs) => [...xs, { ...blankCost(newKey(), source), ...patch }]);
+  const removeCost = (r: CostRow) => mutCosts((xs) => xs.filter((x) => x.key !== r.key));
+
+  const yarnPurchaseGrid = (
+      <ChildGrid<CostRow>
+        columns={yarnPurchaseColumns}
+        rows={rowsOf("yarn")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(yarnPurchaseColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={false}
+        onAdd={() => addCost("yarn")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  const fabricPurchaseGrid = (
+      <ChildGrid<CostRow>
+        columns={fabricPurchaseColumns}
+        rows={rowsOf("fabric")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(fabricPurchaseColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={false}
+        onAdd={() => addCost("fabric")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  const accessoryPurchaseGrid = (
+      <ChildGrid<CostRow>
+        columns={accessoryPurchaseColumns}
+        rows={rowsOf("material")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(accessoryPurchaseColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={false}
+        onAdd={() => addCost("material")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  const yarnProcessGrid = (
+      <ChildGrid<CostRow>
+        columns={yarnProcessColumns}
+        rows={rowsOf("yarn_process")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(yarnProcessColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={false}
+        onAdd={() => addCost("yarn_process")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  const accessoryProcessGrid = (
+      <ChildGrid<CostRow>
+        columns={accessoryProcessColumns}
+        rows={rowsOf("material_process")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(accessoryProcessColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={false}
+        onAdd={() => addCost("material_process")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  // A GARMENT STEP TYPED BY HAND IS PRICED ONCE PER PROCESS — `basis`
+  // 'process', the Processwise grain.
+  const garmentProcessGrid = (
+      <ChildGrid<CostRow>
+        columns={garmentProcessColumns}
+        rows={rowsOf("garment_process")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(garmentProcessColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={false}
+        onAdd={() => addCost("garment_process", { basis: "process" })}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  const cmtGrid = (
+      <ChildGrid<CostRow>
+        columns={cmtColumns}
+        rows={rowsOf("cmt")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(cmtColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={false}
+        onAdd={() => addCost("cmt")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  const expenseGrid = (
+      <ChildGrid<CostRow>
+        columns={expenseColumns}
+        rows={rowsOf("expense")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(expenseColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={true}
+        onAdd={() => addCost("expense")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
+  );
+
+  const incomeGrid = (
+      <ChildGrid<CostRow>
+        columns={incomeColumns}
+        rows={rowsOf("income")}
+        tableFrom="5xl"
+        flatRows
+        renderMobileRow={(row, i) => costCard(incomeColumns, row, i)}
+        hideAdd={!editable}
+        lockExisting={!editable}
+        keepOne={true}
+        onAdd={() => addCost("income")}
+        onRemove={removeCost}
+        addLabel="+ Add line"
+      />
   );
 
   // ---- Fabric Processes: the fold -------------------------------------------
@@ -1789,8 +2204,18 @@ export function BudgetScreen({
       const src = groups.find(
         (x) => x.garment_order_id === g.garment_order_id && x.process_id === g.process_id,
       );
+      // FROM HERE ON, WHAT THE BREAKDOWN SAID ABOUT THIS GROUP goes under its
+      // For select — the field whose change asked the question (Phase 7). Only
+      // the fetch failing above is a toast: that is the server, not the group.
+      const note = (msg: string | null) =>
+        setFoldNotes((n) => {
+          const next = { ...n };
+          if (msg) next[g.key] = msg;
+          else delete next[g.key];
+          return next;
+        });
       if (!src) {
-        toastError(
+        note(
           `${processName(g.process_id) || "This process"} is no longer on the order's Fabric BOM — pull the costs again`,
         );
         return;
@@ -1800,7 +2225,7 @@ export function BudgetScreen({
         // AN EMPTY SPLIT NEVER WIPES THE GROUP. The lines on screen are the
         // last answer anyone had; replacing them with nothing would drop the
         // process's cost from the budget on a report that had nothing to say.
-        toastError(
+        note(
           refusals[0] ??
             `The Fabric BOM has no quantities for ${processName(g.process_id) || "this process"} — the lines are left as they were`,
         );
@@ -1841,14 +2266,15 @@ export function BudgetScreen({
       });
       // THE REPORT'S OWN SENTENCES for weights it could not place — said, so a
       // re-split cannot look complete while a fabric's kilograms are missing
-      // from it. One sentence and a count, as the Save gate does.
-      if (refusals.length > 0) {
-        toastError(
-          refusals.length === 1
+      // from it. One sentence and a count, as the Save gate does. A clean split
+      // clears the group's note.
+      note(
+        refusals.length === 0
+          ? null
+          : refusals.length === 1
             ? refusals[0]
             : `${refusals[0]} — and ${refusals.length - 1} more the Fabric BOM could not place`,
-        );
-      }
+      );
     });
   }
 
@@ -1863,8 +2289,14 @@ export function BudgetScreen({
           <FieldGrid>
             {/* THE PANEL'S FIRST FIELD — the grain the lines below are split
                 by. Changing it re-splits them; see `refitFabricGroup`. */}
-            <Field label="For" size="sm">
+            <Field
+              label="For"
+              size="sm"
+              htmlFor={`bl-fold-${g.key}`}
+              error={foldNotes[g.key] ?? null}
+            >
               <Select
+                id={`bl-fold-${g.key}`}
                 disabled={!editable || isPending}
                 value={basisOf(g)}
                 onChange={(e) => refitFabricGroup(g, e.target.value as ProcessBasis)}
@@ -1875,7 +2307,20 @@ export function BudgetScreen({
               </Select>
             </Field>
           </FieldGrid>
-          {costGrid(fabricLineColumns(basisOf(g)), g.lines, { derived: true })}
+          {/* The group's lines come from the split, so this grid cannot grow —
+              and it may be emptied, like every pulled grid. */}
+          <ChildGrid<CostRow>
+            columns={fabricLineColumns(basisOf(g))}
+            rows={g.lines}
+            tableFrom="5xl"
+            flatRows
+            renderMobileRow={(row, i) => costCard(fabricLineColumns(basisOf(g)), row, i)}
+            hideAdd
+            lockExisting={!editable}
+            keepOne={false}
+            onAdd={() => false}
+            onRemove={removeCost}
+          />
         </div>
       )}
     />
@@ -1922,6 +2367,13 @@ export function BudgetScreen({
     return pickedFacts.every((o) => get(o) === first) ? (first ?? "") : many;
   };
   const nOrders = `${pickedFacts.length} orders`;
+  /** A header figure's text — blank when it refuses (the sentence is the
+   *  Field's `error`) or when no order is picked. */
+  const figureText = (v: number | string | { refused: string }) =>
+    pickedFacts.length === 0 || isRefusal(v) ? "" : typeof v === "number" ? fmtNumber(v) : v;
+  /** A header figure's refusal, for the Field's `error`. */
+  const refusalOf = (v: number | string | { refused: string }) =>
+    pickedFacts.length > 0 && isRefusal(v) ? v.refused : null;
   const asText = (v: number | string | { refused: string }) =>
     pickedFacts.length === 0
       ? ""
@@ -1968,6 +2420,11 @@ export function BudgetScreen({
               // THE SECTION THAT HOLDS THE FIRST ONE, so a blocked Save lands on
               // the line rather than on a section that merely totals it.
               section: sectionOfSource(firstUnpriced.source),
+              // THE FIELD, so a blocked Save lands the cursor in the very box
+              // whose message is now showing under it (Phase 7).
+              fieldId: totals.unpriced[0].field
+                ? cellId(firstUnpriced, totals.unpriced[0].field)
+                : undefined,
               label: "Cost lines",
               // The ENGINE'S sentence for the first one, and the count. A list of
               // eight identical messages is noise; one plus "and 7 more" is not.
@@ -1986,6 +2443,7 @@ export function BudgetScreen({
         ? [
             {
               section: "expense",
+              fieldId: cellId(unscoped, unscoped.garment_order_id ? "style" : "order"),
               label: "Other Expenses",
               message:
                 unscoped.scope === "style" && unscoped.garment_order_id
@@ -1999,6 +2457,7 @@ export function BudgetScreen({
         ? [
             {
               section: "budget",
+              fieldId: "budget-exchange-rate",
               label: "Exchange rate",
               message: "Exchange rate must be more than 0",
               kind: "custom" as const,
@@ -2008,10 +2467,16 @@ export function BudgetScreen({
     ],
   });
 
+  /**
+   * A BLOCKED SAVE SAYS NOTHING OF ITS OWN — it turns every row's messages on
+   * (`saveAttempted`) and takes the cursor to the first one, where the sentence
+   * is already sitting under its field. It used to toast the sentence, which
+   * named the problem and then vanished before the operator found the box.
+   */
   const revealFirstProblem = () => {
+    setSaveAttempted(true);
     const p = validity.first;
     if (!p) return;
-    toastError(p.message);
     // Purchase Rates mounts ONE tab at a time, so the line's own tab has to be
     // the open one before the cursor can land on it.
     if (p.section === "purchase" && firstUnpriced) setPurchaseTab(firstUnpriced.source);
@@ -2034,91 +2499,142 @@ export function BudgetScreen({
       done: !!form.budget_date,
       content: (
         <SectionBody title="Budget">
-          <FieldGrid>
-            {/* THE BUDGET'S OWN NUMBER — assigned on first save, so blank on a
-                new one rather than a guess at what it will be. */}
-            <Field label="Entry No" size="sm" htmlFor="bg-code">
-              <Input id="bg-code" readOnly value={editCode ?? ""} />
-            </Field>
-            <Field label="Date" required size="sm" htmlFor="bg-date">
-              <Input
-                id="bg-date"
-                type="date"
-                readOnly={!editable}
-                value={form.budget_date}
-                onChange={(e) => set({ budget_date: e.target.value })}
-              />
-            </Field>
-            <Field label="Group" size="sm" htmlFor="bg-desc">
-              <Input
-                id="bg-desc"
-                readOnly={!editable}
-                value={form.description}
-                onChange={(e) => set({ description: e.target.value })}
-              />
-            </Field>
-            <Field label="Currency" size="sm" htmlFor="bg-cur">
-              <Select
-                id="bg-cur"
-                disabled={!editable}
-                value={form.currency_code}
-                onChange={(e) => set({ currency_code: e.target.value })}
+          {/* WIDTHS, NOT TWELFTHS (Phase 6, the house convention — commits
+              794b29e / 77fb979 / 8f37c22). Each field takes one of the seven
+              `FIELD_WIDTH` steps by the KIND of value it holds, so a
+              three-letter currency no longer spans a sixth of the pane.
+
+              FOUR ROWS, one per kind of fact, because a wrapping row fills
+              greedily and would otherwise pull the first SQ fact up beside the
+              exchange rate:
+                identity  code 144 + code 144 + party 200 + hug 88 + hug 88
+                          = 664 + 4 gaps x 12 = 712
+                SQ facts  term 176 + party 200 + party 200 + name 288
+                          = 864 + 3 x 12 = 900
+                quantity  hug 88 + hug 88 + num 72 = 248 + 2 x 12 = 272
+                remark    the cap
+
+              THE CAP IS DEFINITE — 57rem, 912px: the widest row (900) plus
+              12px of slack so a sub-pixel font metric cannot wrap it. Never
+              `max-w-fit`: inside a container-query ancestor a content-sized
+              cap resolves to zero (the Vendor bug, 8f37c22). The Remark box
+              ends where the SQ row ends rather than trailing across the pane. */}
+          <div className="max-w-[57rem] space-y-2">
+            <FieldRow>
+              {/* THE BUDGET'S OWN NUMBER — assigned on first save, so blank on a
+                  new one rather than a guess at what it will be. */}
+              <Field label="Entry No" w="code" htmlFor="bg-code">
+                <Input id="bg-code" readOnly value={editCode ?? ""} />
+              </Field>
+              <Field
+                label="Date"
+                required
+                w="code"
+                htmlFor="bg-date"
+                error={saveAttempted && !form.budget_date ? "Enter the budget date" : null}
               >
-                <option value=""></option>
-                {data.currencies.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.code} · {c.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Exchange rate" size="sm" htmlFor="bg-rate">
-              <Input
-                id="bg-rate"
-                inputMode="decimal"
-                readOnly={!editable}
-                value={form.exchange_rate}
-                onChange={(e) => set({ exchange_rate: e.target.value })}
-              />
-            </Field>
+                <Input
+                  id="bg-date"
+                  type="date"
+                  readOnly={!editable}
+                  value={form.budget_date}
+                  onChange={(e) => set({ budget_date: e.target.value })}
+                />
+              </Field>
+              <Field label="Group" w="party" htmlFor="bg-desc">
+                <Input
+                  id="bg-desc"
+                  readOnly={!editable}
+                  value={form.description}
+                  onChange={(e) => set({ description: e.target.value })}
+                />
+              </Field>
+              {/* THE CODE ONLY — "USD", not "USD · US Dollar". The field is
+                  `hug` (88px); the name beside the code would be clipped to
+                  "USD · U…" in every row it appears, and the code is what the
+                  operator types to find it anyway. */}
+              <Field label="Currency" w="hug" htmlFor="bg-cur">
+                <Select
+                  id="bg-cur"
+                  disabled={!editable}
+                  value={form.currency_code}
+                  onChange={(e) => set({ currency_code: e.target.value })}
+                >
+                  <option value=""></option>
+                  {data.currencies.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.code}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field
+                label="Exchange rate"
+                w="hug"
+                htmlFor="budget-exchange-rate"
+                error={
+                  numOrNull(form.exchange_rate) == null || (numOrNull(form.exchange_rate) as number) <= 0
+                    ? "Exchange rate must be more than 0"
+                    : null
+                }
+              >
+                <Input
+                  id="budget-exchange-rate"
+                  inputMode="decimal"
+                  readOnly={!editable}
+                  value={form.exchange_rate}
+                  onChange={(e) => set({ exchange_rate: e.target.value })}
+                />
+              </Field>
+            </FieldRow>
             {/* THE SQ FACTS — read off the picked orders, read-only, and so off
                 the Tab path by `readOnly` alone. */}
-            <Field label="SQ No" size="sm" htmlFor="bg-sq">
-              <Input id="bg-sq" readOnly value={groupFact((o) => o.sq_no, nOrders)} />
-            </Field>
-            <Field label="SQ Description" size="sm" htmlFor="bg-sqd">
-              <Input id="bg-sqd" readOnly value={groupFact((o) => o.sq_description, "Mixed")} />
-            </Field>
-            <Field label="RE No" size="sm" htmlFor="bg-re">
-              <Input id="bg-re" readOnly value={groupFact((o) => o.re_no, nOrders)} />
-            </Field>
-            <Field label="Customer" size="sm" htmlFor="bg-cust">
-              <Input id="bg-cust" readOnly value={groupFact((o) => o.customer_name, "Mixed")} />
-            </Field>
+            <FieldRow>
+              <Field label="SQ No" w="term" htmlFor="bg-sq">
+                <Input id="bg-sq" readOnly value={groupFact((o) => o.sq_no, nOrders)} />
+              </Field>
+              <Field label="RE No" w="party" htmlFor="bg-re">
+                <Input id="bg-re" readOnly value={groupFact((o) => o.re_no, nOrders)} />
+              </Field>
+              <Field label="Customer" w="party" htmlFor="bg-cust">
+                <Input id="bg-cust" readOnly value={groupFact((o) => o.customer_name, "Mixed")} />
+              </Field>
+              <Field label="SQ Description" w="name" htmlFor="bg-sqd">
+                <Input id="bg-sqd" readOnly value={groupFact((o) => o.sq_description, "Mixed")} />
+              </Field>
+            </FieldRow>
             {/* TWO QUANTITIES, AND PHASE 1 SHOWED THE WRONG ONE UNDER THIS NAME.
                 Order Qty is what was ORDERED (Σ po_qty — Avg Price divides by
                 it); SQ Qty is what will be MADE (order + excess + rejection +
                 approval — CMT and garment processes are priced on it). The
-                blueprint's own figures need both: 5028 sold, 5321 made. */}
-            <Field label="Order Qty" size="sm" htmlFor="bg-qty">
-              <Input id="bg-qty" readOnly className="text-right" value={asText(sales.qty)} />
-            </Field>
-            <Field label="SQ Qty" size="sm" htmlFor="bg-sqqty">
-              <Input id="bg-sqqty" readOnly className="text-right" value={asText(groupSqQty)} />
-            </Field>
-            <Field label="Unit" size="sm" htmlFor="bg-unit">
-              <Input id="bg-unit" readOnly value={asText(sales.unit)} />
-            </Field>
-            <Field label="Remark" size="full" htmlFor="bg-remark">
-              <Textarea
-                id="bg-remark"
-                rows={2}
-                readOnly={!editable}
-                value={form.remark}
-                onChange={(e) => set({ remark: e.target.value })}
-              />
-            </Field>
-          </FieldGrid>
+                blueprint's own figures need both: 5028 sold, 5321 made.
+
+                A REFUSAL IS THE FIELD'S `error`, under the box, and the box
+                stays blank (Phase 7) — it used to be the box's VALUE, clipped
+                to 88px, with the whole sentence hidden in a hover `title`. */}
+            <FieldRow>
+              <Field label="Order Qty" w="hug" htmlFor="bg-qty" error={refusalOf(sales.qty)}>
+                <Input id="bg-qty" readOnly className="text-right" value={figureText(sales.qty)} />
+              </Field>
+              <Field label="SQ Qty" w="hug" htmlFor="bg-sqqty" error={refusalOf(groupSqQty)}>
+                <Input id="bg-sqqty" readOnly className="text-right" value={figureText(groupSqQty)} />
+              </Field>
+              <Field label="Unit" w="num" htmlFor="bg-unit">
+                <Input id="bg-unit" readOnly value={asText(sales.unit)} />
+              </Field>
+            </FieldRow>
+            <FieldRow>
+              <Field label="Remark" htmlFor="bg-remark" className="w-full">
+                <Textarea
+                  id="bg-remark"
+                  rows={2}
+                  readOnly={!editable}
+                  value={form.remark}
+                  onChange={(e) => set({ remark: e.target.value })}
+                />
+              </Field>
+            </FieldRow>
+          </div>
 
           {!editable && (
             <p className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
@@ -2151,6 +2667,12 @@ export function BudgetScreen({
             onRemove={(r) => mutOrders((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add order"
           />
+          {/* UNDER THE GRID IT IS ABOUT — a blocked Save used to toast it. Only
+              once a Save was tried: a new budget with no order yet is not an
+              error, it is a budget nobody has started. */}
+          <FieldError id="bg-orders-error">
+            {saveAttempted && pickedOrders.length === 0 ? "Add at least one garment order." : null}
+          </FieldError>
         </SectionBody>
       ),
     },
@@ -2161,8 +2683,6 @@ export function BudgetScreen({
        *  tab is otherwise invisible from here. */
       const tabProblems = (source: string) =>
         totals.unpriced.filter((u) => enteredCosts[u.index]?.source === source).length;
-      const rowsOf = (source: string) => costs.filter((c) => c.source === source);
-
       if (s.key === "purchase") {
         return {
           key: s.key,
@@ -2180,10 +2700,12 @@ export function BudgetScreen({
                   label: t.label,
                   done: lines.some((c) => c.source === t.source),
                   problems: tabProblems(t.source),
-                  content: costGrid(purchaseColumns[t.source], rowsOf(t.source), {
-                    derived: true,
-                    add: { source: t.source },
-                  }),
+                  content:
+                    t.source === "yarn"
+                      ? yarnPurchaseGrid
+                      : t.source === "fabric"
+                        ? fabricPurchaseGrid
+                        : accessoryPurchaseGrid,
                 }))}
               />
             </SectionBody>
@@ -2209,17 +2731,13 @@ export function BudgetScreen({
                   done: lines.some((c) => c.source === t.source),
                   problems: tabProblems(t.source),
                   content:
-                    t.source === "fabric_process"
-                      ? fabricProcessList
-                      : costGrid(processColumns[t.source], rowsOf(t.source), {
-                          derived: true,
-                          // A GARMENT STEP TYPED BY HAND IS PRICED ONCE PER
-                          // PROCESS — `basis` 'process', the Processwise grain.
-                          add:
-                            t.source === "garment_process"
-                              ? { source: t.source, patch: { basis: "process" } }
-                              : { source: t.source },
-                        }),
+                    t.source === "yarn_process"
+                      ? yarnProcessGrid
+                      : t.source === "fabric_process"
+                        ? fabricProcessList
+                        : t.source === "material_process"
+                          ? accessoryProcessGrid
+                          : garmentProcessGrid,
                 }))}
               />
             </SectionBody>
@@ -2236,13 +2754,12 @@ export function BudgetScreen({
           content: (
             <SectionBody title={s.label}>
               {/* default-row: exempt -- CMT lines are pulled per style from the orders */}
-              {costGrid(cmtColumns, rowsOf("cmt"), { derived: true, add: { source: "cmt" } })}
+              {cmtGrid}
             </SectionBody>
           ),
         };
       }
 
-      const addSource = typedSourceOf(s.key) ?? (s.sources[0] as BudgetSource);
       return {
         key: s.key,
         label: s.label,
@@ -2250,11 +2767,7 @@ export function BudgetScreen({
         done: lines.length > 0,
         content: (
           <SectionBody title={s.label}>
-            {costGrid(
-              s.key === "income" ? incomeColumns : expenseColumns,
-              costs.filter((c) => (s.sources as readonly string[]).includes(c.source)),
-              { derived: false, add: { source: addSource } },
-            )}
+            {s.key === "income" ? incomeGrid : expenseGrid}
           </SectionBody>
         ),
       };
@@ -2340,8 +2853,9 @@ export function BudgetScreen({
         notes: null,
         specification: c.specification || null,
         // NULL TOGETHER OR NOT AT ALL (0572's check) — an INR line sends no rate.
-        currency_code: c.currency_code || null,
-        ex_rate: c.currency_code ? numOrNull(c.ex_rate) : null,
+        currency_code: INR_ONLY_SOURCES.has(c.source) ? null : c.currency_code || null,
+        ex_rate:
+          INR_ONLY_SOURCES.has(c.source) || !c.currency_code ? null : numOrNull(c.ex_rate),
         is_foc: c.is_foc,
         is_import: c.is_import,
         process_id: c.process_id,
@@ -2361,6 +2875,7 @@ export function BudgetScreen({
   }
 
   function submit() {
+    setSaveAttempted(true);
     start(async () => {
       const res = editId
         ? await updateOrderBudget(editId, payloadOf())
@@ -2380,6 +2895,7 @@ export function BudgetScreen({
    *  budget whose latest edits are only in the browser is how an approver ends up
    *  approving a document nobody can reproduce. */
   function saveAndSubmit() {
+    setSaveAttempted(true);
     start(async () => {
       const res = editId
         ? await updateOrderBudget(editId, payloadOf())
