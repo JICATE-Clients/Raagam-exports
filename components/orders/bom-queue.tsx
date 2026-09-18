@@ -1,20 +1,18 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Check, Clock3, HelpCircle, Pencil, RotateCcw } from "lucide-react";
+import { useMemo, useState } from "react";
 import { today as todayAtFactory } from "@/lib/calendar";
+import type { StatusTone } from "@/lib/ui/tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Truncated } from "@/components/ui/truncated";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 import {
   BOM_STATUSES,
   BOM_STATUS_RANK,
-  bomStatusHint,
   bomStatusText,
   bomStatusTone,
   type BomStatus,
@@ -131,29 +129,46 @@ export function bomCardStats(t: BomTaskRow, middle: CardStat): CardStat[] {
 }
 
 /**
- * ONE GLYPH PER STATUS, FOR THE CARD'S BADGE — a verb, not a category (client
- * 2026-09-04, from a reference card whose badge held an app icon: "design for
- * us"). `bomStatusTone` already says the COLOUR; this says what the row is
- * waiting on, the same five states `bom-status.ts` names and nothing more:
- * a clock before anything is planned, a pencil mid-draft, a check once the
- * plan matches the order, a re-plan arrow once it no longer does, and a
- * question mark when the order itself cannot be read. Not exported — the
- * badge is `BomQueue`'s own decoration, not a fact another screen reads.
+ * THE QUEUE'S STATUS COLOUR — `bomStatusTone`, with Pending taken to RED
+ * (operator, 2026-09-18, from the reference screenshot: "Pending status, show a
+ * red warning indicator on the side; Completed, green"). Completed is the
+ * `updated` state — the plan matches the order — and is already `success`.
+ *
+ * LOCAL TO THE QUEUE ON PURPOSE. `bomStatusTone` keeps Pending amber for every
+ * other reader (the garment order's status pills among them); here the queue
+ * is a to-do list, where an order with no plan at all IS the work, so it takes
+ * the act-on-it colour Recalculate and Unresolved already carry. The pill and
+ * the stripe both read this one function, so on a card they can never
+ * disagree.
  */
-function bomStatusIcon(s: BomStatus) {
-  switch (s) {
-    case "pending":
-      return <Clock3 className="h-4 w-4" />;
-    case "draft":
-      return <Pencil className="h-4 w-4" />;
-    case "updated":
-      return <Check className="h-4 w-4" />;
-    case "recalculate":
-      return <RotateCcw className="h-4 w-4" />;
-    default:
-      return <HelpCircle className="h-4 w-4" />;
-  }
+function queueTone(s: BomStatus): StatusTone {
+  return s === "pending" ? "danger" : bomStatusTone(s);
 }
+
+/**
+ * THE EXACT SHADES FOR THE TWO STATES THE QUEUE IS READ BY (operator,
+ * 2026-09-18): Pending a prominent DARK RED, Updated — the completed state —
+ * a clean GREEN. Palette classes rather than the skin's `danger` / `success`
+ * tokens because the ask named the shades; the other three states keep their
+ * tone, which is why this is a lookup that can miss and not a full table.
+ *
+ * `border` + `py-px` IS ONE MOVE: the pill's own `py-0.5` plus a 1px border
+ * would make these two pills 2px taller than a Draft or Recalculate pill in the
+ * same grid, and the header rows would stop lining up.
+ *
+ * `dark:` ON EVERY SHADE — this app has a dark theme (the `.dark` class from
+ * the topbar toggle), and a `bg-red-50` pill there is a glaring light patch.
+ */
+const QUEUE_THEME: Partial<Record<BomStatus, { pill: string; edge: string }>> = {
+  pending: {
+    pill: "border border-red-200 bg-red-50 py-px text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300",
+    edge: "border-l-red-700 dark:border-l-red-500",
+  },
+  updated: {
+    pill: "border border-emerald-200 bg-emerald-50 py-px text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300",
+    edge: "border-l-emerald-500",
+  },
+};
 
 export function BomQueue({
   tasks,
@@ -256,21 +271,6 @@ export function BomQueue({
    *  same guard `withCreatedColumns` applies to a table. */
   const showCreated = hasCreatedInfo(tasks);
 
-  /**
-   * THE SENTENCE THAT SAYS WHAT TO DO, on the two states where doing something
-   * is the point.
-   *
-   * `bomStatusHint()` has always answered for all five, and both screens spent
-   * it on a `title=` tooltip — invisible on touch, invisible while scanning. It
-   * is not printed on Pending or Draft because there it only re-words the pill:
-   * three "No material plan yet." lines beside three Pending pills teach the
-   * operator to stop reading the line, and then the one card that says something
-   * else is not read either.
-   */
-  const cardHint = (t: BomTaskRow): ReactNode =>
-    t.status === "recalculate" || t.status === "unresolved" ? (
-      <span className="text-danger">{bomStatusHint(t.status, t.production_qty)}</span>
-    ) : null;
 
   return (
     <>
@@ -367,43 +367,41 @@ export function BomQueue({
            mono, and it used to share a row with a pill that could be 88px of
            "Recalculate". */
         title={(t) => <span className="font-mono">{t.sc_no ?? t.order_code ?? "—"}</span>}
-        /* CUSTOMER AND PO ON ONE SECONDARY LINE, with the status pill to their
-           right (the component places it). Mono on the PO only — a customer name
-           in mono reads as a code. Truncated because this is the line that gives
-           up width to the pill, and a card is not a `DataTable` cell: nothing
-           here scrolls sideways to reveal the rest. */
+        /* CUSTOMER AND PO ON THE SECONDARY LINE, under the RE No. Mono on the PO
+           only — a customer name in mono reads as a code. The card truncates the
+           line; a tap opens the BOM, whose header names the order in full. */
         subtitle={(t) => (
-          <Truncated>
+          <>
             {t.customer_name ?? "—"}
             {t.po_no ? <span className="font-mono"> · {t.po_no}</span> : null}
-          </Truncated>
+          </>
         )}
         pill={(t) => (
-          <StatusPill tone={bomStatusTone(t.status)}>{bomStatusText(t.status)}</StatusPill>
+          <StatusPill tone={queueTone(t.status)} className={QUEUE_THEME[t.status]?.pill}>
+            {bomStatusText(t.status)}
+          </StatusPill>
         )}
         stats={(t) => bomCardStats(t, stat(t))}
-        hint={cardHint}
-        /* THE SAME TONE AS THE PILL — this list is already SORTED by
-           `BOM_STATUS_RANK` ("what needs doing, first") and nothing on screen
-           showed it, colour locates the work and the word names it. Still
-           passed even though `badge` below now carries the same tone more
-           visibly: `MobileCardList` suppresses the stripe automatically once a
-           badge is present (see its own note), so this is the fallback for
-           the day a badge is dropped rather than a second thing to keep in
-           sync by hand. */
-        tone={(t) => bomStatusTone(t.status)}
-        /* THE BADGE (client 2026-09-04, from a reference project-tracker
-           card): the row's tone, painted, and an icon naming what it is
-           WAITING ON rather than what kind of thing it is — see
-           `bomStatusIcon`'s own note. */
-        badge={(t) => ({ tone: bomStatusTone(t.status), icon: bomStatusIcon(t.status) })}
-        /* THE CREATED PAIR SHARES THE FOOTER WITH THE ✕ instead of adding a
-           second bordered row — AGENTS.md wants it APPENDED to the screen's own
-           meta, not substituted for it, and the customer and the figures above
-           are that meta, untouched. Still gated on `hasCreatedInfo`, so a
-           service that stops selecting `created_at` shows nothing rather than a
+        /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
+           `queue` on `MobileCardList`. A tap opens the BOM straight away; no
+           drawer, no slide-over and nothing on hover. Replaces the 2026-09-04
+           floating status badge: the reference marks the state with the side
+           stripe. */
+        queue
+        /* THE STRIPE — red on Pending, green once the plan is current. The
+           same tone as the pill, from the same function: the pill is read one
+           card at a time, the stripe down a whole grid at once, and this list
+           is SORTED by `BOM_STATUS_RANK` ("what needs doing, first"). */
+        tone={(t) => queueTone(t.status)}
+        accent={(t) => QUEUE_THEME[t.status]?.edge}
+        /* THE CREATED PAIR SHARES THE DRAWER'S FOOTER WITH THE BUTTONS —
+           AGENTS.md wants it APPENDED to the screen's own meta, not
+           substituted for it. Still gated on `hasCreatedInfo`, so a service
+           that stops selecting `created_at` shows nothing rather than a
            dangling date. */
-        footerNote={showCreated ? (t) => createdMeta(t) : undefined}
+        /* "Created " IN WORDS — in the drawer the pair sits alone beside the
+           buttons, with no column header to say what the date is. */
+        footerNote={showCreated ? (t) => `Created ${createdMeta(t)}` : undefined}
         onEdit={onOpen}
         canDelete={canDelete}
         /* Only an order that HAS a BOM has anything to delete — that is the
