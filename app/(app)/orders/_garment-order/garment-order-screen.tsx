@@ -21,7 +21,6 @@ import {
   Hash,
   CheckCheck,
   CalendarClock,
-  Truck,
   FileText,
   ClipboardList,
   type LucideIcon,
@@ -77,7 +76,12 @@ import {
   projectionQty,
   totalProductionQty,
 } from "@/lib/orders/amendments/approval-qty";
-import { inrValue, isPackWise, orderValue } from "@/lib/orders/amendments/order-value";
+import {
+  HOME_CURRENCY,
+  inrValue,
+  isPackWise,
+  orderValue,
+} from "@/lib/orders/amendments/order-value";
 /**
  * T&A (0481). Pure and client-safe on purpose — the `bom-ceiling.ts` split this
  * repo already uses — because the SERVER ACTION calls the same function to
@@ -105,11 +109,15 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
+  BOM_STATUSES,
+  BOM_STATUS_RANK,
   bomStatusHint,
   bomStatusText,
   bomStatusTone,
   type BomStatus,
 } from "@/lib/orders/bom-status";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { DaysOut } from "@/components/orders/bom-queue";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
 // {key,label,content} items and `sections` maps them, so the shape a tab
@@ -1371,6 +1379,18 @@ const BLANK: HeaderForm = {
   amend_in_garment_process_bom: false,
   reason_text: "",
 };
+
+/**
+ * EX-RATE IS MANDATORY (client 2026-09-17, when it moved from the retired
+ * Payment tab to Prices). Blank and 0 are both "not entered": the column is
+ * `numeric NOT NULL DEFAULT 0`, so an order saved before the rule loads its 0
+ * back as `""` (see the loader), and a typed 0 is not a rate either — the
+ * same `> 0` test `inrValue` applies. One function, read by the Save gate and
+ * the Prices rail dot, so the two cannot disagree about what "filled" means.
+ */
+function exRateMissing(v: string): boolean {
+  return !(Number(v) > 0);
+}
 
 /**
  * TODAY, IN THE OPERATOR'S OWN CALENDAR — `YYYY-MM-DD`, the shape an
@@ -5055,7 +5075,46 @@ export function GarmentOrderScreen({
   const taRowsDisplay = useMemo(() => [...taVisibleRows].reverse(), [taVisibleRows]);
 
   // ---------------- LIST MODE ----------------
+  /* THE LIST'S SEARCH AND FACETS (usability review 2026-09-17). Declared HERE,
+     above the `if (mode === "list")` return, for the reason this file has
+     recorded five times: a hook below that line blanks the route. Plain
+     `useState` only — the filtering itself is a cheap pass over `rows` and is
+     a `const` inside the branch, not a memo. */
+  const [listQuery, setListQuery] = useState("");
+  const [listStatus, setListStatus] = useState<"" | "draft" | "recorded">("");
+  const [listBom, setListBom] = useState<"" | BomStatus>("");
+
   if (mode === "list") {
+    /* THE SAME QUESTIONS THE BOM QUEUE ANSWERS, ASKED OF THE SAME ORDERS.
+       `BomQueue` searches RE No, PO and customer and counts its Status facet;
+       this list had neither, so the one screen an order is raised on was the
+       one screen in Orders where finding it meant scrolling. PO No and the
+       merchandiser are searched too because they are what an operator is
+       handed — the buyer's PO, and "Kumar's orders". */
+    const merchName = (id: string | null) =>
+      (id && data.merchandisers.find((m) => m.id === id)?.name) || null;
+    const bomOf = (r: GarmentOrderAmendment): BomStatus => bomStatus[r.id]?.status ?? "pending";
+    const needle = listQuery.trim().toLowerCase();
+    const visibleRows = rows.filter((r) => {
+      if (listStatus && (r.is_draft ? "draft" : "recorded") !== listStatus) return false;
+      if (listBom && bomOf(r) !== listBom) return false;
+      if (!needle) return true;
+      return [
+        r.sales_order?.order_number,
+        r.code,
+        r.po_no,
+        r.customer?.name,
+        merchName(r.merchandiser_id),
+      ].some((v) => (v ?? "").toLowerCase().includes(needle));
+    });
+    const draftCount = rows.filter((r) => r.is_draft).length;
+    // Counted and ordered as `BomQueue` does: "what needs doing, first", never by
+    // count, and an empty state shown but not choosable.
+    const bomCounts = [...BOM_STATUSES]
+      .sort((a, b) => BOM_STATUS_RANK[a] - BOM_STATUS_RANK[b])
+      .map((status) => ({ status, count: rows.filter((r) => bomOf(r) === status).length }));
+    const activeFilters = (listStatus ? 1 : 0) + (listBom ? 1 : 0);
+
     const columns: Column<GarmentOrderAmendment>[] = [
       /* "Code" WITHDRAWN 2026-08-21 (client): the internal amendment code is not
          how anyone refers to an order — RE No is, and it sits in the next
@@ -5075,13 +5134,41 @@ export function GarmentOrderScreen({
         // identifying column on this list — every other cell in the row
         // (Customer, Date, status pills) stays at its existing weight, per
         // the spec's own example ("ORD-1024 → 600, everything else → 400").
-        cell: (r) => (
-          <span className="font-mono text-xs font-semibold">{r.sales_order?.order_number ?? "—"}</span>
-        ),
+        /* THE NUMBER OPENS THE ORDER (usability review 2026-09-17). Opening an
+           order is what this list is for, and it took ⋮ then Edit — two clicks
+           and a menu. A real <button>, so it is a Tab stop on a list page (Tab
+           only claims fields on an EDITOR; this is not one) and Enter works.
+           Only with edit permission: RowActions' Edit is gated the same way,
+           and a link that opens an editor the operator cannot save is a lie. */
+        cell: (r) => {
+          const no = (
+            <span className="font-mono text-xs font-semibold">
+              {r.sales_order?.order_number ?? "—"}
+            </span>
+          );
+          return perms.canEdit ? (
+            <button
+              type="button"
+              onClick={() => openEdit(r)}
+              className="rounded-sm text-left text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Open order ${r.sales_order?.order_number ?? r.code ?? ""}`}
+            >
+              {no}
+            </button>
+          ) : (
+            no
+          );
+        },
       },
       {
         header: "Customer",
         cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span>,
+      },
+      /* PO No — required on every order, and the number the BUYER calls it by.
+         Without it two orders for one customer read as the same row. */
+      {
+        header: "PO No",
+        cell: (r) => <span className="text-sm">{r.po_no ?? "—"}</span>,
       },
       /* "Type" WITHDRAWN 2026-08-11 (client): "the company exclusively produces
          garments", so a Garment / Fabric / Made-ups toggle answers a question
@@ -5094,6 +5181,26 @@ export function GarmentOrderScreen({
         cell: (r) => (
           <span className="tabular-nums text-sm">{fmtDate(r.amend_date)}</span>
         ),
+      },
+      /* DELIVERY, WITH HOW SOON — `DaysOut` is the BOM queue's own suffix
+         ("· 12d", red "· 3d late"), so an order reads the same here as on the
+         queue that plans it. The countdown is the list's only urgency cue:
+         before it every row weighed the same. */
+      {
+        header: "Delivery",
+        cell: (r) =>
+          r.delivery_date ? (
+            <span className="whitespace-nowrap tabular-nums text-sm">
+              {fmtDate(r.delivery_date)}
+              <DaysOut iso={r.delivery_date} />
+            </span>
+          ) : (
+            <span className="text-sm">—</span>
+          ),
+      },
+      {
+        header: "Merchandiser",
+        cell: (r) => <span className="text-sm">{merchName(r.merchandiser_id) ?? "—"}</span>,
       },
       /* MATERIAL BOM — the same pill the BOM dashboard shows, from the same
          module (`lib/orders/material-bom-amendment/status.ts`).
@@ -5110,7 +5217,7 @@ export function GarmentOrderScreen({
         header: "Material BOM",
         cell: (r) => {
           const b = bomStatus[r.id];
-          const st: BomStatus = b?.status ?? "pending";
+          const st = bomOf(r);
           return (
             <span title={bomStatusHint(st, b?.qty ?? null)}>
               <StatusPill tone={bomStatusTone(st)}>{bomStatusText(st)}</StatusPill>
@@ -5224,14 +5331,73 @@ export function GarmentOrderScreen({
             ) : undefined
           }
         />
+        {/* The Filters panel shape every list screen shares (`BomQueue`,
+            `master-list-shell.tsx`): search stays visible, the facets fold
+            behind "Filters", and each option carries its count. */}
+        <FilterBar
+          search={listQuery}
+          onSearch={setListQuery}
+          searchPlaceholder="Search RE No, PO, customer or merchandiser…"
+          activeCount={activeFilters}
+          onReset={
+            activeFilters
+              ? () => {
+                  setListStatus("");
+                  setListBom("");
+                }
+              : undefined
+          }
+          right={`${visibleRows.length} of ${rows.length}`}
+        >
+          <div>
+            <Label htmlFor="go-list-status">Status</Label>
+            <Select
+              id="go-list-status"
+              value={listStatus}
+              onChange={(e) => setListStatus(e.target.value as "" | "draft" | "recorded")}
+            >
+              <option value="">All ({rows.length})</option>
+              <option value="draft" disabled={draftCount === 0 && listStatus !== "draft"}>
+                Draft ({draftCount})
+              </option>
+              <option
+                value="recorded"
+                disabled={rows.length - draftCount === 0 && listStatus !== "recorded"}
+              >
+                Recorded ({rows.length - draftCount})
+              </option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="go-list-bom">Material BOM</Label>
+            <Select
+              id="go-list-bom"
+              value={listBom}
+              onChange={(e) => setListBom(e.target.value as "" | BomStatus)}
+            >
+              <option value="">All ({rows.length})</option>
+              {bomCounts.map((c) => (
+                <option
+                  key={c.status}
+                  value={c.status}
+                  disabled={c.count === 0 && c.status !== listBom}
+                >
+                  {bomStatusText(c.status)} ({c.count})
+                </option>
+              ))}
+            </Select>
+          </div>
+        </FilterBar>
         <DataTable
-          columns={withCreatedColumns(columns, rows)}
-          rows={rows}
+          columns={withCreatedColumns(columns, visibleRows)}
+          rows={visibleRows}
           getKey={(r) => r.id}
           empty={
-            amending
-              ? "No garment orders to amend yet. Raise one under Order Entry ▸ Garment Order."
-              : "No garment orders yet. Use 'New Garment Order' to create the first."
+            rows.length > 0
+              ? "No garment orders match the search or filters."
+              : amending
+                ? "No garment orders to amend yet. Raise one under Order Entry ▸ Garment Order."
+                : "No garment orders yet. Use 'New Garment Order' to create the first."
           }
         />
       </div>
@@ -6767,7 +6933,14 @@ export function GarmentOrderScreen({
     // The test is what the operator can SEE, never what the state holds.
     colors: has(dyeings) || has(prints),
     combos: has(combos),
-    prices: has(priceDetails),
+    /* The order's money terms came here from the retired Payment tab
+       (2026-09-17), and all three are mandatory — so the dot means "rates typed
+       AND the terms they are in", never a tab with a red field still on it. */
+    prices:
+      has(priceDetails) &&
+      !!form.currency_code &&
+      !!form.pay_mode &&
+      !exRateMissing(form.ex_rate),
     // STILL `approvalQtys`, and the meaning IMPROVED when 0435 made the rows
     // derived. That state now holds only what the operator TYPED, so the dot
     // lights for an approval quantity somebody entered rather than for rows the
@@ -6795,15 +6968,11 @@ export function GarmentOrderScreen({
        now that nothing else on screen contradicts it.
 
        `some` is also what every other entry in this map means: `has(...)` is
-       "any filled row", not "every field answered". `logistic` is the one
-       exception and it earns it — the two fields left ARE mandatory. **If the
+       "any filled row", not "every field answered". `prices` is the one
+       exception and it earns it — its three money terms ARE mandatory. **If the
        gate comes back, this goes back to `every` with it**; the two are one
        decision. */
     ta: taRows.some((r) => r.days_required.trim() !== ""),
-    // Was `charges.length > 0`, and the charges are gone. Ship Type, Ship
-    // Mode and Pay Terms left the Save gate with their `<Field>`s (2026-09-08);
-    // Pay Mode and Currency are the honest signal now.
-    logistic: !!form.pay_mode && !!form.currency_code,
   };
 
   /**
@@ -8209,7 +8378,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    *
    * The question it answered has not gone anywhere: it is "keep rows, never
    * delete them" (operator decision 2026-08-12), and a leftover rate is still
-   * what makes `styleRate` refuse and the Logistic tab's Avg Rate go blank. It
+   * what makes `styleRate` refuse and the Quantities tab's Avg Rate go blank. It
    * is now asked ONCE PER STYLE, in `rateGrid`, by the same majority rule this
    * used — `groupMode` below — and the leftovers are listed together under one
    * amber line instead of a repeated note down the grid. One rule, one reader.
@@ -8241,7 +8410,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * legacy... just show the size and price").
    *
    * The stored shape is unchanged — one `price_details` row per (style, colour,
-   * size), which is what `styleRate` and the Logistic tab's Avg Rate read. This
+   * size), which is what `styleRate` and the Quantities tab's Avg Rate read. This
    * groups them for DISPLAY only, and it groups by `styleKey` because that is
    * the key `applyPriceMode`, `priceRowStale` and `styleRate` already group by.
    * A second grouping rule here is how the screen and the valuation would come
@@ -10637,7 +10806,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * ## THE GRID IS A PROJECTION; THE STORAGE DOES NOT CHANGE
    *
    * `price_details` stays one row per (style, colour, size) — the shape
-   * `styleRate`, `orderValue`, the Logistic tab's Avg Rate and
+   * `styleRate`, `orderValue`, the Quantities tab's Avg Rate and
    * `check:order-value` all read. What the operator types once against
    * (method, size) is written to EVERY style that method packs, at that size.
    *
@@ -12450,7 +12619,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
          `goToSection` and lands nowhere — the same trap the `combos` note
          below records. */
       { key: "styles" },
-      { key: "logistic" },
+      /* The money terms' section since the Payment tab (key `logistic`) was
+         retired on 2026-09-17 — declared for the reason the notes around it
+         give: a problem naming a section with no entry here reports the right
+         sentence and then jumps nowhere. */
+      { key: "prices" },
       /* THE RAIL'S OWN KEY. `revealFirstProblem` hands `p.section` straight to
          `goToSection`, so a section declared here that names no rail row is a
          blocked Save that reports the right message and then jumps nowhere.
@@ -12571,23 +12744,32 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         required: true,
         empty: (f) => !f.merchandiser_id,
       },
-      // Logistic (now "Payment", "Payment & Value" until 2026-09-12) — was
-      // five, invisible from where the operator stood; Ship Type, Ship Mode
-      // and Pay Terms left with their `<Field>`s (2026-09-08, see the note on
-      // the tab's FieldGrid) and are no longer part of the Save gate. Pay
-      // Mode and Currency remain.
+      // The order's money terms. They lived on Logistic → "Payment" until
+      // 2026-09-17, when the client moved them to Prices and retired that tab
+      // (Ship Type, Ship Mode and Pay Terms had already left it on 09-08).
+      // Ex-Rate joined the gate in the same change. Order matches the row on
+      // screen, so a blocked Save names the FIRST blank field the operator
+      // will meet. Currency has no `id`: the picker's trigger carries none,
+      // and the reveal falls back to its `data-required-empty` marker.
       {
-        section: "logistic",
-        id: "lg-paymode",
-        label: "Pay Mode",
-        required: true,
-        empty: (f) => !f.pay_mode,
-      },
-      {
-        section: "logistic",
+        section: "prices",
         label: "Currency",
         required: true,
         empty: (f) => !f.currency_code,
+      },
+      {
+        section: "prices",
+        id: "pr-exrate",
+        label: "Ex-Rate",
+        required: true,
+        empty: (f) => exRateMissing(f.ex_rate),
+      },
+      {
+        section: "prices",
+        id: "pr-paymode",
+        label: "Pay Mode",
+        required: true,
+        empty: (f) => !f.pay_mode,
       },
     ],
     /* The live cross-field answers this module cannot compute for itself —
@@ -18845,7 +19027,88 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
        * possible without a fetch button: by the time the operator arrives the
        * methods and their members are already in state.
        */
-      content: packPricingActive ? (
+      content: (
+        <div className="space-y-4">
+          {/**
+            * THE ORDER'S MONEY TERMS — Currency, Ex-Rate, Pay Mode (client
+            * 2026-09-17: moved here from the Payment tab, which is retired).
+            *
+            * ABOVE BOTH BRANCHES, not inside one. This tab renders a pack
+            * version and a per-style version; a row placed in either vanishes
+            * the moment Pack flips, taking three mandatory fields out of sight
+            * while Save still refuses on them.
+            *
+            * FIRST ON THE TAB because every rate typed below is IN this
+            * currency — the operator states the unit before the figures.
+            *
+            * `FieldRow`, not `FieldGrid`, for the reason the Payment tab
+            * recorded on 2026-09-15 ("compact this tab"): twelfths are a SHARE
+            * of the pane, so a three-letter code would get a sixth of a wide
+            * monitor. Widths are the ones that tab settled on — `hug` (88px)
+            * for the two codes, `num` (72px) for the rate.
+            *
+            * The value fields that sat beside these (Avg Rate, Gross Value,
+            * INR Value) went to Quantities — see the note there. Ship Type,
+            * Ship Mode, Country, Pay Terms and Days left on 08-29/09-08; their
+            * columns and payload fields are untouched.
+            */}
+          <FieldRow>
+            {/* `CurrencyPicker` has no `required` prop of its own, so the scope
+                comes from the wrapper — its inner `DataPicker` ORs the context
+                (`data-picker.tsx:292`). `compact` because the Field draws the
+                label. */}
+            <Field label="Currency" required w="hug">
+              <CurrencyPicker
+                label="Currency"
+                compact
+                currencies={data.currencies}
+                value={form.currency_code}
+                onChange={(code) =>
+                  set({
+                    currency_code: code,
+                    /* A RUPEE ORDER CONVERTS AT 1, so Ex-Rate fills itself
+                       rather than holding the cursor on a question with one
+                       answer. Only into a BLANK box — a rate the operator
+                       typed is never overwritten — and it stays editable.
+                       Switching back to a foreign currency leaves the 1 in
+                       place on purpose: clearing a value the operator can see
+                       is worse than a figure they will visibly correct. */
+                    ...(code.trim().toUpperCase() === HOME_CURRENCY &&
+                    exRateMissing(form.ex_rate)
+                      ? { ex_rate: "1" }
+                      : {}),
+                  })
+                }
+                canCreate={masterPerms.canCreate}
+                canEdit={masterPerms.canEdit}
+              />
+            </Field>
+            {/* MANDATORY since 2026-09-17 — the Save gate's `pr-exrate` entry
+                (blank or 0 both count, `exRateMissing`) is the other half. */}
+            <Field label="Ex-Rate" required w="num" htmlFor="pr-exrate">
+              <Input
+                id="pr-exrate"
+                type="number"
+                inputMode="decimal"
+                className="text-right"
+                value={form.ex_rate}
+                onChange={(e) => set({ ex_rate: e.target.value })}
+              />
+            </Field>
+            <Field label="Pay Mode" required w="hug" htmlFor="pr-paymode">
+              <Select
+                id="pr-paymode"
+                value={form.pay_mode}
+                onChange={(e) => set({ pay_mode: e.target.value })}
+              >
+                <option value=""></option>
+                {PAY_MODES.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </Select>
+            </Field>
+          </FieldRow>
+          {packPricingActive ? (
         <div className="space-y-6">
           {declaredPackMethods.map((method) => {
             const mode = packPriceMode(method);
@@ -19064,7 +19327,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
 
               THE STORED SHAPE IS UNCHANGED. `priceGroups` groups for display
               only; `price_details` still holds one row per (style, colour,
-              size), which is what `styleRate` and the Logistic tab's Avg Rate
+              size), which is what `styleRate` and the Quantities tab's Avg Rate
               read. `npm run check:order-value` is the proof of that. */}
           <ChildGrid<PriceGroup>
             /* keepOne — the operator's decision on 2026-08-31, taken with the
@@ -19313,6 +19576,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             addClassName={PRICE_W}
           />
         </>
+          )}
+        </div>
       ),
     },
     // ---------------- Quantities ----------------
@@ -19511,6 +19776,66 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             onRemove={(r) => setQuantities((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add quantity"
           />
+          {/**
+            * THE ORDER'S VALUE — Avg Rate, Gross Value, INR Value (client
+            * 2026-09-17: moved here from the Payment tab, which is retired).
+            *
+            * UNDER THE GRID, beside Total PO Qty, because these ARE totals:
+            * Gross Value is this tab's quantities x the Prices tab's rates, so
+            * it changes as the lines above it are typed.
+            *
+            * CALCULATED, NEVER TYPED (client 2026-08-12). The maths is
+            * `order-value.ts` alone — the Order Sheet imports the same functions
+            * — and `npm run check:order-value` carries its vectors. A BLANK IS
+            * AN ANSWER: Gross Value refuses where a style is priced per colour
+            * with nothing to weight it by (a partial total looks exactly like a
+            * real one), and INR Value is blank until Ex-Rate is entered, because
+            * `ex_rate` defaults to 0 and ₹0.00 would read as "worth nothing".
+            * INR Value is DERIVED, NOT STORED — a stored product is a fourth
+            * number that can disagree with the three it came from.
+            *
+            * OFF THE CURSOR PATH AGAIN, deliberately. On the Payment tab these
+            * three carried `tabIndex={0}` (client 2026-09-08) only because they
+            * were that tab's tail: without them Pay Terms was its last field and
+            * Enter jumped to the next tab. Here the tail is the grid's
+            * "+ Add quantity", and three read-only stops after it would sit
+            * between that button and the next section. So they fall back to
+            * `input.tsx`'s own rule — a `readOnly` box is not a tab stop — like
+            * every other derived field in the app. Still readable, still
+            * selectable with the mouse.
+            */}
+          <FieldRow className="mt-3">
+            <Field label="Avg Rate" w="num" htmlFor="qt-avgrate">
+              <Input
+                id="qt-avgrate"
+                readOnly
+                className="text-right"
+                value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
+              />
+            </Field>
+            <Field label="Gross Value" w="code" htmlFor="qt-gross">
+              <Input
+                id="qt-gross"
+                readOnly
+                className="text-right"
+                value={
+                  orderVal.grossValue == null
+                    ? ""
+                    : fmtMoney(orderVal.grossValue, form.currency_code || "INR")
+                }
+              />
+            </Field>
+            {/* `term` (176px), the widest of the three: lakh grouping
+                ("74,28,153.60") runs longer than the buyer-currency figure. */}
+            <Field label="INR Value" w="term" htmlFor="qt-inr">
+              <Input
+                id="qt-inr"
+                readOnly
+                className="text-right"
+                value={inrVal == null ? "" : fmtMoney(inrVal, "INR")}
+              />
+            </Field>
+          </FieldRow>
         </>
       ),
     },
@@ -19648,293 +19973,21 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     // `garment_order_amendment_country_sizes` and its rows are untouched —
     // `actions.ts` no longer lists it, and that list drives the DELETE as well
     // as the insert, so stored rows are frozen rather than wiped.
-    {
-      key: "logistic",
-      /**
-       * RENAMED FROM "Logistic" (client 2026-09-08): Ship Type, Ship Mode,
-       * Country and Pay Terms are removed from this tab below, leaving only
-       * Pay Mode, Currency, Ex-Rate and the three derived value fields — so
-       * the tab reads as what it now holds. The rail KEY stays `logistic`
-       * (AGENTS.md, "The sidebar lists SUB-MODULES": a label is not a route,
-       * and every `section: "logistic"` reference below still resolves).
-       *
-       * SHORTENED AGAIN TO "Payment" (2026-09-12, screenshot 2861) — "Payment
-       * & Value" (15 chars, ampersand and two spaces included) truncated to
-       * "Payment & V…" on the rail's own active/bold row. `master-full-
-       * screen.tsx`'s rail is a fixed 192px app-wide (narrowed from 228 on
-       * 2026-08-27, client: "this section make it less wider") and is
-       * deliberately exempt from truncate-reveal — there is no hover bubble
-       * to recover a clipped label here, only the click, so a label that does
-       * not fit is illegible rather than merely untidy. Widening the rail
-       * would reopen that closed decision for every master and order screen;
-       * shortening the label is the same move `master-full-screen.tsx`'s own
-       * comment already names as the answer for a long section name.
-       */
-      label: "Payment",
-      content: (
-        <div className="space-y-4">
-          {/* Logistic scalars */}
-          <Card>
-            {/* `FieldRow`, NOT `FieldGrid` (2026-09-15, screenshot 2877: "compact
-                this tab all the field in order entry payment tab no need this
-                width"). `FieldGrid`'s twelfths are FRACTIONAL — `size="xs"` is
-                2 of 12 columns, a SHARE of the pane rather than a pixel count —
-                so on a wide monitor six `xs` fields flush to 12 still each
-                render as roughly a sixth of the whole content width, hundreds of
-                pixels for an exchange rate or a three-letter Pay Mode code. The
-                comment this replaced even said so directly: "6 x 2 = 12, one
-                flush row with no remainder to solve for" was describing the
-                twelfths adding up, not the fields being narrow.
+    /* THE PAYMENT TAB (rail key `logistic`, "Logistic" until 2026-09-08) IS
+       RETIRED (client 2026-09-17). Currency, Ex-Rate (now mandatory) and Pay
+       Mode moved to Prices; Avg Rate, Gross Value and INR Value moved to
+       Quantities. No stored value moved with them — the form fields, payload
+       and columns are exactly as they were.
 
-                `FieldRow` lays fields out by their WIDTH instead — a fixed
-                token from `FIELD_WIDTH`, the same one every masters field uses
-                (LAYOUT.md §3's one-width rule) — so a row of six short values
-                takes only the room its own data needs and ends there, same as
-                the Style row a few sections up already does.
-
-                TIGHTENED A STEP FURTHER THE SAME DAY ("little bit more
-                compacted"): Currency/Pay Mode → `hug` (88px, still clears a
-                three/six-letter value and a Select's chevron), Ex-Rate/Avg
-                Rate → `num` (72px, a short rate), Gross Value → `code` (144px)
-                and INR Value → `term` (176px) — INR stays the widest of the
-                three money-shaped cells because lakh grouping ("74,28,153.60")
-                runs longer than the buyer-currency figure beside it. */}
-            <CardBody>
-              <FieldRow>
-              {/* Department, Agent and Received (mode) withdrawn 2026-08-10
-                  (client). Their columns and stored values remain; they left the
-                  Zod input too, which is what stops a save nulling them. */}
-              {/* SHIP TYPE, SHIP MODE, COUNTRY AND PAY TERMS ARE REMOVED
-                  (client 2026-09-08). Their state, payload and Zod fields are
-                  UNTOUCHED — `ship_type_id`, `ship_mode`, `country_id` and
-                  `pay_terms_id` stay on `QuantityRow`/`form`/`amendmentInput`
-                  exactly as `Department`/`Agent`/`Received` did on 2026-08-10 —
-                  only the `<Field>`s below are gone.
-
-                  `sectionValidity`'s `logistic` gate (search `empty: (f) =>`)
-                  and the rail-dot `logistic:` test below DROP their entries for
-                  these three — Country was never in the Save gate, only held by
-                  `CountryPicker`'s own default `required`, so removing its
-                  `<Field>` removes that hold with it. Un-hiding a field is
-                  putting its `<Field>` back and adding its `empty:` entry back;
-                  nothing else moved. */}
-              {/* `CurrencyPicker` has no `required` prop of its own, so the
-                  scope comes from the wrapper — its inner `DataPicker` ORs the
-                  context (`data-picker.tsx:292`). `compact` because the Field
-                  now draws the label. `w="hug"` (88px, 2026-09-15: "little bit
-                  more compacted") — a currency code is three letters; `code`
-                  (144px) was still more room than a three-letter value or its
-                  chevron need. */}
-              <Field label="Currency" required w="hug">
-                <CurrencyPicker
-                  label="Currency"
-                  compact
-                  currencies={data.currencies}
-                  value={form.currency_code}
-                  onChange={(code) => set({ currency_code: code })}
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                />
-              </Field>
-              <Field label="Ex-Rate" w="num" htmlFor="lg-exrate">
-                <Input
-                  id="lg-exrate"
-                  type="number"
-                  value={form.ex_rate}
-                  onChange={(e) => set({ ex_rate: e.target.value })}
-                />
-              </Field>
-              <Field label="Pay Mode" required w="hug" htmlFor="lg-paymode">
-                <Select
-                  id="lg-paymode"
-                  value={form.pay_mode}
-                  onChange={(e) => set({ pay_mode: e.target.value })}
-                >
-                  <option value=""></option>
-                  {PAY_MODES.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </Select>
-              </Field>
-              {/* "DAYS" STOOD HERE AND IS GONE (client 2026-08-29: "removes the
-                  Days column from the Logistics tab entirely").
-                  
-                  It was READ-ONLY AND DERIVED — `payment_terms.credit_days`
-                  (0242) resolved through `pay_terms_id` (0375), never stored on
-                  the order, deliberately so that "a copy on the order cannot
-                  disagree with the term it names". That is why the deletion is
-                  this cheap and why NOTHING WAS UNWIRED: there was no `onChange`,
-                  no column, and no payload field. The credit period is still on
-                  the Pay Terms master and still one hop from `pay_terms_id`.
-
-                  `data.paymentTermDays` is deliberately LEFT ON THE SERVICE. It
-                  is one map over a master this screen already loads, the Order
-                  Sheet reads the same credit period, and removing a feed because
-                  its only current reader was deleted is how a value becomes
-                  expensive to bring back. */}
-              {/* CALCULATED, NOT TYPED (client 2026-08-12): Gross Value is
-                  Order Qty x Rate and Avg Rate is the price per garment. Both
-                  were free numeric inputs, so the document could state a value
-                  its own Style(s) and Prices tabs contradicted.
-
-                  The maths is `order-value.ts` and only `order-value.ts` — the
-                  Order Sheet imports the same functions from a server
-                  component, which is what stops the printed figure and this one
-                  from being derived twice and disagreeing.
-
-                  A DASH IS AN ANSWER HERE. Where a style is priced per colour
-                  the rows carry no colour column to weight them by, so there is
-                  no single rate; the total refuses rather than under-reporting,
-                  because a partial Gross Value looks exactly like a real one. */}
-              {/* THESE THREE ARE BACK ON THE CURSOR PATH (client 2026-09-08:
-                  Enter on Pay Terms must "redirect focus directly to the
-                  immediate next field: Avg Rate", and Tab and Enter must run
-                  "Pay Items ➔ Avg Rate ➔ following inputs").
-
-                  ## WHAT IT WAS DOING, WHICH WAS NOT A BUG
-
-                  All three are `<Input readOnly>`, and `input.tsx` stamps
-                  `tabIndex={-1}` on a read-only box itself — "a field the
-                  operator cannot type into is never a tab stop", the standing
-                  auto-field rule. `FOCUSABLE_SELECTOR` excludes `[tabindex="-1"]`
-                  on every branch, so one attribute took them out of Tab, out of
-                  ↑↓←→ and out of Enter-advance at once. That left **Pay Terms as
-                  the last field of the section**, and Enter off the last field of
-                  a rail-editor section opens the NEXT SECTION (`registerContentEdge`)
-                  — which is the "jumping to the next tab" being reported. Nothing
-                  was submitting a form and nothing was skipping ahead: there was
-                  no field between Pay Terms and the end of the tab.
-
-                  ## SO THIS IS AN OPT-IN, NOT A PATCH
-
-                  `tabIndex={0}` is the documented way back in — `input.tsx`
-                  resolves `tabIndex ?? (readOnly ? -1 : undefined)` precisely so a
-                  caller can opt a derived field back into the order deliberately.
-                  No handler, no per-screen key binding, nothing in `lib/focus.ts`:
-                  the contract already walks whatever is focusable, and this says
-                  these three are.
-
-                  ALL THREE, NOT JUST AVG RATE. Opting in only the field the
-                  request names would move the hand-off one field along and
-                  reproduce the same report on Avg Rate — the row is the unit here,
-                  which is what "following inputs" asks for. The hand-off has not
-                  gone away and cannot: it now fires off INR Value, the new last
-                  field, because a section has to end somewhere.
-
-                  ## `readOnly` IS UNTOUCHED, AND THAT IS WHAT MAKES THE STOP SAFE
-
-                  The cursor can rest here and read the figure; it still cannot
-                  type one. Gross Value and Avg Rate are `order-value.ts`'s
-                  arithmetic and INR Value is Gross x Ex-Rate — a stop is a place
-                  to LOOK, never a fourth number that can disagree with the three
-                  it came from (see the notes below). Neither is `required`, so
-                  neither can hold the cursor: there is no cage to walk into.
-
-                  ## THE COUNTER-PRECEDENT, STATED SO IT CAN BE REVISITED CHEAPLY
-
-                  The same client asked for the OPPOSITE about derived boxes twice:
-                  `autoFilledField` (lib/focus.ts) exists because of 2026-08-31 —
-                  "the keyboard tab navigation must completely bypass the Entry
-                  Date and Location/Unit fields … automatically determined" — and
-                  the T&A tab's Date / Ref No in this same file carry a comment
-                  headed "THE TWO FIELDS THE CURSOR MUST BYPASS (client)". Those
-                  are auto-FILLED inputs standing among typeable ones; these are a
-                  computed tail an operator reads before leaving the tab, which is
-                  the distinction the two instructions turn on. If that reading is
-                  wrong the fix is to delete three `tabIndex={0}` — do NOT answer
-                  it by reversing the rule in `input.tsx`, which would put every
-                  derived field in the app back on the typing path. */}
-              <Field label="Avg Rate" w="num" htmlFor="lg-avgrate">
-                <Input
-                  id="lg-avgrate"
-                  readOnly
-                  /* Opts this derived box back onto the Tab/Enter path — see the
-                     note above. Without it `readOnly` sets `tabIndex={-1}`. */
-                  tabIndex={0}
-                  className="text-right"
-                  value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
-                />
-              </Field>
-              <Field label="Gross Value" w="code" htmlFor="lg-gross">
-                <Input
-                  id="lg-gross"
-                  readOnly
-                  /* On the cursor path with Avg Rate — see the note there. */
-                  tabIndex={0}
-                  className="text-right"
-                  value={
-                    orderVal.grossValue == null
-                      ? ""
-                        : fmtMoney(
-                            orderVal.grossValue,
-                            form.currency_code || "INR",
-                          )
-                  }
-                />
-              </Field>
-              {/* THE FINAL SALES VALUE, in the books' own currency (client spec
-                  2026-08-21): Gross Value x Ex-Rate. It is what the Budget phase
-                  measures its target margin against, which is why it is stated
-                  on the order rather than left for whoever opens the budget to
-                  multiply for themselves.
-
-                  DERIVED, NOT STORED, and not a fourth column: the row already
-                  carries `currency_code`, `ex_rate` and `gross_value`, and a
-                  stored product is a fourth number that can disagree with the
-                  three it came from — the same reason Days above is fetched
-                  from the payment term rather than copied onto the order.
-
-                  BLANK IS AN ANSWER, twice over. Blank when the Gross Value
-                  refuses (a style priced per colour with nothing to weight it
-                  by), and blank when no rate is entered — `ex_rate` is
-                  `NOT NULL DEFAULT 0`, so an untouched column would multiply a
-                  real value to 0.00, which reads as "this order is worth
-                  nothing" rather than "nobody has typed the rate". 0417 removed
-                  exactly that lie from the Gross Value; `inrValue` is what stops
-                  it returning through the conversion. An order already IN rupees
-                  needs no rate — it converts at 1.
-
-                  `npm run check:order-value` carries the vectors, including all
-                  five refusals, each verified by breaking the function first. */}
-              <Field label="INR Value" w="term" htmlFor="lg-inr">
-                <Input
-                  id="lg-inr"
-                  readOnly
-                  /* The row's last stop, and now where the section hand-off
-                     fires — see the note on Avg Rate. */
-                  tabIndex={0}
-                  className="text-right"
-                  value={inrVal == null ? "" : fmtMoney(inrVal, "INR")}
-                />
-              </Field>
-              </FieldRow>
-            </CardBody>
-          </Card>
-
-          {/* Less / Add charges and Cash Discount withdrawn 2026-08-10
-              (client): "remove the complexity for now to keep the logic simple".
-              Both were on THIS tab, not Prices.
-
-              Their tables and columns are untouched —
-              `garment_order_amendment_charges` and `cd1_pct … cd3_days` keep
-              whatever they hold. They left the Zod input too, and
-              `actions.ts` no longer deletes the charges rows, so a save on an
-              existing amendment leaves the stored charges exactly as they are
-              rather than wiping them. */}
-          {/* THE STYLE-WISE PRICE GRID WAS HERE, and is withdrawn
-              (client 2026-08-12). It restated the Prices tab: both asked for a
-              rate per style, from the same buyer's order sheet, and two boxes
-              for one number is how they come to disagree.
-
-              Same treatment as the charges above and for the same reason —
-              `garment_order_amendment_style_prices` keeps every row it holds,
-              the `style_prices` EMBED still reads them back, and the table is
-              absent from `writeChildren`'s insert list so a save neither
-              rewrites nor deletes them. Putting it back in that list while the
-              form no longer collects prices is what would wipe them. */}
-        </div>
-      ),
-    },
+       What that tab had already shed stays shed, and its data stays frozen
+       rather than wiped: Ship Type / Ship Mode / Country / Pay Terms (09-08)
+       and Department / Agent / Received (08-10) keep their columns and are
+       out of the Zod input; Days (08-29) was only ever derived from
+       `payment_terms.credit_days`; the Less/Add charges, Cash Discount and
+       style-wise price grid (08-10, 08-12) keep their tables, which
+       `actions.ts` neither rewrites nor deletes. Putting any of those tables
+       back in `writeChildren` while the form no longer collects them is what
+       would wipe them. */
     // ---------------- T&A (0481) ----------------
     /**
      * THE ORDER'S TIME & ACTION LADDER — every step the factory has to finish,
@@ -21875,7 +21928,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         ...t,
         icon: SECTION_ICONS[t.key] ?? FileText,
         done: sectionDone[t.key],
-        // Only `logistic` can carry one today; the lookup is keyed rather than
+        // Several tabs carry one (Order Info, Prices, …); the lookup is keyed rather than
         // hard-coded so a field declared against another tab tomorrow shows up
         // on the rail without this line being remembered.
         problems: validity.bySection[t.key],
@@ -22606,7 +22659,6 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
      commits to — the one thing the section is for. */
   ta: CalendarClock,
   approvalqty: CheckCheck,
-  logistic: Truck,
   reason: FileText,
 };
 

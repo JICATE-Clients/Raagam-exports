@@ -70,6 +70,17 @@ export interface DropdownItem {
    * current state is a harmless no-op the handler can drop.
    */
   checked?: boolean;
+  /**
+   * Inline style for the label text only — the topbar appearance menu draws
+   * each theme's name in that theme's own typeface, so the list previews
+   * itself. Omitted by every other menu.
+   */
+  labelStyle?: React.CSSProperties;
+  /**
+   * A colour chip in place of the icon — the appearance menu's colour options.
+   * Boxed to an icon's width, like `dot`, so a mixed menu still aligns.
+   */
+  swatch?: string;
 }
 
 /**
@@ -239,6 +250,12 @@ export function DropdownMenu({
                       boxed to an icon's width so a mixed menu still aligns. */}
                   {Icon ? (
                     <Icon className="h-4 w-4 shrink-0" />
+                  ) : item.swatch ? (
+                    <span
+                      aria-hidden
+                      className="h-4 w-4 shrink-0 rounded-full border border-black/10"
+                      style={{ backgroundColor: item.swatch }}
+                    />
                   ) : item.dot ? (
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center">
                       <StatusDot tone={item.dot} />
@@ -250,7 +267,9 @@ export function DropdownMenu({
                       AGENTS.md "Truncated values" forbids. A long label wraps
                       inside the 176px menu instead, which is also what the bare
                       text node here did before it was wrapped in a span. */}
-                  <span className="min-w-0 flex-1">{item.label}</span>
+                  <span className="min-w-0 flex-1" style={item.labelStyle}>
+                    {item.label}
+                  </span>
                   {item.checked && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
                 </button>
                 </div>

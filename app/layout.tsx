@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { IBM_Plex_Sans, Inter, Roboto, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { SilentUpdater } from "@/components/pwa/silent-updater";
+import { APPEARANCE_INIT_SCRIPT, appearanceCss } from "@/lib/appearance";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { TYPE_SCALE_INIT_SCRIPT } from "@/lib/type-scale";
 
@@ -28,6 +29,34 @@ const inter = Inter({
   weight: ["400", "500", "600", "700", "800"],
   variable: "--font-inter",
   display: "swap",
+});
+
+/**
+ * The appearance themes' faces (lib/appearance.ts, the topbar "T" menu).
+ * `preload: false` is what keeps them free for everyone on the default theme:
+ * next/font still declares the @font-face, but the browser fetches a file only
+ * when a rule actually USES that family — so only an operator who picked
+ * Carbon ever downloads Plex. Variable fonts, so no weight list: one file
+ * covers every weight the type scale asks for.
+ * Fluent's Segoe UI is a Windows system face and needs no loader.
+ */
+const plex = IBM_Plex_Sans({
+  subsets: ["latin"],
+  variable: "--font-plex",
+  display: "swap",
+  preload: false,
+});
+const sourceSans = Source_Sans_3({
+  subsets: ["latin"],
+  variable: "--font-source",
+  display: "swap",
+  preload: false,
+});
+const roboto = Roboto({
+  subsets: ["latin"],
+  variable: "--font-roboto",
+  display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -59,7 +88,7 @@ export default function RootLayout({
     // and the live DOM legitimately differ on this one element.
     <html
       lang="en"
-      className={`h-full antialiased ${inter.variable}`}
+      className={`h-full antialiased ${inter.variable} ${plex.variable} ${sourceSans.variable} ${roboto.variable}`}
       suppressHydrationWarning
     >
       <head>
@@ -72,6 +101,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         {/* Compact text, applied pre-paint for the same no-flash reason. */}
         <script dangerouslySetInnerHTML={{ __html: TYPE_SCALE_INIT_SCRIPT }} />
+        {/* Appearance theme (font + blue), same pre-paint reason; its
+            stylesheet is generated from the one registry in lib/appearance.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_INIT_SCRIPT }} />
+        <style dangerouslySetInnerHTML={{ __html: appearanceCss() }} />
       </head>
       <body className="min-h-full flex flex-col">
         <BugReporterWrapper>

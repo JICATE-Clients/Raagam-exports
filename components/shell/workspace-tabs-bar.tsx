@@ -261,7 +261,9 @@ export function WorkspaceTabsBar() {
     // asked for. `border-b border-border` dropped: a neutral grey edge
     // doesn't read against a saturated fill, same as the original gradient
     // bar never carried one either.
-    <div className="flex h-9 flex-none items-center gap-1 bg-primary px-2">
+    // `ty-chrome`: a gradient colour option (lib/appearance.ts) paints this
+    // bar; every solid option leaves it `bg-primary`.
+    <div className="ty-chrome flex h-9 flex-none items-center gap-1 bg-primary px-2">
       {showHome && (
         <button
           type="button"
