@@ -16,6 +16,8 @@ import {
 import { ChevronLeft, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
+import { LockScope } from "@/components/ui/field";
+import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
   focusField,
@@ -333,6 +335,7 @@ export function MasterFullScreen({
   onExpandRail,
   initialSection,
   summary,
+  locked = false,
   footer,
 }: {
   ref?: Ref<MasterFullScreenHandle>;
@@ -525,6 +528,27 @@ export function MasterFullScreen({
    * section but the last would be the section it replaced, one tab further away.
    */
   summary?: ReactNode;
+  /**
+   * THE RECORD MAY BE READ AND NOT CHANGED — and the screen says why, on every
+   * section (Phase 5, 2026-09-18: an order whose budget is approved is locked in
+   * Order Entry, Fabric BOM and Material BOM until the budget is reopened).
+   *
+   * Three things follow from the one prop, so no screen can do two of them:
+   *
+   *  - **A banner at the top of the pane** carrying `message` — the reason and
+   *    the way out ("Reopen the budget (Amendment Protocol) to change it").
+   *  - **Every field inside is read-only**, through `LockScope`: the primitives
+   *    read it, so no editor has to thread `readOnly` through its cells.
+   *  - **Save REFUSES WITH THE MESSAGE and stays ENABLED** — the footer's own
+   *    rule (`onBlockedSave`): a disabled Save hands Enter and Ctrl+S to the
+   *    button before it, which is the 2026-07-25 bug. Clicked, it says why.
+   *
+   * The DATABASE is the lock (0576's triggers); this is what makes the refusal a
+   * sentence on screen before anything is typed rather than an error after.
+   *
+   * `false` / omitted = unlocked, and nothing about the surface changes.
+   */
+  locked?: { message: ReactNode } | false;
   footer: {
     /** Left status text; e.g. "Unsaved changes". */
     status?: ReactNode;
@@ -619,6 +643,8 @@ export function MasterFullScreen({
   };
 }) {
   const firstKey = resolveSection(sections, initialSection ?? sections[0]?.key ?? "");
+  /** Only for the lock's refusal — see `locked`. Above every early return. */
+  const { error: toastError } = useToast();
   const [section, setSection] = useState(firstKey);
 
   /* THROUGH A REF, so the effect below is keyed on the SECTION and not on the
@@ -984,9 +1010,20 @@ export function MasterFullScreen({
    * was two separate silences for two separate reasons — and if the button was
    * disabled, Enter and Ctrl+S resolved to whatever button was last instead.
    */
-  const blocked = !footer.canSave && !!footer.onBlockedSave;
+  const blocked = !!locked || (!footer.canSave && !!footer.onBlockedSave);
   const fireSave = () => {
     if (footer.isPending) return;
+    if (locked) {
+      // THE LOCK OUTRANKS EVERY OTHER ANSWER — a locked record with a blank
+      // field is not "fill this in", it is "this cannot be changed".
+      toastError(
+        typeof locked.message === "string"
+          ? locked.message
+          : "This record is locked — see the notice at the top.",
+      );
+      paneRef.current?.scrollTo({ top: 0 });
+      return;
+    }
     if (footer.canSave) footer.onSave();
     else footer.onBlockedSave?.();
   };
@@ -1625,13 +1662,24 @@ export function MasterFullScreen({
                 in-pane group headings it replaced (13px, bold, capitals), so a
                 pane that still carries an inner group reads as one hierarchy
                 rather than two competing title styles. */}
+            {/* THE LOCK NOTICE — every section, above everything, so no pane of
+                a locked record can be read without the reason beside it. Text
+                only: it is not a field and not a Tab stop. */}
+            {locked && (
+              <div
+                role="status"
+                className="mb-4 rounded-md border border-warning bg-warning-soft px-3 py-2 text-sm text-warning"
+              >
+                {locked.message}
+              </div>
+            )}
             {paneHeading && active && (
               <h2 className="ty-subsection mb-4 text-[13px] font-bold uppercase tracking-wide text-foreground">
                 {active.label}
               </h2>
             )}
             <SectionNamedByRail.Provider value={!railCollapsed}>
-              {active?.content}
+              <LockScope locked={!!locked}>{active?.content}</LockScope>
             </SectionNamedByRail.Provider>
           </div>
         </div>
@@ -1857,7 +1905,7 @@ export function MasterFullScreen({
             <Button
               variant="outline"
               size="sm"
-              disabled={footer.isPending || !footer.canSave}
+              disabled={footer.isPending || !footer.canSave || !!locked}
               onClick={footer.onSaveDraft}
             >
               {footer.draftLabel ?? "Save as Draft"}

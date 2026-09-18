@@ -41,6 +41,7 @@ import type { BudgetLineRow } from "./po-service";
 import {
   bomCeilingForOrder,
   refuseOverCeiling,
+  refuseReopenedBudget,
   refuseUnsettledMaterials,
 } from "./bom-ceiling-service";
 import { refuseUnapprovedYarnPurchase } from "./pp-approval-gate";
@@ -331,6 +332,16 @@ export async function createPurchaseOrder(
   }
 
   /*
+   * THE REOPENED-BUDGET GATE (Phase 5, decision 3). An order whose budget was
+   * reopened through the Amendment Protocol has no signed figure to buy
+   * against — and the ceiling below switches itself off without one — so no
+   * PO is raised for it until the budget is approved again. Same four write
+   * paths as the gates below; see its header.
+   */
+  const reopened = await refuseReopenedBudget(parsed.data.lines);
+  if (reopened) return { ok: false, error: reopened };
+
+  /*
    * THE HARD CEILING (client 2026-08-21). Refuses only where an approved budget
    * covers the order; below that threshold `judgeLine` returns `over` and the
    * warn-and-record path this action has always had is untouched.
@@ -415,6 +426,9 @@ export async function addPoLine(
     };
   }
 
+  const addReopened = await refuseReopenedBudget([parsed.data]);
+  if (addReopened) return { ok: false, error: addReopened };
+
   // NOTHING EXCLUDED: this line does not exist yet, so the committed sum is
   // exactly the other lines it is being added alongside.
   const addRefusal = await refuseOverCeiling([parsed.data]);
@@ -462,6 +476,9 @@ export async function updatePoLine(
       error: parsed.error.issues[0]?.message ?? "Invalid input",
     };
   }
+
+  const editReopened = await refuseReopenedBudget([parsed.data]);
+  if (editReopened) return { ok: false, error: editReopened };
 
   // EXCLUDE THIS LINE, not its PO. Its stored quantity is already inside the
   // committed sum, so counting it again would refuse a line for being retyped
@@ -538,6 +555,13 @@ export async function submitPo(poId: string): Promise<ActionResult> {
     .from("po_line_items")
     .select("item_id, quantity, sales_order_id")
     .eq("purchase_order_id", poId);
+
+  /* THE LAST REOPENED-BUDGET GATE — catches a draft written while the budget
+     was approved and submitted after it was reopened. */
+  const submitReopened = await refuseReopenedBudget(
+    (poLines ?? []) as { sales_order_id: string | null }[],
+  );
+  if (submitReopened) return { ok: false, error: submitReopened };
 
   const submitRefusal = await refuseOverCeiling(
     (poLines ?? []) as { item_id: string | null; quantity: number; sales_order_id: string | null }[],

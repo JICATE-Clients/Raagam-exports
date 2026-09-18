@@ -89,6 +89,42 @@ export function useRequiredHold(
 }
 
 /**
+ * "EVERYTHING INSIDE HERE IS LOCKED" — a record whose data may be read and not
+ * changed (Phase 5, 2026-09-18: an order whose budget is APPROVED is read-only
+ * in Order Entry, Fabric BOM and Material BOM until the budget is reopened).
+ *
+ * ONE DECLARATION AT THE SURFACE, READ BY EVERY PRIMITIVE. The alternative is a
+ * `readOnly={!editable}` threaded through every cell of three editors — ~20
+ * grids on Order Entry alone — and the one cell somebody forgets is a field the
+ * lock does not cover. Same shape as `RequiredScope` above, for the same reason.
+ *
+ * THE DATABASE IS THE LOCK; THIS IS THE COURTESY. Triggers refuse the write
+ * whatever the screen does (0576). A locked field shows the operator the answer
+ * before they type rather than after they press Save.
+ *
+ * NOT RESET AT A PORTAL BOUNDARY, unlike `RequiredScope`. Requiredness belongs
+ * to one field, so a quick-create sheet opened from a mandatory cell must not
+ * inherit it (trap #13). A lock belongs to the whole RECORD: a sub-sheet of a
+ * locked order — its breakup, its [Detail] — edits that same record and is
+ * locked with it. Resetting it there would leave a door open one click away.
+ *
+ * Default UNLOCKED, so nothing outside a `LockScope` changes at all.
+ */
+const LockCtx = createContext(false);
+
+export function LockScope({ locked, children }: { locked: boolean; children: ReactNode }) {
+  // A lock only ever ADDS: an unlocked scope inside a locked one stays locked,
+  // so no nested surface can quietly re-open a record its parent has closed.
+  const outer = useContext(LockCtx);
+  return <LockCtx.Provider value={outer || locked}>{children}</LockCtx.Provider>;
+}
+
+/** True inside a locked record — the control renders read-only / disabled. */
+export function useLocked(): boolean {
+  return useContext(LockCtx);
+}
+
+/**
  * A labelled form field that owns its own WIDTH.
  *
  * Every control primitive here is `w-full` (input.tsx, select.tsx,

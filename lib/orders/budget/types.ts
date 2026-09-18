@@ -8,6 +8,12 @@ import {
 } from "./totals";
 import { capsTextNullable } from "@/lib/validation/formats";
 import { HOME_CURRENCY } from "@/lib/orders/amendments/order-value";
+import {
+  AMENDMENT_SOURCES,
+  AMENDMENT_TYPES,
+  type AmendmentSource,
+  type AmendmentType,
+} from "./amendment";
 
 // ============================================================================
 // Orders ▸ Budgeting (step 5) and Approval (step 6), over ONE table (0428).
@@ -72,16 +78,43 @@ export function canTransition(from: BudgetStatus, to: BudgetStatus): boolean {
       return to === "submitted";
     case "submitted":
       return to === "approved" || to === "rejected";
-    // A REJECTED BUDGET GOES BACK TO DRAFT to be reworked. An APPROVED one does
-    // not go anywhere: it is the document purchase is acting on, and reopening
-    // it would move a ceiling under a PO that had already been placed. Raising a
-    // second budget is the way to revise, which is also why an order in two
-    // APPROVED budgets is refused (0428).
+    // A REJECTED BUDGET GOES BACK TO DRAFT to be reworked. An APPROVED one
+    // does NOT, through this table: it is the document purchase is acting on
+    // and its orders are LOCKED by it (0576). The only way back is the
+    // Amendment Protocol — `canReopen` below and `reopen_order_budget()` —
+    // which records who reopened it, why, and the approved baseline in the
+    // same transaction as the status change.
     case "rejected":
       return to === "draft";
     default:
       return false;
   }
+}
+
+/**
+ * May this budget be reopened through the Amendment Protocol (0576)?
+ *
+ * Only an APPROVED one. A rejected budget goes back to draft by the ordinary
+ * transition above — nothing was approved, so there is no baseline to freeze
+ * and no lock to lift. Gated on `orders:approve` by the action and the RPC:
+ * undoing an approval is the approver's act.
+ */
+export function canReopen(status: BudgetStatus): boolean {
+  return status === "approved";
+}
+
+/**
+ * May this budget be deleted?
+ *
+ * Only while it is the operator's (draft / rejected) AND it was never approved.
+ * A budget reopened through the Amendment Protocol is a draft again, but its
+ * revisions are the audit record of an approval being undone (doc §4.4), and
+ * deleting the budget would erase them — 0576 refuses it in the database
+ * (`guard_order_budget_approval`, and the revisions' FK is ON DELETE RESTRICT).
+ * The screen reads this so it never offers the button the database refuses.
+ */
+export function canDeleteBudget(b: { status: BudgetStatus; revisions?: readonly unknown[] | null }): boolean {
+  return (b.status === "draft" || b.status === "rejected") && (b.revisions?.length ?? 0) === 0;
 }
 
 export interface BudgetOrder {
@@ -187,6 +220,33 @@ export interface OrderBudget {
   updated_at: string;
   orders: BudgetOrder[];
   lines: BudgetLine[];
+  /** The KPIs as they stood at submit (`kpisToJson`, 0576) — what the
+   *  approver approved against. Read with `kpisFromJson`. NULL before the
+   *  first submit since 0576. */
+  submitted_summary: unknown;
+  /** The Amendment Protocol history, oldest first (0576). */
+  revisions: BudgetRevision[];
+}
+
+/** One reopen of an approved budget (0576, `order_budget_revisions`). */
+export interface BudgetRevision {
+  id: string;
+  budget_id: string;
+  revision_no: number;
+  source: AmendmentSource;
+  amendment_type: AmendmentType;
+  reason: string;
+  /** `budgetBaseline()` as it stood when reopened — the approved figures and
+   *  lines. Read it with `compareToBaseline`. */
+  baseline: unknown;
+  baseline_approved_by: string | null;
+  /** Who approved the baseline, by name (`creator_names()`). */
+  baseline_approved_by_name?: string | null;
+  baseline_approved_at: string | null;
+  reopened_by: string | null;
+  /** Resolved through `creator_names()`, never an embed (lib/created-by.ts). */
+  reopened_by_name?: string | null;
+  reopened_at: string;
 }
 
 const nullableText = z.string().optional().nullable();
@@ -520,3 +580,19 @@ export type CopyableBudget = {
     customer_name: string | null;
   } | null;
 };
+
+/**
+ * The Amendment Protocol form (0576) — who asked, what kind of change, and why.
+ * The vocabularies are the engine's (`./amendment`), and 0576's CHECKs state
+ * the same values; the reason is mandatory and non-blank, as the column is.
+ */
+export const budgetReopenInput = z.object({
+  source: z.enum(AMENDMENT_SOURCES.map((s) => s.value) as [AmendmentSource, ...AmendmentSource[]], {
+    message: "Say who asked for the change",
+  }),
+  amendment_type: z.enum(AMENDMENT_TYPES.map((t) => t.value) as [AmendmentType, ...AmendmentType[]], {
+    message: "Choose what kind of change this is",
+  }),
+  reason: z.string().trim().min(1, "Say why the budget is being reopened"),
+});
+export type BudgetReopenInput = z.infer<typeof budgetReopenInput>;

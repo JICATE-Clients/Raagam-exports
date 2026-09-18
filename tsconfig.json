@@ -58,6 +58,7 @@
     "scripts/check-process-return.mts",
     "scripts/check-fabric-bom.mts",
     "scripts/check-budget-copy-from.mts",
+    "scripts/check-budget-amendment.mts",
     "scripts/check-process-base.mts",
     "scripts/check-search-match.mts",
     "scripts/check-fabric-plan.mts",

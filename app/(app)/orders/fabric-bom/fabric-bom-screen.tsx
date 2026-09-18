@@ -1087,11 +1087,15 @@ export function FabricBomScreen({
   boms,
   data,
   perms,
+  orderLocks,
 }: {
   tasks: BomTaskRow[];
   boms: FabricBom[];
   data: FabricBomFormData;
   perms: Perms;
+  /** Garment orders locked by an approved budget → the banner's sentence
+   *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
+  orderLocks: Record<string, string>;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -1452,6 +1456,11 @@ export function FabricBomScreen({
   const order = current?.order ?? null;
   const orderErr = current?.error ?? null;
   const orderLoading = !!form.garment_order_id && !current;
+
+  /* THE APPROVAL LOCK (Phase 5). A plain const off the page's map, never a
+     hook — the server guard and 0576's triggers are the lock; this is the
+     banner and the read-only fields `MasterFullScreen` derives from it. */
+  const lockMessage = form.garment_order_id ? orderLocks[form.garment_order_id] : undefined;
 
   /**
    * One round trip per ORDER, not per keystroke.
@@ -9959,6 +9968,7 @@ export function FabricBomScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        locked={lockMessage ? { message: lockMessage } : false}
         /* A compact 200px Sections rail whose labels still fit — "Fabric
            Allocation" clipped at 192px, and 240px read as too wide (operator,
            2026-09-17). See the prop. */

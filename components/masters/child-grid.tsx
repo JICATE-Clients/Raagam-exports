@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FIELD_SPAN, FIELD_TRACK, RequiredScope } from "@/components/ui/field";
+import { FIELD_SPAN, FIELD_TRACK, RequiredScope, useLocked } from "@/components/ui/field";
 import { LABEL_METRICS } from "@/components/ui/label";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -1447,7 +1447,7 @@ export function ChildGrid<T extends { key: string }>({
   forceCards = false,
   frameless = false,
   keyboardNav = true,
-  hideAdd = false,
+  hideAdd: ownHideAdd = false,
   narrow = false,
   tableFrom,
   tableAlways = false,
@@ -1456,7 +1456,7 @@ export function ChildGrid<T extends { key: string }>({
   foldedRemoveBeside = false,
   centerHeaders = false,
   lockExisting = false,
-  hideRemove = false,
+  hideRemove: ownHideRemove = false,
   keepOne = true,
   lockRow,
   inlineCards = false,
@@ -2445,6 +2445,12 @@ export function ChildGrid<T extends { key: string }>({
    *  when at least one column declares a `total`. Defaults to "Total". */
   totalsLabel?: ReactNode;
 }) {
+  // A LOCKED RECORD'S ROWS ARE FIXED (`LockScope`, field.tsx): no "+ Add", no ✕,
+  // no Ctrl+Del — the same two switches a caller would flip, so every layout
+  // honours it without learning about locks.
+  const recordLocked = useLocked();
+  const hideAdd = ownHideAdd || recordLocked;
+  const hideRemove = ownHideRemove || recordLocked;
   // `onAdd` behind a ref: every caller passes a fresh closure, so depending on it
   // directly would re-run the seed effect on every render. The effect wants to
   // watch `rows.length`, and nothing else.

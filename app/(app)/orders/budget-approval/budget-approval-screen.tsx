@@ -48,6 +48,8 @@ import {
   type OrderBudget,
 } from "@/lib/orders/budget/types";
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
+import { kpisFromJson } from "@/lib/orders/budget/amendment";
+import { lineInputOf, orderInputsOfSnapshot } from "@/lib/orders/budget/figures";
 import { getApprovalPanel } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
@@ -132,39 +134,24 @@ export function BudgetApprovalScreen({
     () => budgets.find((b) => b.id === openId) ?? null,
     [budgets, openId],
   );
+  /** The KPIs stored at submit, or null for a budget submitted before 0576
+   *  (or a summary this version cannot read — `kpisFromJson` refuses rather
+   *  than guessing at an unknown shape). */
+  const submitted = budget ? kpisFromJson(budget.submitted_summary) : null;
 
   const totals = useMemo(() => {
     if (!budget) return null;
+    // `figures.ts` BUILDS THE ENGINE'S INPUTS — the same mapping the budget
+    // screen and `submitBudget` use. This screen hand-built its own once, from
+    // source/qty/rate alone, and its totals drifted from the author's the day
+    // lines grew a currency. One builder is what stops that recurring.
+    //
+    // THE SNAPSHOT orders, not a live re-read: the approver must see the figures
+    // the author submitted (0428), and submit rewrites that snapshot from the
+    // same live facts the screen showed.
     return budgetTotals(
-      // EVERY FIELD THE ENGINE VALUES A LINE BY, not just qty and rate. Since
-      // 0572–0575 a line's amount also depends on its currency, FOC, rate type
-      // (flat / percent), pieces and units, and a percent line's scope — and an
-      // approver shown a total computed on fewer facts than the author's is
-      // approving a different number from the one that was submitted.
-      (budget.lines ?? []).map((l) => ({
-        source: l.source,
-        qty: l.qty,
-        rate: l.rate,
-        currency_code: l.currency_code,
-        ex_rate: l.ex_rate,
-        is_foc: l.is_foc,
-        rate_type: l.rate_type,
-        no_of_pcs: l.no_of_pcs,
-        no_of_units: l.no_of_units,
-        garment_order_id: l.garment_order_id,
-        style_ref_no: l.style_ref_no,
-        description: l.description,
-      })),
-      (budget.orders ?? []).map((o) => ({
-        // The id is what an ORDER-scoped percent line resolves its sales by.
-        id: o.garment_order_id,
-        label: o.garment_order?.sales_order?.order_number ?? o.garment_order?.code ?? "This order",
-        // THE SNAPSHOT, not a live re-read. The approver must see the figures the
-        // author submitted — re-valuing the orders here would mean approving one
-        // set of numbers and recording another (0428).
-        sales_value: o.sales_value,
-        refusal: o.sales_refusal,
-      })),
+      (budget.lines ?? []).map(lineInputOf),
+      orderInputsOfSnapshot(budget.orders ?? []),
     );
   }, [budget]);
 
@@ -438,6 +425,33 @@ export function BudgetApprovalScreen({
               )}
             </DetailSection>
 
+            {/* AS SUBMITTED — the KPIs stored at submit (`submitted_summary`,
+                0576): the figures this approval is being asked about. Shown
+                BESIDE the live figures above rather than instead of them, so an
+                order re-valued since submit is visible as a difference the
+                approver can see, not a silent change under their signature. */}
+            {submitted && (
+              <DetailSection label="As submitted" cols={12}>
+                <dl className="space-y-2">
+                  <TextRow label="RE No" value={submitted.re_nos.join(", ")} />
+                  <TextRow
+                    label="Entry date"
+                    value={submitted.entry_date ? fmtDate(submitted.entry_date) : ""}
+                  />
+                  <TextRow
+                    label="Delivery"
+                    value={submitted.delivery_dates.map((d) => fmtDate(d)).join(", ")}
+                  />
+                  <Row label="Order qty" value={submitted.order_qty} />
+                  <Row label="Total income" value={submitted.total_income} />
+                  <Row label="Total expenses" value={submitted.total_expenses} />
+                  <Row label="Profit / loss" value={submitted.profit} strong />
+                  <Row label="Profit %" value={submitted.profit_pct} suffix="%" />
+                  <Row label="Cost per piece" value={submitted.cost_per_piece} />
+                </dl>
+              </DetailSection>
+            )}
+
             {budget.decision_remark && (
               <DetailSection label="Decision" cols={12}>
                 <p className="text-sm">{budget.decision_remark}</p>
@@ -566,6 +580,17 @@ function Row({
       >
         {isRefusal(value) ? value.refused : `${fmtNumber(value as number)}${suffix}`}
       </dd>
+    </div>
+  );
+}
+
+/** A text fact — blank when there is none, since a missing date is not a
+ *  refused figure. */
+function TextRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="text-right text-sm text-foreground">{value}</dd>
     </div>
   );
 }

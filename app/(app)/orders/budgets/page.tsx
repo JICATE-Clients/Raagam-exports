@@ -19,7 +19,7 @@ import { BudgetScreen } from "./budget-screen";
 export default async function BudgetsPage() {
   await requirePermission("orders", "view");
 
-  const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit] = await Promise.all([
+  const [budgets, data, canCreate, canEdit, canDelete, mCreate, mEdit, canApprove] = await Promise.all([
     listOrderBudgets(),
     getBudgetFormData(),
     can("orders", "create"),
@@ -30,13 +30,17 @@ export default async function BudgetsPage() {
     // Warehouse picker is, not on the order permission that opened the screen.
     can("masters", "create"),
     can("masters", "edit"),
+    // REOPENING AN APPROVED BUDGET IS THE APPROVER'S ACT (Amendment Protocol):
+    // it undoes an approval and unlocks the orders, so it answers to the same
+    // permission that granted it — and the RPC refuses anyone else anyway.
+    can("orders", "approve"),
   ]);
 
   return (
     <BudgetScreen
       budgets={budgets}
       data={data}
-      perms={{ canCreate, canEdit, canDelete }}
+      perms={{ canCreate, canEdit, canDelete, canApprove }}
       masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
     />
   );

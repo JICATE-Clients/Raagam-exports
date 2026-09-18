@@ -40,6 +40,7 @@ import {
   HandCoins,
   ListChecks,
   Receipt,
+  RotateCcw,
   Scissors,
   Send,
   ShoppingCart,
@@ -74,12 +75,10 @@ import { RowActions } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
-import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import {
   BUDGET_SECTIONS,
-  budgetTotals,
   carryRate,
-  generalSummary,
   CMT_OPERATIONS,
   cmtBreakupTotal,
   isRefusal,
@@ -91,7 +90,6 @@ import {
   pulledLineKey,
   PURCHASE_TABS,
   salesBaseOf,
-  salesSummary,
   splitFabricProcess,
   type BudgetLineInput,
   type BudgetSectionKey,
@@ -105,6 +103,8 @@ import {
   BUDGET_LINE_BASES,
   budgetStatusText,
   budgetStatusTone,
+  canDeleteBudget,
+  canReopen,
   canTransition,
   type BudgetLineBasis,
   type BudgetRateType,
@@ -119,15 +119,29 @@ import {
   loadBudgetLinesForCopy,
   loadCostLines,
   loadFabricProcessBreakdown,
+  reopenBudget,
   submitBudget,
   updateOrderBudget,
 } from "@/lib/orders/budget/actions";
+import {
+  AMENDMENT_SOURCES,
+  AMENDMENT_TYPES,
+  compareToBaseline,
+  type BudgetBaseline,
+} from "@/lib/orders/budget/amendment";
+import { ReopenBudgetSheet, type ReopenAnswers } from "./reopen-budget-sheet";
 import { BudgetSummaryBar } from "./budget-summary-bar";
 import { BudgetGeneral } from "./budget-general";
+import {
+  budgetFigures,
+  groupSqQtyOf,
+  lineInputOf,
+  orderInputsOf,
+} from "@/lib/orders/budget/figures";
 import { CopyFromSheet } from "./copy-from-sheet";
 import { breakupOf, CmtBreakupSheet, type CmtBreakupValues } from "./cmt-breakup-sheet";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canApprove: boolean };
 
 type OrderRow = { key: string; garment_order_id: string | null };
 
@@ -348,21 +362,9 @@ const rowOf = (key: string, l: LineLike): CostRow => ({
 const fabricGroupKey = (l: { garment_order_id: string | null; process_id?: string | null }) =>
   `${l.garment_order_id ?? ""}|${l.process_id ?? ""}`;
 
-const lineInput = (c: CostRow): BudgetLineInput => ({
-  source: c.source,
-  qty: numOrNull(c.qty),
-  rate: numOrNull(c.rate),
-  currency_code: c.currency_code || null,
-  ex_rate: numOrNull(c.ex_rate),
-  is_foc: c.is_foc,
-  rate_type: c.rate_type,
-  no_of_pcs: numOrNull(c.no_of_pcs),
-  no_of_units: numOrNull(c.no_of_units),
-  // A percent line's SCOPE (0575) — which sales it is a percentage of.
-  garment_order_id: c.garment_order_id,
-  style_ref_no: c.style_ref_no,
-  description: c.description || null,
-});
+/** One row as the engine reads it — `figures.ts`'s mapping, the same one the
+ *  submitted summary and the approved baseline are built with. */
+const lineInput = (c: CostRow): BudgetLineInput => lineInputOf(c);
 
 /** Which rail section shows a line of this source. */
 const sectionOfSource = (source: string): BudgetSectionKey =>
@@ -488,6 +490,9 @@ export function BudgetScreen({
   /** The CMT line whose [Breakup] sheet is open, and the button it grew from. */
   const [breakupKey, setBreakupKey] = useState<string | null>(null);
   const [breakupOrigin, setBreakupOrigin] = useState<DOMRect | null>(null);
+  /** The Amendment Protocol's sheet, and the button it grew from. */
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopenOrigin, setReopenOrigin] = useState<DOMRect | null>(null);
 
   useUnsavedGuard(dirty || isPending);
 
@@ -526,33 +531,22 @@ export function BudgetScreen({
     .map((o) => orderById.get(o.garment_order_id as string))
     .filter(Boolean) as BudgetableOrder[];
 
-  /** The orders as the engine values them — the SAME list feeds the totals and
-   *  every percent line's base, so a line's Value and the budget's total can
-   *  never be computed over two different sets of sales. */
-  const orderInputs = pickedFacts.map((o) => ({
-    id: o.id,
-    label: o.sc_no ?? o.order_code ?? "This order",
-    sales_value: o.sales_value,
-    refusal: o.sales_refusal,
-  }));
+  /**
+   * THE ENGINE'S INPUTS, ASSEMBLED BY `figures.ts` — the one place they are
+   * built. `submitBudget` stores the KPIs the approver approves against and the
+   * Amendment Protocol freezes the approved baseline from that same file, so the
+   * screen reading it too is what keeps "the figures the merchandiser saw" and
+   * "the figures the MD approved" one set of numbers.
+   */
+  const orderInputs = orderInputsOf(pickedFacts);
   /** INR gross sales of a line's scope — what a percent line is a percentage
    *  of. No per-style sales exist, so a Style Wise percentage refuses (the
    *  engine's sentence), never a guessed share. */
   const salesBase = salesBaseOf(orderInputs);
   /** One line's amount — the ONE call every cell, band and group sum makes. */
   const amountOf = (r: CostRow) => lineAmount(lineInput(r), salesBase);
-
-  /** Σ the orders' SQ Qty, or the first refusal — never a part-sum, for the
-   *  reason `budgetTotals` gives about sales. */
-  const groupSqQty: number | { refused: string } = (() => {
-    const bad = pickedFacts.find((o) => o.sq_qty == null);
-    if (bad) {
-      return {
-        refused: bad.sq_refusal ?? `${bad.sc_no ?? bad.order_code ?? "An order"} has no SQ Qty yet`,
-      };
-    }
-    return pickedFacts.reduce((a, o) => a + (o.sq_qty as number), 0);
-  })();
+  /** Σ the orders' SQ Qty, or the first refusal — never a part-sum. */
+  const groupSqQty = groupSqQtyOf(pickedFacts);
 
   // ---- opening -------------------------------------------------------------
 
@@ -1893,18 +1887,26 @@ export function BudgetScreen({
    *  payload all read this one list, so what is counted is what is written. */
   const enteredCosts = costs.filter((c) => !isBlankLine(c));
 
-  const totals = budgetTotals(enteredCosts.map(lineInput), orderInputs);
+  const { totals, sales, general } = budgetFigures({
+    lines: enteredCosts,
+    facts: pickedFacts,
+    entryDate: form.budget_date || null,
+  });
 
-  const sales = salesSummary(
-    pickedFacts.map((o) => ({
-      label: o.sc_no ?? o.order_code ?? "This order",
-      qty: o.qty,
-      unit: o.unit,
-      currency_code: o.currency_code,
-      ex_rate: o.ex_rate,
-      gross_value: o.gross_value,
-    })),
-  );
+  // ---- the Amendment Protocol's record --------------------------------------
+
+  /** The budget as last saved — its revision history lives there, not in the
+   *  editor's state, because only the reopen RPC ever writes a revision. */
+  const saved = editId ? (budgets.find((b) => b.id === editId) ?? null) : null;
+  /** Oldest first (service order). */
+  const revisions = saved?.revisions ?? [];
+  const latestRevision = revisions.length > 0 ? revisions[revisions.length - 1] : null;
+  /** What the latest reopen froze — the APPROVED figures the current ones are
+   *  measured against in General. Absent until a budget has been reopened. */
+  const baselineRows = latestRevision?.baseline
+    ? compareToBaseline(latestRevision.baseline as Pick<BudgetBaseline, "general">, general)
+    : null;
+
 
   // ---- the SQ facts --------------------------------------------------------
 
@@ -2122,9 +2124,13 @@ export function BudgetScreen({
             <p className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
               {status === "submitted"
                 ? "This budget is with the approver. It cannot be changed until it comes back."
-                : "An approved budget cannot be changed. Raise a new one to revise it."}
+                : perms.canApprove
+                  ? "An approved budget cannot be changed. Reopen it (Amendment) to revise it — its orders stay locked until then."
+                  : "An approved budget cannot be changed. An approver can reopen it (Amendment) to revise it."}
             </p>
           )}
+
+          {revisions.length > 0 && <RevisionHistory revisions={revisions} />}
         </SectionBody>
       ),
     },
@@ -2263,11 +2269,43 @@ export function BudgetScreen({
       done: !isRefusal(totals.profit),
       content: (
         <SectionBody title="General">
-          <BudgetGeneral summary={generalSummary(totals, groupSqQty)} />
+          <BudgetGeneral summary={general} baseline={baselineRows} />
         </SectionBody>
       ),
     },
   ];
+
+  // ---- the Amendment Protocol ----------------------------------------------
+
+  /**
+   * REOPEN AN APPROVED BUDGET — Amendment Protocol (doc/order/budget.md §4.4).
+   *
+   * The baseline — the approved figures and lines as they stood — is frozen
+   * by the SERVER from the stored budget, through `figures.ts`, the assembly
+   * this screen also reads. Built there rather than here so a stale tab cannot
+   * freeze figures that were never approved.
+   *
+   * ONE CALL. The RPC inserts the revision and moves the budget to draft in one
+   * transaction; two calls could leave a revision with no reopen, or a reopen
+   * nobody can explain.
+   */
+  function reopen(answers: ReopenAnswers) {
+    if (!editId) return;
+    start(async () => {
+      const res = await reopenBudget(editId, answers);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      setReopenOpen(false);
+      setStatus("draft");
+      setDirty(false);
+      success(
+        `Budget reopened${res.revisionNo ? ` as Revision ${res.revisionNo}` : ""} — its orders are unlocked until it is approved again`,
+      );
+      router.refresh();
+    });
+  }
 
   // ---- saving --------------------------------------------------------------
 
@@ -2423,7 +2461,10 @@ export function BudgetScreen({
         canEdit={perms.canEdit}
         // A SUBMITTED OR APPROVED BUDGET IS NOT DELETABLE. The first is with
         // someone else and the second is what purchase is acting on.
-        canDelete={perms.canDelete && (b.status === "draft" || b.status === "rejected")}
+        // `canDeleteBudget`: draft or rejected AND never reopened — a reopened
+        // budget's revisions are the Amendment Protocol's audit history, and the
+        // server and 0576 both refuse to delete it.
+        canDelete={perms.canDelete && canDeleteBudget(b)}
         onDelete={() => remove(b.id)}
         deleteLabel="Delete budget"
         isPending={isPending}
@@ -2484,6 +2525,11 @@ export function BudgetScreen({
           badges: (
             <span className="flex items-center gap-2">
               <StatusPill tone={budgetStatusTone(status)}>{budgetStatusText(status)}</StatusPill>
+              {latestRevision && (
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  Revision {latestRevision.revision_no}
+                </span>
+              )}
               {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
             </span>
           ),
@@ -2534,6 +2580,23 @@ export function BudgetScreen({
                 </Button>
               )}
             </span>
+          ) : canReopen(status) && perms.canApprove && editId ? (
+            // THE ONLY WAY BACK FROM APPROVED, and the approver's alone. In the
+            // header for the reason Submit is: a workflow act never sits in the
+            // footer, where Enter off the last field would reach it.
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isPending}
+              onClick={(e) => {
+                setReopenOrigin(e.currentTarget.getBoundingClientRect());
+                setReopenOpen(true);
+              }}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden />
+              Reopen (Amendment)
+            </Button>
           ) : undefined,
         }}
         sections={sections}
@@ -2558,6 +2621,16 @@ export function BudgetScreen({
         onCopy={copyFrom}
       />
 
+      {reopenOpen && (
+        <ReopenBudgetSheet
+          onClose={() => setReopenOpen(false)}
+          origin={reopenOrigin}
+          isPending={isPending}
+          budgetLabel={editCode ?? (form.description || "budget")}
+          onReopen={reopen}
+        />
+      )}
+
       <CmtBreakupSheet
         open={!!breakupRow}
         onClose={() => setBreakupKey(null)}
@@ -2574,5 +2647,41 @@ export function BudgetScreen({
         onChange={(op, v) => breakupRow && setBreakup(breakupRow.key, op, v)}
       />
     </>
+  );
+}
+
+const SOURCE_LABEL = Object.fromEntries(AMENDMENT_SOURCES.map((x) => [x.value, x.label]));
+const TYPE_LABEL = Object.fromEntries(AMENDMENT_TYPES.map((x) => [x.value, x.label]));
+
+/**
+ * Every reopen of this budget, newest first — who, when, why. Read-only, and
+ * text only: the history is append-only in the database (0576), so nothing
+ * here is a field.
+ *
+ * Rows of text rather than a table (a screen composes, it does not draw): four
+ * short facts and a sentence, with nothing to sort or select.
+ */
+function RevisionHistory({ revisions }: { revisions: OrderBudget["revisions"] }) {
+  return (
+    <div className="mt-5">
+      <h3 className="mb-2 text-[13px] font-bold uppercase tracking-wide text-foreground">
+        Revisions
+      </h3>
+      <ol className="divide-y divide-border rounded-lg border border-border">
+        {[...revisions].reverse().map((r) => (
+          <li key={r.id} className="space-y-0.5 px-3 py-2">
+            <div className="flex flex-wrap items-baseline gap-x-3 text-sm">
+              <span className="font-semibold">Revision {r.revision_no}</span>
+              <span>{SOURCE_LABEL[r.source] ?? r.source}</span>
+              <span>{TYPE_LABEL[r.amendment_type] ?? r.amendment_type}</span>
+              <span className="text-xs text-muted-foreground">
+                {[r.reopened_by_name, fmtDateTime(r.reopened_at)].filter(Boolean).join(" · ")}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">{r.reason}</p>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }

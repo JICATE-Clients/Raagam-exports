@@ -398,3 +398,124 @@ columns), `assertOrderUnlocked` + calls in the 3 action files, `reopenBudget` ac
 engine: `canTransition` approved→draft (approver-only), vectors · ui: `ReadOnlyScope` in the
 primitives + `MasterFullScreen locked`, banners on the 3 screens, Reopen button on the budget.
 Collision risk: another session is editing the Fabric BOM files in this tree now.
+
+---
+
+# Phase 5 — CONTRACT (supersedes the Phase 5 "Design" above where they differ), 2026-09-18
+
+Source: doc/order/budget.md §4 + the user's restatement of the Hard Lock Rules:
+"When approved, set RE Status = APPROVED. Execute database lock triggers to set Order Entry,
+Fabric PLM and Material PLM to Read-Only / Locked for this RE No. This protects the projected
+profit margin from unauthorized edits to quantities, price, or fabric weight."
+
+## Changed from the plan: the RE STATUS is STORED (the spec says "set", and it is right)
+
+- `garment_order_amendments.re_status text not null default 'open' check (re_status in
+  ('open','approved'))` + `re_status_at timestamptz`.
+- **ONE writer:** an AFTER UPDATE OF status trigger on `order_budgets` —
+  `→ approved` sets its orders APPROVED; `approved → draft` (reopen) sets them OPEN.
+  **SECURITY DEFINER** (search_path pinned, `revoke all … from public, anon`): the approver
+  may hold `orders:approve` without `orders:edit`, and an invoker-rights update would be
+  filtered to 0 rows by RLS — the order would stay unlocked with no error.
+- Every lock trigger, the order list and the editors read `re_status` — one column, no join.
+
+## Database lock triggers (the authority)
+
+- **Parents:** BEFORE UPDATE/DELETE on `garment_order_amendments` (refuse when OLD.re_status =
+  'approved'); BEFORE INSERT/UPDATE/DELETE on `order_fabric_boms` and
+  `material_bom_amendments` (refuse when their order is approved; MBA with no order: allowed).
+- **Children too** — Order Entry saves by delete + re-insert of ~20 child grids, so a
+  parent-only trigger leaves quantities and prices writable through a child table. ONE generic
+  trigger function `refuse_when_order_locked()` with TG_ARGV naming how to reach the order
+  (direct `amendment_id`, or via `bom_id` → BOM → order), attached to every child table found
+  from the CATALOG (FKs into the three parents), **T&A tables excluded** (execution, not plan)
+  and any other exclusion justified in the migration.
+- **Allowlist, not blanket:** an UPDATE whose only changed columns are bookkeeping
+  (`re_status`, `re_status_at`, `approval_status`, `approved_at`, `updated_at`, …) passes —
+  compared as `to_jsonb(NEW) - allow <> to_jsonb(OLD) - allow`. Otherwise the status trigger
+  would be refused by the lock it sets.
+- Message (one wording everywhere): `RE <no> is locked — its budget <code> was approved on
+  <dd/mm/yyyy>. Reopen the budget (Amendment Protocol) to change it.`
+- **Uniqueness guard:** BEFORE UPDATE on `order_budgets` when status becomes `approved` —
+  refuse if any of its orders is already in another approved budget, naming it. Both approval
+  paths (engine terminal trigger, legacy decideBudget) pass through it.
+
+## Server guards (the courtesy, so the operator sees a sentence before any write)
+
+`assertOrderUnlocked(orderId)` at the top of every write action of Order Entry / Amendment,
+Fabric BOM (incl. `writePalette`) and Material BOM — BEFORE the first write. The trigger is
+still the guard; this makes the refusal a toast instead of a half-run action.
+
+## Amendment Protocol = the reopen (doc §4.4 + decisions 1–2)
+
+- `order_budget_revisions`: budget_id, revision_no, **source** ('customer' | 'internal' —
+  "By Customer" / "By Us"), **amendment_type**, **reason** (not null, non-blank), baseline
+  jsonb (the APPROVED figures + lines as they stood), approved_by/at of the baseline,
+  reopened_by (auth.uid()), reopened_at. Append-only (no UPDATE/DELETE policy).
+- `reopen_order_budget(budget_id, source, type, reason, baseline)` — ONE transactional RPC
+  (insert revision + `approved → draft`, clearing decided_* per `chk_ob_decision_*`), gated on
+  `orders:approve`. Two PostgREST calls would leave a revision with no reopen or vice versa.
+- `canTransition`: `approved → draft` only through this path.
+- The budget shows its revision history and, in General, **Approved baseline vs Current**
+  with the variance.
+
+## Submission summary + notification (doc §4.2)
+
+- `budgetKpis()` (engine): RE No(s), entry date, delivery date(s), order qty, total income
+  (= gross sales + other incomes, per the doc), total expenses, profit, profit %, cost/piece —
+  refusals as sentences.
+- Stored at submit as `order_budgets.submitted_summary jsonb` (what the MD approved against)
+  and passed as the approval run's context.
+- Notify the current step's approvers when a step becomes active — mechanism per the
+  notifications research (in-app always; web push only if it already exists).
+
+## Purchase (decision 3)
+
+While an order's budget is reopened (has a revision and is not approved), no new PO for that
+order — refused at the PO write choke point with the revision's reason.
+
+## Gross Sales — NOT changed
+
+doc/order/budget.md §3 Step A says `SQ Quantity × Avg Price × Rate`. The client's own sample
+(38,85,638.40 = **5028** × 9.20 × 84) is ORDER Qty; SQ Qty (5321) includes excess/rejection
+pieces that are never sold. Kept on Order Qty; flagged to the user for client confirmation.
+
+## Phase 5 — research-settled details (2026-09-18)
+
+- **Notify:** `lib/notifications/notify.ts` `notify({userIds}, {title, body, href, type})` —
+  in-app bell (Realtime) + WEB PUSH (VAPID, `app/sw.ts` push handler). Payload is text only,
+  so the KPI summary goes in `body`. Approvers: `approval_step_approvers(step, requester,
+  scope, context)` (granted to authenticated since 0546), step = `steps_snapshot ->
+  (current_step - 1)`. Called from TS after `startApproval` AND after `actOnRun` advances a
+  run — in `lib/approvals`, generic, so every future workflow gets it. The run's `context`
+  carries the KPIs (`approval_runs.context`).
+- **Amendment vocabulary is REUSED:** source = the order module's own `INITIATED_OPTIONS`
+  ("By Customer" / "By Us", stored 'customer' / 'internal'); type = the legacy
+  `order_amendments` list quantity · colour · price · sizes · delivery_date · consignee ·
+  packing · style, + internal_error (doc §4.4) + other.
+- **PO block:** new gate `refuseReopenedBudget` beside `refuseOverCeiling` /
+  `refuseUnsettledMaterials` / `refuseUnapprovedYarnPurchase` at all four write paths of
+  `lib/purchase/po-actions.ts`. Today POs are ALLOWED for an order with no approved budget —
+  that stays true; only a REOPENED budget blocks.
+- **Allowlist columns** (bookkeeping that must pass the lock): re_status, re_status_at,
+  approval_status, approved_by, approved_at, approval_reason (decideAmendment), updated_at.
+  CAD apply (`lib/orders/cad/actions.ts`) changes fabric consumption — BLOCKED on a locked
+  order on purpose ("fabric weight" is what the lock protects).
+- **UI lock:** all three editors use `MasterFullScreen` (order: mount=page, the two BOMs:
+  overlay) → one `locked` prop. `LockScope` context modelled on `RequiredScope`
+  (field.tsx), read where `useRequiredHold` is (input, textarea, select, combobox,
+  data-picker, multi-select, file-attachments) + toggle, RecordPicker, ChildGrid (no add /
+  remove). Unlike RequiredScope it is NOT reset at portal boundaries: a sub-sheet of a locked
+  record is locked too.
+
+## Phase 5 team (four)
+
+| Teammate | Owns |
+|---|---|
+| data | `0576_budget_approval_lock.sql`, `lib/orders/budget/{types,service,actions}.ts` |
+| engine | `lib/orders/budget/totals.ts` (+ a new `lib/orders/budget/amendment.ts` if cleaner), vectors |
+| locks (new) | server guards in `lib/orders/{amendments,fabric-bom,material-bom-amendment,cad}/actions.ts`, `lib/purchase/{bom-ceiling-service,po-actions}.ts`, `lib/approvals/*` notify, `locked` wiring + banners in the three editor screens, RE Status on the order list |
+| ui | `LockScope` in the field primitives + `MasterFullScreen locked`, budget screens (Amendment Protocol sheet, revision history, baseline vs current, submitted summary) |
+
+Shared-tree rule: `fabric-bom-screen.tsx` and `child-grid.tsx` are being edited by another
+session — surgical `Edit` only, re-read right before editing, never a whole-file `Write`.

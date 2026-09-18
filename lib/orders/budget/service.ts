@@ -28,6 +28,7 @@ import {
   type OrderRow as BasisOrderRow,
 } from "@/lib/orders/bom-order-basis";
 import { orderSalesValue } from "./totals";
+import { budgetFigures, type BudgetFigures } from "./figures";
 import type { BudgetSource, FabricProcessRow } from "./totals";
 import type {
   BudgetApprovalRow,
@@ -1476,22 +1477,92 @@ const BUDGET_SELECT =
   "*, " +
   "orders:order_budget_orders(*, garment_order:garment_order_amendments(id, code, po_no, delivery_date, " +
   "customer:customers(id,name), sales_order:sales_orders(order_number))), " +
-  "lines:order_budget_lines(*)";
+  "lines:order_budget_lines(*), " +
+  // The Amendment Protocol history (0576). One FK to order_budgets, so bare.
+  "revisions:order_budget_revisions(*)";
+
+/** Sort a budget's children and resolve its revisions' reopeners, for one
+ *  budget or a list. */
+async function shapeBudgets(rows: OrderBudget[]): Promise<OrderBudget[]> {
+  const shaped = rows.map((b) => ({
+    ...b,
+    orders: [...(b.orders ?? [])].sort((a, c) => a.sno - c.sno),
+    lines: [...(b.lines ?? [])].sort((a, c) => a.sno - c.sno),
+    revisions: [...(b.revisions ?? [])].sort((a, c) => a.revision_no - c.revision_no),
+  }));
+
+  /* WHO REOPENED IT, by name — through `creator_names()`, the SECURITY DEFINER
+     lookup `withCreators` uses, never a `profiles` embed (which RLS resolves
+     to null for everyone but the reader — lib/created-by.ts). */
+  const ids = [
+    ...new Set(
+      shaped.flatMap((b) => b.revisions.flatMap((r) => [r.reopened_by, r.baseline_approved_by])).filter(Boolean),
+    ),
+  ] as string[];
+  if (ids.length > 0) {
+    const s = await createClient();
+    const { data, error } = await s.rpc("creator_names", { ids });
+    // A name that cannot be read is a dash on screen, not a failed page — the
+    // revision itself (who, why, when) is still there.
+    if (!error) {
+      const byId = new Map(((data ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name]));
+      for (const b of shaped) {
+        const name = (id: string | null) => (id ? (byId.get(id) ?? null) : null);
+        b.revisions = b.revisions.map((r) => ({
+          ...r,
+          reopened_by_name: name(r.reopened_by),
+          baseline_approved_by_name: name(r.baseline_approved_by),
+        }));
+      }
+    }
+  }
+  return withCreators(shaped);
+}
 
 export async function listOrderBudgets(): Promise<OrderBudget[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("order_budgets")
     .select(BUDGET_SELECT)
     .order("created_at", { ascending: false });
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — an empty budget list reads
+  // as "nothing budgeted yet", which is believable and wrong. Thrown, so the
+  // route's error boundary names it.
+  if (error) throw new Error(`Could not read the budgets: ${error.message}`);
+  return shapeBudgets((data ?? []) as unknown as OrderBudget[]);
+}
 
-  return withCreators(
-    ((data ?? []) as unknown as OrderBudget[]).map((b) => ({
-      ...b,
-      orders: [...(b.orders ?? [])].sort((a, c) => a.sno - c.sno),
-      lines: [...(b.lines ?? [])].sort((a, c) => a.sno - c.sno),
-    })),
-  );
+/** One budget, whole — what submit and reopen compute their figures from. */
+export async function getOrderBudget(id: string): Promise<OrderBudget | null> {
+  const s = await createClient();
+  const { data, error } = await s.from("order_budgets").select(BUDGET_SELECT).eq("id", id).maybeSingle();
+  if (error) throw new Error(`Could not read the budget: ${error.message}`);
+  if (!data) return null;
+  return (await shapeBudgets([data as unknown as OrderBudget]))[0];
+}
+
+/**
+ * A budget's figures, as the screen would show them now — lines as stored,
+ * orders' facts as `listBudgetableOrders` values them (the screen's own
+ * source), in the budget's order. `budgetFigures` assembles the engine's
+ * inputs, the same function the screen calls.
+ *
+ * An order the menu no longer lists (drafted back, deleted) is left out — and
+ * its absence refuses nothing by itself, so it is said: the facts list is
+ * returned beside the figures for the caller to compare.
+ */
+export async function budgetFiguresOf(
+  budget: OrderBudget,
+): Promise<BudgetFigures & { facts: BudgetableOrder[] }> {
+  const all = await listBudgetableOrders();
+  const byId = new Map(all.map((o) => [o.id, o] as const));
+  const facts = budget.orders
+    .map((o) => byId.get(o.garment_order_id))
+    .filter((o): o is BudgetableOrder => !!o);
+  if (facts.length !== budget.orders.length) {
+    throw new Error("One of this budget's orders can no longer be read — it may have been drafted or deleted");
+  }
+  return { ...budgetFigures({ lines: budget.lines, facts, entryDate: budget.budget_date }), facts };
 }
 
 /**

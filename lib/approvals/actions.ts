@@ -17,6 +17,7 @@ import {
   type StartRunArgs,
 } from "./service";
 import type { ApprovalFlowDraft, RunAction } from "./types";
+import { notifyCurrentApprovers } from "./notify";
 
 /**
  * Raagam's server-action skin over the approval service.
@@ -102,6 +103,9 @@ export async function startApproval(args: StartRunArgs): Promise<Result> {
   try {
     const run = await svcStart(args);
     revalidateApprovals();
+    /* Step 1's approvers are told now (Phase 5). After the run exists and
+       never able to fail it — `notifyCurrentApprovers` swallows everything. */
+    await notifyCurrentApprovers(run.id, { reason: "started" });
     return okay(run.id);
   } catch (e) {
     return fail(explain(e, "Could not start the approval"));
@@ -131,13 +135,22 @@ export async function actOnRun(params: {
 }): Promise<Result> {
   if (!(await can("approvals", "approve"))) return fail("Forbidden");
   try {
-    await svcAct({
+    const run = await svcAct({
       runId: params.runId,
       action: params.action,
       lockVersion: params.lockVersion,
       comment: params.comment,
     });
     revalidateApprovals(params.subjectPath);
+    /* STILL IN PROGRESS AFTER A DECISION = A STEP JUST BECAME ACTIVE — an
+       approval that advanced it, or a return that sent it back to an earlier
+       one. Either way that step's approvers are told. A completed or rejected
+       run has nobody left to ask. */
+    if (run.status === "in_progress") {
+      await notifyCurrentApprovers(run.id, {
+        reason: params.action === "return" ? "returned" : "advanced",
+      });
+    }
     return okay();
   } catch (e) {
     return fail(explain(e, "Could not record the decision"));

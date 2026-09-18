@@ -3,6 +3,7 @@ import { requirePermission, can } from "@/lib/auth/server";
 import { getAmendments, getAmendmentFormData } from "@/lib/orders/amendments/service";
 import { listMaterialBomStatus } from "@/lib/orders/material-bom-amendment/service";
 import { previewOrderNumber } from "@/lib/orders/actions";
+import { orderLockMessages } from "@/lib/orders/order-locks";
 
 /**
  * Everything `AmendmentScreen` needs, fetched once and shared by BOTH its
@@ -20,7 +21,7 @@ import { previewOrderNumber } from "@/lib/orders/actions";
 export async function loadGarmentOrderProps() {
   const user = await requirePermission("orders", "view");
 
-  const [rows, data, bomStatus, canCreate, canEdit, canDelete, mCreate, mEdit, initialOrderNo] =
+  const [rows, data, bomStatus, canCreate, canEdit, canDelete, mCreate, mEdit, initialOrderNo, orderLocks] =
     await Promise.all([
       getAmendments(),
       getAmendmentFormData(),
@@ -63,6 +64,10 @@ export async function loadGarmentOrderProps() {
        * beats an empty box every day of the year.
        */
       previewOrderNumber(user.defaultLocationId, null),
+      /* Orders locked by an approved budget (Phase 5): the list's RE Status and
+         the editor's banner. Its own call, for the reason `listMaterialBomStatus`
+         gives above — never a new column on `getAmendments()`'s select. */
+      orderLockMessages(),
     ]);
 
   return {
@@ -73,5 +78,6 @@ export async function loadGarmentOrderProps() {
     defaultLocationId: user.defaultLocationId,
     initialOrderNo,
     masterPerms: { canCreate: mCreate, canEdit: mEdit },
+    orderLocks,
   };
 }

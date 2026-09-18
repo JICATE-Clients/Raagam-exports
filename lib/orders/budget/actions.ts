@@ -5,20 +5,26 @@ import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import {
+  budgetReopenInput,
+  canReopen,
   canTransition,
   orderBudgetInput,
   type BudgetLine,
+  type BudgetReopenInput,
   type BudgetStatus,
   type CopyableBudget,
   type OrderBudgetInput,
 } from "./types";
 import {
+  budgetFiguresOf,
   fabricProcessBreakdown,
+  getOrderBudget,
   pullCostLines,
   type FabricProcessGroup,
   type PulledCostLine,
 } from "./service";
-import { budgetTotals } from "./totals";
+import { isRefusal } from "./totals";
+import { budgetBaseline, kpisToJson } from "./amendment";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 
@@ -199,6 +205,19 @@ export async function deleteOrderBudget(id: string): Promise<Result> {
   const s = await createClient();
   const guard = await assertEditable(s, id);
   if (!guard.ok) return guard;
+  /* A ONCE-APPROVED BUDGET KEEPS ITS HISTORY (0576) — see `canDeleteBudget`.
+     Said here, with the count, before the database's own refusal would say it
+     mid-delete. */
+  const { count, error: revErr } = await s
+    .from("order_budget_revisions")
+    .select("id", { count: "exact", head: true })
+    .eq("budget_id", id);
+  if (revErr) return fail(revErr.message);
+  if ((count ?? 0) > 0) {
+    return fail(
+      `This budget has an approved history (${count} revision${count === 1 ? "" : "s"}) and cannot be deleted — keep it, or reopen and revise it.`,
+    );
+  }
   const { error } = await s.from("order_budgets").delete().eq("id", id); // children cascade
   if (error) return fail(error.message);
   rev();
@@ -238,15 +257,55 @@ export async function submitBudget(id: string): Promise<Result> {
   // `source, qty, rate` rather than `id`, because the same read now feeds the
   // approval context below — a second query for the same rows would be a second
   // chance for the two to disagree about what this budget is worth.
-  const { data: lines } = await s
-    .from("order_budget_lines")
-    .select("source, qty, rate")
-    .eq("budget_id", id);
-  if ((lines ?? []).length === 0) return fail("Add at least one cost line before submitting");
+  //
+  // THE SUMMARY THE APPROVER APPROVES AGAINST (0576, doc §4.2) is computed
+  // here, from the stored budget, by `budgetFiguresOf` — the SAME assembler
+  // the screen calls (`./figures`), so the KPIs the MD reads are, figure for
+  // figure, what the merchandiser saw. It is stored on the row
+  // (`submitted_summary`) in the same write as the status, and handed to the
+  // approval run as its context below.
+  let budget: Awaited<ReturnType<typeof getOrderBudget>>;
+  let figures: Awaited<ReturnType<typeof budgetFiguresOf>>;
+  try {
+    budget = await getOrderBudget(id);
+    if (!budget) return fail("That budget no longer exists");
+    if (budget.lines.length === 0) return fail("Add at least one cost line before submitting");
+    figures = await budgetFiguresOf(budget);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "The budget's figures could not be worked out");
+  }
+  const { totals } = figures;
+  const summary = kpisToJson(figures.kpis);
+
+  /* THE SNAPSHOT IS REWRITTEN FROM THE SAME FACTS. The approval screen values
+     the orders from `order_budget_orders.sales_value` (the approver sees what
+     was submitted, 0428), and that snapshot was taken at the last SAVE — an
+     order re-priced between save and submit would otherwise give the approver
+     one total and the stored summary another. Written while the budget is
+     still draft, before the status moves (0576 freezes it once approved). */
+  const byOrder = new Map(figures.facts.map((o) => [o.id, o] as const));
+  for (const o of budget.orders) {
+    const f = byOrder.get(o.garment_order_id);
+    if (!f) continue;
+    const { error: snapErr } = await s
+      .from("order_budget_orders")
+      .update({
+        sales_value: f.sales_value,
+        // `chk_obo_value_or_reason` (0428): exactly one of the two.
+        sales_refusal: f.sales_value == null ? (f.sales_refusal ?? "this order has no value yet") : null,
+      })
+      .eq("id", o.id);
+    if (snapErr) return fail(snapErr.message);
+  }
 
   const { error } = await s
     .from("order_budgets")
-    .update({ status: "submitted", submitted_at: new Date().toISOString(), submitted_by: (await getAppUser())?.id ?? null })
+    .update({
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+      submitted_by: (await getAppUser())?.id ?? null,
+      submitted_summary: summary,
+    })
     .eq("id", id);
   if (error) return fail(error.message);
 
@@ -273,16 +332,6 @@ export async function submitBudget(id: string): Promise<Result> {
    * be unreachable; if it ever fires, the budget goes back to draft and the
    * message names the cause rather than the document quietly sitting still.
    */
-  const totals = budgetTotals(
-    (lines ?? []) as { source: string | null; qty: number | null; rate: number | null }[],
-    [],
-  );
-  const { data: budget } = await s
-    .from("order_budgets")
-    .select("currency_code, location_id")
-    .eq("id", id)
-    .single();
-
   const started = await startApproval({
     workflowKey: WORKFLOWS.order_budget.key,
     subjectTable: WORKFLOWS.order_budget.subjectTable,
@@ -292,20 +341,27 @@ export async function submitBudget(id: string): Promise<Result> {
        mis-routing — so the cost of sending an unused key is nothing, and the
        cost of omitting one is a flow that silently never fires. */
     context: {
-      total_cost: totals.cost,
-      currency_code: budget?.currency_code ?? null,
+      /* A cost that REFUSES (a pending percent line, 0575) goes as null, not
+         as a number: a flow testing `total_cost > X` must not match on a
+         partial sum. The refusal's sentence is in `kpis`. */
+      total_cost: isRefusal(totals.cost) ? null : totals.cost,
+      currency_code: budget.currency_code ?? null,
       unpriced_lines: totals.unpriced.length,
+      /* THE §4.2 SUMMARY — what the approval notification shows and what
+         `submitted_summary` stores. The same JSON, so the push, the queue and
+         the stored record cannot disagree. */
+      kpis: summary,
     },
     /* The unit narrows WHO holds the approving role (0500). A budget with no
        location falls back to every holder of the role, which is right: an
        unscoped document is not one unit's business. */
-    scope: budget?.location_id ? { location_id: budget.location_id } : {},
+    scope: budget.location_id ? { location_id: budget.location_id } : {},
   });
 
   if (!started.ok) {
     await s
       .from("order_budgets")
-      .update({ status: "draft", submitted_at: null, submitted_by: null })
+      .update({ status: "draft", submitted_at: null, submitted_by: null, submitted_summary: null })
       .eq("id", id);
     return fail(`Submitted, but no approval could be started — ${started.error}`);
   }
@@ -423,20 +479,75 @@ async function approvedClash(
   return `${name} is already in approved budget ${hit.budget?.code ?? hit.budget?.id}. Remove it, or revise that budget instead`;
 }
 
-/** Send a rejected budget back to the author. Gated on `edit`: reworking it is
- *  the author's job, and the approver has already had their say. */
-export async function reopenBudget(id: string): Promise<Result> {
-  if (!(await can("orders", "edit"))) return fail("Forbidden");
+/**
+ * Send a budget back to draft.
+ *
+ * ## TWO DIFFERENT ACTS BEHIND ONE BUTTON
+ *
+ * - A REJECTED budget goes back to its author to be reworked — the ordinary
+ *   `canTransition` step, gated on `edit`: reworking it is the author's job, and
+ *   the approver has already had their say.
+ * - An APPROVED budget goes back only through the AMENDMENT PROTOCOL (0576):
+ *   `protocol` is required (who asked, what kind of change, why), the action is
+ *   gated on `orders:approve` (undoing an approval is the approver's act), and
+ *   `reopen_order_budget()` records the revision — with the APPROVED BASELINE
+ *   computed here — and moves the status in ONE transaction. That status
+ *   change is what unlocks the budget's orders (0576's sync trigger).
+ *
+ * THE BASELINE IS COMPUTED ON THE SERVER, from the stored budget, by the same
+ * assembler the screen uses (`budgetFiguresOf` → `./figures`) — never taken
+ * from the client, whose copy could be stale or edited. The budget is frozen
+ * while approved and its orders are locked, so the figures computed now ARE
+ * the approved figures.
+ */
+export async function reopenBudget(
+  id: string,
+  protocol?: BudgetReopenInput,
+): Promise<Result & { revisionNo?: number }> {
   const s = await createClient();
 
   const from = await readStatus(s, id);
   if (!from) return fail("That budget no longer exists");
+
+  if (canReopen(from)) {
+    if (!(await can("orders", "approve"))) {
+      return fail("You do not have permission to reopen an approved budget");
+    }
+    const p = budgetReopenInput.safeParse(protocol ?? {});
+    if (!p.success) return fail(p.error.issues[0]?.message ?? "Say why the budget is being reopened");
+
+    let baseline: unknown;
+    try {
+      const budget = await getOrderBudget(id);
+      if (!budget) return fail("That budget no longer exists");
+      const figures = await budgetFiguresOf(budget);
+      baseline = budgetBaseline({ kpis: figures.kpis, general: figures.general, lines: budget.lines });
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : "The approved figures could not be worked out");
+    }
+
+    const { data, error } = await s.rpc("reopen_order_budget", {
+      p_budget_id: id,
+      p_source: p.data.source,
+      p_type: p.data.amendment_type,
+      p_reason: p.data.reason,
+      p_baseline: baseline,
+    });
+    if (error) return fail(error.message);
+    const revisionNo = Number(data);
+
+    await writeAudit({
+      action: "order_budget.reopened",
+      entityType: "order_budget",
+      entityId: id,
+    });
+    rev();
+    return { ok: true, id, revisionNo };
+  }
+
+  if (!(await can("orders", "edit"))) return fail("Forbidden");
   if (!canTransition(from, "draft")) {
-    return fail(
-      from === "approved"
-        ? "An approved budget cannot be reopened. Raise a new one to revise it"
-        : `A ${from} budget is already editable`,
-    );
+    return fail(`A ${from} budget is already editable`);
   }
 
   const { error } = await s

@@ -25,9 +25,18 @@
 import type { ReactNode } from "react";
 import { fmtNumber } from "@/lib/format";
 import { isRefusal, type GeneralSummary, type Refusal } from "@/lib/orders/budget/totals";
+import type { BaselineRow } from "@/lib/orders/budget/amendment";
 import { cn } from "@/lib/utils";
 
-export function BudgetGeneral({ summary }: { summary: GeneralSummary }) {
+export function BudgetGeneral({
+  summary,
+  baseline,
+}: {
+  summary: GeneralSummary;
+  /** Approved baseline vs current (`compareToBaseline`) — present once the
+   *  budget has been reopened under the Amendment Protocol, null before. */
+  baseline?: readonly BaselineRow[] | null;
+}) {
   return (
     <div className="space-y-6">
       <div className="max-w-2xl rounded-lg border border-border">
@@ -60,6 +69,36 @@ export function BudgetGeneral({ summary }: { summary: GeneralSummary }) {
             Order Qty the sales figure is priced on. */}
         <Highlight label="Cost per piece (on SQ Qty)" value={summary.costPerPiece} />
       </dl>
+
+      {baseline && baseline.length > 0 && (
+        /* WHAT THE AMENDMENT CHANGED — the figures the approver signed off,
+           beside today's, and the difference. The approver re-approving a
+           reopened budget is approving the VARIANCE as much as the total, so
+           it is spelled out rather than left for them to subtract. */
+        <div className="max-w-3xl rounded-lg border border-border">
+          <BaselineHeader />
+          {baseline.map((r) => (
+            <div
+              key={r.key}
+              className={cn(
+                "flex items-baseline gap-4 border-b border-border px-3 py-2 last:border-b-0",
+                r.key === "total" && "border-t-2 border-border-strong font-semibold",
+              )}
+            >
+              <span className="min-w-0 flex-1 text-sm">{r.label}</span>
+              {[r.baseline, r.current, r.variance].map((v, i) => (
+                <span key={i} className="w-40 shrink-0 text-right">
+                  <Figure
+                    value={v}
+                    suffix={r.kind === "percent" ? "%" : ""}
+                    signed={i === 2}
+                  />
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -137,6 +176,17 @@ function Highlight({
       <dd className="text-right">
         <Figure value={value} suffix={suffix} strong={strong} signed={signed} />
       </dd>
+    </div>
+  );
+}
+
+function BaselineHeader() {
+  return (
+    <div className="flex items-baseline gap-4 border-b border-border px-3 py-2 text-xs font-bold uppercase tracking-wide text-foreground">
+      <span className="min-w-0 flex-1">Compared with approval</span>
+      <span className="w-40 shrink-0 text-right">Approved baseline</span>
+      <span className="w-40 shrink-0 text-right">Current</span>
+      <span className="w-40 shrink-0 text-right">Variance</span>
     </div>
   );
 }

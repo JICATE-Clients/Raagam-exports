@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { getDefaultTaskOwners } from "@/lib/ta/task-owner-defaults";
+import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
 import {
   amendmentInput,
   mergeTaCompletions,
@@ -2039,6 +2040,22 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
   if (qtyProblem) return fail(qtyProblem);
   const s = await createClient();
 
+  /* THE APPROVAL LOCK IS PER RE No (0576): a new document attached to an RE
+     whose budget is approved is refused by the insert trigger. Asked here,
+     before the first write, through any existing document of that RE — the
+     lock reads the RE's approved sibling from it. A fresh RE has none. */
+  if (p.data.sales_order_id) {
+    const { data: sib, error: sibErr } = await s
+      .from("garment_order_amendments")
+      .select("id")
+      .eq("sales_order_id", p.data.sales_order_id)
+      .limit(1)
+      .maybeSingle();
+    if (sibErr) return fail(`Could not check whether this order is locked: ${sibErr.message}`);
+    const lock = await assertOrderUnlocked((sib as { id: string } | null)?.id);
+    if (!lock.ok) return fail(lock.error);
+  }
+
   /**
    * MINT THE SC NO (client 2026-08-11).
    *
@@ -2138,6 +2155,13 @@ export async function updateAmendment(
   data: AmendmentInput,
 ): Promise<Result> {
   if (!(await can("orders", "edit"))) return fail("Forbidden");
+  /* THE APPROVAL LOCK (Phase 5), before anything else and before the first
+     write: this save deletes and re-inserts ~20 child grids, and 0576's
+     triggers refusing it halfway would read as a half-run save rather than as
+     a lock. Order Amendment saves through here too, and is locked on purpose
+     (user 2026-09-18) — changes go through the budget's Amendment Protocol. */
+  const lock = await assertOrderUnlocked(id);
+  if (!lock.ok) return fail(lock.error);
   const p = amendmentInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   /* Requiredness that Zod cannot state: whether a part's Colour is mandatory
@@ -2271,6 +2295,9 @@ export async function loadOrderSeed(salesOrderId: string): Promise<SeedResult> {
  */
 export async function deleteAmendment(id: string): Promise<Result> {
   if (!(await can("orders", "delete"))) return fail("Forbidden");
+  // An approved order cannot be deleted from under its budget (Phase 5).
+  const lock = await assertOrderUnlocked(id);
+  if (!lock.ok) return fail(lock.error);
   const s = await createClient();
   const { error } = await s.rpc("delete_garment_order_document", { p_id: id });
   if (error) return fail(error.message);

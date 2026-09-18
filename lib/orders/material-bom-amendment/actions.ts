@@ -50,11 +50,44 @@ import {
   requiredWithProcessLoss,
   type ProcessLossRow,
 } from "@/lib/orders/material-bom/process-loss";
+import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
 function fail(msg: string): Result {
   return { ok: false, error: msg };
+}
+
+/**
+ * THE APPROVAL LOCK (Phase 5), asked BEFORE the first write of every action
+ * here. 0576's triggers are the guard; this turns their refusal into a
+ * sentence before a save has half-run. Both the order the BOM is stored
+ * against and the one the form names are checked, so re-pointing a BOM can
+ * neither leave a locked order nor join one. A BOM with no order is never
+ * locked — `assertOrderUnlocked` passes a null, as 0576's trigger does.
+ */
+async function orderLockProblem(
+  ...orderIds: (string | null | undefined)[]
+): Promise<string | null> {
+  for (const id of new Set(orderIds.filter((v): v is string => !!v))) {
+    const lock = await assertOrderUnlocked(id);
+    if (!lock.ok) return lock.error;
+  }
+  return null;
+}
+
+/** The order a stored Material BOM belongs to. A failed read is an error, not "none". */
+async function storedBomOrderId(
+  s: Awaited<ReturnType<typeof createClient>>,
+  bomId: string,
+): Promise<{ ok: true; orderId: string | null } | { ok: false; error: string }> {
+  const { data, error } = await s
+    .from("material_bom_amendments")
+    .select("garment_order_id")
+    .eq("id", bomId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, orderId: (data as { garment_order_id: string | null } | null)?.garment_order_id ?? null };
 }
 
 /**
@@ -1342,6 +1375,9 @@ export async function createMaterialBomAmendment(
   const p = materialBomAmendmentInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
+  const locked = await orderLockProblem(p.data.garment_order_id);
+  if (locked) return fail(locked);
+
   const s = await createClient();
   const order = p.data.garment_order_id
     ? await getOrderProduction(p.data.garment_order_id)
@@ -1376,6 +1412,11 @@ export async function updateMaterialBomAmendment(
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
   const s = await createClient();
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  const locked = await orderLockProblem(stored.orderId, p.data.garment_order_id);
+  if (locked) return fail(locked);
+
   const order = p.data.garment_order_id
     ? await getOrderProduction(p.data.garment_order_id)
     : null;
@@ -1401,6 +1442,10 @@ export async function updateMaterialBomAmendment(
 export async function deleteMaterialBomAmendment(id: string): Promise<Result> {
   if (!(await can("orders", "delete"))) return fail("Forbidden");
   const s = await createClient();
+  const stored = await storedBomOrderId(s, id);
+  if (!stored.ok) return fail(stored.error);
+  const locked = await orderLockProblem(stored.orderId);
+  if (locked) return fail(locked);
   const { error } = await s.from("material_bom_amendments").delete().eq("id", id); // children cascade
   if (error) return fail(error.message);
   rev();
