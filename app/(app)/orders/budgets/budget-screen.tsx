@@ -30,7 +30,7 @@
  * beside it for the same reason.
  */
 
-import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Coins,
@@ -56,7 +56,6 @@ import {
   FieldGrid,
   FieldRow,
   FieldError,
-  FIELD_WIDTH,
   FIELD_WIDTH_CSS,
   RequiredScope,
 } from "@/components/ui/field";
@@ -185,6 +184,9 @@ type CostRow = {
   component_id: string | null;
   /** Other Expenses / Other Incomes' head — a `config_lookups` row (0575). */
   cost_head_id: string | null;
+  /** Yarn Purchases' Stage — a `yarn_stage` lookup row (0590). NOT read by
+   *  `isBlankLine`: a stage alone is not a typed line. */
+  stage_id: string | null;
   /**
    * Other Expenses' Type — SCREEN STATE, NEVER SENT. The scope is what is
    * stored (doc "Phase 4"): no order = SQ Wise, an order = Order Wise, an
@@ -258,6 +260,7 @@ const blankCost = (key: string, source: BudgetSource): CostRow => ({
   style_ref_no: null,
   component_id: null,
   cost_head_id: null,
+  stage_id: null,
   scope: "sq",
   cutting_rate: "",
   making_rate: "",
@@ -323,6 +326,7 @@ type LineLike = {
   style_ref_no?: string | null;
   component_id?: string | null;
   cost_head_id?: string | null;
+  stage_id?: string | null;
 } & Partial<Record<CmtOperationKey, number | null>>;
 
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
@@ -362,6 +366,7 @@ const rowOf = (key: string, l: LineLike): CostRow => ({
   style_ref_no: l.style_ref_no ?? null,
   component_id: l.component_id ?? null,
   cost_head_id: l.cost_head_id ?? null,
+  stage_id: l.stage_id ?? null,
   scope: scopeOfLine(l),
   cutting_rate: str(l.cutting_rate),
   making_rate: str(l.making_rate),
@@ -1380,39 +1385,77 @@ export function BudgetScreen({
    * printing GREY there would claim what nobody said. Colour is the line's own
    * `combo`, on every line — blank today, since no yarn line carries one.
    *
-   * Drawn as two cells under the Yarn picker — the legacy two-row line (see
-   * `yarnPurchaseColumns`).
-   */
-  const YARN_PURCHASE_STAGE = "GREY";
-
-  /**
-   * THE LEGACY TWO-ROW LINE — one stacked cell (user 2026-09-19, screenshot
-   * 2954, the RP Yarn Purchase Rate Detail; "foc and import is two field").
-   * The top row is the thing and its figure, the row under it the details that
-   * go with it, so eleven facts sit in seven columns instead of eleven.
+   * Their own columns, straight after Yarn — the legacy line's Yarn / Stage /
+   * Color order (screenshot 2954).
    *
-   * EVERY CONTROL CARRIES ITS OWN `RequiredScope`, and that is not decoration.
-   * `ChildGrid` wraps each CELL in one scope from the column's `required`, and
-   * `required` here draws the header star for the column's mandatory half. So
-   * without a scope per control, Currency would inherit Ex Rate's "required"
-   * and a blank select would hold the cursor. The nearest provider wins, so an
-   * explicit `false` is what keeps the other half free.
+   * DUPLICATED FROM THE FABRIC BOM'S YARN PROCESS (user 2026-09-19: "see the
+   * stage is from yarn process of fabric bom ... just duplicate it there").
+   * Stage is the same `LookupDialogPicker` over the same `yarn_stage` rows
+   * (GREY / DYED) that `components/orders/yarn-process-grid.tsx` uses, and
+   * Colour the same `<Select>` over the order's own colourways. A pulled line
+   * arrives with both set from that yarn's first Yarn Process step (0590 —
+   * `firstStep` in the budget service); the planner can change either.
+   *
+   * HISTORY, so nobody redoes it: a merged "Stage · Colour" cell, then a
+   * two-row re-layout (reverted — "i just told to add new color and stage
+   * field only"), then read-only text under the Yarn picker that a new
+   * budget's blank row left empty. Every other column stays exactly where and
+   * as wide as it was.
    */
-  const tiers = (top: ReactNode, bottom?: ReactNode) => (
-    <div className="flex flex-col gap-1">
-      <div>{top}</div>
-      {bottom !== undefined && <div className="flex min-h-8 items-center">{bottom}</div>}
-    </div>
-  );
-  const own = (required: boolean, label: string, node: ReactNode) => (
-    <RequiredScope required={required} label={label}>
-      {node}
-    </RequiredScope>
-  );
-  const yarnItemCol = itemCol("Yarn");
-  const yarnDescCol = descCol("Description");
-  const yarnQtyCol = qtyCol("Reqd");
-  const yarnRateCol = rateCol("Rate");
+  const stageOptions = (held: string | null) =>
+    data.lookups.filter((l) => l.kind === "yarn_stage" && (!isInactive(l) || l.id === held));
+  const stageCol: CostCol = {
+    header: "Stage",
+    cell: (r) =>
+      // THE PICKER HAS NO READ-ONLY STATE — the Head column's own answer.
+      editable ? (
+        <LookupDialogPicker
+          kind="yarn_stage"
+          label="Stage"
+          compact
+          options={stageOptions(r.stage_id)}
+          value={r.stage_id}
+          onChange={(id) => setCost(r.key, { stage_id: id || null })}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+        />
+      ) : (
+        <Input
+          className="h-8"
+          readOnly
+          value={data.lookups.find((l) => l.id === r.stage_id)?.name ?? ""}
+        />
+      ),
+  };
+  /** A line's colourways: its own order's, or every picked order's for a
+   *  hand-added line that names none. The value it holds always survives the
+   *  list (AGENTS.md "Disabled rows"), as on the Fabric BOM. */
+  const colourOptions = (r: CostRow) => {
+    const list = r.garment_order_id
+      ? (orderById.get(r.garment_order_id)?.combos ?? [])
+      : [...new Set(pickedFacts.flatMap((o) => o.combos))];
+    return r.combo && !list.includes(r.combo) ? [...list, r.combo] : list;
+  };
+  const colourCol: CostCol = {
+    header: "Colour",
+    cell: (r) => (
+      <Select
+        compact
+        className="h-8"
+        aria-label="Colour"
+        value={r.combo ?? ""}
+        disabled={!editable}
+        onChange={(e) => setCost(r.key, { combo: e.target.value || null })}
+      >
+        <option value=""></option>
+        {colourOptions(r).map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </Select>
+    ),
+  };
 
   /*
    * THE COLUMN WIDTHS — Phase 6, the house convention: every column takes one
@@ -1428,100 +1471,33 @@ export function BudgetScreen({
    * cards. Each list states its sum against 1083.
    */
 
-  /* Yarn Purchases — THE LEGACY TWO-ROW LINE (2026-09-19, screenshot 2954).
-     Each column is "top / bottom", the legacy's own "Brand / Specifications"
-     reading:
-
-       Yarn / Stage · Colour      term  176   picker over GREY + the colour
-       Description                range 112   ours; not on the legacy screen
-       Brand / Specs / Unit       term  176   specification over the UOM
-       Reqd / FOC · Import        hug    88   quantity over TWO switches
-       Curr / Ex Rate             hug    88
-       Rate / INR Rate            hug    88
-       Amount                     range 112
-
-     176 + 112 + 176 + 88 + 88 + 88 + 112 = 840, + 72 = 912 <= 1155 -> 5xl.
-     (Was 12 one-row columns at 1144, 11px from dropping to cards.)
-
-     H/C (Hank / Cheese) is on the legacy screen and deliberately NOT here: the
-     order Fabric BOM does not record it, and the user said it is not needed. */
-  const yarnPurchaseColumns: CostCol[] = [
-    {
-      header: "Yarn / Stage · Colour",
-      width: FIELD_WIDTH_CSS.term,
-      cell: (r, i) =>
-        tiers(
-          own(false, "Yarn", yarnItemCol.cell(r, i)),
-          /* STAGE AND COLOUR ARE TWO FIELDS, side by side under the yarn, as
-             on the legacy line — read-only; see `YARN_PURCHASE_STAGE`. */
-          <span className="flex w-full min-w-0 items-center gap-2 text-sm">
-            <span className="w-12 shrink-0">{r.garment_order_id ? YARN_PURCHASE_STAGE : ""}</span>
-            <Truncated className="min-w-0 text-sm">{r.combo ?? ""}</Truncated>
-          </span>,
-        ),
-    },
-    {
-      header: "Description",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (r, i) => tiers(own(false, "Description", yarnDescCol.cell(r, i))),
-    },
-    {
-      header: "Brand / Specifications / Unit",
-      width: FIELD_WIDTH_CSS.term,
-      cell: (r, i) =>
-        tiers(
-          own(false, "Brand / Specifications", specCol.cell(r, i)),
-          <span className={FIELD_WIDTH.num}>{own(false, "Unit", unitCol.cell(r, i))}</span>,
-        ),
-    },
-    {
-      header: "Reqd / FOC · Import",
-      width: FIELD_WIDTH_CSS.hug,
-      required: true,
-      cell: (r, i) =>
-        tiers(
-          own(qtyRequired(r), "Reqd", yarnQtyCol.cell(r, i)),
-          /* TWO FIELDS, NOT ONE ("foc and import is two field"): each switch
-             is its own control with its own caption and accessible name. */
-          <span className="inline-flex items-end gap-1">
-            {(
-              [
-                ["is_foc", "FOC", "Free of cost"],
-                ["is_import", "Import", "Imported"],
-              ] as const
-            ).map(([key, caption, aria]) => (
-              <span key={key} className="flex w-9 flex-col items-center gap-0.5">
-                <span aria-hidden className="text-[10px] leading-none text-muted-foreground">
-                  {caption}
-                </span>
-                {own(false, caption, flagToggle(r, key, aria, "min-h-0"))}
-              </span>
-            ))}
-          </span>,
-        ),
-    },
-    {
-      header: "Curr / Ex Rate",
-      width: FIELD_WIDTH_CSS.hug,
-      required: true,
-      cell: (r, i) =>
-        tiers(
-          own(false, "Curr", currencyCol.cell(r, i)),
-          own(exRateRequired(r), "Ex Rate", exRateCol.cell(r, i)),
-        ),
-    },
-    {
-      header: "Rate / INR Rate",
-      width: FIELD_WIDTH_CSS.hug,
-      required: true,
-      cell: (r, i) =>
-        tiers(
-          own(rateRequired(r), "Rate", yarnRateCol.cell(r, i)),
-          <span className="ml-auto">{inrRateCol.cell(r, i)}</span>,
-        ),
-    },
+  /* Yarn Purchases — 144 + 88 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 112
+     = 1024, + 72 = 1096 <= 1155 -> 5xl. Re-cut from 1,312: FOC + Import merged
+     (-56), Yarn party -> code, Description term -> hug (the Yarn picker names
+     the yarn; the text is the pulled line's note), Curr and Rate -> num.
+     2026-09-19: + Stage (hug 88, a picker) and Colour (hug 88, a select) after
+     Yarn, and NOTHING else moved or narrowed — the user's rule for this change.
+     That is 1200, + 72 = 1272: past the 1155px laptop pane, so this grid
+     switches to a table from `7xl` (1280) instead of `5xl`. At or above 1280
+     the 1272px table always fits (the client's screen gives ~1312); below it,
+     one-frame cards — never a sideways scroll. 8px of headroom under 1280: the
+     next column here needs a re-cut, not a wider threshold. */
+  const yarnPurchaseColumns: CostCol[] = withRowRules([
+    // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1272px table, so it never scrolls sideways
+    { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.code },
+    { ...stageCol, width: FIELD_WIDTH_CSS.hug },
+    { ...colourCol, width: FIELD_WIDTH_CSS.hug },
+    { ...descCol("Description"), width: FIELD_WIDTH_CSS.hug },
+    { ...specCol, width: FIELD_WIDTH_CSS.range },
+    { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
+    { ...unitCol, width: FIELD_WIDTH_CSS.num },
+    { ...flagsCol, width: FIELD_WIDTH_CSS.hug },
+    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
+    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
+    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
+    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
-  ];
+  ]);
 
   /* Fabric Purchases — 176 + 200 + 88 + 72 + 72 + 72 + 88 + 88 + 112 = 968,
      + 72 = 1040 <= 1155 -> 5xl. */
@@ -2131,7 +2107,7 @@ export function BudgetScreen({
       <ChildGrid<CostRow>
         columns={yarnPurchaseColumns}
         rows={rowsOf("yarn")}
-        tableFrom="5xl"
+        tableFrom="7xl"
         flatRows
         renderMobileRow={(row, i) => costCard(yarnPurchaseColumns, row, i)}
         hideAdd={!editable}
@@ -3045,6 +3021,7 @@ export function BudgetScreen({
         style_ref_no: c.style_ref_no,
         component_id: c.component_id,
         cost_head_id: c.cost_head_id,
+        stage_id: c.stage_id,
         // 0574 — null each when not broken up. The schema derives `rate` from
         // these when any is set, so the two cannot be sent disagreeing.
         ...breakupOf(c),

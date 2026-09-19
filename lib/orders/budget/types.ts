@@ -188,6 +188,10 @@ export interface BudgetLine {
   /** The Expense / Income Head (0575) — a `config_lookups` row of kind
    *  `expense_head` / `income_head`. NULL on every other source. */
   cost_head_id: string | null;
+  /** The yarn stage (0590) — a `config_lookups` row of kind `yarn_stage`
+   *  (GREY / DYED), the same list the Fabric BOM's Yarn Process uses. Yarn
+   *  Purchases only; NULL on every other source. */
+  stage_id: string | null;
 }
 
 /** 0573's `chk_obl_basis`. `part` is Garment Processes' Partwise — never a
@@ -316,6 +320,8 @@ export const budgetLineInput = z
     packing_rate: breakupN,
     // 0575 — Other Expenses / Other Incomes.
     cost_head_id: uuidN,
+    // 0590 — Yarn Purchases' Stage.
+    stage_id: uuidN,
   })
   /**
    * The line rules, in the SCHEMA — `lib/data-io` parses imports with these same
@@ -479,6 +485,10 @@ export type BudgetOrderInputT = z.infer<typeof budgetOrderInput>;
 /** A garment order a budget may pick up, with what it will sell for. */
 export type BudgetableOrder = {
   id: string;
+  /** The order's colourways (`garment_order_amendment_combos.combo`), in its
+   *  own order — what Yarn Purchases' Colour lists, as the Fabric BOM's Yarn
+   *  Process does (0590). */
+  combos: string[];
   sc_no: string | null;
   order_code: string | null;
   po_no: string | null;

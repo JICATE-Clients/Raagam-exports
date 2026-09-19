@@ -407,7 +407,7 @@ function orderUnitOf(isSetPack: boolean, styles: readonly BudgetableStyle[]): st
 export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
   const s = await createClient();
 
-  const [values, styleFacts, ordersRes, coveredRes, fabricRes, materialRes] = await Promise.all([
+  const [values, styleFacts, ordersRes, coveredRes, fabricRes, materialRes, combosRes] = await Promise.all([
     salesValuesByOrder(),
     styleFactsByOrder(),
     s
@@ -429,12 +429,26 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     s
       .from("material_bom_amendment_requirements")
       .select("item_id, bom:material_bom_amendments(garment_order_id)"),
+    /* EACH ORDER'S COLOURWAYS (0590) — Yarn Purchases' Colour dropdown, the
+       same list the Fabric BOM's Yarn Process offers. `amendment_id` IS the
+       garment order. */
+    s.from("garment_order_amendment_combos").select("amendment_id, combo").order("sno"),
   ]);
 
   /* THE ORDER LIST ITSELF IS NOT ALLOWED TO FAIL QUIETLY. `?? []` here would
      render "no orders to budget" — a real and unremarkable answer — over a
      query that did not run. Thrown, so the route's error boundary says so. */
   if (ordersRes.error) throw new Error(`Could not read the garment orders: ${ordersRes.error.message}`);
+  // Nor the colourways: an empty Colour list would read as "this order has none".
+  if (combosRes.error) throw new Error(`Could not read the orders' colourways: ${combosRes.error.message}`);
+  const combosOf = new Map<string, string[]>();
+  for (const c of (combosRes.data ?? []) as { amendment_id: string; combo: string | null }[]) {
+    const name = (c.combo ?? "").trim();
+    if (!name) continue;
+    const list = combosOf.get(c.amendment_id) ?? [];
+    if (!list.includes(name)) list.push(name);
+    combosOf.set(c.amendment_id, list);
+  }
 
   type Covered = {
     garment_order_id: string;
@@ -499,6 +513,7 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     const sf = styleFacts.get(o.id);
     return {
       id: o.id,
+      combos: combosOf.get(o.id) ?? [],
       sc_no: o.sales_order?.order_number ?? null,
       order_code: o.code,
       po_no: o.po_no,
@@ -572,6 +587,9 @@ export type PulledCostLine = {
   /** Expense / Income Head (0575) — always null: nothing pulled is an
    *  "other" line. Carried so a pulled line spreads into a saved one whole. */
   cost_head_id: string | null;
+  /** The yarn stage (0590) — set on a `yarn` line from its Fabric BOM Yarn
+   *  Process (see the yarn branch), NULL on every other source. */
+  stage_id: string | null;
 };
 
 /** The 0572 / 0573 facts every pulled line starts from. `satisfies` rather
@@ -597,6 +615,7 @@ const PULLED_DEFAULTS = {
   ironing_rate: null,
   packing_rate: null,
   cost_head_id: null,
+  stage_id: null,
 } satisfies Omit<
   PulledCostLine,
   "source" | "garment_order_id" | "item_id" | "description" | "qty" | "uom_id" | "rate"
@@ -739,12 +758,12 @@ export async function pullCostLines(
     s
       .from("order_fabric_bom_yarn_stages")
       .select(
-        "process_qty, uom_id, combo, process_id, " +
+        "sno, stage_id, process_qty, uom_id, combo, process_id, " +
           "process:processes!process_id(name), " +
           /* `stage_id` AND `loss_for_id` BOTH point at config_lookups, so the
              FK column is NAMED — a bare `config_lookups(name)` is a 300 that
              would empty this whole select (AGENTS.md). */
-          "stage:config_lookups!stage_id(name), " +
+          "stage:config_lookups!stage_id(name, code), " +
           "yarn:order_fabric_bom_yarns(item_id, " +
           "bom:order_fabric_boms(garment_order_id, is_draft))",
       ),
@@ -835,6 +854,49 @@ export async function pullCostLines(
     bom: { garment_order_id: string; is_draft: boolean } | null;
   };
 
+  /* EACH YARN'S FIRST STEP ON THE FABRIC BOM'S YARN PROCESS (0590) — what a
+     yarn PURCHASE line copies its Stage and Colour from ("see the stage is
+     from yarn process of fabric bom", user 2026-09-19). A step's Stage is the
+     state the yarn ENTERS it in (yarn-process-grid.tsx), so the first step's
+     Stage is the state the yarn is BOUGHT in: GREY before a dyeing step, DYED
+     for yarn bought already dyed.
+
+     COLOUR ONLY FOR A COLOURED STAGE. A GREY purchase is one lot for every
+     colourway (the Fabric BOM's "grey yarn one lot") even when its dyeing step
+     names one — that colour belongs to the dyeing, on Yarn Processes. "Is this
+     stage coloured" is `stageRank`, the Fabric BOM's own test
+     (`colouredStageIds`), never a comparison against the word DYED here.
+
+     A YARN WITH NO STAGED STEP is bought GREY — the Fabric BOM's rule — so it
+     takes the GREY `yarn_stage` row rather than nothing. */
+  const { data: yarnStageLookups, error: yarnStageLookupErr } = await s
+    .from("config_lookups")
+    .select("id, code, name")
+    .eq("kind", "yarn_stage");
+  if (yarnStageLookupErr) {
+    throw new Error(`Could not read the yarn stages: ${yarnStageLookupErr.message}`);
+  }
+  const greyStageId =
+    ((yarnStageLookups ?? []) as { id: string; code: string | null; name: string }[]).find(
+      (l) => stageRank(l) === 0,
+    )?.id ?? null;
+  const firstStep = new Map<string, { sno: number; stage_id: string; combo: string | null; coloured: boolean }>();
+  for (const r of (yarnStageRes.data ?? []) as unknown as YarnStageRow[]) {
+    const bom = r.yarn?.bom;
+    if (!bom || bom.is_draft || !wanted.has(bom.garment_order_id)) continue;
+    if (!r.stage_id || !r.yarn?.item_id) continue;
+    const key = `${bom.garment_order_id}|${r.yarn.item_id}`;
+    const held = firstStep.get(key);
+    if (held && held.sno <= r.sno) continue;
+    firstStep.set(key, {
+      sno: r.sno,
+      stage_id: r.stage_id,
+      combo: r.combo?.trim() || null,
+      coloured:
+        (stageRank({ id: r.stage_id, code: r.stage?.code ?? null, name: r.stage?.name ?? "" }) ?? 0) >= 1,
+    });
+  }
+
   for (const r of (yarnRes.data ?? []) as unknown as YarnRow[]) {
     // A DRAFT BOM IS NOT PULLED, for the fabric branch's reason exactly.
     if (!r.bom || r.bom.is_draft || !wanted.has(r.bom.garment_order_id)) continue;
@@ -868,16 +930,26 @@ export async function pullCostLines(
          history is a budget nobody checked." */
       rate: null,
       ...PULLED_DEFAULTS,
+      // 0590 — Stage and Colour off the yarn's first Yarn Process step (above).
+      ...((): { stage_id: string | null; combo: string | null } => {
+        const first = firstStep.get(`${r.bom.garment_order_id}|${r.item_id}`);
+        return {
+          stage_id: first?.stage_id ?? greyStageId,
+          combo: first?.coloured ? first.combo : null,
+        };
+      })(),
     });
   }
 
   type YarnStageRow = {
+    sno: number;
+    stage_id: string | null;
     process_qty: number | null;
     uom_id: string | null;
     combo: string | null;
     process_id: string | null;
     process: { name: string } | null;
-    stage: { name: string | null } | null;
+    stage: { name: string | null; code: string | null } | null;
     yarn: {
       item_id: string | null;
       bom: { garment_order_id: string; is_draft: boolean } | null;
@@ -1786,7 +1858,9 @@ async function getBudgetHeadLookups(): Promise<ConfigLookup[]> {
   const { data, error } = await s
     .from("config_lookups")
     .select("id, kind, code, name, notes, is_active, type_code")
-    .in("kind", ["expense_head", "income_head"])
+    /* `yarn_stage` rides along (0590): Yarn Purchases' Stage dropdown lists
+       the same GREY / DYED rows the Fabric BOM's Yarn Process lists. */
+    .in("kind", ["expense_head", "income_head", "yarn_stage"])
     .order("name");
   // An empty picker reads as "no heads set up" — say the real reason instead.
   if (error) throw new Error(`Could not read the expense and income heads: ${error.message}`);
@@ -1809,7 +1883,8 @@ export type BudgetFormData = {
   uoms: PickerRow[];
   currencies: CurrencyRow[];
   processes: ProcessPickerRow[];
-  /** Expense / Income Heads — `kind` is `expense_head` or `income_head`. */
+  /** Expense / Income Heads (`expense_head` / `income_head`) and the yarn
+   *  stages (`yarn_stage`, 0590) — filter by `kind` at the use site. */
   lookups: ConfigLookup[];
 };
 
