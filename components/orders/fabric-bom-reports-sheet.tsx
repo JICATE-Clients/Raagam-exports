@@ -337,13 +337,16 @@ function Td({
 function ExportBar({ pdf }: { pdf: (output: PdfOutput) => Promise<void> }) {
   return (
     <div className="mb-3 flex justify-end gap-2 print:hidden">
-      <Button type="button" variant="outline" size="md" onClick={() => void pdf("print")}>
-        <Printer className="h-4 w-4" />
-        Print
-      </Button>
+      {/* Download PDF, then Print / Print Preview — the order and wording of
+          the requirement-report ticket (2026-09-20). "Print Preview" is
+          accurate: Print opens the same PDF in the browser's print dialog. */}
       <Button type="button" variant="primary" size="md" onClick={() => void pdf("download")}>
         <Download className="h-4 w-4" />
         Download PDF
+      </Button>
+      <Button type="button" variant="outline" size="md" onClick={() => void pdf("print")}>
+        <Printer className="h-4 w-4" />
+        Print / Print Preview
       </Button>
     </div>
   );
@@ -837,7 +840,6 @@ function RequirementReportView({
      over this). `data` starts null while the fetch is in flight and can
      resolve to a refusal, so every piece of view state this component owns
      has to exist before either of those branches, not after. */
-  const [view, setView] = useState<"procurement" | "production">("production");
   const [openYarn, setOpenYarn] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
@@ -862,28 +864,15 @@ function RequirementReportView({
     <div>
       <ExportBar pdf={(output) => exportYarnRequirementPdf(data, output)} />
 
-      <Letterhead title="Yarn &amp; Fabric Requirement" header={data.header} />
+      <Letterhead title="Yarn &amp; Fabric Requirement Report" header={data.header} />
       <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
-      {/* PROCUREMENT VS PRODUCTION — sourcing wants a purchase list, a mill
-          supervisor wants the full stage-by-stage ledger; nobody at either
-          desk wants to scroll past the other's section to find their own.
-          Neither table is destroyed by the toggle — this only hides the one
-          not being read, so switching back costs nothing. */}
-      <div className="my-3 flex items-center gap-1 rounded-md border border-border bg-white p-1 text-[12.5px] font-medium">
-        {(["procurement", "production"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => setView(v)}
-            className={`flex-1 rounded px-3 py-1.5 ${view === v ? "bg-[#037bb8] text-white" : "text-[#5b6472] hover:bg-[#f1f3f5]"}`}
-          >
-            {v === "procurement" ? "Procurement View — Yarn Summary" : "Production View — Full Stage Ledger"}
-          </button>
-        ))}
-      </div>
-
+      {/* NO PROCUREMENT VIEW (requirement-report ticket, 2026-09-20). The
+          Yarn & Fabric Requirement Report already carries the purchase AND the
+          process weights, so a second "Procurement View" of the same figures
+          was redundant — the report is always shown whole, the stage ledger
+          included. */}
       <div className="mb-6">
         <SectionHeader>Yarn Purchase Requirement</SectionHeader>
         <ReportTable>
@@ -1039,100 +1028,98 @@ function RequirementReportView({
         </div>
       )}
 
-      {view === "production" && (
-        <div>
-          <SectionHeader>Process Stage Ledger</SectionHeader>
-          {data.stageBreakdown.map((g, gi) => {
-            const isOpen = !collapsed.has(g.processId);
-            return (
-              <div key={g.processId}>
-                <button
-                  type="button"
-                  onClick={() => toggleStage(g.processId)}
-                  className={`flex w-full items-center justify-between border-x border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-[#5b6472] hover:bg-[#eef0f2] ${gi === 0 ? "" : "border-t"}`}
-                >
-                  <span>{g.processName}</span>
-                  <span className="font-mono text-[10px] normal-case tracking-normal text-[#8b95a3]">
-                    {fmtNumber(g.toOrderedTotal)} · {isOpen ? "▾ collapse" : "▸ expand"}
-                  </span>
-                </button>
-                {isOpen && (
-                  <ReportTable>
-                    <thead>
-                      {/* LEGACY'S OWN COLUMNS — `Color` leads (the CLOTH's
-                          colour, or its YD Combo Name; the assort colourway
-                          still bands the rows beneath), `Dia/Size` and the
-                          `Nos/Mtrs` counts sit beside each weight. A cloth
-                          bought by weight leaves the count blank. */}
-                      <tr>
-                        <Th>Color</Th>
-                        <Th>Details</Th>
-                        <Th>Component</Th>
-                        <Th right>Dia/Size</Th>
-                        <Th right>Planned Nos/Mtrs</Th>
-                        <Th right>Planned Wt</Th>
-                        <Th right>Loss %</Th>
-                        <Th right>To Ordered Nos/Mtrs</Th>
-                        <Th right>To Ordered Wt</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* GROUPED UNDER EACH ASSORT COLOUR when the section
-                          holds more than one (client spec, 2026-09-15) — the
-                          lines arrive sorted by colour, so a subtotal row is
-                          drawn where the colour changes. One colour, one flat
-                          list, no band: nothing to total under. */}
-                      {g.lines.map((l, i) => {
-                        const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
-                        const subtotal = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
-                        return (
-                          <Fragment key={i}>
-                            <tr className="odd:bg-white even:bg-[#fafbfc]">
-                              <Td>{l.fabricColour ?? "—"}</Td>
-                              <Td>
-                                <DetailsCell line={l} />
-                              </Td>
-                              <Td>{l.component ?? "—"}</Td>
-                              <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
-                              <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
-                              <Td right mono>{fmtNumber(l.plannedWt)}</Td>
-                              <Td right mono>{l.lossPct.toFixed(2)}%</Td>
-                              <Td right mono>{l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : "—"}</Td>
-                              <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+      <div>
+        <SectionHeader>Process Stage Ledger</SectionHeader>
+        {data.stageBreakdown.map((g, gi) => {
+          const isOpen = !collapsed.has(g.processId);
+          return (
+            <div key={g.processId}>
+              <button
+                type="button"
+                onClick={() => toggleStage(g.processId)}
+                className={`flex w-full items-center justify-between border-x border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-[#5b6472] hover:bg-[#eef0f2] ${gi === 0 ? "" : "border-t"}`}
+              >
+                <span>{g.processName}</span>
+                <span className="font-mono text-[10px] normal-case tracking-normal text-[#8b95a3]">
+                  {fmtNumber(g.toOrderedTotal)} · {isOpen ? "▾ collapse" : "▸ expand"}
+                </span>
+              </button>
+              {isOpen && (
+                <ReportTable>
+                  <thead>
+                    {/* LEGACY'S OWN COLUMNS — `Color` leads (the CLOTH's
+                        colour, or its YD Combo Name; the assort colourway
+                        still bands the rows beneath), `Dia/Size` and the
+                        `Nos/Mtrs` counts sit beside each weight. A cloth
+                        bought by weight leaves the count blank. */}
+                    <tr>
+                      <Th>Color</Th>
+                      <Th>Details</Th>
+                      <Th>Component</Th>
+                      <Th right>Dia/Size</Th>
+                      <Th right>Planned Nos/Mtrs</Th>
+                      <Th right>Planned Wt</Th>
+                      <Th right>Loss %</Th>
+                      <Th right>To Ordered Nos/Mtrs</Th>
+                      <Th right>To Ordered Wt</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* GROUPED UNDER EACH ASSORT COLOUR when the section
+                        holds more than one (client spec, 2026-09-15) — the
+                        lines arrive sorted by colour, so a subtotal row is
+                        drawn where the colour changes. One colour, one flat
+                        list, no band: nothing to total under. */}
+                    {g.lines.map((l, i) => {
+                      const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
+                      const subtotal = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
+                      return (
+                        <Fragment key={i}>
+                          <tr className="odd:bg-white even:bg-[#fafbfc]">
+                            <Td>{l.fabricColour ?? "—"}</Td>
+                            <Td>
+                              <DetailsCell line={l} />
+                            </Td>
+                            <Td>{l.component ?? "—"}</Td>
+                            <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
+                            <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
+                            <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                            <Td right mono>{l.lossPct.toFixed(2)}%</Td>
+                            <Td right mono>{l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : "—"}</Td>
+                            <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+                          </tr>
+                          {subtotal && (
+                            <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
+                              <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
+                              <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
+                              <Td colSpan={2}>{""}</Td>
+                              <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
                             </tr>
-                            {subtotal && (
-                              <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
-                                <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
-                                <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
-                                <Td colSpan={2}>{""}</Td>
-                                <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                      <tr className="bg-[#f1f3f5] font-semibold">
-                        <Td colSpan={5}>Grand Total</Td>
-                        <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
-                        <Td colSpan={2}>{""}</Td>
-                        <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
-                      </tr>
-                    </tbody>
-                  </ReportTable>
-                )}
-              </div>
-            );
-          })}
-          {/* WEIGHTS THE LEDGER COULD NOT PLACE — named, never dropped. */}
-          {data.stageLedgerRefusals.length > 0 && (
-            <ul className="mt-2 space-y-0.5 text-[11px] text-amber-700">
-              {data.stageLedgerRefusals.map((r, i) => (
-                <li key={i}>⚠ {r}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    <tr className="bg-[#f1f3f5] font-semibold">
+                      <Td colSpan={5}>Grand Total</Td>
+                      <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
+                      <Td colSpan={2}>{""}</Td>
+                      <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
+                    </tr>
+                  </tbody>
+                </ReportTable>
+              )}
+            </div>
+          );
+        })}
+        {/* WEIGHTS THE LEDGER COULD NOT PLACE — named, never dropped. */}
+        {data.stageLedgerRefusals.length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-[11px] text-amber-700">
+            {data.stageLedgerRefusals.map((r, i) => (
+              <li key={i}>⚠ {r}</li>
+            ))}
+          </ul>
+        )}
+      </div>
       <FabricAllocationSection allocation={data.allocation} />
     </div>
   );
