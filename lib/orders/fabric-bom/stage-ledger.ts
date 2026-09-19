@@ -93,3 +93,35 @@ export function shadeDyeingCharges(
     .filter((sh) => sh.qty > 0)
     .map((sh) => ({ ...sh, qty: Number(sh.qty.toFixed(6)) }));
 }
+
+/**
+ * GREIGE ROLLS ARE ONE LOT PER FABRIC (client 2026-09-19). A fabric bought as
+ * greige rolls (`greige_purchase`) is bought before any colour exists, so its
+ * purchase is ONE line per (fabric, panel branch) with the colourways summed —
+ * not a line per garment colourway. A DYED-roll purchase keeps its colourway
+ * lines: dyed rolls are bought per colour. Weights are summed exactly and
+ * rounded once, never per colourway. Order of first appearance is kept.
+ */
+export function mergeGreigeClothLines<
+  L extends { fabricId: string; source: string; combo: string | null; component: string | null; netWt: number; purchaseWt: number },
+>(lines: readonly L[]): L[] {
+  const out: L[] = [];
+  const greige = new Map<string, L>();
+  for (const l of lines) {
+    if (l.source !== "greige_purchase") {
+      out.push(l);
+      continue;
+    }
+    const key = JSON.stringify([l.fabricId, l.component ?? ""]);
+    const held = greige.get(key);
+    if (!held) {
+      const first = { ...l, combo: null };
+      greige.set(key, first);
+      out.push(first);
+      continue;
+    }
+    held.netWt = Number((held.netWt + l.netWt).toFixed(6));
+    held.purchaseWt = Number((held.purchaseWt + l.purchaseWt).toFixed(6));
+  }
+  return out;
+}

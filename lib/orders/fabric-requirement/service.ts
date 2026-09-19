@@ -6,6 +6,7 @@ import type { EntryFacts, FabricSheetNames, StoredFabricRequirement, StoredYarn 
    route, two documents. */
 import { yarnFabricRequirementReport, isReportRefusal } from "@/lib/orders/fabric-bom/reports";
 import type { ClothPurchaseLine } from "@/lib/orders/fabric-bom/reports";
+import { companyAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 
 /**
  * Reading one order's Fabric Requirement.
@@ -315,7 +316,9 @@ export async function getFabricRequirementSheet(
        avoid. */
     company: {
       name: str("name") ?? str("company_name"),
-      address: str("address") ?? str("address_line1"),
+      /* Built from street1..3 / city / state / pin — the columns the Company
+         Profile actually saves (2026-09-19; `address` never existed). */
+      address: companyAddressOf(co),
       gstin: str("gstin"),
     },
     rows,

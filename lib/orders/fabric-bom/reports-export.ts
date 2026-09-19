@@ -24,6 +24,10 @@ import type {
   YarnFabricRequirementReport,
 } from "./reports";
 import { isReportRefusal } from "./report-refusal";
+/* THE LETTERHEAD LOGO (2026-09-19) — loaded in the browser once per source and
+   drawn into every PDF header below. A logo that fails to load prints nothing
+   rather than stopping the download. */
+import { fitLogo, loadLetterheadImage, type LetterheadImage } from "./letterhead";
 
 function monoStyles() {
   return { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 };
@@ -99,29 +103,57 @@ function drawLetterhead(
   header: BomDocHeader,
   title: string,
   facts: string[] = defaultFacts(header),
+  /** The company logo (2026-09-19) — see ./letterhead.ts. Null draws the
+   *  text-only letterhead this function always drew. */
+  logo: LetterheadImage | null = null,
 ): number {
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
-  let y = 46;
 
+  /* THE FRAME — a thin brand-green rule across the top, the same the on-screen
+     letterhead carries, so the page and the printout read as one document. */
+  doc.setFillColor(133, 194, 39);
+  doc.rect(M, 20, RIGHT - M, 2.5, "F");
+
+  /* THE LOGO, LEFT, fitted into 120 x 40 pt keeping its aspect ratio; the
+     company's name and address sit beside it. */
+  let textX = M;
+  let logoBottom = 0;
+  if (logo) {
+    const { w, h } = fitLogo(logo, 120, 40);
+    doc.addImage(logo.dataUrl, "PNG", M, 28, w, h);
+    textX = M + w + 12;
+    logoBottom = 28 + h;
+  }
+
+  let y = 44;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
-  doc.text(header.company.name ?? "RAAGAM EXPORTS", M, y);
+  doc.text(header.company.name ?? "RAAGAM EXPORTS", textX, y);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(90);
-  if (header.company.address) doc.text(header.company.address, M, (y += 12));
-  if (header.company.gstin) doc.text(`GSTIN ${header.company.gstin}`, M, (y += 10));
+  if (header.company.address) doc.text(header.company.address, textX, (y += 12));
+  if (header.company.gstin) doc.text(`GSTIN ${header.company.gstin}`, textX, (y += 10));
 
-  doc.setTextColor(0);
+  doc.setTextColor(3, 123, 184);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(title.toUpperCase(), RIGHT, 46, { align: "right" });
+  doc.text(title.toUpperCase(), RIGHT, 44, { align: "right" });
+  doc.setTextColor(0);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  if (header.bomCode) doc.text(header.bomCode, RIGHT, 58, { align: "right" });
+  if (header.bomCode) doc.text(header.bomCode, RIGHT, 56, { align: "right" });
 
-  y += 18;
+  /* A DARK RULE UNDER THE LETTERHEAD, below whichever is taller — the text
+     block or the logo. */
+  y = Math.max(y, logoBottom) + 8;
+  doc.setDrawColor(22, 24, 29);
+  doc.setLineWidth(1);
+  doc.line(M, y, RIGHT, y);
+  doc.setLineWidth(0.4);
+
+  y += 14;
   doc.setFontSize(9);
   if (facts.length) doc.text(facts.join("    "), M, y);
 
@@ -284,10 +316,11 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
   return { body, totalAt };
 }
 
-export function exportEntryRegisterPdf(data: EntryRegister): void {
+export async function exportEntryRegisterPdf(data: EntryRegister): Promise<void> {
+  const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register");
+  const y = drawLetterhead(doc, data.header, "Fabric BOM Entry Register", undefined, logo);
 
   const { body, totalAt } = registerBody(data);
   const bold = new Set(totalAt);
@@ -417,12 +450,24 @@ export function exportEntryRegisterCsv(data: EntryRegister): void {
  *  5. No `Prepared By / Checked By / Approved By`. A document that is signed
  *     needs somewhere to sign it.
  */
-export function exportYarnRequirementPdf(data: YarnFabricRequirementReport): void {
+export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport): Promise<void> {
+  const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const M = 28;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const MID = doc.internal.pageSize.getWidth() / 2;
   const h = data.header;
+
+  /* THE LEGACY LAYOUT KEEPS ITS CENTRED TITLE; the logo (2026-09-19) sits at
+     the top LEFT, fitted to 96 x 32 pt, clear of the centred lines and above
+     the "Report Printed" line at y = 62. A thin brand-green rule runs across
+     the top, the same frame the other Fabric BOM documents carry. */
+  doc.setFillColor(133, 194, 39);
+  doc.rect(M, 12, RIGHT - M, 2, "F");
+  if (logo) {
+    const { w, h: lh } = fitLogo(logo, 96, 32);
+    doc.addImage(logo.dataUrl, "PNG", M, 20, w, lh);
+  }
 
   /* THE PRINT TIME IS THE READER'S OWN CLOCK, taken here rather than on the
      server. `header.computedAt` is a different fact and is already printed by
@@ -1043,10 +1088,11 @@ function printRow(r: YarnFabricRequirementReport["printing"]["groups"][number]["
  * unprinted group never reaches a print section, so there is nothing here to
  * filter out.
  */
-export function exportPrintRequirementPdf(data: YarnFabricRequirementReport): void {
+export async function exportPrintRequirementPdf(data: YarnFabricRequirementReport): Promise<void> {
+  const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const y = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header));
+  const y = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header), logo);
   const body: string[][] = [];
   const bold = new Set<number>();
   for (const g of data.printing.groups) {

@@ -45,7 +45,7 @@ import {
   yarnPurchase,
   type FabricGross,
 } from "../lib/orders/fabric-bom/yarn-process.ts";
-import { consolidateContributions, mergeGreigeLines, shadeDyeingCharges } from "../lib/orders/fabric-bom/stage-ledger.ts";
+import { consolidateContributions, mergeGreigeClothLines, mergeGreigeLines, shadeDyeingCharges } from "../lib/orders/fabric-bom/stage-ledger.ts";
 import {
   printRequirement,
   printRouteProblems,
@@ -442,6 +442,20 @@ check(
     { yarnItemId: "y-2", colorName: "GREEN", qty: 7 },
   ],
 );
+
+{
+  const cl = (source: string, combo: string, net: number, buy: number) => ({ fabricId: "fab-1", source, combo, component: null, netWt: net, purchaseWt: buy });
+  check(
+    "greige ROLLS: one purchase line per fabric, colourways summed",
+    mergeGreigeClothLines([cl("greige_purchase", "NAVY", 500, 510.2), cl("greige_purchase", "RED", 300, 306.12)]).map((l) => [l.combo, l.netWt, l.purchaseWt]),
+    [[null, 800, 816.32]],
+  );
+  check(
+    "dyed ROLLS keep their colourway lines",
+    mergeGreigeClothLines([cl("dyed_purchase", "NAVY", 500, 510), cl("dyed_purchase", "RED", 300, 306)]).map((l) => l.combo),
+    ["NAVY", "RED"],
+  );
+}
 
 if (failed) {
   console.error(`\n${failed} fabric print-route vector(s) FAILED.`);

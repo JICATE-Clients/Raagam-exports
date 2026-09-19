@@ -17,7 +17,8 @@ import {
   type FabricSource,
 } from "./fabric-source";
 import { stageRank } from "./stage-routes";
-import { consolidateContributions, mergeGreigeLines } from "./stage-ledger";
+import { companyAddressOf, letterheadLogoOf } from "./letterhead";
+import { consolidateContributions, mergeGreigeClothLines, mergeGreigeLines } from "./stage-ledger";
 import { layoutTypeLabel } from "./component-map";
 import { mixingDetailRows, type MixingDetailRow, type YdRepeatRow } from "./yarn-dyed";
 import { isReportRefusal, type ReportRefusal } from "./report-refusal";
@@ -211,7 +212,15 @@ export type BomDocHeader = {
   /** The letterhead — same "two-name fallback" `fabric-requirement/service.ts`
    *  already reads `company_profile` with, so a PDF/Excel export of either
    *  report resolves a name on the same row the Fabric Requirement Sheet does. */
-  company: { name: string | null; address: string | null; gstin: string | null };
+  company: {
+    name: string | null;
+    address: string | null;
+    gstin: string | null;
+    /** The letterhead logo to draw (2026-09-19) — the Company Profile's, or
+     *  the Raagam wordmark placeholder; null = the profile says no logo. See
+     *  `letterheadLogoOf` in ./letterhead.ts. */
+    logo: string | null;
+  };
 };
 
 async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRefusal> {
@@ -325,8 +334,11 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     customer: go.customer?.name ?? null,
     company: {
       name: str("name") ?? str("company_name"),
-      address: str("address") ?? str("address_line1"),
+      /* Built from street1..3 / city / state / pin — the columns the Company
+         Profile actually saves (2026-09-19; `address` never existed). */
+      address: companyAddressOf(co),
       gstin: str("gstin"),
+      logo: letterheadLogoOf(co),
     },
     orderNo: go.po_no,
     // NULL means the BOM's lines don't all agree on one style — the doc's
@@ -2445,7 +2457,9 @@ export async function yarnFabricRequirementReport(
   /* THE FABRIC PURCHASE SECTION (0564), sorted the way its lines are read:
      by heading (a greige order and a dyed order go to different suppliers),
      then cloth, then colourway, then panel. */
-  const clothPurchase = [...clothLines].sort(
+  /* GREIGE ROLLS MERGE PER FABRIC (2026-09-19) — no colour exists yet; dyed
+     rolls keep their colourway lines. See `mergeGreigeClothLines`. */
+  const clothPurchase = mergeGreigeClothLines(clothLines).sort(
     (a, b) =>
       a.label.localeCompare(b.label) ||
       a.fabricName.localeCompare(b.fabricName) ||

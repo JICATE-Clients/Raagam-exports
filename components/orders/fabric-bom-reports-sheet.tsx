@@ -144,17 +144,44 @@ export function FabricBomReportsSheet({
 // band. One component for both reports, so the two can never drift apart.
 // ---------------------------------------------------------------------------
 
-function Letterhead({ title, docNo }: { title: string; docNo: string | null }) {
+/**
+ * THE LETTERHEAD (redesigned 2026-09-19, client: "with logo and more
+ * professional look"). The company's logo on the left — the Company Profile's,
+ * or the Raagam wordmark placeholder until one is stored (`letterheadLogoOf`) —
+ * with the company's name, address and GSTIN beside it; the document's title
+ * and number on the right. A thin brand-green rule across the top and a dark
+ * rule beneath, the same frame the PDF downloads draw, so the page and the
+ * printout read as one document.
+ *
+ * WHITE GROUND, BRAND ON THE RULES ONLY — the client has refused every tinted
+ * surface put in front of them (brand-colours memory); the colour lives on the
+ * lines and the title, never on a background.
+ */
+function Letterhead({ title, header }: { title: string; header: BomDocHeader }) {
+  const c = header.company;
+  const contact = [c.address, c.gstin ? `GSTIN ${c.gstin}` : null].filter(Boolean).join("  ·  ");
   return (
-    <div className="grid grid-cols-[6px_1fr] overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
-      <div className="bg-[#85c227]" />
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#16181d] px-5 py-3.5">
-        <div className="text-[17px] font-bold tracking-wide text-[#16181d]">RAAGAM EXPORTS</div>
-        <div className="text-right">
-          <div className="text-[12.5px] font-bold uppercase tracking-[.12em] text-[#037bb8]">
-            {title}
+    <div className="overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
+      <div className="h-[3px] bg-[#85c227]" />
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-[#16181d] px-5 py-3">
+        <div className="flex min-w-0 items-center gap-4">
+          {c.logo && (
+            /* A plain <img>: the source may be a stored data URL or an external
+               Company Profile URL, which next/image would need configuring
+               for; the letterhead is one small, fixed-size image. */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={c.logo} alt={c.name ?? "Company logo"} className="h-12 w-auto shrink-0 object-contain" />
+          )}
+          <div className="min-w-0">
+            <div className="text-[16px] font-bold uppercase tracking-wide text-[#16181d]">
+              {c.name ?? "RAAGAM EXPORTS"}
+            </div>
+            {contact && <div className="mt-0.5 text-[11.5px] text-[#5b6472]">{contact}</div>}
           </div>
-          {docNo && <div className="font-mono text-[12px] text-[#5b6472]">{docNo}</div>}
+        </div>
+        <div className="text-right">
+          <div className="text-[12.5px] font-bold uppercase tracking-[.12em] text-[#037bb8]">{title}</div>
+          {header.bomCode && <div className="font-mono text-[12px] text-[#5b6472]">{header.bomCode}</div>}
         </div>
       </div>
     </div>
@@ -399,9 +426,9 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
 
   return (
     <div>
-      <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => exportEntryRegisterPdf(data)} />
+      <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => void exportEntryRegisterPdf(data)} />
 
-      <Letterhead title="Fabric BOM Entry Register" docNo={data.header.bomCode} />
+      <Letterhead title="Fabric BOM Entry Register" header={data.header} />
       <EntryRegisterFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
@@ -826,10 +853,10 @@ function RequirementReportView({
     <div>
       <ExportBar
         onCsv={() => exportYarnRequirementCsv(data)}
-        onPdf={() => exportYarnRequirementPdf(data)}
+        onPdf={() => void exportYarnRequirementPdf(data)}
       />
 
-      <Letterhead title="Yarn &amp; Fabric Requirement" docNo={data.header.bomCode} />
+      <Letterhead title="Yarn &amp; Fabric Requirement" header={data.header} />
       <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
@@ -1129,9 +1156,9 @@ function PrintRequirementView({
   return (
     <div>
       {p.groups.length > 0 && (
-        <ExportBar onCsv={() => exportPrintRequirementCsv(data)} onPdf={() => exportPrintRequirementPdf(data)} />
+        <ExportBar onCsv={() => exportPrintRequirementCsv(data)} onPdf={() => void exportPrintRequirementPdf(data)} />
       )}
-      <Letterhead title="Printing Requirement" docNo={data.header.bomCode} />
+      <Letterhead title="Printing Requirement" header={data.header} />
       <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
       <div className="mt-3">
