@@ -1,6 +1,25 @@
 import { z } from "zod";
 import { nullableFormat, nullableKind, MOBILE_IN_RE } from "@/lib/validation/formats";
 
+/* A BLANK BOX IS NULL, NOT "" (2026-09-19: saving the profile failed with
+   `invalid input syntax for type date: ""`). The screen seeds every field with
+   "" so its inputs stay controlled, and a `date` or `numeric` column refuses
+   an empty string. The numbers get the same guard for a quieter reason:
+   `z.coerce.number()` turns "" into 0 and saves it silently. The screen sends
+   null for a blank number today; this keeps any other caller from storing 0. */
+const blankToNull = (v: unknown) =>
+  v == null || (typeof v === "string" && v.trim() === "") ? null : v;
+
+/** An optional `date` column: blank -> null, else strict YYYY-MM-DD (a native
+ *  date box accepts a six-digit year and reports itself valid). */
+const optDate = z.preprocess(
+  blankToNull,
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date").nullable().optional(),
+);
+
+/** An optional `numeric` column: blank -> null, never 0. */
+const optNumber = z.preprocess(blankToNull, z.coerce.number().nullable().optional());
+
 export const companyProfileInput = z.object({
   company_short_name: z.string().optional().nullable(),
   company_name: z.string().min(1, "Company name is required"),
@@ -46,14 +65,14 @@ export const companyProfileInput = z.object({
   ediac_no: z.string().optional().nullable(),
 
   aepc_no: z.string().optional().nullable(),
-  aepc_date: z.string().optional().nullable(),
+  aepc_date: optDate,
   rex_no: z.string().optional().nullable(),
   lut_no: z.string().optional().nullable(),
-  lut_date: z.string().optional().nullable(),
+  lut_date: optDate,
   textile_committee_no: z.string().optional().nullable(),
-  textile_committee_date: z.string().optional().nullable(),
-  renewed_on: z.string().optional().nullable(),
-  valid_upto: z.string().optional().nullable(),
+  textile_committee_date: optDate,
+  renewed_on: optDate,
+  valid_upto: optDate,
   gots_no: z.string().optional().nullable(),
   bci_no: z.string().optional().nullable(),
   oekotex_no: z.string().optional().nullable(),
@@ -66,11 +85,11 @@ export const companyProfileInput = z.object({
 
   insurance_company: z.string().optional().nullable(),
   insurance_policy_no: z.string().optional().nullable(),
-  insurance_policy_date: z.string().optional().nullable(),
-  export_insurance_pct: z.coerce.number().optional().nullable(),
+  insurance_policy_date: optDate,
+  export_insurance_pct: optNumber,
 
-  min_wages: z.coerce.number().optional().nullable(),
-  bonus_from_date: z.string().optional().nullable(),
+  min_wages: optNumber,
+  bonus_from_date: optDate,
 
   footer_text: z.string().optional().nullable(),
   with_logo: z.boolean().optional(),
