@@ -1388,12 +1388,17 @@ export function BudgetScreen({
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
   ]);
 
-  /* Yarn Processes — 112 + 144 + 72 + 88 + 72 + 88 + 72 + 88 + 88 + 88 + 112
-     = 1024, + 72 = 1096 <= 1155 -> 5xl. Rate Type `hug`: "Per KGS" is seven
-     characters and the header two words. */
+  /* Yarn Processes — 112 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 88 + 88
+     + 112 = 1080, + 72 = 1152 <= 1155 -> 5xl. Re-cut 2026-09-19 for the
+     client's Rule 3 ("Yarn Description · Process · Shade · Dyed Weight ·
+     Rate"): a YARN column joins, and the free-text column narrows to `hug`
+     because on a pulled dyeing line it now carries just the shade. 3px of
+     headroom — add a column here and something else must give. Rate Type
+     `hug`: "Per KGS" is seven characters and the header two words. */
   const yarnProcessColumns: CostCol[] = withRowRules([
+    { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.range },
     { ...processCol((p) => p.for_yarn), width: FIELD_WIDTH_CSS.range },
-    { ...descCol("Yarn Stage / Colour"), width: FIELD_WIDTH_CSS.code },
+    { ...descCol("Shade / Stage"), width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
     { ...focCol, width: FIELD_WIDTH_CSS.num },

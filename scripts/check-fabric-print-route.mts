@@ -45,7 +45,7 @@ import {
   yarnPurchase,
   type FabricGross,
 } from "../lib/orders/fabric-bom/yarn-process.ts";
-import { consolidateContributions, mergeGreigeLines } from "../lib/orders/fabric-bom/stage-ledger.ts";
+import { consolidateContributions, mergeGreigeLines, shadeDyeingCharges } from "../lib/orders/fabric-bom/stage-ledger.ts";
 import {
   printRequirement,
   printRouteProblems,
@@ -423,6 +423,25 @@ console.log("\n--- 5. greige sections are one line per fabric ---");
     [{ fabricName: "SJ", combo: null, component: null, wt: 15 }],
   );
 }
+
+// ===========================================================================
+console.log("\n--- 6. Budget yarn-dyeing charges, one per yarn x shade ---");
+// ===========================================================================
+check(
+  "a shade dyed for two colourways is ONE charge; a zero-weight shade is none",
+  shadeDyeingCharges([
+    { yarnItemId: "y-1", colorName: "GREEN", toOrderedWt: 10.5 },
+    { yarnItemId: "y-1", colorName: "GREEN", toOrderedWt: 4.5 },
+    { yarnItemId: "y-1", colorName: "RED", toOrderedWt: 3 },
+    { yarnItemId: "y-2", colorName: "GREEN", toOrderedWt: 7 },
+    { yarnItemId: "y-2", colorName: "WHITE", toOrderedWt: 0 },
+  ]),
+  [
+    { yarnItemId: "y-1", colorName: "GREEN", qty: 15 },
+    { yarnItemId: "y-1", colorName: "RED", qty: 3 },
+    { yarnItemId: "y-2", colorName: "GREEN", qty: 7 },
+  ],
+);
 
 if (failed) {
   console.error(`\n${failed} fabric print-route vector(s) FAILED.`);

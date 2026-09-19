@@ -22,6 +22,8 @@ import {
   yarnFabricRequirementReport,
   type YarnFabricRequirementReport,
 } from "@/lib/orders/fabric-bom/reports";
+import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
+import { shadeDyeingCharges } from "@/lib/orders/fabric-bom/stage-ledger";
 import {
   orderProductionInput,
   rejectionTiersById,
@@ -618,8 +620,9 @@ const PULLED_DEFAULTS = {
  *
  * ## RATE COMES FROM THE BOM LINE WHERE THERE IS ONE
  *
- * The Fabric BOM carries a `rate` per line; the Material BOM does not. A missing
- * rate arrives as null and the operator types it — it is NOT defaulted to a
+ * The Fabric BOM carries a `rate` per line; the Material BOM carries an
+ * `estimated_rate` per line since 0588 (the merchandiser's figure for an item
+ * not yet confirmed, or any line). A missing rate arrives as null and the operator types it — it is NOT defaulted to a
  * last-purchase price, because a budget that quietly priced itself from history
  * is a budget nobody checked.
  *
@@ -751,7 +754,7 @@ export async function pullCostLines(
         "item_id, required_qty, consumption_uom_id, slice_label, " +
           /* The LINE the requirement was computed for, by its own FK column
              (named, per AGENTS.md) — FOC and supply type live there. */
-          "line:material_bom_amendment_items!item_line_id(is_foc, supply_type), " +
+          "line:material_bom_amendment_items!item_line_id(is_foc, supply_type, estimated_rate), " +
           "amendment_id, bom:material_bom_amendments(garment_order_id, is_draft)",
       ),
     /* THE ACCESSORIES PROCESSES (0573) — the Material BOM's Process grid. No
@@ -804,7 +807,7 @@ export async function pullCostLines(
     required_qty: number | null;
     consumption_uom_id: string | null;
     slice_label: string;
-    line: { is_foc: boolean | null; supply_type: string | null } | null;
+    line: { is_foc: boolean | null; supply_type: string | null; estimated_rate: number | null } | null;
     amendment_id: string;
     bom: { garment_order_id: string | null; is_draft: boolean } | null;
   };
@@ -890,6 +893,16 @@ export async function pullCostLines(
        a stage precisely so this test needs no second condition, and it is not
        counted as `skipped`: nothing was left out, because nothing was owed. */
     if (!r.process?.name) continue;
+    /* THE DOUBLE-COUNT RULE (client 2026-09-19): a hand-typed step in a
+       coloured stage (DYED) on a yarn whose dyeing is already charged per
+       shade above is the same dyeing — not pulled a second time. */
+    if (
+      r.yarn?.item_id &&
+      fabric.shadeDyedYarns.has(`${bom.garment_order_id}|${r.yarn.item_id}`) &&
+      (stageRank({ id: "", code: null, name: r.stage?.name ?? "" }) ?? 0) >= 1
+    ) {
+      continue;
+    }
     if (r.process_qty == null) {
       /* A step whose weight could not be worked out IS counted, because
          something WAS owed and is missing — the planner is told a line was left
@@ -941,8 +954,12 @@ export async function pullCostLines(
       description: r.slice_label,
       qty: Number(r.required_qty),
       uom_id: r.consumption_uom_id,
-      // The Material BOM stores no rate. Left null on purpose — see the header.
-      rate: null,
+      /* THE LINE'S ESTIMATED RATE WHERE THE MERCHANDISER GAVE ONE (0588) — the
+         way a Fabric BOM line's own rate pre-fills the fabric line. It is the
+         planner's figure, typed on the BOM, not a price looked up from history
+         (which the header refuses). A line without one arrives unpriced, as
+         before, and holds Save until it is priced. */
+      rate: r.line?.estimated_rate == null ? null : Number(r.line.estimated_rate),
       ...PULLED_DEFAULTS,
       is_foc: r.line?.is_foc === true,
       /* CASE-INSENSITIVE — MBA stores "Import", and AGENTS.md records the
@@ -1090,7 +1107,9 @@ export async function pullCostLines(
     if (error) throw new Error(`Could not read the item names: ${error.message}`);
     const names = new Map(((data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]));
     for (const l of lines) {
-      const n = l.item_id ? names.get(l.item_id) : null;
+      /* NOT on a Yarn Processes line (2026-09-19): that grid has its own Yarn
+         column now, and the prefix pushed the shade out of a 88px cell. */
+      const n = l.item_id && l.source !== "yarn_process" ? names.get(l.item_id) : null;
       if (n) l.description = l.description === "—" ? n : `${n} · ${l.description}`;
     }
   }
@@ -1157,10 +1176,13 @@ async function fabricBomLines(
     line: { rate: number | null } | null;
     bom: { id: string; garment_order_id: string } | null;
   }[],
-): Promise<{ lines: PulledCostLine[]; skipped: number }> {
+): Promise<{ lines: PulledCostLine[]; skipped: number; shadeDyedYarns: Set<string> }> {
   let skipped = 0;
+  /** `garment_order_id|yarn item_id` of every yarn given per-shade dyeing
+   *  lines below — the caller drops that yarn's hand-typed DYED-stage step. */
+  const shadeDyedYarns = new Set<string>();
   const bomIds = [...new Set(reqs.flatMap((r) => (r.bom ? [r.bom.id] : [])))];
-  if (bomIds.length === 0) return { lines: [], skipped };
+  if (bomIds.length === 0) return { lines: [], skipped, shadeDyedYarns };
 
   /* EACH FABRIC'S SOURCE. A failed read THROWS: coalesced to empty, every
      fabric would read Rule 1 and the whole fabric bill would silently vanish
@@ -1313,7 +1335,75 @@ async function fabricBomLines(
       }
     }
   }
-  return { lines, skipped };
+
+  /* ---- YARN DYEING, ONE LINE PER YARN x SHADE (client 2026-09-19, Rule 3) --
+     "Value-addition processes like Yarn Dyeing … automatically flow into the
+     Yarn Processes tab", one line per Yarn Description x Shade Colour, the
+     merchandiser typing the rate per KG.
+
+     READ OFF THE REPORT'S YARN DYEING BLOCK — the same per-shade figures the
+     printed Yarn & Fabric Requirement shows, so the budget and the document a
+     dye house is given cannot disagree. Summed across garment colourways: a
+     shade dyed for two colourways is one dye lot and one charge.
+
+     THE WEIGHT IS `toOrderedWt` — the grey yarn SENT to the dye house for
+     that shade, i.e. the dyed weight grossed by the shade's own loss. That is
+     what a per-kg dyeing charge is levied on.
+
+     THIS IS A CHARGE, NEVER A PURCHASE. The grey yarn's purchase weight already
+     carries the shade losses (`shadeDyeFactor`); these lines only cost the
+     dyeing. And because a hand-typed YARN DYEING step on the same yarn would
+     charge the same dyeing again, `pullCostLines` drops that step's line for
+     every yarn listed in `shadeDyedYarns` (the double-count rule, 2026-09-19). */
+  const { data: yarnUomRows, error: yarnUomErr } = await s
+    .from("order_fabric_bom_yarns")
+    .select("bom_id, item_id, uom_id")
+    .in("bom_id", bomIds);
+  if (yarnUomErr) throw new Error(`Could not read the yarn units: ${yarnUomErr.message}`);
+  const yarnUom = new Map(
+    ((yarnUomRows ?? []) as { bom_id: string; item_id: string; uom_id: string | null }[]).map((r) => [
+      `${r.bom_id}::${r.item_id}`,
+      r.uom_id,
+    ]),
+  );
+  /* THE PROCESS THE LINE CHARGES FOR — the Process master's yarn-dyeing row.
+     Picked only when the master answers unambiguously (exactly one `for_yarn`
+     process named like DYE); otherwise left blank for the merchandiser to pick,
+     rather than guessed. The description still says YARN DYEING. */
+  const { data: dyeProcRows } = await s
+    .from("processes")
+    .select("id, name")
+    .eq("for_yarn", true)
+    .ilike("name", "%dye%");
+  const dyeProcs = (dyeProcRows ?? []) as { id: string; name: string }[];
+  const dyeProcess =
+    dyeProcs.length === 1 ? dyeProcs[0] : (dyeProcs.find((p) => p.name.trim().toUpperCase() === "YARN DYEING") ?? null);
+
+  for (const bomId of bomIds) {
+    const report = reports.get(bomId);
+    const garmentOrderId = orderOfBom.get(bomId);
+    if (!garmentOrderId || !report || isReportRefusal(report)) continue;
+    for (const sh of shadeDyeingCharges(report.yarnDyeing)) {
+      shadeDyedYarns.add(`${garmentOrderId}|${sh.yarnItemId}`);
+      lines.push({
+        source: "yarn_process",
+        garment_order_id: garmentOrderId,
+        item_id: sh.yarnItemId,
+        /* JUST THE SHADE — the Yarn and Process columns name the rest. */
+        description: sh.colorName,
+        qty: sh.qty,
+        uom_id: yarnUom.get(`${bomId}::${sh.yarnItemId}`) ?? null,
+        rate: null,
+        ...PULLED_DEFAULTS,
+        process_id: dyeProcess?.id ?? null,
+        basis: "color",
+        /* THE SHADE IS THE LOT — what keeps two shades of one yarn two lines
+           (`pulledLineKey` reads `combo`). */
+        combo: sh.colorName,
+      });
+    }
+  }
+  return { lines, skipped, shadeDyedYarns };
 }
 
 /** One Style ▸ Process row (0411), as `pullCostLines` reads it. */

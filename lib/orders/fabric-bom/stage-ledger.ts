@@ -70,3 +70,26 @@ export function consolidateContributions(rows: readonly YarnFabricContribution[]
   }
   return [...out.values()];
 }
+
+/**
+ * THE BUDGET'S YARN-DYEING CHARGES (client 2026-09-19, Rule 3) — one per
+ * (yarn, shade), summed across garment colourways: a shade dyed for two
+ * colourways is one dye lot and one charge. The weight is `toOrderedWt`, the
+ * grey yarn SENT for dyeing (grossed by that shade's own loss) — what a
+ * per-kg dyeing charge is levied on. A zero-weight shade is not a charge.
+ * Order of first appearance is kept.
+ */
+export function shadeDyeingCharges(
+  yarnDyeing: readonly { yarnItemId: string; colorName: string; toOrderedWt: number }[],
+): { yarnItemId: string; colorName: string; qty: number }[] {
+  const byShade = new Map<string, { yarnItemId: string; colorName: string; qty: number }>();
+  for (const l of yarnDyeing) {
+    const key = JSON.stringify([l.yarnItemId, l.colorName]);
+    const held = byShade.get(key) ?? { yarnItemId: l.yarnItemId, colorName: l.colorName, qty: 0 };
+    held.qty += l.toOrderedWt;
+    byShade.set(key, held);
+  }
+  return [...byShade.values()]
+    .filter((sh) => sh.qty > 0)
+    .map((sh) => ({ ...sh, qty: Number(sh.qty.toFixed(6)) }));
+}
