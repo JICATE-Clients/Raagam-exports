@@ -39,6 +39,8 @@ export type IwoFabricLineFacts = {
   no_of_colors: number | null;
   gsm: number | null;
   finish_dia?: string | null;
+  /** A PRINT-stage line's print, from the Roll form prints panel (0599). */
+  print_name?: string | null;
   stage_id: string | null;
   req_kgs: number | null;
 };
@@ -47,6 +49,7 @@ export type IwoFabricLineField =
   | "item_id"
   | "color_name"
   | "finish_dia"
+  | "print_name"
   | "stage_id"
   | "req_kgs"
   | "gsm"
@@ -78,6 +81,7 @@ export const isBlankIwoFabricLine = (l: IwoFabricLineFacts): boolean =>
   l.no_of_colors == null &&
   l.gsm == null &&
   !l.finish_dia?.trim() &&
+  !l.print_name?.trim() &&
   !l.stage_id &&
   l.req_kgs == null;
 
@@ -151,6 +155,19 @@ export function iwoFabricLineProblems(
       } else if (rank != null && rank >= 1 && !colour) {
         need("color_name", "lines", "choose the Colour — a dyed line is planned per colour.");
       }
+      /* COLOUR × DIA, AND PRINT (client ticket 2026-09-20, §3–§4). A DYED or
+         WASHED line is planned per colour AND dia, so its Finish Dia is owed;
+         a PRINTED line owes its Print as well (from the Roll form prints
+         panel). A Print on a line that is not in a print stage is refused, not
+         silently kept — it would split a line that means one thing in two. */
+      if (rank != null && rank >= 1 && !(l.finish_dia ?? "").trim()) {
+        need("finish_dia", "consumption", "choose the Finish Dia — a dyed or printed line is planned per colour and dia.");
+      }
+      if (rank === 2 && !(l.print_name ?? "").trim()) {
+        need("print_name", "lines", "choose the Print — a printed line is planned per print, colour and dia.");
+      } else if (rank !== 2 && rank != null && (l.print_name ?? "").trim()) {
+        need("print_name", "lines", "only a line in a Print stage carries a Print — clear it, or set the Stage to PRINT.");
+      }
       const first = stageOfFabric.get(l.item_id);
       if (!first) stageOfFabric.set(l.item_id, { row, stage_id: l.stage_id });
       else if (first.stage_id !== l.stage_id) {
@@ -161,10 +178,15 @@ export function iwoFabricLineProblems(
         );
       }
     }
-    const key = `${l.item_id}|${colour}|${(l.finish_dia ?? "").trim().toUpperCase()}`;
+    const print = (l.print_name ?? "").trim().toUpperCase();
+    const key = `${l.item_id}|${colour}|${(l.finish_dia ?? "").trim().toUpperCase()}|${print}`;
     const dup = rowOfKey.get(key);
     if (dup) {
-      need("finish_dia", "consumption", `the same fabric, colour and dia are on line ${dup} — put the weight on one line.`);
+      need(
+        "finish_dia",
+        "consumption",
+        `the same fabric, colour${print ? ", dia and print" : " and dia"} are on line ${dup} — put the weight on one line.`,
+      );
     } else rowOfKey.set(key, row);
   });
   return out;

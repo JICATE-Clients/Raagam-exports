@@ -67,7 +67,47 @@ export interface IwoFabricBomLineRow {
   finish_dia: string | null;
   stage_id: string | null;
   req_kgs: number | null;
+  /** PRINT-stage lines only (0599): a name from the Roll form prints panel. */
+  print_name: string | null;
   notes: string | null;
+}
+
+/**
+ * Fabric Allocation ▸ Details ▸ Yarn Dyed Details (0581 tables, first used by
+ * 0599) — the order screen's Repeats and Combinations panels, ADDRESSED BY THE
+ * FABRIC (`item_id`), never by a line: lines are deleted and re-inserted on
+ * every save, and an IWO has no style or colourway to add to the address.
+ * `structure_id` is a note only, nullable since 0599.
+ */
+export interface IwoFabricBomYdRepeatRow {
+  id: string;
+  bom_id: string;
+  structure_id: string | null;
+  item_id: string;
+  sno: number;
+  yarn_item_id: string | null;
+  dye_type: "dyed" | "grey";
+  color_name: string | null;
+  uom_id: string | null;
+  value: number | null;
+  twisted_yarn: string | null;
+}
+
+/** One Combinations row. `combo` is the fabric line's COLOUR — an IWO has no
+ *  colourway, so its lines' colours play that part (see `iwoFabricGross`). */
+export interface IwoFabricBomYdCombinationRow {
+  id: string;
+  bom_id: string;
+  structure_id: string | null;
+  item_id: string;
+  combo: string | null;
+  yd_combo_name: string | null;
+  iwo_fabric_bom_yd_combination_colors: {
+    id: string;
+    sno: number;
+    yarn_color: string | null;
+    dyeing_loss_pct: number | null;
+  }[];
 }
 
 /** One step of a fabric's route (Fabric Process, step 3). No colourway and no
@@ -145,6 +185,8 @@ export interface IwoFabricBom {
   iwo_fabric_bom_lines: IwoFabricBomLineRow[];
   iwo_fabric_bom_processes: IwoFabricBomProcessRow[];
   iwo_fabric_bom_yarns: IwoFabricBomYarnRow[];
+  iwo_fabric_bom_yd_repeats: IwoFabricBomYdRepeatRow[];
+  iwo_fabric_bom_yd_combinations: IwoFabricBomYdCombinationRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +232,9 @@ export const iwoFabricBomLineInput = z.object({
   finish_dia: capsTextNullable(),
   stage_id: z.string().uuid().nullable().default(null),
   req_kgs: z.number().positive("Req Wt must be more than 0").nullable().default(null),
+  // PRINT-stage lines (0599) — a name from the Roll form prints panel, capitals
+  // like the panel. Whether one is owed is `lines.ts`'s: it needs the stage.
+  print_name: capsTextNullable(),
 });
 
 export type IwoFabricBomLineInput = z.input<typeof iwoFabricBomLineInput>;
@@ -202,6 +247,43 @@ export const iwoFabricBomYarnShadeInput = z.object({
   planned_kgs: z.number().nullable().default(null),
 });
 
+/** Details ▸ Yarn Dyed Details ▸ Repeats, as SENT (0599). Every value
+ *  optional — the grid opens on a blank row; `ydRepeatFilled` in actions.ts
+ *  decides what is worth storing, the order action's division of labour. */
+export const iwoFabricBomYdRepeatInput = z.object({
+  structure_id: z.string().uuid().nullable().default(null),
+  item_id: z.string().uuid(),
+  sno: z.coerce.number().int().nonnegative().default(0),
+  yarn_item_id: z.string().uuid().nullable().default(null),
+  dye_type: z.enum(["dyed", "grey"]).default("dyed"),
+  color_name: capsTextNullable(),
+  uom_id: z.string().uuid().nullable().default(null),
+  value: z.number().nullable().default(null),
+  twisted_yarn: capsTextNullable(),
+});
+
+/** Details ▸ Yarn Dyed Details ▸ Combinations, as SENT (0599), with its nested
+ *  colours. The loss bounds are the order schema's (0568): under 100, or the
+ *  markup divides by zero. */
+export const iwoFabricBomYdCombinationInput = z.object({
+  structure_id: z.string().uuid().nullable().default(null),
+  item_id: z.string().uuid(),
+  combo: capsTextNullable(),
+  yd_combo_name: capsTextNullable(),
+  colors: z
+    .array(
+      z.object({
+        sno: z.coerce.number().int().nonnegative().default(0),
+        yarn_color: capsTextNullable(),
+        dyeing_loss_pct: z.coerce.number().min(0).max(99.99).nullable().default(0),
+      }),
+    )
+    .default([]),
+});
+
+export type IwoFabricBomYdRepeatInput = z.infer<typeof iwoFabricBomYdRepeatInput>;
+export type IwoFabricBomYdCombinationInput = z.infer<typeof iwoFabricBomYdCombinationInput>;
+
 export const iwoFabricBomInput = z.object({
   iwo_id: z.string().uuid({ message: "Choose the Internal Work Order" }),
   bom_date: z.string().min(1, "Date is required"),
@@ -210,6 +292,9 @@ export const iwoFabricBomInput = z.object({
   palette: z.array(iwoFabricBomPaletteInput).optional(),
   dias: z.array(iwoFabricBomDiaInput).optional(),
   lines: z.array(iwoFabricBomLineInput).optional(),
+  // Details ▸ Yarn Dyed Details (0599). Absent = left alone, as every list here.
+  yd_repeats: z.array(iwoFabricBomYdRepeatInput).optional(),
+  yd_combinations: z.array(iwoFabricBomYdCombinationInput).optional(),
   // Step 3. `processes` carry `combo` / `component_id` because the order schema
   // does; the action writes neither (0581 has no such columns).
   processes: z.array(fabricBomProcessInput).optional(),

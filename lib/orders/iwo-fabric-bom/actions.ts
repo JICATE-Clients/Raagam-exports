@@ -16,7 +16,16 @@ import {
   keptIwoYarnLines,
   keptIwoYarnShades,
 } from "./lines";
-import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase } from "./yarn";
+import {
+  iwoFabricGross,
+  iwoRoutesByFabric,
+  iwoYarnModePurchase,
+  iwoYarnShades,
+  iwoYdCombinationFilled,
+  iwoYdRepeatFilled,
+  type IwoYdCombinationLike,
+  type IwoYdRepeatLike,
+} from "./yarn";
 import { kgUomOf } from "./service";
 // The ORDER Fabric BOM's pure engine and its order-agnostic loaders, reused as
 // they are — see yarn.ts for why the IWO must not compute a yarn weight any
@@ -105,17 +114,24 @@ async function writeChildren(
       finish_dia: l.finish_dia || null,
       stage_id: l.stage_id,
       req_kgs: l.req_kgs,
+      print_name: l.print_name || null,
     }));
     if (rows.length) {
       const { error } = await s.from("iwo_fabric_bom_lines").insert(rows);
       if (error) {
         // 0581's item guard: a line that names something other than a FABRIC.
         if (error.code === "23514") return "A fabric line names an item that is not a fabric.";
-        // 0592's (fabric, colour, dia) index — `lines.ts` says it first, by row.
-        if (error.code === "23505") return "The same fabric, colour and dia are on two lines — put the weight on one line.";
+        // 0599's (fabric, colour, dia, print) index — `lines.ts` says it first, by row.
+        if (error.code === "23505") {
+          return "The same fabric, colour, dia and print are on two lines — put the weight on one line.";
+        }
         return error.message;
       }
     }
+  }
+  if (p.yd_repeats || p.yd_combinations) {
+    const err = await writeYarnDyed(s, bomId, p);
+    if (err) return err;
   }
   if (p.processes) {
     // A route is kept only for a fabric still on a line, and only its steps
@@ -151,6 +167,106 @@ async function writeChildren(
     if (err) return err;
   }
   return null;
+}
+
+/**
+ * Details ▸ Yarn Dyed Details (0599) — delete-then-insert, both lists together:
+ * a combination's colours pair with the repeats by stripe POSITION
+ * (`yarnShadesFrom`), so storing one list without the other could pair a new
+ * loss with an old stripe. Kept only for a fabric still on a line, as a route
+ * is. Colours are written from the inserted parents' ids, zipped by index —
+ * one multi-row insert returns its rows in the order sent (the order action's
+ * own reading).
+ */
+async function writeYarnDyed(s: Db, bomId: string, p: IwoFabricBomParsed): Promise<string | null> {
+  if (!p.yd_repeats || !p.yd_combinations) {
+    return "The Yarn Dyed repeats and combinations are saved together — reopen the BOM and save again.";
+  }
+  const fabricIds = await fabricIdsOf(s, bomId, p);
+  for (const t of ["iwo_fabric_bom_yd_repeats", "iwo_fabric_bom_yd_combinations"] as const) {
+    const { error } = await s.from(t).delete().eq("bom_id", bomId);
+    if (error) return error.message;
+  }
+  const repeats = p.yd_repeats.filter((r) => fabricIds.has(r.item_id) && iwoYdRepeatFilled(r));
+  if (repeats.length) {
+    const nextSno = new Map<string, number>();
+    const { error } = await s.from("iwo_fabric_bom_yd_repeats").insert(
+      repeats.map((r) => {
+        const sno = (nextSno.get(r.item_id) ?? 0) + 1;
+        nextSno.set(r.item_id, sno);
+        return { ...r, sno, bom_id: bomId };
+      }),
+    );
+    if (error) return error.message;
+  }
+  const combos = p.yd_combinations.filter((c) => fabricIds.has(c.item_id) && iwoYdCombinationFilled(c));
+  if (!combos.length) return null;
+  const { data: inserted, error } = await s
+    .from("iwo_fabric_bom_yd_combinations")
+    .insert(
+      combos.map((c) => ({
+        bom_id: bomId,
+        structure_id: c.structure_id,
+        item_id: c.item_id,
+        combo: c.combo,
+        yd_combo_name: c.yd_combo_name,
+      })),
+    )
+    .select("id");
+  if (error) return error.message;
+  const colorRows = ((inserted ?? []) as { id: string }[]).flatMap((row, i) =>
+    (combos[i]?.colors ?? [])
+      .filter((c) => (c.yarn_color ?? "").trim())
+      .map((c) => ({
+        combination_id: row.id,
+        sno: c.sno,
+        yarn_color: c.yarn_color,
+        // Nothing declared is no markup (the column's own default).
+        dyeing_loss_pct: c.dyeing_loss_pct ?? 0,
+      })),
+  );
+  if (colorRows.length) {
+    const { error: cErr } = await s.from("iwo_fabric_bom_yd_combination_colors").insert(colorRows);
+    if (cErr) return cErr.message;
+  }
+  return null;
+}
+
+/** The Yarn Dyed rows the purchase is grossed by — the payload's when it
+ *  carries them (the same save's stripes, never yesterday's), else the stored
+ *  ones. A failed read refuses: no shades would under-buy by every dye loss. */
+async function yarnDyedOf(
+  s: Db,
+  bomId: string | null,
+  p: IwoFabricBomParsed,
+): Promise<{ repeats: IwoYdRepeatLike[]; combinations: IwoYdCombinationLike[] } | string> {
+  if (p.yd_repeats && p.yd_combinations) {
+    return {
+      // `iwoYarnShades` drops blank rows itself; filtered here too so the
+      // purchase reads exactly the rows `writeYarnDyed` stores.
+      repeats: p.yd_repeats.filter(iwoYdRepeatFilled),
+      combinations: p.yd_combinations.filter(iwoYdCombinationFilled),
+    };
+  }
+  if (!bomId) return { repeats: [], combinations: [] };
+  const [r, c] = await Promise.all([
+    s.from("iwo_fabric_bom_yd_repeats").select("*").eq("bom_id", bomId).order("sno"),
+    s
+      .from("iwo_fabric_bom_yd_combinations")
+      .select("*, iwo_fabric_bom_yd_combination_colors(sno, dyeing_loss_pct)")
+      .eq("bom_id", bomId),
+  ]);
+  if (r.error || c.error) return `Could not read the Yarn Dyed Details: ${(r.error ?? c.error)?.message}`;
+  type RawCombo = IwoYdCombinationLike & { iwo_fabric_bom_yd_combination_colors: IwoYdCombinationLike["colors"] };
+  return {
+    repeats: (r.data ?? []) as IwoYdRepeatLike[],
+    combinations: ((c.data ?? []) as RawCombo[]).map((x) => ({
+      item_id: x.item_id,
+      combo: x.combo,
+      yd_combo_name: x.yd_combo_name,
+      colors: x.iwo_fabric_bom_yd_combination_colors ?? [],
+    })),
+  };
 }
 
 /** The fabrics this BOM's lines name — the payload's when it carries lines,
@@ -299,7 +415,17 @@ async function writeYarns(
     const { compositions } = await getBomYarnComposition(fabricIds);
     const compById = new Map<string, FabricComposition>(compositions.map((c) => [c.fabric_id, c]));
     const nameOf = (id: string) => compById.get(id)?.fabric_name || "this fabric";
+    // Each colour is its own bucket (0599) — the axis the shades key on.
     const gross = iwoFabricGross(lines, kg?.id ?? null, nameOf);
+    const yd = await yarnDyedOf(s, bomId, p);
+    if (typeof yd === "string") return yd;
+    const shades = iwoYarnShades(yd.repeats, yd.combinations, compById);
+    // Which yarn steps are in a coloured stage — `yarnPurchase`'s "ONE DYEING
+    // LOSS": a shade's dye-house loss replaces a hand-typed yarn dyeing step
+    // rather than stacking on it. A failed read refuses, never guesses.
+    const yarnStages = await getYarnStageRows();
+    if (!yarnStages.length) return "Could not read the yarn stages (GREY / DYED) — try again.";
+    const dyedYarnStages = colouredStageIds(yarnStages);
 
     // The process master's kind flags — READ, never coalesced from a failure: a
     // failed read would make every step "neither kind" and silently change what
@@ -340,14 +466,18 @@ async function writeYarns(
         gross,
         compById,
         routes,
-        stages.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
+        stages.map((st) => ({
+          combo: st.combo ?? null,
+          loss_pct: st.loss_pct ?? null,
+          dyed: !!st.stage_id && dyedYarnStages.has(st.stage_id),
+        })),
         kg?.decimals ?? null,
         // Every IWO fabric is knitted from yarn (the order screen's Source
-        // control is hidden, so its default is the only answer), and no
-        // yarn-dyed shade losses are recorded yet — the same two arguments the
+        // control is hidden, so its default is the only answer). The shades
+        // are Details ▸ Yarn Dyed Details' — the same two arguments the
         // preview passes.
         new Map(),
-        [],
+        shades,
       );
       out.push(build(y, stages, weight, { planned_kgs: null, buy_stage_id: null }));
     }
@@ -502,7 +632,7 @@ async function storedLineFacts(s: Db, bomId: string | null) {
   if (!bomId) return [];
   const { data } = await s
     .from("iwo_fabric_bom_lines")
-    .select("structure_id, item_id, color_name, fabric_form, mixing_uom_id, no_of_colors, gsm, finish_dia, stage_id, req_kgs")
+    .select("structure_id, item_id, color_name, fabric_form, mixing_uom_id, no_of_colors, gsm, finish_dia, stage_id, req_kgs, print_name")
     .eq("bom_id", bomId);
   return (data ?? []) as {
     structure_id: string | null;
@@ -515,6 +645,7 @@ async function storedLineFacts(s: Db, bomId: string | null) {
     finish_dia: string | null;
     stage_id: string | null;
     req_kgs: number | null;
+    print_name: string | null;
   }[];
 }
 

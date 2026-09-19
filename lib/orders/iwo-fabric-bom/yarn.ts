@@ -18,25 +18,31 @@
  * The order screen's own history is the reason: its preview and its stored
  * figure diverged twice when each built these maps separately.
  *
- * NO COLOURWAY, NO COMPONENT ON A FABRIC. `combo` is null on every fabric gross
- * and every route step, which `comboKey` reads as "" — so only steps that name
- * no colour apply. The one place a colour exists is a DYED Yarn IWO's shades
- * (0592), where each shade is its own bucket — see `iwoYarnModePurchase`.
+ * NO COLOURWAY, NO COMPONENT — BUT A LINE'S COLOUR IS A BUCKET. An IWO has no
+ * colourways, so a fabric line's own Colour stands in for one (2026-09-20,
+ * `iwoFabricGross`): that is what a Yarn Dyed fabric's per-colour dyeing loss
+ * is matched against. Route steps name no colour (`combo` null), so they apply
+ * to every bucket. A DYED Yarn IWO's shades are buckets the same way (0592,
+ * `iwoYarnModePurchase`).
  */
 
 import {
   comboKey,
   comboUplift,
   isRefusal,
+  type FabricComposition,
   type FabricGross,
   type Refusal,
   type RouteStage,
   type YarnComboWeight,
+  type YarnShade,
 } from "@/lib/orders/fabric-bom/yarn-process";
+import { yarnShadesFrom } from "@/lib/orders/fabric-bom/yarn-dyed";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 
-/** One fabric line as this file reads it. */
-export type IwoGrossLine = { item_id: string | null; req_kgs: number | null };
+/** One fabric line as this file reads it. `color_name` (0599, the Details
+ *  popup) makes each colour its own bucket — see `iwoFabricGross`. */
+export type IwoGrossLine = { item_id: string | null; req_kgs: number | null; color_name?: string | null };
 
 /** One route step as this file reads it. `loss_pct` may be NaN (typed text). */
 export type IwoRouteStep = {
@@ -47,9 +53,17 @@ export type IwoRouteStep = {
 };
 
 /**
- * The gross KGS per fabric — the IWO's replacement for the order's
- * consumption × pieces requirement. Lines of one fabric SUM (two colours of
- * one cloth are one yarn purchase, split by blend, not by colour).
+ * The gross KGS per fabric AND COLOUR — the IWO's replacement for the order's
+ * consumption × pieces requirement.
+ *
+ * ONE BUCKET PER (FABRIC, COLOUR) since 2026-09-20. On an order the colour
+ * axis is the colourway; an IWO has none, so a line's own Colour plays that
+ * part — which is what lets a Yarn Dyed fabric's per-colour dyeing losses
+ * (Details ▸ Yarn Dyed Details ▸ Combinations, keyed by that colour) gross the
+ * right colour's weight inside `yarnPurchase`. Lines of one fabric and colour
+ * SUM (two dias of one colour are one lot); a line with no colour keeps the
+ * uncoloured bucket, exactly the old behaviour. The yarn purchase still sums
+ * every bucket, so splitting by colour changes nothing for a solid cloth.
  *
  * A LINE WITH NO WEIGHT POISONS ITS FABRIC, the order engine's own rule: a
  * yarn covering one weighed line and one unweighed one has no total worth
@@ -66,7 +80,9 @@ export function iwoFabricGross(
   const byFabric = new Map<string, FabricGross>();
   for (const l of lines) {
     if (!l.item_id) continue;
-    const held = byFabric.get(l.item_id);
+    const colour = comboKey(l.color_name);
+    const bucket = `${l.item_id}|${colour}`;
+    const held = byFabric.get(bucket);
     if (held && held.gross === null) continue;
     const kg = l.req_kgs;
     const refusal = !kgUomId
@@ -74,9 +90,9 @@ export function iwoFabricGross(
       : kg == null || !(kg > 0)
         ? `Enter the Req Wt for ${fabricName(l.item_id)} on Fabric Consumption.`
         : null;
-    byFabric.set(l.item_id, {
+    byFabric.set(bucket, {
       fabric_id: l.item_id,
-      combo: null,
+      combo: colour || null,
       gross: refusal ? null : (held?.gross ?? 0) + (kg as number),
       uom_id: kgUomId,
       component_ids: [],
@@ -84,6 +100,87 @@ export function iwoFabricGross(
     });
   }
   return [...byFabric.values()];
+}
+
+/** A Yarn Dyed Details repeat / combination as `iwoYarnShades` reads it —
+ *  the stored row, the payload row and the screen's row all fit. */
+export type IwoYdRepeatLike = {
+  item_id: string | null;
+  sno: number;
+  yarn_item_id: string | null;
+  dye_type: "dyed" | "grey";
+  color_name?: string | null;
+  uom_id: string | null;
+  value: number | null;
+  twisted_yarn?: string | null;
+};
+export type IwoYdCombinationLike = {
+  item_id: string | null;
+  combo?: string | null;
+  yd_combo_name?: string | null;
+  colors: readonly { sno: number; dyeing_loss_pct: number | null }[];
+};
+
+/** Is this Yarn Dyed row worth STORING — and so worth COUNTING? A blank row
+ *  the grid opened says nothing, and its address is not content (the order
+ *  action's `ydRepeatFilled` / `ydCombinationFilled`, same tests). The save
+ *  stores only these, and `iwoYarnShades` counts only these, because a blank
+ *  repeat still takes a stripe POSITION: counting it in the preview and not in
+ *  the save would pair every later colour's loss with the wrong stripe. */
+export const iwoYdRepeatFilled = (r: {
+  yarn_item_id: string | null;
+  color_name?: string | null;
+  value: number | null;
+  twisted_yarn?: string | null;
+}) => !!(r.yarn_item_id || (r.color_name ?? "").trim() || r.value != null || (r.twisted_yarn ?? "").trim());
+export const iwoYdCombinationFilled = (c: { combo?: string | null; yd_combo_name?: string | null }) =>
+  !!((c.combo ?? "").trim() || (c.yd_combo_name ?? "").trim());
+
+/**
+ * THE DYED SHADES OF A FOR = FABRIC BOM (0599) — `yarnPurchase`'s last
+ * argument, built from Details ▸ Yarn Dyed Details.
+ *
+ * `yarnPurchase`'s own header enumerates its callers and says a new one MUST
+ * pass the shades, or a document that has them under-buys by every shade's dye
+ * loss, silently. The IWO is that new caller, twice — the screen's preview and
+ * the action's save — so both call THIS, never `yarnShadesFrom` directly, and
+ * cannot build the shades two ways.
+ *
+ * ONE SET PER FABRIC: an IWO has no YD Part (0596 is the order's), so a
+ * fabric's repeats are one stripe arrangement. A combination's `combo` is the
+ * fabric line's Colour — the bucket `iwoFabricGross` makes.
+ */
+export function iwoYarnShades(
+  repeats: readonly IwoYdRepeatLike[],
+  combinations: readonly IwoYdCombinationLike[],
+  compositions: ReadonlyMap<string, FabricComposition>,
+): YarnShade[] {
+  const kept = repeats.filter(iwoYdRepeatFilled);
+  const fabricIds = [...new Set(kept.map((r) => r.item_id).filter((v): v is string => !!v))];
+  return fabricIds.flatMap((fabricId) =>
+    yarnShadesFrom(
+      fabricId,
+      kept
+        .filter((r) => r.item_id === fabricId)
+        .map((r) => ({
+          key: `${fabricId}:${r.sno}`,
+          sno: r.sno,
+          yarn_item_id: r.yarn_item_id,
+          dye_type: r.dye_type,
+          color_name: r.color_name ?? "",
+          uom_id: r.uom_id,
+          value: r.value,
+          twisted_yarn: r.twisted_yarn ?? "",
+        })),
+      compositions.get(fabricId) ?? null,
+      combinations
+        .filter((c) => c.item_id === fabricId && iwoYdCombinationFilled(c))
+        .map((c) => ({
+          combo: comboKey(c.combo ?? null) || null,
+          colors: c.colors.map((x) => ({ sno: x.sno, dyeing_loss_pct: x.dyeing_loss_pct ?? 0 })),
+        })),
+    ),
+  );
 }
 
 /**

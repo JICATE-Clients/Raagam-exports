@@ -60,7 +60,10 @@ export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
     .select(
       "id, code, iwo_date, iwo_for, reference_no, deli_date, remarks, status, created_by, created_at, " +
         "iwo_fabric_boms(*, iwo_fabric_bom_palette(*), iwo_fabric_bom_dias(*), iwo_fabric_bom_lines(*), " +
-        "iwo_fabric_bom_processes(*), iwo_fabric_bom_yarns(*, iwo_fabric_bom_yarn_stages(*), iwo_fabric_bom_yarn_shades(*)))",
+        "iwo_fabric_bom_processes(*), iwo_fabric_bom_yarns(*, iwo_fabric_bom_yarn_stages(*), iwo_fabric_bom_yarn_shades(*)), " +
+        // Details ▸ Yarn Dyed Details (0599). Each yd table has one FK to its
+        // parent, so the bare embeds are unambiguous.
+        "iwo_fabric_bom_yd_repeats(*), iwo_fabric_bom_yd_combinations(*, iwo_fabric_bom_yd_combination_colors(*)))",
     )
     .in("iwo_for", ["yarn", "fabric"])
     .eq("location_id", locationId)
@@ -96,6 +99,18 @@ export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
                   (a, c) => a.sno - c.sno,
                 ),
               })),
+            iwo_fabric_bom_yd_repeats: [...(b.iwo_fabric_bom_yd_repeats ?? [])].sort(
+              (x, y) => x.item_id.localeCompare(y.item_id) || x.sno - y.sno,
+            ),
+            // No `sno` on a combination (0581) and one `created_at` per save, so
+            // they come back in stored order — the order screen reads its own
+            // the same way. The colours carry their own `sno`.
+            iwo_fabric_bom_yd_combinations: [...(b.iwo_fabric_bom_yd_combinations ?? [])].map((c) => ({
+              ...c,
+              iwo_fabric_bom_yd_combination_colors: [...(c.iwo_fabric_bom_yd_combination_colors ?? [])].sort(
+                (a, d) => a.sno - d.sno,
+              ),
+            })),
           }
         : null,
     };
