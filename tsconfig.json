@@ -65,6 +65,7 @@
     "scripts/check-yarn-process.mts",
     "scripts/check-iwo-fabric-bom.mts",
     "scripts/check-iwo-material-bom.mts",
+    "scripts/check-iwo-budget.mts",
     "scripts/check-fabric-stage-routes.mts",
     "scripts/check-standard-routes.mts",
     "scripts/check-fabric-print-route.mts",
