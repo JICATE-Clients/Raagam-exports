@@ -1928,6 +1928,10 @@ export function GarmentOrderScreen({
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
+  /* OPENED FROM THE EYE (client 2026-09-19) — the full order screen, read
+     only. See `openView` and `MasterFullScreen`'s `viewOnly`. Up here with
+     `mode`, above the `if (mode === "list")` return, like every hook. */
+  const [viewOnly, setViewOnly] = useState(false);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   // Phase 2 data-tab grids
   const [styles, setStyles] = useState<StyleRow[]>([]);
@@ -2908,7 +2912,9 @@ export function GarmentOrderScreen({
   // the reload guard automatically — see mba-master-screen.tsx for the full
   // reasoning. The stakes are highest here: this form carries a header plus
   // eight child grids, so a silent auto-update mid-amendment discards the lot.
-  useUnsavedGuard(mode === "edit" || isPending);
+  // Not while VIEWING: nothing there can be typed, so pinning the guard would
+  // only hold the silent auto-update off for as long as someone reads an order.
+  useUnsavedGuard((mode === "edit" && !viewOnly) || isPending);
 
   /**
    * THE SC NO BOX. Two sources, never both: a saved order shows its STORED
@@ -4051,6 +4057,7 @@ export function GarmentOrderScreen({
   }
 
   function openAdd() {
+    setViewOnly(false);
     // THE AMEND DOOR CANNOT CREATE, and the refusal lives HERE rather than on
     // the button, because the button is not the only caller: `?new=1` reaches
     // this through `useCreateIntent` below, which is how the ＋ quick action and
@@ -4135,7 +4142,26 @@ export function GarmentOrderScreen({
     if (perms.canCreate) openAdd();
   });
 
+  /**
+   * THE EYE OPENS THE ORDER ITSELF, READ ONLY (client 2026-09-19). It used to
+   * open `RowActions`' automatic record sheet — the amendment row's raw
+   * columns as label/value pairs, no names resolved, none of the styles,
+   * sizes or quantities — which answered "what is in this order" with nothing
+   * a merchandiser could use.
+   *
+   * THE SAME LOAD AS EDIT, so the viewer sees exactly what the editor would:
+   * every tab, every grid, through one mapping. Only the shell differs —
+   * `viewOnly` makes each field read-only and the footer a single Close. It
+   * needs VIEW permission only, which is the point: the RE No link opens the
+   * editor and is offered to editors alone.
+   */
+  function openView(r: GarmentOrderAmendment) {
+    openEdit(r);
+    setViewOnly(true);
+  }
+
   function openEdit(r: GarmentOrderAmendment) {
+    setViewOnly(false);
     setSavedOrderNo(r.sales_order?.order_number ?? null);
     setPreviewNo(null);
     setPendingSeed(null);
@@ -5220,17 +5246,18 @@ export function GarmentOrderScreen({
               {r.sales_order?.order_number ?? "—"}
             </span>
           );
-          return perms.canEdit ? (
+          /* WITHOUT EDIT PERMISSION THE NUMBER STILL OPENS THE ORDER — read
+             only (2026-09-19). The rule above was "never open an editor the
+             operator cannot save"; a viewer's screen has no Save to lie with. */
+          return (
             <button
               type="button"
-              onClick={() => openEdit(r)}
+              onClick={() => (perms.canEdit ? openEdit(r) : openView(r))}
               className="rounded-sm text-left text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={`Open order ${r.sales_order?.order_number ?? r.code ?? ""}`}
             >
               {no}
             </button>
-          ) : (
-            no
           );
         },
       },
@@ -5338,7 +5365,7 @@ export function GarmentOrderScreen({
            * whoever reads that is exactly the person who then wants the sheet.
            * Without this they leave for Orders ▸ All Orders and re-find the same
            * order there, because THIS list does not link to `/orders/<id>` at all
-           * — its eye is `RowActions`' record-view overlay, not navigation.
+           * — its eye opened a raw-column sheet then (now the order, read only).
            *
            * ## THE BOM GATE WAS REMOVED, AND THAT REVERSES WHAT STOOD HERE
            *
@@ -5388,6 +5415,9 @@ export function GarmentOrderScreen({
               },
             ];
           })()}
+          /* THE EYE OPENS THE ORDER, READ ONLY — see `openView`. Replaces the
+             automatic raw-column sheet `RowActions` draws when no `onView`. */
+          onView={() => openView(r)}
           onEdit={() => openEdit(r)}
           /* An APPROVED order offers no Edit or Delete (Phase 5): both would be
              refused on save. It can still be VIEWED — the eye, or the RE No,
@@ -22069,7 +22099,13 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       <div data-focus-region="header" className="mb-3 flex w-full flex-wrap items-baseline gap-x-6 gap-y-2">
         <div className="flex shrink-0 items-baseline gap-2">
           <dt className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
-            {amending ? "Amend Garment Order" : editId ? "Edit Garment Order" : "New Garment Order"}
+            {viewOnly
+              ? "View Garment Order"
+              : amending
+                ? "Amend Garment Order"
+                : editId
+                  ? "Edit Garment Order"
+                  : "New Garment Order"}
           </dt>
           {/* `previewNo` IS ALREADY RESOLVED BEFORE FIRST PAINT for a brand-new
              order (see `initialOrderNo`), so the number sits here even before a
@@ -22137,7 +22173,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           reason Delete confirms inside its own row. It is also why this needs no
           `useModalGuard`: an inline bar is not an overlay, so the reload guard's
           DOM scan has nothing to miss. */}
-      {pendingSeed && (
+      {/* Never while viewing: "Replace / Keep mine" is an edit decision. */}
+      {pendingSeed && !viewOnly && (
         <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3">
           <p className="text-sm font-medium text-foreground">
             Replace the tabs with {pendingSeed.orderNo}&rsquo;s data?
@@ -22180,6 +22217,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            triggers are the lock; this is the banner, the read-only fields and
            a Save that explains. Order Amendment (purpose="amend") locks too. */
         locked={editId && orderLocks[editId] ? { message: orderLocks[editId] } : false}
+        /* THE EYE — every field read-only, one Close, no step guards. */
+        viewOnly={viewOnly}
         // No `header`: the route's own PageHeader above already names the
         // record, and a second identity band would announce it twice.
         onClose={() => setMode("list")}
@@ -22190,7 +22229,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
            on rows alone — losing typed work and losing a loaded order are
            different questions, and only the reload one needs to know whether the
            operator has actually been editing. */
-        dirty={tabsHaveRows && touched}
+        /* Never dirty while viewing: a rail click sets `touched`, and Escape
+           must not ask a reader to discard changes they could not make. */
+        dirty={!viewOnly && tabsHaveRows && touched}
         sections={sections}
         /* The one action that means "show me the colourways" — see
            `listStylesInCombos`. Keyed by section rather than by a Combos-only
@@ -22215,7 +22256,9 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
           // "Unsaved changes" stays the FIRST branch in both doors: it is the
           // dirty signal, and demoting it behind a wording choice would hide
           // the one line here that is about losing work.
-          status: tabsHaveRows
+          status: viewOnly
+            ? "View only"
+            : tabsHaveRows
             ? "Unsaved changes"
             : amending
               ? "Editing amendment"
