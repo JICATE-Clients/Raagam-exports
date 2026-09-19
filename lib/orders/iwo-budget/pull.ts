@@ -212,8 +212,13 @@ export function pullIwoLines(input: IwoPullInput): IwoPullResult {
         item_id: y.item_id,
         qty: q4(Number(y.purchase_qty)),
         uom_id: y.uom_id,
-        // A Yarn IWO line states its own Stage; a Fabric IWO's yarn is bought grey.
-        stage_id: input.iwoFor === "yarn" ? (y.buy_stage_id ?? input.greyYarnStageId) : input.greyYarnStageId,
+        // A Yarn IWO line states its own Stage — EXCEPT Yarn Dyeing, whose one
+        // purchase is the GREY lot that is dyed afterwards (0592); the colour
+        // is costed on its dyeing lines. A Fabric IWO's yarn is bought grey.
+        stage_id:
+          input.iwoFor === "yarn" && y.colour_by !== "yarn_dyeing"
+            ? (y.buy_stage_id ?? input.greyYarnStageId)
+            : input.greyYarnStageId,
       });
     }
 

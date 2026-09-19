@@ -151,7 +151,8 @@ check(
   ),
   {
     lines: [
-      ["yarn", COTTON, null, null, null, 222.223, DYED],
+      // The grey lot is bought GREY; the DYED stage is the line's, not the purchase's.
+      ["yarn", COTTON, null, null, null, 222.223, GREY],
       ["yarn_process", COTTON, YDYE, "NAVY", "color", 111.1111, GREY],
       ["yarn_process", COTTON, YDYE, "BLACK", "color", 111.1111, GREY],
     ],
