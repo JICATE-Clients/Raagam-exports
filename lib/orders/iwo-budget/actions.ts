@@ -2,13 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { can } from "@/lib/auth/server";
+import { can, getAppUser } from "@/lib/auth/server";
+import { startApproval } from "@/lib/approvals/actions";
+import { WORKFLOWS } from "@/lib/approvals/workflows";
+import { budgetTotals, isRefusal } from "@/lib/orders/budget/totals";
+import { lineInputOf } from "@/lib/orders/budget/figures";
+import { iwoMergeIsEmpty, mergeIwoPulled } from "./merge";
 import { writeAudit } from "@/lib/audit";
 import { today } from "@/lib/calendar";
 import type { IwoFor } from "@/lib/orders/internal-work-orders/types";
 import { pullIwoCostLines } from "./service";
 import type { IwoPullResult } from "./pull";
-import { iwoBudgetInput, type IwoBudgetInput } from "./types";
+import { iwoBudgetInput, type IwoBudgetInput, type IwoBudgetLineRow } from "./types";
 import { iwoBudgetProblems, keptIwoBudgetLines } from "./rules";
 
 const PATH = "/orders/iwo-budgets";
@@ -140,4 +145,121 @@ export async function deleteIwoBudget(budgetId: string): Promise<{ ok: true } | 
   await writeAudit({ action: "iwo_budget.deleted", entityType: "iwo_budget", entityId: budgetId });
   revalidatePath(PATH);
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Approval (Phase 5, 0595)
+// ---------------------------------------------------------------------------
+
+/**
+ * Submit a saved budget for approval — the order Budget's `submitBudget`, the
+ * IWO's way.
+ *
+ * REFUSED WHILE THE BOM HAS MOVED. A pulled line carries the BOM's figure as it
+ * stood at the last refresh; submitting after the BOM changed would put a stale
+ * weight in front of the approver. So the pull runs again here and the budget
+ * is refused unless it already says what the BOM says (`mergeIwoPulled` empty)
+ * — press Refresh from BOM, save, submit. A budget with no pulled line (typed
+ * by hand, no BOM yet) is not held to a BOM.
+ *
+ * THE STATUS AND THE RUN ARE ONE STEP: a failed `startApproval` puts the
+ * budget back to draft (0595 lets a client make exactly that move), because a
+ * submitted budget in nobody's queue is the stranded document the engine
+ * exists to prevent. Submitting LOCKS the work order's BOMs (0595).
+ */
+export async function submitIwoBudget(budgetId: string): Promise<Result> {
+  if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+  const { data: b, error } = await s
+    .from("iwo_budgets")
+    .select("id, iwo_id, status, location_id, iwo_budget_lines(*), iwo:internal_work_orders(code, iwo_for)")
+    .eq("id", budgetId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!b) return { ok: false, error: "That budget no longer exists." };
+  type Row = {
+    id: string;
+    iwo_id: string;
+    status: string;
+    location_id: string;
+    iwo_budget_lines: IwoBudgetLineRow[];
+    iwo: { code: string | null; iwo_for: IwoFor } | { code: string | null; iwo_for: IwoFor }[] | null;
+  };
+  const row = b as unknown as Row;
+  const iwo = Array.isArray(row.iwo) ? row.iwo[0] : row.iwo;
+  if (row.status !== "draft" && row.status !== "rejected") {
+    return { ok: false, error: row.status === "submitted" ? "This budget is already with the approver." : `This budget is ${row.status}.` };
+  }
+  const lines = row.iwo_budget_lines;
+  if (!lines.length) return { ok: false, error: "Add at least one cost line before submitting." };
+  const problem = iwo ? iwoBudgetProblems(lines, iwo.iwo_for)[0] : null;
+  if (problem) return { ok: false, error: problem.message };
+
+  if (lines.some((l) => l.from_bom)) {
+    const fresh = await pullIwoCostLines(row.iwo_id);
+    if ("refused" in fresh) return { ok: false, error: `The BOM cannot be read for this budget — ${fresh.refused}` };
+    const m = mergeIwoPulled(
+      lines.map((l) => ({ ...l, key: l.id })),
+      fresh.lines,
+    );
+    if (!iwoMergeIsEmpty(m)) {
+      return {
+        ok: false,
+        error: "The BOM has changed since these lines were pulled. Press Refresh from BOM, save, then submit.",
+      };
+    }
+  }
+
+  const totals = budgetTotals(lines.map((l) => lineInputOf(l)), []);
+  const cost = isRefusal(totals.cost) ? null : totals.cost;
+  const bySource = Object.fromEntries(
+    Object.entries(totals.costBySource).map(([k, v]) => [k, isRefusal(v) ? null : v]),
+  );
+  const summary = { total_cost: cost, by_source: bySource, unpriced_lines: totals.unpriced.length, lines: lines.length };
+
+  const { error: upErr } = await s
+    .from("iwo_budgets")
+    .update({
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+      submitted_by: (await getAppUser())?.id ?? null,
+      submitted_summary: summary,
+    })
+    .eq("id", budgetId);
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const started = await startApproval({
+    workflowKey: WORKFLOWS.iwo_budget.key,
+    subjectTable: WORKFLOWS.iwo_budget.subjectTable,
+    subjectId: budgetId,
+    // Every key a flow might test; a missing key falls to the catch-all.
+    context: { total_cost: cost, unpriced_lines: totals.unpriced.length, iwo_for: iwo?.iwo_for ?? null, iwo_code: iwo?.code ?? null },
+    scope: { location_id: row.location_id },
+  });
+  if (!started.ok) {
+    await s
+      .from("iwo_budgets")
+      .update({ status: "draft", submitted_at: null, submitted_by: null, submitted_summary: null })
+      .eq("id", budgetId);
+    return { ok: false, error: `No approval could be started — ${started.error}` };
+  }
+
+  await writeAudit({ action: "iwo_budget.submitted", entityType: "iwo_budget", entityId: budgetId });
+  revalidatePath(PATH);
+  return { ok: true, budgetId };
+}
+
+/**
+ * Reopen an APPROVED budget — approver-only, with a reason (0595's
+ * `reopen_iwo_budget`, which checks both itself). Back to draft; the work
+ * order's BOMs unlock.
+ */
+export async function reopenIwoBudget(budgetId: string, reason: string): Promise<Result> {
+  if (!(await can("orders", "approve"))) return { ok: false, error: "Only an approver can reopen an approved budget." };
+  const s = await createClient();
+  const { error } = await s.rpc("reopen_iwo_budget", { p_budget: budgetId, p_reason: reason });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "iwo_budget.reopened", entityType: "iwo_budget", entityId: budgetId });
+  revalidatePath(PATH);
+  return { ok: true, budgetId };
 }

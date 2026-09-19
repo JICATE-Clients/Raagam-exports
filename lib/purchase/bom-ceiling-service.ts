@@ -522,7 +522,8 @@ export function advisedItemMessage(itemName: string | null, reNo: string | null)
 /**
  * THE WORK-ORDER CEILING (client 2026-09-19: "refuse outright") — an
  * Accessories work order may not buy more of a material than its Material BOM's
- * purchase quantity. The rules and every sentence are `iwoCeilingRefusal`'s
+ * purchase quantity, and (0595) a Yarn or Fabric work order no more of a yarn
+ * than its IWO Fabric BOM's purchase weight. The rules and every sentence are `iwoCeilingRefusal`'s
  * (pure, shared with the PO form); this is the lookup and the grouping.
  *
  * HARD FROM THE START. The order ceiling refuses only once a budget is approved,
@@ -560,7 +561,7 @@ async function refuseIwoOverCeiling(
       p_exclude_line: exclude?.lineId ?? null,
     });
     if (error) {
-      return `Could not check the work order's Material BOM (${error.message}). Nothing was saved — try again.`;
+      return `Could not check the work order's BOM (${error.message}). Nothing was saved — try again.`;
     }
     if (!data) return "The work order on this purchase no longer exists. Choose another, or clear it.";
     const refusal = iwoCeilingRefusal(data as IwoPurchaseCheck, wanted);

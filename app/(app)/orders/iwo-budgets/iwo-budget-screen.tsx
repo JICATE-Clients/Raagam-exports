@@ -70,10 +70,16 @@ import {
   type IwoBudgetLineFacts,
 } from "@/lib/orders/iwo-budget/rules";
 import { iwoMergeIsEmpty, mergeIwoPulled } from "@/lib/orders/iwo-budget/merge";
-import { deleteIwoBudget, loadIwoCostLines, saveIwoBudget } from "@/lib/orders/iwo-budget/actions";
+import {
+  deleteIwoBudget,
+  loadIwoCostLines,
+  reopenIwoBudget,
+  saveIwoBudget,
+  submitIwoBudget,
+} from "@/lib/orders/iwo-budget/actions";
 import type { IwoBudgetFormData, IwoBudgetTask } from "@/lib/orders/iwo-budget/service";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canApprove: boolean };
 
 // React keys from a module counter, as the order screens do — not a ref.
 let keySeq = 0;
@@ -257,6 +263,8 @@ export function IwoBudgetScreen({
   /** What the last pull could not state — the BOM's own sentences. */
   const [skipped, setSkipped] = useState<string[]>([]);
   const [dirty, setDirty] = useState(false);
+  /** The approver's reason for reopening an approved budget (0595). */
+  const [reopenReason, setReopenReason] = useState("");
   useUnsavedGuard(dirty || isPending);
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
@@ -306,10 +314,12 @@ export function IwoBudgetScreen({
     setMode("edit");
   }
 
-  /** `?open=<iwoId>` — the IWO screens' "Open Budget" lands here. */
-  useOpenIntent((iwoId) => {
-    const t = taskById.get(iwoId);
-    if (t && (t.budget ? perms.canEdit : perms.canCreate)) openTask(t);
+  /** `?open=<id>` — the IWO screens' "Open Budget" passes the WORK ORDER's id;
+   *  the approval inbox (`WORKFLOWS.iwo_budget.href`) passes the BUDGET's. An
+   *  approver without edit rights still opens it, read-only, to decide. */
+  useOpenIntent((id) => {
+    const t = taskById.get(id) ?? tasks.find((x) => x.budget?.id === id);
+    if (t && (t.budget || perms.canCreate)) openTask(t);
   });
 
   // ---- the pull ------------------------------------------------------------
@@ -495,6 +505,42 @@ export function IwoBudgetScreen({
       } else {
         toastError(res.error);
       }
+    });
+  }
+
+  /** Submit the SAVED budget (0595). Unsaved edits are saved first by the
+   *  operator — submitting what is not stored would send the approver a budget
+   *  nobody can open. */
+  function submitForApproval() {
+    if (!editId) return;
+    if (dirty) {
+      toastError("Save the budget first — then submit it.");
+      return;
+    }
+    start(async () => {
+      const res = await submitIwoBudget(editId);
+      if (res.ok) {
+        success("Submitted for approval — the work order's BOMs are locked until it is decided.");
+        setMode("list");
+        router.refresh();
+      } else toastError(res.error);
+    });
+  }
+
+  function reopen() {
+    if (!editId) return;
+    if (!reopenReason.trim()) {
+      toastError("Say why the budget is being reopened.");
+      return;
+    }
+    start(async () => {
+      const res = await reopenIwoBudget(editId, reopenReason.trim());
+      if (res.ok) {
+        success("Budget reopened — it is a draft again, and the BOMs are unlocked.");
+        setReopenReason("");
+        setMode("list");
+        router.refresh();
+      } else toastError(res.error);
     });
   }
 
@@ -1138,6 +1184,56 @@ export function IwoBudgetScreen({
               )}
               {picked?.budget?.status === "rejected" && picked.budget.decision_remark && (
                 <p className="text-sm text-danger">Rejected: {picked.budget.decision_remark}</p>
+              )}
+              {status === "draft" && picked?.budget?.decision_remark?.startsWith("REOPENED") && (
+                <p className="text-sm text-muted-foreground">{picked.budget.decision_remark}</p>
+              )}
+            </div>
+          )}
+
+          {/* APPROVAL (0595) — submitting sends the SAVED budget to the approver
+              and locks the work order's BOMs until it is decided; an approved
+              budget stays locked until an approver reopens it, with a reason. */}
+          {editId && (
+            <div className="mt-4 max-w-[46rem] space-y-2 border-t border-border/60 pt-3">
+              {(status === "draft" || status === "rejected") && perms.canEdit && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" size="sm" disabled={isPending} onClick={submitForApproval}>
+                    Submit for approval
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {dirty ? "Save first — only the saved budget is submitted." : "The work order's BOMs lock while it is with the approver."}
+                  </span>
+                </div>
+              )}
+              {status === "submitted" && (
+                <p className="text-sm text-muted-foreground">
+                  With the approver. The work order&apos;s BOMs and this budget are locked until it is decided.
+                </p>
+              )}
+              {status === "approved" && (
+                <>
+                  <p className="text-sm text-success">
+                    Approved{picked?.budget?.decision_remark ? ` — ${picked.budget.decision_remark}` : ""}. The work order&apos;s
+                    BOMs are locked, and yarn purchases for it are held to the BOM&apos;s purchase weight.
+                  </p>
+                  {perms.canApprove && (
+                    <FieldRow>
+                      <Field label="Reason to reopen" w="name" htmlFor="ib-reopen">
+                        <Input
+                          id="ib-reopen"
+                          value={reopenReason}
+                          onChange={(e) => setReopenReason(e.target.value)}
+                        />
+                      </Field>
+                      <div className="flex items-end">
+                        <Button type="button" variant="outline" size="sm" disabled={isPending || !reopenReason.trim()} onClick={reopen}>
+                          Reopen budget
+                        </Button>
+                      </div>
+                    </FieldRow>
+                  )}
+                </>
               )}
             </div>
           )}

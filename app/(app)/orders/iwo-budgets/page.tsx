@@ -10,13 +10,15 @@ import { IwoBudgetScreen } from "./iwo-budget-screen";
 export default async function IwoBudgetPage() {
   await requirePermission("orders", "view");
 
-  const [tasks, data, canCreate, canEdit, canDelete] = await Promise.all([
+  const [tasks, data, canCreate, canEdit, canDelete, canApprove] = await Promise.all([
     listIwoBudgetTasks(),
     getIwoBudgetFormData(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
+    // Reopening an approved budget is an approver's (0595).
+    can("orders", "approve"),
   ]);
 
-  return <IwoBudgetScreen tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete }} />;
+  return <IwoBudgetScreen tasks={tasks} data={data} perms={{ canCreate, canEdit, canDelete, canApprove }} />;
 }
