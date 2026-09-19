@@ -419,6 +419,12 @@ export const poLineInput = z.object({
    * `purchase_orders.purchase_indent_id` was never applied to this database.
    */
   sales_order_id: z.string().uuid().optional().nullable(),
+  /**
+   * Which Internal Work Order this line buys for (0586) — the other kind of
+   * "for", never set together with `sales_order_id` (`chk_poli_one_source`). An
+   * accessory still Advised on that work order's Material BOM is refused.
+   */
+  iwo_id: z.string().uuid().optional().nullable(),
   description: z.string().min(1),
   quantity: z.coerce.number().nonnegative().default(0),
   uom_id: z.string().uuid().optional().nullable(),

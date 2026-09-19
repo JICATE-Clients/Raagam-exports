@@ -1,14 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createPurchaseOrder,
   fetchBudgetLines,
   fetchBomCeiling,
+  fetchIwoPurchaseCheck,
   raiseOverQuantity,
 } from "@/lib/purchase/po-actions";
+import {
+  advisedAmong,
+  advisedRefusal,
+  iwoCeilingRefusal,
+  iwoPurchaseHint,
+  type IwoPurchaseCheck,
+} from "@/lib/orders/iwo-material-bom/purchase-gate";
 import { blockedMessage, judgeLine, type BomCeiling } from "@/lib/purchase/bom-ceiling";
 import type { PurchaseOrderInput, PoLineInput } from "@/lib/purchase/types";
 import type {
@@ -16,6 +24,7 @@ import type {
   BudgetForPicker,
   LocationForPicker,
   OrderForPicker,
+  IwoForPicker,
 } from "@/lib/purchase/po-service";
 import type { Item } from "@/lib/masters/types";
 import type { Currency } from "@/lib/masters/types";
@@ -49,6 +58,7 @@ export function NewPoForm({
   locations,
   items,
   orders,
+  iwos,
 }: {
   vendors: VendorForPicker[];
   budgets: BudgetForPicker[];
@@ -56,6 +66,8 @@ export function NewPoForm({
   locations: LocationForPicker[];
   items: Item[];
   orders: OrderForPicker[];
+  /** Work orders at this unit a purchase can be raised for (0586). */
+  iwos: IwoForPicker[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -88,6 +100,19 @@ export function NewPoForm({
   /** The BOM's plan for that order, fetched once per order. */
   const [ceiling, setCeiling] = useState<BomCeiling | null>(null);
   const [overReason, setOverReason] = useState("");
+
+  /**
+   * ...OR WHICH WORK ORDER (0586). The other kind of "for": a PO buys for a
+   * garment order or an Internal Work Order, never both on one line
+   * (`chk_poli_one_source`), so picking one clears the other. Written onto every
+   * line the same way `orderId` is.
+   */
+  const [iwoId, setIwoId] = useState("");
+  /** That work order's Advised items, fetched once per pick. */
+  const [iwoCheck, setIwoCheck] = useState<IwoPurchaseCheck | null>(null);
+  /** Drops an answer that arrives after a newer pick (A, then B: A's reply must
+   *  never be shown under B). */
+  const iwoSeq = useRef(0);
 
   // lines
   const [lines, setLines] = useState<PoLineFields[]>([emptyLine()]);
@@ -181,6 +206,21 @@ export function NewPoForm({
     x.verdict.kind === "blocked" ? [{ line: x.line, verdict: x.verdict }] : [],
   );
 
+  /* THE WORK ORDER'S TWO RULES, previewed (0586, 0587) — the ceiling first,
+     then Advised, the order the server runs them in. The server decides; this is
+     so the buyer learns before a round trip, and both read the same pure
+     functions, so they cannot disagree. This form's own lines are summed per
+     material first, as the server sums them. */
+  const iwoWanted = new Map<string, number>();
+  for (const l of lines) {
+    if (!l.item_id) continue;
+    iwoWanted.set(l.item_id, (iwoWanted.get(l.item_id) ?? 0) + (parseFloat(l.quantity) || 0));
+  }
+  const iwoBlock = iwoCheck
+    ? (iwoCeilingRefusal(iwoCheck, iwoWanted) ??
+      advisedRefusal(advisedAmong(iwoCheck, lines.map((l) => l.item_id)), iwoCheck.code))
+    : null;
+
   const itemName = (id: string | null) =>
     (id ? items.find((i) => i.id === id)?.name : null) ?? null;
 
@@ -191,6 +231,7 @@ export function NewPoForm({
        trip. Both read the same `judgeLine`, so they cannot disagree about which
        lines are refused. */
     if (blockedLines.length > 0) return;
+    if (iwoBlock) return;
 
     const poLines: PoLineInput[] = lines
       .filter((l) => l.description.trim())
@@ -200,6 +241,7 @@ export function NewPoForm({
         unit_price: parseFloat(l.unit_price) || 0,
         item_id: l.item_id || null,
         sales_order_id: orderId || null,
+        iwo_id: iwoId || null,
         uom_id: null,
         sort_order: i,
       }));
@@ -404,6 +446,10 @@ export function NewPoForm({
                   setCeiling(null);
                   setOverReason("");
                   if (!id) return;
+                  // An order OR a work order, never both.
+                  iwoSeq.current++;
+                  setIwoId("");
+                  setIwoCheck(null);
                   startTransition(async () => {
                     const c = await fetchBomCeiling(id);
                     setCeiling({
@@ -431,6 +477,41 @@ export function NewPoForm({
                     ? `Checked against Material BOM ${ceiling.bomCode}`
                     : "This order has no recorded Material BOM — nothing to check against"}
                 </p>
+              )}
+            </div>
+
+            <div>
+              {/* THE WORK ORDER THIS PO BUYS FOR (0586) — the other kind of
+                  "for", beside Garment order and exclusive of it. An accessory
+                  still Advised on its Material BOM cannot be bought. */}
+              <Label htmlFor="po-iwo">Work order (I.WO No)</Label>
+              <Select
+                id="po-iwo"
+                value={iwoId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const seq = ++iwoSeq.current;
+                  setIwoId(id);
+                  setIwoCheck(null);
+                  if (!id) return;
+                  setOrderId("");
+                  setCeiling(null);
+                  setOverReason("");
+                  startTransition(async () => {
+                    const c = await fetchIwoPurchaseCheck(id);
+                    if (seq === iwoSeq.current) setIwoCheck(c);
+                  });
+                }}
+              >
+                <option value=""></option>
+                {iwos.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.code ?? "(no I.WO No)"}
+                  </option>
+                ))}
+              </Select>
+              {iwoCheck && (
+                <p className="mt-1 text-xs text-muted-foreground">{iwoPurchaseHint(iwoCheck)}</p>
               )}
             </div>
 
@@ -597,6 +678,14 @@ export function NewPoForm({
               </div>
             )}
 
+            {/* REFUSED — over the work order's Material BOM, or a material still
+                Advised on it (0586, 0587). */}
+            {iwoBlock && (
+              <div className="mt-3 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2">
+                <p className="text-sm text-danger">{iwoBlock}</p>
+              </div>
+            )}
+
             {blockedLines.length === 0 && overLines.length > 0 && (
               <div className="mt-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2">
                 <p className="text-sm font-medium text-warning">
@@ -643,6 +732,7 @@ export function NewPoForm({
                 isPending ||
                 !vendorId ||
                 blockedLines.length > 0 ||
+                !!iwoBlock ||
                 (overLines.length > 0 && !overReason.trim())
               }
             >

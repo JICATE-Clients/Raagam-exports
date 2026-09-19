@@ -12,19 +12,11 @@ import {
   type IwoParsed,
   type IwoStatus,
 } from "./types";
-import {
-  keptAccessoryLines,
-  keptFabricLines,
-  keptYarnLines,
-  lineProblems,
-} from "./lines";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 type SaveResult = { ok: true; iwoId: string } | { ok: false; error: string };
-type Db = Awaited<ReturnType<typeof createClient>>;
 
 const LIST_PATH = "/orders/internal-work-orders";
-const LINE_TABLES = ["iwo_yarn_items", "iwo_fabric_items", "iwo_accessory_items"] as const;
 
 function headerOf(p: IwoParsed) {
   return {
@@ -38,140 +30,12 @@ function headerOf(p: IwoParsed) {
 }
 
 /**
- * Insert the lines of the header's kind, and each line's process rows.
+ * Create (`iwoId` null) or update an IWO — THE HEADER ONLY (2026-09-19).
  *
- * Blank rows are dropped by the SAME filters the Save gate used (`lines.ts`),
- * and `sno` is renumbered over what survives. Process rows are written only
- * after their line has an id; the line insert returns `sno` beside `id` so the
- * two are matched by position, never by the order PostgREST happened to return.
- */
-async function writeLines(s: Db, iwoId: string, p: IwoParsed): Promise<ActionResult> {
-  if (p.iwo_for === "yarn") {
-    const lines = keptYarnLines(p.yarn);
-    const { data, error } = await s
-      .from("iwo_yarn_items")
-      .insert(
-        lines.map((l, i) => ({
-          iwo_id: iwoId,
-          sno: i + 1,
-          item_id: l.item_id,
-          stage_id: l.stage_id,
-          planned_kgs: l.planned_kgs,
-        })),
-      )
-      .select("id, sno");
-    if (error) return { ok: false, error: error.message };
-    const idBySno = new Map(((data ?? []) as { id: string; sno: number }[]).map((r) => [r.sno, r.id]));
-    const procs = lines.flatMap((l, i) =>
-      l.processes.map((pr, j) => ({
-        yarn_item_id: idBySno.get(i + 1),
-        sno: j + 1,
-        process_id: pr.process_id,
-        shade_id: pr.shade_id,
-        qty_kgs: pr.qty_kgs,
-        rate_per_kg: pr.rate_per_kg,
-      })),
-    );
-    if (procs.length) {
-      const { error: pErr } = await s.from("iwo_yarn_process_details").insert(procs);
-      if (pErr) return { ok: false, error: pErr.message };
-    }
-    return { ok: true };
-  }
-
-  if (p.iwo_for === "fabric") {
-    const lines = keptFabricLines(p.fabric);
-    const { data, error } = await s
-      .from("iwo_fabric_items")
-      .insert(
-        lines.map((l, i) => ({
-          iwo_id: iwoId,
-          sno: i + 1,
-          item_id: l.item_id,
-          stage_id: l.stage_id,
-          color_id: l.color_id,
-          print_id: l.print_id,
-          gsm: l.gsm,
-          fabric_form: l.fabric_form,
-          dia: l.dia || null,
-          planned_kgs: l.planned_kgs,
-        })),
-      )
-      .select("id, sno");
-    if (error) return { ok: false, error: error.message };
-    const idBySno = new Map(((data ?? []) as { id: string; sno: number }[]).map((r) => [r.sno, r.id]));
-    const procs = lines.flatMap((l, i) =>
-      l.processes.map((pr, j) => ({
-        fabric_item_id: idBySno.get(i + 1),
-        sno: j + 1,
-        process_id: pr.process_id,
-        loss_pct: pr.loss_pct ?? 0,
-        rate_per_kg: pr.rate_per_kg,
-      })),
-    );
-    if (procs.length) {
-      const { error: pErr } = await s.from("iwo_fabric_process_details").insert(procs);
-      if (pErr) return { ok: false, error: pErr.message };
-    }
-    return { ok: true };
-  }
-
-  const lines = keptAccessoryLines(p.accessories);
-  const { data, error } = await s
-    .from("iwo_accessory_items")
-    .insert(
-      lines.map((l, i) => ({
-        iwo_id: iwoId,
-        sno: i + 1,
-        item_id: l.item_id,
-        specs: l.specs || null,
-        color_id: l.color_id,
-        size_id: l.size_id,
-        uom_id: l.uom_id,
-        planned_qty: l.planned_qty,
-        is_advised: l.is_advised,
-      })),
-    )
-    .select("id, sno");
-  if (error) return { ok: false, error: error.message };
-  const idBySno = new Map(((data ?? []) as { id: string; sno: number }[]).map((r) => [r.sno, r.id]));
-  const procs = lines.flatMap((l, i) =>
-    l.processes.map((pr, j) => ({
-      accessory_item_id: idBySno.get(i + 1),
-      sno: j + 1,
-      process_id: pr.process_id,
-      vendor_id: pr.vendor_id,
-      rate_per_unit: pr.rate_per_unit,
-    })),
-  );
-  if (procs.length) {
-    const { error: pErr } = await s.from("iwo_accessory_process_details").insert(procs);
-    if (pErr) return { ok: false, error: pErr.message };
-  }
-  return { ok: true };
-}
-
-/** Every line of every kind — process rows go with them by cascade. */
-async function clearLines(s: Db, iwoId: string): Promise<ActionResult> {
-  for (const t of LINE_TABLES) {
-    const { error } = await s.from(t).delete().eq("iwo_id", iwoId);
-    if (error) return { ok: false, error: error.message };
-  }
-  return { ok: true };
-}
-
-/**
- * Create (`iwoId` null) or update an IWO, header and lines together.
- *
- * On UPDATE the lines are cleared FIRST, then the header is written, then the
- * new lines inserted: `iwo_line_guard` checks each line against the header's
- * `For`, so the header must already say the new kind when they arrive, and no
- * line of the old kind may still be standing when it changes.
- *
- * On CREATE a failed line insert deletes the header it just made, so a refused
- * save never leaves behind a numbered IWO with no lines. (Its number is spent —
- * the counter does not go back — which is the same trade every document number
- * in this app makes.)
+ * What an IWO procures is planned on its BOM (IWO Fabric BOM for Yarn / Fabric,
+ * IWO Material BOM for Accessories), so this writes one row and no lines.
+ * Changing For once a BOM exists is refused by `iwo_for_lock` (0582 / 0584 /
+ * 0585) — its message is returned as-is, since it names the fix.
  */
 export async function saveInternalWorkOrder(
   iwoId: string | null,
@@ -185,10 +49,6 @@ export async function saveInternalWorkOrder(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
   const p = parsed.data;
-
-  const problems = lineProblems(p);
-  if (problems.length) return { ok: false, error: problems[0].message };
-
   const supabase = await createClient();
 
   if (!iwoId) {
@@ -205,11 +65,6 @@ export async function saveInternalWorkOrder(
     if (error || !data) {
       return { ok: false, error: error?.message ?? "Failed to create work order" };
     }
-    const lines = await writeLines(supabase, data.id, p);
-    if (!lines.ok) {
-      await supabase.from("internal_work_orders").delete().eq("id", data.id);
-      return lines;
-    }
     await writeAudit({
       action: "internal_work_order.created",
       entityType: "internal_work_order",
@@ -219,15 +74,11 @@ export async function saveInternalWorkOrder(
     return { ok: true, iwoId: data.id };
   }
 
-  const cleared = await clearLines(supabase, iwoId);
-  if (!cleared.ok) return cleared;
   const { error } = await supabase
     .from("internal_work_orders")
     .update(headerOf(p))
     .eq("id", iwoId);
   if (error) return { ok: false, error: error.message };
-  const lines = await writeLines(supabase, iwoId, p);
-  if (!lines.ok) return lines;
 
   await writeAudit({
     action: "internal_work_order.updated",
@@ -268,8 +119,16 @@ export async function previewIwoNumber(iwoDate: string | null): Promise<string |
 export async function deleteInternalWorkOrder(iwoId: string): Promise<ActionResult> {
   if (!(await can("orders", "delete"))) return { ok: false, error: "Forbidden" };
   const supabase = await createClient();
-  // Lines and their process rows cascade.
+  // Its BOM (Fabric or Material) cascades with it. A purchase order line bought
+  // for it does NOT (0586, ON DELETE RESTRICT): the delete is refused, and said
+  // in words rather than as Postgres's foreign-key sentence.
   const { error } = await supabase.from("internal_work_orders").delete().eq("id", iwoId);
+  if (error?.code === "23503") {
+    return {
+      ok: false,
+      error: "Purchase orders have been raised for this work order, so it cannot be deleted. Cancel it instead.",
+    };
+  }
   if (error) return { ok: false, error: error.message };
   await writeAudit({
     action: "internal_work_order.deleted",

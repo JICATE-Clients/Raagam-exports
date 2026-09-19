@@ -610,6 +610,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders" },
           // The order Fabric BOM, duplicated for an IWO For Yarn or Fabric (0581).
           { href: "/orders/iwo-fabric-bom", label: "IWO Fabric BOM", description: "Fabric and yarn BOM for an internal work order" },
+          // The order Material BOM, duplicated for an IWO For Accessories (0584).
+          { href: "/orders/iwo-material-bom", label: "IWO Material BOM", description: "Accessories BOM for an internal work order" },
           { href: "/orders/advised-items", label: "Advised Items", description: "Material BOM lines waiting on buyer specs, by RE No; convert to unlock purchase" },
           { href: "/orders/packing-advice", label: "Packing List Advice", description: "Prepare packing list advice for an order" },
         ],

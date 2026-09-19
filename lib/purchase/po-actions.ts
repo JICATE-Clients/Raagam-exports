@@ -45,6 +45,7 @@ import {
   refuseUnsettledMaterials,
 } from "./bom-ceiling-service";
 import { refuseUnapprovedYarnPurchase } from "./pp-approval-gate";
+import type { IwoPurchaseCheck } from "@/lib/orders/iwo-material-bom/purchase-gate";
 import type {
   PoSizeDelivery,
   PoDeliverySize,
@@ -412,6 +413,73 @@ export async function createPurchaseOrder(
   return { ok: true, poId: po.id };
 }
 
+/**
+ * WHAT A LINE IS BOUGHT FOR, WHEN THE CALLER DID NOT SAY (0586).
+ *
+ * The PO detail page's Add line / Edit line forms carry no order field, so the
+ * lines they send name neither `sales_order_id` nor `iwo_id`. Taken at face
+ * value, every gate below judged such a line as GENERAL STOCK — which made the
+ * detail page a way around all of them: raise a PO for a harmless material
+ * against a work order, then add the Advised one on the detail page. The submit
+ * re-check could not catch it either, because the line was stored with no link.
+ *
+ * So the link is resolved on the server, where no form can forget it:
+ *
+ *   - EDIT: the line keeps the link it is stored with.
+ *   - ADD: the line takes the PO's link when every line already on it names the
+ *     same order or the same work order. A PO whose lines disagree gives no
+ *     answer, and the line stays general stock, as before.
+ *
+ * Only a key the caller left OUT is filled. An explicit null is a choice
+ * ("general stock") and stands. This closes the same hole for the order-side
+ * gates, whose comments already describe edits as checked.
+ *
+ * A failed read refuses rather than guessing "no link" — that guess is the hole.
+ */
+type LineLinks = { sales_order_id: string | null; iwo_id: string | null };
+type LinksResult = { ok: true; links: Partial<LineLinks> } | { ok: false; error: string };
+
+const leftOutLinks = (l: { sales_order_id?: string | null; iwo_id?: string | null }) =>
+  l.sales_order_id === undefined && l.iwo_id === undefined;
+
+async function linksForNewLine(
+  poId: string,
+  l: { sales_order_id?: string | null; iwo_id?: string | null },
+): Promise<LinksResult> {
+  if (!leftOutLinks(l)) return { ok: true, links: {} };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("po_line_items")
+    .select("sales_order_id, iwo_id")
+    .eq("purchase_order_id", poId);
+  if (error) return { ok: false, error: `Could not read this purchase order's lines: ${error.message}` };
+  const pairs = new Map<string, LineLinks>();
+  for (const r of (data ?? []) as LineLinks[]) {
+    pairs.set(`${r.sales_order_id ?? ""}|${r.iwo_id ?? ""}`, {
+      sales_order_id: r.sales_order_id,
+      iwo_id: r.iwo_id,
+    });
+  }
+  if (pairs.size !== 1) return { ok: true, links: {} };
+  const [only] = pairs.values();
+  return { ok: true, links: only };
+}
+
+async function linksForStoredLine(
+  lineId: string,
+  l: { sales_order_id?: string | null; iwo_id?: string | null },
+): Promise<LinksResult> {
+  if (!leftOutLinks(l)) return { ok: true, links: {} };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("po_line_items")
+    .select("sales_order_id, iwo_id")
+    .eq("id", lineId)
+    .maybeSingle();
+  if (error) return { ok: false, error: `Could not read this line: ${error.message}` };
+  return { ok: true, links: (data as LineLinks | null) ?? {} };
+}
+
 export async function addPoLine(
   poId: string,
   data: PoLineInput,
@@ -426,24 +494,28 @@ export async function addPoLine(
     };
   }
 
-  const addReopened = await refuseReopenedBudget([parsed.data]);
+  const addLinks = await linksForNewLine(poId, parsed.data);
+  if (!addLinks.ok) return { ok: false, error: addLinks.error };
+  const line = { ...parsed.data, ...addLinks.links };
+
+  const addReopened = await refuseReopenedBudget([line]);
   if (addReopened) return { ok: false, error: addReopened };
 
   // NOTHING EXCLUDED: this line does not exist yet, so the committed sum is
   // exactly the other lines it is being added alongside.
-  const addRefusal = await refuseOverCeiling([parsed.data]);
+  const addRefusal = await refuseOverCeiling([line]);
   if (addRefusal) return { ok: false, error: addRefusal };
 
   // NOTHING TO EXCLUDE, unlike the ceiling above: the TBA gate reads the BOM's
   // own lines and never sums what is already on a purchase order, so an edit
   // cannot be judged against itself and there is no exclusion to pass.
-  const addTba = await refuseUnsettledMaterials([parsed.data]);
+  const addTba = await refuseUnsettledMaterials([line]);
   if (addTba) return { ok: false, error: addTba };
 
-  const addYarnGate = await refuseUnapprovedYarnPurchase([parsed.data]);
+  const addYarnGate = await refuseUnapprovedYarnPurchase([line]);
   if (addYarnGate) return { ok: false, error: addYarnGate };
 
-  const { quantity, unit_price, ...rest } = parsed.data;
+  const { quantity, unit_price, ...rest } = line;
   const amount = lineAmount(quantity, unit_price);
 
   const supabase = await createClient();
@@ -477,25 +549,29 @@ export async function updatePoLine(
     };
   }
 
-  const editReopened = await refuseReopenedBudget([parsed.data]);
+  const editLinks = await linksForStoredLine(lineId, parsed.data);
+  if (!editLinks.ok) return { ok: false, error: editLinks.error };
+  const line = { ...parsed.data, ...editLinks.links };
+
+  const editReopened = await refuseReopenedBudget([line]);
   if (editReopened) return { ok: false, error: editReopened };
 
   // EXCLUDE THIS LINE, not its PO. Its stored quantity is already inside the
   // committed sum, so counting it again would refuse a line for being retyped
   // at the same figure — the sibling lines must still count.
-  const editRefusal = await refuseOverCeiling([parsed.data], { exclude: { lineId } });
+  const editRefusal = await refuseOverCeiling([line], { exclude: { lineId } });
   if (editRefusal) return { ok: false, error: editRefusal };
 
   // Retyping a line whose material went back to "To be advised" since it was
   // written is still refused, and should be: the specification is open again,
   // so the quantity in front of the operator is a guess whichever way it moved.
-  const editTba = await refuseUnsettledMaterials([parsed.data]);
+  const editTba = await refuseUnsettledMaterials([line]);
   if (editTba) return { ok: false, error: editTba };
 
-  const editYarnGate = await refuseUnapprovedYarnPurchase([parsed.data]);
+  const editYarnGate = await refuseUnapprovedYarnPurchase([line]);
   if (editYarnGate) return { ok: false, error: editYarnGate };
 
-  const { quantity, unit_price, ...rest } = parsed.data;
+  const { quantity, unit_price, ...rest } = line;
   const amount = lineAmount(quantity, unit_price);
 
   const supabase = await createClient();
@@ -553,7 +629,7 @@ export async function submitPo(poId: string): Promise<ActionResult> {
    */
   const { data: poLines } = await supabase
     .from("po_line_items")
-    .select("item_id, quantity, sales_order_id")
+    .select("item_id, quantity, sales_order_id, iwo_id")
     .eq("purchase_order_id", poId);
 
   /* THE LAST REOPENED-BUDGET GATE — catches a draft written while the budget
@@ -564,7 +640,12 @@ export async function submitPo(poId: string): Promise<ActionResult> {
   if (submitReopened) return { ok: false, error: submitReopened };
 
   const submitRefusal = await refuseOverCeiling(
-    (poLines ?? []) as { item_id: string | null; quantity: number; sales_order_id: string | null }[],
+    (poLines ?? []) as {
+      item_id: string | null;
+      quantity: number;
+      sales_order_id: string | null;
+      iwo_id: string | null;
+    }[],
     { exclude: { poId } },
   );
   if (submitRefusal) return { ok: false, error: submitRefusal };
@@ -575,8 +656,10 @@ export async function submitPo(poId: string): Promise<ActionResult> {
    * The create/add/edit checks all judged a specification that has since been
    * withdrawn, and submit is the moment the document leaves the buyer's hands.
    */
+  // Also the last ADVISED gate (0586): an accessory ticked Is Advised on the
+  // work order's Material BOM after this draft was written.
   const submitTba = await refuseUnsettledMaterials(
-    (poLines ?? []) as { item_id: string | null; sales_order_id: string | null }[],
+    (poLines ?? []) as { item_id: string | null; sales_order_id: string | null; iwo_id: string | null }[],
   );
   if (submitTba) return { ok: false, error: submitTba };
 
@@ -626,7 +709,7 @@ export async function approvePo(poId: string): Promise<ActionResult> {
    */
   const { data: approveLines } = await supabase
     .from("po_line_items")
-    .select("item_id, sales_order_id")
+    .select("item_id, sales_order_id, iwo_id")
     .eq("purchase_order_id", poId);
   /* THE LAST REOPENED-BUDGET GATE — approving a PO drafted before its budget
      was reopened commits the same spend a new PO would (Phase 5, decision 3). */
@@ -636,7 +719,7 @@ export async function approvePo(poId: string): Promise<ActionResult> {
   if (approveReopened) return { ok: false, error: approveReopened };
 
   const approveTba = await refuseUnsettledMaterials(
-    (approveLines ?? []) as { item_id: string | null; sales_order_id: string | null }[],
+    (approveLines ?? []) as { item_id: string | null; sales_order_id: string | null; iwo_id: string | null }[],
   );
   if (approveTba) return { ok: false, error: approveTba };
 
@@ -994,6 +1077,22 @@ export async function fetchBomCeiling(salesOrderId: string): Promise<{
     enforced: c.enforced,
     budgetCode: c.budgetCode,
   };
+}
+
+/**
+ * What the PO form says under its I.WO No field (0586) — the work order's
+ * Advised items, so a refusal on Save is never the first the buyer hears of it.
+ *
+ * Through `iwo_purchase_check()` for the gate's reason: a buyer without Orders ▸
+ * View reads nothing from the IWO tables directly. Null when it could not be
+ * read; the form then says nothing, and the server gate still decides.
+ */
+export async function fetchIwoPurchaseCheck(iwoId: string): Promise<IwoPurchaseCheck | null> {
+  if (!(await can("materials_purchase", "view"))) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("iwo_purchase_check", { p_iwo_id: iwoId });
+  if (error || !data) return null;
+  return data as IwoPurchaseCheck;
 }
 
 /**

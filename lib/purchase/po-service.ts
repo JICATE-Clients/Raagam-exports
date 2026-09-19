@@ -421,6 +421,25 @@ export async function getUoms(): Promise<Uom[]> {
   return (data ?? []) as Uom[];
 }
 
+/** An Internal Work Order a PO line can be bought for (0586). */
+export type IwoForPicker = { id: string; code: string | null; iwo_for: string };
+
+/**
+ * Work orders a purchase can be raised against — at the operator's own unit
+ * (RLS, `is_current_location`), Draft or Issued. A Completed or Cancelled work
+ * order is excluded for the reason `getOrdersForPicker` gives: buying for work
+ * nobody is doing is the mistake, not a case to support.
+ */
+export async function getIwosForPicker(): Promise<IwoForPicker[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("internal_work_orders")
+    .select("id, code, iwo_for")
+    .in("status", ["draft", "issued"])
+    .order("created_at", { ascending: false });
+  return (data ?? []) as IwoForPicker[];
+}
+
 /** A garment order a PO line can be bought for (0424). */
 export type OrderForPicker = { id: string; order_number: string | null };
 

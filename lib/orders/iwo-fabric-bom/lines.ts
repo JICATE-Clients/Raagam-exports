@@ -4,7 +4,7 @@
  *
  * Pure functions, no server imports: the screen reads them for its Save gate
  * and the action reads them again before it writes — the
- * `internal-work-orders/lines.ts` shape, so a Save button can never allow what
+ * `iwo-material-bom/rules.ts` shape too, so a Save button can never allow what
  * the server then refuses.
  *
  * ## WHAT A LINE OWES, AND WHY EACH
@@ -117,5 +117,60 @@ export function iwoFabricLineProblems(
     if (l.req_kgs == null) need("req_kgs", "consumption", "enter the Req Wt (KGS).");
     else if (!(l.req_kgs > 0)) need("req_kgs", "consumption", "Req Wt must be a number more than 0.");
   });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// For = Yarn (step 4) — the Yarn Lines grid
+// ---------------------------------------------------------------------------
+
+/**
+ * A yarn line on a For = Yarn BOM (screenshot 2937): the yarn, the stage it is
+ * BOUGHT in (GREY / DYED), and the Planned Weight typed. Its process stages
+ * are Yarn Process's, and a line with only stages typed still counts as
+ * started — it is the operator's work, not a seeded blank.
+ */
+export type IwoYarnLineFacts = {
+  item_id: string | null;
+  buy_stage_id: string | null;
+  planned_kgs: number | null;
+  hasStages?: boolean;
+};
+
+export const isBlankIwoYarnLine = (l: IwoYarnLineFacts): boolean =>
+  !l.item_id && !l.buy_stage_id && l.planned_kgs == null && !l.hasStages;
+
+export function keptIwoYarnLines<T extends IwoYarnLineFacts>(lines: readonly T[]): T[] {
+  return lines.filter((l) => !isBlankIwoYarnLine(l));
+}
+
+export type IwoYarnLineProblem = { row: number; message: string };
+
+/**
+ * What a kept yarn line owes: the yarn, its buy stage (GREY or DYED — it
+ * decides what is purchased), and a weight above 0. At least one line: a
+ * For = Yarn BOM with no yarn plans nothing. A yarn listed twice is refused
+ * here rather than by the unique index, naming the rows.
+ */
+export function iwoYarnLineProblems(lines: readonly IwoYarnLineFacts[]): IwoYarnLineProblem[] {
+  const out: IwoYarnLineProblem[] = [];
+  const firstRowOf = new Map<string, number>();
+  let kept = 0;
+  lines.forEach((l, i) => {
+    if (isBlankIwoYarnLine(l)) return;
+    kept++;
+    const row = i + 1;
+    const at = `Yarn line ${row}`;
+    if (!l.item_id) out.push({ row, message: `${at}: choose the yarn.` });
+    else {
+      const first = firstRowOf.get(l.item_id);
+      if (first) out.push({ row, message: `${at}: this yarn is already on line ${first} — plan it once.` });
+      else firstRowOf.set(l.item_id, row);
+    }
+    if (!l.buy_stage_id) out.push({ row, message: `${at}: choose the stage it is bought in.` });
+    if (l.planned_kgs == null) out.push({ row, message: `${at}: enter the Planned Weight (KGS).` });
+    else if (!(l.planned_kgs > 0)) out.push({ row, message: `${at}: Planned Weight must be a number more than 0.` });
+  });
+  if (!kept) out.push({ row: 0, message: "Add at least one yarn." });
   return out;
 }

@@ -105,6 +105,9 @@ export interface IwoFabricBomYarnRow {
   bom_id: string;
   sno: number;
   item_id: string;
+  /** For = Yarn only (step 4): the typed weight and the stage it is bought in. */
+  planned_kgs: number | null;
+  buy_stage_id: string | null;
   purchase_qty: number | null;
   uom_id: string | null;
   refusal_reason: string | null;
@@ -186,9 +189,18 @@ export const iwoFabricBomInput = z.object({
   // Step 3. `processes` carry `combo` / `component_id` because the order schema
   // does; the action writes neither (0581 has no such columns).
   processes: z.array(fabricBomProcessInput).optional(),
-  // The yarn list AS DERIVED on screen, with each yarn's own stages. The
-  // purchase weight is not in it: the action computes it from `lines`.
-  yarns: z.array(fabricBomYarnInput).optional(),
+  // The yarn list with each yarn's own stages — DERIVED on a For = Fabric BOM,
+  // PICKED on a For = Yarn one (step 4), where `planned_kgs` and
+  // `buy_stage_id` are the typed half. The purchase weight is never in it: the
+  // action computes it, from `lines` or from `planned_kgs`, by the IWO's For.
+  yarns: z
+    .array(
+      fabricBomYarnInput.extend({
+        planned_kgs: z.number().nullable().default(null),
+        buy_stage_id: z.string().uuid().nullable().default(null),
+      }),
+    )
+    .optional(),
 });
 
 export type IwoFabricBomInput = z.input<typeof iwoFabricBomInput>;
