@@ -69,6 +69,12 @@ export {
   baseProcessRepeated,
   /* 0583 — a bought roll starts the route. */
   clothPurchaseNotFirst,
+  /* 2026-09-19 — the three route rules: Step 1 for a purchase, no fabric
+     dyeing on yarn-dyed cloth, and no process twice within one stage. */
+  clothPurchaseAllowedAt,
+  dyeingBlocked,
+  processesUsedInStage,
+  processRepeatedInStage,
   narrowToStage,
   stageAllowsProcess,
   stageMismatchBlocked,
@@ -386,14 +392,31 @@ export function processesForFabric(
      *  pickable, where the restriction stands down rather than offering an
      *  empty list. See `narrowToStage`. */
     isFirstOfStage?: boolean;
+    /** 2026-09-19 — may this row BUY the cloth? False on any row with a step
+     *  above it (`clothPurchaseAllowedAt`): a purchase is Step 1 or nothing.
+     *  Applied with the flag gates, BEFORE the stage narrowing, so a Dyed
+     *  stage opened on row 3 stands down to its other base rather than
+     *  offering DYED FABRIC PURCHASE. Default true = withhold nothing. */
+    purchaseAllowed?: boolean;
+    /* NO `usedInStage` HERE, deliberately. "A stage runs each process once"
+       is enforced by the picker's own `usedIds` (`processesUsedInStage`),
+       which keeps a taken process VISIBLE, greyed "(already added)", rather
+       than removing it — `DataPicker`'s standing reason: a vanished process
+       reads as missing from the master. This function decides what is LEGAL
+       here; a sibling holding it is a different fact. */
   } = {},
 ): FabricProcessOption[] {
   const held = opts.currentValue ?? null;
   const printDeclared = opts.printDeclared ?? true;
   const fabricIsYarnDyed = opts.fabricIsYarnDyed ?? false;
+  const purchaseAllowed = opts.purchaseAllowed ?? true;
   const flagged = narrowToStage(
     options.filter(
-      (p) => p.for_fabric && (printDeclared || !p.is_print) && (!fabricIsYarnDyed || !p.is_dyeing),
+      (p) =>
+        p.for_fabric &&
+        (printDeclared || !p.is_print) &&
+        (!fabricIsYarnDyed || !p.is_dyeing) &&
+        (purchaseAllowed || !p.is_cloth_purchase),
     ),
     { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
   );
@@ -451,22 +474,11 @@ export function printBlocked(
   return !!options.find((p) => p.id === row.process_id)?.is_print;
 }
 
-/**
- * Does this row hold a Dyeing process on a fabric that is now Yarn-Dyed? The
- * inline twin of `fabricIsYarnDyed` in `processesForFabric` — that function
- * withholds Dyeing from the OFFERED list; this one says why a row that
- * already holds one (added before the fabric's Type was set to Yarn Dyed, or
- * before this gate existed) is showing a process the operator could not pick
- * again today. Same idiom as `printBlocked` immediately above.
- */
-export function dyeingBlocked(
-  row: Pick<FabricProcessRow, "process_id">,
-  options: readonly FabricProcessOption[],
-  fabricIsYarnDyed: boolean,
-): boolean {
-  if (!fabricIsYarnDyed || !row.process_id) return false;
-  return !!options.find((p) => p.id === row.process_id)?.is_dyeing;
-}
+/* `dyeingBlocked` — the inline twin of `fabricIsYarnDyed` — MOVED to
+   `./stage-routes.ts` on 2026-09-19 when it became a Save rule as well
+   (`stageRouteProblems` reads it, and that file cannot import this one). It is
+   re-exported from the barrel at the top of this file, so callers are
+   unchanged. */
 
 /**
  * ONE FABRIC'S TWO TOGGLES (0528) — "[Assort Color]" / "[Components]" on

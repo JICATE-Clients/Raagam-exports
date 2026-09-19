@@ -148,7 +148,7 @@ check(
   const live = [row(GREIGE, KNITTING), row(DYED, DYEING), row(DYED, DYED_FABRIC_PURCHASE)];
   check("the live mistake — a purchase BELOW knitting and dyeing — is caught by clothPurchaseNotFirst", clothPurchaseNotFirst(live, 2, MASTER), true);
   const msgs = stageRouteProblems(live, MASTER, STAGES).map((p) => p.message);
-  check("…and Save refuses it with the 'route starts' sentence", msgs.length === 1 && msgs[0].includes("is where this fabric's route starts"), true);
+  check("…and Save refuses it with the client's 'initial procurement step (Step 1)' sentence", msgs.length === 1 && msgs[0].includes("must be the initial procurement step (Step 1)"), true);
   check("a purchase as the FIRST step is not flagged", clothPurchaseNotFirst([row(DYED, DYED_FABRIC_PURCHASE)], 0, MASTER), false);
 }
 

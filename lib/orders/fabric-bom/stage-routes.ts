@@ -169,11 +169,20 @@ import type { FabricProcessOption, FabricProcessRow } from "./processes";
 /** One (stage, process) pairing from `process_fabric_stages` (0563). */
 export type FabricStageRole = { stage_id: string; is_base: boolean };
 
-/** The two gates `processesForFabric` applies before this file sees a list.
- *  Defaults match that function's exactly — `printDeclared` true and
- *  `fabricIsYarnDyed` false both mean "withhold nothing", so an unfilled call
- *  site keeps the behaviour it has always had. */
-export type FabricStageGates = { printDeclared?: boolean; fabricIsYarnDyed?: boolean };
+/** The gates `processesForFabric` applies before this file sees a list.
+ *  Defaults match that function's exactly — `printDeclared` true,
+ *  `fabricIsYarnDyed` false and `purchaseAllowed` true all mean "withhold
+ *  nothing", so an unfilled call site keeps the behaviour it has always had.
+ *
+ *  `purchaseAllowed` (client 2026-09-19, "Fabric Purchase must be Step 1") is
+ *  POSITIONAL where the other two are facts about the fabric: it is false on
+ *  any row with a step above it, and `clothPurchaseAllowedAt` is the one place
+ *  that answers it. */
+export type FabricStageGates = {
+  printDeclared?: boolean;
+  fabricIsYarnDyed?: boolean;
+  purchaseAllowed?: boolean;
+};
 
 /**
  * MIRROR OF THE FLAG TEST IN `processesForFabric` — see the header's last
@@ -186,8 +195,13 @@ function gatedForStage(
 ): FabricProcessOption[] {
   const printDeclared = gates.printDeclared ?? true;
   const fabricIsYarnDyed = gates.fabricIsYarnDyed ?? false;
+  const purchaseAllowed = gates.purchaseAllowed ?? true;
   return options.filter(
-    (p) => p.for_fabric && (printDeclared || !p.is_print) && (!fabricIsYarnDyed || !p.is_dyeing),
+    (p) =>
+      p.for_fabric &&
+      (printDeclared || !p.is_print) &&
+      (!fabricIsYarnDyed || !p.is_dyeing) &&
+      (purchaseAllowed || !p.is_cloth_purchase),
   );
 }
 
@@ -547,7 +561,120 @@ export function clothPurchaseNotFirst(
   const row = rows[index];
   if (!row?.process_id) return false;
   if (!options.find((p) => p.id === row.process_id)?.is_cloth_purchase) return false;
-  return rows.slice(0, index).some((r) => !!r.process_id);
+  return !clothPurchaseAllowedAt(rows, index);
+}
+
+/**
+ * MAY THIS ROW BUY THE CLOTH? — the narrowing half of `clothPurchaseNotFirst`
+ * (client 2026-09-19: "Step 1: FABRIC_PURCHASE is enabled. Steps 2+: filtered
+ * out of the process dropdown").
+ *
+ * "Step 1" is read the way the twin reads it — NO ROW ABOVE NAMES A PROCESS —
+ * rather than `index === 0`, so a blank row the operator added first and never
+ * filled does not push the purchase off the only row it could still go on.
+ * One position test, stated once: the twin above is its negation, so the ▾
+ * and the warning cannot disagree about which row is Step 1.
+ */
+export function clothPurchaseAllowedAt(
+  rows: readonly Pick<FabricProcessRow, "process_id">[],
+  index: number,
+): boolean {
+  return !rows.slice(0, index).some((r) => !!r.process_id);
+}
+
+/**
+ * INLINE TWIN of the `fabricIsYarnDyed` gate (0557), and since 2026-09-19 a
+ * Save rule too: this row holds a Dyeing process on a fabric that is Yarn-Dyed.
+ *
+ * The cloth is knitted from yarn that was dyed BEFORE knitting, so a fabric
+ * dyeing step is physically wrong, and its loss would be charged twice (the
+ * yarn side already carries it — `order_fabric_bom_yarn_stages`, 0493). The ▾
+ * has withheld `is_dyeing` processes, sub-categories included, since 0557; what
+ * was missing is that a row saved BEFORE the fabric's Type was set to Yarn Dyed
+ * kept its Dyeing step and saved again unrefused.
+ *
+ * THE PROCESS, NOT THE STAGE. The client's sentence is "Fabric Dyeing steps
+ * cannot be added", and the Dyed stage stays reachable: DYED FABRIC PURCHASE —
+ * buying finished yarn-dyed rolls — is that stage's other base.
+ *
+ * Moved here from `./processes.ts` (which still re-exports it) because
+ * `stageRouteProblems` below needs it, and that file imports this one.
+ */
+export function dyeingBlocked(
+  row: Pick<FabricProcessRow, "process_id">,
+  options: readonly FabricProcessOption[],
+  fabricIsYarnDyed: boolean,
+): boolean {
+  if (!fabricIsYarnDyed || !row.process_id) return false;
+  return !!options.find((p) => p.id === row.process_id)?.is_dyeing;
+}
+
+/**
+ * THE PROCESSES OTHER ROWS OF THIS STAGE ALREADY HOLD — what the ▾ withholds
+ * (client 2026-09-19, "once a process step is selected it must be removed from
+ * selection lists in subsequent steps").
+ *
+ * ## ONCE PER STAGE, NOT ONCE PER ROUTE (user decision, 2026-09-19)
+ *
+ * The literal request was once per ROUTE, and that refuses the client's own
+ * chains 2 and 4 (`./standard-routes.ts`): they compact under DYED/WASH and
+ * again after printing, under PRINT. A saved live route already does exactly
+ * that. So the set is scoped to rows of the SAME stage in the same branch —
+ * STENTERING picked under DYED leaves every other DYED row's list, and is still
+ * offered under WASH or PRINT. A row with no stage yet withholds nothing: until
+ * the stage is named there is no stage to be a repeat within.
+ *
+ * Keyed by `process_id` only, so a process and its sub-categories go together:
+ * DYEING [WITH BIOWASH] under DYED is DYEING under DYED.
+ *
+ * FED TO THE PICKER'S `usedIds`, NOT FILTERED OUT OF THE LIST. A taken process
+ * stays visible, greyed "(already added)" — `DataPicker`'s standing reason: a
+ * process that vanished reads as missing from the master.
+ *
+ * THE FLOOR, the same sentence `narrowToStage` carries. Pass `offered` (the ▾'s
+ * own list) and, if every entry in it is taken on a BLANK row, the set comes
+ * back EMPTY: a `required` cell where nothing can be picked is a mandatory
+ * field with no satisfying value. Reachable — a blank first-of-stage row whose
+ * only base a row BELOW already holds — and picking it then makes the lower row
+ * the repeat, which `processRepeatedInStage` names.
+ */
+export function processesUsedInStage(
+  rows: readonly FabricProcessRow[],
+  index: number,
+  offered?: readonly Pick<FabricProcessOption, "id">[],
+): Set<string> {
+  const stageId = rows[index]?.stage_id;
+  const out = new Set<string>();
+  if (!stageId) return out;
+  rows.forEach((r, i) => {
+    if (i !== index && r.stage_id === stageId && r.process_id) out.add(r.process_id);
+  });
+  /* Only a BLANK row can be caged: a filled one is not held by `required`, so
+     greying its alternatives leaves it exactly as free as it was. */
+  if (!rows[index]?.process_id && offered?.length && offered.every((p) => out.has(p.id))) {
+    return new Set();
+  }
+  return out;
+}
+
+/**
+ * INLINE TWIN of `processesUsedInStage`: a row ABOVE in the same stage already
+ * holds this process. Reported on the LATER row only, so one repeat reads as
+ * one problem.
+ *
+ * A SUPERSET of `baseProcessRepeated` — a stage's base repeated is one case of
+ * this. That one keeps its own, sharper sentence and is tested first; this one
+ * speaks for everything else (STENTERING twice under DYED, say).
+ */
+export function processRepeatedInStage(
+  rows: readonly FabricProcessRow[],
+  index: number,
+): boolean {
+  const row = rows[index];
+  if (!row?.stage_id || !row.process_id) return false;
+  return rows
+    .slice(0, index)
+    .some((r) => r.stage_id === row.stage_id && r.process_id === row.process_id);
 }
 
 /**
@@ -566,9 +693,12 @@ export function clothPurchaseNotFirst(
  * this one is the guard." The client asked for the strict reading on
  * 2026-09-18 (block the save, both faults).
  *
- * ## IT REPORTS EXACTLY WHAT THE THREE TWINS REPORT
+ * ## IT REPORTS EXACTLY WHAT THE TWINS REPORT
  *
- * One list, three predicates, and each is the same function the grid already
+ * One list, one predicate per fault (regression, purchase not first, dyeing on
+ * a yarn-dyed fabric, stage/process pair, base repeated, process repeated in a
+ * stage, base missing — tested in that order, one fault per row), and each is
+ * the same function the grid already
  * renders inline — a fault the operator can see and a fault that blocks Save
  * must never be two different tests. Rows are grouped into branches the way the
  * grid groups them (`item_id` + combo + component_id) and judged in order.
@@ -609,7 +739,15 @@ export function stageRouteProblems(
   for (const branch of branches.values()) {
     for (let i = 0; i < branch.length; i++) {
       const row = branch[i];
-      const gates = opts.gatesFor?.(row.item_id, row.combo ?? null, row.component_id ?? null) ?? {};
+      /* THE POSITIONAL GATE IS ADDED HERE, per row, rather than by the caller:
+         only this loop knows where a row sits in its branch, and the ▾ was
+         handed the same answer (`clothPurchaseAllowedAt`). Without it the base
+         twin below asks a Dyed stage opened on row 3 for "DYEING or DYED FABRIC
+         PURCHASE" — naming a step the row may not hold. */
+      const gates: FabricStageGates = {
+        ...(opts.gatesFor?.(row.item_id, row.combo ?? null, row.component_id ?? null) ?? {}),
+        purchaseAllowed: clothPurchaseAllowedAt(branch, i),
+      };
       const where = opts.fabricName ? `${opts.fabricName(row.item_id)}: ` : "";
       const process = options.find((p) => p.id === row.process_id)?.name ?? "that process";
       if (stageRegressionBlocked(branch, i, stages)) {
@@ -631,10 +769,21 @@ export function stageRouteProblems(
         out.push({
           item_id: row.item_id,
           row_key: row.key,
+          /* The client's own sentence (2026-09-19), with the process named —
+             DYED FABRIC PURCHASE is refused by the same rule. */
           message:
-            `${where}${process} is where this fabric's route starts — a bought roll arrives ` +
-            `${nameOf(row.stage_id)}, so nothing can be knitted or dyed before it. Move it to the first ` +
-            `row, or remove the steps above it.`,
+            `${where}${process} must be the initial procurement step (Step 1). It cannot be placed ` +
+            `after Knitting or Greige stage processes.`,
+        });
+        continue;
+      }
+      if (dyeingBlocked(row, options, gates.fabricIsYarnDyed ?? false)) {
+        out.push({
+          item_id: row.item_id,
+          row_key: row.key,
+          message:
+            `${where}This fabric is Yarn-Dyed. Fabric Dyeing steps cannot be added to a yarn-dyed ` +
+            `fabric route.`,
         });
         continue;
       }
@@ -655,6 +804,16 @@ export function stageRouteProblems(
           message:
             `${where}${process} already moved this fabric into ${nameOf(row.stage_id)} — a stage ` +
             `is entered once, so the second one books the same transition twice.`,
+        });
+        continue;
+      }
+      if (processRepeatedInStage(branch, i)) {
+        out.push({
+          item_id: row.item_id,
+          row_key: row.key,
+          message:
+            `${where}${process} is already in the ${nameOf(row.stage_id)} stage. A stage runs each ` +
+            `process once.`,
         });
         continue;
       }

@@ -60,13 +60,21 @@
  */
 import {
   processesForFabric,
+  processPickerItems,
   type FabricProcessOption,
   type FabricProcessRow,
 } from "../lib/orders/fabric-bom/processes.ts";
 import {
   baseProcessMissing,
   baseProcessesForStage,
+  baseProcessRepeated,
+  clothPurchaseAllowedAt,
+  clothPurchaseNotFirst,
+  dyeingBlocked,
   narrowToStage,
+  processesUsedInStage,
+  processRepeatedInStage,
+  stageRouteProblems,
   stageAllowsProcess,
   stageMismatchBlocked,
 } from "../lib/orders/fabric-bom/stage-routes.ts";
@@ -121,7 +129,9 @@ function proc(
   id: string,
   name: string,
   roles: { stage_id: string; is_base: boolean }[],
-  extra: Partial<Pick<FabricProcessOption, "for_fabric" | "is_print" | "is_dyeing" | "inactive">> = {},
+  extra: Partial<
+    Pick<FabricProcessOption, "for_fabric" | "is_print" | "is_dyeing" | "inactive" | "is_cloth_purchase" | "sub_categories">
+  > = {},
 ): FabricProcessOption {
   return {
     id,
@@ -131,6 +141,9 @@ function proc(
     for_fabric: extra.for_fabric ?? true,
     is_print: extra.is_print ?? false,
     is_dyeing: extra.is_dyeing ?? false,
+    is_knitting: false,
+    is_cloth_purchase: extra.is_cloth_purchase ?? false,
+    sub_categories: extra.sub_categories ?? [],
     stage_roles: roles,
   };
 }
@@ -196,6 +209,22 @@ const FABRIC_PURCHASE_CLASSIFIED = proc("p-fabpur", "FABRIC PURCHASE", [also(GRE
 const CLASSIFIED = LIVE.map((p) =>
   p.id === FABRIC_PURCHASE.id ? FABRIC_PURCHASE_CLASSIFIED : p,
 );
+
+/* THE MASTER AFTER 0570 + 0583 (checked live 2026-09-19): both purchases
+   flagged `is_cloth_purchase` and each the BASE of the stage its roll
+   arrives in, and DYEING carrying its one sub-category. Sections 10 and 13. */
+const FABRIC_PURCHASE_0583 = proc("p-fabpur", "FABRIC PURCHASE", [base(GREIGE)], { is_cloth_purchase: true });
+const DYED_FABRIC_PURCHASE = proc("p-dyedpur", "DYED FABRIC PURCHASE", [base(DYED)], { is_cloth_purchase: true });
+const DYEING_0583 = proc("p-dyeing", "DYEING", [base(DYED)], {
+  is_dyeing: true,
+  sub_categories: [{ id: "sc-biowash", name: "WITH BIOWASH" }],
+});
+const M583 = [
+  ...FULL.filter((p) => p.id !== FABRIC_PURCHASE.id && p.id !== DYEING.id),
+  FABRIC_PURCHASE_0583,
+  DYED_FABRIC_PURCHASE,
+  DYEING_0583,
+];
 
 const names = (list: readonly FabricProcessOption[]) => list.map((p) => p.name).sort();
 function offered(
@@ -582,30 +611,34 @@ const contradictions: string[] = [];
 /* CLASSIFIED and FINISHED are in the matrix deliberately: the floor added in
    section 12 is a fail-OPEN guard, and a fail-open guard is exactly the kind
    that makes a twin start contradicting the ▾. */
-for (const master of [LIVE, FULL, CLASSIFIED]) {
-  const label = master === LIVE ? "LIVE" : master === FULL ? "FULL" : "CLASSIFIED";
+for (const master of [LIVE, FULL, CLASSIFIED, M583]) {
+  const label =
+    master === LIVE ? "LIVE" : master === FULL ? "FULL" : master === CLASSIFIED ? "CLASSIFIED" : "M583";
   for (const stageId of [...STAGES, FINISHED]) {
     for (const printDeclared of [true, false]) {
       for (const fabricIsYarnDyed of [true, false]) {
         for (const isFirstOfStage of [true, false]) {
-          const list = processesForFabric(master, {
-            stageId,
-            isFirstOfStage,
-            printDeclared,
-            fabricIsYarnDyed,
-          });
+         /* 2026-09-19 — the positional purchase gate is a fourth dimension:
+            the twins must agree with the ▾ whether or not a purchase may
+            still go on this row. */
+         for (const purchaseAllowed of [true, false]) {
+          const gates = { printDeclared, fabricIsYarnDyed, purchaseAllowed };
+          const list = processesForFabric(master, { stageId, isFirstOfStage, ...gates });
           for (const p of list) {
             pairs++;
             const r = row(stageId, p.id);
-            if (stageMismatchBlocked(r, master, { printDeclared, fabricIsYarnDyed })) {
+            if (!purchaseAllowed && p.is_cloth_purchase) {
+              contradictions.push(`${label} stage=${stageId}: offered ${p.name} below Step 1`);
+            }
+            if (stageMismatchBlocked(r, master, gates)) {
               contradictions.push(
-                `${label} stage=${stageId} print=${printDeclared} yd=${fabricIsYarnDyed}` +
+                `${label} stage=${stageId} print=${printDeclared} yd=${fabricIsYarnDyed} buy=${purchaseAllowed}` +
                   ` first=${isFirstOfStage}: offered ${p.name} but stageMismatchBlocked says no`,
               );
             }
             if (
               isFirstOfStage &&
-              baseProcessMissing([r], 0, master, { printDeclared, fabricIsYarnDyed })
+              baseProcessMissing([r], 0, master, gates)
             ) {
               contradictions.push(
                 `${label} stage=${stageId} print=${printDeclared} yd=${fabricIsYarnDyed}:` +
@@ -613,6 +646,7 @@ for (const master of [LIVE, FULL, CLASSIFIED]) {
               );
             }
           }
+         }
         }
       }
     }
@@ -752,6 +786,185 @@ check(
     .map((p) => p.name),
   [],
 );
+
+// ===========================================================================
+console.log("\n--- 13. the client's three route rules (2026-09-19) ---");
+// ===========================================================================
+/* Each Save-level vector asserts WHICH sentence spoke, not how many — a count
+   passes against the wrong rule (see check-standard-routes' RULE table). */
+const STAGE_ROWS = [
+  { id: GREIGE, code: "grey", name: "GREIGE" },
+  { id: DYED, code: "dyed", name: "DYED" },
+  { id: WASHED, code: "WASH", name: "WASH" },
+  { id: PRINTED, code: "PRINT", name: "PRINT" },
+];
+const problems = (rows: FabricProcessRow[], yarnDyed = false) =>
+  stageRouteProblems(rows, M583, STAGE_ROWS, {
+    gatesFor: () => ({ fabricIsYarnDyed: yarnDyed }),
+  }).map((p) => p.message);
+const said = (rows: FabricProcessRow[], phrase: string, yarnDyed = false) =>
+  problems(rows, yarnDyed).filter((m) => m.includes(phrase)).length;
+
+/* ---- Rule 1: no fabric dyeing on a yarn-dyed fabric -------------------- */
+check(
+  "R1 ▾: DYEING and DYEING [WITH BIOWASH] are withheld on a yarn-dyed fabric",
+  processPickerItems(processesForFabric(M583, { fabricIsYarnDyed: true }))
+    .map((i) => i.name)
+    .filter((n) => n.startsWith("DYEING")),
+  [],
+);
+check(
+  "R1 ▾: …and both are offered on any other fabric",
+  processPickerItems(processesForFabric(M583, {}))
+    .map((i) => i.name)
+    .filter((n) => n.startsWith("DYEING"))
+    .sort(),
+  ["DYEING", "DYEING [WITH BIOWASH]"],
+);
+check("R1 twin: a held DYEING on a yarn-dyed fabric is named", dyeingBlocked(row(DYED, DYEING_0583.id), M583, true), true);
+check(
+  "R1 Save: a yarn-dyed route holding DYEING is refused with the client's sentence",
+  said([row(GREIGE, KNITTING.id), row(DYED, DYEING_0583.id)], "Fabric Dyeing steps cannot be added", true),
+  1,
+);
+check(
+  "R1 Save: the same route on a solid fabric is clean",
+  problems([row(GREIGE, KNITTING.id), row(DYED, DYEING_0583.id)], false),
+  [],
+);
+check(
+  "R1 is the PROCESS, not the stage: yarn-dyed rolls BOUGHT dyed still save",
+  problems([row(DYED, DYED_FABRIC_PURCHASE.id), row(DYED, STENTERING.id)], true),
+  [],
+);
+
+/* ---- Rule 2: a purchase is Step 1 ------------------------------------ */
+check("R2 position: the first row may buy", clothPurchaseAllowedAt([], 0), true);
+check(
+  "R2 position: a BLANK row above does not make it Step 2",
+  clothPurchaseAllowedAt([row(null, null)], 1),
+  true,
+);
+check("R2 position: a filled row above does", clothPurchaseAllowedAt([row(GREIGE, KNITTING.id)], 1), false);
+check(
+  "R2 ▾: neither purchase is offered below Step 1",
+  offered(M583, { purchaseAllowed: false }).filter((n) => n.includes("PURCHASE")),
+  [],
+);
+check(
+  "R2 ▾: both are offered on Step 1",
+  offered(M583, {}).filter((n) => n.includes("PURCHASE")),
+  ["DYED FABRIC PURCHASE", "FABRIC PURCHASE"],
+);
+check(
+  "R2 ▾: a Dyed stage opened on row 3 offers DYEING alone as its base",
+  offered(M583, { stageId: DYED, isFirstOfStage: true, purchaseAllowed: false }),
+  ["DYEING"],
+);
+{
+  const yd = offered(M583, {
+    stageId: DYED,
+    isFirstOfStage: true,
+    purchaseAllowed: false,
+    fabricIsYarnDyed: true,
+  });
+  check(
+    "R2 ▾: …and on a yarn-dyed fabric, with no base left, stands down to the stage's list",
+    yd,
+    ["COMPACTING [OPEN WIDTH]", "COMPACTING [TUBULAR]", "STENTERING"],
+  );
+}
+check(
+  "R2 Save: that yarn-dyed route (Dyed opened by STENTERING on row 2) is NOT asked for a purchase",
+  problems([row(GREIGE, KNITTING.id), row(DYED, STENTERING.id)], true),
+  [],
+);
+check(
+  "R2 Save: on a solid fabric the base twin names DYEING only, never the purchase",
+  problems([row(GREIGE, KNITTING.id), row(DYED, STENTERING.id)], false).map((m) =>
+    m.includes("route opens with DYEING —") && !m.includes("PURCHASE"),
+  ),
+  [true],
+);
+check(
+  "R2 Save: a purchase below Knitting is refused with the client's sentence",
+  said(
+    [row(GREIGE, KNITTING.id), row(GREIGE, FABRIC_PURCHASE_0583.id)],
+    "must be the initial procurement step (Step 1)",
+  ),
+  1,
+);
+check(
+  "R2 twin and position test are one rule",
+  clothPurchaseNotFirst([row(GREIGE, KNITTING.id), row(GREIGE, FABRIC_PURCHASE_0583.id)], 1, M583),
+  !clothPurchaseAllowedAt([row(GREIGE, KNITTING.id)], 1),
+);
+
+/* ---- Rule 3: once per STAGE ------------------------------------------- */
+{
+  const r = [row(DYED, DYEING_0583.id), row(DYED, STENTERING.id), row(DYED, null)];
+  check(
+    "R3 ▾: a new Dyed row greys what the Dyed rows above hold",
+    [...processesUsedInStage(r, 2)].sort(),
+    [DYEING_0583.id, STENTERING.id].sort(),
+  );
+  check(
+    "R3 ▾: a row's OWN value is not in its used set",
+    processesUsedInStage(r, 1).has(STENTERING.id),
+    false,
+  );
+}
+check(
+  "R3 ▾: a PRINT row greys nothing the Dyed rows hold",
+  [...processesUsedInStage([row(DYED, COMPACTING_OW.id), row(PRINTED, null)], 1)],
+  [],
+);
+check("R3 ▾: a row with no stage yet greys nothing", [...processesUsedInStage([row(DYED, STENTERING.id), row(null, null)], 1)], []);
+{
+  /* THE FLOOR: a blank row opening Dyed (row 2, so no purchase) whose only
+     base a row BELOW already holds — greying it would leave a required cell
+     with nothing to pick. */
+  const r = [row(GREIGE, KNITTING.id), row(DYED, null), row(DYED, DYEING_0583.id)];
+  const opts = processesForFabric(M583, { stageId: DYED, isFirstOfStage: true, purchaseAllowed: false });
+  check("R3 floor: the ▾ there is DYEING alone", names(opts), ["DYEING"]);
+  check("R3 floor: …so nothing is greyed on the blank row", [...processesUsedInStage(r, 1, opts)], []);
+  check(
+    "R3 floor: a FILLED row is not caged, so its taken alternatives still grey",
+    [...processesUsedInStage([row(DYED, STENTERING.id), row(DYED, DYEING_0583.id)], 0, opts)],
+    [DYEING_0583.id],
+  );
+}
+{
+  const twice = [row(DYED, DYEING_0583.id), row(DYED, STENTERING.id), row(DYED, STENTERING.id)];
+  check("R3 twin: the SECOND Stentering is the repeat", processRepeatedInStage(twice, 2), true);
+  check("R3 twin: …and the first is not", processRepeatedInStage(twice, 1), false);
+  check(
+    "R3 Save: Stentering twice under Dyed is refused with the once-per-stage sentence",
+    said(twice, "A stage runs each process once"),
+    1,
+  );
+}
+check(
+  "R3: COMPACTING under DYED and again under PRINT is NOT a repeat (chains 2 and 4)",
+  problems([
+    row(GREIGE, KNITTING.id),
+    row(DYED, DYEING_0583.id),
+    row(DYED, COMPACTING_OW.id),
+    row(PRINTED, PRINTING.id),
+    row(PRINTED, COMPACTING_OW.id),
+  ]),
+  [],
+);
+{
+  /* A BASE repeated keeps its sharper sentence — one message for the row. */
+  const dyedTwice = [row(DYED, DYEING_0583.id), row(DYED, DYEING_0583.id)];
+  check("R3: a repeated BASE is still reported by baseProcessRepeated", baseProcessRepeated(dyedTwice, 1, M583), true);
+  check(
+    "R3: …with its own sentence, and the generic one stands down",
+    problems(dyedTwice).map((m) => (m.includes("already moved this fabric into") ? "base" : m)),
+    ["base"],
+  );
+}
 
 console.log(
   failed === 0 ? "\nOK — every fabric stage-route vector holds." : `\n${failed} FAILED`,
