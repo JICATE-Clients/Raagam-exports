@@ -1,13 +1,13 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { requirePermission, can } from "@/lib/auth/server";
-import { getOrder } from "@/lib/orders/service";
-import { getAdvisedItemsByOrder } from "@/lib/orders/advised-items/service";
-import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
-import { AdvisedItemsEditor } from "../advised-items-editor";
+import { getAdvisedOrder } from "@/lib/orders/advised/service";
+import { AdvisedLinesScreen } from "../advised-lines-screen";
 
-export default async function OrderAdvisedItemsPage({
+/**
+ * Orders ▸ Advised Items ▸ one order (RE No) — its advised Material BOM lines
+ * and their conversion. See `advised-lines-screen.tsx`.
+ */
+export default async function AdvisedOrderPage({
   params,
 }: {
   params: Promise<{ orderId: string }>;
@@ -15,37 +15,20 @@ export default async function OrderAdvisedItemsPage({
   await requirePermission("orders", "view");
   const { orderId } = await params;
 
-  const [order, items, canCreate, canEdit, canDelete] = await Promise.all([
-    getOrder(orderId),
-    getAdvisedItemsByOrder(orderId),
-    can("orders", "create"),
+  const [advised, canConvert] = await Promise.all([
+    getAdvisedOrder(orderId),
+    // CONVERTING EDITS A MATERIAL BOM LINE, so it answers to the permission
+    // that edits one; the action checks it again.
     can("orders", "edit"),
-    can("orders", "delete"),
   ]);
-
-  if (!order) notFound();
+  if (!advised) notFound();
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Prepare Advised Items"
-        description={`${order.order_number ?? "—"} · ${order.buyers?.name ?? "Unknown customer"}`}
-        actions={
-          <Link href="/orders/advised-items">
-            <Button variant="outline" size="md">
-              ← Prepare Advised Items
-            </Button>
-          </Link>
-        }
-      />
-
-      <AdvisedItemsEditor
-        fixedOrder={{ id: order.id, order_number: order.order_number }}
-        items={items}
-        canCreate={canCreate}
-        canEdit={canEdit}
-        canDelete={canDelete}
-      />
-    </div>
+    <AdvisedLinesScreen
+      order={advised.order}
+      lines={advised.lines}
+      coloursByItem={advised.coloursByItem}
+      canConvert={canConvert}
+    />
   );
 }

@@ -408,6 +408,9 @@ export async function refuseUnsettledMaterials(
 
   const s = await createClient();
 
+  /** Per order: its RE No, and advised item id -> the material's name. */
+  const advisedByOrder = new Map<string, { reNo: string | null; items: Map<string, string> }>();
+
   for (const [salesOrderId, itemIds] of byOrder) {
     const { bom } = await recordedBomForOrder(s, salesOrderId);
     // NO RECORDED BOM IS NOT A REFUSAL. It means this purchase is not being made
@@ -422,13 +425,15 @@ export async function refuseUnsettledMaterials(
        created-by sweep is the standing lesson about a hand-written select that
        names a column's neighbour and not the column: the code reads as correct
        and the sentence comes out with a blank in it. */
-    const { data: lineRows } = await s
+    const { data: lineRows, error: lineErr } = await s
       .from("material_bom_amendment_items")
       .select("item_id, type, item:items(name)")
       .eq("amendment_id", bom.id)
       .in("item_id", [...itemIds]);
+    // "Could not check" is not "nothing advised": refuse, and say which.
+    if (lineErr) return `Could not check the Material BOM for advised items: ${lineErr.message}`;
 
-    const unsettled: string[] = [];
+    const items = new Map<string, string>();
     for (const r of (lineRows ?? []) as unknown as {
       item_id: string | null;
       type: string | null;
@@ -437,42 +442,61 @@ export async function refuseUnsettledMaterials(
          `material-bom-amendment/service.ts` records for its customer embed. */
       item: { name: string | null } | { name: string | null }[] | null;
     }[]) {
-      if (!isUnsettledMaterialType(r.type)) continue;
+      if (!r.item_id || !isUnsettledMaterialType(r.type)) continue;
       const cell = Array.isArray(r.item) ? (r.item[0] ?? null) : r.item;
-      const name = cell?.name?.trim() || "A material";
-      if (!unsettled.includes(name)) unsettled.push(name);
+      if (!items.has(r.item_id)) items.set(r.item_id, cell?.name ?? "");
     }
-    if (unsettled.length === 0) continue;
+    if (items.size === 0) continue;
 
-    /* NAMES THREE AND COUNTS THE REST. A refusal is read in a toast; twenty
-       names in one sentence is a wall the operator closes without reading, and
-       fixing the first three is progress they can see. */
-    const shown = unsettled.slice(0, 3).join(", ");
-    const rest = unsettled.length - Math.min(3, unsettled.length);
-    const subject = rest > 0 ? `${shown} and ${rest} more` : shown;
-    const verb = unsettled.length === 1 && shown !== "A material" ? "is" : "are";
+    const { data: so } = await s
+      .from("sales_orders")
+      .select("order_number")
+      .eq("id", salesOrderId)
+      .maybeSingle();
+    advisedByOrder.set(salesOrderId, {
+      reNo: (so as { order_number: string | null } | null)?.order_number ?? null,
+      items,
+    });
+  }
 
-    /* THE BOM'S CODE IS APPENDED ONLY WHEN THERE IS ONE. `code` is nullable, and
-       a sentence reading "on Material BOM ." is the shape that makes an operator
-       distrust the whole message — the refusal is still true and still
-       actionable without it. */
-    const on = bom.code ? ` on Material BOM ${bom.code}` : "";
-    /* BOTH NAMES STAY, though "To be developed" left `MATERIAL_TYPE_OPTIONS` on
-       2026-08-28 and only two values are pickable now. This sentence describes
-       what a row can BE, not what can be picked — and a legacy row genuinely
-       carrying "To be developed" is refused by `isUnsettledMaterialType`, so a
-       message naming only the pickable value would refuse a line while
-       describing a state it is not in, sending the operator to look for a
-       wording they cannot find on the row. Do not trim it to match the
-       dropdown; see the note on `UNSETTLED_MATERIAL_TYPES`. */
-    return (
-      `${subject} ${verb} still marked To be advised / To be developed${on}. ` +
-      `Save the final specification and size against ` +
-      `${unsettled.length === 1 ? "that line" : "those lines"} and set the Type ` +
-      `to Available Item before raising a purchase order.`
-    );
+  /* THE FIRST ADVISED LINE, IN THE PAYLOAD'S OWN ORDER — the row the
+     po_line_items trigger would refuse first on the same insert, so the toast
+     and the database name the same material. */
+  for (const l of lines) {
+    if (!l.sales_order_id || !l.item_id) continue;
+    const o = advisedByOrder.get(l.sales_order_id);
+    const name = o?.items.get(l.item_id);
+    if (o && name !== undefined) return advisedItemMessage(name, o.reNo);
   }
   return null;
+}
+
+/**
+ * THE ONE SENTENCE FOR AN ADVISED MATERIAL ON A PURCHASE ORDER (Advised Items,
+ * 2026-09-19) — said IDENTICALLY by this gate and by 0588's BEFORE INSERT /
+ * UPDATE trigger on `po_line_items`. Change one and the other in the same
+ * edit: an operator who meets two wordings for one rule reads them as two
+ * rules.
+ *
+ * It names the material and the RE No, and it names the WAY OUT — the Advised
+ * Items register, where the line is converted once the buyer confirms the
+ * specification. The menu path is checked by `npm run check:nav-paths`.
+ *
+ * Fallbacks, mirrored by the trigger (a blank counts as missing): no material
+ * name → "A material"; no RE No → "on this order".
+ *
+ * "To be advised" is the only unsettled type a line can hold since 0588's
+ * CHECK; a legacy "To be developed" row (none live) is still refused by
+ * `isUnsettledMaterialType` and reads the same sentence.
+ */
+export function advisedItemMessage(itemName: string | null, reNo: string | null): string {
+  const item = itemName?.trim() || "A material";
+  const re = reNo?.trim();
+  const on = re ? `on RE ${re}` : "on this order";
+  return (
+    `${item} is To be advised ${on} — convert it on ` +
+    `Orders ▸ Order Execution ▸ Advised Items once the buyer confirms.`
+  );
 }
 
 /**

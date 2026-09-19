@@ -616,6 +616,30 @@ export async function approvePo(poId: string): Promise<ActionResult> {
     return { ok: false, error: "Purchase order is not pending approval" };
   }
 
+  /*
+   * THE TBA GATE, ONE LAST TIME (Advised Items, 2026-09-19). A PO drafted and
+   * submitted while its material was Available can be waiting here when the
+   * BOM line is switched back to To be advised — and approval is the moment
+   * the order goes to the supplier. Every earlier check judged a
+   * specification that has since been withdrawn. Same lines, same predicate,
+   * same sentence as submit.
+   */
+  const { data: approveLines } = await supabase
+    .from("po_line_items")
+    .select("item_id, sales_order_id")
+    .eq("purchase_order_id", poId);
+  /* THE LAST REOPENED-BUDGET GATE — approving a PO drafted before its budget
+     was reopened commits the same spend a new PO would (Phase 5, decision 3). */
+  const approveReopened = await refuseReopenedBudget(
+    (approveLines ?? []) as { sales_order_id: string | null }[],
+  );
+  if (approveReopened) return { ok: false, error: approveReopened };
+
+  const approveTba = await refuseUnsettledMaterials(
+    (approveLines ?? []) as { item_id: string | null; sales_order_id: string | null }[],
+  );
+  if (approveTba) return { ok: false, error: approveTba };
+
   const { error } = await supabase
     .from("purchase_orders")
     .update({

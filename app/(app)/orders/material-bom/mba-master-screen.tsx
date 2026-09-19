@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, FieldError, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
@@ -99,6 +99,11 @@ import {
   updateMaterialBomAmendment,
 } from "@/lib/orders/material-bom-amendment/actions";
 import {
+  // The one door out of To be advised — the save action refuses with the same
+  // sentence, so the screen and the server say it in one voice.
+  ADVISED_CONVERT_ELSEWHERE,
+  ADVISED_REASON_MESSAGE,
+  advisedReasonMissing,
   missingItemFields,
   DEFAULT_MATERIAL_TYPE,
   DEFAULT_SUPPLY_TYPE,
@@ -340,6 +345,28 @@ type ItemRow = {
    * represent, so it needs none of the string-holding every numeric here does.
    */
   is_foc: boolean;
+  /* 0588 — Advised Items. `estimated_rate` is typed on the line (any line);
+     `pending_reason` only while the line is To be advised. The other four are
+     CARRIED AND NEVER SHOWN here: brand and artwork are filled in when the
+     line is converted (the Advised Items register), and the two stamps are
+     the database's. They round-trip because `writeChildren` deletes and
+     re-inserts every line — a value this form stopped carrying would be a
+     value the next save destroyed. */
+  estimated_rate: string;
+  pending_reason: string;
+  brand: string | null;
+  artwork_code: string | null;
+  converted_at: string | null;
+  converted_by: string | null;
+  /**
+   * SCREEN STATE, NEVER SENT: this line was LOADED as To be advised. Such a
+   * line leaves the advised state through ONE door — the Advised Items
+   * register's Convert, which stamps who and when (plan, Step 4) — so its TBA
+   * switch cannot be turned off here. A line switched on in this session, or a
+   * new one, has no stamp to skip and toggles freely. The save action refuses
+   * the same change server-side; this is the courtesy.
+   */
+  saved_tba: boolean;
   moq: string;
   /* `alternate_uom_id` above is now CARRIED AND NEVER SHOWN (client
      2026-08-19). Its cell came off the grid a second time — withdrawn as "UI
@@ -483,6 +510,13 @@ const blankItem = (key: string): ItemRow => ({
   // 0474. Off by default and for the plainer reason `send_out` gives: a BOM is a
   // list of what we buy, and free-issue is the exception the customer declares.
   is_foc: false,
+  estimated_rate: "",
+  pending_reason: "",
+  brand: null,
+  artwork_code: null,
+  converted_at: null,
+  converted_by: null,
+  saved_tba: false,
   moq: "",
   round_to: "",
   no_of_items: "",
@@ -671,6 +705,8 @@ const H = {
   roundTo: "Round To",
   process: "Process",
   foc: "FOC",
+  estimatedRate: "Est. Rate",
+  pendingReason: "Pending Reason",
 } as const;
 
 /**
@@ -1168,6 +1204,27 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        `xs` for anything that holds a typed or picked value. */
     { header: H.process, size: "xs", weight: "plain" },
     { header: H.foc, size: "xs", weight: "plain" },
+  ],
+  /*
+   * ADVISED ITEMS (0588) — a run of their own, after the line it describes.
+   *
+   *   Est. Rate sm 3 + Pending Reason lg 6 = 9 of 32
+   *
+   * NOT squeezed into the run above: that run is the client's own field order
+   * and already totals exactly 32, so a cell added to it would push its last
+   * field onto a line of its own. A short run simply ends — the sums-to-32 rule
+   * is about a run not OVERFLOWING, not about filling one.
+   *
+   * Est. Rate `sm` (~105px) — a rate, which `range` would hold on a FieldRow;
+   * this track sizes in columns, and three is its nearest.
+   * Pending Reason `lg` (~210px) — a sentence, and it shows ONLY while the
+   * line is To be advised: the renderer drops the cell on every other line
+   * (a hidden field is not rendered, never `hidden`), so the run is Est. Rate
+   * alone on an Available line.
+   */
+  [
+    { header: H.estimatedRate, size: "sm", weight: "plain" },
+    { header: H.pendingReason, size: "lg", weight: "plain" },
   ],
 ];
 
@@ -2886,6 +2943,13 @@ export function MbaMasterScreen({
            selected the column must read as "not free of cost", never crash the
            editor open. 0474. */
         is_foc: c.is_foc ?? false,
+        estimated_rate: c.estimated_rate != null ? String(c.estimated_rate) : "",
+        pending_reason: c.pending_reason ?? "",
+        brand: c.brand ?? null,
+        artwork_code: c.artwork_code ?? null,
+        converted_at: c.converted_at ?? null,
+        converted_by: c.converted_by ?? null,
+        saved_tba: c.type === TBA_MATERIAL_TYPE,
         moq: c.moq != null ? String(c.moq) : "",
         round_to: c.round_to != null ? String(c.round_to) : "",
         no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -3021,6 +3085,19 @@ export function MbaMasterScreen({
              does not apply; a wrongly-blank FOC is the safer half only if the
              source is untrusted, and a chosen copy source is not. */
           is_foc: c.is_foc ?? false,
+          /* THE ADVISED FACTS TRAVEL WITH `type`, which this copy already
+             carries: a line copied as To be advised without its reason would
+             arrive holding the cursor on a blank it cannot explain. The
+             conversion stamps do NOT travel — this is a new line, and "who
+             converted it, when" is a fact about the source line only. */
+          estimated_rate: c.estimated_rate != null ? String(c.estimated_rate) : "",
+          pending_reason: c.pending_reason ?? "",
+          brand: c.brand ?? null,
+          artwork_code: c.artwork_code ?? null,
+          converted_at: null,
+          converted_by: null,
+          // A COPIED line is new on this BOM — nothing saved it as advised here.
+          saved_tba: false,
           moq: c.moq != null ? String(c.moq) : "",
           round_to: c.round_to != null ? String(c.round_to) : "",
           no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
@@ -3096,6 +3173,14 @@ export function MbaMasterScreen({
         combination: c.combination || null,
         send_out: c.send_out,
         is_foc: c.is_foc,
+        estimated_rate: numOrNull(c.estimated_rate),
+        // ONLY WHILE ADVISED — an Available line has no reason to be pending,
+        // and the schema requires one exactly when it is To be advised.
+        pending_reason: c.type === TBA_MATERIAL_TYPE ? c.pending_reason || null : null,
+        brand: c.brand,
+        artwork_code: c.artwork_code,
+        converted_at: c.converted_at,
+        converted_by: c.converted_by,
         moq: numOrNull(c.moq),
         round_to: numOrNull(c.round_to),
         no_of_items: numOrNull(c.no_of_items),
@@ -4931,8 +5016,15 @@ export function MbaMasterScreen({
        */
       cell: (r) => (
         <Toggle
-          ariaLabel="To be advised — the final spec is not settled, so no purchase order may be raised for this material"
+          ariaLabel={
+            r.saved_tba && r.type === TBA_MATERIAL_TYPE
+              ? `To be advised — ${ADVISED_CONVERT_ELSEWHERE}`
+              : "To be advised — the final spec is not settled, so no purchase order may be raised for this material"
+          }
           checked={r.type === TBA_MATERIAL_TYPE}
+          // SAVED AS ADVISED = LOCKED ON: conversion has one door, the Advised
+          // Items register (see `saved_tba`). Switching ON stays free.
+          disabled={r.saved_tba && r.type === TBA_MATERIAL_TYPE}
           onChange={(on) =>
             updItem(r.key, { type: on ? TBA_MATERIAL_TYPE : DEFAULT_MATERIAL_TYPE })
           }
@@ -5226,6 +5318,73 @@ export function MbaMasterScreen({
      * and is not coming back: what stands there is a control that appears only
      * where the units name two packs and the app must not guess.
      */
+    /*
+     * ADVISED ITEMS (0588) — their own run in `FIELD_GROUPS`, after the line.
+     *
+     * ESTIMATED RATE is on every line: the budget's rate for a material before
+     * it is confirmed, which the Budget pull pre-fills its material line from
+     * (plan, "Estimated rate"). A number, typed like MOQ beside it.
+     */
+    {
+      header: H.estimatedRate,
+      align: "right",
+      cell: (r) => (
+        <Input
+          type="number"
+          min="0"
+          step="0.0001"
+          value={r.estimated_rate}
+          onChange={(e) => updItem(r.key, { estimated_rate: e.target.value })}
+          className="h-8 text-right"
+        />
+      ),
+    },
+    /*
+     * PENDING REASON — WHY the material is still To be advised. It exists only
+     * while the TBA switch is on (the renderer drops the cell otherwise), and
+     * while it exists it is MANDATORY: the database refuses an advised line
+     * with no reason (`chk_mbai_advised_reason`, 0588), and `missingItemFields`
+     * refuses Save from the same `advisedReasonMissing` predicate. So the
+     * column is `required` outright — it is never rendered when it is not.
+     *
+     * ITS MESSAGE SITS UNDER IT (AGENTS.md / raagam-screen-layout, "a warning
+     * sits under the field it is about"): the schema's own sentence,
+     * `ADVISED_REASON_MESSAGE`, word for word. Shown as soon as the line is
+     * advised with no reason — which only ever follows the operator switching
+     * TBA on, since the database refuses to STORE that state, so a loaded
+     * record never opens red.
+     */
+    {
+      header: H.pendingReason,
+      required: true,
+      cell: (r) => {
+        const id = `mba-${r.key}-pending-reason`;
+        const missing = advisedReasonMissing(r);
+        return (
+          <>
+            <Input
+              id={id}
+              aria-invalid={missing || undefined}
+              aria-describedby={missing ? `${id}-error` : undefined}
+              value={r.pending_reason}
+              onChange={(e) => updItem(r.key, { pending_reason: e.target.value })}
+              className="h-8"
+            />
+            <FieldError id={`${id}-error`}>{missing ? ADVISED_REASON_MESSAGE : null}</FieldError>
+            {/* WHERE THE TBA SWITCH'S LOCK IS EXPLAINED, and why here: the switch
+                is a ~70px cell, where this sentence would stand eight lines
+                tall; this field is on the same line, shows exactly when the
+                switch is locked, and is what the operator is filling in. A
+                muted NOTE, not an error — nothing here is wrong. */}
+            {r.saved_tba && r.type === TBA_MATERIAL_TYPE && (
+              <p className="mt-1 whitespace-normal text-xs text-muted-foreground">
+                {ADVISED_CONVERT_ELSEWHERE}
+              </p>
+            )}
+          </>
+        );
+      },
+    },
   ];
 
   /**
@@ -6148,6 +6307,10 @@ export function MbaMasterScreen({
                */
               const groups = FIELD_GROUPS.map((g) => {
                 const cells = g.flatMap((b) => {
+                  // PENDING REASON EXISTS ONLY WHILE THE LINE IS TO BE ADVISED
+                  // — required when shown, so it must not be shown otherwise
+                  // (a hidden field that is required cannot be satisfied).
+                  if (b.header === H.pendingReason && row.type !== TBA_MATERIAL_TYPE) return [];
                   const col = itemColumns.find((c) => c.header === b.header);
                   return col
                     ? [{ col, size: b.size, weight: b.weight, align: b.align }]
@@ -6371,6 +6534,8 @@ export function MbaMasterScreen({
                 const missing = missingItemFields({
                   category_id: last.category_id,
                   item_id: last.item_id,
+                  type: last.type,
+                  pending_reason: last.pending_reason,
                   requirement_grain: last.requirement_grain,
                   requirement_basis: last.requirement_basis || null,
                   no_of_items: numOrNull(last.no_of_items),
