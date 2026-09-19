@@ -50,7 +50,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Tabs } from "@/components/ui/tabs";
 import {
@@ -216,7 +215,6 @@ type Form = {
   description: string;
   currency_code: string;
   exchange_rate: string;
-  remark: string;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -225,7 +223,6 @@ const BLANK = (): Form => ({
   description: "",
   currency_code: "",
   exchange_rate: "1",
-  remark: "",
 });
 
 const blankCost = (key: string, source: BudgetSource): CostRow => ({
@@ -762,7 +759,6 @@ export function BudgetScreen({
       description: b.description ?? "",
       currency_code: b.currency_code ?? "",
       exchange_rate: String(b.exchange_rate ?? 1),
-      remark: b.remark ?? "",
     });
     setOrders(
       (b.orders ?? []).map((o) => ({ key: newKey(), garment_order_id: o.garment_order_id })),
@@ -2579,7 +2575,6 @@ export function BudgetScreen({
                 track     A term 176   B term 176   C party 200   D hug 88    E hug 88   then
                 budget    Entry No     Date         Group         Currency    Exch. rate SQ Description (name 288)
                 orders    SQ No        RE No        Customer      Order Qty   SQ Qty     Unit (hug 88)
-                remark    Remark, to the cap
 
                 budget  176 + 176 + 200 + 88 + 88 + 288 = 1016 + 5 x 12 = 1076
                 orders  176 + 176 + 200 + 88 + 88 + 88  =  816 + 5 x 12 =  876
@@ -2590,6 +2585,13 @@ export function BudgetScreen({
                  Up here they end 200px apart and the widest row is 100px
                  narrower. It is an order fact on the budget's row — accepted
                  for the balance; every other order fact stays below.
+              5. NO REMARK BOX (user, shot 2951: "no need remarks in new
+                 budget"). It came with the first build (70c25a8, 2026-08-17),
+                 was never in the client's budget blueprint, and no budget had
+                 one. Only the editor dropped it: `order_budgets.remark` and the
+                 optional schema field stay, so no migration was needed. The
+                 approver's remark (`decision_remark`, mandatory on a reject)
+                 and the Reopen remark are different fields and are untouched.
 
               The first five columns are shared, so Currency sits over Order
               Qty and Exchange rate over SQ Qty. The two rows split by WHO owns
@@ -2601,8 +2603,7 @@ export function BudgetScreen({
               clipped the RE No, and Entry No / SQ No follow the same series.
 
               THE CAP IS DEFINITE — 68rem, 1088px: the 1076 budget row plus
-              12px of slack so a sub-pixel font metric cannot wrap it, and the
-              Remark ends on that same edge. Below it (a 1366 laptop's pane is
+              12px of slack so a sub-pixel font metric cannot wrap it. Below it (a 1366 laptop's pane is
               ~1090px, so it just fits) a row folds its last field onto a new
               line, like any `FieldRow`, rather than scrolling. Never `max-w-fit`:
               inside a container-query ancestor a content-sized cap resolves to
@@ -2709,17 +2710,6 @@ export function BudgetScreen({
               </Field>
               <Field label="Unit" w="hug" htmlFor="bg-unit">
                 <Input id="bg-unit" readOnly value={asText(sales.unit)} />
-              </Field>
-            </FieldRow>
-            <FieldRow>
-              <Field label="Remark" htmlFor="bg-remark" className="w-full">
-                <Textarea
-                  id="bg-remark"
-                  rows={2}
-                  readOnly={!editable}
-                  value={form.remark}
-                  onChange={(e) => set({ remark: e.target.value })}
-                />
               </Field>
             </FieldRow>
           </div>
@@ -2913,7 +2903,6 @@ export function BudgetScreen({
       description: form.description || null,
       currency_code: form.currency_code || null,
       exchange_rate: numOrNull(form.exchange_rate) ?? 1,
-      remark: form.remark || null,
       orders: pickedOrders.map((o, i) => {
         const oo = orderById.get(o.garment_order_id as string);
         return {
