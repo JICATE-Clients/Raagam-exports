@@ -1234,6 +1234,10 @@ export function IwoFabricBomScreen({
       </RequiredScope>
     );
   };
+  /** What Fabric Consumption's own cells still owe — `lineProblems`, the rules
+   *  Save runs, narrowed to the fields this grid shows. */
+  const CONSUMPTION_FIELDS = new Set(["stage_id", "print_name", "color_name", "finish_dia", "req_kgs", "gsm"]);
+  const consumptionNeeds = lineProblems.filter((p) => CONSUMPTION_FIELDS.has(p.field));
   /** Consumption draws its Print column only while a line needs it. */
   const showPrintColumn = lines.some((l) => owesPrint(l) || !!l.print_name.trim());
 
@@ -2154,6 +2158,15 @@ export function IwoFabricBomScreen({
               the moment the tab opens (the operator reported it "blank, no
               fields" when it drew only lines that already named a fabric).
               The Fabric cell stays empty until one is picked on Allocation. */}
+          {/* WHERE IT ASKS, MADE VISIBLE (user 2026-09-20, screenshot 2969:
+              "where it will ask, I couldn't find it"). A box the Stage owes and
+              the line has not filled carries `data-required-empty` — the
+              marker the cursor hold already reads — but nothing drew it, so
+              the only signs were a header star and a grey Save. Each such box
+              now gets a red ring (a ring, not a border: the grid clears input
+              borders at rest), and the list under the grid names each line
+              and what it lacks, from the same rules Save runs. */}
+          <div className="[&_[data-required-empty]]:ring-1 [&_[data-required-empty]]:ring-danger">
           {/* default-row: exempt -- rows ARE Fabric Allocation's lines (never empty there); a line is added here only as + Dia, a copy of an existing fabric's line */}
           <ChildGrid<LineRow>
             columns={consumptionColumns}
@@ -2170,6 +2183,17 @@ export function IwoFabricBomScreen({
               setDirty(true);
             }}
           />
+          </div>
+          {consumptionNeeds.length > 0 && (
+            <div className="mt-2 rounded-md border border-danger bg-danger-soft px-3 py-2 text-xs text-danger">
+              <div className="font-semibold">Still needed before Save</div>
+              <ul className="mt-0.5 space-y-0.5">
+                {consumptionNeeds.map((p, i) => (
+                  <li key={i}>{p.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {/* ONE FABRIC ACROSS SEVERAL DIAS / COLOURS (Phase 2) — the total the
               lines add up to, per fabric, so a split reads as one plan. */}
           {fabricTotals.length > 0 && (
