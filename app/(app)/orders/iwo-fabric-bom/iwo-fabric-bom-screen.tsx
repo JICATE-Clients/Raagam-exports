@@ -929,10 +929,9 @@ export function IwoFabricBomScreen({
     },
     { header: "Date", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.iwo_date)}</span> },
     { header: "For", cell: (t) => <span className="text-sm">{IWO_FOR_LABELS[t.iwo_for] ?? "—"}</span> },
-    { header: "Style", cell: (t) => <span className="text-sm">{t.style_ref_no ?? "—"}</span> },
     {
       header: "RE No",
-      cell: (t) => <span className="font-mono text-xs">{t.sales_orders?.order_number ?? "—"}</span>,
+      cell: (t) => <span className="font-mono text-xs">{t.reference_no ?? "—"}</span>,
     },
     { header: "Deli Dt", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.deli_date)}</span> },
     {
@@ -1652,11 +1651,8 @@ export function IwoFabricBomScreen({
             <Field label="For" className="w-[110px]" htmlFor="ifb-for">
               <Input id="ifb-for" readOnly value={picked ? IWO_FOR_LABELS[picked.iwo_for] : ""} />
             </Field>
-            <Field label="Style" className="w-[150px]" htmlFor="ifb-style">
-              <Input id="ifb-style" readOnly value={picked?.style_ref_no ?? ""} />
-            </Field>
             <Field label="RE No" className="w-[170px]" htmlFor="ifb-re">
-              <Input id="ifb-re" readOnly value={picked?.sales_orders?.order_number ?? ""} />
+              <Input id="ifb-re" readOnly value={picked?.reference_no ?? ""} />
             </Field>
             <Field label="Deli Dt" className="w-[130px]" htmlFor="ifb-deli">
               <Input id="ifb-deli" readOnly value={picked?.deli_date ? fmtDate(picked.deli_date) : ""} />
@@ -1993,7 +1989,6 @@ export function IwoFabricBomScreen({
             <>
               <span>{picked ? `For ${IWO_FOR_LABELS[picked.iwo_for]}` : "No work order chosen"}</span>
               {form.bom_date && <span>· {fmtDate(form.bom_date)}</span>}
-              {picked?.style_ref_no && <span>· {picked.style_ref_no}</span>}
             </>
           ),
         }}

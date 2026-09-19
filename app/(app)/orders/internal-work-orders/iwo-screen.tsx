@@ -21,7 +21,7 @@
  * (`iwo_for_lock`), since the BOM would be left planning the wrong kind.
  */
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,6 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { RecordPicker } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
@@ -63,7 +62,7 @@ import {
   type IwoInput,
   type IwoStatus,
 } from "@/lib/orders/internal-work-orders/types";
-import type { IwoFormData, IwoRow } from "@/lib/orders/internal-work-orders/service";
+import type { IwoRow } from "@/lib/orders/internal-work-orders/service";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -81,26 +80,26 @@ const bomHref = (f: IwoFor, iwoId: string) => `${bomOf(f)?.path}?open=${iwoId}`;
  * computes to 0 under `@container/section`). The first line is the six fields
  * the operator fills in order, the steps Packing List Advice uses for the same
  * kinds of value:
- *   I.WO No code 144 + Date code 144 + For code 144 + RE No party 200
- *   + Style party 200 + Deli Dt code 144                         = 976
- *   + 5 × 12 gap                                                  = 1036 → 65rem (1040)
+ *   I.WO No code 144 + Date code 144 + For code 144 + Reference party 200
+ *   + Deli Dt code 144                                            = 776
+ *   + 4 × 12 gap                                                  = 824 → 52rem (832)
  * so Remarks folds onto a second line, the same place on a laptop and a 1920.
+ * (No Style since 2026-09-20 — the user removed the field.)
  */
-const HEADER_W = "max-w-[65rem]";
+const HEADER_W = "max-w-[52rem]";
 
 type Form = {
   iwo_date: string;
   iwo_for: IwoFor | "";
-  sales_order_id: string | null;
-  style_ref_no: string;
+  /** Reference (RE No), TYPED (0597). */
+  reference_no: string;
   deli_date: string;
   remarks: string;
 };
 const blankForm = (): Form => ({
   iwo_date: today(),
   iwo_for: "",
-  sales_order_id: null,
-  style_ref_no: "",
+  reference_no: "",
   deli_date: "",
   remarks: "",
 });
@@ -136,12 +135,10 @@ const bomPill = (b: IwoRow["bom"]) =>
 
 export function IwoScreen({
   rows,
-  data,
   perms,
   nextIwoNo,
 }: {
   rows: IwoRow[];
-  data: IwoFormData;
   perms: Perms;
   /** The I.WO No a work order raised TODAY would get — fetched with the page so
    *  a new one's box is filled on its first paint. */
@@ -214,8 +211,7 @@ export function IwoScreen({
     setForm({
       iwo_date: r.iwo_date ?? today(),
       iwo_for: isIwoFor(r.iwo_for) ? r.iwo_for : "",
-      sales_order_id: r.sales_order_id,
-      style_ref_no: r.style_ref_no ?? "",
+      reference_no: r.reference_no ?? "",
       deli_date: r.deli_date ?? "",
       remarks: r.remarks ?? "",
     });
@@ -266,8 +262,7 @@ export function IwoScreen({
     const payload: IwoInput = {
       iwo_date: form.iwo_date,
       iwo_for: iwoFor,
-      sales_order_id: form.sales_order_id,
-      style_ref_no: form.style_ref_no.trim() || null,
+      reference_no: form.reference_no.trim() || null,
       deli_date: form.deli_date || null,
       remarks: form.remarks.trim() || null,
     };
@@ -321,11 +316,6 @@ export function IwoScreen({
 
   // ---- the list ----------------------------------------------------------------
 
-  const orderNo = useMemo(() => {
-    const m = new Map(data.orders.map((o) => [o.id, o.name]));
-    return (id: string | null) => (id ? (m.get(id) ?? null) : null);
-  }, [data.orders]);
-
   const columns: Column<IwoRow>[] = [
     {
       header: "I.WO No",
@@ -346,9 +336,8 @@ export function IwoScreen({
     },
     {
       header: "RE No",
-      cell: (r) => <span className="font-mono text-xs">{r.sales_orders?.order_number ?? "—"}</span>,
+      cell: (r) => <span className="font-mono text-xs">{r.reference_no ?? "—"}</span>,
     },
-    { header: "Style", cell: (r) => <span className="text-sm">{r.style_ref_no ?? "—"}</span> },
     { header: "Deli Dt", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.deli_date)}</span> },
     {
       // Where the work order's PLAN stands — its Fabric or Material BOM.
@@ -461,20 +450,15 @@ export function IwoScreen({
                   ))}
                 </Select>
               </Field>
-              {/* The picker draws its own label; `Field` carries the width. */}
-              <Field w="party">
-                <RecordPicker
-                  label="Reference (RE No)"
-                  items={data.orders}
-                  value={form.sales_order_id}
-                  onChange={(id) => set({ sales_order_id: id })}
-                />
-              </Field>
-              <Field label="Style" w="party" htmlFor="iwo-style">
+              {/* TYPED, not picked (user 2026-09-20, 0597): a work order usually
+                  comes before any buyer order, so its reference need not be an
+                  RE No already in the order book. Capitals, like every value. */}
+              <Field label="Reference (RE No)" w="party" htmlFor="iwo-ref">
                 <Input
-                  id="iwo-style"
-                  value={form.style_ref_no}
-                  onChange={(e) => set({ style_ref_no: e.target.value })}
+                  id="iwo-ref"
+                  maxLength={60}
+                  value={form.reference_no}
+                  onChange={(e) => set({ reference_no: e.target.value })}
                 />
               </Field>
               <Field label="Deli Dt" w="code" htmlFor="iwo-deli">
@@ -587,7 +571,7 @@ export function IwoScreen({
             <>
               <span>{iwoFor ? `For ${IWO_FOR_LABELS[iwoFor]}` : "For not chosen"}</span>
               {form.iwo_date && <span>· {fmtDate(form.iwo_date)}</span>}
-              {orderNo(form.sales_order_id) && <span>· {orderNo(form.sales_order_id)}</span>}
+              {form.reference_no.trim() && <span>· {form.reference_no.trim().toUpperCase()}</span>}
             </>
           ),
         }}

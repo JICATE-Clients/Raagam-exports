@@ -58,13 +58,17 @@ export interface InternalWorkOrder {
   id: string;
   /** U2/IWO/2627/0005 — assigned by `assign_iwo_number()` on insert. */
   code: string | null;
-  /** Reference (RE No) — optional; an IWO usually precedes any buyer order. */
+  /** The old RE No link (0578) — KEPT, no longer written (0597). */
   sales_order_id: string | null;
+  /** Reference (RE No), TYPED (0597, user 2026-09-20) — optional; an IWO
+   *  usually precedes any buyer order. */
+  reference_no: string | null;
   location_id: string | null;
   status: IwoStatus;
   issued_at: string | null;
   iwo_for: IwoFor;
   iwo_date: string;
+  /** No longer asked for or shown (user 2026-09-20); stored values kept. */
   style_ref_no: string | null;
   deli_date: string | null;
   remarks: string | null;
@@ -81,13 +85,11 @@ export interface InternalWorkOrder {
 // grids this schema used to carry, and their tables, went with 0582 / 0585.
 // ---------------------------------------------------------------------------
 
-const uuidN = z.string().uuid().nullable().default(null);
-
 export const iwoInput = z.object({
   iwo_date: z.string().min(1, "Date is required"),
   iwo_for: z.enum(IWO_FOR, { message: "Choose what this work order is For" }),
-  sales_order_id: uuidN,
-  style_ref_no: capsTextNullable(),
+  // TYPED, capitalised like every stored value (0597). No Style (2026-09-20).
+  reference_no: capsTextNullable(),
   deli_date: z.string().nullable().default(null),
   remarks: capsTextNullable(),
 });

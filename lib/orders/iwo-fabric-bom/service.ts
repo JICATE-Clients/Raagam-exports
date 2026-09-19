@@ -41,11 +41,11 @@ export type IwoFabricBomTask = {
   code: string | null;
   iwo_date: string;
   iwo_for: IwoFor;
-  style_ref_no: string | null;
+  /** Reference (RE No), typed on the work order (0597). */
+  reference_no: string | null;
   deli_date: string | null;
   remarks: string | null;
   status: string;
-  sales_orders: { id: string; order_number: string | null } | null;
   created_by: string | null;
   created_at: string;
   bom: IwoFabricBom | null;
@@ -58,8 +58,7 @@ export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
   const { data, error } = await supabase
     .from("internal_work_orders")
     .select(
-      "id, code, iwo_date, iwo_for, style_ref_no, deli_date, remarks, status, created_by, created_at, " +
-        "sales_orders(id, order_number), " +
+      "id, code, iwo_date, iwo_for, reference_no, deli_date, remarks, status, created_by, created_at, " +
         "iwo_fabric_boms(*, iwo_fabric_bom_palette(*), iwo_fabric_bom_dias(*), iwo_fabric_bom_lines(*), " +
         "iwo_fabric_bom_processes(*), iwo_fabric_bom_yarns(*, iwo_fabric_bom_yarn_stages(*), iwo_fabric_bom_yarn_shades(*)))",
     )

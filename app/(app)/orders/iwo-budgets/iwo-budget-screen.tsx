@@ -1143,7 +1143,7 @@ export function IwoBudgetScreen({
                 <Input id="ib-deli" readOnly value={picked?.deli_date ? fmtDate(picked.deli_date) : ""} />
               </Field>
               <Field label="RE No" w="term" htmlFor="ib-re">
-                <Input id="ib-re" readOnly value={picked?.sales_orders?.order_number ?? ""} />
+                <Input id="ib-re" readOnly value={picked?.reference_no ?? ""} />
               </Field>
             </FieldRow>
             <FieldRow>

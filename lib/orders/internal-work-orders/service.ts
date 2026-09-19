@@ -32,7 +32,6 @@ export type IwoBomRef = { id: string; is_draft: boolean } | null;
 export type IwoBudgetRef = { id: string; status: "draft" | "submitted" | "approved" | "rejected"; cost: number | null } | null;
 
 export type IwoRow = InternalWorkOrder & {
-  sales_orders: { id: string; order_number: string | null } | null;
   bom: IwoBomRef;
   budget: IwoBudgetRef;
 };
@@ -51,7 +50,8 @@ export async function listInternalWorkOrders(): Promise<IwoRow[]> {
   const { data, error } = await supabase
     .from("internal_work_orders")
     .select(
-      "*, sales_orders(id, order_number), " +
+      // RE No is `reference_no`, typed (0597) — no sales_orders embed.
+      "*, " +
         "iwo_fabric_boms(id, is_draft), iwo_material_boms(id, is_draft), " +
         // The budget and its lines' pricing facts — the cost is the order
         // Budget's own `budgetTotals`, so this column and the Budget screen's
@@ -96,8 +96,6 @@ export async function listInternalWorkOrders(): Promise<IwoRow[]> {
 
 /** Everything the editor's pickers offer. */
 export type IwoFormData = {
-  /** Reference (RE No) — `sales_orders.order_number`. */
-  orders: PickerRow[];
   yarns: PickerRow[];
   fabrics: IwoFabricOption[];
   /** Fabric structures — `categories` of the FABRIC class. */
@@ -120,12 +118,8 @@ const LOOKUP_KINDS = ["yarn_stage", "fabric_stage", "fabric_color", "roll_form_p
 
 export async function getIwoFormData(): Promise<IwoFormData> {
   const s = await createClient();
-  const [orderRes, itemRes, classRes, catRes, uomRes, procRes, lookRes, vendorRes] = await Promise.all([
-    s
-      .from("sales_orders")
-      .select("id, order_number")
-      .not("order_number", "is", null)
-      .order("created_at", { ascending: false }),
+  // No sales_orders list: the Reference is typed since 0597.
+  const [itemRes, classRes, catRes, uomRes, procRes, lookRes, vendorRes] = await Promise.all([
     s
       .from("items")
       .select("id, code, name, is_active, item_class_id, category_id, base_uom_id, purchase_uom_id")
@@ -147,7 +141,7 @@ export async function getIwoFormData(): Promise<IwoFormData> {
       .order("name"),
     s.from("master_vendors").select("id, code, name, inactive").order("name"),
   ]);
-  for (const r of [orderRes, itemRes, classRes, catRes, uomRes, procRes, lookRes, vendorRes]) {
+  for (const r of [itemRes, classRes, catRes, uomRes, procRes, lookRes, vendorRes]) {
     if (r.error) throw new Error(`Internal work order form: ${r.error.message}`);
   }
 
@@ -203,12 +197,6 @@ export async function getIwoFormData(): Promise<IwoFormData> {
   );
 
   return {
-    orders: ((orderRes.data ?? []) as { id: string; order_number: string }[]).map((o) => ({
-      id: o.id,
-      code: o.order_number,
-      name: o.order_number,
-      inactive: false,
-    })),
     yarns: items.filter((i) => codeOf(i) === "YARN").map(pick),
     fabrics: items
       .filter((i) => codeOf(i) === "FABRIC")

@@ -1,8 +1,5 @@
 import { requirePermission, can } from "@/lib/auth/server";
-import {
-  getIwoFormData,
-  listInternalWorkOrders,
-} from "@/lib/orders/internal-work-orders/service";
+import { listInternalWorkOrders } from "@/lib/orders/internal-work-orders/service";
 import { previewIwoNumber } from "@/lib/orders/internal-work-orders/actions";
 import { today } from "@/lib/calendar";
 import { IwoScreen } from "./iwo-screen";
@@ -17,9 +14,9 @@ import { IwoScreen } from "./iwo-screen";
 export default async function InternalWorkOrdersPage() {
   await requirePermission("orders", "view");
 
-  const [rows, data, canCreate, canEdit, canDelete, nextIwoNo] = await Promise.all([
+  // No form data: the header's only picker (Reference) is typed since 0597.
+  const [rows, canCreate, canEdit, canDelete, nextIwoNo] = await Promise.all([
     listInternalWorkOrders(),
-    getIwoFormData(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
@@ -32,7 +29,6 @@ export default async function InternalWorkOrdersPage() {
   return (
     <IwoScreen
       rows={rows}
-      data={data}
       perms={{ canCreate, canEdit, canDelete }}
       nextIwoNo={nextIwoNo}
     />

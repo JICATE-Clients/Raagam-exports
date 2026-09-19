@@ -378,8 +378,7 @@ export function IwoMaterialBomScreen({
       ),
     },
     { header: "Date", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.iwo_date)}</span> },
-    { header: "Style", cell: (t) => <span className="text-sm">{t.style_ref_no ?? "—"}</span> },
-    { header: "RE No", cell: (t) => <span className="font-mono text-xs">{t.sales_orders?.order_number ?? "—"}</span> },
+    { header: "RE No", cell: (t) => <span className="font-mono text-xs">{t.reference_no ?? "—"}</span> },
     { header: "Deli Dt", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.deli_date)}</span> },
     {
       header: "Material BOM",
@@ -783,11 +782,8 @@ export function IwoMaterialBomScreen({
                 onChange={(e) => set({ bom_date: e.target.value })}
               />
             </Field>
-            <Field label="Style" className="w-[150px]" htmlFor="imb-style">
-              <Input id="imb-style" readOnly value={picked?.style_ref_no ?? ""} />
-            </Field>
             <Field label="RE No" className="w-[170px]" htmlFor="imb-re">
-              <Input id="imb-re" readOnly value={picked?.sales_orders?.order_number ?? ""} />
+              <Input id="imb-re" readOnly value={picked?.reference_no ?? ""} />
             </Field>
             <Field label="Deli Dt" className="w-[130px]" htmlFor="imb-deli">
               <Input id="imb-deli" readOnly value={picked?.deli_date ? fmtDate(picked.deli_date) : ""} />
@@ -933,7 +929,6 @@ export function IwoMaterialBomScreen({
             <>
               <span>{picked ? "For Accessories" : "No work order chosen"}</span>
               {form.bom_date && <span>· {fmtDate(form.bom_date)}</span>}
-              {picked?.style_ref_no && <span>· {picked.style_ref_no}</span>}
             </>
           ),
         }}

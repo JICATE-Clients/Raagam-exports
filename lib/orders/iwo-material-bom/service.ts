@@ -31,10 +31,10 @@ export type IwoMaterialBomTask = {
   code: string | null;
   iwo_date: string;
   iwo_for: string;
-  style_ref_no: string | null;
+  /** Reference (RE No), typed on the work order (0597). */
+  reference_no: string | null;
   deli_date: string | null;
   status: string;
-  sales_orders: { id: string; order_number: string | null } | null;
   created_by: string | null;
   created_at: string;
   bom: IwoMaterialBom | null;
@@ -47,8 +47,7 @@ export async function listIwoMaterialBomTasks(): Promise<IwoMaterialBomTask[]> {
   const { data, error } = await s
     .from("internal_work_orders")
     .select(
-      "id, code, iwo_date, iwo_for, style_ref_no, deli_date, status, created_by, created_at, " +
-        "sales_orders(id, order_number), " +
+      "id, code, iwo_date, iwo_for, reference_no, deli_date, status, created_by, created_at, " +
         "iwo_material_boms(*, iwo_material_bom_items(*), iwo_material_bom_processes(*))",
     )
     .eq("iwo_for", "accessories")

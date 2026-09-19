@@ -179,9 +179,9 @@ export type IwoBudgetTask = {
   code: string | null;
   iwo_date: string;
   iwo_for: IwoFor;
-  style_ref_no: string | null;
+  /** Reference (RE No), typed on the work order (0597). */
+  reference_no: string | null;
   deli_date: string | null;
-  sales_orders: { id: string; order_number: string | null } | null;
   created_by: string | null;
   created_at: string;
   /** The BOM this For uses: absent, draft, or saved. */
@@ -196,8 +196,7 @@ export async function listIwoBudgetTasks(): Promise<IwoBudgetTask[]> {
   const { data, error } = await s
     .from("internal_work_orders")
     .select(
-      "id, code, iwo_date, iwo_for, style_ref_no, deli_date, created_by, created_at, " +
-        "sales_orders(id, order_number), " +
+      "id, code, iwo_date, iwo_for, reference_no, deli_date, created_by, created_at, " +
         "iwo_fabric_boms(id, is_draft), iwo_material_boms(id, is_draft), " +
         "iwo_budgets(id, code, iwo_id, budget_date, status, decision_remark, remark, created_by, created_at, iwo_budget_lines(*))",
     )
