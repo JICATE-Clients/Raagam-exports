@@ -482,6 +482,8 @@ export interface FabricBomProcess {
   /** `config_lookups` kind 'fabric_stage' — GREY, DYED. */
   stage_id: string | null;
   process_id: string | null;
+  /** Which of `process_id`'s sub-categories — DYEING [WITH BIOWASH] (0583). */
+  sub_category_id?: string | null;
   /** `config_lookups` kind 'process_loss_for' — "Process wise". */
   loss_for_id: string | null;
   /* NO `description`. It held legacy's [Click]→sub-list text and the client

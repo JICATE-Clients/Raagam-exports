@@ -85,6 +85,7 @@ import { sectionValidity } from "@/lib/screens/validity";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import {
   BUDGET_SECTIONS,
+  BUDGET_SOURCES,
   carryRate,
   CMT_OPERATIONS,
   cmtBreakupTotal,
@@ -275,15 +276,15 @@ const blankCost = (key: string, source: BudgetSource): CostRow => ({
 /**
  * "Did anybody enter this line?" — the save-side blank-row filter.
  *
- * Every typed section opens with a seeded blank row (AGENTS.md "Editable
- * sub-tables open with a row"), so an untouched one must be DROPPED rather than
+ * Every table opens with a seeded blank row (AGENTS.md "Editable sub-tables
+ * open with a row"; `SEEDED_SOURCES`), so an untouched one must be DROPPED rather than
  * saved, priced or counted. It tests only what an operator has to type — the
  * item or process, its description or specification, the rate. Never `qty`
  * (the factory stamps 1), never `rate_type` (it stamps per_unit), never
  * `source` or `basis` (every row has one), never a toggle.
  *
  * The same test keeps the seeded row out of `budgetTotals`, or every budget
- * would open with four "unpriced" lines nobody wrote and a Save that refused.
+ * would open with nine "unpriced" lines nobody wrote and a Save that refused.
  */
 const isBlankLine = (c: CostRow) =>
   !c.item_id &&
@@ -389,11 +390,34 @@ const lineInput = (c: CostRow): BudgetLineInput => lineInputOf(c);
 const sectionOfSource = (source: string): BudgetSectionKey =>
   BUDGET_SECTIONS.find((s) => (s.sources as readonly string[]).includes(source))?.key ?? "expense";
 
-/** The source a new row in a section is stamped with — its TYPED source. A
- *  section made only of pulled sources (Purchase Rates) gets no seeded row. */
-const typedSourceOf = (key: BudgetSectionKey): BudgetSource | null =>
-  BUDGET_SECTIONS.find((s) => s.key === key)?.sources.find((src) => !PULLED_SOURCES.has(src)) ??
-  null;
+/**
+ * EVERY TABLE OPENS WITH A ROW — one per SOURCE, because every source is its own
+ * grid (a Purchase Rates or Process Rates tab, CMTs, Other Expenses / Incomes).
+ *
+ * It used to be one per SECTION, and only for a section holding a TYPED source,
+ * so Purchase Rates, Process Rates and CMTs — all pulled from the BOMs — opened
+ * as a bare header and "+ Add line" (user 2026-09-19, screenshot 2949: "every
+ * table first row in closed state make it open"). Pulled describes where a line
+ * USUALLY comes from, not a ban on typing one: each of those grids takes a
+ * hand-added line, so each is a typing surface and AGENTS.md's default row
+ * applies to it.
+ *
+ * `fabric_process` is the one exemption, and it is structural: its tab is a
+ * fold list whose lines come only from the Fabric BOM's split (`hideAdd`,
+ * `onAdd={() => false}`), so there is nothing a typed row could be.
+ * default-row: exempt -- Fabric Processes cannot grow; its lines are the BOM split
+ */
+const SEEDED_SOURCES: readonly BudgetSource[] = BUDGET_SOURCES.filter((s) => s !== "fabric_process");
+const isSeeded = (source: string) => (SEEDED_SOURCES as readonly string[]).includes(source);
+
+/** A new row of this source — the ONE factory the seed, "+ Add line" and the
+ *  last-row refill all use. A garment step typed by hand is priced once per
+ *  process (`basis` 'process', the Processwise grain); safe on a seeded row
+ *  because `isBlankLine` never reads `basis`. */
+const blankFor = (key: string, source: BudgetSource): CostRow => ({
+  ...blankCost(key, source),
+  ...(source === "garment_process" ? { basis: "process" as const } : {}),
+});
 
 /** A line's grain, in the legacy For column's words. `part` is a garment step
  *  done to a component (0573). */
@@ -693,24 +717,17 @@ export function BudgetScreen({
   // ---- opening -------------------------------------------------------------
 
   /**
-   * One blank row for each TYPED section that has no line yet — seeded into
-   * STATE here, never by `ChildGrid`'s `seedRow`. That prop seeds by calling
-   * `onAdd`, and `onAdd` here sets `dirty`: every budget would open reading
-   * "Unsaved changes" and hold off the silent auto-reload on work nobody
+   * One blank row for each TABLE that has no line yet (`SEEDED_SOURCES`) —
+   * seeded into STATE here, never by `ChildGrid`'s `seedRow`. That prop seeds by
+   * calling `onAdd`, and `onAdd` here sets `dirty`: every budget would open
+   * reading "Unsaved changes" and hold off the silent auto-reload on work nobody
    * touched. Run on EVERY open, because this editor does not remount between
    * records and a `useState` initialiser would seed only the first.
-   *
-   * Purchase Rates is not seeded — `typedSourceOf` returns null for it.
-   * default-row: exempt -- Purchase Rates' rows are pulled from the Fabric/Material BOM
    */
   function withSeededRows(lines: CostRow[]): CostRow[] {
     const seeded = [...lines];
-    for (const s of BUDGET_SECTIONS) {
-      const src = typedSourceOf(s.key);
-      if (!src) continue;
-      if (!lines.some((l) => (s.sources as readonly string[]).includes(l.source))) {
-        seeded.push(blankCost(newKey(), src));
-      }
+    for (const src of SEEDED_SOURCES) {
+      if (!lines.some((l) => l.source === src)) seeded.push(blankFor(newKey(), src));
     }
     return seeded;
   }
@@ -810,7 +827,15 @@ export function BudgetScreen({
         success("Every BOM line for these orders is already on the budget");
         return;
       }
-      mutCosts((xs) => [...xs, ...fresh.map((l) => rowOf(newKey(), l))]);
+      // THE SEEDED BLANK MAKES WAY. A tab that receives real lines loses its
+      // untouched blank row, which would otherwise sit among the BOM's lines
+      // looking like one of them. A row the operator has typed on is not blank
+      // (`isBlankLine`) and stays.
+      const filled = new Set<string>(fresh.map((l) => l.source));
+      mutCosts((xs) => [
+        ...xs.filter((x) => !(filled.has(x.source) && isBlankLine(x))),
+        ...fresh.map((l) => rowOf(newKey(), l)),
+      ]);
       success(
         res.skipped > 0
           ? // THE SKIPPED COUNT IS SAID OUT LOUD. A refused BOM figure dropped
@@ -1388,12 +1413,17 @@ export function BudgetScreen({
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
   ]);
 
-  /* Yarn Processes — 112 + 144 + 72 + 88 + 72 + 88 + 72 + 88 + 88 + 88 + 112
-     = 1024, + 72 = 1096 <= 1155 -> 5xl. Rate Type `hug`: "Per KGS" is seven
-     characters and the header two words. */
+  /* Yarn Processes — 112 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 88 + 88
+     + 112 = 1080, + 72 = 1152 <= 1155 -> 5xl. Re-cut 2026-09-19 for the
+     client's Rule 3 ("Yarn Description · Process · Shade · Dyed Weight ·
+     Rate"): a YARN column joins, and the free-text column narrows to `hug`
+     because on a pulled dyeing line it now carries just the shade. 3px of
+     headroom — add a column here and something else must give. Rate Type
+     `hug`: "Per KGS" is seven characters and the header two words. */
   const yarnProcessColumns: CostCol[] = withRowRules([
+    { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.range },
     { ...processCol((p) => p.for_yarn), width: FIELD_WIDTH_CSS.range },
-    { ...descCol("Yarn Stage / Colour"), width: FIELD_WIDTH_CSS.code },
+    { ...descCol("Shade / Stage"), width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
     { ...focCol, width: FIELD_WIDTH_CSS.num },
@@ -1934,17 +1964,26 @@ export function BudgetScreen({
    * read both (it measured none of them while they went through a helper).
    *
    * Every grid: a table from `5xl`, one-frame cards below it (`flatRows`),
-   * never a sideways scroll. A PULLED grid (every one but Other Expenses and
-   * Other Incomes) may be emptied — its rows come from the BOMs, and the last
-   * one removed is a cost the operator decided not to budget; a typed grid
-   * keeps its one row standing ready (AGENTS.md, default rows).
+   * never a sideways scroll.
+   *
+   * THE LAST LINE CAN GO, AND A BLANK ONE TAKES ITS PLACE. A PULLED grid's rows
+   * come from the BOMs, and removing the last one is a cost the operator decided
+   * not to budget — so the pulled grids keep `keepOne={false}` and the ✕ still
+   * works on the last row. But the table never empties (AGENTS.md, default rows):
+   * `removeCost` refills it with a blank row, which is never saved. Other
+   * Expenses / Incomes keep `keepOne`, as before.
    *
    * No `label=` caption: the section, and the tab inside it, names each grid.
    */
   const rowsOf = (source: string) => costs.filter((c) => c.source === source);
-  const addCost = (source: BudgetSource, patch: Partial<CostRow> = {}) =>
-    mutCosts((xs) => [...xs, { ...blankCost(newKey(), source), ...patch }]);
-  const removeCost = (r: CostRow) => mutCosts((xs) => xs.filter((x) => x.key !== r.key));
+  const addCost = (source: BudgetSource) => mutCosts((xs) => [...xs, blankFor(newKey(), source)]);
+  const removeCost = (r: CostRow) =>
+    mutCosts((xs) => {
+      const rest = xs.filter((x) => x.key !== r.key);
+      return isSeeded(r.source) && !rest.some((x) => x.source === r.source)
+        ? [...rest, blankFor(newKey(), r.source as BudgetSource)]
+        : rest;
+    });
 
   const yarnPurchaseGrid = (
       <ChildGrid<CostRow>
@@ -2026,8 +2065,8 @@ export function BudgetScreen({
       />
   );
 
-  // A GARMENT STEP TYPED BY HAND IS PRICED ONCE PER PROCESS — `basis`
-  // 'process', the Processwise grain.
+  // A GARMENT STEP TYPED BY HAND IS PRICED ONCE PER PROCESS — `blankFor`
+  // stamps `basis` 'process', the Processwise grain.
   const garmentProcessGrid = (
       <ChildGrid<CostRow>
         columns={garmentProcessColumns}
@@ -2038,7 +2077,7 @@ export function BudgetScreen({
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
-        onAdd={() => addCost("garment_process", { basis: "process" })}
+        onAdd={() => addCost("garment_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -2504,32 +2543,59 @@ export function BudgetScreen({
               `FIELD_WIDTH` steps by the KIND of value it holds, so a
               three-letter currency no longer spans a sixth of the pane.
 
-              FOUR ROWS, one per kind of fact, because a wrapping row fills
-              greedily and would otherwise pull the first SQ fact up beside the
-              exchange rate:
-                identity  code 144 + code 144 + party 200 + hug 88 + hug 88
-                          = 664 + 4 gaps x 12 = 712
-                SQ facts  term 176 + party 200 + party 200 + name 288
-                          = 864 + 3 x 12 = 900
-                quantity  hug 88 + hug 88 + num 72 = 248 + 2 x 12 = 272
-                remark    the cap
+              COMPACT BOXES, MORE OF THEM PER ROW (2026-09-19, four rounds in
+              one day — keep all three in mind before changing this):
+                1. each row cut to its own widths ended at 712 / 900 / 272 /
+                   912px — a ragged edge, no column under another (shot 2946);
+                2. stretching the fields to the pane filled it but blew a
+                   3-letter Currency up to ~190px (shot 2947);
+                3. the user: "compact the field size using the skill". So the
+                   boxes keep their width STEP (raagam-screen-layout) and the
+                   pane is used by putting the order facts on ONE row instead
+                   of stretching any box.
 
-              THE CAP IS DEFINITE — 57rem, 912px: the widest row (900) plus
-              12px of slack so a sub-pixel font metric cannot wrap it. Never
-              `max-w-fit`: inside a container-query ancestor a content-sized
-              cap resolves to zero (the Vendor bug, 8f37c22). The Remark box
-              ends where the SQ row ends rather than trailing across the pane. */}
-          <div className="max-w-[57rem] space-y-2">
+                track     A term 176   B term 176   C party 200   D hug 88    E hug 88   then
+                budget    Entry No     Date         Group         Currency    Exch. rate SQ Description (name 288)
+                orders    SQ No        RE No        Customer      Order Qty   SQ Qty     Unit (hug 88)
+                remark    Remark, to the cap
+
+                budget  176 + 176 + 200 + 88 + 88 + 288 = 1016 + 5 x 12 = 1076
+                orders  176 + 176 + 200 + 88 + 88 + 88  =  816 + 5 x 12 =  876
+
+              4. SQ DESCRIPTION MOVED UP beside the exchange rate (user, shot
+                 2948): with it on the orders row the two rows ended 400px
+                 apart (776 / 1176) and the gap sat right after Exchange rate.
+                 Up here they end 200px apart and the widest row is 100px
+                 narrower. It is an order fact on the budget's row — accepted
+                 for the balance; every other order fact stays below.
+
+              The first five columns are shared, so Currency sits over Order
+              Qty and Exchange rate over SQ Qty. The two rows split by WHO owns
+              the value: the budget's own fields above, facts read off the
+              picked orders below.
+
+              A and B are `term`, not `code`: a document number in this house
+              is "HO/RE/26-27/0001", 16 characters, ~150px — `code` (144)
+              clipped the RE No, and Entry No / SQ No follow the same series.
+
+              THE CAP IS DEFINITE — 68rem, 1088px: the 1076 budget row plus
+              12px of slack so a sub-pixel font metric cannot wrap it, and the
+              Remark ends on that same edge. Below it (a 1366 laptop's pane is
+              ~1090px, so it just fits) a row folds its last field onto a new
+              line, like any `FieldRow`, rather than scrolling. Never `max-w-fit`:
+              inside a container-query ancestor a content-sized cap resolves to
+              zero (the Vendor bug, 8f37c22). */}
+          <div className="max-w-[68rem] space-y-2">
             <FieldRow>
               {/* THE BUDGET'S OWN NUMBER — assigned on first save, so blank on a
                   new one rather than a guess at what it will be. */}
-              <Field label="Entry No" w="code" htmlFor="bg-code">
+              <Field label="Entry No" w="term" htmlFor="bg-code">
                 <Input id="bg-code" readOnly value={editCode ?? ""} />
               </Field>
               <Field
                 label="Date"
                 required
-                w="code"
+                w="term"
                 htmlFor="bg-date"
                 error={saveAttempted && !form.budget_date ? "Enter the budget date" : null}
               >
@@ -2586,6 +2652,11 @@ export function BudgetScreen({
                   onChange={(e) => set({ exchange_rate: e.target.value })}
                 />
               </Field>
+              {/* UP HERE, beside the exchange rate, to fill that row's gap — see
+                  the layout comment above (user, screenshot 2948). */}
+              <Field label="SQ Description" w="name" htmlFor="bg-sqd">
+                <Input id="bg-sqd" readOnly value={groupFact((o) => o.sq_description, "Mixed")} />
+              </Field>
             </FieldRow>
             {/* THE SQ FACTS — read off the picked orders, read-only, and so off
                 the Tab path by `readOnly` alone. */}
@@ -2593,33 +2664,28 @@ export function BudgetScreen({
               <Field label="SQ No" w="term" htmlFor="bg-sq">
                 <Input id="bg-sq" readOnly value={groupFact((o) => o.sq_no, nOrders)} />
               </Field>
-              <Field label="RE No" w="party" htmlFor="bg-re">
+              <Field label="RE No" w="term" htmlFor="bg-re">
                 <Input id="bg-re" readOnly value={groupFact((o) => o.re_no, nOrders)} />
               </Field>
               <Field label="Customer" w="party" htmlFor="bg-cust">
                 <Input id="bg-cust" readOnly value={groupFact((o) => o.customer_name, "Mixed")} />
               </Field>
-              <Field label="SQ Description" w="name" htmlFor="bg-sqd">
-                <Input id="bg-sqd" readOnly value={groupFact((o) => o.sq_description, "Mixed")} />
-              </Field>
-            </FieldRow>
-            {/* TWO QUANTITIES, AND PHASE 1 SHOWED THE WRONG ONE UNDER THIS NAME.
-                Order Qty is what was ORDERED (Σ po_qty — Avg Price divides by
-                it); SQ Qty is what will be MADE (order + excess + rejection +
-                approval — CMT and garment processes are priced on it). The
-                blueprint's own figures need both: 5028 sold, 5321 made.
+              {/* TWO QUANTITIES, AND PHASE 1 SHOWED THE WRONG ONE UNDER THIS NAME.
+                  Order Qty is what was ORDERED (Σ po_qty — Avg Price divides by
+                  it); SQ Qty is what will be MADE (order + excess + rejection +
+                  approval — CMT and garment processes are priced on it). The
+                  blueprint's own figures need both: 5028 sold, 5321 made.
 
-                A REFUSAL IS THE FIELD'S `error`, under the box, and the box
-                stays blank (Phase 7) — it used to be the box's VALUE, clipped
-                to 88px, with the whole sentence hidden in a hover `title`. */}
-            <FieldRow>
+                  A REFUSAL IS THE FIELD'S `error`, under the box, and the box
+                  stays blank (Phase 7) — it used to be the box's VALUE, clipped
+                  to 88px, with the whole sentence hidden in a hover `title`. */}
               <Field label="Order Qty" w="hug" htmlFor="bg-qty" error={refusalOf(sales.qty)}>
                 <Input id="bg-qty" readOnly className="text-right" value={figureText(sales.qty)} />
               </Field>
               <Field label="SQ Qty" w="hug" htmlFor="bg-sqqty" error={refusalOf(groupSqQty)}>
                 <Input id="bg-sqqty" readOnly className="text-right" value={figureText(groupSqQty)} />
               </Field>
-              <Field label="Unit" w="num" htmlFor="bg-unit">
+              <Field label="Unit" w="hug" htmlFor="bg-unit">
                 <Input id="bg-unit" readOnly value={asText(sales.unit)} />
               </Field>
             </FieldRow>
@@ -2691,7 +2757,6 @@ export function BudgetScreen({
           done: lines.length > 0,
           content: (
             <SectionBody title={s.label}>
-              {/* default-row: exempt -- rows are pulled from the Fabric/Material BOM */}
               <Tabs
                 value={purchaseTab}
                 onChange={setPurchaseTab}
@@ -2721,7 +2786,6 @@ export function BudgetScreen({
           done: lines.length > 0,
           content: (
             <SectionBody title={s.label}>
-              {/* default-row: exempt -- every process grid is pulled from the Fabric/Material BOM and the Order's style processes */}
               <Tabs
                 value={processTab}
                 onChange={setProcessTab}
@@ -2753,7 +2817,6 @@ export function BudgetScreen({
           done: lines.length > 0,
           content: (
             <SectionBody title={s.label}>
-              {/* default-row: exempt -- CMT lines are pulled per style from the orders */}
               {cmtGrid}
             </SectionBody>
           ),

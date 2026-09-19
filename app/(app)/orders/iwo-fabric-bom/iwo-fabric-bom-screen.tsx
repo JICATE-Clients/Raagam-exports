@@ -30,11 +30,17 @@
  * only link replaced is where a fabric's gross comes from: the typed Req Wt,
  * through `lib/orders/iwo-fabric-bom/yarn.ts` — the same helpers the save
  * uses, so the preview and the stored figure are one computation.
+ *
+ * Step 4: For = Yarn (screenshot 2937) — the fabric sections are BYPASSED. The
+ * planner picks each yarn on a Yarn Lines grid with the stage it is bought in
+ * and a Planned Weight; Yarn Process then lists those picked yarns, and each
+ * purchase is the Planned Weight through the yarn's own stages
+ * (`iwoYarnModePurchase`, the same helper the save calls).
  */
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Layers, Scale, Shirt, Spool, Waypoints } from "lucide-react";
+import { Layers, ListChecks, Scale, Shirt, Spool, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -60,6 +66,7 @@ import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useOpenIntent } from "@/lib/use-open-intent";
 import { sectionValidity } from "@/lib/screens/validity";
 import { IWO_FOR_LABELS } from "@/lib/orders/internal-work-orders/types";
 import { KNIT_TYPE_OPTIONS, type PaletteSection } from "@/lib/orders/iwo-fabric-bom/types";
@@ -87,7 +94,8 @@ import {
 import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
 import { stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { fabricFormLabel } from "@/lib/orders/fabric-bom/component-map";
-import { iwoFabricGross, iwoRoutesByFabric } from "@/lib/orders/iwo-fabric-bom/yarn";
+import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase } from "@/lib/orders/iwo-fabric-bom/yarn";
+import { iwoYarnLineProblems, keptIwoYarnLines } from "@/lib/orders/iwo-fabric-bom/lines";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -143,6 +151,11 @@ const blankLine = (): LineRow => ({
   stage_id: null,
   req_kgs: "",
 });
+
+/** A For = Yarn line (step 4): the yarn, its buy stage, the Planned Weight typed. */
+type YarnLineRow = { key: string; item_id: string | null; buy_stage_id: string | null; planned_kgs: string };
+// EVERY SEED IS BLANK — the save drops an untouched yarn line by testing what is typed.
+const blankYarnLine = (): YarnLineRow => ({ key: newKey(), item_id: null, buy_stage_id: null, planned_kgs: "" });
 
 /** "" → null; anything else → a number, or NaN for a non-number. */
 const num = (v: string): number | null => {
@@ -298,8 +311,13 @@ export function IwoFabricBomScreen({
   /** Yarn Process (step 3): each yarn's OWN stages, keyed by yarn id so
    *  re-deriving the yarn list can never move a stage to another yarn. */
   const [yarnAnswers, setYarnAnswers] = useState<Record<string, { stages: YarnStageRow[] }>>({});
-  const [openYarnId, setOpenYarnId] = useState<string | null>(null);
-  const [openFabricId, setOpenFabricId] = useState<string | null>(null);
+  /** `undefined` = not touched yet, so the FIRST row opens by itself (the
+   *  operator reported the process tabs as "blank, no fields" when every row
+   *  started shut); `null` = closed by the operator; a key = that row open. */
+  const [openYarnId, setOpenYarnId] = useState<string | null | undefined>(undefined);
+  /** For = Yarn (step 4): the picked yarns and their Planned Weight. */
+  const [yarnLines, setYarnLines] = useState<YarnLineRow[]>([]);
+  const [openFabricId, setOpenFabricId] = useState<string | null | undefined>(undefined);
   /** The compositions behind the lines' fabrics, keyed with the question it
    *  answers so a late reply is never shown against changed fabrics. */
   const [compState, setCompState] = useState<{
@@ -356,8 +374,9 @@ export function IwoFabricBomScreen({
     setLines([blankLine()]);
     setProcs([]);
     setYarnAnswers({});
-    setOpenYarnId(null);
-    setOpenFabricId(null);
+    setYarnLines([blankYarnLine()]);
+    setOpenYarnId(undefined);
+    setOpenFabricId(undefined);
     setDirty(false);
     setMode("edit");
   }
@@ -425,11 +444,31 @@ export function IwoFabricBomScreen({
         ]),
       ),
     );
-    setOpenYarnId(null);
-    setOpenFabricId(null);
+    // On a For = Yarn BOM the stored yarns ARE the typed lines; on a For =
+    // Fabric one they are derived, and the Yarn Lines grid is not shown.
+    const yl =
+      t.iwo_for === "yarn"
+        ? (b.iwo_fabric_bom_yarns ?? []).map((y) => ({
+            key: newKey(),
+            item_id: y.item_id,
+            buy_stage_id: y.buy_stage_id,
+            planned_kgs: str(y.planned_kgs),
+          }))
+        : [];
+    setYarnLines(yl.length ? yl : [blankYarnLine()]);
+    setOpenYarnId(undefined);
+    setOpenFabricId(undefined);
     setDirty(false);
     setMode("edit");
   }
+
+  /** `?open=<iwoId>` — the IWO screen's "Open Fabric BOM" lands here, IN that work
+   *  order's BOM (a new one when it has none). Declared after `openTask`, above
+   *  any branch; an id this unit cannot see opens nothing. */
+  useOpenIntent((iwoId) => {
+    const t = taskById.get(iwoId);
+    if (t && (t.bom ? perms.canEdit : perms.canCreate)) openTask(t);
+  });
 
   // ---- Yarn Process + Fabric Process (step 3) -------------------------------
 
@@ -456,15 +495,29 @@ export function IwoFabricBomScreen({
       ? compState
       : null;
 
-  /** THE YARN ROWS — derived from what the cloths are made of, never added by
-   *  hand (`deriveYarnRows`, the order screen's own call). */
-  const yarnRows: YarnRow[] = comp
-    ? deriveYarnRows(
-        comp.compositions,
-        new Map(comp.yarns.map((y) => [y.id, { name: y.name, inactive: y.inactive }])),
-        new Map(Object.entries(yarnAnswers)),
-      )
-    : [];
+  /** FOR = YARN (step 4) — read off the IWO, never a toggle on this screen. */
+  const yarnMode = picked?.iwo_for === "yarn";
+  const yarnById = new Map(data.yarns.map((y) => [y.id, y]));
+
+  /** THE YARN ROWS. On a For = Fabric BOM, derived from what the cloths are
+   *  made of (`deriveYarnRows`, the order screen's own call). On a For = Yarn
+   *  BOM, the yarns the planner PICKED on Yarn Lines, once each. */
+  const yarnRows: YarnRow[] = yarnMode
+    ? [...new Set(yarnLines.map((l) => l.item_id).filter((x): x is string => !!x))].map((id) => ({
+        key: id,
+        item_id: id,
+        name: yarnById.get(id)?.name ?? "",
+        inactive: yarnById.get(id)?.inactive ?? false,
+        fabrics: [],
+        stages: yarnAnswers[id]?.stages ?? [],
+      }))
+    : comp
+      ? deriveYarnRows(
+          comp.compositions,
+          new Map(comp.yarns.map((y) => [y.id, { name: y.name, inactive: y.inactive }])),
+          new Map(Object.entries(yarnAnswers)),
+        )
+      : [];
 
   const compositionById = new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c]));
 
@@ -489,7 +542,15 @@ export function IwoFabricBomScreen({
   /** One yarn's purchase weight, or the refusal standing in for it — the order
    *  engine, with the arguments the save passes (no source, no shades yet). */
   const weightFor = (r: YarnRow) =>
-    yarnPurchase(
+    yarnMode
+      ? iwoYarnModePurchase(
+          num(yarnLines.find((l) => l.item_id === r.item_id)?.planned_kgs ?? ""),
+          r.stages.map((st) => ({ loss_pct: num(st.loss_pct) })),
+          data.kgUom?.id ?? null,
+          data.kgUom?.decimals ?? null,
+          r.name || "this yarn",
+        )
+      : yarnPurchase(
       r.item_id,
       fabricGross,
       compositionById,
@@ -555,15 +616,26 @@ export function IwoFabricBomScreen({
   /** "Yarn compositions still loading" — the order screen's guard. Saving now
    *  would send an empty yarn list and the server would refuse it; saying so
    *  here is the kinder half. */
-  const yarnsLoading = !!fabricIdKey && !comp;
+  const yarnsLoading = !yarnMode && !!fabricIdKey && !comp;
+
+  /** For = Yarn: the Yarn Lines rules (`lines.ts`) — the same function the
+   *  action runs. A yarn line with stages typed counts as started. */
+  const yarnLineFacts = yarnLines.map((l) => ({
+    item_id: l.item_id,
+    buy_stage_id: l.buy_stage_id,
+    planned_kgs: num(l.planned_kgs),
+    hasStages: !!l.item_id && (yarnAnswers[l.item_id]?.stages ?? []).some((st) => !!(st.stage_id || st.process_id)),
+  }));
+  const yarnLineIssues = yarnMode ? iwoYarnLineProblems(yarnLineFacts) : [];
 
   const validity = sectionValidity({
     sections: [
       { key: "bom" },
-      { key: "lines" },
-      { key: "consumption" },
+      { key: "yarnLines", when: () => yarnMode },
+      { key: "lines", when: () => !yarnMode },
+      { key: "consumption", when: () => !yarnMode },
       { key: "yarns" },
-      { key: "process" },
+      { key: "process", when: () => !yarnMode },
     ],
     values: form,
     fields: [
@@ -582,6 +654,7 @@ export function IwoFabricBomScreen({
         kind: "custom" as const,
       })),
       ...routeBlockers.map((b) => ({ section: "process", label: "Fabric Process", message: b.message, kind: "custom" as const })),
+      ...yarnLineIssues.map((y) => ({ section: "yarnLines", label: "Yarn Lines", message: y.message, kind: "custom" as const })),
       ...(yarnsLoading
         ? [{ section: "yarns", label: "Yarn Process", message: "Yarn Process is still reading the fabrics' compositions " + "—" + " save again in a moment.", kind: "custom" as const }]
         : []),
@@ -604,6 +677,23 @@ export function IwoFabricBomScreen({
         .filter((r) => r.value.trim())
         .map((r) => ({ section, name: r.value })),
     );
+    const yarnLinePayload = keptIwoYarnLines(yarnLineFacts)
+      .filter((l) => !!l.item_id)
+      .map((l, i) => ({
+        sno: i + 1,
+        item_id: l.item_id as string,
+        planned_kgs: l.planned_kgs,
+        buy_stage_id: l.buy_stage_id,
+        stages: (yarnAnswers[l.item_id as string]?.stages ?? []).map((st, j) => ({
+          sno: j + 1,
+          stage_id: st.stage_id,
+          process_id: st.process_id,
+          loss_for_id: st.loss_for_id,
+          combo: st.combo || null,
+          description: st.description || null,
+          loss_pct: num(st.loss_pct),
+        })),
+      }));
     const payload = {
       iwo_id: form.iwo_id,
       bom_date: form.bom_date,
@@ -615,7 +705,7 @@ export function IwoFabricBomScreen({
       })),
       // Blank rows are dropped HERE as well as in the action: the schema
       // requires a fabric on every line it is sent.
-      lines: keptIwoFabricLines(lines.map(lineFacts)).map((l) => ({
+      lines: yarnMode ? [] : keptIwoFabricLines(lines.map(lineFacts)).map((l) => ({
         ...l,
         item_id: l.item_id ?? "",
         fabric_form: l.fabric_form as "open" | "tubular" | null,
@@ -623,7 +713,7 @@ export function IwoFabricBomScreen({
       // Step 3. Routes as typed (the action keeps only steps naming a process,
       // for fabrics still on a line); yarns as DERIVED, each with its own
       // stages. No weight is sent — the server computes every one.
-      processes: procs.map((r) => ({
+      processes: yarnMode ? [] : procs.map((r) => ({
         item_id: r.item_id,
         combo: null,
         component_id: null,
@@ -634,7 +724,7 @@ export function IwoFabricBomScreen({
         loss_pct: num(r.loss_pct),
         type_id: r.type_id,
       })),
-      yarns: yarnRows.map((y, i) => ({
+      yarns: yarnMode ? yarnLinePayload : yarnRows.map((y, i) => ({
         sno: i + 1,
         item_id: y.item_id,
         stages: y.stages.map((st, j) => ({
@@ -913,7 +1003,7 @@ export function IwoFabricBomScreen({
   ];
 
   /** The lines Fabric Consumption shows: those that name a fabric. */
-  const consumptionRows = lines.filter((l) => !!l.item_id);
+  const consumptionRows = lines;
 
   /**
    * FABRIC CONSUMPTION — screenshot 2940 / SRS §4: the garment breakdown is
@@ -984,18 +1074,24 @@ export function IwoFabricBomScreen({
       header: "Stage",
       required: true,
       width: FIELD_WIDTH_CSS.code,
+      // OWED ONLY ONCE THE LINE NAMES A FABRIC (`iwoFabricLineProblems` skips a
+      // line without one). Every allocation line is shown here now, the seeded
+      // blank one included, so the column's star stays and this row's own
+      // scope decides the hold — a blank line never cages the cursor.
       cell: (r) => (
-        <LookupDialogPicker
-          kind="fabric_stage"
-          label="Stage"
-          compact
-          required
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          options={data.fabricStages}
-          value={r.stage_id}
-          onChange={(id) => patchLine(r.key, { stage_id: id })}
-        />
+        <RequiredScope required={!!r.item_id} label="Stage">
+          <LookupDialogPicker
+            kind="fabric_stage"
+            label="Stage"
+            compact
+            required={!!r.item_id}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            options={data.fabricStages}
+            value={r.stage_id}
+            onChange={(id) => patchLine(r.key, { stage_id: id })}
+          />
+        </RequiredScope>
       ),
     },
     {
@@ -1004,15 +1100,18 @@ export function IwoFabricBomScreen({
       align: "right",
       width: FIELD_WIDTH_CSS.range,
       total: { kind: "sum", of: (r) => num(r.req_kgs) || 0, format: kg },
+      // Owed only on a line naming a fabric — see Stage above.
       cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          required
-          aria-label="Req Wt (KGS)"
-          value={r.req_kgs}
-          onChange={(e) => patchLine(r.key, { req_kgs: e.target.value })}
-        />
+        <RequiredScope required={!!r.item_id} label="Req Wt (KGS)">
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            required={!!r.item_id}
+            aria-label="Req Wt (KGS)"
+            value={r.req_kgs}
+            onChange={(e) => patchLine(r.key, { req_kgs: e.target.value })}
+          />
+        </RequiredScope>
       ),
     },
     {
@@ -1026,6 +1125,97 @@ export function IwoFabricBomScreen({
       cell: (r) => {
         const g = grossYarnFor(r);
         return <Input className="h-8 text-right" readOnly aria-label="Gross Yarn (KGS)" value={g == null ? "" : kg(g)} />;
+      },
+    },
+  ];
+
+  // ---- Yarn Lines (For = Yarn, step 4) -----------------------------------------
+
+  const patchYarnLine = (key: string, patch: Partial<YarnLineRow>) => {
+    setYarnLines((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+    setDirty(true);
+  };
+
+  /** The purchase a yarn line leads to — its Planned Weight through its own
+   *  Yarn Process stages. Blank while it cannot be stated; Yarn Process says why. */
+  const purchaseFor = (l: YarnLineRow): number | null => {
+    if (!l.item_id) return null;
+    const r = yarnRows.find((y) => y.item_id === l.item_id);
+    if (!r) return null;
+    const w = weightFor(r);
+    return isRefusal(w) ? null : w.qty;
+  };
+
+  /**
+   * YARN LINES — screenshot 2937's main grid: Yarn Description, Stage, Planned
+   * Weight (KGS). Purchase Wt is the answer, read-only: what Yarn Process's
+   * stages make of the Planned Weight.
+   *
+   * WIDTHS (check:grid-budget): name 288 + code 144 + range 112 + range 112 =
+   * 656 + 72 chrome = 728 <= 1155.
+   */
+  const yarnLineColumns: ChildGridColumn<YarnLineRow>[] = [
+    {
+      header: "Yarn",
+      required: true,
+      width: FIELD_WIDTH_CSS.name,
+      cell: (r) => (
+        <RecordPicker
+          label="Yarn"
+          compact
+          required
+          items={data.yarns}
+          // Pick-once: a yarn is planned on one line, its stages on Yarn Process.
+          usedIds={yarnLines.filter((x) => x.key !== r.key && x.item_id).map((x) => x.item_id as string)}
+          value={r.item_id}
+          onChange={(id) => patchYarnLine(r.key, { item_id: id })}
+        />
+      ),
+    },
+    {
+      header: "Stage",
+      required: true,
+      width: FIELD_WIDTH_CSS.code,
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="yarn_stage"
+          label="Stage"
+          compact
+          required
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+          options={data.yarnStages}
+          value={r.buy_stage_id}
+          onChange={(id) => patchYarnLine(r.key, { buy_stage_id: id })}
+        />
+      ),
+    },
+    {
+      header: "Planned Weight (KGS)",
+      required: true,
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      total: { kind: "sum", of: (r) => num(r.planned_kgs) || 0, format: kg },
+      cell: (r) => (
+        <Input
+          className="h-8 text-right"
+          inputMode="decimal"
+          required
+          aria-label="Planned Weight (KGS)"
+          value={r.planned_kgs}
+          onChange={(e) => patchYarnLine(r.key, { planned_kgs: e.target.value })}
+        />
+      ),
+    },
+    {
+      // Derived, never typed — `readOnly` also takes it off the Tab path.
+      header: "Purchase Wt (KGS)",
+      align: "right",
+      width: FIELD_WIDTH_CSS.range,
+      total: { kind: "sum", of: (r) => purchaseFor(r) ?? 0, format: kg },
+      cell: (r) => {
+        const q = purchaseFor(r);
+        return <Input className="h-8 text-right" readOnly aria-label="Purchase Wt (KGS)" value={q == null ? "" : kg(q)} />;
       },
     },
   ];
@@ -1121,7 +1311,13 @@ export function IwoFabricBomScreen({
         <Field
           key={ci}
           label={c.header}
-          required={c.header === "Mixing Uom" ? owesMixing(row) : c.required}
+          required={
+            c.header === "Mixing Uom"
+              ? owesMixing(row)
+              : c.header === "Stage" || c.header === "Req Wt (KGS)"
+                ? !!row.item_id
+                : c.required
+          }
           size="sm"
         >
           {c.cell(row, i)}
@@ -1181,6 +1377,27 @@ export function IwoFabricBomScreen({
             </Field>
           </FieldRow>
 
+          {/* NOTHING TO PICK — a state of the data, said with the way out. With
+              no Internal Work Order For Yarn or Fabric waiting, the I.WO No list
+              is empty and every section below has nothing to build on; the
+              button opens a new work order on its own screen (`?new=1`). */}
+          {!form.iwo_id && iwoItems.length === 0 && (
+            <div className="mt-3">
+              <p className="text-sm text-muted-foreground">
+                No Internal Work Order For Yarn or Fabric is waiting for a BOM.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => router.push("/orders/internal-work-orders?new=1")}
+              >
+                New work order
+              </Button>
+            </div>
+          )}
+
           {/* ONE ROW OF FOUR, as on the order screen. A flex row, not
               grid-cols-4, so this file declares no grid of its own. On the
               order screen three of these write the ORDER's palette; here there
@@ -1232,6 +1449,40 @@ export function IwoFabricBomScreen({
       ),
     },
     {
+      key: "yarnLines",
+      label: "Yarn Lines",
+      icon: ListChecks,
+      done: yarnLines.some((l) => !!l.item_id),
+      content: (
+        <SectionBody title="Yarn Lines">
+          <ChildGrid<YarnLineRow>
+            columns={yarnLineColumns}
+            rows={yarnLines}
+            tableFrom="5xl"
+            flatRows
+            renderMobileRow={(row, i) => (
+              <FieldGrid>
+                {yarnLineColumns.map((c, ci) => (
+                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                    {c.cell(row, i)}
+                  </Field>
+                ))}
+              </FieldGrid>
+            )}
+            onAdd={() => {
+              setYarnLines((xs) => [...xs, blankYarnLine()]);
+              setDirty(true);
+            }}
+            onRemove={(r) => {
+              setYarnLines((xs) => xs.filter((x) => x.key !== r.key));
+              setDirty(true);
+            }}
+            addLabel="+ Add yarn"
+          />
+        </SectionBody>
+      ),
+    },
+    {
       key: "lines",
       label: "Fabric Allocation",
       icon: Shirt,
@@ -1264,22 +1515,22 @@ export function IwoFabricBomScreen({
       done: consumptionRows.some((l) => (num(l.req_kgs) ?? 0) > 0),
       content: (
         <SectionBody title="Fabric Consumption">
-          {consumptionRows.length ? (
-            // default-row: exempt -- rows are DERIVED from Fabric Allocation's lines; one is added or removed there, never here
-            <ChildGrid<LineRow>
-              columns={consumptionColumns}
-              rows={consumptionRows}
-              tableFrom="5xl"
-              flatRows
-              renderMobileRow={(row, i) => lineCard(consumptionColumns, row, i)}
-              hideAdd
-              hideRemove
-              onAdd={() => false}
-              onRemove={() => {}}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">Name a fabric on Fabric Allocation first.</p>
-          )}
+          {/* EVERY ALLOCATION LINE, FILLED OR NOT, so the fields are on screen
+              the moment the tab opens (the operator reported it "blank, no
+              fields" when it drew only lines that already named a fabric).
+              The Fabric cell stays empty until one is picked on Allocation. */}
+          {/* default-row: exempt -- rows are DERIVED from Fabric Allocation's lines; one is added or removed there, never here */}
+          <ChildGrid<LineRow>
+            columns={consumptionColumns}
+            rows={consumptionRows}
+            tableFrom="5xl"
+            flatRows
+            renderMobileRow={(row, i) => lineCard(consumptionColumns, row, i)}
+            hideAdd
+            hideRemove
+            onAdd={() => false}
+            onRemove={() => {}}
+          />
         </SectionBody>
       ),
     },
@@ -1292,10 +1543,32 @@ export function IwoFabricBomScreen({
         <SectionBody title="Yarn Process">
           {/* Three empty states, each fixed on a different screen — the order
               screen's own wording, with the door named. */}
-          {!fabricIdKey ? (
-            <p className="text-sm text-muted-foreground">
-              Name a fabric on Fabric Allocation first — the yarns come from what each fabric is made of.
-            </p>
+          {yarnMode ? (
+            yarnRows.length === 0 ? (
+              <div>
+                <p className="text-sm text-muted-foreground">Pick a yarn on Yarn Lines first.</p>
+                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("yarnLines")}>
+                Go to Yarn Lines
+              </Button>
+              </div>
+            ) : (
+              <ProcessFoldList<YarnRow>
+                columns={yarnColumns}
+                rows={yarnRows}
+                openKey={openYarnId === undefined ? (yarnRows[0]?.key ?? null) : openYarnId}
+                onToggle={setOpenYarnId}
+                renderPanel={yarnPanel}
+              />
+            )
+          ) : !fabricIdKey ? (
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Name a fabric on Fabric Allocation first — the yarns come from what each fabric is made of.
+              </p>
+              <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("lines")}>
+                Go to Fabric Allocation
+              </Button>
+            </div>
           ) : !comp ? (
             <p className="text-sm text-muted-foreground">Reading the compositions…</p>
           ) : yarnRows.length === 0 ? (
@@ -1307,7 +1580,7 @@ export function IwoFabricBomScreen({
             <ProcessFoldList<YarnRow>
               columns={yarnColumns}
               rows={yarnRows}
-              openKey={openYarnId}
+              openKey={openYarnId === undefined ? (yarnRows[0]?.key ?? null) : openYarnId}
               onToggle={setOpenYarnId}
               renderPanel={yarnPanel}
             />
@@ -1323,14 +1596,19 @@ export function IwoFabricBomScreen({
       content: (
         <SectionBody title="Fabric Process">
           {fabricRouteRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Name a fabric on Fabric Allocation first — each one gets its own route here.
-            </p>
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Name a fabric on Fabric Allocation first — each one gets its own route here.
+              </p>
+              <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => shellRef.current?.goToSection("lines")}>
+                Go to Fabric Allocation
+              </Button>
+            </div>
           ) : (
             <ProcessFoldList<FabricRouteRow>
               columns={fabricRouteColumns}
               rows={fabricRouteRows}
-              openKey={openFabricId}
+              openKey={openFabricId === undefined ? (fabricRouteRows[0]?.key ?? null) : openFabricId}
               onToggle={setOpenFabricId}
               foldHeader="Process"
               foldSummary={(r) => {
@@ -1404,7 +1682,11 @@ export function IwoFabricBomScreen({
             </>
           ),
         }}
-        sections={sections}
+        // A Yarn IWO BYPASSES the fabric sections (screenshot 2937); a Fabric one
+        // has no Yarn Lines grid — its yarns are derived from the cloths.
+        sections={sections.filter((sec) =>
+          yarnMode ? !["lines", "consumption", "process"].includes(sec.key) : sec.key !== "yarnLines",
+        )}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Fabric BOM",
           onCancel: () => setMode("list"),

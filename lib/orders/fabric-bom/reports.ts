@@ -16,9 +16,21 @@ import {
   sourceBuysYarn,
   type FabricSource,
 } from "./fabric-source";
+import { stageRank } from "./stage-routes";
+import { companyAddressOf, letterheadLogoOf } from "./letterhead";
+import { consolidateContributions, mergeGreigeClothLines, mergeGreigeLines } from "./stage-ledger";
 import { layoutTypeLabel } from "./component-map";
 import { mixingDetailRows, type MixingDetailRow, type YdRepeatRow } from "./yarn-dyed";
 import { isReportRefusal, type ReportRefusal } from "./report-refusal";
+/* THE PRINTING REQUIREMENT (client 2026-09-19) — which groups print, and the
+   pure grouping the Printing tab renders. */
+import {
+  printNamesFor,
+  printRequirement,
+  printedGroup,
+  type PrintLine,
+  type PrintRequirement,
+} from "./print-route";
 
 /** `50` → "50", `33.333333` → "33.33" — the legacy printout's own rendering
  *  of a share (`GREEN 50%`, `RED 33.33%`). Trailing zeros dropped so a whole
@@ -200,7 +212,15 @@ export type BomDocHeader = {
   /** The letterhead — same "two-name fallback" `fabric-requirement/service.ts`
    *  already reads `company_profile` with, so a PDF/Excel export of either
    *  report resolves a name on the same row the Fabric Requirement Sheet does. */
-  company: { name: string | null; address: string | null; gstin: string | null };
+  company: {
+    name: string | null;
+    address: string | null;
+    gstin: string | null;
+    /** The letterhead logo to draw (2026-09-19) — the Company Profile's, or
+     *  the Raagam wordmark placeholder; null = the profile says no logo. See
+     *  `letterheadLogoOf` in ./letterhead.ts. */
+    logo: string | null;
+  };
 };
 
 async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRefusal> {
@@ -314,8 +334,11 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     customer: go.customer?.name ?? null,
     company: {
       name: str("name") ?? str("company_name"),
-      address: str("address") ?? str("address_line1"),
+      /* Built from street1..3 / city / state / pin — the columns the Company
+         Profile actually saves (2026-09-19; `address` never existed). */
+      address: companyAddressOf(co),
       gstin: str("gstin"),
+      logo: letterheadLogoOf(co),
     },
     orderNo: go.po_no,
     // NULL means the BOM's lines don't all agree on one style — the doc's
@@ -412,8 +435,42 @@ async function fetchProcessKindRows(
   s: Awaited<ReturnType<typeof createClient>>,
   processIds?: string[],
 ) {
-  const q = s.from("processes").select("id, name, is_knitting, is_dyeing");
+  /* `is_print` JOINED 2026-09-19 — which step prints, so an unprinted group's
+     ladder leaves the print stage out (`routeForPrint`) exactly as the save
+     path's does. */
+  const q = s.from("processes").select("id, name, is_knitting, is_dyeing, is_print");
   return processIds ? q.in("id", processIds) : q;
+}
+
+/**
+ * THE BOM'S OWN LINES, AS MUCH AS THE PRINT RULE READS (2026-09-19) — which
+ * (fabric, colourway, component) carries a `required_print`. Read, not
+ * coalesced: an empty answer would read as "nothing is printed", every group's
+ * ladder would drop its print stage, and the printing report would come back
+ * empty — the "empty REPORT is the dangerous one" failure AGENTS.md names.
+ */
+async function fetchPrintLines(
+  s: Awaited<ReturnType<typeof createClient>>,
+  bomId: string,
+): Promise<PrintLine[] | ReportRefusal> {
+  const { data, error } = await s
+    .from("order_fabric_bom_lines")
+    .select("item_id, combo, component_id, required_print")
+    .eq("bom_id", bomId);
+  if (error) return { refused: `Could not read the fabric lines' prints: ${error.message}` };
+  return (data ?? []) as PrintLine[];
+}
+
+/** "DYEING [WITH BIOWASH]" labels for the sub-categories a route names (0583).
+ *  A failed read costs labels only — the plain process name still prints. */
+async function fetchSubCategoryNames(
+  s: Awaited<ReturnType<typeof createClient>>,
+  ids: readonly (string | null | undefined)[],
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(ids.filter((v): v is string => !!v))];
+  if (!wanted.length) return new Map();
+  const { data } = await s.from("process_sub_categories").select("id, sub_category").in("id", wanted);
+  return new Map(((data ?? []) as { id: string; sub_category: string }[]).map((r) => [r.id, r.sub_category]));
 }
 
 
@@ -673,7 +730,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       itemIds.length
         ? s
             .from("order_fabric_bom_processes")
-            .select("item_id, combo, component_id, sno, stage_id, process_id, loss_pct")
+            .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct")
             .eq("bom_id", bomId)
             .in("item_id", itemIds)
             .order("sno", { ascending: true })
@@ -699,6 +756,10 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
   if (processesRes.error) {
     return { refused: `Could not read the process ledger: ${processesRes.error.message}` };
   }
+  /* WHICH GROUPS PRINT (2026-09-19) — so an unprinted colourway's ladder is
+     not grossed by the print stage, matching the stored purchase figure. */
+  const printLines = await fetchPrintLines(s, bomId);
+  if (isReportRefusal(printLines)) return printLines;
   if (comboStructuresRes.error) {
     return { refused: `Could not read the order's GSM: ${comboStructuresRes.error.message}` };
   }
@@ -732,12 +793,16 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     name: string;
     is_knitting: boolean | null;
     is_dyeing: boolean | null;
+    is_print: boolean | null;
   }[];
   const processNames = new Map<string, string>(processRowsAll.map((r) => [r.id, r.name]));
   /** WHAT KIND OF STEP EACH PROCESS IS (0564) — read by the ladder, not by
    *  the display. See `./fabric-source.ts`. */
-  const processKinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean }>(
-    processRowsAll.map((r) => [r.id, { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false }]),
+  const processKinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean; is_print: boolean }>(
+    processRowsAll.map((r) => [
+      r.id,
+      { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false, is_print: r.is_print ?? false },
+    ]),
   );
   /** EACH FABRIC'S OWN SOURCE (0564). A fabric with no scope row reads Rule 1,
    *  which is what absence has meant on this table since 0528 and what the
@@ -765,9 +830,17 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
     component_id: string | null;
     stage_id: string | null;
     process_id: string | null;
+    sub_category_id: string | null;
     loss_pct: string | number | null;
   };
   const processRows = (processesRes.data ?? []) as unknown as ProcessRow[];
+  const subNames = await fetchSubCategoryNames(s, processRows.map((p) => p.sub_category_id));
+  /** "DYEING [WITH BIOWASH]" — the process name with its sub-category (0583). */
+  const stepName = (processId: string, subId: string | null | undefined) => {
+    const base = processNames.get(processId) ?? "(process not found)";
+    const sub = subId ? subNames.get(subId) : null;
+    return sub ? `${base} [${sub}]` : base;
+  };
   for (const p of processRows) {
     const list = routeByFabric.get(p.item_id) ?? [];
     const kind = p.process_id ? processKinds.get(p.process_id) : undefined;
@@ -779,11 +852,14 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       loss_pct: p.loss_pct == null ? null : Number(p.loss_pct),
       stage_id: p.stage_id,
       process_id: p.process_id,
+      sub_category_id: p.sub_category_id,
       /* CARRIED SINCE 2026-09-16 (0564) for the same reason — a route read
          without it suppresses nothing, so a purchased cloth would be grossed
          by the knitting somebody else did. */
       is_knitting: kind?.is_knitting ?? false,
       is_dyeing: kind?.is_dyeing ?? false,
+      /* 2026-09-19 — `routeForPrint`. */
+      is_print: kind?.is_print ?? false,
     });
     routeByFabric.set(p.item_id, list);
   }
@@ -824,6 +900,8 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
         comboMapKey,
         componentIds,
         sourceByFabric.get(itemId) ?? "yarn_knit",
+        /* 2026-09-19 — an unprinted group is not charged the print stage. */
+        printedGroup(printLines as PrintLine[], itemId, comboMapKey, componentIds),
       );
       if (isReportRefusal(ladder)) {
         result = { factor: 1, lossChain: [], refusal: ladder.refused };
@@ -832,7 +910,7 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
           factor: ladder.factor,
           lossChain: ladder.steps.map((step) => ({
             processName: step.process_id
-              ? (processNames.get(step.process_id) ?? "(process not found)")
+              ? stepName(step.process_id, step.sub_category_id)
               : "(process not found)",
             lossPct: step.loss_pct,
           })),
@@ -1002,7 +1080,8 @@ export async function fabricBomEntryRegister(bomId: string): Promise<EntryRegist
       combo: p.combo || null,
       componentName: p.component_id ? (componentNames.get(p.component_id) ?? "(component not found)") : null,
       stageName: p.stage_id ? (stageNames.get(p.stage_id) ?? null) : null,
-      processName: p.process_id ? (processNames.get(p.process_id) ?? null) : null,
+      /* 0583 — with its sub-category, "DYEING [WITH BIOWASH]". */
+      processName: p.process_id && processNames.has(p.process_id) ? stepName(p.process_id, p.sub_category_id) : null,
       lossPct: p.loss_pct == null ? null : Number(p.loss_pct),
     });
   }
@@ -1143,6 +1222,9 @@ export type StageBreakdownLine = {
    *  `items.base_uom_id`, which is the unit it is BOUGHT in. (The weight
    *  columns are kilograms; see 0562.) */
   nosUomCode: string | null;
+  /** The print the order names for this group ("AOP") — set on a PRINT
+   *  section's lines only (2026-09-19). */
+  printName?: string | null;
 };
 
 /**
@@ -1222,6 +1304,9 @@ export type StageBreakdownGroup = {
    */
   processId: string;
   processName: string;
+  /** Is this a PRINT process (`processes.is_print`)? (2026-09-19) — the
+   *  Printing Requirement tab lifts exactly these sections out. */
+  isPrint?: boolean;
   /** SORTED BY COLOUR, THEN COMPONENT, THEN FABRIC — so the colour subtotals
    *  in `byColour` sit under contiguous runs, never interleaved. */
   lines: StageBreakdownLine[];
@@ -1307,6 +1392,15 @@ export type YarnFabricRequirementReport = {
    *  Never alphabetical and never Map insertion order, both of which would
    *  scatter the sections a mill supervisor reads top-to-bottom. */
   stageBreakdown: StageBreakdownGroup[];
+  /**
+   * THE PRINTING REQUIREMENT (client 2026-09-19) — the PRINT sections of
+   * `stageBreakdown`, lifted out: per colourway, the weight SENT to the
+   * printer (the step's input, `toOrderedWt` in the backward walk) and the
+   * weight coming back (its output, `plannedWt`). Printed groups only, because
+   * `routeForPrint` keeps the print stage out of every unprinted group's
+   * ladder. Empty when no route prints.
+   */
+  printing: PrintRequirement;
   /** WEIGHTS THE LEDGER COULD NOT PLACE, in the engine's own words — an
    *  entry whose panels run different "Component Wise" routes, or a loss out
    *  of range. Listed under the ledger rather than dropped: a section that
@@ -1408,7 +1502,9 @@ export async function yarnFabricRequirementReport(
       .eq("bom_id", bomId),
     /* THE CLOTH'S OWN COLOUR — a solid's `color_name`, typed on the fabric
        LINE (the yarn-dyed case is answered by the combinations below). */
-    s.from("order_fabric_bom_lines").select("item_id, combo, color_name").eq("bom_id", bomId),
+    /* `component_id, required_print` JOINED 2026-09-19 — which groups print
+       (`printedGroup`), for the ladder and the Printing section. */
+    s.from("order_fabric_bom_lines").select("item_id, combo, color_name, component_id, required_print").eq("bom_id", bomId),
     /* THE YARN-DYED SPLIT (0512) — the stripes, and (0560) the colours each
        colourway puts at each stripe position. Both feed the YARN DYEING block
        and the colour-wise Mixing % inside a Details cell. */
@@ -1573,7 +1669,7 @@ export async function yarnFabricRequirementReport(
   const processesRes = fabricItemIds.length
     ? await s
         .from("order_fabric_bom_processes")
-        .select("item_id, combo, component_id, sno, stage_id, process_id, loss_pct")
+        .select("item_id, combo, component_id, sno, stage_id, process_id, sub_category_id, loss_pct")
         .eq("bom_id", bomId)
         .in("item_id", fabricItemIds)
         .order("sno", { ascending: true })
@@ -1590,7 +1686,9 @@ export async function yarnFabricRequirementReport(
     component_id: string | null;
     sno: number;
     loss_pct: string | number | null;
+    stage_id: string | null;
     process_id: string | null;
+    sub_category_id: string | null;
   }[];
   /* KEPT IN ASCENDING `sno` (fetch order) — CHRONOLOGICAL, Knitting first.
      `sno` is also how `minSnoByProcess` (below) orders the display groups. */
@@ -1605,7 +1703,12 @@ export async function yarnFabricRequirementReport(
          read without it did to every weight. */
       component_id: p.component_id,
       loss_pct: p.loss_pct == null ? null : Number(p.loss_pct),
+      /* CARRIED SINCE 2026-09-19 — `routeForPrint` finds the print STAGE by
+         it. The save path's route (`routesByFabricOf`) always carried it, so
+         this is the report catching up, not a new reading. */
+      stage_id: p.stage_id,
       process_id: p.process_id,
+      sub_category_id: p.sub_category_id,
       sno: p.sno,
     });
     routeByFabric.set(p.item_id, list);
@@ -1645,7 +1748,7 @@ export async function yarnFabricRequirementReport(
 
   const allItemIds = [...new Set([...yarnItemIds, ...fabricItemIds])];
   const processIds = [...new Set(routeRows.map((p) => p.process_id).filter(Boolean))] as string[];
-  const [itemRes, processRes] = await Promise.all([
+  const [itemRes, processRes, stageRes] = await Promise.all([
     /* `base_uom_id` IS THE CLOTH'S BUYING UNIT and is read for exactly one
        purpose: labelling the `Nos/Mtrs` count. It is NOT the unit of any
        weight on this document — those are kilograms by construction (0562),
@@ -1660,6 +1763,10 @@ export async function yarnFabricRequirementReport(
     processIds.length
       ? fetchProcessKindRows(s, processIds)
       : Promise.resolve({ data: [], error: null }),
+    /* THE FABRIC STAGES (2026-09-19) — code + name, so `stageRank` can tell
+       which sections are greige and merge their colourways. A failed read
+       merges nothing: the ledger stays per colourway, as it always was. */
+    s.from("config_lookups").select("id, code, name").eq("kind", "fabric_stage"),
   ]);
 
   const itemRows = (itemRes.data ?? []) as { id: string; name: string; base_uom_id: string | null }[];
@@ -1681,15 +1788,20 @@ export async function yarnFabricRequirementReport(
     name: string;
     is_knitting: boolean | null;
     is_dyeing: boolean | null;
+    is_print: boolean | null;
   }[];
   const processNames = new Map<string, string>(processMasterRows.map((r) => [r.id, r.name]));
   /** WHAT KIND OF STEP EACH PROCESS IS (0564) — see `./fabric-source.ts`. */
-  const processKinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean }>(
+  const processKinds = new Map<string, { is_knitting: boolean; is_dyeing: boolean; is_print: boolean }>(
     processMasterRows.map((r) => [
       r.id,
-      { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false },
+      { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false, is_print: r.is_print ?? false },
     ]),
   );
+  /* 0583 — "DYEING [WITH BIOWASH]" section headings. */
+  const subNames = await fetchSubCategoryNames(s, routeRows.map((p) => p.sub_category_id));
+  /* WHICH GROUPS PRINT (2026-09-19) — off the lines this report already read. */
+  const printLines = (lineRes.data ?? []) as unknown as PrintLine[];
   /* THE ROUTE'S OWN KIND FLAGS, STAMPED AFTER THE FACT — `routeByFabric` is
      built above, before the `processes` master has been read (it is the source
      of `processIds`), so the two cannot be assembled in one pass without a
@@ -1700,6 +1812,7 @@ export async function yarnFabricRequirementReport(
       const kind = st.process_id ? processKinds.get(st.process_id) : undefined;
       st.is_knitting = kind?.is_knitting ?? false;
       st.is_dyeing = kind?.is_dyeing ?? false;
+      st.is_print = kind?.is_print ?? false;
     }
   }
   // Real fabric names into the compositions built above, now that they exist.
@@ -1915,6 +2028,8 @@ export async function yarnFabricRequirementReport(
      KNITTING's row with the tiny cutting-floor figure and STENTERING's with
      the full yarn weight — exactly backwards from the legacy printout. */
   const byProcess = new Map<string, StageBreakdownGroup>();
+  /** Which fabric stages each section's steps sit in — for the Greige merge. */
+  const stagesByProcess = new Map<string, Set<string>>();
   const byYarnFabricWt = new Map<string, Map<string, YarnFabricContribution[]>>(); // yarnId -> fabricId -> contributions
   /** One cloth's contribution to one stripe of one yarn, before the slices of
    *  one dye lot are summed — see the grouping note below the loop. */
@@ -1948,7 +2063,10 @@ export async function yarnFabricRequirementReport(
          and the nets sum back into the one line this ledger has always
          printed; under a "Component Wise" route they sum per panel. A panel
          set the route refuses is named under the ledger, never dropped. */
-      const byBranch = new Map<string, { net: number; nos: number; dias: Set<string>; branch: string[] }>();
+      const byBranch = new Map<
+        string,
+        { net: number; nos: number; dias: Set<string>; branch: string[]; printed: boolean; panels: Set<string> }
+      >();
       for (const { net, nos, dias, panels } of byPanels.values()) {
         const forColour = route.filter((st) => stageCoversCombo(st.combo, combo));
         const branch = resolveRouteComponents(forColour, panels);
@@ -1956,11 +2074,24 @@ export async function yarnFabricRequirementReport(
           stageLedgerRefusals.push(`${fabricName}${combo ? ` · ${combo}` : ""}: ${branch.refused}`);
           continue;
         }
-        const branchKey = [...branch].sort().join(",");
-        const held = byBranch.get(branchKey) ?? { net: 0, nos: 0, dias: new Set<string>(), branch };
+        /* PRINTED IS PART OF THE KEY (2026-09-19). On a unified route every
+           panel set resolves to one branch — but a printed body and a plain
+           sleeve of the same cloth take DIFFERENT ladders now (the sleeve skips
+           the print stage), so they cannot be summed into one weight first. */
+        const printed = printedGroup(printLines, fabricId, combo, panels);
+        const branchKey = `${[...branch].sort().join(",")}|${printed ? "P" : ""}`;
+        const held = byBranch.get(branchKey) ?? {
+          net: 0,
+          nos: 0,
+          dias: new Set<string>(),
+          branch,
+          printed,
+          panels: new Set<string>(),
+        };
         held.net += net;
         held.nos += nos;
         for (const d of dias) held.dias.add(d);
+        for (const p of panels) held.panels.add(p);
         byBranch.set(branchKey, held);
       }
 
@@ -1980,7 +2111,7 @@ export async function yarnFabricRequirementReport(
       const gsm = resolveGsm(fabricId, combo);
       const nosUomCode = countUnitOf(fabricId);
 
-      for (const { net, nos, dias, branch } of byBranch.values()) {
+      for (const { net, nos, dias, branch, printed, panels } of byBranch.values()) {
         /* ONE DISTINCT DIA OR NOTHING — the same abstain this file makes for
            the header's Style Ref No and for GSM. Two sizes knitted at
            different diameters have no single answer, and printing one of them
@@ -1989,26 +2120,44 @@ export async function yarnFabricRequirementReport(
         const component = branch.length
           ? branch.map((id) => componentNames.get(id) ?? "(component not found)").join(", ")
           : null;
-        const ladder = comboUpliftBreakdown(route, combo, branch, source);
+        const ladder = comboUpliftBreakdown(route, combo, branch, source, printed);
         if (isReportRefusal(ladder)) {
           // an out-of-range loss: nothing to ladder, not a report crash — but said
           stageLedgerRefusals.push(`${fabricName}${combo ? ` · ${combo}` : ""}: ${ladder.refused}`);
           continue;
         }
+        /* THE PRINT NAMED ON THE ORDER for this group — printed on the
+           Printing section's lines only. */
+        const printName = printed ? printNamesFor(printLines, fabricId, combo, [...panels]).join(", ") || null : null;
         for (const step of ladder.steps) {
           if (!step.process_id) continue;
-          const name = processNames.get(step.process_id) ?? "(process not found)";
+          const baseName = processNames.get(step.process_id) ?? "(process not found)";
+          const subName = step.sub_category_id ? subNames.get(step.sub_category_id) : null;
+          const name = subName ? `${baseName} [${subName}]` : baseName;
+          const isPrint = processKinds.get(step.process_id)?.is_print ?? false;
+          if (step.stage_id) {
+            const at = stagesByProcess.get(step.process_id) ?? new Set<string>();
+            at.add(step.stage_id);
+            stagesByProcess.set(step.process_id, at);
+          }
           let group = byProcess.get(step.process_id);
           if (!group) {
             group = {
               processId: step.process_id,
               processName: name,
+              isPrint,
               lines: [],
               byColour: [],
               plannedTotal: 0,
               toOrderedTotal: 0,
             };
             byProcess.set(step.process_id, group);
+          } else if (group.processName !== name) {
+            /* One process run with two different sub-categories on this BOM:
+               the section keeps the plain process name rather than claiming
+               one sub-category for both. Keyed by `processId` either way — the
+               Budget's pull reads that identity. */
+            group.processName = baseName;
           }
           const plannedWt = Number((net * step.factorBefore).toFixed(6));
           const toOrderedWt = Number((net * step.factorAfter).toFixed(6));
@@ -2031,6 +2180,7 @@ export async function yarnFabricRequirementReport(
             plannedNos: nosUomCode ? Number((nos * step.factorBefore).toFixed(3)) : null,
             toOrderedNos: nosUomCode ? Number((nos * step.factorAfter).toFixed(3)) : null,
             nosUomCode,
+            printName: isPrint ? printName : null,
           });
           group.plannedTotal += plannedWt;
           group.toOrderedTotal += toOrderedWt;
@@ -2166,6 +2316,30 @@ export async function yarnFabricRequirementReport(
     line.toOrderedWt = Number((line.plannedWt / (1 - line.lossPct / 100)).toFixed(6));
   }
   const text = (v: string | null) => v ?? "";
+
+  /* THE GREIGE STAGE IS ONE LOT, NOT ONE PER COLOURWAY (client 2026-09-19).
+     Grey cloth is knitted (and heat-set) before any colour exists, so a
+     KNITTING or HEAT SETTING section prints ONE line per fabric with the
+     combined weight — "1070 KGS", not a line per garment colourway. Colour
+     begins at the dyeing stage, and every section from there on keeps its
+     colourway lines. A section counts as greige only when EVERY step in it
+     sits in a rank-0 stage (`stageRank`).
+
+     Kept apart even here: a YARN-DYED cloth (it has its colour pattern
+     before it is knitted — `ydComboName`), a different panel branch, and a
+     different loss %. Merging those would print one line for cloth that is
+     knitted as different lots. */
+  const stageRows = (stageRes.data ?? []) as { id: string; code: string | null; name: string }[];
+  const isGreigeStage = (id: string) => {
+    const st = stageRows.find((x) => x.id === id);
+    return !!st && stageRank(st) === 0;
+  };
+  for (const [processId, group] of byProcess) {
+    const stageIds = stagesByProcess.get(processId);
+    if (!stageIds || ![...stageIds].every(isGreigeStage)) continue;
+    group.lines = mergeGreigeLines(group.lines);
+  }
+
   for (const group of byProcess.values()) {
     group.plannedTotal = Number(group.plannedTotal.toFixed(6));
     group.toOrderedTotal = Number(group.toOrderedTotal.toFixed(6));
@@ -2196,9 +2370,26 @@ export async function yarnFabricRequirementReport(
     .sort((a, b) => (minSnoByProcess.get(a[0]) ?? 0) - (minSnoByProcess.get(b[0]) ?? 0))
     .map(([, g]) => g);
 
-  const yarns: YarnRequirementLine[] = rows.map((r) => {
+  /* A YARN NOBODY BUYS IS NOT A PURCHASE LINE (2026-09-19, Rule 2). A BOM
+     saved before this rule stored a null-purchase row for a yarn every cloth of
+     which is bought as rolls; listing it printed a red refusal and — through
+     `anyYarnRefused` — hid the Total Yarn Purchase Requirement for the whole
+     BOM. Dropped here so an old document reads right before its next save
+     (which no longer stores such a row at all). */
+  const yarnsUsed = new Set([...compositionByFabric.values()].flatMap((c) => c.components.map((x) => x.yarn_id)));
+  const yarnsBought = new Set(
+    [...compositionByFabric.values()]
+      .filter((c) => sourceBuysYarn(sourceOf(c.fabric_id)))
+      .flatMap((c) => c.components.map((x) => x.yarn_id)),
+  );
+  const yarns: YarnRequirementLine[] = rows
+    .filter((r) => !(yarnsUsed.has(r.item_id) && !yarnsBought.has(r.item_id)))
+    .map((r) => {
     const shades = shadesByYarn.get(r.item_id);
-    const byFabric = [...(byYarnFabricWt.get(r.item_id)?.values() ?? [])].flat();
+    /* GREY YARN IS NOT SPLIT BY COLOURWAY (client 2026-09-19): one line per
+       (fabric, panel branch) with the combined weight, the same consolidation
+       the purchase total now takes. */
+    const byFabric = consolidateContributions([...(byYarnFabricWt.get(r.item_id)?.values() ?? [])].flat());
     return {
       itemId: r.item_id,
       yarnName: itemNames.get(r.item_id) ?? "(yarn not found)",
@@ -2266,7 +2457,9 @@ export async function yarnFabricRequirementReport(
   /* THE FABRIC PURCHASE SECTION (0564), sorted the way its lines are read:
      by heading (a greige order and a dyed order go to different suppliers),
      then cloth, then colourway, then panel. */
-  const clothPurchase = [...clothLines].sort(
+  /* GREIGE ROLLS MERGE PER FABRIC (2026-09-19) — no colour exists yet; dyed
+     rolls keep their colourway lines. See `mergeGreigeClothLines`. */
+  const clothPurchase = mergeGreigeClothLines(clothLines).sort(
     (a, b) =>
       a.label.localeCompare(b.label) ||
       a.fabricName.localeCompare(b.fabricName) ||
@@ -2291,6 +2484,25 @@ export async function yarnFabricRequirementReport(
     clothPurchase,
     clothPurchaseTotal,
     stageBreakdown,
+    /* THE PRINTING REQUIREMENT — the print sections, already in the ledger's
+       colour → component → fabric order, regrouped per colourway. */
+    printing: printRequirement(
+      stageBreakdown
+        .filter((g) => g.isPrint)
+        .flatMap((g) =>
+          g.lines.map((l) => ({
+            processName: g.processName,
+            fabricName: l.fabricName,
+            combo: l.combo ?? "",
+            component: l.component ?? "",
+            print: l.printName ?? "",
+            dia: l.dia ?? "",
+            lossPct: l.lossPct,
+            sentWt: l.toOrderedWt,
+            receivedWt: l.plannedWt,
+          })),
+        ),
+    ),
     stageLedgerRefusals,
   };
 }

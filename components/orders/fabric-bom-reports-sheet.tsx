@@ -23,6 +23,8 @@ import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import {
   exportEntryRegisterCsv,
   exportEntryRegisterPdf,
+  exportPrintRequirementCsv,
+  exportPrintRequirementPdf,
   exportYarnRequirementCsv,
   exportYarnRequirementPdf,
 } from "@/lib/orders/fabric-bom/reports-export";
@@ -120,6 +122,15 @@ export function FabricBomReportsSheet({
                 label: "Yarn & Fabric Requirement",
                 content: <RequirementReportView data={requirementData} />,
               },
+              /* THE PRINTING REQUIREMENT (client 2026-09-19) — the weight sent to
+                 the printer, isolated to the colourways / components the order
+                 prints. Read off the SAME report object as the tab beside it, so
+                 the two can never disagree about a printing figure. */
+              {
+                key: "printing",
+                label: "Printing Requirement",
+                content: <PrintRequirementView data={requirementData} />,
+              },
             ]}
           />
         </div>
@@ -133,17 +144,44 @@ export function FabricBomReportsSheet({
 // band. One component for both reports, so the two can never drift apart.
 // ---------------------------------------------------------------------------
 
-function Letterhead({ title, docNo }: { title: string; docNo: string | null }) {
+/**
+ * THE LETTERHEAD (redesigned 2026-09-19, client: "with logo and more
+ * professional look"). The company's logo on the left — the Company Profile's,
+ * or the Raagam wordmark placeholder until one is stored (`letterheadLogoOf`) —
+ * with the company's name, address and GSTIN beside it; the document's title
+ * and number on the right. A thin brand-green rule across the top and a dark
+ * rule beneath, the same frame the PDF downloads draw, so the page and the
+ * printout read as one document.
+ *
+ * WHITE GROUND, BRAND ON THE RULES ONLY — the client has refused every tinted
+ * surface put in front of them (brand-colours memory); the colour lives on the
+ * lines and the title, never on a background.
+ */
+function Letterhead({ title, header }: { title: string; header: BomDocHeader }) {
+  const c = header.company;
+  const contact = [c.address, c.gstin ? `GSTIN ${c.gstin}` : null].filter(Boolean).join("  ·  ");
   return (
-    <div className="grid grid-cols-[6px_1fr] overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
-      <div className="bg-[#85c227]" />
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#16181d] px-5 py-3.5">
-        <div className="text-[17px] font-bold tracking-wide text-[#16181d]">RAAGAM EXPORTS</div>
-        <div className="text-right">
-          <div className="text-[12.5px] font-bold uppercase tracking-[.12em] text-[#037bb8]">
-            {title}
+    <div className="overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
+      <div className="h-[3px] bg-[#85c227]" />
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-[#16181d] px-5 py-3">
+        <div className="flex min-w-0 items-center gap-4">
+          {c.logo && (
+            /* A plain <img>: the source may be a stored data URL or an external
+               Company Profile URL, which next/image would need configuring
+               for; the letterhead is one small, fixed-size image. */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={c.logo} alt={c.name ?? "Company logo"} className="h-12 w-auto shrink-0 object-contain" />
+          )}
+          <div className="min-w-0">
+            <div className="text-[16px] font-bold uppercase tracking-wide text-[#16181d]">
+              {c.name ?? "RAAGAM EXPORTS"}
+            </div>
+            {contact && <div className="mt-0.5 text-[11.5px] text-[#5b6472]">{contact}</div>}
           </div>
-          {docNo && <div className="font-mono text-[12px] text-[#5b6472]">{docNo}</div>}
+        </div>
+        <div className="text-right">
+          <div className="text-[12.5px] font-bold uppercase tracking-[.12em] text-[#037bb8]">{title}</div>
+          {header.bomCode && <div className="font-mono text-[12px] text-[#5b6472]">{header.bomCode}</div>}
         </div>
       </div>
     </div>
@@ -388,9 +426,9 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
 
   return (
     <div>
-      <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => exportEntryRegisterPdf(data)} />
+      <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => void exportEntryRegisterPdf(data)} />
 
-      <Letterhead title="Fabric BOM Entry Register" docNo={data.header.bomCode} />
+      <Letterhead title="Fabric BOM Entry Register" header={data.header} />
       <EntryRegisterFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
@@ -815,10 +853,10 @@ function RequirementReportView({
     <div>
       <ExportBar
         onCsv={() => exportYarnRequirementCsv(data)}
-        onPdf={() => exportYarnRequirementPdf(data)}
+        onPdf={() => void exportYarnRequirementPdf(data)}
       />
 
-      <Letterhead title="Yarn &amp; Fabric Requirement" docNo={data.header.bomCode} />
+      <Letterhead title="Yarn &amp; Fabric Requirement" header={data.header} />
       <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
 
@@ -1089,6 +1127,101 @@ function RequirementReportView({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Report 3 — Printing Requirement (client 2026-09-19)
+// ---------------------------------------------------------------------------
+
+/**
+ * "A separate, dedicated printing requirement report displaying the exact
+ * weight sent for printing." The PRINT sections of the Yarn & Fabric
+ * Requirement ledger, lifted out and grouped per assort colourway —
+ * `YarnFabricRequirementReport.printing`. Only printed colourways and
+ * components appear, because the engine keeps the print stage out of every
+ * unprinted group's ladder (`routeForPrint`); this view filters nothing.
+ */
+function PrintRequirementView({
+  data,
+}: {
+  data: YarnFabricRequirementReport | { refused: string } | null;
+}) {
+  if (!data) return null;
+  if (isReportRefusal(data)) {
+    return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
+  }
+  const p = data.printing;
+  return (
+    <div>
+      {p.groups.length > 0 && (
+        <ExportBar onCsv={() => exportPrintRequirementCsv(data)} onPdf={() => void exportPrintRequirementPdf(data)} />
+      )}
+      <Letterhead title="Printing Requirement" header={data.header} />
+      <YarnReportFactsRow header={data.header} />
+      <QuantityBand header={data.header} />
+      <div className="mt-3">
+        <SectionHeader>Fabric Sent for Printing</SectionHeader>
+        {p.groups.length === 0 ? (
+          /* EMPTY-AND-EXPLAIN — an empty printing report must not read as
+             "nothing to print" when the real cause is a route with no Printing
+             step (which Save now refuses) or an order with no print. */
+          <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-muted-foreground">
+            No fabric on this BOM is sent for printing — no fabric line carries a print from Order
+            Entry, or no Fabric Process route has a Printing step.
+          </div>
+        ) : (
+          <ReportTable>
+            <thead>
+              <tr>
+                <Th>Assort Colour</Th>
+                <Th>Fabric</Th>
+                <Th>Component</Th>
+                <Th>Print</Th>
+                <Th>Process</Th>
+                <Th>Dia/Size</Th>
+                <Th right>Wt Sent for Printing</Th>
+                <Th right>Loss %</Th>
+                <Th right>Wt After Printing</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.groups.map((g) => (
+                <Fragment key={`pg-${g.combo}`}>
+                  {g.rows.map((r, i) => (
+                    <tr key={`pr-${g.combo}-${i}`} className="odd:bg-white even:bg-[#fafbfc]">
+                      <Td>{r.combo || "All colours"}</Td>
+                      <Td>{r.fabricName}</Td>
+                      <Td>{r.component || "—"}</Td>
+                      <Td>{r.print || "—"}</Td>
+                      <Td>{r.processName}</Td>
+                      <Td>{r.dia || "—"}</Td>
+                      <Td right mono className="font-semibold">{fmtNumber(r.sentWt)}</Td>
+                      <Td right mono>{r.lossPct.toFixed(2)}%</Td>
+                      <Td right mono>{fmtNumber(r.receivedWt)}</Td>
+                    </tr>
+                  ))}
+                  {p.groups.length > 1 && (
+                    <tr className="bg-[#f6f7f9] font-semibold">
+                      <Td colSpan={6}>{g.combo || "All colours"} total</Td>
+                      <Td right mono>{fmtNumber(g.sentWt)}</Td>
+                      <Td>{""}</Td>
+                      <Td right mono>{fmtNumber(g.receivedWt)}</Td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                <Td colSpan={6}>Total Sent for Printing</Td>
+                <Td right mono className="font-semibold">{fmtNumber(p.sentWt)}</Td>
+                <Td>{""}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(p.receivedWt)}</Td>
+              </tr>
+            </tbody>
+          </ReportTable>
+        )}
+      </div>
     </div>
   );
 }

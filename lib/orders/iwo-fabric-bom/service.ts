@@ -115,6 +115,8 @@ export type IwoFabricBomFabricOption = IwoFabricOption & { fabric_type: string |
 export type IwoFabricBomFormData = {
   structures: IwoStructureOption[];
   fabrics: IwoFabricBomFabricOption[];
+  /** The YARN master (step 4, For = Yarn) — the IWO screen's own list, inactive carried. */
+  yarns: PickerRow[];
   uoms: PickerRow[];
   fabricStages: ConfigLookup[];
   /** Fabric Process (step 3) — the master WHOLE, with its kind flags, exactly
@@ -165,6 +167,7 @@ export async function getIwoFabricBomFormData(): Promise<IwoFabricBomFormData> {
   return {
     structures: base.structures,
     fabrics: base.fabrics.map((f) => ({ ...f, fabric_type: typeById.get(f.id) ?? null })),
+    yarns: base.yarns,
     uoms: base.uoms,
     fabricStages: base.fabricStages,
     processes,

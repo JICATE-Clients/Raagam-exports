@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { SheetNames, StoredRequirement } from "./sheet";
+import { companyAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 
 /**
  * Reading one order's Accessories Requirement.
@@ -202,7 +203,9 @@ export async function getRequirementSheet(
     },
     company: {
       name: str("name") ?? str("company_name"),
-      address: str("address") ?? str("address_line1"),
+      /* Built from street1..3 / city / state / pin — the columns the Company
+         Profile actually saves (2026-09-19; `address` never existed). */
+      address: companyAddressOf(co),
       gstin: str("gstin"),
       email: str("email"),
     },

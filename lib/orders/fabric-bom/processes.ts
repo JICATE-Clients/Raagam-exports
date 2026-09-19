@@ -67,6 +67,8 @@ export {
   baseProcessesForStage,
   baseProcessMissing,
   baseProcessRepeated,
+  /* 0583 — a bought roll starts the route. */
+  clothPurchaseNotFirst,
   narrowToStage,
   stageAllowsProcess,
   stageMismatchBlocked,
@@ -75,6 +77,8 @@ export {
      and the server action read, which is what stops "what the grid warns
      about" and "what Save refuses" from drifting apart. */
   stageRank,
+  /* 2026-09-19 — which stages are coloured (a yarn step there is a dyeing step). */
+  colouredStageIds,
   stageRegressionBlocked,
   stageRouteProblems,
   stagesForRow,
@@ -124,6 +128,29 @@ export type FabricProcessOption = {
    * still allowed to record that it was knitted, by somebody else.
    */
   is_knitting: boolean;
+  /**
+   * Does this step BUY the cloth rather than make it? (0583.) FABRIC PURCHASE
+   * (base of Greige) and DYED FABRIC PURCHASE (base of Dyed).
+   *
+   * READ BY `sourceFromRoute` (`./fabric-source.ts`): a route whose branch
+   * OPENS with one of these is a bought fabric, and the stage it opens in says
+   * which purchase — the Rule 2 source the hidden Source ▾ was always meant to
+   * carry. OPTIONAL so a fixture or caller written before 0583 reads as "not
+   * a purchase", which is the answer every pre-0583 route had.
+   */
+  is_cloth_purchase?: boolean;
+  /**
+   * The master's sub-categories under this process — DYEING ▸ WITH BIOWASH,
+   * WASHING ▸ BIOWASH / HOTWASH (0227's `process_sub_categories`). Empty when
+   * the master's "Has Sub Categories" is off, whatever rows linger beneath it.
+   *
+   * THE RULES NEVER READ THIS. A sub-category runs in exactly the stages its
+   * process runs in, is a base exactly when its process is, and prints when
+   * its process prints — so every narrowing, twin and Save rule keeps working
+   * on the process-level list, and only the PICKER expands it
+   * (`processPickerItems`). Optional for the same pre-0583 reason as above.
+   */
+  sub_categories?: FabricProcessSubCategory[];
   /** Which fabric stages this process may run in, and where it is that stage's
    *  mandatory entry step (0563, `process_fabric_stages`). Empty =
    *  UNCLASSIFIED, which this module reads as "offered in every stage" — the
@@ -131,6 +158,93 @@ export type FabricProcessOption = {
    *  deliberate choice rather than a fallback. */
   stage_roles: FabricStageRole[];
 };
+
+/** One of a process's sub-categories, as the picker lists it (0583).
+ *  `hidden` = the master's "Has Sub Categories" is off: still resolvable for
+ *  a route that holds it, never offered for a new pick. */
+export type FabricProcessSubCategory = { id: string; name: string; hidden?: boolean };
+
+/**
+ * What a route step reads as — "DYEING [WITH BIOWASH]", the way legacy
+ * screenshot 2588 writes it, or the plain process name when no sub-category is
+ * named. ONE function behind the grid, the stage ledger and both reports, so
+ * the same step never reads two ways in one document.
+ *
+ * A sub-category the master no longer lists falls back to the bare process
+ * name rather than printing a uuid — the `creatorName()` rule, one column over.
+ */
+export function processLabel(
+  option: Pick<FabricProcessOption, "name" | "sub_categories"> | null | undefined,
+  subCategoryId: string | null | undefined,
+): string {
+  if (!option) return "";
+  const sub = subCategoryId ? option.sub_categories?.find((s) => s.id === subCategoryId) : null;
+  return sub ? `${option.name} [${sub.name}]` : option.name;
+}
+
+/**
+ * THE PROCESS ▾'s ITEMS — each process, then one entry per sub-category
+ * beneath it (client 2026-09-19: "sub-categories created under master
+ * processes are not showing up in the process dropdown").
+ *
+ * The id of a sub-category entry is `processId|subId`, so one picker value
+ * carries both halves; `splitProcessPick` is its inverse. A `|` cannot occur
+ * inside a uuid, so the split cannot be spoofed by a value.
+ *
+ * THE INPUT IS THE ALREADY-NARROWED LIST (`processesForFabric`'s output), so a
+ * sub-category is offered exactly where its process is and nowhere else — the
+ * stage, print and yarn-dyed gates reach it without knowing it exists.
+ *
+ * THE HELD SUB-CATEGORY SURVIVES a master that has since removed it or turned
+ * "Has Sub Categories" off: the row's own value is re-admitted, labelled with
+ * whatever name is still known, the "Disabled rows" rule one level down.
+ */
+export function processPickerItems(
+  narrowed: readonly FabricProcessOption[],
+  held?: { process_id?: string | null; sub_category_id?: string | null },
+): { id: string; code: string | null; name: string; inactive: boolean }[] {
+  const out: { id: string; code: string | null; name: string; inactive: boolean }[] = [];
+  for (const p of narrowed) {
+    out.push({ id: p.id, code: p.code, name: p.name, inactive: p.inactive });
+    for (const s of p.sub_categories ?? []) {
+      if (s.hidden) continue;
+      out.push({ id: `${p.id}|${s.id}`, code: null, name: `${p.name} [${s.name}]`, inactive: p.inactive });
+    }
+  }
+  const heldId = held?.process_id && held.sub_category_id ? `${held.process_id}|${held.sub_category_id}` : null;
+  if (heldId && !out.some((o) => o.id === heldId)) {
+    /* Held but not offered — hidden on the master, or deleted. `inactive` so
+       the picker greys it and it cannot be re-picked, the "Disabled rows"
+       shape; named from the master when the master still knows it. */
+    const parent = narrowed.find((p) => p.id === held!.process_id);
+    const label = processLabel(parent, held!.sub_category_id);
+    out.push({
+      id: heldId,
+      code: null,
+      name: parent && label !== parent.name ? label : `${parent?.name ?? "PROCESS"} [(sub-category removed)]`,
+      inactive: true,
+    });
+  }
+  return out;
+}
+
+/** The picker value for a row — the inverse of `splitProcessPick`. */
+export function processPickValue(
+  row: { process_id?: string | null; sub_category_id?: string | null },
+): string | null {
+  if (!row.process_id) return null;
+  return row.sub_category_id ? `${row.process_id}|${row.sub_category_id}` : row.process_id;
+}
+
+/** A picker value back to the two columns it stands for. */
+export function splitProcessPick(value: string | null): {
+  process_id: string | null;
+  sub_category_id: string | null;
+} {
+  if (!value) return { process_id: null, sub_category_id: null };
+  const [process_id, sub_category_id] = value.split("|");
+  return { process_id: process_id || null, sub_category_id: sub_category_id || null };
+}
 
 /**
  * One row of the Fabric Process grid, in client state.
@@ -161,6 +275,11 @@ export type FabricProcessRow = {
   /** GREY / DYED — the state the fabric ENTERS this step in, not the step. */
   stage_id: string | null;
   process_id: string | null;
+  /** Which of `process_id`'s sub-categories this step runs — DYEING ▸ WITH
+   *  BIOWASH (0583). Null = the process itself. OPTIONAL so a row built by a
+   *  caller that predates 0583 (IWO Fabric BOM, whose own table has no such
+   *  column) type-checks and simply names none. */
+  sub_category_id?: string | null;
   /** How the loss below is measured — "Process wise" on the legacy screen. */
   loss_for_id: string | null;
   /* `description` WAS HERE AND THE CLIENT REMOVED IT (2026-09-04 recording:
@@ -193,6 +312,7 @@ export const blankFabricProcess = (
   component_id: group.component_id ?? null,
   stage_id: null,
   process_id: null,
+  sub_category_id: null,
   loss_for_id: null,
   loss_pct: "",
   type_id: null,
@@ -307,11 +427,11 @@ export function routeStepCount(rows: readonly FabricProcessRow[]): number {
   return rows.filter((r) => !!r.process_id).length;
 }
 
-/** How many stages one fabric's route may chain (client spec 2026-09-01: "the
- *  system must support up to 4 distinct stages"). The grid stops offering
- *  "+ Add process" here; nothing in the database refuses a fifth, which 0492's
- *  header states rather than leaves to be discovered. */
-export const MAX_ROUTE_STAGES = 4;
+/* `MAX_ROUTE_STAGES = 4` WAS HERE AND THE CLIENT REMOVED IT (2026-09-19): the
+   grid capped a route at four ROWS, which blocked value-addition steps
+   (Knitting → Dyeing → Printing → Compacting → …) and made three of the five
+   standard chains in `./standard-routes.ts` impossible to enter. A route's
+   length is bounded by the stage rules in `./stage-routes.ts`, not a count. */
 
 /**
  * Does this row hold a PRINT process while the order has none declared? The
@@ -528,7 +648,7 @@ export type GatheredProcessRow = FabricProcessRow & {
  *  [[raagam-audit-checks-can-be-blind]] is about, arriving through a file
  *  nobody suspects. The escape is the identical runtime string. */
 const routeKeyOf = (r: FabricProcessRow) =>
-  [r.item_id, r.component_id ?? "", r.stage_id ?? "", r.process_id ?? "", r.loss_for_id ?? "", r.loss_pct.trim(), r.type_id ?? ""].join("\u0000");
+  [r.item_id, r.component_id ?? "", r.stage_id ?? "", r.process_id ?? "", r.sub_category_id ?? "", r.loss_for_id ?? "", r.loss_pct.trim(), r.type_id ?? ""].join("\u0000");
 
 export function gatherByRoute(rows: readonly FabricProcessRow[]): GatheredProcessRow[] {
   const out: GatheredProcessRow[] = [];
@@ -652,6 +772,11 @@ export const fabricBomProcessInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   stage_id: z.string().uuid().nullable().default(null),
   process_id: z.string().uuid().nullable().default(null),
+  /* 0583 — which sub-category of `process_id`. That it BELONGS to that
+     process is checked by the save action against the master, not here: the
+     schema cannot see the master, and the payload must not be able to answer
+     it. */
+  sub_category_id: z.string().uuid().nullable().default(null),
   loss_for_id: z.string().uuid().nullable().default(null),
   /* NO `description`. It was here from 0492 and the client removed the column
      on 2026-09-04 ("this description column is not needed"). Gone from the

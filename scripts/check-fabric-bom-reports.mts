@@ -616,9 +616,9 @@ const SOURCED_ROUTE: Stage[] = [
   check(
     "inert rows: the reason names the SOURCE and says the row comes back",
     sourceSuppressedReason({ process_id: "KNITTING" }, OPTIONS, "greige_purchase"),
-    "Not counted — this fabric is set to Greige Fabric Purchase, so this step " +
+    "Not counted — this route opens with Greige Fabric Purchase, so this step " +
       "is already done when the cloth arrives. The row is kept; change the " +
-      "Source back and it counts again.",
+      "route's first step and it counts again.",
   );
   check(
     "inert rows: …and a step that IS counted has no reason at all, never an " +

@@ -10,13 +10,14 @@ import { isYarnDyed, missingFabricLineFields } from "./fabric-line-rules";
    the SCREEN reads it too, and a `"use server"` file can export nothing but
    async Server Functions — so this file cannot be the home of a predicate two
    readers share. See its own header for the drift that made it one function. */
-import { processRowInScope, stageRouteProblems } from "./processes";
+import { colouredStageIds, processRowInScope, stageRouteProblems } from "./processes";
 import { yarnShadesFrom } from "./yarn-dyed";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
 import {
   getBomYarnComposition,
   getFabricProcessLookupRows,
   getFabricProcessRows,
+  getYarnStageRows,
   getOrderFabricSeed,
   getOrderPalette,
   getOrderProduction,
@@ -54,6 +55,7 @@ import {
   comboKey,
   stageProblem,
   stageProcessQty,
+  compositionsBuyingYarn,
   yarnPurchase,
   yarnStageStarted,
   type FabricComposition,
@@ -63,7 +65,10 @@ import {
 } from "./yarn-process";
 /* WHERE EACH FABRIC COMES FROM (0564) — the rule is client-safe and shared
    with the screen, so the preview and this write suppress the same steps. */
-import { asFabricSource, type FabricSource } from "./fabric-source";
+import { asFabricSource, sourceFromRoute, type FabricSource } from "./fabric-source";
+/* PRINT CHECKPOINTS A + B and the per-branch print gate (client 2026-09-19) —
+   the screen's Save gate reads the identical functions. */
+import { printRouteProblems, printedGroup } from "./print-route";
 import {
   basisFingerprint,
   totalProductionOf,
@@ -505,6 +510,9 @@ function normalizeProcesses(
       sno,
       stage_id: p.stage_id ?? null,
       process_id: p.process_id,
+      /* 0583 — that it belongs to `process_id` was checked by `routeGuard`
+         before anything was written. */
+      sub_category_id: p.sub_category_id ?? null,
       loss_for_id: p.loss_for_id ?? null,
       loss_pct: p.loss_pct ?? null,
       type_id: p.type_id ?? null,
@@ -926,7 +934,7 @@ function routesByFabricOf(
    *  which suppresses nothing; that is the right reading for a database where
    *  0564's seed has not run, and it errs by buying slightly too much cloth
    *  rather than too little. */
-  kinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }> = new Map(),
+  kinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_print?: boolean }> = new Map(),
 ): Map<string, RouteStage[]> {
   const out = new Map<string, RouteStage[]>();
   for (const p of data.processes) {
@@ -947,6 +955,10 @@ function routesByFabricOf(
          without it suppresses nothing under Rule 2. */
       is_knitting: kind?.is_knitting ?? false,
       is_dyeing: kind?.is_dyeing ?? false,
+      /* 2026-09-19 — which step prints, so an unprinted slice's ladder drops
+         the print stage (`routeForPrint`). The screen's `routesByFabric`
+         carries it in step. */
+      is_print: kind?.is_print ?? false,
     });
     out.set(p.item_id, list);
   }
@@ -968,7 +980,7 @@ function routesByFabricOf(
 async function processKindsOf(
   s: Awaited<ReturnType<typeof createClient>>,
   data: FabricBomInput,
-): Promise<Map<string, { is_knitting: boolean; is_dyeing: boolean }>> {
+): Promise<Map<string, { is_knitting: boolean; is_dyeing: boolean; is_print: boolean }>> {
   const ids = [...new Set(data.processes.map((p) => p.process_id).filter(Boolean))] as string[];
   if (ids.length === 0) return new Map();
   /* `.select()` WITHOUT `!inner` AND WITH NO EMBED — `processes` is a plain
@@ -978,7 +990,7 @@ async function processKindsOf(
      the knitting loss this migration exists to remove. */
   const { data: rows, error } = await s
     .from("processes")
-    .select("id, is_knitting, is_dyeing")
+    .select("id, is_knitting, is_dyeing, is_print")
     .in("id", ids);
   if (error) {
     /* NOT A THROW AND NOT A SILENT EMPTY MAP. The save must not fail over a
@@ -989,9 +1001,15 @@ async function processKindsOf(
     throw new Error(`Could not read the process master's kind flags: ${error.message}`);
   }
   return new Map(
-    ((rows ?? []) as { id: string; is_knitting: boolean | null; is_dyeing: boolean | null }[]).map(
-      (r) => [r.id, { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false }],
-    ),
+    ((rows ?? []) as {
+      id: string;
+      is_knitting: boolean | null;
+      is_dyeing: boolean | null;
+      is_print: boolean | null;
+    }[]).map((r) => [
+      r.id,
+      { is_knitting: r.is_knitting ?? false, is_dyeing: r.is_dyeing ?? false, is_print: r.is_print ?? false },
+    ]),
   );
 }
 
@@ -1070,7 +1088,10 @@ function normalizeYarns(
   /** THE PROCESS MASTER'S KIND FLAGS (0564) — see `processKindsOf`. Read by
    *  the caller so this stays a pure function, the same division `writeYarns`
    *  already draws for `compositions` and `uomDecimals`. */
-  processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean }> = new Map(),
+  processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_print?: boolean }> = new Map(),
+  /** The `yarn_stage` ids that are coloured (DYED) — a yarn step there is the
+   *  hand-typed dyeing step `yarnPurchase` drops when shade losses exist. */
+  dyedYarnStages: ReadonlySet<string> = new Set(),
 ): NormalizedYarn[] {
   /* THE DYED SHADES (0568) — built once for the whole save rather than per
      yarn: `yarnPurchase` filters them itself by (fabric, yarn, colourway), and
@@ -1085,10 +1106,22 @@ function normalizeYarns(
     processKinds,
   );
   const sourceByFabric = sourceByFabricOf(data);
+  /* NO ROW FOR A YARN NOBODY BUYS (2026-09-19, Rule 2). A yarn every cloth of
+     which is bought as rolls has nothing to purchase; storing it with a null
+     purchase hid the report's yarn total and made the Budget count a
+     "skipped" figure. `compositionsBuyingYarn` is the screen's own filter. */
+  const allCompositions = [...compositions.values()];
+  const yarnsUsed = new Set(allCompositions.flatMap((c) => c.components.map((x) => x.yarn_id)));
+  const yarnsBought = new Set(
+    compositionsBuyingYarn(allCompositions, (id) => sourceByFabric.get(id) ?? "yarn_knit").flatMap((c) =>
+      c.components.map((x) => x.yarn_id),
+    ),
+  );
 
   for (const y of data.yarns) {
     if (!y.item_id || seen.has(y.item_id)) continue;
     seen.add(y.item_id);
+    if (yarnsUsed.has(y.item_id) && !yarnsBought.has(y.item_id)) continue;
 
     const kept = y.stages.filter((st) =>
       yarnStageStarted({
@@ -1119,7 +1152,11 @@ function normalizeYarns(
          figure stay one computation. This is now the YARN'S OWN stages, which
          compound onto whatever its fabric(s) already contribute (see
          `yarnPurchase`'s 2026-09-11 header) — not the sole source any more. */
-      kept.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
+      kept.map((st) => ({
+        combo: st.combo ?? null,
+        loss_pct: st.loss_pct ?? null,
+        dyed: !!st.stage_id && dyedYarnStages.has(st.stage_id),
+      })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
       /* WHERE EACH CLOTH COMES FROM (0564) — a fabric bought as greige or dyed
          rolls buys no yarn, so it leaves this sum. The SAME map the screen's
@@ -1219,7 +1256,14 @@ async function writeYarns(
     return fail(e instanceof Error ? e.message : "Could not read the process master's kind flags");
   }
 
-  const yarns = normalizeYarns(data, fabrics, compositions, uomDecimals, processKinds);
+  const yarns = normalizeYarns(
+    data,
+    fabrics,
+    compositions,
+    uomDecimals,
+    processKinds,
+    colouredStageIds(await getYarnStageRows()),
+  );
 
   /* AN EMPTY PAYLOAD IS NOT AUTOMATICALLY AN EMPTY ANSWER (2026-09-16).
      A yarn row exists because a cloth on this BOM is MADE of that yarn —
@@ -1235,7 +1279,13 @@ async function writeYarns(
      failure this module's header calls its worst. Refusing keeps the rows that
      ARE there, names what happened, and costs the operator one more Save. */
   if (yarns.length === 0) {
-    const clothDeclaresYarn = [...compositions.values()].some((c) => c.components.length > 0);
+    /* Only cloths whose yarn is BOUGHT count (2026-09-19): an all-purchased
+       BOM has compositions and, correctly, no yarn rows. */
+    const sources = sourceByFabricOf(data);
+    const clothDeclaresYarn = compositionsBuyingYarn(
+      [...compositions.values()],
+      (id) => sources.get(id) ?? "yarn_knit",
+    ).some((c) => c.components.length > 0);
     if (clothDeclaresYarn) {
       return fail(
         "The yarn rows had not finished loading, so this save could not work out the yarn " +
@@ -1669,7 +1719,7 @@ async function writeLines(
     s,
     bomId,
     data,
-    fabricGrossOf(requirement, savedEntries),
+    fabricGrossOf(requirement, savedEntries, data.lines),
     await compositionMapFor(saved),
     decimals.size ? decimals : await uomDecimalMap(s),
   );
@@ -1711,7 +1761,11 @@ async function writeLines(
 function fabricGrossOf(
   requirement: readonly Record<string, unknown>[],
   entries: readonly EntryRowWithId[],
+  /** The BOM's lines, for `printed` (2026-09-19) — the screen's preview reads
+   *  its own lines through the same `printedGroup`. */
+  lines: readonly { item_id?: string | null; combo?: string | null; component_id?: string | null; required_print?: string | null }[] = [],
 ): FabricGross[] {
+  const printLines = lines.map((l) => ({ ...l, item_id: l.item_id ?? null }));
   /* WHICH COMPONENTS EACH ENTRY COVERS — the same panels written to
      `order_fabric_bom_manual_components` a few lines up, so a "Component
      Wise" route (0528) can be resolved per bucket (`stagesForGroup`).
@@ -1749,6 +1803,8 @@ function fabricGrossOf(
       gross: qty == null ? null : (held?.gross ?? 0) + Number(qty),
       uom_id: (r.consumption_uom_id as string | null) ?? null,
       component_ids: componentsByEntry.get(key) ?? [],
+      /* 2026-09-19 — an unprinted slice is not grossed by the print stage. */
+      printed: printedGroup(printLines, itemId, combo, componentsByEntry.get(key) ?? []),
       /* THE STORED REASON, so the saved yarn row refuses in the SAME words the
          screen previewed — the header's rule that this figure is computed once
          and read twice applies to the refusal as much as to the weight. The row
@@ -1882,13 +1938,54 @@ async function stageRouteProblem(
   data: FabricBomInput,
 ): Promise<string | null> {
   const rows = data.processes.filter((p) => p.stage_id || p.process_id);
-  if (rows.length === 0) return null;
+  /* NOT an early return any more (2026-09-19): checkpoint A — a printed line
+     whose fabric has NO route at all — is exactly the case with no rows. */
+  const hasPrintedLine = data.lines.some((l) => !!(l.required_print ?? "").trim());
+  if (rows.length === 0 && !hasPrintedLine) return null;
 
   const [options, lookups] = await Promise.all([
     getFabricProcessRows(),
     getFabricProcessLookupRows(),
   ]);
-  if (!lookups.stages.length) return null;
+
+  /* ---- 0583: A SUB-CATEGORY MUST BELONG TO ITS ROW'S PROCESS --------------
+     The picker only ever offers a process's own sub-categories, but the
+     payload is not the picker: a stale page (the process changed after the
+     sub was picked) or a replayed request could pair DYEING with WASHING's
+     BIOWASH, and the FK alone would store it. Checked against the master,
+     never the payload's word. */
+  for (const r of rows) {
+    if (!r.sub_category_id) continue;
+    const owner = options.find((o) => o.id === r.process_id);
+    if (!owner || !(owner.sub_categories ?? []).some((sc) => sc.id === r.sub_category_id)) {
+      return `${owner?.name ?? "A process"} does not have that sub-category any more — pick the process again on Fabric Process.`;
+    }
+  }
+
+  /* ---- CHECKPOINTS A + B (client 2026-09-19) — the screen's own function,
+     over the payload's lines and the MASTER's `is_print`. */
+  const fabricNames = new Map<string, string>();
+  {
+    const ids = [...new Set([...rows.map((r) => r.item_id), ...data.lines.map((l) => l.item_id)].filter(Boolean))] as string[];
+    if (ids.length) {
+      const { data: named } = await s.from("items").select("id, name").in("id", ids);
+      for (const n of (named ?? []) as { id: string; name: string | null }[]) fabricNames.set(n.id, n.name ?? "");
+    }
+  }
+  const printProblems = printRouteProblems(
+    rows.map((r, i) => ({ ...r, key: String(i) })),
+    data.lines.map((l) => ({ ...l, item_id: l.item_id ?? null })),
+    (processId) => !!options.find((o) => o.id === processId)?.is_print,
+    { fabricName: (id) => fabricNames.get(id) || "This fabric" },
+  );
+  if (printProblems.length) return printProblems[0].message;
+
+  if (rows.length === 0 || !lookups.stages.length) return null;
+
+  /* ---- A FABRIC BOUGHT IN ONE BRANCH AND KNITTED IN ANOTHER ------------- */
+  for (const [itemId, src] of sourceFromRoute(rows, options, lookups.stages)) {
+    if (typeof src !== "string") return `${fabricNames.get(itemId) || "This fabric"}: ${src.refused}`;
+  }
 
   const fabricIds = [...new Set(rows.map((r) => r.item_id))];
   const { data: itemRows } = await s
@@ -1928,13 +2025,54 @@ async function stageRouteProblem(
     options,
     lookups.stages,
     {
-      gatesFor: (itemId) => ({
-        printDeclared: true,
+      /* PRINT IS NOW READ, PER BRANCH (2026-09-19). It was passed `true` here
+         with a note naming the cost ("the fix then is to read the order's
+         prints here too"); checkpoint B is that day. The payload's lines are
+         the BOM's own statement of which (colourway, component) prints — the
+         same lines the screen's gate reads. */
+      gatesFor: (itemId, combo, componentId) => ({
+        printDeclared: printedGroup(
+          data.lines.map((l) => ({ ...l, item_id: l.item_id ?? null })),
+          itemId,
+          combo,
+          [componentId],
+        ),
         fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null),
       }),
     },
   );
   return problems[0]?.message ?? null;
+}
+
+/**
+ * WRITE-THROUGH OF THE ROUTE'S SOURCE (client 2026-09-19).
+ *
+ * `sourceFromRoute` reads each fabric's source off its route — a branch opening
+ * with DYED FABRIC PURCHASE is a dyed-roll purchase, no yarn bought. This puts
+ * that answer INTO the payload's `processScopes` before anything downstream
+ * reads it, so `sourceByFabricOf`, `normalizeProcessScopes` and therefore the
+ * stored `order_fabric_bom_process_scope.source` — which the reports and the
+ * Budget read — all carry the route's answer without one of them being
+ * changed. One place, and every reader follows.
+ *
+ * A fabric with no route keeps the source it was sent (the hidden ▾'s stored
+ * value, or Rule 1). A refused derivation never reaches here —
+ * `stageRouteProblem` refuses the save first.
+ */
+async function withRouteSources(data: FabricBomInput): Promise<FabricBomInput["processScopes"]> {
+  const rows = data.processes.filter((p) => !!p.process_id);
+  if (rows.length === 0) return data.processScopes;
+  const [options, lookups] = await Promise.all([getFabricProcessRows(), getFabricProcessLookupRows()]);
+  const derived = sourceFromRoute(rows, options, lookups.stages);
+  const out = data.processScopes.map((sc) => {
+    const d = derived.get(sc.item_id);
+    return typeof d === "string" ? { ...sc, source: d } : sc;
+  });
+  for (const [itemId, d] of derived) {
+    if (typeof d !== "string" || out.some((sc) => sc.item_id === itemId)) continue;
+    out.push({ item_id: itemId, assort_color_wise: false, component_wise: false, source: d });
+  }
+  return out;
 }
 
 /**
@@ -2163,6 +2301,10 @@ export async function createFabricBom(data: FabricBomFormInput): Promise<Result>
   const routeProblem = await stageRouteProblem(s, p.data);
   if (routeProblem) return fail(routeProblem);
 
+  /* THE ROUTE SAYS WHERE THE CLOTH COMES FROM (2026-09-19) — written into the
+     payload once, here, so every reader below stores the route's answer. */
+  p.data.processScopes = await withRouteSources(p.data);
+
   // BEFORE THE HEADER INSERT — see `writePalette`. A refused palette must not
   // leave a BOM behind that the operator was never told about.
   const paletteRes = await writePalette(s, p.data.garment_order_id, p.data.palette);
@@ -2224,6 +2366,10 @@ export async function updateFabricBom(id: string, data: FabricBomFormInput): Pro
      document. */
   const routeProblem = await stageRouteProblem(s, p.data);
   if (routeProblem) return fail(routeProblem);
+
+  /* THE ROUTE SAYS WHERE THE CLOTH COMES FROM (2026-09-19) — written into the
+     payload once, here, so every reader below stores the route's answer. */
+  p.data.processScopes = await withRouteSources(p.data);
 
   // Before the update, for the same reason as create: a refusal leaves the
   // document exactly as it was rather than half-written.

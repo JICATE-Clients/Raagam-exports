@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Field, type FieldSize } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
+import { PhotoUpload } from "@/components/ui/photo-upload";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { MobileWhatsAppFields } from "@/components/masters/contact-fields";
@@ -80,7 +81,13 @@ function toForm(p: CompanyProfile | null): CompanyProfileInput {
     min_wages: p?.min_wages ?? null,
     bonus_from_date: p?.bonus_from_date ?? "",
     footer_text: p?.footer_text ?? "",
-    with_logo: p?.with_logo ?? false,
+    /* TICKED FOR A NEW PROFILE (2026-09-19). The letterhead honours this box
+       once a profile exists, so starting it unticked would make the logo —
+       printed on every document while no profile existed — vanish the moment
+       someone first saved the company's name. A stored profile keeps its own
+       answer. */
+    with_logo: p?.with_logo ?? true,
+    logo: p?.logo ?? null,
   };
 }
 
@@ -199,6 +206,7 @@ const FIELD_SIZE: Record<Exclude<keyof CompanyProfileInput, "mobile" | "whatsapp
 
   // Footer — each stands alone on its row
   footer_text: "full",
+  logo: "full",
   with_logo: "full",
 };
 
@@ -806,6 +814,19 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
             onChange={(e) => set("footer_text", e.target.value)}
             disabled={dis}
             rows={3}
+          />
+        </Field>
+        {/* THE COMPANY LOGO (2026-09-19) — printed on every document letterhead.
+            Until one is uploaded the documents print the Raagam wordmark. */}
+        <Field label="Company Logo" size={FIELD_SIZE.logo}>
+          <PhotoUpload
+            value={(form.logo as string | null) ?? null}
+            onChange={(url) => set("logo", url)}
+            bucket="company-assets"
+            folder="logo"
+            fit="contain"
+            emptyLabel="No logo"
+            disabled={dis}
           />
         </Field>
         {/* No `label` prop — the <label> below carries its own text. `min-h-9

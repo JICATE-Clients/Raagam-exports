@@ -65,7 +65,15 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/orders/price-confirmation": "price_confirmations",
   "/orders/garment-processes": "order_garment_processes",
   "/orders/internal-work-orders": "internal_work_orders",
-  "/orders/advised-items": "order_advised_items",
+  // A VIEW, NOT THE BOM LINES TABLE (0588). The orphan `order_advised_items`
+  // this card used to count is dropped; the Register is Material BOM lines whose
+  // `type` is To be advised. `hub_record_counts` (0391) counts WHOLE relations
+  // only — pointed at `material_bom_amendment_items` it would print every BOM
+  // line in the app under "Advised Items", a confident wrong number. So 0588
+  // gives it `advised_pending_lines` (`security_invoker`, one row per advised
+  // line), which the RPC counts like a table: the card reads "how many lines
+  // are still waiting on the buyer", under the caller's own RLS.
+  "/orders/advised-items": "advised_pending_lines",
   "/orders/packing-advice": "packing_advices",
   "/orders/cancellations": "order_cancellations",
   "/orders/completions": "order_completions",

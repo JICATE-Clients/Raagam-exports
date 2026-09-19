@@ -23,7 +23,15 @@
  * and on an IWO no step can name one.
  */
 
-import type { FabricGross, RouteStage } from "@/lib/orders/fabric-bom/yarn-process";
+import {
+  comboUplift,
+  isRefusal,
+  type FabricGross,
+  type Refusal,
+  type RouteStage,
+  type YarnComboWeight,
+} from "@/lib/orders/fabric-bom/yarn-process";
+import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 
 /** One fabric line as this file reads it. */
 export type IwoGrossLine = { item_id: string | null; req_kgs: number | null };
@@ -104,4 +112,37 @@ export function iwoRoutesByFabric(
     out.set(p.item_id, list);
   }
   return out;
+}
+
+/**
+ * FOR = YARN (step 4, screenshot 2937): the yarn is PICKED and WEIGHED, not
+ * derived from a cloth, so there is no fabric, no blend and no fabric route.
+ * The planned weight goes through the yarn's OWN stages only — the same
+ * `comboUplift` rule (divide by 1 − L, compounded) and the same round-UP
+ * `yarnPurchase` applies, so a Yarn IWO and a Fabric IWO gross a 10% dyeing
+ * loss identically.
+ *
+ * Returns the order engine's success shape (`byCombo` with one uncoloured
+ * bucket) so `stageProcessQty` answers each stage's quantity exactly as it
+ * does on an order.
+ */
+export function iwoYarnModePurchase(
+  plannedKgs: number | null,
+  ownStages: readonly { loss_pct: number | null }[],
+  kgUomId: string | null,
+  decimals: number | null,
+  yarnName: string,
+): { qty: number; uom_id: string | null; byCombo: YarnComboWeight[] } | Refusal {
+  if (!kgUomId) return { refused: "The UOM master has no active KGS row, so no yarn weight can be stated." };
+  if (plannedKgs == null || !(plannedKgs > 0)) {
+    return { refused: `Enter the Planned Weight for ${yarnName} on Yarn Lines.` };
+  }
+  const factor = comboUplift(
+    ownStages.map((s) => ({ combo: null, loss_pct: s.loss_pct })),
+    "",
+    [],
+  );
+  if (isRefusal(factor)) return factor;
+  const gross = ceilToPrecision(plannedKgs * factor, uomPrecision(decimals));
+  return { qty: gross, uom_id: kgUomId, byCombo: [{ combo: "", net: plannedKgs, gross }] };
 }

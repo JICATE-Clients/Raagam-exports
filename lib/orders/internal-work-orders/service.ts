@@ -2,14 +2,8 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
 import { isInactive } from "@/lib/masters/inactive";
-import { ACCESSORY_CLASS_CODES } from "@/lib/masters/material-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
-import type {
-  InternalWorkOrder,
-  IwoAccessoryItemRow,
-  IwoFabricItemRow,
-  IwoYarnItemRow,
-} from "./types";
+import type { InternalWorkOrder } from "./types";
 
 /** A row normalized to {id, code, name} for a RecordPicker. `inactive` is
  *  carried, never filtered, so a value a saved line holds still resolves
@@ -20,14 +14,6 @@ export type PickerRow = { id: string; code: string | null; name: string; inactiv
  *  same fact Fabric BOM's Fabric cell is scoped by. */
 export type IwoFabricOption = PickerRow & { category_id: string | null };
 
-/** An accessory carries the two units its master allows; the line's Unit cell
- *  offers those and nothing else (the Material BOM rule). */
-export type IwoAccessoryOption = PickerRow & {
-  class_code: string;
-  base_uom_id: string | null;
-  purchase_uom_id: string | null;
-};
-
 /** A structure (a FABRIC-class category — SINGLE JERSEY) carries its knit
  *  family (Circular / Flat Knit / Woven), which the SRS prints as the fabric's
  *  "Structure" and the app calls Structure Type (fabric-bom/service.ts). */
@@ -35,18 +21,20 @@ export type IwoStructureOption = PickerRow & { knit: string | null };
 
 export type IwoProcessOption = PickerRow & { for_yarn: boolean; for_fabric: boolean };
 
+/** The BOM that plans an IWO — IWO Fabric BOM (Yarn / Fabric) or IWO Material
+ *  BOM (Accessories) — or null while none is raised. */
+export type IwoBomRef = { id: string; is_draft: boolean } | null;
+
 export type IwoRow = InternalWorkOrder & {
   sales_orders: { id: string; order_number: string | null } | null;
-  iwo_yarn_items: IwoYarnItemRow[];
-  iwo_fabric_items: IwoFabricItemRow[];
-  iwo_accessory_items: IwoAccessoryItemRow[];
+  bom: IwoBomRef;
 };
 
 /**
- * Every IWO WITH its lines. There are few of them (advance procurement, not
- * order volume), and opening one for edit then needs no second round trip —
- * the shape `process-amendment-screen.tsx` uses. Each embed follows the ONE
- * foreign key its child table has to its parent, so none is ambiguous.
+ * Every IWO, each with the BOM that plans it. An IWO is a HEADER (2026-09-19):
+ * its lines live on its BOM, so the list carries only whether that BOM exists
+ * and is a draft — the "BOM" column. Each embed follows the ONE foreign key
+ * its table has to the IWO (unique), so none is ambiguous.
  *
  * A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md): an empty list is
  * a believable answer here, so a broken select must not be able to look like one.
@@ -57,38 +45,20 @@ export async function listInternalWorkOrders(): Promise<IwoRow[]> {
     .from("internal_work_orders")
     .select(
       "*, sales_orders(id, order_number), " +
-        "iwo_yarn_items(*, iwo_yarn_process_details(*)), " +
-        "iwo_fabric_items(*, iwo_fabric_process_details(*)), " +
-        "iwo_accessory_items(*, iwo_accessory_process_details(*))",
+        "iwo_fabric_boms(id, is_draft), iwo_material_boms(id, is_draft)",
     )
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Internal work orders: ${error.message}`);
-  const rows = ((data ?? []) as unknown as IwoRow[]).map((r) => ({
+  type Ref = { id: string; is_draft: boolean };
+  type Raw = Omit<IwoRow, "bom"> & {
+    iwo_fabric_boms: Ref | Ref[] | null;
+    iwo_material_boms: Ref | Ref[] | null;
+  };
+  // A one-to-one embed can arrive as an object or a one-element array.
+  const one = (v: Ref | Ref[] | null): Ref | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, iwo_material_boms, ...r }) => ({
     ...r,
-    iwo_yarn_items: [...(r.iwo_yarn_items ?? [])]
-      .sort((a, b) => a.sno - b.sno)
-      .map((l) => ({
-        ...l,
-        iwo_yarn_process_details: [...(l.iwo_yarn_process_details ?? [])].sort(
-          (a, b) => a.sno - b.sno,
-        ),
-      })),
-    iwo_fabric_items: [...(r.iwo_fabric_items ?? [])]
-      .sort((a, b) => a.sno - b.sno)
-      .map((l) => ({
-        ...l,
-        iwo_fabric_process_details: [...(l.iwo_fabric_process_details ?? [])].sort(
-          (a, b) => a.sno - b.sno,
-        ),
-      })),
-    iwo_accessory_items: [...(r.iwo_accessory_items ?? [])]
-      .sort((a, b) => a.sno - b.sno)
-      .map((l) => ({
-        ...l,
-        iwo_accessory_process_details: [...(l.iwo_accessory_process_details ?? [])].sort(
-          (a, b) => a.sno - b.sno,
-        ),
-      })),
+    bom: one(iwo_fabric_boms) ?? one(iwo_material_boms),
   }));
   return withCreators(rows);
 }
@@ -101,9 +71,8 @@ export type IwoFormData = {
   fabrics: IwoFabricOption[];
   /** Fabric structures — `categories` of the FABRIC class. */
   structures: IwoStructureOption[];
-  accessories: IwoAccessoryOption[];
   uoms: PickerRow[];
-  /** `master_vendors` — the accessory process grid's Vendor (AGENTS.md: the
+  /** `master_vendors` — a process row's Vendor (AGENTS.md: the
    *  master table, never the purchase-side `public.vendors`). */
   vendors: PickerRow[];
   /** The Process master, WHOLE — narrowed per row by `for_yarn` / `for_fabric`
@@ -220,14 +189,6 @@ export async function getIwoFormData(): Promise<IwoFormData> {
       inactive: isInactive(c),
       knit: c.fabric_structure_id ? (knitById.get(c.fabric_structure_id) ?? null) : null,
     })),
-    accessories: items
-      .filter((i) => ACCESSORY_CLASS_CODES.has(codeOf(i)))
-      .map((i) => ({
-        ...pick(i),
-        class_code: codeOf(i),
-        base_uom_id: i.base_uom_id,
-        purchase_uom_id: i.purchase_uom_id,
-      })),
     uoms: ((uomRes.data ?? []) as { id: string; code: string; name: string; is_active: boolean }[]).map(
       (u) => ({ id: u.id, code: u.code, name: u.name, inactive: isInactive(u) }),
     ),

@@ -134,6 +134,12 @@ export interface Process {
 }
 
 export const processSubCategoryInput = z.object({
+  /* THE ROW'S OWN ID, sent back on an edit (0583) — so `updateProcess` can
+     reconcile BY ID instead of delete-and-reinsert. A Fabric BOM route step now
+     points at a sub-category (`order_fabric_bom_processes.sub_category_id`, ON
+     DELETE RESTRICT); regenerating ids on every save would refuse the save of
+     any sub-category a route names. Absent on a row typed since the load. */
+  id: z.string().uuid().optional(),
   sno: z.coerce.number().int().nonnegative().default(0),
   sub_category: z.string().min(1),
   /* NO `short_description` and NO `hsn_code` — see `ProcessSubCategory` above.

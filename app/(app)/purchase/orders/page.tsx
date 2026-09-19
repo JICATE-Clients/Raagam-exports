@@ -8,6 +8,7 @@ import {
   getLocations,
   getItems,
   getOrdersForPicker,
+  getIwosForPicker,
 } from "@/lib/purchase/po-service";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
@@ -89,7 +90,7 @@ const columns: Column<PoWithVendor>[] = [
 export default async function PurchaseOrdersPage() {
   await requirePermission("materials_purchase", "view");
 
-  const [orders, vendors, budgets, currencies, locations, items, salesOrders, canCreate] =
+  const [orders, vendors, budgets, currencies, locations, items, salesOrders, iwos, canCreate] =
     await Promise.all([
       listPurchaseOrders(),
       getVendorsForPicker(),
@@ -100,6 +101,8 @@ export default async function PurchaseOrdersPage() {
       // the two the Material BOM ceiling keys on.
       getItems(),
       getOrdersForPicker(),
+      // ...or the Internal Work Order it buys for (0586) — never both.
+      getIwosForPicker(),
       can("materials_purchase", "create"),
     ]);
 
@@ -118,6 +121,7 @@ export default async function PurchaseOrdersPage() {
           locations={locations}
           items={items}
           orders={salesOrders}
+          iwos={iwos}
         />
       )}
 

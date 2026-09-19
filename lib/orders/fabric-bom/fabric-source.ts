@@ -75,6 +75,11 @@
  * cloth, never by buying too little.
  */
 
+/* `./stage-routes` imports nothing from here and only TYPES from `./processes`,
+   so this adds no runtime cycle — the rule this file's structural types exist
+   to protect. */
+import { stageRank, type FabricStageLike } from "./stage-routes";
+
 /** WHERE THIS FABRIC COMES FROM (§2) — Default Rule 1 vs Rule 2. */
 export const FABRIC_SOURCES = ["yarn_knit", "greige_purchase", "dyed_purchase"] as const;
 export type FabricSource = (typeof FABRIC_SOURCES)[number];
@@ -245,11 +250,156 @@ export function sourceSuppressedReason(
   source: FabricSource,
 ): string | null {
   if (!sourceSuppressedRow(row, options, source)) return null;
+  /* NAMES THE ROUTE'S FIRST STEP, NOT A SOURCE ▾ (2026-09-19). The ▾ has been
+     hidden since it shipped, so "change the Source back" pointed at a control
+     nobody can see. The source is now read off the route (`sourceFromRoute`),
+     so the fix the sentence offers is the one the operator can make here. */
   return (
-    `Not counted — this fabric is set to ${FABRIC_SOURCE_LABELS[source]}, so this ` +
+    `Not counted — this route opens with ${FABRIC_SOURCE_LABELS[source]}, so this ` +
     "step is already done when the cloth arrives. The row is kept; change the " +
-    "Source back and it counts again."
+    "route's first step and it counts again."
   );
+}
+
+/* ==========================================================================
+ * THE SOURCE IS READ OFF THE ROUTE (client 2026-09-19)
+ *
+ * "When a fabric stage is set to Dyed, the system must permit Direct Fabric
+ * Purchase — purchasing dyed fabric directly without requiring raw yarn
+ * purchasing or internal knitting."
+ *
+ * Everything above has known how to COST a bought roll since 0564. What was
+ * missing was any way to SAY it: the Source ▾ that carries it is hidden
+ * (`SHOW_FABRIC_SOURCE = false` on the screen), so every live
+ * `order_fabric_bom_process_scope.source` is NULL and reads as Rule 1 — yarn
+ * bought and knitted for cloth whose own route opens with FABRIC PURCHASE.
+ * The route and the arithmetic were two answers to one question.
+ *
+ * Now the route IS the answer. A branch whose FIRST step is a cloth purchase
+ * (`processes.is_cloth_purchase`, 0583) is bought, and the stage that step
+ * sits in says as what: a Greige-stage purchase is greige rolls, a coloured
+ * stage (Dyed / Wash / Print) is finished rolls. `clothPurchaseNotFirst`
+ * (`./stage-routes.ts`) refuses a purchase anywhere but first, so "first step"
+ * and "a purchase step" cannot mean different things.
+ * ========================================================================== */
+
+/** One route step, as much of it as the source derivation reads. Structural,
+ *  for the cycle reason `SourceKindedStep` records. */
+export type SourcedRouteStep = {
+  item_id: string;
+  combo?: string | null;
+  component_id?: string | null;
+  stage_id?: string | null;
+  process_id?: string | null;
+};
+
+/** A branch's opening step, answered as a source — or null when the branch
+ *  names no process yet (nothing to read). */
+function branchSource(
+  branch: readonly SourcedRouteStep[],
+  options: readonly { id: string; is_cloth_purchase?: boolean }[],
+  stages: readonly FabricStageLike[],
+): FabricSource | null {
+  const first = branch.find((r) => !!r.process_id);
+  if (!first) return null;
+  if (!options.find((p) => p.id === first.process_id)?.is_cloth_purchase) return "yarn_knit";
+  const stage = stages.find((s) => s.id === first.stage_id);
+  const rank = stage ? stageRank(stage) : null;
+  /* AN UNRANKED OR BLANK STAGE BUYS NOTHING. Guessing "greige" or "dyed" for a
+     stage the rule does not recognise would pick which steps leave the ladder
+     on no evidence; Rule 1 over-buys by a known amount instead, and the
+     Stage cell is `required` on a started row anyway. */
+  if (rank === 0) return "greige_purchase";
+  if (rank != null && rank >= 1) return "dyed_purchase";
+  return "yarn_knit";
+}
+
+/**
+ * WHEN A FABRIC'S BRANCHES DISAGREE ABOUT WHERE ITS CLOTH COMES FROM.
+ *
+ * A fabric's route can be split by colourway (and, for routes saved before
+ * 2026-09-16, by component). Each branch opens on its own first step, so RED
+ * can open with DYED FABRIC PURCHASE while WHITE opens with KNITTING. But
+ * `source` is ONE fact per fabric — the yarn side (`yarnPurchase`) either buys
+ * yarn for the fabric or skips it whole; it has no per-colourway switch.
+ *
+ * REFUSE — DECIDED 2026-09-19 (user, on the business case). Two alternatives
+ * were weighed and rejected:
+ *   - FALL BACK TO RULE 1 ("yarn_knit") would raise yarn requisitions for the
+ *     colourway that is bought dyed, and the Budget would cost that cloth
+ *     twice — once as yarn, once as the roll. Silent cost inflation.
+ *   - MAJORITY / BY WEIGHT needs the requirement weights and still buys the
+ *     wrong thing for the minority colourway.
+ * A fabric whose colourways are procured differently is two fabrics in textile
+ * practice (e.g. "SJ [Dyed – Direct]" vs "SJ [Grey – Knitted]"), so the Save
+ * gate names the conflict and the merchandiser aligns the routes or splits the
+ * fabric before the budget baseline is committed. Do not "soften" this into a
+ * fallback without a new client decision.
+ */
+export function resolveFabricSource(
+  branchSources: readonly FabricSource[],
+): FabricSource | { refused: string } {
+  const distinct = [...new Set(branchSources)];
+  if (distinct.length === 0) return "yarn_knit";
+  if (distinct.length === 1) return distinct[0];
+  return {
+    refused:
+      "its route branches start differently — one is bought as cloth and another is knitted from yarn. " +
+      "A fabric is either bought or knitted: start every colour's route the same way, or use a separate fabric",
+  };
+}
+
+/**
+ * EVERY FABRIC'S SOURCE, READ OFF ITS ROUTE — the one derivation the screen's
+ * preview, the save action and the stored `order_fabric_bom_process_scope.source`
+ * all take, so the figure previewed and the figure stored cannot come from two
+ * readings of the route.
+ *
+ * Returns only fabrics whose route names at least one process. A fabric absent
+ * from the map has no route to read, and its caller keeps whatever source it
+ * already had (`effectiveFabricSource`).
+ *
+ * `rows` must be in route order (the order the grid shows and `sno` stores).
+ */
+export function sourceFromRoute(
+  rows: readonly SourcedRouteStep[],
+  options: readonly { id: string; is_cloth_purchase?: boolean }[],
+  stages: readonly FabricStageLike[],
+): Map<string, FabricSource | { refused: string }> {
+  const branchesByItem = new Map<string, Map<string, SourcedRouteStep[]>>();
+  for (const r of rows) {
+    const byBranch = branchesByItem.get(r.item_id) ?? new Map<string, SourcedRouteStep[]>();
+    branchesByItem.set(r.item_id, byBranch);
+    /* Keyed the way `stageRouteProblems` keys a branch — an array encoding,
+       so no separator byte is needed (see that function's note). */
+    const key = JSON.stringify([r.combo ?? "", r.component_id ?? ""]);
+    const at = byBranch.get(key);
+    if (at) at.push(r);
+    else byBranch.set(key, [r]);
+  }
+  const out = new Map<string, FabricSource | { refused: string }>();
+  for (const [itemId, byBranch] of branchesByItem) {
+    const sources = [...byBranch.values()]
+      .map((b) => branchSource(b, options, stages))
+      .filter((s): s is FabricSource => s !== null);
+    if (sources.length) out.set(itemId, resolveFabricSource(sources));
+  }
+  return out;
+}
+
+/**
+ * The source one fabric's figures are computed with: the route's answer when
+ * the route has one, else what was stored (a route with no steps yet, or a
+ * `lib/data-io` import). A refusal reads as Rule 1 for the ARITHMETIC — the
+ * over-buy side — while the Save gate refuses the document on the same
+ * refusal, so no figure computed this way is ever stored.
+ */
+export function effectiveFabricSource(
+  stored: FabricSource,
+  derived: FabricSource | { refused: string } | undefined,
+): FabricSource {
+  if (derived === undefined) return stored;
+  return typeof derived === "string" ? derived : "yarn_knit";
 }
 
 /**

@@ -4,6 +4,12 @@ import { roundUpTo } from "@/lib/orders/material-bom/requirement";
 import { isUnsettledMaterialType } from "@/lib/orders/material-bom-amendment/types";
 import { blockedMessage, judgeLine, type BomCeiling } from "./bom-ceiling";
 import { reopenedBudgetForOrder } from "@/lib/orders/budget/lock";
+import {
+  advisedAmong,
+  advisedRefusal,
+  iwoCeilingRefusal,
+  type IwoPurchaseCheck,
+} from "@/lib/orders/iwo-material-bom/purchase-gate";
 
 /**
  * The lookup half of the over-quantity ceiling (0424, made enforceable
@@ -305,11 +311,18 @@ export async function refuseOverCeiling(
      avoid. */
   lines: readonly {
     sales_order_id?: string | null;
+    /** The work order the line buys for (0587) — judged by `refuseIwoOverCeiling`. */
+    iwo_id?: string | null;
     item_id?: string | null;
     quantity: number;
   }[],
   opts?: { exclude?: { poId?: string | null; lineId?: string | null } },
 ): Promise<string | null> {
+  // THE WORK-ORDER CEILING (0587) rides this gate for the same reason the
+  // Advised check rides the TBA gate: the four write paths already call it.
+  const iwoRefusal = await refuseIwoOverCeiling(lines, opts?.exclude);
+  if (iwoRefusal) return iwoRefusal;
+
   // Group by order, because the ceiling is per order and most POs name one.
   const byOrder = new Map<string, Map<string, number>>();
   for (const l of lines) {
@@ -393,9 +406,16 @@ export async function refuseUnsettledMaterials(
      would stop ordinary purchasing. */
   lines: readonly {
     sales_order_id?: string | null;
+    /** The work order the line buys for (0586) — judged by `refuseAdvisedIwoItems`. */
+    iwo_id?: string | null;
     item_id?: string | null;
   }[],
 ): Promise<string | null> {
+  // THE WORK-ORDER HALF (0586) rides this gate rather than standing beside it,
+  // so the four write paths that already call it cannot miss it.
+  const advised = await refuseAdvisedIwoItems(lines);
+  if (advised) return advised;
+
   // Grouped by order, because the BOM is per order and most POs name one.
   const byOrder = new Map<string, Set<string>>();
   for (const l of lines) {
@@ -407,6 +427,9 @@ export async function refuseUnsettledMaterials(
   if (byOrder.size === 0) return null;
 
   const s = await createClient();
+
+  /** Per order: its RE No, and advised item id -> the material's name. */
+  const advisedByOrder = new Map<string, { reNo: string | null; items: Map<string, string> }>();
 
   for (const [salesOrderId, itemIds] of byOrder) {
     const { bom } = await recordedBomForOrder(s, salesOrderId);
@@ -422,13 +445,15 @@ export async function refuseUnsettledMaterials(
        created-by sweep is the standing lesson about a hand-written select that
        names a column's neighbour and not the column: the code reads as correct
        and the sentence comes out with a blank in it. */
-    const { data: lineRows } = await s
+    const { data: lineRows, error: lineErr } = await s
       .from("material_bom_amendment_items")
       .select("item_id, type, item:items(name)")
       .eq("amendment_id", bom.id)
       .in("item_id", [...itemIds]);
+    // "Could not check" is not "nothing advised": refuse, and say which.
+    if (lineErr) return `Could not check the Material BOM for advised items: ${lineErr.message}`;
 
-    const unsettled: string[] = [];
+    const items = new Map<string, string>();
     for (const r of (lineRows ?? []) as unknown as {
       item_id: string | null;
       type: string | null;
@@ -437,40 +462,163 @@ export async function refuseUnsettledMaterials(
          `material-bom-amendment/service.ts` records for its customer embed. */
       item: { name: string | null } | { name: string | null }[] | null;
     }[]) {
-      if (!isUnsettledMaterialType(r.type)) continue;
+      if (!r.item_id || !isUnsettledMaterialType(r.type)) continue;
       const cell = Array.isArray(r.item) ? (r.item[0] ?? null) : r.item;
-      const name = cell?.name?.trim() || "A material";
-      if (!unsettled.includes(name)) unsettled.push(name);
+      if (!items.has(r.item_id)) items.set(r.item_id, cell?.name ?? "");
     }
-    if (unsettled.length === 0) continue;
+    if (items.size === 0) continue;
 
-    /* NAMES THREE AND COUNTS THE REST. A refusal is read in a toast; twenty
-       names in one sentence is a wall the operator closes without reading, and
-       fixing the first three is progress they can see. */
-    const shown = unsettled.slice(0, 3).join(", ");
-    const rest = unsettled.length - Math.min(3, unsettled.length);
-    const subject = rest > 0 ? `${shown} and ${rest} more` : shown;
-    const verb = unsettled.length === 1 && shown !== "A material" ? "is" : "are";
+    const { data: so } = await s
+      .from("sales_orders")
+      .select("order_number")
+      .eq("id", salesOrderId)
+      .maybeSingle();
+    advisedByOrder.set(salesOrderId, {
+      reNo: (so as { order_number: string | null } | null)?.order_number ?? null,
+      items,
+    });
+  }
 
-    /* THE BOM'S CODE IS APPENDED ONLY WHEN THERE IS ONE. `code` is nullable, and
-       a sentence reading "on Material BOM ." is the shape that makes an operator
-       distrust the whole message — the refusal is still true and still
-       actionable without it. */
-    const on = bom.code ? ` on Material BOM ${bom.code}` : "";
-    /* BOTH NAMES STAY, though "To be developed" left `MATERIAL_TYPE_OPTIONS` on
-       2026-08-28 and only two values are pickable now. This sentence describes
-       what a row can BE, not what can be picked — and a legacy row genuinely
-       carrying "To be developed" is refused by `isUnsettledMaterialType`, so a
-       message naming only the pickable value would refuse a line while
-       describing a state it is not in, sending the operator to look for a
-       wording they cannot find on the row. Do not trim it to match the
-       dropdown; see the note on `UNSETTLED_MATERIAL_TYPES`. */
-    return (
-      `${subject} ${verb} still marked To be advised / To be developed${on}. ` +
-      `Save the final specification and size against ` +
-      `${unsettled.length === 1 ? "that line" : "those lines"} and set the Type ` +
-      `to Available Item before raising a purchase order.`
-    );
+  /* THE FIRST ADVISED LINE, IN THE PAYLOAD'S OWN ORDER — the row the
+     po_line_items trigger would refuse first on the same insert, so the toast
+     and the database name the same material. */
+  for (const l of lines) {
+    if (!l.sales_order_id || !l.item_id) continue;
+    const o = advisedByOrder.get(l.sales_order_id);
+    const name = o?.items.get(l.item_id);
+    if (o && name !== undefined) return advisedItemMessage(name, o.reNo);
+  }
+  return null;
+}
+
+/**
+ * THE ONE SENTENCE FOR AN ADVISED MATERIAL ON A PURCHASE ORDER (Advised Items,
+ * 2026-09-19) — said IDENTICALLY by this gate and by 0588's BEFORE INSERT /
+ * UPDATE trigger on `po_line_items`. Change one and the other in the same
+ * edit: an operator who meets two wordings for one rule reads them as two
+ * rules.
+ *
+ * It names the material and the RE No, and it names the WAY OUT — the Advised
+ * Items register, where the line is converted once the buyer confirms the
+ * specification. The menu path is checked by `npm run check:nav-paths`.
+ *
+ * Fallbacks, mirrored by the trigger (a blank counts as missing): no material
+ * name → "A material"; no RE No → "on this order".
+ *
+ * "To be advised" is the only unsettled type a line can hold since 0588's
+ * CHECK; a legacy "To be developed" row (none live) is still refused by
+ * `isUnsettledMaterialType` and reads the same sentence.
+ */
+export function advisedItemMessage(itemName: string | null, reNo: string | null): string {
+  const item = itemName?.trim() || "A material";
+  const re = reNo?.trim();
+  const on = re ? `on RE ${re}` : "on this order";
+  return (
+    `${item} is To be advised ${on} — convert it on ` +
+    `Orders ▸ Order Execution ▸ Advised Items once the buyer confirms.`
+  );
+}
+
+/**
+ * THE WORK-ORDER CEILING (client 2026-09-19: "refuse outright") — an
+ * Accessories work order may not buy more of a material than its Material BOM's
+ * purchase quantity. The rules and every sentence are `iwoCeilingRefusal`'s
+ * (pure, shared with the PO form); this is the lookup and the grouping.
+ *
+ * HARD FROM THE START. The order ceiling refuses only once a budget is approved,
+ * because until then nobody has signed its figure. A work order has no budget;
+ * its BOM is the only approved figure it has, so there is no earlier window in
+ * which buying past it is ordinary work.
+ *
+ * THIS PAYLOAD'S LINES ARE SUMMED FIRST, and OTHER purchase orders are counted
+ * (`committed`, 0587) — the order ceiling's two halves, for its reason: judging
+ * lines one at a time lets two 60% lines both pass.
+ *
+ * Read through `iwo_purchase_check()` and FAILS CLOSED, as the Advised check
+ * does — see `refuseAdvisedIwoItems` for both reasons.
+ */
+async function refuseIwoOverCeiling(
+  lines: readonly { iwo_id?: string | null; item_id?: string | null; quantity: number }[],
+  exclude?: { poId?: string | null; lineId?: string | null },
+): Promise<string | null> {
+  const byIwo = new Map<string, Map<string, number>>();
+  for (const l of lines) {
+    if (!l.iwo_id || !l.item_id) continue;
+    const q = Number.isFinite(l.quantity) ? Number(l.quantity) : 0;
+    if (q <= 0) continue;
+    const forIwo = byIwo.get(l.iwo_id) ?? new Map<string, number>();
+    forIwo.set(l.item_id, (forIwo.get(l.item_id) ?? 0) + q);
+    byIwo.set(l.iwo_id, forIwo);
+  }
+  if (byIwo.size === 0) return null;
+
+  const s = await createClient();
+  for (const [iwoId, wanted] of byIwo) {
+    const { data, error } = await s.rpc("iwo_purchase_check", {
+      p_iwo_id: iwoId,
+      p_exclude_po: exclude?.poId ?? null,
+      p_exclude_line: exclude?.lineId ?? null,
+    });
+    if (error) {
+      return `Could not check the work order's Material BOM (${error.message}). Nothing was saved — try again.`;
+    }
+    if (!data) return "The work order on this purchase no longer exists. Choose another, or clear it.";
+    const refusal = iwoCeilingRefusal(data as IwoPurchaseCheck, wanted);
+    if (refusal) return refusal;
+  }
+  return null;
+}
+
+/**
+ * THE ADVISED CHECKPOINT (IWO SRS §6, 0586) — the work-order twin of the TBA
+ * gate above, and called from inside it.
+ *
+ * An accessory ticked Is Advised on a work order's Material BOM cannot be
+ * bought for that work order until the merchandiser unticks it. The same four
+ * write paths, the same shape of sentence (`advisedRefusal`).
+ *
+ * ## READ THROUGH `iwo_purchase_check()`, NEVER THE TABLES
+ *
+ * This runs in the BUYER's session, and the IWO tables are readable only with
+ * Orders ▸ View at the work order's unit. Read directly, a buyer without that
+ * permission gets no rows back — which this gate would read as "nothing
+ * Advised" and allow. The function is SECURITY DEFINER and answers the same for
+ * everyone.
+ *
+ * ## IT FAILS CLOSED
+ *
+ * An error, or a work order the database cannot find, refuses. The order-side
+ * gates read `data ?? []` and allow on a failed query; for a checkpoint the SRS
+ * calls strict, "could not look" must not be the same answer as "nothing there".
+ *
+ * ## DRAFT BOMs COUNT
+ *
+ * Unlike the order side, which reads recorded BOMs only: an IWO has ONE
+ * Material BOM, and the tick is a stop sign that holds from the moment it is
+ * stored. 0586's header says the rest.
+ */
+async function refuseAdvisedIwoItems(
+  lines: readonly { iwo_id?: string | null; item_id?: string | null }[],
+): Promise<string | null> {
+  const byIwo = new Map<string, Set<string>>();
+  for (const l of lines) {
+    if (!l.iwo_id || !l.item_id) continue;
+    const forIwo = byIwo.get(l.iwo_id) ?? new Set<string>();
+    forIwo.add(l.item_id);
+    byIwo.set(l.iwo_id, forIwo);
+  }
+  if (byIwo.size === 0) return null;
+
+  const s = await createClient();
+  for (const [iwoId, itemIds] of byIwo) {
+    const { data, error } = await s.rpc("iwo_purchase_check", { p_iwo_id: iwoId });
+    if (error) {
+      return `Could not check the work order's Advised items (${error.message}). Nothing was saved — try again.`;
+    }
+    if (!data) return "The work order on this purchase no longer exists. Choose another, or clear it.";
+    const check = data as IwoPurchaseCheck;
+    const refusal = advisedRefusal(advisedAmong(check, itemIds), check.code);
+    if (refusal) return refusal;
   }
   return null;
 }

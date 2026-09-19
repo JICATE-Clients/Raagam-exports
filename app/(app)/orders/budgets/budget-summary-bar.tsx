@@ -67,6 +67,7 @@ import { FIELD_ROW_TOP, FIELD_WIDTH } from "@/components/ui/field";
 import type { FieldWidth } from "@/lib/ui/sizes";
 import { fmtNumber } from "@/lib/format";
 import {
+  isNoOrdersYet,
   isRefusal,
   type BudgetTotals,
   type Refusal,
@@ -173,7 +174,11 @@ function Figure({
   return (
     <span className={cn(FIELD_WIDTH[w], "flex min-w-0 flex-wrap items-baseline justify-between gap-x-1.5")}>
       <span className="text-muted-foreground">{label}</span>
-      {isRefusal(value) ? (
+      {isNoOrdersYet(value) ? (
+        // A NEW BUDGET IS EMPTY, NOT WRONG — a muted dash, not the sentence in
+        // red on every cell of both bands. General says why, once.
+        <span className="ml-auto text-right text-muted-foreground">—</span>
+      ) : isRefusal(value) ? (
         <span className="min-w-0 break-words text-right text-danger">{value.refused}</span>
       ) : (
         <span

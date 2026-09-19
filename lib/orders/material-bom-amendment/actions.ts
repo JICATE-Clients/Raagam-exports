@@ -7,6 +7,9 @@ import { writeAudit } from "@/lib/audit";
 import {
   materialBomAmendmentInput,
   DEFAULT_SUPPLY_TYPE,
+  DEFAULT_MATERIAL_TYPE,
+  TBA_MATERIAL_TYPE,
+  ADVISED_CONVERT_ELSEWHERE,
   type MaterialBomAmendmentInput,
   type MbaItemInput,
   type BomCopyPayload,
@@ -116,7 +119,10 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
   return data.items
     .map((c) => ({
       category_id: c.category_id ?? null,
-      type: clean(c.type),
+      /* NEVER NULL (0588: NOT NULL + CHECK). `clean()` returns NULL for a blank,
+         and a column default does not fire for a NAMED column — the 0475 lesson —
+         so the switch's OFF position is written here, not left to the default. */
+      type: clean(c.type) ?? DEFAULT_MATERIAL_TYPE,
       item_id: c.item_id ?? null,
       attribute_id: c.attribute_id ?? null,
       item_color_id: c.item_color_id ?? null,
@@ -193,6 +199,17 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
          `lib/purchase/types.ts`. Said here because a flag with no reader looks
          like a wiring bug to the next person who greps for one. */
       is_foc: c.is_foc ?? false,
+      /* 0588 — the Advised Items facts, named here for the reason every column
+         on this literal records: it is the whole write. The two stamps are
+         sent back as read so the database (`stamp_advised_conversion`) can keep
+         a converted line's history through this delete-and-re-insert; on a TBA
+         line it clears them whatever arrives. */
+      estimated_rate: c.estimated_rate ?? null,
+      brand: clean(c.brand),
+      artwork_code: clean(c.artwork_code),
+      pending_reason: clean(c.pending_reason),
+      converted_at: clean(c.converted_at),
+      converted_by: c.converted_by ?? null,
       moq: c.moq ?? null,
       // 0437. Named here for the reason the comment on `component_id`
       // above records: this literal is the whole write, so a column left
@@ -1016,6 +1033,34 @@ async function writeChildren(
   order: OrderProductionInput | null,
 ): Promise<Result> {
   /*
+   * CONVERSION HAS ONE DOOR — the Advised Items Register (0588).
+   *
+   * This save deletes and re-inserts every line, so switching TBA off here would
+   * reach the database as a DELETE of the advised line and an INSERT of an
+   * Available one: the conversion stamp (a BEFORE UPDATE trigger) never fires
+   * and the audit (AFTER UPDATE) never sees it. `convertAdvisedItem` — one
+   * UPDATE — is the only way an advised material becomes Available.
+   *
+   * Compared by MATERIAL because the rewrite gives every line a new id: a
+   * material stored as To be advised may not come back from this save with NO
+   * advised line left while it still appears as Available. Removing the line
+   * outright stays allowed (that is dropping a material, not converting it), and
+   * so does switching TBA ON.
+   */
+  const { data: storedTba, error: tbaErr } = await s
+    .from("material_bom_amendment_items")
+    .select("item_id")
+    .eq("amendment_id", amendmentId)
+    .eq("type", TBA_MATERIAL_TYPE);
+  if (tbaErr) return fail(tbaErr.message);
+  for (const { item_id } of (storedTba ?? []) as { item_id: string | null }[]) {
+    if (!item_id) continue;
+    const incoming = data.items.filter((i) => i.item_id === item_id);
+    const stillAdvised = incoming.some((i) => (i.type ?? "").trim() === TBA_MATERIAL_TYPE);
+    if (incoming.length > 0 && !stillAdvised) return fail(ADVISED_CONVERT_ELSEWHERE);
+  }
+
+  /*
    * A ROW THAT HAS ALREADY SENT MATERIAL OUT CANNOT BE DELETED BY A SAVE (0446).
    *
    * This function deletes and reinserts every process row, which is fine while a
@@ -1600,6 +1645,17 @@ export async function copyMaterialBomFrom(
        dropped this would arrive with the plan intact and the line un-ticked,
        reading as though nobody had decided to send it. */
     send_out: (c.send_out as boolean) ?? false,
+    /* 0588. The advised facts TRAVEL WITH THE RECIPE except the stamps: a
+       copied line that is still To be advised is advised here too, and carries
+       its reason so it can be saved; a brand, artwork and estimated rate are
+       properties of the material. A conversion is an event in the SOURCE
+       order's history, so `converted_at` / `converted_by` start empty. */
+    estimated_rate: (c.estimated_rate as number) ?? null,
+    brand: (c.brand as string) ?? null,
+    artwork_code: (c.artwork_code as string) ?? null,
+    pending_reason: (c.pending_reason as string) ?? null,
+    converted_at: null,
+    converted_by: null,
     /* TRAVELS WITH THE RECIPE (0474), like `send_out` above and `round_to`
        below. Who supplies a trim free of charge is a property of the MATERIAL
        and the trading relationship — a customer who nominates and pays for

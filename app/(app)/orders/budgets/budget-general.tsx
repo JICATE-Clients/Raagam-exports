@@ -33,7 +33,12 @@ import type { ReactNode } from "react";
 import { FIELD_ROW, FIELD_WIDTH } from "@/components/ui/field";
 import type { FieldWidth } from "@/lib/ui/sizes";
 import { fmtNumber } from "@/lib/format";
-import { isRefusal, type GeneralSummary, type Refusal } from "@/lib/orders/budget/totals";
+import {
+  isNoOrdersYet,
+  isRefusal,
+  type GeneralSummary,
+  type Refusal,
+} from "@/lib/orders/budget/totals";
 import type { BaselineRow } from "@/lib/orders/budget/amendment";
 import { cn } from "@/lib/utils";
 
@@ -102,6 +107,15 @@ export function BudgetGeneral({
 }) {
   return (
     <div className="space-y-6">
+      {/* A NEW BUDGET IS EMPTY, NOT WRONG. With no orders every percentage and
+          sales figure refuses for the same reason; it is said once, here, in
+          muted text, and each cell shows a dash — not fifteen red copies of one
+          sentence that read as errors on a screen nobody has touched yet. */}
+      {isNoOrdersYet(summary.sales) && (
+        <p className="text-sm text-muted-foreground">
+          Add orders in the Orders section to see sales, percentages and profit.
+        </p>
+      )}
       <div className={cn(MATRIX_W, "rounded-lg border border-border")}>
         <Row header label="Category" amount="Amount (INR)" pct="% of Gross Sales" />
         {summary.rows.map((r) => (
@@ -208,6 +222,8 @@ function Figure({
   strong?: boolean;
   signed?: boolean;
 }) {
+  // No orders yet: nothing is wrong, there is just nothing to compute.
+  if (isNoOrdersYet(value)) return <span className="text-sm text-muted-foreground">—</span>;
   if (isRefusal(value)) return <span className="text-xs text-danger">{value.refused}</span>;
   return (
     <span

@@ -336,6 +336,7 @@ export function MasterFullScreen({
   initialSection,
   summary,
   locked = false,
+  viewOnly = false,
   footer,
 }: {
   ref?: Ref<MasterFullScreenHandle>;
@@ -549,6 +550,30 @@ export function MasterFullScreen({
    * `false` / omitted = unlocked, and nothing about the surface changes.
    */
   locked?: { message: ReactNode } | false;
+  /**
+   * OPENED TO READ, NOT TO CHANGE — the row's Eye (client 2026-09-19, Order
+   * Entry: the Eye used to open a sheet of raw columns; "open the full order
+   * screen in read-only mode so merchandisers can view the complete order").
+   *
+   * Not `locked`, though it borrows the lock's `LockScope`, and the difference
+   * is the footer. A locked record is one the operator came to EDIT and may
+   * not, so Save stays and answers with the reason. A viewer never asked to
+   * edit: a Save that only ever refuses is a button that exists to say no. So
+   * the footer is one **Close**, and Save / Save as Draft / Next are not drawn.
+   *
+   *  - Fields read-only through `LockScope`, same as the lock.
+   *  - `stepGuard` stands down — on the rail AND on Next. It defends a record
+   *    being ENTERED; a stored order whose numbers already disagree must not
+   *    seal a reader out of the tabs after it.
+   *  - Ctrl+S does nothing: there is nothing to save.
+   *  - The lock's banner still shows when `locked` is ALSO set — the reason an
+   *    approved order cannot be edited is worth reading while viewing it.
+   *
+   * THE DATABASE IS STILL THE GUARD. A plain `<Button>` inside a section (an
+   * "+ Add", a [Detail] opener) is not a `LockScope` reader, so it may still
+   * open or append in local state — which a viewer has no way to save.
+   */
+  viewOnly?: boolean;
   footer: {
     /** Left status text; e.g. "Unsaved changes". */
     status?: ReactNode;
@@ -668,7 +693,7 @@ export function MasterFullScreen({
    */
   const nextSectionKey =
     sections[sections.findIndex((s) => s.key === section) + 1]?.key ?? null;
-  const stepping = !!footer.stepper && nextSectionKey !== null;
+  const stepping = !viewOnly && !!footer.stepper && nextSectionKey !== null;
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1012,7 +1037,7 @@ export function MasterFullScreen({
    */
   const blocked = !!locked || (!footer.canSave && !!footer.onBlockedSave);
   const fireSave = () => {
-    if (footer.isPending) return;
+    if (viewOnly || footer.isPending) return;
     if (locked) {
       // THE LOCK OUTRANKS EVERY OTHER ANSWER — a locked record with a blank
       // field is not "fill this in", it is "this cannot be changed".
@@ -1048,6 +1073,7 @@ export function MasterFullScreen({
    * either — see `StepBlock`.
    */
   const stepBlockOf = (fromKey: string): StepBlock | null => {
+    if (viewOnly) return null; // a reader is never sealed out — see `viewOnly`
     const r = footer.stepGuard?.(fromKey);
     if (!r) return null;
     return typeof r === "string" ? { reason: r } : r;
@@ -1679,7 +1705,7 @@ export function MasterFullScreen({
               </h2>
             )}
             <SectionNamedByRail.Provider value={!railCollapsed}>
-              <LockScope locked={!!locked}>{active?.content}</LockScope>
+              <LockScope locked={!!locked || viewOnly}>{active?.content}</LockScope>
             </SectionNamedByRail.Provider>
           </div>
         </div>
@@ -1840,6 +1866,16 @@ export function MasterFullScreen({
             <span className="text-xs text-muted-foreground">{footer.status}</span>
           )}
           <div className="flex-1" />
+          {/* A VIEWER'S FOOTER IS ONE BUTTON — see `viewOnly`. Filled, not
+              outline: it is the surface's primary (and only) action, so it is
+              also what Enter off the last field and `submitTargetOf` resolve
+              to, and nothing else can be. */}
+          {viewOnly ? (
+            <Button size="sm" onClick={footer.onCancel}>
+              Close
+            </Button>
+          ) : (
+          <>
           {!stepping && footer.extra}
           <Button variant="outline" size="sm" onClick={footer.onCancel}>
             Cancel
@@ -1930,6 +1966,8 @@ export function MasterFullScreen({
             >
               {footer.isPending ? "Saving…" : footer.saveLabel}
             </Button>
+          )}
+          </>
           )}
         </div>
       </div>

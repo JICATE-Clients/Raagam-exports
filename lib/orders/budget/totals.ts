@@ -292,6 +292,20 @@ export function isRefusal(v: unknown): v is { refused: string } {
   return typeof v === "object" && v !== null && typeof (v as Refusal).refused === "string";
 }
 
+/**
+ * THE ONE REFUSAL THAT IS NOT A PROBLEM. A budget with no orders yet refuses
+ * every sales-based figure for the same reason — there is nothing to sell — and
+ * that is the normal state of a NEW budget, not a fault to fix. Named once so
+ * the screens can tell it apart from a real refusal (a missing price, mixed
+ * currencies) and show a muted dash instead of fifteen red copies of it
+ * (Budget ▸ General, 2026-09-19). The engine still refuses: a dash is not a 0.
+ */
+export const NO_ORDERS_YET = "No orders in this budget yet";
+
+export function isNoOrdersYet(v: unknown): boolean {
+  return isRefusal(v) && v.refused === NO_ORDERS_YET;
+}
+
 export function budgetSourceOf(v: string | null | undefined): BudgetSource | Refusal {
   const k = (v ?? "").trim().toLowerCase();
   return (BUDGET_SOURCES as readonly string[]).includes(k)
@@ -590,7 +604,7 @@ export type BudgetOrderInput = {
 
 /** The whole group's sales, refusing on the first unvaluable order. */
 function groupSales(orders: readonly BudgetOrderInput[]): number | Refusal {
-  if (orders.length === 0) return { refused: "No orders in this budget yet" };
+  if (orders.length === 0) return { refused: NO_ORDERS_YET };
   const bad = orders.find((o) => o.sales_value == null);
   if (bad) {
     return {
@@ -1288,7 +1302,7 @@ function common<T>(
  */
 export function salesSummary(orders: readonly SalesOrderFacts[]): SalesSummary {
   if (orders.length === 0) {
-    const none: Refusal = { refused: "No orders in this budget yet" };
+    const none: Refusal = { refused: NO_ORDERS_YET };
     return { currency: none, conv: none, qty: none, unit: none, avgPrice: none };
   }
 
