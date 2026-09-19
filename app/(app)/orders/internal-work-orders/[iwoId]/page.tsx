@@ -1,46 +1,11 @@
-import { notFound } from "next/navigation";
-import Link from "next/link";
-import { requirePermission, can } from "@/lib/auth/server";
-import {
-  getInternalWorkOrder,
-  getIwoLines,
-} from "@/lib/orders/internal-work-orders/service";
-import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
-import { IwoDetail } from "./iwo-detail";
+import { redirect } from "next/navigation";
 
-export default async function IwoDetailPage({
-  params,
-}: {
-  params: Promise<{ iwoId: string }>;
-}) {
-  await requirePermission("orders", "view");
-  const { iwoId } = await params;
-
-  const [iwo, lines, canEdit, canDelete] = await Promise.all([
-    getInternalWorkOrder(iwoId),
-    getIwoLines(iwoId),
-    can("orders", "edit"),
-    can("orders", "delete"),
-  ]);
-
-  if (!iwo) notFound();
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title={iwo.code ?? "Internal Work Order"}
-        description={iwo.title ?? iwo.customer?.name ?? "Trial / internal work order"}
-        actions={
-          <Link href="/orders/internal-work-orders">
-            <Button variant="outline" size="md">
-              ← All work orders
-            </Button>
-          </Link>
-        }
-      />
-
-      <IwoDetail iwo={iwo} lines={lines} canEdit={canEdit} canDelete={canDelete} />
-    </div>
-  );
+/**
+ * The old per-IWO detail page. An IWO is now edited as an overlay of its list
+ * (2026-09-18), so this route has nothing of its own to show — but a screen
+ * that loses its page KEEPS ITS URL (AGENTS.md, the sidebar section), so a
+ * bookmark lands on the list rather than a 404.
+ */
+export default function IwoDetailRedirect() {
+  redirect("/orders/internal-work-orders");
 }
