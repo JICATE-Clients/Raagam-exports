@@ -145,6 +145,29 @@ const nextConfig: NextConfig = {
    * amount"). Worth having, but it trims a peak rather than moving where the
    * peak lives; the worker above is the structural half.
    *
+   * ## AND A HEAP CAP, BECAUSE THE APP OUTGREW THE FIRST TWO (2026-09-19)
+   *
+   * The same OOM came back after PR #164 (+9k lines): the build WORKER itself
+   * was SIGKILLed ~85s into compiling, both settings above still on. A
+   * SIGKILL is the CONTAINER killing the process, not V8 running out of heap
+   * ("JavaScript heap out of memory" never printed): V8 sized its heap from
+   * the host, grew freely, and RSS crossed 8 GB before it chose to collect.
+   *
+   * So `npm run build` passes `--max-old-space-size=3072` on the command line
+   * (package.json). On the command line, not `NODE_OPTIONS=… next build`:
+   * that syntax does not run in Windows' cmd, and it needs no Vercel setting.
+   * It still reaches the worker, because `next/dist/lib/worker.js` reads
+   * `process.execArgv` (`getParsedNodeOptions`) and the webpack worker is not
+   * `isolatedMemory`, so the flag is forwarded into its NODE_OPTIONS.
+   *
+   * MEASURED, not guessed: under the 3 GB cap the local build passed and the
+   * build's own processes peaked at 5.5 GB RSS (5.4 GB in the worker: 3 GB of
+   * heap plus ~2.4 GB native — SWC and buffers, which the cap does not bound).
+   * That leaves ~2.5 GB of the 8 GB box for npm, the Vercel CLI and the OS.
+   * Lower the cap and the worker dies with a HEAP error instead; raise it and
+   * the headroom goes. If it recurs, re-measure before moving the number —
+   * the next lever is Vercel's Enhanced Builds (16 GB), a paid setting.
+   *
    * WHAT WAS DELIBERATELY NOT DONE: `typescript.ignoreBuildErrors`. The memory
    * guide offers it and it would very likely make the build pass, by turning off
    * the check that has caught a real error in this repo more than once. A deploy
