@@ -1208,15 +1208,58 @@ export function IwoFabricBomScreen({
     return !v || declaredDias.includes(v.toUpperCase()) ? opts : [...opts, { value: v, label: v, sublabel: "not on the Dia panel" }];
   };
 
+  /** The Print cell — Allocation and Consumption share it, as they share the
+   *  Colour cell below. A select on a PRINT-stage line (or one still holding a
+   *  print, so the rule refusing it has a way out); "—" everywhere else. */
+  const printCell = (r: LineRow) => {
+    if (!owesPrint(r) && !r.print_name) return <span className="text-xs text-muted-foreground">—</span>;
+    const held = r.print_name && !printNames.includes(normName(r.print_name)) ? [r.print_name] : [];
+    return (
+      <RequiredScope required={owesPrint(r)} label="Print">
+        <Select
+          compact
+          className="h-8"
+          aria-label="Print"
+          required={owesPrint(r)}
+          value={r.print_name}
+          onChange={(e) => patchLine(r.key, { print_name: e.target.value })}
+        >
+          <option value="" />
+          {[...printNames, ...held].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </Select>
+      </RequiredScope>
+    );
+  };
+  /** Consumption draws its Print column only while a line needs it. */
+  const showPrintColumn = lines.some((l) => owesPrint(l) || !!l.print_name.trim());
+
+  /** ONE STAGE PER FABRIC (Phase 2's rule): choosing it on one line sets it on
+   *  every line of that fabric, so a + Dia line never lags behind and trips
+   *  the "one Stage" refusal. A line with no fabric changes alone. */
+  const setFabricStage = (r: LineRow, stageId: string | null) => {
+    setLines((xs) =>
+      xs.map((x) => (x.key === r.key || (r.item_id && x.item_id === r.item_id) ? { ...x, stage_id: stageId } : x)),
+    );
+    setDirty(true);
+  };
+
   /** The Colour cell — ONE renderer for Fabric Allocation and Fabric
    *  Consumption, so the two surfaces of one line cannot disagree about what it
    *  offers or when it holds the cursor. */
   const colourCell = (r: LineRow) => {
     // A name the line already holds survives a panel edit that removed it.
     const held = r.color_name && !fabricColourNames.includes(normName(r.color_name)) ? [r.color_name] : [];
-    // Disabled on a GREIGE line with nothing in it — but LIVE while it still
-    // holds a colour, or the rule refusing that colour would have no way out.
-    const greigeEmpty = fabricStageRank(r.stage_id) === 0 && !r.color_name;
+    // NOTHING TO FILL ON A GREIGE LINE: a "—", not a disabled box, so Tab walks
+    // straight past it (user 2026-09-20, the stage decides the fields). A box
+    // comes back while it still holds a colour — the rule refusing that colour
+    // needs a way to clear it.
+    if (fabricStageRank(r.stage_id) === 0 && !r.color_name) {
+      return <span className="text-xs text-muted-foreground">—</span>;
+    }
     return (
       <RequiredScope required={owesColour(r)} label="Colour">
         <Select
@@ -1224,7 +1267,6 @@ export function IwoFabricBomScreen({
           className="h-8"
           aria-label="Colour"
           required={owesColour(r)}
-          disabled={greigeEmpty}
           value={r.color_name}
           onChange={(e) => patchLine(r.key, { color_name: e.target.value })}
         >
@@ -1319,31 +1361,7 @@ export function IwoFabricBomScreen({
       header: "Print",
       width: FIELD_WIDTH_CSS.hug,
       required: lines.some(owesPrint),
-      cell: (r) => {
-        const held = r.print_name && !printNames.includes(normName(r.print_name)) ? [r.print_name] : [];
-        return (
-          <RequiredScope required={owesPrint(r)} label="Print">
-            <Select
-              compact
-              className="h-8"
-              aria-label="Print"
-              required={owesPrint(r)}
-              // Live off a Print stage only while it still holds a print — the
-              // rule refusing it needs a way out.
-              disabled={!owesPrint(r) && !r.print_name}
-              value={r.print_name}
-              onChange={(e) => patchLine(r.key, { print_name: e.target.value })}
-            >
-              <option value="" />
-              {[...printNames, ...held].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </Select>
-          </RequiredScope>
-        );
-      },
+      cell: (r) => printCell(r),
     },
     {
       header: "Mixing Uom",
@@ -1433,32 +1451,122 @@ export function IwoFabricBomScreen({
 
   /**
    * FABRIC CONSUMPTION — screenshot 2940 / SRS §4: the garment breakdown is
-   * bypassed, so the weight is TYPED. Rows are the Allocation lines that name
-   * a fabric; a line is added or removed on Allocation, never here.
+   * bypassed, so the weight is TYPED. Rows are the Allocation lines; + Dia
+   * adds another line of the same fabric here.
    *
-   * WIDTHS (check:grid-budget): term 176 + code 144 + range 112 + num 72 +
-   * hug 88 + code 144 + range 112 + range 112 (Gross Yarn) + num 72 (+ Dia) =
-   * 1032, and 1072 with the grid's chrome <= 1155. Fabric came down from
-   * `name` to `term` to make room for + Dia; its full name reveals on hover.
+   * STAGE FIRST, THEN WHAT THE STAGE ASKS FOR (user 2026-09-20: "if the dyed
+   * is chosen ask three field color, dia, weight … print … wash also same").
+   * Colour and Finish Dia used to stand LEFT of Stage, so choosing DYED sent
+   * the cursor on to Req Wt with the two fields it now owed behind it —
+   * nothing asked for them until Save refused. Now Tab / Enter off Stage lands
+   * on the first field it owes and the mandatory hold keeps the cursor there:
+   *   GREIGE          → Colour "—", Finish Dia, Req Wt
+   *   DYED / WASH     → Colour*, Finish Dia*, Req Wt*
+   *   PRINT           → Print*, Colour*, Finish Dia*, Req Wt*
+   *
+   * WIDTHS (check:grid-budget): code 144 (Fabric) + code 144 (Stage) + hug 88
+   * (Print) + code 144 (Colour) + hug 88 (Finish Dia) + range 112 (Req Wt) +
+   * hug 88 (Form) + num 72 (GSM) + range 112 (Gross Yarn) + num 72 (+ Dia) =
+   * 1064, and 1136 with the grid's chrome <= 1155. Fabric is read-only here
+   * (picked on Allocation) and reveals its full name on hover.
    */
   const consumptionColumns: ChildGridColumn<LineRow>[] = [
     {
       header: "Fabric",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.code,
       cell: (r) => <Truncated className="text-sm">{fabricById.get(r.item_id ?? "")?.name ?? ""}</Truncated>,
     },
     {
-      // PICKED HERE TOO (user 2026-09-20, screenshot 2968: "the dyed means it
-      // will ask extra three field color, dia, weight"): a DYED line is
-      // planned by Colour, Finish Dia and Req Wt, all three on this row.
+      header: "Stage",
+      required: true,
+      width: FIELD_WIDTH_CSS.code,
+      // OWED ONLY ONCE THE LINE NAMES A FABRIC (`iwoFabricLineProblems` skips a
+      // line without one). Every allocation line is shown here now, the seeded
+      // blank one included, so the column's star stays and this row's own
+      // scope decides the hold — a blank line never cages the cursor.
+      cell: (r) => (
+        <RequiredScope required={!!r.item_id} label="Stage">
+          <LookupDialogPicker
+            kind="fabric_stage"
+            label="Stage"
+            compact
+            required={!!r.item_id}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            options={data.fabricStages}
+            value={r.stage_id}
+            onChange={(id) => setFabricStage(r, id)}
+          />
+        </RequiredScope>
+      ),
+    },
+    ...(showPrintColumn
+      ? [
+          {
+            // PRINT asks for it — the column appears once any line is in a
+            // Print stage (or still holds a print to clear).
+            header: "Print",
+            width: FIELD_WIDTH_CSS.hug,
+            required: lines.some(owesPrint),
+            cell: (r: LineRow) => printCell(r),
+          },
+        ]
+      : []),
+    {
+      // DYED / WASH / PRINT ask for it; GREIGE shows "—" (user 2026-09-20: "if
+      // the dyed is chosen ask three field color, dia, weight").
       header: "Colour",
       width: FIELD_WIDTH_CSS.code,
       required: lines.some(owesColour),
       cell: (r) => colourCell(r),
     },
     {
-      header: "Form",
+      // PICKS FROM THE DIA PANEL (Phase 2, the order screen's Finish Dia): a
+      // Combobox, so typed text is a SEARCH, never a stored value. Several
+      // dias of one fabric are several lines — one per dia.
+      header: "Finish Dia",
+      width: FIELD_WIDTH_CSS.hug,
+      // OWED ON A DYED / WASHED / PRINTED LINE (ticket 2026-09-20 §3): such a
+      // line is planned per colour AND dia. A per-row hold under a column star,
+      // the Colour cell's shape.
+      required: lines.some(owesDia),
+      cell: (r) => (
+        <RequiredScope required={owesDia(r)} label="Finish Dia">
+          <Combobox
+            compact
+            inputClassName="h-8"
+            required={owesDia(r)}
+            options={diaOptionsFor(r.finish_dia)}
+            value={r.finish_dia}
+            onChange={(v) => patchLine(r.key, { finish_dia: v })}
+            clearable
+          />
+        </RequiredScope>
+      ),
+    },
+    {
+      header: "Req Wt (KGS)",
+      required: true,
+      align: "right",
       width: FIELD_WIDTH_CSS.range,
+      total: { kind: "sum", of: (r) => num(r.req_kgs) || 0, format: kg },
+      // Owed only on a line naming a fabric — see Stage above.
+      cell: (r) => (
+        <RequiredScope required={!!r.item_id} label="Req Wt (KGS)">
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            required={!!r.item_id}
+            aria-label="Req Wt (KGS)"
+            value={r.req_kgs}
+            onChange={(e) => patchLine(r.key, { req_kgs: e.target.value })}
+          />
+        </RequiredScope>
+      ),
+    },
+    {
+      header: "Form",
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <Select
           compact
@@ -1488,74 +1596,6 @@ export function IwoFabricBomScreen({
           value={r.gsm}
           onChange={(e) => patchLine(r.key, { gsm: e.target.value })}
         />
-      ),
-    },
-    {
-      // PICKS FROM THE DIA PANEL (Phase 2, the order screen's Finish Dia): a
-      // Combobox, so typed text is a SEARCH, never a stored value. Several
-      // dias of one fabric are several lines — one per dia.
-      header: "Finish Dia",
-      width: FIELD_WIDTH_CSS.hug,
-      // OWED ON A DYED / WASHED / PRINTED LINE (ticket 2026-09-20 §3): such a
-      // line is planned per colour AND dia. A per-row hold under a column star,
-      // the Colour cell's shape.
-      required: lines.some(owesDia),
-      cell: (r) => (
-        <RequiredScope required={owesDia(r)} label="Finish Dia">
-          <Combobox
-            compact
-            inputClassName="h-8"
-            required={owesDia(r)}
-            options={diaOptionsFor(r.finish_dia)}
-            value={r.finish_dia}
-            onChange={(v) => patchLine(r.key, { finish_dia: v })}
-            clearable
-          />
-        </RequiredScope>
-      ),
-    },
-    {
-      header: "Stage",
-      required: true,
-      width: FIELD_WIDTH_CSS.code,
-      // OWED ONLY ONCE THE LINE NAMES A FABRIC (`iwoFabricLineProblems` skips a
-      // line without one). Every allocation line is shown here now, the seeded
-      // blank one included, so the column's star stays and this row's own
-      // scope decides the hold — a blank line never cages the cursor.
-      cell: (r) => (
-        <RequiredScope required={!!r.item_id} label="Stage">
-          <LookupDialogPicker
-            kind="fabric_stage"
-            label="Stage"
-            compact
-            required={!!r.item_id}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            options={data.fabricStages}
-            value={r.stage_id}
-            onChange={(id) => patchLine(r.key, { stage_id: id })}
-          />
-        </RequiredScope>
-      ),
-    },
-    {
-      header: "Req Wt (KGS)",
-      required: true,
-      align: "right",
-      width: FIELD_WIDTH_CSS.range,
-      total: { kind: "sum", of: (r) => num(r.req_kgs) || 0, format: kg },
-      // Owed only on a line naming a fabric — see Stage above.
-      cell: (r) => (
-        <RequiredScope required={!!r.item_id} label="Req Wt (KGS)">
-          <Input
-            className="h-8 text-right"
-            inputMode="decimal"
-            required={!!r.item_id}
-            aria-label="Req Wt (KGS)"
-            value={r.req_kgs}
-            onChange={(e) => patchLine(r.key, { req_kgs: e.target.value })}
-          />
-        </RequiredScope>
       ),
     },
     {
