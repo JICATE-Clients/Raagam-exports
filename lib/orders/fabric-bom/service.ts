@@ -1023,7 +1023,11 @@ async function getFabricCreateFeed(): Promise<FabricCreateFeed> {
   };
 }
 
-async function getYarnStageRows(): Promise<ConfigLookup[]> {
+/* EXPORTED FOR THE SAVE (2026-09-19) — `writeYarns` needs to know which yarn
+   steps sit in a coloured stage ("ONE DYEING LOSS" in `yarnPurchase`). A failed
+   read answers `[]`, which marks no step as dyeing: a typed dyeing step then
+   stays in the purchase arithmetic — an over-buy, never an under-buy. */
+export async function getYarnStageRows(): Promise<ConfigLookup[]> {
   const s = await createClient();
   const { data } = await s
     .from("config_lookups")

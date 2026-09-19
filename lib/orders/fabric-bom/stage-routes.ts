@@ -391,6 +391,17 @@ export function stageRank(stage: FabricStageLike): number | null {
 }
 
 /**
+ * THE COLOURED STAGES (rank 1 or 2) among a stage list — used for the YARN
+ * side's `yarn_stage` list (GREY / DYED) as much as the fabric's, since
+ * `stageRank` reads meaning (code or name), not the lookup kind. A yarn step
+ * in one of these is a dyeing step — see "ONE DYEING LOSS" in
+ * `yarnPurchase` (client 2026-09-19). An unranked stage is not coloured.
+ */
+export function colouredStageIds(stages: readonly FabricStageLike[]): Set<string> {
+  return new Set(stages.filter((s) => (stageRank(s) ?? 0) >= 1).map((s) => s.id));
+}
+
+/**
  * The highest rank this route has already REACHED above `index` — the floor a
  * row may not sit below. `null` when nothing above it is ranked.
  *

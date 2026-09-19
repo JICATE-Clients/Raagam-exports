@@ -10,13 +10,14 @@ import { isYarnDyed, missingFabricLineFields } from "./fabric-line-rules";
    the SCREEN reads it too, and a `"use server"` file can export nothing but
    async Server Functions — so this file cannot be the home of a predicate two
    readers share. See its own header for the drift that made it one function. */
-import { processRowInScope, stageRouteProblems } from "./processes";
+import { colouredStageIds, processRowInScope, stageRouteProblems } from "./processes";
 import { yarnShadesFrom } from "./yarn-dyed";
 import { fabricBomInput, type FabricBomFormInput, type FabricBomInput } from "./types";
 import {
   getBomYarnComposition,
   getFabricProcessLookupRows,
   getFabricProcessRows,
+  getYarnStageRows,
   getOrderFabricSeed,
   getOrderPalette,
   getOrderProduction,
@@ -54,6 +55,7 @@ import {
   comboKey,
   stageProblem,
   stageProcessQty,
+  compositionsBuyingYarn,
   yarnPurchase,
   yarnStageStarted,
   type FabricComposition,
@@ -1087,6 +1089,9 @@ function normalizeYarns(
    *  the caller so this stays a pure function, the same division `writeYarns`
    *  already draws for `compositions` and `uomDecimals`. */
   processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_print?: boolean }> = new Map(),
+  /** The `yarn_stage` ids that are coloured (DYED) — a yarn step there is the
+   *  hand-typed dyeing step `yarnPurchase` drops when shade losses exist. */
+  dyedYarnStages: ReadonlySet<string> = new Set(),
 ): NormalizedYarn[] {
   /* THE DYED SHADES (0568) — built once for the whole save rather than per
      yarn: `yarnPurchase` filters them itself by (fabric, yarn, colourway), and
@@ -1101,10 +1106,22 @@ function normalizeYarns(
     processKinds,
   );
   const sourceByFabric = sourceByFabricOf(data);
+  /* NO ROW FOR A YARN NOBODY BUYS (2026-09-19, Rule 2). A yarn every cloth of
+     which is bought as rolls has nothing to purchase; storing it with a null
+     purchase hid the report's yarn total and made the Budget count a
+     "skipped" figure. `compositionsBuyingYarn` is the screen's own filter. */
+  const allCompositions = [...compositions.values()];
+  const yarnsUsed = new Set(allCompositions.flatMap((c) => c.components.map((x) => x.yarn_id)));
+  const yarnsBought = new Set(
+    compositionsBuyingYarn(allCompositions, (id) => sourceByFabric.get(id) ?? "yarn_knit").flatMap((c) =>
+      c.components.map((x) => x.yarn_id),
+    ),
+  );
 
   for (const y of data.yarns) {
     if (!y.item_id || seen.has(y.item_id)) continue;
     seen.add(y.item_id);
+    if (yarnsUsed.has(y.item_id) && !yarnsBought.has(y.item_id)) continue;
 
     const kept = y.stages.filter((st) =>
       yarnStageStarted({
@@ -1135,7 +1152,11 @@ function normalizeYarns(
          figure stay one computation. This is now the YARN'S OWN stages, which
          compound onto whatever its fabric(s) already contribute (see
          `yarnPurchase`'s 2026-09-11 header) — not the sole source any more. */
-      kept.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
+      kept.map((st) => ({
+        combo: st.combo ?? null,
+        loss_pct: st.loss_pct ?? null,
+        dyed: !!st.stage_id && dyedYarnStages.has(st.stage_id),
+      })),
       uomId ? (uomDecimals.get(uomId) ?? null) : null,
       /* WHERE EACH CLOTH COMES FROM (0564) — a fabric bought as greige or dyed
          rolls buys no yarn, so it leaves this sum. The SAME map the screen's
@@ -1235,7 +1256,14 @@ async function writeYarns(
     return fail(e instanceof Error ? e.message : "Could not read the process master's kind flags");
   }
 
-  const yarns = normalizeYarns(data, fabrics, compositions, uomDecimals, processKinds);
+  const yarns = normalizeYarns(
+    data,
+    fabrics,
+    compositions,
+    uomDecimals,
+    processKinds,
+    colouredStageIds(await getYarnStageRows()),
+  );
 
   /* AN EMPTY PAYLOAD IS NOT AUTOMATICALLY AN EMPTY ANSWER (2026-09-16).
      A yarn row exists because a cloth on this BOM is MADE of that yarn —
@@ -1251,7 +1279,13 @@ async function writeYarns(
      failure this module's header calls its worst. Refusing keeps the rows that
      ARE there, names what happened, and costs the operator one more Save. */
   if (yarns.length === 0) {
-    const clothDeclaresYarn = [...compositions.values()].some((c) => c.components.length > 0);
+    /* Only cloths whose yarn is BOUGHT count (2026-09-19): an all-purchased
+       BOM has compositions and, correctly, no yarn rows. */
+    const sources = sourceByFabricOf(data);
+    const clothDeclaresYarn = compositionsBuyingYarn(
+      [...compositions.values()],
+      (id) => sources.get(id) ?? "yarn_knit",
+    ).some((c) => c.components.length > 0);
     if (clothDeclaresYarn) {
       return fail(
         "The yarn rows had not finished loading, so this save could not work out the yarn " +

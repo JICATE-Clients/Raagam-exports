@@ -153,6 +153,7 @@ import { FabricProcessGrid } from "@/components/orders/fabric-process-grid";
 import {
   blankFabricProcess,
   blankFabricProcessScope,
+  colouredStageIds,
   processRowInScope,
   routeStepCount,
   /* 0570 — every stage fault in the whole document, as sentences. The SAME
@@ -194,6 +195,7 @@ import {
 } from "@/components/orders/process-fold-list";
 import {
   comboKey,
+  compositionsBuyingYarn,
   deriveYarnRows,
   yarnPurchase,
   yarnRowAnswered,
@@ -6832,15 +6834,37 @@ export function FabricBomScreen({
       ? compState
       : null;
 
+  /**
+   * EACH FABRIC'S SOURCE, READ OFF ITS ROUTE (client 2026-09-19) — a branch that
+   * opens with FABRIC PURCHASE / DYED FABRIC PURCHASE is bought, not knitted.
+   * `sourceFromRoute` is the one derivation; the server's save runs it again on
+   * the payload and stores the answer, so this preview and the stored figure
+   * are one reading of one route. A fabric with no route yet keeps whatever
+   * source it had stored.
+   */
+  const routeSources = useMemo(
+    () => sourceFromRoute(procs, data.processes, data.processLookups.stages),
+    [procs, data.processes, data.processLookups.stages],
+  );
+  /** The coloured (DYED) `yarn_stage` ids — a yarn step there is the hand-typed
+   *  dyeing step (see `weightFor` and "ONE DYEING LOSS" in `yarnPurchase`). */
+  const dyedYarnStageIds = useMemo(() => colouredStageIds(data.yarnStages), [data.yarnStages]);
+  const sourceOf = (itemId: string): FabricSource =>
+    effectiveFabricSource(asFabricSource(scopeFor(itemId).source), routeSources.get(itemId));
+
   /** THE ROWS. Derived, never stored — see `deriveYarnRows`. */
   const yarnRows: YarnRow[] = useMemo(() => {
     if (!comp) return [];
     return deriveYarnRows(
-      comp.compositions,
+      /* ONLY CLOTHS WHOSE YARN IS BOUGHT (2026-09-19) — a fabric bought as
+         greige or dyed rolls buys no yarn, so its yarns are not listed here and
+         the save stores no empty row for them. `writeYarns` filters the same. */
+      compositionsBuyingYarn(comp.compositions, sourceOf),
       new Map(comp.yarns.map((y) => [y.id, { name: y.name, inactive: y.inactive }])),
       new Map(Object.entries(yarnAnswers)),
     );
-  }, [comp, yarnAnswers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `sourceOf` reads `routeSources` + `procScopes`, listed
+  }, [comp, yarnAnswers, routeSources, procScopes]);
 
   /**
    * The gross requirement behind each MANUAL ENTRY, for the yarn split.
@@ -6979,20 +7003,6 @@ export function FabricBomScreen({
     return out;
   }, [procs, data.processes]);
 
-  /**
-   * EACH FABRIC'S SOURCE, READ OFF ITS ROUTE (client 2026-09-19) — a branch that
-   * opens with FABRIC PURCHASE / DYED FABRIC PURCHASE is bought, not knitted.
-   * `sourceFromRoute` is the one derivation; the server's save runs it again on
-   * the payload and stores the answer, so this preview and the stored figure
-   * are one reading of one route. A fabric with no route yet keeps whatever
-   * source it had stored.
-   */
-  const routeSources = useMemo(
-    () => sourceFromRoute(procs, data.processes, data.processLookups.stages),
-    [procs, data.processes, data.processLookups.stages],
-  );
-  const sourceOf = (itemId: string): FabricSource =>
-    effectiveFabricSource(asFabricSource(scopeFor(itemId).source), routeSources.get(itemId));
 
   /**
    * EVERYTHING ONE FABRIC GROUP'S YARN DYED TABS NEED (0512), from an ANCHOR
@@ -7186,7 +7196,14 @@ export function FabricBomScreen({
          action's `normalizeYarns` makes, so the preview and the stored figure
          stay one computation. This is now the YARN'S OWN stages on top of
          whatever its fabric(s) already contribute via `routesByFabric`. */
-      r.stages.map((st) => ({ combo: st.combo || null, loss_pct: numOrNull(st.loss_pct) })),
+      /* `dyed` (2026-09-19) — a step in a coloured yarn stage is the hand-typed
+         dyeing step; `yarnPurchase` leaves it out of the purchase weight when the
+         shades already carry a dye loss. `writeYarns` marks it the same way. */
+      r.stages.map((st) => ({
+        combo: st.combo || null,
+        loss_pct: numOrNull(st.loss_pct),
+        dyed: !!st.stage_id && dyedYarnStageIds.has(st.stage_id),
+      })),
       uom?.decimal_places_allowed ?? null,
       /* WHERE EACH FABRIC COMES FROM (0564) — BYTE-FOR-BYTE the expression the
          server's `sourceByFabricOf` uses, on purpose. This is one computation

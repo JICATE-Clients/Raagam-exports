@@ -77,6 +77,8 @@ export {
      and the server action read, which is what stops "what the grid warns
      about" and "what Save refuses" from drifting apart. */
   stageRank,
+  /* 2026-09-19 — which stages are coloured (a yarn step there is a dyeing step). */
+  colouredStageIds,
   stageRegressionBlocked,
   stageRouteProblems,
   stagesForRow,

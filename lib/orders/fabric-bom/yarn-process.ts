@@ -326,6 +326,24 @@ export const blankYarnStage = (key: string): YarnStageRow => ({
  * freely, and a purchase list that shuffled itself every time would be
  * unreadable against yesterday's copy.
  */
+/**
+ * THE COMPOSITIONS WHOSE YARN IS ACTUALLY BOUGHT (client 2026-09-19, Rule 2).
+ *
+ * A cloth bought as greige or dyed rolls buys no yarn — so its yarns must not
+ * appear on the Yarn Process tab or be stored as a yarn row at all. Until now
+ * `deriveYarnRows` listed them anyway and the save stored a row with a null
+ * purchase and the refusal "every fabric using this yarn is bought as cloth";
+ * that empty row hid the report's Total Yarn Purchase Requirement and made the
+ * Budget warn about "skipped" figures nothing owed. The screen and the save
+ * both filter through this one function, so the tab and the stored rows agree.
+ */
+export function compositionsBuyingYarn<C extends { fabric_id: string }>(
+  compositions: readonly C[],
+  sourceOf: (fabricId: string) => FabricSource,
+): C[] {
+  return compositions.filter((c) => sourceBuysYarn(sourceOf(c.fabric_id)));
+}
+
 export function deriveYarnRows(
   compositions: readonly FabricComposition[],
   yarnNames: ReadonlyMap<string, { name: string; inactive: boolean }>,
@@ -930,7 +948,9 @@ export function yarnPurchase(
   fabrics: readonly FabricGross[],
   compositions: ReadonlyMap<string, FabricComposition>,
   routesByFabric: ReadonlyMap<string, readonly RouteStage[]>,
-  yarnOwnStages: readonly { combo: string | null; loss_pct: number | null }[],
+  /** The yarn's OWN typed steps (Yarn Process tab). `dyed` marks a step in a
+   *  coloured stage — the hand-typed YARN DYEING — see "ONE DYEING LOSS" below. */
+  yarnOwnStages: readonly { combo: string | null; loss_pct: number | null; dyed?: boolean }[],
   decimals: number | null,
   /** EACH FABRIC'S OWN SOURCE (0564) — see `./fabric-source.ts`. A fabric
    *  bought as cloth buys no yarn, so it leaves this sum entirely. Defaults
@@ -1038,9 +1058,6 @@ export function yarnPurchase(
     if (isRefusal(route)) {
       return { refused: `${comp.fabric_name || "One fabric"}: ${route.refused}` };
     }
-    const factor = comboUplift([...route, ...yarnOwnStages], combo);
-    if (isRefusal(factor)) return factor;
-
     /* THE DYE HOUSE'S LOSS, LAST (0568) — and the order of these two markups
        is the physical order read backwards. `factor` walks the CLOTH's route
        back from the cutting floor to grey-knitted weight; the yarn was dyed
@@ -1049,6 +1066,18 @@ export function yarnPurchase(
        cloth-at-knitting becomes 1067.311 kg of grey yarn, not the reverse. */
     const dye = shadeDyeFactor(shades, f.fabric_id, yarnId, combo);
     if (isRefusal(dye)) return { refused: `${comp.fabric_name || "One fabric"}: ${dye.refused}` };
+
+    /* ONE DYEING LOSS, NOT TWO (client decision 2026-09-19). When this
+       slice's shades carry a dye-house loss (`dye` above 1), that loss IS the
+       yarn's dyeing loss — so a hand-typed YARN DYEING step (a yarn step in a
+       coloured stage) leaves the PURCHASE arithmetic here, or the grey yarn
+       would be grossed for dyeing twice. The step itself is KEPT: it still
+       carries its `process_qty` to the Budget's Yarn Processes tab, where the
+       dyeing charge per kg is typed. With no shade loss the typed step counts
+       exactly as before. */
+    const ownSteps = dye > 1 ? yarnOwnStages.filter((st) => !st.dyed) : yarnOwnStages;
+    const factor = comboUplift([...route, ...ownSteps], combo);
+    if (isRefusal(factor)) return factor;
 
     const gross = net * factor * dye;
     byFabric.push({ fabric_id: f.fabric_id, combo, net, gross, factor: factor * dye });
@@ -1070,18 +1099,23 @@ export function yarnPurchase(
   }
 
   const byCombo: YarnComboWeight[] = [];
-  let qty = 0;
 
-  /* ROUNDED PER COLOURWAY, still — a purchase per colour is a real lot, and
-     rounding a total DOWN buys less yarn than the order needs. Unchanged from
-     before the restructure. */
+  /* GREY YARN IS ONE LOT, SO IT IS ROUNDED ONCE (client 2026-09-19). Grey
+     yarn is bought and knitted with no colour on it — the colour split begins
+     at dyeing — so the purchase is ONE total per yarn, rounded UP once. It
+     used to round each colourway up and add the results, which bought up to
+     (colourways − 1) extra units of the last decimal and made the stored
+     figure differ from the sum a reader works out. `byCombo` still carries
+     each colourway's own rounded-up share: the colour-scoped yarn steps are
+     charged on those (`stageProcessQty`), and a dyeing lot IS per colour. */
+  let exact = 0;
   for (const [combo, gross] of [...comboGross].sort((a, b) => a[0].localeCompare(b[0]))) {
-    const rounded = ceilToPrecision(gross, dp);
-    byCombo.push({ combo, net: comboNet.get(combo) ?? 0, gross: rounded });
-    qty += rounded;
+    byCombo.push({ combo, net: comboNet.get(combo) ?? 0, gross: ceilToPrecision(gross, dp) });
+    exact += gross;
   }
+  const qty = ceilToPrecision(exact, dp);
 
-  return { qty: ceilToPrecision(qty, dp), uom_id: uomId, byCombo, byFabric };
+  return { qty, uom_id: uomId, byCombo, byFabric };
 }
 
 /** One purchased cloth's line of the answer, per colourway — the same shape

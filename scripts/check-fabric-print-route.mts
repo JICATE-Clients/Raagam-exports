@@ -41,6 +41,12 @@ import {
   sourceFromRoute,
 } from "../lib/orders/fabric-bom/fabric-source.ts";
 import {
+  compositionsBuyingYarn,
+  yarnPurchase,
+  type FabricGross,
+} from "../lib/orders/fabric-bom/yarn-process.ts";
+import { consolidateContributions, mergeGreigeLines } from "../lib/orders/fabric-bom/stage-ledger.ts";
+import {
   printRequirement,
   printRouteProblems,
   printedGroup,
@@ -341,6 +347,81 @@ console.log("\n--- 2. the printing requirement groups per colourway ---");
   check("NAVY's sent total", Number(r.groups[0].sentWt.toFixed(3)), 156.3);
   check("grand total sent", Number(r.sentWt.toFixed(3)), 166.72);
   check("grand total received", r.receivedWt, 160);
+}
+
+// ===========================================================================
+console.log("\n--- 4. yarn rules (client 2026-09-19) ---");
+// ===========================================================================
+{
+  const COMP = new Map([["fab-1", { fabric_id: "fab-1", fabric_name: "SJ", components: [{ yarn_id: "y-1", blend_pct: 100 }] }]]);
+  /* Three colourways of 10.001 kg each at 2 dp: rounded per colourway that is
+     3 × 10.01 = 30.03; rounded once it is ceil(30.003) = 30.01. */
+  const gross = (combo: string): FabricGross => ({ fabric_id: "fab-1", combo, gross: 10.001, uom_id: "kg" });
+  const three = [gross("NAVY"), gross("RED"), gross("WHITE")];
+  const r = yarnPurchase("y-1", three, COMP, new Map(), [], 2);
+  check("Rule 1: grey yarn is ONE lot, rounded once — 30.01, not 30.03", typeof r === "object" && "qty" in r ? r.qty : r, 30.01);
+  check(
+    "…while each colourway keeps its own rounded share (colour-scoped steps are charged on those)",
+    typeof r === "object" && "byCombo" in r ? r.byCombo.map((c) => c.gross) : r,
+    [10.01, 10.01, 10.01],
+  );
+
+  /* ONE DYEING LOSS: a shade with a 5% dye loss AND a typed dyeing step at 5%. */
+  const one = [{ fabric_id: "fab-1", combo: "NAVY", gross: 100, uom_id: "kg" }] as FabricGross[];
+  const shades = [{ fabric_id: "fab-1", yarn_id: "y-1", combo: "NAVY", share: 1, loss_pct: 5 }];
+  const typedDye = [{ combo: null, loss_pct: 5, dyed: true }];
+  const withShade = yarnPurchase("y-1", one, COMP, new Map(), typedDye, 2, new Map(), shades);
+  check(
+    "Rule 3 decision: shade loss present → the typed DYED step adds NO purchase weight (100/0.95 = 105.27, not 110.81)",
+    typeof withShade === "object" && "qty" in withShade ? withShade.qty : withShade,
+    105.27,
+  );
+  const noShade = yarnPurchase("y-1", one, COMP, new Map(), typedDye, 2);
+  check(
+    "…with no shade loss the typed step still counts, exactly as before",
+    typeof noShade === "object" && "qty" in noShade ? noShade.qty : noShade,
+    105.27,
+  );
+  const greyStep = yarnPurchase("y-1", one, COMP, new Map(), [{ combo: null, loss_pct: 2, dyed: false }], 2, new Map(), shades);
+  check(
+    "…and a GREY-stage yarn step is untouched by the rule (100/0.98/0.95 = 107.42)",
+    typeof greyStep === "object" && "qty" in greyStep ? greyStep.qty : greyStep,
+    107.42,
+  );
+
+  const src = (id: string) => (id === "fab-bought" ? ("dyed_purchase" as const) : ("yarn_knit" as const));
+  check(
+    "Rule 2: a bought cloth's composition buys no yarn",
+    compositionsBuyingYarn([{ fabric_id: "fab-1" }, { fabric_id: "fab-bought" }], src).map((c) => c.fabric_id),
+    ["fab-1"],
+  );
+}
+
+// ===========================================================================
+console.log("\n--- 5. greige sections are one line per fabric ---");
+// ===========================================================================
+{
+  const line = (combo: string, wt: number, extra: Record<string, unknown> = {}) => ({
+    itemId: "fab-1", fabricName: "SJ", combo, component: null, lossPct: 2,
+    plannedWt: wt, toOrderedWt: wt * 1.02, dia: "30", fabricColour: combo, ydComboName: null,
+    mixingText: null, formLabel: null, gsm: null, plannedNos: null, toOrderedNos: null, nosUomCode: null,
+    ...extra,
+  });
+  const m = mergeGreigeLines([line("NAVY", 500), line("RED", 300), line("WHITE", 270)] as never);
+  check("KNITTING across three colourways → ONE line of 1070", m.map((l) => [l.combo, l.plannedWt]), [[null, 1070]]);
+  check("…with no colour claimed for grey cloth", m[0].fabricColour, null);
+  const yd = mergeGreigeLines([line("NAVY", 500, { ydComboName: "YD-1" }), line("RED", 300, { ydComboName: "YD-2" })] as never);
+  check("a YARN-DYED cloth keeps its lots apart (its colour exists before knitting)", yd.length, 2);
+  const dias = mergeGreigeLines([line("NAVY", 1, { dia: "30" }), line("RED", 1, { dia: "32" })] as never);
+  check("two different dias print none rather than one", dias[0].dia, null);
+  check(
+    "yarn drill-down: one contribution per fabric, colourways summed",
+    consolidateContributions([
+      { fabricName: "SJ", combo: "NAVY", component: null, wt: 10 },
+      { fabricName: "SJ", combo: "RED", component: null, wt: 5 },
+    ]),
+    [{ fabricName: "SJ", combo: null, component: null, wt: 15 }],
+  );
 }
 
 if (failed) {
