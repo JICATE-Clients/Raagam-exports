@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { FIELD_ROW, FIELD_WIDTH, Field, FieldRow } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
@@ -36,8 +36,10 @@ import { Truncated } from "@/components/ui/truncated";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { cn } from "@/lib/utils";
+import { FigureCell } from "../budgets/budget-general";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
-import { budgetTotals, isRefusal, BUDGET_SOURCE_LABELS, type BudgetSource } from "@/lib/orders/budget/totals";
+import { budgetTotals, BUDGET_SOURCE_LABELS, type BudgetSource } from "@/lib/orders/budget/totals";
 import {
   BUDGET_STATUSES,
   budgetStatusText,
@@ -48,6 +50,8 @@ import {
   type OrderBudget,
 } from "@/lib/orders/budget/types";
 import { decideBudget, reopenBudget } from "@/lib/orders/budget/actions";
+import { kpisFromJson } from "@/lib/orders/budget/amendment";
+import { lineInputOf, orderInputsOfSnapshot } from "@/lib/orders/budget/figures";
 import { getApprovalPanel } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
@@ -57,6 +61,33 @@ import type {
   CanActVerdict,
   TimelineRow,
 } from "@/lib/approvals/types";
+
+/**
+ * THE SHEET'S CAPS (Phase 6, 2026-09-18). The sheet is `lg` — full width — so
+ * without these every section is a pane-wide card around a few narrow values.
+ * Each is the sum of its own row, stated once; a DetailSection adds its
+ * `p-2.5` (2 x 10) and border (2 x 1). A DEFINITE LENGTH, NEVER `max-w-fit`:
+ * `DetailSection` declares `@container/section`, so a content-sized cap
+ * resolves to 0 and the card collapses (the Vendor master's bug).
+ *
+ * BUDGET — Date `range` 112 (dd/mm/yyyy), Status `code` 144 ("Submitted"),
+ * Currency `hug` 88 (three letters; the label is the floor), Exchange rate
+ * `hug` 88 ("84.0000"), Submitted / Decided `term` 176 (dd/mm/yyyy hh:mm):
+ *     112 + 144 + 88 + 88 + 176 + 176 + 5 x 12 = 844, + 22 = 866
+ *     ->  55rem (880), 14px of slack
+ *
+ * ORDERS — RE No `code` 144 ("HO/RE/26-27/0013"), customer `name` 288 (text,
+ * truncated with its reveal), value `code` 144:
+ *     144 + 288 + 144 + 2 x 16 = 608, + 22 = 630  ->  40rem (640)
+ *
+ * FIGURES and AS SUBMITTED — the General section's `FigureCell` rows. Their
+ * longest line is the cost-by-source row, five `code` cells:
+ *     5 x 144 + 4 x 12 = 768, + 22 = 790  ->  50rem (800), 10px of slack
+ * (the figures row is 4 x 144 + 88 + 4 x 12 = 712 and fits beneath it).
+ */
+const BUDGET_BOX_W = "max-w-[55rem]";
+const ORDERS_BOX_W = "max-w-[40rem]";
+const FIGURES_BOX_W = "max-w-[50rem]";
 
 export function BudgetApprovalScreen({
   rows,
@@ -132,19 +163,24 @@ export function BudgetApprovalScreen({
     () => budgets.find((b) => b.id === openId) ?? null,
     [budgets, openId],
   );
+  /** The KPIs stored at submit, or null for a budget submitted before 0576
+   *  (or a summary this version cannot read — `kpisFromJson` refuses rather
+   *  than guessing at an unknown shape). */
+  const submitted = budget ? kpisFromJson(budget.submitted_summary) : null;
 
   const totals = useMemo(() => {
     if (!budget) return null;
+    // `figures.ts` BUILDS THE ENGINE'S INPUTS — the same mapping the budget
+    // screen and `submitBudget` use. This screen hand-built its own once, from
+    // source/qty/rate alone, and its totals drifted from the author's the day
+    // lines grew a currency. One builder is what stops that recurring.
+    //
+    // THE SNAPSHOT orders, not a live re-read: the approver must see the figures
+    // the author submitted (0428), and submit rewrites that snapshot from the
+    // same live facts the screen showed.
     return budgetTotals(
-      (budget.lines ?? []).map((l) => ({ source: l.source, qty: l.qty, rate: l.rate })),
-      (budget.orders ?? []).map((o) => ({
-        label: o.garment_order?.sales_order?.order_number ?? o.garment_order?.code ?? "This order",
-        // THE SNAPSHOT, not a live re-read. The approver must see the figures the
-        // author submitted — re-valuing the orders here would mean approving one
-        // set of numbers and recording another (0428).
-        sales_value: o.sales_value,
-        refusal: o.sales_refusal,
-      })),
+      (budget.lines ?? []).map(lineInputOf),
+      orderInputsOfSnapshot(budget.orders ?? []),
     );
   }, [budget]);
 
@@ -312,50 +348,54 @@ export function BudgetApprovalScreen({
       >
         {budget && totals && (
           <>
-            <DetailSection label="Budget" cols={12}>
-              <FieldGrid>
-                <Field label="Date" size="sm">
+            <DetailSection label="Budget" cols={1} className={BUDGET_BOX_W}>
+              <FieldRow>
+                <Field label="Date" w="range">
                   <Input readOnly value={fmtDate(budget.budget_date)} />
                 </Field>
-                <Field label="Status" size="sm">
+                <Field label="Status" w="code">
                   <Input readOnly value={budgetStatusText(budget.status)} />
                 </Field>
-                <Field label="Currency" size="sm">
+                <Field label="Currency" w="hug">
                   <Input readOnly value={budget.currency_code ?? "—"} />
                 </Field>
-                <Field label="Exchange rate" size="sm">
+                <Field label="Exchange rate" w="hug">
                   <Input readOnly value={String(budget.exchange_rate ?? 1)} />
                 </Field>
                 {budget.submitted_at && (
-                  <Field label="Submitted" size="sm">
+                  <Field label="Submitted" w="term">
                     <Input readOnly value={fmtDateTime(budget.submitted_at)} />
                   </Field>
                 )}
                 {budget.decided_at && (
-                  <Field label="Decided" size="sm">
+                  <Field label="Decided" w="term">
                     <Input readOnly value={fmtDateTime(budget.decided_at)} />
                   </Field>
                 )}
-              </FieldGrid>
+              </FieldRow>
               {budget.remark && (
                 <p className="mt-2 text-xs text-muted-foreground">{budget.remark}</p>
               )}
             </DetailSection>
 
-            <DetailSection label={`Orders (${(budget.orders ?? []).length})`} cols={12}>
+            <DetailSection
+              label={`Orders (${(budget.orders ?? []).length})`}
+              cols={1}
+              className={ORDERS_BOX_W}
+            >
               <ul className="space-y-1 text-sm">
                 {(budget.orders ?? []).map((o) => (
-                  <li key={o.id} className="flex items-baseline justify-between gap-4">
-                    <span>
+                  <li key={o.id} className="flex items-baseline gap-4">
+                    <span className={cn(FIELD_WIDTH.code, "min-w-0 shrink-0")}>
                       <Truncated>
                         {o.garment_order?.sales_order?.order_number ??
                           o.garment_order?.code ??
                           "(order)"}
                       </Truncated>
+                    </span>
+                    <span className={cn(FIELD_WIDTH.name, "min-w-0 shrink-0 text-xs text-muted-foreground")}>
                       {o.garment_order?.customer?.name && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {o.garment_order.customer.name}
-                        </span>
+                        <Truncated>{o.garment_order.customer.name}</Truncated>
                       )}
                     </span>
                     {/* THE REFUSAL IS SHOWN TO THE APPROVER. It is exactly the
@@ -363,34 +403,43 @@ export function BudgetApprovalScreen({
                         nobody could resolve is one the margin below does not
                         include. */}
                     {o.sales_value == null ? (
-                      <span className="text-xs text-danger">{o.sales_refusal ?? "no value"}</span>
+                      <span className={cn(FIELD_WIDTH.code, "shrink-0 text-right text-xs text-danger")}>
+                        {o.sales_refusal ?? "no value"}
+                      </span>
                     ) : (
-                      <span className="tabular-nums text-sm">{fmtNumber(o.sales_value)}</span>
+                      <span className={cn(FIELD_WIDTH.code, "shrink-0 text-right tabular-nums text-sm")}>
+                        {fmtNumber(o.sales_value)}
+                      </span>
                     )}
                   </li>
                 ))}
               </ul>
             </DetailSection>
 
-            <DetailSection label="Figures" cols={12}>
-              <dl className="space-y-2">
-                <Row label="Sales value" value={totals.sales} />
-                <Row label="Total cost" value={totals.cost} />
-                <Row label="Other income" value={totals.income} />
-                <Row label="Profit / loss" value={totals.profit} strong />
-                <Row label="Margin %" value={totals.profitPct} suffix="%" />
+            <DetailSection label="Figures" cols={1} className={FIGURES_BOX_W}>
+              <dl className={FIELD_ROW}>
+                <FigureCell w="code" label="Sales value" value={totals.sales} />
+                <FigureCell w="code" label="Total cost" value={totals.cost} />
+                <FigureCell w="code" label="Other income" value={totals.income} />
+                <FigureCell w="code" label="Profit / loss" value={totals.profit} strong signed />
+                <FigureCell w="hug" label="Margin %" value={totals.profitPct} suffix="%" signed />
               </dl>
 
-              <div className="mt-3 space-y-1 border-t border-border pt-2 text-xs text-muted-foreground">
+              {/* COST BY SOURCE, the same cells one tier down. A SOURCE CAN
+                  REFUSE since 0575 — a percent line whose sales base is
+                  unknown — and `FigureCell` prints its sentence, never a 0. */}
+              <dl className={cn(FIELD_ROW, "mt-3 border-t border-border pt-2")}>
                 {(Object.keys(BUDGET_SOURCE_LABELS) as BudgetSource[])
                   .filter((k) => totals.costBySource[k] !== 0)
                   .map((k) => (
-                    <div key={k} className="flex justify-between gap-4">
-                      <span>{BUDGET_SOURCE_LABELS[k]}</span>
-                      <span className="tabular-nums">{fmtNumber(totals.costBySource[k])}</span>
-                    </div>
+                    <FigureCell
+                      key={k}
+                      w="code"
+                      label={BUDGET_SOURCE_LABELS[k]}
+                      value={totals.costBySource[k]}
+                    />
                   ))}
-              </div>
+              </dl>
 
               {totals.unpriced.length > 0 && (
                 <p className="mt-3 text-xs text-danger">
@@ -399,7 +448,46 @@ export function BudgetApprovalScreen({
                   from these figures.
                 </p>
               )}
+              {totals.pending.length > 0 && (
+                // Priced, but a percentage of a sales value not known yet — the
+                // totals it touches refuse above, and this says how many.
+                <p className="mt-1 text-xs text-danger">
+                  {totals.pending.length} {totals.pending.length === 1 ? "line is" : "lines are"}{" "}
+                  waiting on a sales value.
+                </p>
+              )}
             </DetailSection>
+
+            {/* AS SUBMITTED — the KPIs stored at submit (`submitted_summary`,
+                0576): the figures this approval is being asked about. Shown
+                BESIDE the live figures above rather than instead of them, so an
+                order re-valued since submit is visible as a difference the
+                approver can see, not a silent change under their signature. */}
+            {submitted && (
+              <DetailSection label="As submitted" cols={1} className={FIGURES_BOX_W}>
+                {/* RE No(s) and Delivery date(s) are LISTS and may run long:
+                    `term` holds one of each, and more wrap inside the cell. */}
+                <dl className={FIELD_ROW}>
+                  <FigureCell w="term" label="RE No" value={submitted.re_nos.join(", ")} />
+                  <FigureCell
+                    w="range"
+                    label="Entry date"
+                    value={submitted.entry_date ? fmtDate(submitted.entry_date) : ""}
+                  />
+                  <FigureCell
+                    w="term"
+                    label="Delivery"
+                    value={submitted.delivery_dates.map((d) => fmtDate(d)).join(", ")}
+                  />
+                  <FigureCell w="code" label="Order qty" value={submitted.order_qty} />
+                  <FigureCell w="code" label="Total income" value={submitted.total_income} />
+                  <FigureCell w="code" label="Total expenses" value={submitted.total_expenses} />
+                  <FigureCell w="code" label="Profit / loss" value={submitted.profit} strong signed />
+                  <FigureCell w="hug" label="Profit %" value={submitted.profit_pct} suffix="%" signed />
+                  <FigureCell w="code" label="Cost per piece" value={submitted.cost_per_piece} />
+                </dl>
+              </DetailSection>
+            )}
 
             {budget.decision_remark && (
               <DetailSection label="Decision" cols={12}>
@@ -500,35 +588,5 @@ export function BudgetApprovalScreen({
         )}
       </Sheet>
     </>
-  );
-}
-
-/** One figure, or the sentence saying why there isn't one. */
-function Row({
-  label,
-  value,
-  suffix = "",
-  strong = false,
-}: {
-  label: string;
-  value: number | { refused: string };
-  suffix?: string;
-  strong?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd
-        className={
-          isRefusal(value)
-            ? "text-right text-xs text-danger"
-            : `text-right tabular-nums ${strong ? "text-base font-semibold" : "text-sm"} ${
-                (value as number) < 0 ? "text-danger" : "text-foreground"
-              }`
-        }
-      >
-        {isRefusal(value) ? value.refused : `${fmtNumber(value as number)}${suffix}`}
-      </dd>
-    </div>
   );
 }

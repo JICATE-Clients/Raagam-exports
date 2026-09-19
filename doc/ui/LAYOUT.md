@@ -149,6 +149,13 @@ adopter across 92 screens — nobody could migrate without silently shredding th
 | `xl` | 8 | 1 + a field | a **not-field** that shares its row — see below |
 | `full` | 12 | 1 | the things that are **not fields** — child grids, textareas, fact strips |
 
+> **SUPERSEDED FOR NEW CODE (2026-09-18).** New screens are **width-laid-out from their
+> first commit**: `FieldRow` + `<Field w=…>` from the seven steps of `lib/ui/sizes.ts`,
+> definite section caps, and fixed-width grids that pass `npm run check:grid-budget` by name.
+> The table above and the rule below are kept as the history of how a screen got here —
+> see the `raagam-screen-layout` skill, "BUILD IT COMPACT THE FIRST TIME", and AGENTS.md
+> "Build the UI compact the first time".
+
 **ONE WIDTH, EVERY FIELD (client 2026-07-29).** The rule used to be "size to the data":
 a 6-digit PIN took `xs`, a company name `lg`. The client reviewed the result on the
 Applicant screen, pointed at the City · State · Pin · Country row and asked for the rest of

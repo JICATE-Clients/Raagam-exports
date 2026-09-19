@@ -1,5 +1,5 @@
 import { forwardRef, type InputHTMLAttributes } from "react";
-import { useRequiredHold } from "@/components/ui/field";
+import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 /**
@@ -141,9 +141,22 @@ export const Input = forwardRef<
      *  itself without being asked. */
     uppercase?: boolean;
   }
->(({ className, uppercase, onChange, readOnly, tabIndex, ...props }, ref) => {
+>(({ className, uppercase, onChange, readOnly: ownReadOnly, tabIndex, ...props }, ref) => {
+  /**
+   * A LOCKED RECORD IS READ-ONLY (`LockScope`, field.tsx) — the field's own
+   * `readOnly` OR the surface's lock. Two readers keep reading the CALLER'S
+   * prop instead, deliberately:
+   *  - `caps` — the lock does not change what the value IS, so a stored value
+   *    keeps the casing rule it was typed under.
+   *  - `tabIndex` — a derived field leaves the Tab path because nobody types
+   *    there; a locked record is still READ with the keyboard, field by field.
+   * A tick box or radio has no read-only state, so under a lock it is disabled.
+   */
+  const locked = useLocked();
+  const readOnly = ownReadOnly || locked;
+  const lockDisables = locked && (props.type === "checkbox" || props.type === "radio" || props.type === "file");
   /** Opt-out, not opt-in: an explicit prop always wins. See `capsByDefault`. */
-  const caps = uppercase ?? capsByDefault(props.type, readOnly);
+  const caps = uppercase ?? capsByDefault(props.type, ownReadOnly);
   /**
    * A NUMERIC FIELD REFUSES WHAT IT CANNOT STORE (2026-09-16).
    *
@@ -365,7 +378,7 @@ export const Input = forwardRef<
      * back into the order deliberately. Clicking still focuses it either way —
      * that is how a generated value stays hand-overridable.
      */
-    tabIndex={tabIndex ?? (readOnly ? -1 : undefined)}
+    tabIndex={tabIndex ?? (ownReadOnly ? -1 : undefined)}
     /** Four-digit years. See `DATE_MAX` — this is the whole fix, and it has to
      *  sit above the spread so a call site's own ceiling still wins. */
     max={props.type === "date" ? props.max ?? DATE_MAX : props.max}
@@ -435,6 +448,8 @@ export const Input = forwardRef<
        spinner block above is set before the spread precisely so a call site CAN
        opt back in, and this is the opposite case. */
     onKeyDown={onKeyDown}
+    /* After the spread too: a lock outranks the call site (see `locked`). */
+    disabled={lockDisables || props.disabled}
   />
   );
 });

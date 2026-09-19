@@ -14,6 +14,7 @@ import {
   type SeedTargetLine,
 } from "./weights";
 import { kilogramUom } from "@/lib/uom/kilogram";
+import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -454,6 +455,13 @@ export async function previewCadSeed(garmentOrderId: string): Promise<CadSeedRes
  */
 export async function seedFabricBomFromCad(garmentOrderId: string): Promise<CadSeedResult> {
   if (!(await can("orders", "edit"))) return { ok: false, error: "Forbidden" };
+
+  /* THE APPROVAL LOCK (Phase 5), refused on purpose: this rewrites the Fabric
+     BOM's consumption, and "fabric weight" is exactly what an approved budget
+     protects. Checked before the first line is updated, so a locked order is
+     refused whole rather than half-seeded. */
+  const lock = await assertOrderUnlocked(garmentOrderId);
+  if (!lock.ok) return { ok: false, error: lock.error };
 
   const plan = await planSeed(garmentOrderId);
   if ("error" in plan) return { ok: false, error: plan.error };

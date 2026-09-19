@@ -31,6 +31,8 @@
     "check:standard-routes": "npx --yes tsx scripts/check-standard-routes.mts",
     "check:yarn-dyed": "npx --yes tsx scripts/check-yarn-dyed.mts",
     "check:budget-totals": "npx --yes tsx scripts/check-budget-totals.mts",
+    "check:budget-copy-from": "npx --yes tsx scripts/check-budget-copy-from.mts",
+    "check:budget-amendment": "npx --yes tsx scripts/check-budget-amendment.mts",
     "check:style-rules": "node --experimental-strip-types scripts/check-style-rules.mts",
     "check:price-modes": "node --experimental-strip-types scripts/check-price-modes.mts",
     "check:rejection-ladder": "node --experimental-strip-types scripts/check-rejection-ladder.mts",

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { roundUpTo } from "@/lib/orders/material-bom/requirement";
 import { isUnsettledMaterialType } from "@/lib/orders/material-bom-amendment/types";
 import { blockedMessage, judgeLine, type BomCeiling } from "./bom-ceiling";
+import { reopenedBudgetForOrder } from "@/lib/orders/budget/lock";
 
 /**
  * The lookup half of the over-quantity ceiling (0424, made enforceable
@@ -470,6 +471,84 @@ export async function refuseUnsettledMaterials(
       `${unsettled.length === 1 ? "that line" : "those lines"} and set the Type ` +
       `to Available Item before raising a purchase order.`
     );
+  }
+  return null;
+}
+
+/**
+ * THE REOPENED-BUDGET GATE (Phase 5, decision 3 — user 2026-09-18: "while
+ * reopened, Purchase BLOCKS new POs for those orders").
+ *
+ * Returns the refusal sentence, or null to allow.
+ *
+ * ## Why it exists at all: the ceiling switches itself OFF on a reopen
+ *
+ * `bomCeilingForOrder` enforces only while an APPROVED budget covers the order.
+ * Reopening a budget (Amendment Protocol, `approved → draft`) takes that away,
+ * so without this gate a reopen would not pause buying — it would REMOVE the
+ * cap, at exactly the moment the figures are known to be moving.
+ *
+ * ## A budget NEVER approved is not "reopened"
+ *
+ * `reopenedBudgetForOrder` answers only for a budget that carries a revision
+ * and is not approved now. An order with no budget, or one still being drafted
+ * for the first time, stays purchasable exactly as before — buying ahead of the
+ * budget is the long-standing client choice `refuseOverCeiling` records.
+ *
+ * ## It refuses on any line naming the order, whatever the material
+ *
+ * Sibling of the three gates above and called beside them at the same four
+ * write paths. Unlike them it needs no `item_id`: the question is whether this
+ * ORDER may be bought for right now, not whether this material may. A line
+ * naming no order (general stock buying) is not checked.
+ *
+ * ## A FAILED READ REFUSES
+ *
+ * "Could not check" is not "not reopened" — the PO would go through on an
+ * unanswered question, and a PO is not undone by a later trigger.
+ */
+export async function refuseReopenedBudget(
+  lines: readonly { sales_order_id?: string | null }[],
+): Promise<string | null> {
+  const orderIds = [
+    ...new Set(lines.map((l) => l.sales_order_id).filter((v): v is string => !!v)),
+  ];
+  if (orderIds.length === 0) return null;
+
+  const s = await createClient();
+
+  for (const salesOrderId of orderIds) {
+    /* sales_orders -> its garment order documents, the grain budgets hang off
+       (`order_budget_orders.garment_order_id`). Same walk as
+       `recordedBomForOrder`, which reads it without the RE No. */
+    const [{ data: goRows, error: goErr }, { data: so }] = await Promise.all([
+      s.from("garment_order_amendments").select("id").eq("sales_order_id", salesOrderId),
+      s.from("sales_orders").select("order_number").eq("id", salesOrderId).maybeSingle(),
+    ]);
+    if (goErr) {
+      return `Could not check whether this order's budget is reopened: ${goErr.message}`;
+    }
+    const reNo = (so as { order_number: string | null } | null)?.order_number ?? null;
+
+    for (const { id } of (goRows ?? []) as { id: string }[]) {
+      let reopened;
+      try {
+        reopened = await reopenedBudgetForOrder(id);
+      } catch (e) {
+        return e instanceof Error
+          ? e.message
+          : "Could not check whether this order's budget is reopened.";
+      }
+      if (!reopened) continue;
+
+      const order = reNo ? `RE ${reNo}` : "This order";
+      const budget = reopened.budgetCode ? `budget ${reopened.budgetCode}` : "its budget";
+      return (
+        `${order} cannot be purchased for right now — ${budget} was reopened for ` +
+        `revision ${reopened.revisionNo} (${reopened.reason.trim()}). ` +
+        `Raise the purchase order once the budget is approved again.`
+      );
+    }
   }
   return null;
 }

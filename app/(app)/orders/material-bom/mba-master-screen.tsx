@@ -159,6 +159,9 @@ interface Props {
   perms: Perms;
   /** masters:create/edit — gates inline Add/Modify inside config-list pickers. */
   masterPerms: { canCreate: boolean; canEdit: boolean };
+  /** Garment orders locked by an approved budget → the banner's sentence
+   *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
+  orderLocks: Record<string, string>;
 }
 
 /**
@@ -1175,6 +1178,7 @@ export function MbaMasterScreen({
   data,
   perms,
   masterPerms,
+  orderLocks,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -1610,6 +1614,11 @@ export function MbaMasterScreen({
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
     [data.orders, form.garment_order_id],
   );
+
+  /* THE APPROVAL LOCK (Phase 5). A plain const off the loaded map, never a
+     hook — the server guard and 0576's triggers are the lock; this is the
+     banner and the read-only fields `MasterFullScreen` derives from it. */
+  const lockMessage = form.garment_order_id ? orderLocks[form.garment_order_id] : undefined;
 
   /** The customer is the ORDER's, never typed here. A BOM belongs to whoever the
    *  order belongs to, and a second copy of that fact is a second thing to keep
@@ -6659,6 +6668,7 @@ export function MbaMasterScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        locked={lockMessage ? { message: lockMessage } : false}
         /* The bar shows on Requirement and nowhere else (client 2026-08-28).
            These three sections ARE a sequence — what the BOM is, what happens to
            it, then what the order therefore needs — and Requirement is the

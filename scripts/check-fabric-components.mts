@@ -60,8 +60,13 @@ import {
   declaredPanelsFor,
   fabricFormLabel,
   fabricGroupKey,
+  heldOption,
   layoutTypeLabel,
+  panelGroupKey,
+  panelKey,
+  panelSection,
   panelsTakenInStyle,
+  sortPanelsByCoordinate,
   solePanel,
   FABRIC_FORM_OPTIONS,
   LAYOUT_TYPE_OPTIONS,
@@ -236,10 +241,12 @@ const TWO_COLOURWAYS: MappedLineLike[] = [
   line(TEE, JERSEY, BACK),
 ];
 
+/* Keyed by `panelKey` since 2026-09-18 — these lines state no coordinate, so
+   each is "|component". Section 12 is where the coordinate half is exercised. */
 check(
   "4a two colourways of two panels are TWO taken panels",
   [...panelsTakenInStyle(TWO_COLOURWAYS, TEE)].sort(),
-  [BACK, FRONT].sort(),
+  [BACK, FRONT].map((c) => panelKey({ coordinate_id: null, component_id: c })).sort(),
 );
 refute(
   "4b it counts panels, not lines",
@@ -566,6 +573,189 @@ check("11b labels are the spec's own words", LAYOUT_TYPE_OPTIONS.map((o) => o.la
 check("11c the label resolves", layoutTypeLabel("open_width"), "Open Width");
 check("11d an unanswered Layout Type has no label", layoutTypeLabel(null), "");
 check("11e an unknown value has no label", layoutTypeLabel("open"), "");
+
+// ---------------------------------------------------------------------------
+// 12. A SET ITEM — one component under TWO coordinates (client 2026-09-18).
+//
+// "If user give set it will get multiple coordinate like top bottom, now only
+// top coordinate listing." A Set declares ALL BODY under TOP *and* BOTTOM on one
+// fabric. Every rule above passed with the component as the panel's identity,
+// because every fixture above declares each component once; these are the
+// vectors that fail against it.
+// ---------------------------------------------------------------------------
+const BOTTOM = "coord-bottom";
+const ALL_BODY = "cmp-all-body";
+const SET = "BOYS SET";
+
+const SET_DECLS: StyleComponentDecl[] = [
+  decl(SET, TOP, ALL_BODY, JERSEY),
+  decl(SET, TOP, SLEEVE, JERSEY),
+  decl(SET, BOTTOM, ALL_BODY, JERSEY),
+];
+const setLine = (coordinate: string | null, component: string | null): MappedLineLike => ({
+  style_ref_no: SET,
+  structure_id: JERSEY,
+  coordinate_id: coordinate,
+  component_id: component,
+});
+const keys = (rows: readonly PanelOptionLike[]) => rows.map((r) => panelKey(r));
+type PanelOptionLike = { coordinate_id: string | null; component_id: string };
+
+check(
+  "12a a Set offers ALL BODY under BOTH coordinates",
+  keys(declaredPanelsFor(SET_DECLS, SET, JERSEY)),
+  [panelKey({ coordinate_id: TOP, component_id: ALL_BODY }), panelKey({ coordinate_id: TOP, component_id: SLEEVE }), panelKey({ coordinate_id: BOTTOM, component_id: ALL_BODY })],
+);
+
+/* THE BUG, EXACTLY: TOP's ALL BODY mapped withdrew BOTTOM's too. */
+check(
+  "12b TOP's ALL BODY taken still offers BOTTOM's",
+  keys(
+    availablePanels({
+      decls: SET_DECLS,
+      siblings: [setLine(TOP, ALL_BODY), setLine(TOP, ALL_BODY)],
+      styleRefNo: SET,
+      structureId: JERSEY,
+      held: null,
+    }),
+  ),
+  [panelKey({ coordinate_id: TOP, component_id: SLEEVE }), panelKey({ coordinate_id: BOTTOM, component_id: ALL_BODY })],
+);
+
+/* THE HELD BOTTOM PANEL KEEPS ITS OWN COORDINATE — `decls.find(component)`
+   answered TOP here. */
+check(
+  "12c a held BOTTOM panel resolves to BOTTOM",
+  heldOption(
+    availablePanels({
+      decls: SET_DECLS,
+      siblings: [setLine(TOP, ALL_BODY)],
+      styleRefNo: SET,
+      structureId: JERSEY,
+      held: { coordinate_id: BOTTOM, component_id: ALL_BODY },
+    }),
+    { coordinate_id: BOTTOM, component_id: ALL_BODY },
+  )?.coordinate_id ?? null,
+  BOTTOM,
+);
+
+/* BOTH MAPPED -> ONLY THE SLEEVE LEFT, so the third Add defaults to it. */
+check(
+  "12d both ALL BODYs mapped leaves the sleeve to default",
+  solePanel(
+    availablePanels({
+      decls: SET_DECLS,
+      siblings: [setLine(TOP, ALL_BODY), setLine(BOTTOM, ALL_BODY)],
+      styleRefNo: SET,
+      structureId: JERSEY,
+      held: null,
+    }),
+  ),
+  { coordinate_id: TOP, component_id: SLEEVE },
+);
+
+/* A LEGACY LINE WITH NO COORDINATE CLAIMS THE COMPONENT UNDER EVERY ONE — it
+   cannot say which it meant, so offering either again could cut it twice. */
+check(
+  "12e a coordinate-less ALL BODY takes it under both coordinates",
+  keys(
+    availablePanels({
+      decls: SET_DECLS,
+      siblings: [setLine(null, ALL_BODY)],
+      styleRefNo: SET,
+      structureId: JERSEY,
+      held: null,
+    }),
+  ),
+  [panelKey({ coordinate_id: TOP, component_id: SLEEVE })],
+);
+
+/* A coordinate-less HELD panel is ambiguous on a Set — no guess — and plain on a
+   single-coordinate style. */
+check(
+  "12f a coordinate-less held ALL BODY on a Set resolves to nothing",
+  heldOption(declaredPanelsFor(SET_DECLS, SET, JERSEY), ALL_BODY),
+  null,
+);
+check(
+  "12g a coordinate-less held FRONT on the tee resolves to PIECES",
+  heldOption(declaredPanelsFor(TEE_DECLS, TEE, JERSEY), FRONT)?.coordinate_id ?? null,
+  PIECES,
+);
+
+/* THE ROW KEY — TOP's and BOTTOM's ALL BODY are two panel rows, not one. */
+check(
+  "12h TOP and BOTTOM ALL BODY group as two panels",
+  panelGroupKey({ coordinate_id: TOP, component_id: ALL_BODY, panel_uid: "u1" }) ===
+    panelGroupKey({ coordinate_id: BOTTOM, component_id: ALL_BODY, panel_uid: "u1" }),
+  false,
+);
+check(
+  "12i a blank panel groups by its uid",
+  panelGroupKey({ coordinate_id: null, component_id: null, panel_uid: "u7" }),
+  "u7",
+);
+
+// ---------------------------------------------------------------------------
+// 13. THE RAIL'S ORDER — every TOP panel, then every BOTTOM panel (client
+// 2026-09-18). GOA-0032 as the live DB holds it: TOP declares ALL BODY
+// (JACQUARD), NECK TAPE + ZIPPER BINDING (SINGLE JERSEY), COLLAR (COLLAR);
+// BOTTOM declares ALL BODY (JACQUARD). Seeded one STRUCTURE at a time, the lines
+// arrive JACQUARD first — TOP and BOTTOM interleaved.
+// ---------------------------------------------------------------------------
+const NECK_TAPE = "cmp-neck-tape";
+const ZIP = "cmp-zipper-binding";
+const COLLAR = "cmp-collar";
+const W63076 = "W63076/RE/44";
+const GOA32: StyleComponentDecl[] = [
+  decl(W63076, TOP, ALL_BODY, "cat-jacquard"),
+  decl(W63076, TOP, NECK_TAPE, JERSEY),
+  decl(W63076, TOP, ZIP, JERSEY),
+  decl(W63076, TOP, COLLAR, "cat-collar"),
+  decl(W63076, BOTTOM, ALL_BODY, "cat-jacquard"),
+];
+const pnl = (coordinate: string | null, component: string | null) => ({ coordinate_id: coordinate, component_id: component });
+const label = (ps: { coordinate_id: string | null; component_id: string | null }[]) =>
+  ps.map((p) => `${p.coordinate_id ?? "-"}/${p.component_id ?? "-"}`);
+
+const SEEDED = [pnl(TOP, ALL_BODY), pnl(BOTTOM, ALL_BODY), pnl(TOP, NECK_TAPE), pnl(TOP, ZIP), pnl(TOP, COLLAR)];
+
+check(
+  "13a TOP's four, then BOTTOM's one, in the order's own sequence",
+  label(sortPanelsByCoordinate(SEEDED, GOA32, W63076)),
+  label([pnl(TOP, ALL_BODY), pnl(TOP, NECK_TAPE), pnl(TOP, ZIP), pnl(TOP, COLLAR), pnl(BOTTOM, ALL_BODY)]),
+);
+refute(
+  "13b it is NOT the seeded (structure) order",
+  label(sortPanelsByCoordinate(SEEDED, GOA32, W63076)),
+  label(SEEDED),
+);
+/* NOT ALPHABETICAL — alphabetising coordinates would put BOTTOM before TOP. */
+refute(
+  "13c coordinates are not alphabetised",
+  sortPanelsByCoordinate(SEEDED, GOA32, W63076)[0]?.coordinate_id,
+  BOTTOM,
+);
+/* A fresh "+ Add part" sits at the foot; a coordinate-less legacy panel just
+   above it. */
+check(
+  "13d unstated then pending at the foot",
+  label(sortPanelsByCoordinate([pnl(null, null), pnl(null, COLLAR), pnl(BOTTOM, ALL_BODY), pnl(TOP, ALL_BODY)], GOA32, W63076)),
+  label([pnl(TOP, ALL_BODY), pnl(BOTTOM, ALL_BODY), pnl(null, COLLAR), pnl(null, null)]),
+);
+/* Another style's declarations do not order this one. With none to read, the
+   panels still GROUP — coordinates in the order they first appear, panels in
+   input order within each — so the headings never repeat. */
+check(
+  "13e an undeclared style groups by first appearance",
+  label(sortPanelsByCoordinate(SEEDED, GOA32, "OTHER STYLE")),
+  label([pnl(TOP, ALL_BODY), pnl(TOP, NECK_TAPE), pnl(TOP, ZIP), pnl(TOP, COLLAR), pnl(BOTTOM, ALL_BODY)]),
+);
+check("13f section keys", [panelSection(pnl(TOP, ALL_BODY)).key, panelSection(pnl(null, ALL_BODY)).key, panelSection(pnl(TOP, null)).key], [
+  `c:${TOP}`,
+  "unstated",
+  "pending",
+]);
 
 // ---------------------------------------------------------------------------
 console.log(failed === 0 ? "\nall vectors pass" : `\n${failed} vector(s) FAILED`);

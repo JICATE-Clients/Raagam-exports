@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Check, Plus, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
-import { RequiredScope, useRequiredHold } from "@/components/ui/field";
+import { RequiredScope, useLocked, useRequiredHold } from "@/components/ui/field";
 import { Truncated, useOverflow } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
 import { GRID_FRAME } from "@/components/masters/child-grid";
@@ -132,7 +132,7 @@ export function MultiSelect({
   placeholder = "",
   emptyLabel = "Nothing to choose from",
   required,
-  disabled,
+  disabled: ownDisabled,
   compact,
   className,
   triggerClassName,
@@ -320,6 +320,9 @@ export function MultiSelect({
    */
   onCreate?: (name: string) => Promise<{ id: string; label: string } | { error: string }>;
 }) {
+  // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
+  const locked = useLocked();
+  const disabled = ownDisabled || locked;
   const autoId = useId();
   const id = idProp ?? autoId;
   const listId = `${id}-list`;

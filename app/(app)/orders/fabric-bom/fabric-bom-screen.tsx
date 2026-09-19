@@ -235,6 +235,8 @@ import {
   fabricFormLabel,
   layoutTypeLabel,
   fabricGroupKey,
+  panelGroupKey,
+  panelKey,
   rollUp,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
@@ -1087,11 +1089,15 @@ export function FabricBomScreen({
   boms,
   data,
   perms,
+  orderLocks,
 }: {
   tasks: BomTaskRow[];
   boms: FabricBom[];
   data: FabricBomFormData;
   perms: Perms;
+  /** Garment orders locked by an approved budget → the banner's sentence
+   *  (Phase 5, `orderLockMessages`). Absent key = unlocked. */
+  orderLocks: Record<string, string>;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -1452,6 +1458,11 @@ export function FabricBomScreen({
   const order = current?.order ?? null;
   const orderErr = current?.error ?? null;
   const orderLoading = !!form.garment_order_id && !current;
+
+  /* THE APPROVAL LOCK (Phase 5). A plain const off the page's map, never a
+     hook — the server guard and 0576's triggers are the lock; this is the
+     banner and the read-only fields `MasterFullScreen` derives from it. */
+  const lockMessage = form.garment_order_id ? orderLocks[form.garment_order_id] : undefined;
 
   /**
    * One round trip per ORDER, not per keystroke.
@@ -1833,13 +1844,16 @@ export function FabricBomScreen({
    */
   const panelHandlers = (anchor: LineRow | null) => {
     const scope = anchor ? linesOfStyle(anchor.style_ref_no) : [];
-    const inScope = (x: LineRow, panelKey: string) =>
-      scope.some((d) => d.key === x.key) && (x.component_id ?? x.panel_uid) === panelKey;
+    /* `panelGroupKey` — the SAME key the sheet groups its rows by. The bare
+       `component_id ?? panel_uid` this used to be patched a Set item's TOP and
+       BOTTOM ALL BODY together, whichever row was typed on. */
+    const inScope = (x: LineRow, panelAddr: string) =>
+      scope.some((d) => d.key === x.key) && panelGroupKey(x) === panelAddr;
 
     return {
       /** Patch every colourway of one panel — Component, Coordinate, Open/Tubular. */
-      patchPanel: (panelKey: string, patch: Partial<LineRow>) =>
-        mut((xs) => xs.map((x) => (inScope(x, panelKey) ? { ...x, ...patch } : x))),
+      patchPanel: (panelAddr: string, patch: Partial<LineRow>) =>
+        mut((xs) => xs.map((x) => (inScope(x, panelAddr) ? { ...x, ...patch } : x))),
 
       addPanel: (seed: { component_id: string | null; coordinate_id: string | null }) => {
         if (!anchor) return;
@@ -1873,8 +1887,8 @@ export function FabricBomScreen({
 
 
   /** Remove a panel — and every colourway's line for it. */
-      removePanel: (panelKey: string) =>
-        mut((xs) => xs.filter((x) => !inScope(x, panelKey))),
+      removePanel: (panelAddr: string) =>
+        mut((xs) => xs.filter((x) => !inScope(x, panelAddr))),
     };
   };
 
@@ -2281,7 +2295,12 @@ export function FabricBomScreen({
         structure_id: l.structure_id,
         coordinate_id: l.coordinate_id,
         component_id: l.component_id,
-        panel_uid: l.component_id ?? `p${l.id}`,
+        /* The PAIR, not the component: a Set item's TOP and BOTTOM ALL BODY
+           share a component id, and one uid across both is two panels drawn
+           under one React key. */
+        panel_uid: l.component_id
+          ? panelKey({ coordinate_id: l.coordinate_id, component_id: l.component_id })
+          : `p${l.id}`,
         item_id: l.item_id,
         fabric_type: l.fabric_type ?? "",
         color_name: l.color_name ?? "",
@@ -2534,13 +2553,17 @@ export function FabricBomScreen({
    * break it.
    */
   function applySeed(rows: OrderFabricSeedRow[]): number {
+    /* THE COORDINATE IS PART OF THE ADDRESS — a Set item seeds TOP's and
+       BOTTOM's ALL BODY on one structure, and without it the second read as
+       "already held" once the first was. */
     const addressOf = (l: {
       style_ref_no: string | null;
       combo: string | null;
       structure_id: string | null;
+      coordinate_id: string | null;
       component_id: string | null;
     }) =>
-      [l.style_ref_no ?? "", l.combo ?? "", l.structure_id ?? "", l.component_id ?? ""]
+      [l.style_ref_no ?? "", l.combo ?? "", l.structure_id ?? "", l.coordinate_id ?? "", l.component_id ?? ""]
         .map((v) => v.trim().toUpperCase())
         .join(SEP);
 
@@ -2556,7 +2579,7 @@ export function FabricBomScreen({
        (style, structure, panel) so two structures never share one. */
     const uidOf = new Map<string, string>();
     const panelUid = (r: OrderFabricSeedRow) => {
-      const k = [r.style_ref_no ?? "", r.structure_id ?? "", r.component_id ?? ""]
+      const k = [r.style_ref_no ?? "", r.structure_id ?? "", r.coordinate_id ?? "", r.component_id ?? ""]
         .map((v) => v.trim().toUpperCase())
         .join(SEP);
       let u = uidOf.get(k);
@@ -3062,6 +3085,52 @@ export function FabricBomScreen({
       });
     }
     return seen.size === 1 ? [...seen.values()][0] : null;
+  })();
+
+  /**
+   * FABRIC ALLOCATION, ONE SECTION PER STYLE (client 2026-09-18: "the fabric
+   * allocation … support single style only").
+   *
+   * It did. Every line already carried its style and `allocationKeyOf` already
+   * kept two styles' rows apart — but the grid showed no style anywhere (Style
+   * Ref No / Style No / Style Color left the row on 2026-09-04), the band above
+   * it abstains on more than one style, and "+ Add fabric" could only stamp
+   * `orderIdentity`, which is blank there. So a two-style order drew two
+   * identical-looking SINGLE JERSEY rows, and a new row landed on "every style"
+   * with no way to say otherwise.
+   *
+   * NOW THE SAME SHAPE AS COMPONENTS AND MANUAL: a style band, then that
+   * style's own grid, whose "+ Add fabric" stamps THAT style. Styles in the
+   * order's own sequence (`seedRows`), then any a line holds that the order no
+   * longer declares — never hidden, since those rows still save. A line with NO
+   * style ("every style" to `fabricSlices`) gets an "All styles" section last,
+   * shown only while it has rows.
+   *
+   * NULL WITH ONE STYLE OR NONE, and the tab renders exactly as before — one
+   * band, one grid. A plain const for `allocationRows`' reason (no memo whose
+   * dependencies could be named honestly).
+   */
+  const allocationStyleGroups = (() => {
+    const keyOf = (s: string | null | undefined) => (s ?? "").trim().toUpperCase();
+    const refs: string[] = [];
+    const seen = new Set<string>();
+    const add = (ref: string | null | undefined) => {
+      const k = keyOf(ref);
+      if (!k || seen.has(k)) return;
+      seen.add(k);
+      refs.push((ref ?? "").trim());
+    };
+    for (const r of seedRows ?? []) add(r.style_ref_no);
+    for (const l of allocationRows) add(l.style_ref_no);
+    if (refs.length <= 1) return null;
+    const groups = refs.map((ref) => ({
+      key: keyOf(ref),
+      ref,
+      rows: allocationRows.filter((l) => keyOf(l.style_ref_no) === keyOf(ref)),
+    }));
+    const unscoped = allocationRows.filter((l) => !keyOf(l.style_ref_no));
+    if (unscoped.length > 0) groups.push({ key: "", ref: "", rows: unscoped });
+    return groups;
   })();
 
   /**
@@ -7474,11 +7543,14 @@ export function FabricBomScreen({
       (d) => !heldDias.has(diaKey(d.knit_type, d.dia)),
     );
 
+    /* The coordinate rides with the component — without it a Set item's
+       BOTTOM ALL BODY was "already here" whenever TOP's was. */
     const lineKey = (l: {
       structure_id: string | null;
+      coordinate_id: string | null;
       component_id: string | null;
       item_id: string | null;
-    }) => [l.structure_id ?? "", l.component_id ?? "", l.item_id ?? ""].join(SEP);
+    }) => [l.structure_id ?? "", l.coordinate_id ?? "", l.component_id ?? "", l.item_id ?? ""].join(SEP);
     const heldLines = new Set(lines.map(lineKey));
     const freshLines = (src.lines ?? []).filter((l) => !heldLines.has(lineKey(l)));
 
@@ -8589,11 +8661,9 @@ export function FabricBomScreen({
               "article"]}`: the same two fields Components' and Manual's own
               bands already drop, so all three read as one convention rather
               than three independent decisions that happen to agree today. */}
-          <StyleIdentityBand
-            styleRefNo={orderIdentity?.ref ?? ""}
-            identity={styleIdentityFor(orderIdentity?.ref ?? "")}
-            omit={["ref", "article"]}
-          />
+          {/* THE BAND ITSELF IS DRAWN BELOW, beside the grid it names — once
+              for a single-style order, once per style otherwise (see
+              `allocationStyleGroups`). */}
           {/* NO "SEED FROM ORDER" BUTTON, AND THE BAND GOES WITH IT
               (client 2026-09-03).
 
@@ -8627,13 +8697,19 @@ export function FabricBomScreen({
               reach a primitive's `<td>` from a call site. The same pair is
               on the Colour/Print section — if a third screen needs it, it
               belongs in `ChildGrid` rather than being copied again. */}
+          {(() => {
+          /* ONE GRID DEFINITION, DRAWN ONCE PER STYLE on a multi-style order
+             (`allocationStyleGroups`) and once in all on a single-style one.
+             `styleRef` is what "+ Add fabric" stamps on the new row. */
+          const allocationGrid = (rows: LineRow[], styleRef: string) => (
           <div className="[&_td]:px-2 [&_td]:py-1.5">
           <ChildGrid<LineRow>
             columns={lineColumns}
             /* ONE ROW PER ALLOCATION, not per panel — see `allocationRows`.
                `lines` is still what Save writes and what Components reads; this
-               tab asks a different question of the same array. */
-            rows={allocationRows}
+               tab asks a different question of the same array. On a
+               multi-style order, only THIS style's allocations. */
+            rows={rows}
             seedRow
             /* ## THE WIDTH BUDGET — AGAINST A 1155px PANE
 
@@ -8715,10 +8791,14 @@ export function FabricBomScreen({
                abstains there, and a blank `style_ref_no` legitimately means
                "every style" to `fabricSlices`. So the seed makes the common case
                explicit without inventing an answer for the ambiguous one. */
+            /* AND ON A MULTI-STYLE ORDER IT SEEDS THE SECTION'S OWN STYLE
+               (2026-09-18) — the grid it belongs to is scoped to one style, so
+               the answer is no longer ambiguous. The "All styles" section
+               passes "", which is exactly what it means. */
             onAdd={() =>
               mut((xs) => [
                 ...xs,
-                { ...blankLine(newKey()), style_ref_no: orderIdentity?.ref ?? "" },
+                { ...blankLine(newKey()), style_ref_no: styleRef },
               ])
             }
             /* THE ✕ IS BACK (operator request, 2026-09-04), reversing the
@@ -8738,6 +8818,39 @@ export function FabricBomScreen({
             addLabel="+ Add fabric"
           />
           </div>
+          );
+
+          if (!allocationStyleGroups) {
+            /* ONE STYLE (or none): exactly the tab as it was — Style No above
+               one grid of every allocation. */
+            return (
+              <>
+                <StyleIdentityBand
+                  styleRefNo={orderIdentity?.ref ?? ""}
+                  identity={styleIdentityFor(orderIdentity?.ref ?? "")}
+                  omit={["ref", "article"]}
+                />
+                {allocationGrid(allocationRows, orderIdentity?.ref ?? "")}
+              </>
+            );
+          }
+          /* SEVERAL STYLES: a band and a grid per style. The band keeps the
+             Style REF here (`omit={["article"]}`, not the single-style
+             `["ref", "article"]`): with more than one section on screen, the
+             ref is the key that tells them apart, and Style No may be blank or
+             shared. The "All styles" section has no style to describe, so its
+             band says so in the ref slot. */
+          return allocationStyleGroups.map((g) => (
+            <Fragment key={g.key || "__all_styles"}>
+              <StyleIdentityBand
+                styleRefNo={g.ref || "ALL STYLES"}
+                identity={g.ref ? styleIdentityFor(g.ref) : null}
+                omit={g.ref ? ["article"] : ["style", "article"]}
+              />
+              {allocationGrid(g.rows, g.ref)}
+            </Fragment>
+          ));
+          })()}
         </SectionBody>
       ),
     },
@@ -9959,6 +10072,7 @@ export function FabricBomScreen({
       <MasterFullScreen
         ref={shellRef}
         mount="overlay"
+        locked={lockMessage ? { message: lockMessage } : false}
         /* A compact 200px Sections rail whose labels still fit — "Fabric
            Allocation" clipped at 192px, and 240px read as too wide (operator,
            2026-09-17). See the prop. */

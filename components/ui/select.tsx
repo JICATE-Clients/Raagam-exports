@@ -12,7 +12,7 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
-import { useRequiredHold } from "@/components/ui/field";
+import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { holdEmpty } from "@/components/ui/input";
 
 /**
@@ -152,7 +152,11 @@ export const Select = forwardRef<
   // listbox is single-select and controlled-only.
   const nativeOnly = Boolean(props.multiple) || props.value == null;
   const enhance = useEnhance(nativeOnly);
-  const hold = useRequiredHold(!props.disabled && holdEmpty(props.value), {
+  // A locked record's choice cannot change (`LockScope`, field.tsx). A
+  // `<select>` has no read-only state, so the lock disables it — both branches.
+  const locked = useLocked();
+  const disabled = props.disabled || locked;
+  const hold = useRequiredHold(!disabled && holdEmpty(props.value), {
     required: props.required,
   });
 
@@ -171,6 +175,7 @@ export const Select = forwardRef<
       {...hold}
       className={cn(NATIVE_CLASS, className, inputClassName)}
       {...props}
+      disabled={disabled}
     >
       {children}
     </select>
@@ -233,7 +238,7 @@ export const Select = forwardRef<
         // Combobox; see data-picker.tsx.
         placeholder={placeholder ?? ""}
         clearable={hasEmpty}
-        disabled={props.disabled}
+        disabled={disabled}
         // Carry the mandatory declaration across the native → listbox swap, or a
         // `<Select required>` would hold on touch and not on a mouse.
         required={props.required}

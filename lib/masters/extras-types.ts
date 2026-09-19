@@ -121,6 +121,12 @@ export const LOOKUP_KINDS = [
   // column and 0504's does not, because the `For` column now names a COLOURWAY
   // and does arithmetic with it.
   "yarn_stage",
+  // Orders ▸ Budget ▸ Other Expenses / Other Incomes (0575). The head a line is
+  // booked under. Lookup kinds rather than the finance `cost_heads` master,
+  // whose RLS is `finance`-gated (a merchandiser's picker would come back empty)
+  // and which has no inline add. Seeded with the client's own examples only.
+  "expense_head",
+  "income_head",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -183,6 +189,8 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   process_loss_for: "Process Loss Bases",
   fabric_process_type: "Fabric Process Types",
   yarn_stage: "Yarn Stages",
+  expense_head: "Expense Heads",
+  income_head: "Income Heads",
 };
 
 /**

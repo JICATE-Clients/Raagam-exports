@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRequiredHold } from "@/components/ui/field";
+import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
 import { SketchThumbnail, useSignedUrl } from "@/components/ui/sketch-thumbnail";
@@ -136,7 +136,7 @@ export function FileAttachments({
   folder,
   accept = DEFAULT_ACCEPT,
   maxSizeMb = 10,
-  disabled,
+  disabled: ownDisabled,
   label = "Attachments",
   hint = "JPG, PNG or PDF — the style sketch, the buyer order sheet, and any approvals.",
   variant = "panel",
@@ -219,6 +219,9 @@ export function FileAttachments({
    */
   variant?: "panel" | "control" | "tiles" | "cell";
 }) {
+  // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
+  const locked = useLocked();
+  const disabled = ownDisabled || locked;
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

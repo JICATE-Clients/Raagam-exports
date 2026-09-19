@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useLocked } from "@/components/ui/field";
 
 /**
  * A yes/no switch — the same answer a tick box gives, read at a glance.
@@ -35,7 +36,7 @@ export function Toggle({
   label,
   ariaLabel,
   id,
-  disabled = false,
+  disabled: ownDisabled = false,
   tone = "primary",
   className,
 }: {
@@ -89,6 +90,9 @@ export function Toggle({
   tone?: "primary" | "success";
   className?: string;
 }) {
+  // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
+  const locked = useLocked();
+  const disabled = ownDisabled || locked;
   return (
     <label
       className={cn(

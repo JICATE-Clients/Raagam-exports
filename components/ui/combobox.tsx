@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRequiredHold } from "@/components/ui/field";
+import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { dropdownPanelStyle, type PanelAnchor } from "@/components/ui/dropdown-panel";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
@@ -67,7 +67,7 @@ export function Combobox({
   // box and chevron already mean.
   placeholder = "",
   clearable = false,
-  disabled = false,
+  disabled: ownDisabled = false,
   id,
   className,
   inputClassName,
@@ -112,6 +112,9 @@ export function Combobox({
   /** Mandatory: hold the cursor while nothing is picked. See useRequiredHold. */
   required?: boolean;
 }) {
+  // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
+  const locked = useLocked();
+  const disabled = ownDisabled || locked;
   // Empty is "no value picked" — the typed query is a search, not a value.
   // `required` is threaded from <Select required> on the desktop-enhanced
   // branch, which renders this instead of a native <select>; ORed with an

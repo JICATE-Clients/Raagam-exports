@@ -117,7 +117,7 @@ const CREATED_HEADER = /^\s*created\s*(date|dt|user|by|on)?\s*$/i;
  * names its status column something else ("Blocked", "State") would otherwise
  * get the pair placed after it.
  */
-const TRAILING_HEADER = /^\s*(status|inactive|active)?\s*$/i;
+const TRAILING_HEADER = /^\s*((re\s+)?status|inactive|active)?\s*$/i; // "RE Status": Garment Order list (0576)
 
 /**
  * Splice the Created pair into a screen's own columns, in the contract position.

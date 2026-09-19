@@ -106,6 +106,7 @@ import type { FieldWidth } from "@/lib/ui/sizes";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
+import { StatusPill } from "@/components/ui/status-pill";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import {
   BOM_STATUSES,
@@ -359,6 +360,14 @@ interface Props {
   masterPerms: { canCreate: boolean; canEdit: boolean };
   /** The operator's home Unit (`profiles.default_location_id`), or null. */
   defaultLocationId: string | null;
+  /**
+   * Orders locked by an approved budget (Phase 5) → the sentence the editor's
+   * banner and the list's RE Status read. Keyed by amendment id; an absent key
+   * is an OPEN order. Resolved by the loader (`orderLockMessages`) so this
+   * screen reads it with a plain const — it must not grow a hook to ask, see
+   * the `if (mode === "list")` return below.
+   */
+  orderLocks: Record<string, string>;
   /** The RE No this order WOULD get, resolved on the server so the box is
    *  filled on first paint rather than a round trip later. See the loader. */
   initialOrderNo?: string | null;
@@ -1867,6 +1876,7 @@ export function GarmentOrderScreen({
   defaultLocationId,
   initialOrderNo = null,
   purpose = "entry",
+  orderLocks,
 }: Props) {
   /** Read this, never `purpose` directly, so every site asks the same question. */
   const amending = purpose === "amend";
@@ -5279,6 +5289,19 @@ export function GarmentOrderScreen({
           );
         },
       },
+      /* RE STATUS (Phase 5, doc/order/budget.md §4.3). APPROVED = a budget over
+         this order was approved, and Order Entry, Order Amendment and both BOMs
+         are read-only for it until that budget is reopened. Read off the
+         loader's lock map, the same `re_status` the database lock reads. */
+      {
+        header: "RE Status",
+        cell: (r) =>
+          orderLocks[r.id] ? (
+            <StatusPill tone="success">Approved</StatusPill>
+          ) : (
+            <StatusPill tone="neutral">Open</StatusPill>
+          ),
+      },
       rowActionsColumn((r) => (
         <RowActions
           /* SC No, not `code`: the label is folded into every aria-label and
@@ -5344,9 +5367,12 @@ export function GarmentOrderScreen({
             ];
           })()}
           onEdit={() => openEdit(r)}
-          canEdit={perms.canEdit}
+          /* An APPROVED order offers no Edit or Delete (Phase 5): both would be
+             refused on save. It can still be VIEWED — the eye, or the RE No,
+             which opens the editor locked with the reason on it. */
+          canEdit={perms.canEdit && !orderLocks[r.id]}
           onDelete={() => del(r)}
-          canDelete={perms.canDelete}
+          canDelete={perms.canDelete && !orderLocks[r.id]}
           isPending={isPending}
         />
       )),
@@ -22317,6 +22343,11 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         ref={shellRef}
         mount="page"
         open
+        /* THE APPROVAL LOCK (Phase 5) — a plain lookup, no hook: this is far
+           below the `if (mode === "list")` return. The server guard and 0576's
+           triggers are the lock; this is the banner, the read-only fields and
+           a Save that explains. Order Amendment (purpose="amend") locks too. */
+        locked={editId && orderLocks[editId] ? { message: orderLocks[editId] } : false}
         // No `header`: the route's own PageHeader above already names the
         // record, and a second identity band would announce it twice.
         onClose={() => setMode("list")}
