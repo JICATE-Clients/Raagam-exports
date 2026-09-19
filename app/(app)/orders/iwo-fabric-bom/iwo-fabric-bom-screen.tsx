@@ -815,7 +815,9 @@ export function IwoFabricBomScreen({
 
   function submit(asDraft: boolean) {
     if (!form.iwo_id) return;
-    const paletteRows = (["fabric", "yarn", "print"] as const).flatMap((section) =>
+    // A Yarn work order has only the Yarn Colour panel on screen (2026-09-20).
+    const paletteSections = yarnMode ? (["yarn"] as const) : (["fabric", "yarn", "print"] as const);
+    const paletteRows = paletteSections.flatMap((section) =>
       palette[section]
         .filter((r) => r.value.trim())
         .map((r) => ({ section, name: r.value })),
@@ -846,7 +848,7 @@ export function IwoFabricBomScreen({
       bom_date: form.bom_date,
       is_draft: asDraft,
       palette: paletteRows,
-      dias: dias.map((d) => ({
+      dias: (yarnMode ? [] : dias).map((d) => ({
         knit_type: (d.knit_type || null) as "circular" | "flat_knit" | "woven" | null,
         dia: d.dia.trim() || null,
       })),
@@ -1683,8 +1685,13 @@ export function IwoFabricBomScreen({
           {/* ONE ROW OF FOUR, as on the order screen. A flex row, not
               grid-cols-4, so this file declares no grid of its own. On the
               order screen three of these write the ORDER's palette; here there
-              is no order, so all four belong to this BOM (0581). */}
+              is no order, so all four belong to this BOM (0581).
+              A YARN WORK ORDER SHOWS YARN COLOUR ONLY (user 2026-09-20): it has
+              no cloth, so Fabric Colour, Roll form prints and Dia / Size Width
+              are fabric facts with nothing to describe — hidden, and not sent
+              on save (`submit`). */}
           <div className="mt-4 flex w-full flex-row flex-nowrap items-start gap-3 [&_input]:text-xs [&_select]:text-xs">
+            {!yarnMode && (
             <PaletteTable<PaletteRow>
               label="Fabric Colour"
               columns={nameColumns("Fabric Colour", "fabric")}
@@ -1694,6 +1701,7 @@ export function IwoFabricBomScreen({
               onRemove={removeName("fabric")}
               addLabel="+ Add fabric colour"
             />
+            )}
             <PaletteTable<PaletteRow>
               label="Yarn Colour"
               columns={nameColumns("Yarn colour", "yarn")}
@@ -1703,6 +1711,8 @@ export function IwoFabricBomScreen({
               onRemove={removeName("yarn")}
               addLabel="+ Add yarn colour"
             />
+            {!yarnMode && (
+            <>
             <PaletteTable<PaletteRow>
               label="Roll form prints"
               columns={nameColumns("Roll form print", "print")}
@@ -1726,6 +1736,8 @@ export function IwoFabricBomScreen({
               }
               addLabel="+ Add dia"
             />
+            </>
+            )}
           </div>
         </SectionBody>
       ),
