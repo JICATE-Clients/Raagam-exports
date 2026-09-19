@@ -184,8 +184,8 @@ type CostRow = {
   component_id: string | null;
   /** Other Expenses / Other Incomes' head — a `config_lookups` row (0575). */
   cost_head_id: string | null;
-  /** Yarn Purchases' Stage — a `yarn_stage` lookup row (0590). NOT read by
-   *  `isBlankLine`: a stage alone is not a typed line. */
+  /** Yarn / Fabric Purchases' Stage — a `yarn_stage` / `fabric_stage` lookup
+   *  row (0590). NOT read by `isBlankLine`: a stage alone is not a typed line. */
   stage_id: string | null;
   /**
    * Other Expenses' Type — SCREEN STATE, NEVER SENT. The scope is what is
@@ -1402,18 +1402,22 @@ export function BudgetScreen({
    * budget's blank row left empty. Every other column stays exactly where and
    * as wide as it was.
    */
-  const stageOptions = (held: string | null) =>
-    data.lookups.filter((l) => l.kind === "yarn_stage" && (!isInactive(l) || l.id === held));
-  const stageCol: CostCol = {
+  /** ONE STAGE COLUMN, TWO LISTS: `yarn_stage` on Yarn Purchases (the Fabric
+   *  BOM's Yarn Process list), `fabric_stage` on Fabric Purchases (its Fabric
+   *  Process list — GREIGE / DYED / WASH / PRINT). */
+  type StageKind = "yarn_stage" | "fabric_stage";
+  const stageOptions = (kind: StageKind, held: string | null) =>
+    data.lookups.filter((l) => l.kind === kind && (!isInactive(l) || l.id === held));
+  const stageCol = (kind: StageKind): CostCol => ({
     header: "Stage",
     cell: (r) =>
       // THE PICKER HAS NO READ-ONLY STATE — the Head column's own answer.
       editable ? (
         <LookupDialogPicker
-          kind="yarn_stage"
+          kind={kind}
           label="Stage"
           compact
-          options={stageOptions(r.stage_id)}
+          options={stageOptions(kind, r.stage_id)}
           value={r.stage_id}
           onChange={(id) => setCost(r.key, { stage_id: id || null })}
           canCreate={masterPerms.canCreate}
@@ -1426,7 +1430,7 @@ export function BudgetScreen({
           value={data.lookups.find((l) => l.id === r.stage_id)?.name ?? ""}
         />
       ),
-  };
+  });
   /** A line's colourways: its own order's, or every picked order's for a
    *  hand-added line that names none. The value it holds always survives the
    *  list (AGENTS.md "Disabled rows"), as on the Fabric BOM. */
@@ -1485,7 +1489,7 @@ export function BudgetScreen({
   const yarnPurchaseColumns: CostCol[] = withRowRules([
     // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1272px table, so it never scrolls sideways
     { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.code },
-    { ...stageCol, width: FIELD_WIDTH_CSS.hug },
+    { ...stageCol("yarn_stage"), width: FIELD_WIDTH_CSS.hug },
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...descCol("Description"), width: FIELD_WIDTH_CSS.hug },
     { ...specCol, width: FIELD_WIDTH_CSS.range },
@@ -1500,9 +1504,20 @@ export function BudgetScreen({
   ]);
 
   /* Fabric Purchases — 176 + 200 + 88 + 72 + 72 + 72 + 88 + 88 + 112 = 968,
-     + 72 = 1040 <= 1155 -> 5xl. */
+     + 72 = 1040 <= 1155 -> 5xl.
+     2026-09-19: + Stage (hug 88, a `fabric_stage` picker) and Colour (hug 88,
+     the order's colourways) after Fabric — Yarn Purchases' change, the same
+     way ("now fabric ... is also missing stage and color ... this also same").
+     NOTHING else moved or narrowed: 1144, + 72 = 1216, so this grid too is a
+     table from `7xl` (1280) and one-frame cards below it — never a sideways
+     scroll. A pulled line arrives with GREIGE / DYED from its cloth source on
+     the Fabric BOM and the colourway lot it is (the budget service's
+     `fabricStageOf`). */
   const fabricPurchaseColumns: CostCol[] = withRowRules([
+    // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1216px table, so it never scrolls sideways
     { ...itemCol("Fabric"), width: FIELD_WIDTH_CSS.term },
+    { ...stageCol("fabric_stage"), width: FIELD_WIDTH_CSS.hug },
+    { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...descCol("Fabric & Colour"), width: FIELD_WIDTH_CSS.party },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
@@ -2123,7 +2138,7 @@ export function BudgetScreen({
       <ChildGrid<CostRow>
         columns={fabricPurchaseColumns}
         rows={rowsOf("fabric")}
-        tableFrom="5xl"
+        tableFrom="7xl"
         flatRows
         renderMobileRow={(row, i) => costCard(fabricPurchaseColumns, row, i)}
         hideAdd={!editable}

@@ -188,9 +188,10 @@ export interface BudgetLine {
   /** The Expense / Income Head (0575) — a `config_lookups` row of kind
    *  `expense_head` / `income_head`. NULL on every other source. */
   cost_head_id: string | null;
-  /** The yarn stage (0590) — a `config_lookups` row of kind `yarn_stage`
-   *  (GREY / DYED), the same list the Fabric BOM's Yarn Process uses. Yarn
-   *  Purchases only; NULL on every other source. */
+  /** The stage (0590) — a `config_lookups` row: `yarn_stage` (GREY / DYED) on
+   *  a Yarn Purchases line, `fabric_stage` (GREIGE / DYED / WASH / PRINT) on a
+   *  Fabric Purchases line — the lists the Fabric BOM's Yarn Process and Fabric
+   *  Process use. NULL on every other source. */
   stage_id: string | null;
 }
 

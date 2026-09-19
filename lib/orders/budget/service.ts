@@ -587,8 +587,8 @@ export type PulledCostLine = {
   /** Expense / Income Head (0575) — always null: nothing pulled is an
    *  "other" line. Carried so a pulled line spreads into a saved one whole. */
   cost_head_id: string | null;
-  /** The yarn stage (0590) — set on a `yarn` line from its Fabric BOM Yarn
-   *  Process (see the yarn branch), NULL on every other source. */
+  /** The stage (0590) — a `yarn` line's from its Fabric BOM Yarn Process, a
+   *  `fabric` line's from its cloth source; NULL on every other source. */
   stage_id: string | null;
 };
 
@@ -839,7 +839,32 @@ export async function pullCostLines(
   const fabricReqs = ((fabricRes.data ?? []) as unknown as FabricReq[]).filter(
     (r) => r.item_id && r.bom && !r.bom.is_draft && wanted.has(r.bom.garment_order_id),
   );
-  const fabric = await fabricBomLines(s, fabricReqs);
+  /* THE STAGE LISTS (0590) — `yarn_stage` for Yarn Purchases, `fabric_stage`
+     for Fabric Purchases, the two lookups the Fabric BOM's Yarn Process and
+     Fabric Process grids pick from. Read once, before either kind of line is
+     built; a failed read throws, since every pulled line would otherwise
+     arrive with no stage and nothing saying why. */
+  const { data: stageLookupRows, error: stageLookupErr } = await s
+    .from("config_lookups")
+    .select("id, kind, code, name")
+    .in("kind", ["yarn_stage", "fabric_stage"]);
+  if (stageLookupErr) throw new Error(`Could not read the yarn and fabric stages: ${stageLookupErr.message}`);
+  const stageLookups = (stageLookupRows ?? []) as { id: string; kind: string; code: string | null; name: string }[];
+  const yarnStageLookups = stageLookups.filter((l) => l.kind === "yarn_stage");
+  const fabricStageLookups = stageLookups.filter((l) => l.kind === "fabric_stage");
+  /* A BOUGHT CLOTH'S STAGE is its SOURCE on the Fabric BOM: greige rolls enter
+     at GREIGE, dyed rolls at DYED. Matched with `stageRank` — the BOM's own
+     reading of a stage row — plus "dye" to tell DYED from WASH, which shares
+     rank 1. A knitted cloth raises no fabric line at all (Rule 1). */
+  const fabricStageOf = (source: FabricSource): string | null =>
+    source === "greige_purchase"
+      ? (fabricStageLookups.find((l) => stageRank(l) === 0)?.id ?? null)
+      : source === "dyed_purchase"
+        ? (fabricStageLookups.find(
+            (l) => stageRank(l) === 1 && (/^dye/i.test(l.code ?? "") || /^dye/i.test(l.name)),
+          )?.id ?? null)
+        : null;
+  const fabric = await fabricBomLines(s, fabricReqs, fabricStageOf);
   skipped += fabric.skipped;
   for (const l of fabric.lines) {
     if (l.item_id) itemIds.add(l.item_id);
@@ -869,17 +894,7 @@ export async function pullCostLines(
 
      A YARN WITH NO STAGED STEP is bought GREY — the Fabric BOM's rule — so it
      takes the GREY `yarn_stage` row rather than nothing. */
-  const { data: yarnStageLookups, error: yarnStageLookupErr } = await s
-    .from("config_lookups")
-    .select("id, code, name")
-    .eq("kind", "yarn_stage");
-  if (yarnStageLookupErr) {
-    throw new Error(`Could not read the yarn stages: ${yarnStageLookupErr.message}`);
-  }
-  const greyStageId =
-    ((yarnStageLookups ?? []) as { id: string; code: string | null; name: string }[]).find(
-      (l) => stageRank(l) === 0,
-    )?.id ?? null;
+  const greyStageId = yarnStageLookups.find((l) => stageRank(l) === 0)?.id ?? null;
   const firstStep = new Map<string, { sno: number; stage_id: string; combo: string | null; coloured: boolean }>();
   for (const r of (yarnStageRes.data ?? []) as unknown as YarnStageRow[]) {
     const bom = r.yarn?.bom;
@@ -1248,6 +1263,9 @@ async function fabricBomLines(
     line: { rate: number | null } | null;
     bom: { id: string; garment_order_id: string } | null;
   }[],
+  /** A bought cloth's `fabric_stage` row, from its source (0590) — see the
+   *  caller's `fabricStageOf`. */
+  stageOf: (source: FabricSource) => string | null = () => null,
 ): Promise<{ lines: PulledCostLine[]; skipped: number; shadeDyedYarns: Set<string> }> {
   let skipped = 0;
   /** `garment_order_id|yarn item_id` of every yarn given per-shade dyeing
@@ -1357,6 +1375,12 @@ async function fabricBomLines(
         uom_id: uom,
         rate,
         ...PULLED_DEFAULTS,
+        /* 0590 — Fabric Purchases' Stage and Colour: the cloth's source on the
+           Fabric BOM (greige rolls GREIGE, dyed rolls DYED) and the colourway
+           lot this line is. Colour is also what now keeps two colourway lots of
+           one fabric two lines to `pulledLineKey`, not one. */
+        stage_id: stageOf(l.source),
+        combo: l.combo ?? null,
       });
     }
   }
@@ -1858,9 +1882,10 @@ async function getBudgetHeadLookups(): Promise<ConfigLookup[]> {
   const { data, error } = await s
     .from("config_lookups")
     .select("id, kind, code, name, notes, is_active, type_code")
-    /* `yarn_stage` rides along (0590): Yarn Purchases' Stage dropdown lists
-       the same GREY / DYED rows the Fabric BOM's Yarn Process lists. */
-    .in("kind", ["expense_head", "income_head", "yarn_stage"])
+    /* The stage lists ride along (0590): Yarn Purchases' Stage lists the
+       `yarn_stage` rows the Fabric BOM's Yarn Process lists, and Fabric
+       Purchases' the `fabric_stage` rows its Fabric Process lists. */
+    .in("kind", ["expense_head", "income_head", "yarn_stage", "fabric_stage"])
     .order("name");
   // An empty picker reads as "no heads set up" — say the real reason instead.
   if (error) throw new Error(`Could not read the expense and income heads: ${error.message}`);
@@ -1883,8 +1908,9 @@ export type BudgetFormData = {
   uoms: PickerRow[];
   currencies: CurrencyRow[];
   processes: ProcessPickerRow[];
-  /** Expense / Income Heads (`expense_head` / `income_head`) and the yarn
-   *  stages (`yarn_stage`, 0590) — filter by `kind` at the use site. */
+  /** Expense / Income Heads (`expense_head` / `income_head`) and the stage
+   *  lists (`yarn_stage`, `fabric_stage`; 0590) — filter by `kind` at the use
+   *  site. */
   lookups: ConfigLookup[];
 };
 
