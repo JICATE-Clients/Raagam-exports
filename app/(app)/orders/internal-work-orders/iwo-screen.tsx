@@ -42,7 +42,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
@@ -104,6 +104,35 @@ const blankForm = (): Form => ({
   deli_date: "",
   remarks: "",
 });
+
+/**
+ * THE WORK ORDER IS WHERE ITS PLAN IS SEEN (2026-09-20). Its BOM and budget no
+ * longer have their own entries on Order Execution — each IWO has exactly one
+ * of each, so those were three extra lists of the same work orders — and this
+ * list is the one place a work order's BOM and budget are read together. The
+ * editors themselves are unchanged and open from here.
+ */
+const budgetPill = (b: IwoRow["budget"]) =>
+  !b ? (
+    <StatusPill tone="neutral">Not started</StatusPill>
+  ) : b.status === "approved" ? (
+    <StatusPill tone="success">Approved</StatusPill>
+  ) : b.status === "submitted" ? (
+    <StatusPill tone="info">Submitted</StatusPill>
+  ) : b.status === "rejected" ? (
+    <StatusPill tone="danger">Rejected</StatusPill>
+  ) : (
+    <StatusPill tone="warning">Draft</StatusPill>
+  );
+
+const bomPill = (b: IwoRow["bom"]) =>
+  !b ? (
+    <StatusPill tone="neutral">Not started</StatusPill>
+  ) : b.is_draft ? (
+    <StatusPill tone="info">Draft</StatusPill>
+  ) : (
+    <StatusPill tone="success">Saved</StatusPill>
+  );
 
 export function IwoScreen({
   rows,
@@ -324,14 +353,17 @@ export function IwoScreen({
     {
       // Where the work order's PLAN stands — its Fabric or Material BOM.
       header: "BOM",
-      cell: (r) =>
-        !r.bom ? (
-          <StatusPill tone="neutral">Not started</StatusPill>
-        ) : r.bom.is_draft ? (
-          <StatusPill tone="info">Draft</StatusPill>
-        ) : (
-          <StatusPill tone="success">Saved</StatusPill>
-        ),
+      cell: (r) => bomPill(r.bom),
+    },
+    // Where its BUDGET stands, and what it costs (0594/0595) — the Budget
+    // screen's own figure (`listInternalWorkOrders` runs `budgetTotals`).
+    { header: "Budget", cell: (r) => budgetPill(r.budget) },
+    {
+      header: "Budget Cost (INR)",
+      align: "right",
+      cell: (r) => (
+        <span className="tabular-nums text-sm">{r.budget?.cost == null ? "—" : fmtNumber(r.budget.cost)}</span>
+      ),
     },
     {
       header: "Status",
@@ -468,7 +500,19 @@ export function IwoScreen({
               (a state of the record, the only kind of line a section carries). */}
           {bom &&
             (editId && isIwoFor(form.iwo_for) ? (
-              <div className="mt-4">
+              <div className="mt-4 space-y-2">
+                {/* WHERE ITS PLAN STANDS — BOM, then budget, then the approver. */}
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">{bom.label}</span>
+                  {bomPill(editing?.bom ?? null)}
+                  <span aria-hidden className="text-muted-foreground">→</span>
+                  <span className="text-muted-foreground">Budget</span>
+                  {budgetPill(editing?.budget ?? null)}
+                  {editing?.budget?.cost != null && (
+                    <span className="tabular-nums text-muted-foreground">₹ {fmtNumber(editing.budget.cost)}</span>
+                  )}
+                </div>
+                <div>
                 <Button type="button" variant="outline" onClick={() => openBom(form.iwo_for as IwoFor, editId)}>
                   Open {bom.label}
                 </Button>
@@ -488,6 +532,7 @@ export function IwoScreen({
                 >
                   Open Budget
                 </Button>
+                </div>
               </div>
             ) : (
               <p className="mt-4 text-sm text-muted-foreground">

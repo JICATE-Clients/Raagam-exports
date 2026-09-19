@@ -1,5 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { budgetTotals, isRefusal } from "@/lib/orders/budget/totals";
+import { lineInputOf } from "@/lib/orders/budget/figures";
 import { withCreators } from "@/lib/created-by";
 import { isInactive } from "@/lib/masters/inactive";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -25,9 +27,14 @@ export type IwoProcessOption = PickerRow & { for_yarn: boolean; for_fabric: bool
  *  BOM (Accessories) — or null while none is raised. */
 export type IwoBomRef = { id: string; is_draft: boolean } | null;
 
+/** The work order's budget (0594) — its status and its cost, or null while
+ *  none is raised. `cost` is null when a line cannot be priced yet. */
+export type IwoBudgetRef = { id: string; status: "draft" | "submitted" | "approved" | "rejected"; cost: number | null } | null;
+
 export type IwoRow = InternalWorkOrder & {
   sales_orders: { id: string; order_number: string | null } | null;
   bom: IwoBomRef;
+  budget: IwoBudgetRef;
 };
 
 /**
@@ -45,21 +52,45 @@ export async function listInternalWorkOrders(): Promise<IwoRow[]> {
     .from("internal_work_orders")
     .select(
       "*, sales_orders(id, order_number), " +
-        "iwo_fabric_boms(id, is_draft), iwo_material_boms(id, is_draft)",
+        "iwo_fabric_boms(id, is_draft), iwo_material_boms(id, is_draft), " +
+        // The budget and its lines' pricing facts — the cost is the order
+        // Budget's own `budgetTotals`, so this column and the Budget screen's
+        // Summary are one computation (2026-09-20: the IWO list is the one
+        // place a work order's BOM and budget are seen together).
+        "iwo_budgets(id, status, iwo_budget_lines(source, qty, rate, rate_type, currency_code, ex_rate, is_foc))",
     )
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Internal work orders: ${error.message}`);
   type Ref = { id: string; is_draft: boolean };
-  type Raw = Omit<IwoRow, "bom"> & {
+  type BudgetRaw = {
+    id: string;
+    status: NonNullable<IwoBudgetRef>["status"];
+    iwo_budget_lines: {
+      source: string;
+      qty: number | null;
+      rate: number | null;
+      rate_type: string;
+      currency_code: string | null;
+      ex_rate: number | null;
+      is_foc: boolean;
+    }[];
+  };
+  type Raw = Omit<IwoRow, "bom" | "budget"> & {
     iwo_fabric_boms: Ref | Ref[] | null;
     iwo_material_boms: Ref | Ref[] | null;
+    iwo_budgets: BudgetRaw | BudgetRaw[] | null;
   };
   // A one-to-one embed can arrive as an object or a one-element array.
   const one = (v: Ref | Ref[] | null): Ref | null => (Array.isArray(v) ? (v[0] ?? null) : v);
-  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, iwo_material_boms, ...r }) => ({
-    ...r,
-    bom: one(iwo_fabric_boms) ?? one(iwo_material_boms),
-  }));
+  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, iwo_material_boms, iwo_budgets, ...r }) => {
+    const b = Array.isArray(iwo_budgets) ? (iwo_budgets[0] ?? null) : iwo_budgets;
+    const cost = b ? budgetTotals((b.iwo_budget_lines ?? []).map((l) => lineInputOf(l)), []).cost : null;
+    return {
+      ...r,
+      bom: one(iwo_fabric_boms) ?? one(iwo_material_boms),
+      budget: b ? { id: b.id, status: b.status, cost: cost == null || isRefusal(cost) ? null : cost } : null,
+    };
+  });
   return withCreators(rows);
 }
 

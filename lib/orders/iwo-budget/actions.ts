@@ -123,6 +123,8 @@ export async function saveIwoBudget(budgetId: string | null, payload: IwoBudgetI
 
   await writeAudit({ action: budgetId ? "iwo_budget.updated" : "iwo_budget.created", entityType: "iwo_budget", entityId: id });
   revalidatePath(PATH);
+  // The work order list shows this BOM / budget's state (2026-09-20).
+  revalidatePath("/orders/internal-work-orders");
   return { ok: true, budgetId: id };
 }
 
@@ -144,6 +146,8 @@ export async function deleteIwoBudget(budgetId: string): Promise<{ ok: true } | 
   if (error) return { ok: false, error: error.message };
   await writeAudit({ action: "iwo_budget.deleted", entityType: "iwo_budget", entityId: budgetId });
   revalidatePath(PATH);
+  // The work order list shows this BOM / budget's state (2026-09-20).
+  revalidatePath("/orders/internal-work-orders");
   return { ok: true };
 }
 
@@ -246,6 +250,8 @@ export async function submitIwoBudget(budgetId: string): Promise<Result> {
 
   await writeAudit({ action: "iwo_budget.submitted", entityType: "iwo_budget", entityId: budgetId });
   revalidatePath(PATH);
+  // The work order list shows this BOM / budget's state (2026-09-20).
+  revalidatePath("/orders/internal-work-orders");
   return { ok: true, budgetId };
 }
 
@@ -261,5 +267,7 @@ export async function reopenIwoBudget(budgetId: string, reason: string): Promise
   if (error) return { ok: false, error: error.message };
   await writeAudit({ action: "iwo_budget.reopened", entityType: "iwo_budget", entityId: budgetId });
   revalidatePath(PATH);
+  // The work order list shows this BOM / budget's state (2026-09-20).
+  revalidatePath("/orders/internal-work-orders");
   return { ok: true, budgetId };
 }

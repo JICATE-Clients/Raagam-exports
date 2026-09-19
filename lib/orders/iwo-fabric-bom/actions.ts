@@ -650,6 +650,8 @@ export async function saveIwoFabricBom(
     entityId: id,
   });
   revalidatePath(PATH);
+  // The work order list shows this BOM / budget's state (2026-09-20).
+  revalidatePath("/orders/internal-work-orders");
   return { ok: true, bomId: id };
 }
 
@@ -666,5 +668,7 @@ export async function deleteIwoFabricBom(bomId: string): Promise<{ ok: true } | 
   if (error) return { ok: false, error: error.message };
   await writeAudit({ action: "iwo_fabric_bom.deleted", entityType: "iwo_fabric_bom", entityId: bomId });
   revalidatePath(PATH);
+  // The work order list shows this BOM / budget's state (2026-09-20).
+  revalidatePath("/orders/internal-work-orders");
   return { ok: true };
 }

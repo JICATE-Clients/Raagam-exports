@@ -257,6 +257,21 @@ export function IwoBudgetScreen({
   const [isPending, start] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
+
+
+  /** Leaving the editor goes back to the WORK ORDER (2026-09-20): this
+
+   *  screen has no entry of its own on Order Execution any more — it is
+
+   *  opened from the work order, so that is where closing it returns. */
+
+  function leaveEditor() {
+
+    setMode("list");
+
+    router.push("/orders/internal-work-orders");
+
+  }
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>({ iwo_id: null, budget_date: today(), remark: "" });
   const [rows, setRows] = useState<CostRow[]>([]);
@@ -500,7 +515,7 @@ export function IwoBudgetScreen({
       if (res.ok) {
         success(editId ? "Budget updated" : "Budget created");
         setDirty(false);
-        setMode("list");
+        leaveEditor();
         router.refresh();
       } else {
         toastError(res.error);
@@ -521,7 +536,7 @@ export function IwoBudgetScreen({
       const res = await submitIwoBudget(editId);
       if (res.ok) {
         success("Submitted for approval — the work order's BOMs are locked until it is decided.");
-        setMode("list");
+        leaveEditor();
         router.refresh();
       } else toastError(res.error);
     });
@@ -538,7 +553,7 @@ export function IwoBudgetScreen({
       if (res.ok) {
         success("Budget reopened — it is a draft again, and the BOMs are unlocked.");
         setReopenReason("");
-        setMode("list");
+        leaveEditor();
         router.refresh();
       } else toastError(res.error);
     });
@@ -1326,7 +1341,7 @@ export function IwoBudgetScreen({
         ref={shellRef}
         mount="overlay"
         open={mode === "edit"}
-        onClose={() => setMode("list")}
+        onClose={() => leaveEditor()}
         modeLabel={
           <>
             {editId ? "Editing" : "New"} <span className="font-semibold text-foreground">IWO budget</span>
@@ -1347,7 +1362,7 @@ export function IwoBudgetScreen({
         sections={sections}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New IWO Budget",
-          onCancel: () => setMode("list"),
+          onCancel: () => leaveEditor(),
           // A submitted / approved budget is read-only: `canSave` holds Save.
           onSave: submit,
           saveLabel: "Save Budget",

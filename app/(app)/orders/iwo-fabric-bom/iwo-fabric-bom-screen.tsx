@@ -349,6 +349,21 @@ export function IwoFabricBomScreen({
   const [isPending, start] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
+
+
+  /** Leaving the editor goes back to the WORK ORDER (2026-09-20): this
+
+   *  screen has no entry of its own on Order Execution any more — it is
+
+   *  opened from the work order, so that is where closing it returns. */
+
+  function leaveEditor() {
+
+    setMode("list");
+
+    router.push("/orders/internal-work-orders");
+
+  }
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [palette, setPalette] = useState<Palette>(blankPalette);
@@ -875,7 +890,7 @@ export function IwoFabricBomScreen({
       if (res.ok) {
         success(editId ? "Fabric BOM updated" : "Fabric BOM created");
         setDirty(false);
-        setMode("list");
+        leaveEditor();
         router.refresh();
       } else {
         toastError(res.error);
@@ -1964,7 +1979,7 @@ export function IwoFabricBomScreen({
         ref={shellRef}
         mount="overlay"
         open={mode === "edit"}
-        onClose={() => setMode("list")}
+        onClose={() => leaveEditor()}
         modeLabel={
           <>
             {editId ? "Editing" : "New"} <span className="font-semibold text-foreground">IWO fabric BOM</span>
@@ -1989,7 +2004,7 @@ export function IwoFabricBomScreen({
         )}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Fabric BOM",
-          onCancel: () => setMode("list"),
+          onCancel: () => leaveEditor(),
           onSave: () => submit(false),
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           saveLabel: "Save Fabric BOM",
