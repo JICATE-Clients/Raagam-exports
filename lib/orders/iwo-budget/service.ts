@@ -2,7 +2,11 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
 import { kgUomOf } from "@/lib/orders/iwo-fabric-bom/service";
+import { withCreators } from "@/lib/created-by";
+import { getCurrentLocationId } from "@/lib/auth/location";
+import type { IwoFor } from "@/lib/orders/internal-work-orders/types";
 import { pullIwoLines, type IwoPullInput, type IwoPullResult, type IwoPullYarn } from "./pull";
+import type { IwoBudget } from "./types";
 
 /**
  * IWO Budget — reads what `pull.ts` needs, straight from the stored BOMs.
@@ -155,4 +159,127 @@ export async function pullIwoCostLines(iwoId: string): Promise<IwoPullResult> {
   const input = await loadIwoPullInput(iwoId);
   if ("refused" in input) return input;
   return pullIwoLines(input);
+}
+
+// ---------------------------------------------------------------------------
+// The screen (Phase 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE ROW PER WORK ORDER AT THIS UNIT, with its budget when it has one and its
+ * BOM's state (the pull needs a saved BOM). The IWO BOM screens' task-queue
+ * shape (`listIwoFabricBomTasks`), every For at once.
+ *
+ * SCOPED TO THE CURRENT UNIT: the budget header is (RLS `is_current_location`)
+ * and the IWO table is not, so an unscoped list would show another unit's
+ * work order with its budget invisible.
+ */
+export type IwoBudgetTask = {
+  id: string;
+  code: string | null;
+  iwo_date: string;
+  iwo_for: IwoFor;
+  style_ref_no: string | null;
+  deli_date: string | null;
+  sales_orders: { id: string; order_number: string | null } | null;
+  created_by: string | null;
+  created_at: string;
+  /** The BOM this For uses: absent, draft, or saved. */
+  bom: "none" | "draft" | "saved";
+  budget: IwoBudget | null;
+};
+
+export async function listIwoBudgetTasks(): Promise<IwoBudgetTask[]> {
+  const locationId = await getCurrentLocationId();
+  if (!locationId) return [];
+  const s = await createClient();
+  const { data, error } = await s
+    .from("internal_work_orders")
+    .select(
+      "id, code, iwo_date, iwo_for, style_ref_no, deli_date, created_by, created_at, " +
+        "sales_orders(id, order_number), " +
+        "iwo_fabric_boms(id, is_draft), iwo_material_boms(id, is_draft), " +
+        "iwo_budgets(id, code, iwo_id, budget_date, status, decision_remark, remark, created_by, created_at, iwo_budget_lines(*))",
+    )
+    .eq("location_id", locationId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`IWO Budget: ${error.message}`);
+
+  type One<T> = T | T[] | null;
+  const one = <T,>(v: One<T>): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+  type Raw = Omit<IwoBudgetTask, "bom" | "budget"> & {
+    iwo_fabric_boms: One<{ is_draft: boolean }>;
+    iwo_material_boms: One<{ is_draft: boolean }>;
+    iwo_budgets: One<IwoBudget>;
+  };
+  const rows = ((data ?? []) as unknown as Raw[]).map(({ iwo_fabric_boms, iwo_material_boms, iwo_budgets, ...r }) => {
+    const bom = r.iwo_for === "accessories" ? one(iwo_material_boms) : one(iwo_fabric_boms);
+    const b = one(iwo_budgets);
+    return {
+      ...r,
+      bom: !bom ? ("none" as const) : bom.is_draft ? ("draft" as const) : ("saved" as const),
+      budget: b ? { ...b, iwo_budget_lines: [...(b.iwo_budget_lines ?? [])].sort((x, y) => x.sno - y.sno) } : null,
+    };
+  });
+  return withCreators(rows);
+}
+
+export type IwoBudgetPickerRow = { id: string; code: string | null; name: string; is_active?: boolean | null; inactive?: boolean | null };
+export type IwoBudgetFormData = {
+  /** Yarn, fabric and accessory items — `klass` decides which grid offers each. */
+  items: (IwoBudgetPickerRow & { klass: string | null })[];
+  uoms: IwoBudgetPickerRow[];
+  processes: (IwoBudgetPickerRow & { for_yarn: boolean; for_fabric: boolean; for_trims: boolean })[];
+  currencies: { code: string; name: string | null }[];
+  /** `yarn_stage`, `fabric_stage`, `expense_head` — filter by `kind` at the use site. */
+  lookups: { id: string; kind: string; code: string | null; name: string; is_active: boolean | null }[];
+};
+
+/** The pickers. Inactive rows are CARRIED (never filtered in SQL): a value a
+ *  line already holds must still resolve (AGENTS.md, "Disabled rows"). */
+export async function getIwoBudgetFormData(): Promise<IwoBudgetFormData> {
+  const s = await createClient();
+  const [items, uoms, processes, currencies, lookups] = await Promise.all([
+    // `items` has several FKs to config_lookups — the embed names its column.
+    s.from("items").select("id, code, name, is_active, klass:config_lookups!item_class_id(code)").order("name"),
+    s.from("uoms").select("id, code, name, is_active").order("code"),
+    s.from("processes").select("id, name, inactive, for_yarn, for_fabric, for_trims").order("name"),
+    s.from("currencies").select("code, name").order("code"),
+    s
+      .from("config_lookups")
+      .select("id, kind, code, name, is_active")
+      .in("kind", ["yarn_stage", "fabric_stage", "expense_head"])
+      .order("name"),
+  ]);
+  for (const r of [items, uoms, processes, currencies, lookups]) {
+    if (r.error) throw new Error(`IWO Budget: ${r.error.message}`);
+  }
+  const wanted = new Set(["YARN", "FABRIC", "SEW", "PACK"]);
+  type ItemRaw = IwoBudgetPickerRow & { klass: Named | Named[] | null };
+  const codeOf = (v: { code: string | null } | { code: string | null }[] | null) =>
+    (Array.isArray(v) ? v[0]?.code : v?.code)?.toUpperCase() ?? null;
+  return {
+    items: ((items.data ?? []) as unknown as (Omit<ItemRaw, "klass"> & { klass: { code: string | null } | { code: string | null }[] | null })[])
+      .map((i) => ({ ...i, klass: codeOf(i.klass) }))
+      .filter((i) => i.klass && wanted.has(i.klass)),
+    uoms: (uoms.data ?? []) as IwoBudgetPickerRow[],
+    processes: ((processes.data ?? []) as {
+      id: string;
+      name: string;
+      inactive: boolean | null;
+      for_yarn: boolean | null;
+      for_fabric: boolean | null;
+      for_trims: boolean | null;
+    }[]).map((p) => ({
+      id: p.id,
+      code: null,
+      name: p.name,
+      inactive: p.inactive,
+      for_yarn: !!p.for_yarn,
+      for_fabric: !!p.for_fabric,
+      for_trims: !!p.for_trims,
+    })),
+    currencies: (currencies.data ?? []) as { code: string; name: string | null }[],
+    lookups: (lookups.data ?? []) as IwoBudgetFormData["lookups"],
+  };
 }

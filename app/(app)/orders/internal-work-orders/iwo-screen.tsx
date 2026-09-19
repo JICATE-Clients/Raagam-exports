@@ -347,6 +347,8 @@ export function IwoScreen({
       if (b && isIwoFor(r.iwo_for)) {
         const f = r.iwo_for;
         menu.push({ label: `Open ${b.label}`, onClick: () => router.push(bomHref(f, r.id)) });
+        // The work order's budget, pulled from that BOM (0594).
+        menu.push({ label: "Open Budget", onClick: () => router.push(`/orders/iwo-budgets?open=${r.id}`) });
       }
       if (perms.canEdit && r.status === "draft")
         menu.push({ label: "Issue", onClick: () => changeStatus(r, "issued", "Work order issued") });
@@ -469,6 +471,22 @@ export function IwoScreen({
               <div className="mt-4">
                 <Button type="button" variant="outline" onClick={() => openBom(form.iwo_for as IwoFor, editId)}>
                   Open {bom.label}
+                </Button>
+                {/* Its budget — the rates for the stock run (0594). The same
+                    unsaved-work refusal as the BOM button. */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ml-2"
+                  onClick={() => {
+                    if (dirty) {
+                      toastError("Save this work order first — then open its budget.");
+                      return;
+                    }
+                    router.push(`/orders/iwo-budgets?open=${editId}`);
+                  }}
+                >
+                  Open Budget
                 </Button>
               </div>
             ) : (

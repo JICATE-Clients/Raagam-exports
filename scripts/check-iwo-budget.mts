@@ -11,7 +11,9 @@
  * `budgetTotals` unchanged, with no sales to be relative to.
  */
 
-import { pullIwoLines, iwoPulledKey, type IwoPullInput } from "../lib/orders/iwo-budget/pull.ts";
+import { pullIwoLines, iwoPulledKey, type IwoPullInput, type IwoPulledLine } from "../lib/orders/iwo-budget/pull.ts";
+import { isBlankIwoBudgetLine, iwoBudgetProblems } from "../lib/orders/iwo-budget/rules.ts";
+import { iwoMergeIsEmpty, mergeIwoPulled } from "../lib/orders/iwo-budget/merge.ts";
 import { budgetTotals, isRefusal, NO_ORDERS_YET } from "../lib/orders/budget/totals.ts";
 
 let failed = 0;
@@ -277,6 +279,129 @@ check(
   check("§7 …and so profit refuses too", isRefusal(t.profit), true);
   check("§7 an unpriced pulled line is counted, not zeroed", budgetTotals([{ source: "yarn", qty: 5, rate: null }], []).unpriced.length, 1);
 }
+
+// ---------------------------------------------------------------------------
+// §8 THE RULES (Phase 4, rules.ts) — what stops a save.
+// ---------------------------------------------------------------------------
+const bl = (over: Partial<Parameters<typeof iwoBudgetProblems>[0][number]>) => ({
+  source: "yarn" as const,
+  item_id: COTTON,
+  process_id: null,
+  cost_head_id: null,
+  description: null,
+  qty: 100,
+  rate: 85,
+  rate_type: "per_unit" as const,
+  currency_code: null,
+  ex_rate: null,
+  is_foc: false,
+  from_bom: true,
+  ...over,
+});
+const probs = (ls: ReturnType<typeof bl>[], f: "yarn" | "fabric" | "accessories" = "yarn") =>
+  iwoBudgetProblems(ls, f).map((p) => p.message);
+
+check("§8 a priced pulled yarn line is clean", probs([bl({})]), []);
+check(
+  "§8 an untouched seeded row (Qty 1, nothing else) is blank — never saved, never refused",
+  [isBlankIwoBudgetLine(bl({ item_id: null, rate: null, qty: 1, from_bom: false })), probs([bl({ item_id: null, rate: null, qty: 1, from_bom: false })])],
+  [true, []],
+);
+check("§8 a pulled line is never blank, even unpriced", isBlankIwoBudgetLine(bl({ rate: null })), false);
+check(
+  "§8 a paid line owes its rate (the order Budget's own sentence)",
+  iwoBudgetProblems([bl({ rate: null })], "yarn").map((p) => p.field),
+  ["rate"],
+);
+check(
+  "§8 a source the work order does not carry is refused",
+  probs([bl({ source: "material" })], "yarn"),
+  ["Accessories Purchases: this work order does not carry this kind of line."],
+);
+check(
+  "§8 a Fabric IWO carries fabric processes; a Yarn IWO does not",
+  [
+    probs([bl({ source: "fabric_process", process_id: DYE })], "fabric"),
+    probs([bl({ source: "fabric_process", process_id: DYE })], "yarn"),
+  ],
+  [[], ["Fabric Processes: this work order does not carry this kind of line."]],
+);
+check("§8 a process line owes its Process", probs([bl({ source: "yarn_process" })]), ["Yarn Processes: choose the Process."]);
+check(
+  "§8 an Other Expense owes a Head or a description",
+  probs([bl({ source: "expense", item_id: null, from_bom: false, rate: 500, rate_type: "flat" })]),
+  ["Other Expenses: choose the Head or type what the expense is."],
+);
+check(
+  "§8 …and a flat expense with a description needs no quantity",
+  probs([bl({ source: "expense", item_id: null, from_bom: false, description: "COURIER", rate: 500, rate_type: "flat", qty: null })]),
+  [],
+);
+check(
+  "§8 a foreign currency owes its exchange rate",
+  iwoBudgetProblems([bl({ currency_code: "USD" })], "yarn").map((p) => p.field),
+  ["ex_rate"],
+);
+
+// ---------------------------------------------------------------------------
+// §9 REFRESH FROM BOM (merge.ts) — the order Budget's policy, line by line.
+// ---------------------------------------------------------------------------
+const held = (key: string, over: Partial<Parameters<typeof mergeIwoPulled>[0][number]> = {}) => ({
+  key,
+  from_bom: true,
+  source: "yarn",
+  item_id: COTTON,
+  process_id: null,
+  combo: null,
+  basis: null,
+  qty: 1000,
+  uom_id: KG,
+  stage_id: GREY,
+  is_foc: false,
+  ...over,
+});
+const fresh = (over: Partial<IwoPulledLine> = {}): IwoPulledLine => ({
+  source: "yarn",
+  item_id: COTTON,
+  process_id: null,
+  combo: null,
+  basis: null,
+  qty: 1000,
+  uom_id: KG,
+  stage_id: GREY,
+  specification: null,
+  is_foc: false,
+  ...over,
+});
+check("§9 nothing changed → an empty plan", iwoMergeIsEmpty(mergeIwoPulled([held("a")], [fresh()])), true);
+check("§9 a stored 1000.00004 is 1000 (numeric(16,4))", iwoMergeIsEmpty(mergeIwoPulled([held("a", { qty: 1000 })], [fresh({ qty: 1000.00004 })])), true);
+check(
+  "§9 the BOM's qty moved → the line is updated (its rate is the screen's to keep)",
+  mergeIwoPulled([held("a")], [fresh({ qty: 1111.112 })]).update.map((u) => [u.key, u.line.qty]),
+  [["a", 1111.112]],
+);
+check(
+  "§9 a hand-typed line with the key of a BOM line is ADOPTED, not doubled",
+  (() => {
+    const m = mergeIwoPulled([held("t", { from_bom: false })], [fresh()]);
+    return [m.update.map((u) => u.key), m.add.length];
+  })(),
+  [["t"], 0],
+);
+check(
+  "§9 a new BOM line is added; a dropped one is FLAGGED, never removed",
+  (() => {
+    const m = mergeIwoPulled([held("a"), held("b", { combo: "NAVY" })], [fresh(), fresh({ combo: "BLACK" })]);
+    return [m.add.map((l) => l.combo), m.stale];
+  })(),
+  [["BLACK"], ["b"]],
+);
+check("§9 a typed line the BOM never had is never stale", mergeIwoPulled([held("t", { from_bom: false, item_id: "x" })], []).stale, []);
+check(
+  "§9 an accessory's FOC is the BOM's — a flip is a change",
+  mergeIwoPulled([held("m", { source: "material", is_foc: false })], [fresh({ source: "material", is_foc: true })]).update.length,
+  1,
+);
 
 if (failed) {
   console.error(`\n${failed} IWO Budget vector(s) failed.`);
