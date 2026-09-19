@@ -257,15 +257,17 @@ export function IwoScreen({
     shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
   };
 
+  const payloadOf = (f: IwoFor): IwoInput => ({
+    iwo_date: form.iwo_date,
+    iwo_for: f,
+    reference_no: form.reference_no.trim() || null,
+    deli_date: form.deli_date || null,
+    remarks: form.remarks.trim() || null,
+  });
+
   function submit() {
     if (!iwoFor) return;
-    const payload: IwoInput = {
-      iwo_date: form.iwo_date,
-      iwo_for: iwoFor,
-      reference_no: form.reference_no.trim() || null,
-      deli_date: form.deli_date || null,
-      remarks: form.remarks.trim() || null,
-    };
+    const payload = payloadOf(iwoFor);
     start(async () => {
       const res = await saveInternalWorkOrder(editId, payload);
       if (res.ok) {
@@ -304,15 +306,41 @@ export function IwoScreen({
     });
   }
 
-  /** Leave for the work order's BOM — refused while this editor holds unsaved
-   *  work, which the navigation would otherwise discard. */
-  const openBom = (f: IwoFor, iwoId: string) => {
-    if (dirty) {
-      toastError(`Save this work order first — then open its ${bomOf(f)?.label}.`);
+  /**
+   * OPEN ITS BOM OR BUDGET STRAIGHT FROM HERE (user 2026-09-20: "if I choose
+   * Yarn, Open Fabric BOM should work immediately — it asks me to save first").
+   *
+   * The BOM and budget hang off the SAVED work order (their rows carry its id),
+   * so a new or edited work order is SAVED FIRST, by this button, and then the
+   * screen opens — the operator never has to press Save and come back. The
+   * form's own rules still apply: a missing Date or For is shown, not skipped.
+   * An unchanged, saved work order just opens. The target follows For as it is
+   * NOW on the form: Yarn / Fabric → IWO Fabric BOM, Accessories → IWO Material
+   * BOM.
+   */
+  function saveThenOpen(target: "bom" | "budget") {
+    if (!iwoFor) return;
+    const f = iwoFor;
+    const go = (id: string) =>
+      router.push(target === "bom" ? bomHref(f, id) : `/orders/iwo-budgets?open=${id}`);
+    if (editId && !dirty) {
+      go(editId);
       return;
     }
-    router.push(bomHref(f, iwoId));
-  };
+    if (!validity.canSave) {
+      revealFirstProblem();
+      return;
+    }
+    start(async () => {
+      const res = await saveInternalWorkOrder(editId, payloadOf(f));
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      setDirty(false);
+      go(res.iwoId);
+    });
+  }
 
   // ---- the list ----------------------------------------------------------------
 
@@ -479,13 +507,13 @@ export function IwoScreen({
             </FieldRow>
           </div>
 
-          {/* WHERE THE PLAN LIVES. A saved work order gets the button; a new
-              one says the one thing true of it — it has no BOM until it exists
-              (a state of the record, the only kind of line a section carries). */}
-          {bom &&
-            (editId && isIwoFor(form.iwo_for) ? (
+          {/* WHERE THE PLAN LIVES — the buttons follow For the moment it is
+              chosen, on a new work order too; pressing one saves the work
+              order first when it needs saving (`saveThenOpen`). */}
+          {bom && isIwoFor(form.iwo_for) && (
               <div className="mt-4 space-y-2">
-                {/* WHERE ITS PLAN STANDS — BOM, then budget, then the approver. */}
+                {/* WHERE ITS PLAN STANDS — BOM, then budget (a saved one only). */}
+                {editId && (
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-muted-foreground">{bom.label}</span>
                   {bomPill(editing?.bom ?? null)}
@@ -496,33 +524,27 @@ export function IwoScreen({
                     <span className="tabular-nums text-muted-foreground">₹ {fmtNumber(editing.budget.cost)}</span>
                   )}
                 </div>
+                )}
                 <div>
-                <Button type="button" variant="outline" onClick={() => openBom(form.iwo_for as IwoFor, editId)}>
+                <Button type="button" variant="outline" disabled={isPending} onClick={() => saveThenOpen("bom")}>
                   Open {bom.label}
                 </Button>
-                {/* Its budget — the rates for the stock run (0594). The same
-                    unsaved-work refusal as the BOM button. */}
+                {/* Its budget — the rates for the stock run (0594). */}
                 <Button
                   type="button"
                   variant="outline"
                   className="ml-2"
-                  onClick={() => {
-                    if (dirty) {
-                      toastError("Save this work order first — then open its budget.");
-                      return;
-                    }
-                    router.push(`/orders/iwo-budgets?open=${editId}`);
-                  }}
+                  disabled={isPending}
+                  onClick={() => saveThenOpen("budget")}
                 >
                   Open Budget
                 </Button>
                 </div>
+                {(!editId || dirty) && (
+                  <p className="text-xs text-muted-foreground">Opening it saves this work order first.</p>
+                )}
               </div>
-            ) : (
-              <p className="mt-4 text-sm text-muted-foreground">
-                Save this work order, then plan it on IWO {bom.label}.
-              </p>
-            ))}
+          )}
         </SectionBody>
       ),
     },
