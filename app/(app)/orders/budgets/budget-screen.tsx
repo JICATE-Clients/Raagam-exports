@@ -30,7 +30,7 @@
  * beside it for the same reason.
  */
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Coins,
@@ -38,7 +38,6 @@ import {
   Factory,
   PieChart,
   HandCoins,
-  ListChecks,
   Receipt,
   RotateCcw,
   Scissors,
@@ -57,6 +56,7 @@ import {
   FieldGrid,
   FieldRow,
   FieldError,
+  FIELD_WIDTH,
   FIELD_WIDTH_CSS,
   RequiredScope,
 } from "@/components/ui/field";
@@ -213,16 +213,12 @@ type FabricBreakdownGroup = {
 type Form = {
   budget_date: string;
   description: string;
-  currency_code: string;
-  exchange_rate: string;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const BLANK = (): Form => ({
   budget_date: today(),
   description: "",
-  currency_code: "",
-  exchange_rate: "1",
 });
 
 const blankCost = (key: string, source: BudgetSource): CostRow => ({
@@ -757,8 +753,6 @@ export function BudgetScreen({
     setForm({
       budget_date: b.budget_date,
       description: b.description ?? "",
-      currency_code: b.currency_code ?? "",
-      exchange_rate: String(b.exchange_rate ?? 1),
     });
     setOrders(
       (b.orders ?? []).map((o) => ({ key: newKey(), garment_order_id: o.garment_order_id })),
@@ -1114,8 +1108,9 @@ export function BudgetScreen({
    *
    * Clearing the currency clears the exchange rate with it (0572's check:
    * the two are null together). Choosing one fills the rate only from the
-   * budget's OWN header rate for that same currency; otherwise it stays blank
-   * for the operator, and `lineInrRate` refuses with a sentence until it is.
+   * ORDERS' rate for that same currency (the header's Exchange rate, read off
+   * Order Entry since 2026-09-19); otherwise it stays blank for the operator,
+   * and `lineInrRate` refuses with a sentence until it is.
    */
   const pickCurrency = (r: CostRow, raw: string) => {
     const code = raw === "INR" ? "" : raw;
@@ -1123,8 +1118,8 @@ export function BudgetScreen({
       ? ""
       : code === r.currency_code
         ? r.ex_rate
-        : code === form.currency_code
-          ? form.exchange_rate
+        : code === orderCurrency && orderRate != null
+          ? String(orderRate)
           : "";
     setCost(r.key, { currency_code: code, ex_rate });
   };
@@ -1367,6 +1362,58 @@ export function BudgetScreen({
     ),
   };
 
+  /**
+   * STAGE and COLOUR of a yarn purchase, READ-ONLY and in one 88px cell (user
+   * 2026-09-19, screenshot 2952: "Stage, color field is missing in yarn
+   * purchase"; chose "show them, read-only").
+   *
+   * THEY SAY WHAT THE FABRIC BOM DECIDED, AND TODAY THAT IS ALWAYS GREY. Its
+   * `yarnPurchase` (lib/orders/fabric-bom) grosses every dyed shade back to the
+   * GREY yarn it needs and buys that yarn in one lot (a26732c, "grey yarn one
+   * lot"); the colour is priced one step later, as dyeing per yarn x shade on
+   * Process Rates > Yarn Processes (c9c0dd8). `order_fabric_bom_yarns` stores
+   * no stage because there is only ever one — so this names the rule rather
+   * than reading a column. If the BOM ever buys DYED yarn per colour, that is a
+   * stored stage and this constant is what must go.
+   *
+   * A HAND-ADDED LINE SHOWS NO STAGE: nothing behind it decided one, and
+   * printing GREY there would claim what nobody said. Colour is the line's own
+   * `combo`, on every line — blank today, since no yarn line carries one.
+   *
+   * Drawn as two cells under the Yarn picker — the legacy two-row line (see
+   * `yarnPurchaseColumns`).
+   */
+  const YARN_PURCHASE_STAGE = "GREY";
+
+  /**
+   * THE LEGACY TWO-ROW LINE — one stacked cell (user 2026-09-19, screenshot
+   * 2954, the RP Yarn Purchase Rate Detail; "foc and import is two field").
+   * The top row is the thing and its figure, the row under it the details that
+   * go with it, so eleven facts sit in seven columns instead of eleven.
+   *
+   * EVERY CONTROL CARRIES ITS OWN `RequiredScope`, and that is not decoration.
+   * `ChildGrid` wraps each CELL in one scope from the column's `required`, and
+   * `required` here draws the header star for the column's mandatory half. So
+   * without a scope per control, Currency would inherit Ex Rate's "required"
+   * and a blank select would hold the cursor. The nearest provider wins, so an
+   * explicit `false` is what keeps the other half free.
+   */
+  const tiers = (top: ReactNode, bottom?: ReactNode) => (
+    <div className="flex flex-col gap-1">
+      <div>{top}</div>
+      {bottom !== undefined && <div className="flex min-h-8 items-center">{bottom}</div>}
+    </div>
+  );
+  const own = (required: boolean, label: string, node: ReactNode) => (
+    <RequiredScope required={required} label={label}>
+      {node}
+    </RequiredScope>
+  );
+  const yarnItemCol = itemCol("Yarn");
+  const yarnDescCol = descCol("Description");
+  const yarnQtyCol = qtyCol("Reqd");
+  const yarnRateCol = rateCol("Rate");
+
   /*
    * THE COLUMN WIDTHS — Phase 6, the house convention: every column takes one
    * of the seven `FIELD_WIDTH_CSS` steps, written as the step itself
@@ -1381,23 +1428,100 @@ export function BudgetScreen({
    * cards. Each list states its sum against 1083.
    */
 
-  /* Yarn Purchases — 144 + 88 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 112
-     = 1024, + 72 = 1096 <= 1155 -> 5xl. Re-cut from 1,312: FOC + Import merged
-     (-56), Yarn party -> code, Description term -> hug (the Yarn picker names
-     the yarn; the text is the pulled line's note), Curr and Rate -> num. */
-  const yarnPurchaseColumns: CostCol[] = withRowRules([
-    { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.code },
-    { ...descCol("Description"), width: FIELD_WIDTH_CSS.hug },
-    { ...specCol, width: FIELD_WIDTH_CSS.range },
-    { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
-    { ...unitCol, width: FIELD_WIDTH_CSS.num },
-    { ...flagsCol, width: FIELD_WIDTH_CSS.hug },
-    { ...currencyCol, width: FIELD_WIDTH_CSS.num },
-    { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
-    { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
-    { ...inrRateCol, width: FIELD_WIDTH_CSS.hug },
+  /* Yarn Purchases — THE LEGACY TWO-ROW LINE (2026-09-19, screenshot 2954).
+     Each column is "top / bottom", the legacy's own "Brand / Specifications"
+     reading:
+
+       Yarn / Stage · Colour      term  176   picker over GREY + the colour
+       Description                range 112   ours; not on the legacy screen
+       Brand / Specs / Unit       term  176   specification over the UOM
+       Reqd / FOC · Import        hug    88   quantity over TWO switches
+       Curr / Ex Rate             hug    88
+       Rate / INR Rate            hug    88
+       Amount                     range 112
+
+     176 + 112 + 176 + 88 + 88 + 88 + 112 = 840, + 72 = 912 <= 1155 -> 5xl.
+     (Was 12 one-row columns at 1144, 11px from dropping to cards.)
+
+     H/C (Hank / Cheese) is on the legacy screen and deliberately NOT here: the
+     order Fabric BOM does not record it, and the user said it is not needed. */
+  const yarnPurchaseColumns: CostCol[] = [
+    {
+      header: "Yarn / Stage · Colour",
+      width: FIELD_WIDTH_CSS.term,
+      cell: (r, i) =>
+        tiers(
+          own(false, "Yarn", yarnItemCol.cell(r, i)),
+          /* STAGE AND COLOUR ARE TWO FIELDS, side by side under the yarn, as
+             on the legacy line — read-only; see `YARN_PURCHASE_STAGE`. */
+          <span className="flex w-full min-w-0 items-center gap-2 text-sm">
+            <span className="w-12 shrink-0">{r.garment_order_id ? YARN_PURCHASE_STAGE : ""}</span>
+            <Truncated className="min-w-0 text-sm">{r.combo ?? ""}</Truncated>
+          </span>,
+        ),
+    },
+    {
+      header: "Description",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (r, i) => tiers(own(false, "Description", yarnDescCol.cell(r, i))),
+    },
+    {
+      header: "Brand / Specifications / Unit",
+      width: FIELD_WIDTH_CSS.term,
+      cell: (r, i) =>
+        tiers(
+          own(false, "Brand / Specifications", specCol.cell(r, i)),
+          <span className={FIELD_WIDTH.num}>{own(false, "Unit", unitCol.cell(r, i))}</span>,
+        ),
+    },
+    {
+      header: "Reqd / FOC · Import",
+      width: FIELD_WIDTH_CSS.hug,
+      required: true,
+      cell: (r, i) =>
+        tiers(
+          own(qtyRequired(r), "Reqd", yarnQtyCol.cell(r, i)),
+          /* TWO FIELDS, NOT ONE ("foc and import is two field"): each switch
+             is its own control with its own caption and accessible name. */
+          <span className="inline-flex items-end gap-1">
+            {(
+              [
+                ["is_foc", "FOC", "Free of cost"],
+                ["is_import", "Import", "Imported"],
+              ] as const
+            ).map(([key, caption, aria]) => (
+              <span key={key} className="flex w-9 flex-col items-center gap-0.5">
+                <span aria-hidden className="text-[10px] leading-none text-muted-foreground">
+                  {caption}
+                </span>
+                {own(false, caption, flagToggle(r, key, aria, "min-h-0"))}
+              </span>
+            ))}
+          </span>,
+        ),
+    },
+    {
+      header: "Curr / Ex Rate",
+      width: FIELD_WIDTH_CSS.hug,
+      required: true,
+      cell: (r, i) =>
+        tiers(
+          own(false, "Curr", currencyCol.cell(r, i)),
+          own(exRateRequired(r), "Ex Rate", exRateCol.cell(r, i)),
+        ),
+    },
+    {
+      header: "Rate / INR Rate",
+      width: FIELD_WIDTH_CSS.hug,
+      required: true,
+      cell: (r, i) =>
+        tiers(
+          own(rateRequired(r), "Rate", yarnRateCol.cell(r, i)),
+          <span className="ml-auto">{inrRateCol.cell(r, i)}</span>,
+        ),
+    },
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
-  ]);
+  ];
 
   /* Fabric Purchases — 176 + 200 + 88 + 72 + 72 + 72 + 88 + 88 + 112 = 968,
      + 72 = 1040 <= 1155 -> 5xl. */
@@ -2394,6 +2518,10 @@ export function BudgetScreen({
     facts: pickedFacts,
     entryDate: form.budget_date || null,
   });
+  /** The picked orders' one currency and rate, read off Order Entry — null when
+   *  there is none (no order yet, or orders that disagree). */
+  const orderCurrency = isRefusal(sales.currency) ? null : sales.currency;
+  const orderRate = typeof sales.conv === "number" ? sales.conv : null;
 
   // ---- the Amendment Protocol's record --------------------------------------
 
@@ -2452,7 +2580,6 @@ export function BudgetScreen({
   const validity = sectionValidity({
     sections: [
       { key: "budget" },
-      { key: "orders" },
       ...BUDGET_SECTIONS.map((s) => ({ key: s.key })),
       { key: "general" },
     ],
@@ -2464,7 +2591,7 @@ export function BudgetScreen({
       ...(pickedOrders.length === 0
         ? [
             {
-              section: "orders",
+              section: "budget",
               label: "Orders",
               message: "Add at least one garment order.",
               kind: "custom" as const,
@@ -2510,17 +2637,6 @@ export function BudgetScreen({
             },
           ]
         : []),
-      ...(numOrNull(form.exchange_rate) == null || (numOrNull(form.exchange_rate) as number) <= 0
-        ? [
-            {
-              section: "budget",
-              fieldId: "budget-exchange-rate",
-              label: "Exchange rate",
-              message: "Exchange rate must be more than 0",
-              kind: "custom" as const,
-            },
-          ]
-        : []),
     ],
   });
 
@@ -2553,7 +2669,8 @@ export function BudgetScreen({
       key: "budget",
       label: "Budget",
       icon: Coins,
-      done: !!form.budget_date,
+      // The orders live in this section now, so it is done once it has both.
+      done: !!form.budget_date && pickedOrders.length > 0,
       content: (
         <SectionBody title="Budget">
           {/* WIDTHS, NOT TWELFTHS (Phase 6, the house convention — commits
@@ -2638,42 +2755,21 @@ export function BudgetScreen({
                   onChange={(e) => set({ description: e.target.value })}
                 />
               </Field>
-              {/* THE CODE ONLY — "USD", not "USD · US Dollar". The field is
-                  `hug` (88px); the name beside the code would be clipped to
-                  "USD · U…" in every row it appears, and the code is what the
-                  operator types to find it anyway. */}
-              <Field label="Currency" w="hug" htmlFor="bg-cur">
-                <Select
-                  id="bg-cur"
-                  disabled={!editable}
-                  value={form.currency_code}
-                  onChange={(e) => set({ currency_code: e.target.value })}
-                >
-                  <option value=""></option>
-                  {data.currencies.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-                </Select>
+              {/* CURRENCY AND EXCHANGE RATE ARE READ OFF ORDER ENTRY (user
+                  2026-09-19: "all the fields data need to fetch from order
+                  entry"). Both are terms of the ORDER — its Prices tab — and
+                  were typed a second time here as a "planning rate" that the
+                  sales figures never used: `inrValue` converts each order at
+                  its own booked rate, so a different number typed here could
+                  only ever disagree with the bottom bar. Now both are
+                  `salesSummary()`'s — the same figures the bar shows — and a
+                  group that disagrees (two currencies, two rates) says so under
+                  the field rather than picking one. Blank with no order picked. */}
+              <Field label="Currency" w="hug" htmlFor="bg-cur" error={refusalOf(sales.currency)}>
+                <Input id="bg-cur" readOnly value={figureText(sales.currency)} />
               </Field>
-              <Field
-                label="Exchange rate"
-                w="hug"
-                htmlFor="budget-exchange-rate"
-                error={
-                  numOrNull(form.exchange_rate) == null || (numOrNull(form.exchange_rate) as number) <= 0
-                    ? "Exchange rate must be more than 0"
-                    : null
-                }
-              >
-                <Input
-                  id="budget-exchange-rate"
-                  inputMode="decimal"
-                  readOnly={!editable}
-                  value={form.exchange_rate}
-                  onChange={(e) => set({ exchange_rate: e.target.value })}
-                />
+              <Field label="Exchange rate" w="hug" htmlFor="bg-exr" error={refusalOf(sales.conv)}>
+                <Input id="bg-exr" readOnly className="text-right" value={figureText(sales.conv)} />
               </Field>
               {/* UP HERE, beside the exchange rate, to fill that row's gap — see
                   the layout comment above (user, screenshot 2948). */}
@@ -2714,6 +2810,36 @@ export function BudgetScreen({
             </FieldRow>
           </div>
 
+          {/* THE ORDERS ARE PICKED HERE, UNDER THE FIELDS THEY FILL (user
+              2026-09-19: "hide the order tab i mean the second tab of the
+              budget"). They were a rail section of their own, one click away
+              from the SQ No / RE No / Customer / Currency boxes above — which
+              read as empty fields that never fetched, when the answer was on
+              the next tab. Picking an order here fills those boxes in place.
+              The grid is unchanged: a budget still groups MANY orders. */}
+          <div className="mt-4">
+            <ChildGrid<OrderRow>
+              /* grid-caption: exempt -- the Budget section holds the header
+                 fields AND this grid since the Orders section was folded in,
+                 so the section title no longer names it. */
+              label="Orders"
+              columns={orderColumns}
+              rows={orders}
+              seedRow
+              hideAdd={!editable}
+              lockExisting={!editable}
+              onAdd={() => mutOrders((xs) => [...xs, { key: newKey(), garment_order_id: null }])}
+              onRemove={(r) => mutOrders((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add order"
+            />
+            {/* UNDER THE GRID IT IS ABOUT — a blocked Save used to toast it. Only
+                once a Save was tried: a new budget with no order yet is not an
+                error, it is a budget nobody has started. */}
+            <FieldError id="bg-orders-error">
+              {saveAttempted && pickedOrders.length === 0 ? "Add at least one garment order." : null}
+            </FieldError>
+          </div>
+
           {!editable && (
             <p className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
               {status === "submitted"
@@ -2725,32 +2851,6 @@ export function BudgetScreen({
           )}
 
           {revisions.length > 0 && <RevisionHistory revisions={revisions} />}
-        </SectionBody>
-      ),
-    },
-    {
-      key: "orders",
-      label: "Orders",
-      icon: ListChecks,
-      done: pickedOrders.length > 0,
-      content: (
-        <SectionBody title="Orders">
-          <ChildGrid<OrderRow>
-            columns={orderColumns}
-            rows={orders}
-            seedRow
-            hideAdd={!editable}
-            lockExisting={!editable}
-            onAdd={() => mutOrders((xs) => [...xs, { key: newKey(), garment_order_id: null }])}
-            onRemove={(r) => mutOrders((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add order"
-          />
-          {/* UNDER THE GRID IT IS ABOUT — a blocked Save used to toast it. Only
-              once a Save was tried: a new budget with no order yet is not an
-              error, it is a budget nobody has started. */}
-          <FieldError id="bg-orders-error">
-            {saveAttempted && pickedOrders.length === 0 ? "Add at least one garment order." : null}
-          </FieldError>
         </SectionBody>
       ),
     },
@@ -2901,8 +3001,12 @@ export function BudgetScreen({
     return {
       budget_date: form.budget_date,
       description: form.description || null,
-      currency_code: form.currency_code || null,
-      exchange_rate: numOrNull(form.exchange_rate) ?? 1,
+      // THE ORDERS' TERMS, SNAPSHOT — approval routing (`currency_code` in the
+      // flow context) and the approver's screen read these. A group with no
+      // single rate stores 1, the column's own default: nothing converts
+      // through it (`inrValue` uses each order's rate).
+      currency_code: orderCurrency,
+      exchange_rate: orderRate ?? 1,
       orders: pickedOrders.map((o, i) => {
         const oo = orderById.get(o.garment_order_id as string);
         return {
