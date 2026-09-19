@@ -21,7 +21,7 @@
  * (`iwo_for_lock`), since the BOM would be left planning the wrong kind.
  */
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,9 +40,8 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { RecordPicker } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { today } from "@/lib/calendar";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useCreateIntent } from "@/lib/use-create-intent";
@@ -63,7 +62,7 @@ import {
   type IwoInput,
   type IwoStatus,
 } from "@/lib/orders/internal-work-orders/types";
-import type { IwoFormData, IwoRow } from "@/lib/orders/internal-work-orders/service";
+import type { IwoRow } from "@/lib/orders/internal-work-orders/service";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -81,38 +80,65 @@ const bomHref = (f: IwoFor, iwoId: string) => `${bomOf(f)?.path}?open=${iwoId}`;
  * computes to 0 under `@container/section`). The first line is the six fields
  * the operator fills in order, the steps Packing List Advice uses for the same
  * kinds of value:
- *   I.WO No code 144 + Date code 144 + For code 144 + RE No party 200
- *   + Style party 200 + Deli Dt code 144                         = 976
- *   + 5 × 12 gap                                                  = 1036 → 65rem (1040)
+ *   I.WO No code 144 + Date code 144 + For code 144 + Reference party 200
+ *   + Deli Dt code 144                                            = 776
+ *   + 4 × 12 gap                                                  = 824 → 52rem (832)
  * so Remarks folds onto a second line, the same place on a laptop and a 1920.
+ * (No Style since 2026-09-20 — the user removed the field.)
  */
-const HEADER_W = "max-w-[65rem]";
+const HEADER_W = "max-w-[52rem]";
 
 type Form = {
   iwo_date: string;
   iwo_for: IwoFor | "";
-  sales_order_id: string | null;
-  style_ref_no: string;
+  /** Reference (RE No), TYPED (0597). */
+  reference_no: string;
   deli_date: string;
   remarks: string;
 };
 const blankForm = (): Form => ({
   iwo_date: today(),
   iwo_for: "",
-  sales_order_id: null,
-  style_ref_no: "",
+  reference_no: "",
   deli_date: "",
   remarks: "",
 });
 
+/**
+ * THE WORK ORDER IS WHERE ITS PLAN IS SEEN (2026-09-20). Its BOM and budget no
+ * longer have their own entries on Order Execution — each IWO has exactly one
+ * of each, so those were three extra lists of the same work orders — and this
+ * list is the one place a work order's BOM and budget are read together. The
+ * editors themselves are unchanged and open from here.
+ */
+const budgetPill = (b: IwoRow["budget"]) =>
+  !b ? (
+    <StatusPill tone="neutral">Not started</StatusPill>
+  ) : b.status === "approved" ? (
+    <StatusPill tone="success">Approved</StatusPill>
+  ) : b.status === "submitted" ? (
+    <StatusPill tone="info">Submitted</StatusPill>
+  ) : b.status === "rejected" ? (
+    <StatusPill tone="danger">Rejected</StatusPill>
+  ) : (
+    <StatusPill tone="warning">Draft</StatusPill>
+  );
+
+const bomPill = (b: IwoRow["bom"]) =>
+  !b ? (
+    <StatusPill tone="neutral">Not started</StatusPill>
+  ) : b.is_draft ? (
+    <StatusPill tone="info">Draft</StatusPill>
+  ) : (
+    <StatusPill tone="success">Saved</StatusPill>
+  );
+
 export function IwoScreen({
   rows,
-  data,
   perms,
   nextIwoNo,
 }: {
   rows: IwoRow[];
-  data: IwoFormData;
   perms: Perms;
   /** The I.WO No a work order raised TODAY would get — fetched with the page so
    *  a new one's box is filled on its first paint. */
@@ -185,8 +211,7 @@ export function IwoScreen({
     setForm({
       iwo_date: r.iwo_date ?? today(),
       iwo_for: isIwoFor(r.iwo_for) ? r.iwo_for : "",
-      sales_order_id: r.sales_order_id,
-      style_ref_no: r.style_ref_no ?? "",
+      reference_no: r.reference_no ?? "",
       deli_date: r.deli_date ?? "",
       remarks: r.remarks ?? "",
     });
@@ -232,16 +257,17 @@ export function IwoScreen({
     shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
   };
 
+  const payloadOf = (f: IwoFor): IwoInput => ({
+    iwo_date: form.iwo_date,
+    iwo_for: f,
+    reference_no: form.reference_no.trim() || null,
+    deli_date: form.deli_date || null,
+    remarks: form.remarks.trim() || null,
+  });
+
   function submit() {
     if (!iwoFor) return;
-    const payload: IwoInput = {
-      iwo_date: form.iwo_date,
-      iwo_for: iwoFor,
-      sales_order_id: form.sales_order_id,
-      style_ref_no: form.style_ref_no.trim() || null,
-      deli_date: form.deli_date || null,
-      remarks: form.remarks.trim() || null,
-    };
+    const payload = payloadOf(iwoFor);
     start(async () => {
       const res = await saveInternalWorkOrder(editId, payload);
       if (res.ok) {
@@ -280,22 +306,43 @@ export function IwoScreen({
     });
   }
 
-  /** Leave for the work order's BOM — refused while this editor holds unsaved
-   *  work, which the navigation would otherwise discard. */
-  const openBom = (f: IwoFor, iwoId: string) => {
-    if (dirty) {
-      toastError(`Save this work order first — then open its ${bomOf(f)?.label}.`);
+  /**
+   * OPEN ITS BOM OR BUDGET STRAIGHT FROM HERE (user 2026-09-20: "if I choose
+   * Yarn, Open Fabric BOM should work immediately — it asks me to save first").
+   *
+   * The BOM and budget hang off the SAVED work order (their rows carry its id),
+   * so a new or edited work order is SAVED FIRST, by this button, and then the
+   * screen opens — the operator never has to press Save and come back. The
+   * form's own rules still apply: a missing Date or For is shown, not skipped.
+   * An unchanged, saved work order just opens. The target follows For as it is
+   * NOW on the form: Yarn / Fabric → IWO Fabric BOM, Accessories → IWO Material
+   * BOM.
+   */
+  function saveThenOpen(target: "bom" | "budget") {
+    if (!iwoFor) return;
+    const f = iwoFor;
+    const go = (id: string) =>
+      router.push(target === "bom" ? bomHref(f, id) : `/orders/iwo-budgets?open=${id}`);
+    if (editId && !dirty) {
+      go(editId);
       return;
     }
-    router.push(bomHref(f, iwoId));
-  };
+    if (!validity.canSave) {
+      revealFirstProblem();
+      return;
+    }
+    start(async () => {
+      const res = await saveInternalWorkOrder(editId, payloadOf(f));
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      setDirty(false);
+      go(res.iwoId);
+    });
+  }
 
   // ---- the list ----------------------------------------------------------------
-
-  const orderNo = useMemo(() => {
-    const m = new Map(data.orders.map((o) => [o.id, o.name]));
-    return (id: string | null) => (id ? (m.get(id) ?? null) : null);
-  }, [data.orders]);
 
   const columns: Column<IwoRow>[] = [
     {
@@ -317,21 +364,23 @@ export function IwoScreen({
     },
     {
       header: "RE No",
-      cell: (r) => <span className="font-mono text-xs">{r.sales_orders?.order_number ?? "—"}</span>,
+      cell: (r) => <span className="font-mono text-xs">{r.reference_no ?? "—"}</span>,
     },
-    { header: "Style", cell: (r) => <span className="text-sm">{r.style_ref_no ?? "—"}</span> },
     { header: "Deli Dt", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.deli_date)}</span> },
     {
       // Where the work order's PLAN stands — its Fabric or Material BOM.
       header: "BOM",
-      cell: (r) =>
-        !r.bom ? (
-          <StatusPill tone="neutral">Not started</StatusPill>
-        ) : r.bom.is_draft ? (
-          <StatusPill tone="info">Draft</StatusPill>
-        ) : (
-          <StatusPill tone="success">Saved</StatusPill>
-        ),
+      cell: (r) => bomPill(r.bom),
+    },
+    // Where its BUDGET stands, and what it costs (0594/0595) — the Budget
+    // screen's own figure (`listInternalWorkOrders` runs `budgetTotals`).
+    { header: "Budget", cell: (r) => budgetPill(r.budget) },
+    {
+      header: "Budget Cost (INR)",
+      align: "right",
+      cell: (r) => (
+        <span className="tabular-nums text-sm">{r.budget?.cost == null ? "—" : fmtNumber(r.budget.cost)}</span>
+      ),
     },
     {
       header: "Status",
@@ -347,6 +396,8 @@ export function IwoScreen({
       if (b && isIwoFor(r.iwo_for)) {
         const f = r.iwo_for;
         menu.push({ label: `Open ${b.label}`, onClick: () => router.push(bomHref(f, r.id)) });
+        // The work order's budget, pulled from that BOM (0594).
+        menu.push({ label: "Open Budget", onClick: () => router.push(`/orders/iwo-budgets?open=${r.id}`) });
       }
       if (perms.canEdit && r.status === "draft")
         menu.push({ label: "Issue", onClick: () => changeStatus(r, "issued", "Work order issued") });
@@ -427,20 +478,15 @@ export function IwoScreen({
                   ))}
                 </Select>
               </Field>
-              {/* The picker draws its own label; `Field` carries the width. */}
-              <Field w="party">
-                <RecordPicker
-                  label="Reference (RE No)"
-                  items={data.orders}
-                  value={form.sales_order_id}
-                  onChange={(id) => set({ sales_order_id: id })}
-                />
-              </Field>
-              <Field label="Style" w="party" htmlFor="iwo-style">
+              {/* TYPED, not picked (user 2026-09-20, 0597): a work order usually
+                  comes before any buyer order, so its reference need not be an
+                  RE No already in the order book. Capitals, like every value. */}
+              <Field label="Reference (RE No)" w="party" htmlFor="iwo-ref">
                 <Input
-                  id="iwo-style"
-                  value={form.style_ref_no}
-                  onChange={(e) => set({ style_ref_no: e.target.value })}
+                  id="iwo-ref"
+                  maxLength={60}
+                  value={form.reference_no}
+                  onChange={(e) => set({ reference_no: e.target.value })}
                 />
               </Field>
               <Field label="Deli Dt" w="code" htmlFor="iwo-deli">
@@ -461,21 +507,44 @@ export function IwoScreen({
             </FieldRow>
           </div>
 
-          {/* WHERE THE PLAN LIVES. A saved work order gets the button; a new
-              one says the one thing true of it — it has no BOM until it exists
-              (a state of the record, the only kind of line a section carries). */}
-          {bom &&
-            (editId && isIwoFor(form.iwo_for) ? (
-              <div className="mt-4">
-                <Button type="button" variant="outline" onClick={() => openBom(form.iwo_for as IwoFor, editId)}>
+          {/* WHERE THE PLAN LIVES — the buttons follow For the moment it is
+              chosen, on a new work order too; pressing one saves the work
+              order first when it needs saving (`saveThenOpen`). */}
+          {bom && isIwoFor(form.iwo_for) && (
+              <div className="mt-4 space-y-2">
+                {/* WHERE ITS PLAN STANDS — BOM, then budget (a saved one only). */}
+                {editId && (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">{bom.label}</span>
+                  {bomPill(editing?.bom ?? null)}
+                  <span aria-hidden className="text-muted-foreground">→</span>
+                  <span className="text-muted-foreground">Budget</span>
+                  {budgetPill(editing?.budget ?? null)}
+                  {editing?.budget?.cost != null && (
+                    <span className="tabular-nums text-muted-foreground">₹ {fmtNumber(editing.budget.cost)}</span>
+                  )}
+                </div>
+                )}
+                <div>
+                <Button type="button" variant="outline" disabled={isPending} onClick={() => saveThenOpen("bom")}>
                   Open {bom.label}
                 </Button>
+                {/* Its budget — the rates for the stock run (0594). */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ml-2"
+                  disabled={isPending}
+                  onClick={() => saveThenOpen("budget")}
+                >
+                  Open Budget
+                </Button>
+                </div>
+                {(!editId || dirty) && (
+                  <p className="text-xs text-muted-foreground">Opening it saves this work order first.</p>
+                )}
               </div>
-            ) : (
-              <p className="mt-4 text-sm text-muted-foreground">
-                Save this work order, then plan it on IWO {bom.label}.
-              </p>
-            ))}
+          )}
         </SectionBody>
       ),
     },
@@ -524,7 +593,7 @@ export function IwoScreen({
             <>
               <span>{iwoFor ? `For ${IWO_FOR_LABELS[iwoFor]}` : "For not chosen"}</span>
               {form.iwo_date && <span>· {fmtDate(form.iwo_date)}</span>}
-              {orderNo(form.sales_order_id) && <span>· {orderNo(form.sales_order_id)}</span>}
+              {form.reference_no.trim() && <span>· {form.reference_no.trim().toUpperCase()}</span>}
             </>
           ),
         }}

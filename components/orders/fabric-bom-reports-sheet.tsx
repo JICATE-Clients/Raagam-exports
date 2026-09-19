@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, FileSpreadsheet } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -20,13 +20,25 @@ import type {
   YarnFabricRequirementReport,
 } from "@/lib/orders/fabric-bom/reports";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
+/* THE STAGE COLOURS (client 2026-09-20) — one palette with the PDF. */
 import {
-  exportEntryRegisterCsv,
+  COLOURWAY_BAND,
+  STAGE_STRIPE,
+  STAGE_STYLES,
+  sectionStyle,
+  swatchFor,
+  type StageStyle,
+} from "@/lib/orders/fabric-bom/report-colours";
+import {
+  ORDER_REPORTS,
+  isFabricBomSheetReport,
+  type FabricBomReportKey,
+} from "@/lib/orders/order-reports";
+import {
   exportEntryRegisterPdf,
-  exportPrintRequirementCsv,
   exportPrintRequirementPdf,
-  exportYarnRequirementCsv,
   exportYarnRequirementPdf,
+  type PdfOutput,
 } from "@/lib/orders/fabric-bom/reports-export";
 
 /**
@@ -110,33 +122,52 @@ export function FabricBomReportsSheet({
         <div className="p-6 text-sm text-muted-foreground">Loading…</div>
       ) : (
         <div className="bg-[#f1f3f5] p-4">
+          {/* THE TABS ARE THE REGISTRY'S (client 2026-09-19) — every
+              `fabric-bom` entry in `ORDER_REPORTS` with no page of its own, in
+              registry order. A tab added here by hand would be a report the
+              order's Reports strip never learns about, which is exactly how
+              these three went unlinked. */}
           <Tabs
-            items={[
-              {
-                key: "register",
-                label: "Fabric BOM Entry Register",
-                content: <EntryRegisterView data={registerData} />,
-              },
-              {
-                key: "requirement",
-                label: "Yarn & Fabric Requirement",
-                content: <RequirementReportView data={requirementData} />,
-              },
-              /* THE PRINTING REQUIREMENT (client 2026-09-19) — the weight sent to
-                 the printer, isolated to the colourways / components the order
-                 prints. Read off the SAME report object as the tab beside it, so
-                 the two can never disagree about a printing figure. */
-              {
-                key: "printing",
-                label: "Printing Requirement",
-                content: <PrintRequirementView data={requirementData} />,
-              },
-            ]}
+            items={ORDER_REPORTS.filter(isFabricBomSheetReport).map((r) => ({
+              key: r.key,
+              label: r.label,
+              content: (
+                <FabricBomReportView report={r.key} register={registerData} requirement={requirementData} />
+              ),
+            }))}
           />
         </div>
       )}
     </Sheet>
   );
+}
+
+/**
+ * ONE FABRIC BOM REPORT, BY REGISTRY KEY — the body both the editor's sheet and
+ * `/orders/<id>/reports/<key>` render, so the two can never show different
+ * documents under one name.
+ *
+ * A `Record` over `FabricBomReportKey` rather than a switch with a default: a
+ * key added to `ORDER_REPORTS` without a view here is a TYPE ERROR, not a tab
+ * that renders nothing. Printing Requirement reads the SAME object as Yarn &
+ * Fabric Requirement, which is why it takes `requirement`, not data of its own.
+ */
+type FabricBomReportData = {
+  register: EntryRegister | { refused: string } | null;
+  requirement: YarnFabricRequirementReport | { refused: string } | null;
+};
+
+const FABRIC_BOM_REPORT_VIEWS: Record<FabricBomReportKey, (d: FabricBomReportData) => React.ReactNode> = {
+  "fabric-bom-register": (d) => <EntryRegisterView data={d.register} />,
+  "yarn-fabric-requirement": (d) => <RequirementReportView data={d.requirement} />,
+  "printing-requirement": (d) => <PrintRequirementView data={d.requirement} />,
+};
+
+export function FabricBomReportView({
+  report,
+  ...data
+}: FabricBomReportData & { report: FabricBomReportKey }) {
+  return <>{FABRIC_BOM_REPORT_VIEWS[report](data)}</>;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,12 +188,26 @@ export function FabricBomReportsSheet({
  * surface put in front of them (brand-colours memory); the colour lives on the
  * lines and the title, never on a background.
  */
-function Letterhead({ title, header }: { title: string; header: BomDocHeader }) {
+function Letterhead({ title, header, stageStripe }: { title: string; header: BomDocHeader; stageStripe?: boolean }) {
   const c = header.company;
-  const contact = [c.address, c.gstin ? `GSTIN ${c.gstin}` : null].filter(Boolean).join("  ·  ");
+  /* THE UNIT AND THE REGISTERED ADDRESS (client spec 2026-09-19) — the same
+     facts, in the same order, as the PDF letterhead beside this screen. */
+  const contact = [c.unit?.toUpperCase(), c.address, c.gstin ? `GSTIN ${c.gstin}` : null]
+    .filter(Boolean)
+    .join("  ·  ");
   return (
     <div className="overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
-      <div className="h-[3px] bg-[#85c227]" />
+      {/* A requirement document wears the four-stage stripe (2026-09-20); the
+          Entry Register keeps the brand-green rule. */}
+      {stageStripe ? (
+        <div className="flex h-[4px]">
+          {STAGE_STRIPE.map((c) => (
+            <div key={c} className="flex-1" style={{ background: c }} />
+          ))}
+        </div>
+      ) : (
+        <div className="h-[3px] bg-[#85c227]" />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-[#16181d] px-5 py-3">
         <div className="flex min-w-0 items-center gap-4">
           {c.logo && (
@@ -203,7 +248,7 @@ function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
       <YarnFact label="Customer" value={header.customer} />
-      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="RE No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
       <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
       {/* THE `Style` COLUMN beside `Style Ref No`, legacy's own pairing —
@@ -265,10 +310,71 @@ function QuantityBand({ header }: { header: BomDocHeader }) {
   );
 }
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
+function SectionHeader({ children, tone }: { children: React.ReactNode; tone?: StageStyle }) {
+  if (tone) {
+    /* A STAGE-TONED HEADING (2026-09-20) — the stage's tag and a rule in its
+       colour, the same heading the PDF draws. */
+    return (
+      <div
+        className="flex items-center gap-2 border-x border-t border-border bg-white px-4 py-1.5 text-[11.5px] font-bold uppercase tracking-[.1em] text-[#16181d]"
+        style={{ borderTop: `3px solid ${tone.rule}` }}
+      >
+        <StageTag tone={tone} />
+        {children}
+      </div>
+    );
+  }
   return (
     <div className="border-x border-t border-border bg-[#eaf7fd] px-4 py-1.5 text-[11.5px] font-bold uppercase tracking-[.1em] text-[#037bb8]">
       {children}
+    </div>
+  );
+}
+
+/** A stage's tag — pale fill, strong border, dark ink (./report-colours.ts). */
+function StageTag({ tone }: { tone: StageStyle }) {
+  return (
+    <span
+      className="inline-block rounded-[3px] border px-1.5 py-px text-[10.5px] font-bold tracking-wide"
+      style={{ background: tone.tint, borderColor: tone.rule, color: tone.ink }}
+    >
+      {tone.label}
+    </span>
+  );
+}
+
+/** The garment colour beside its name — nothing for a name with no known
+ *  colour, never a guessed one (`swatchFor`). */
+function Swatch({ name }: { name: string | null | undefined }) {
+  const hex = swatchFor(name);
+  if (!hex) return null;
+  return (
+    <span
+      aria-hidden
+      className="mr-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-[2px] border border-[#6b7480] align-[-1px]"
+      style={{ background: hex }}
+    />
+  );
+}
+
+/** What the stage colours mean — once, under the order facts. */
+function StageKey() {
+  const entries: [StageStyle, string][] = [
+    [STAGE_STYLES.yarn, "yarn to buy"],
+    [STAGE_STYLES.greige, "one lot per fabric"],
+    [STAGE_STYLES.dyed, "per colourway"],
+    [STAGE_STYLES.print, "printed colourways only"],
+    [STAGE_STYLES.cutting, "to the cutting table"],
+  ];
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 border border-t-0 border-border bg-white px-5 py-2 text-[11.5px] text-[#5b6472]">
+      <span className="font-bold tracking-wide text-[#16181d]">KEY</span>
+      {entries.map(([tone, text]) => (
+        <span key={tone.label} className="flex items-center gap-1.5">
+          <StageTag tone={tone} />
+          {text}
+        </span>
+      ))}
     </div>
   );
 }
@@ -285,17 +391,39 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 function ReportTable({ children, fixed }: { children: React.ReactNode; fixed?: boolean }) {
   return (
     <div className="overflow-x-auto border-x border-b border-border bg-white">
-      <table className={`w-full border-collapse text-[12px] ${fixed ? "table-fixed" : "min-w-max"}`}>
+      {/* NO SIDEWAYS SCROLLING (client 2026-09-20). The auto-sized tables used
+          to carry `min-w-max` — "as wide as every cell on one line" — so one
+          long fabric description pushed Loss % and To Ordered off the right
+          edge. Now they take the pane's width and TEXT WRAPS inside its cell;
+          figures never wrap (`Td` right/mono is `whitespace-nowrap`). The
+          `overflow-x-auto` above stays only as a fallback for a phone-width
+          window, where no table of these columns can fit. */}
+      <table className={`w-full border-collapse text-[12px] ${fixed ? "table-fixed" : ""}`}>
         {children}
       </table>
     </div>
   );
 }
 
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
+function Th({
+  children,
+  right,
+  center,
+  colSpan,
+  rowSpan,
+}: {
+  children: React.ReactNode;
+  right?: boolean;
+  /** A group heading over its sub-columns ("Planned" over Nos/Mtrs · Wt). */
+  center?: boolean;
+  colSpan?: number;
+  rowSpan?: number;
+}) {
   return (
     <th
-      className={`border-b border-border bg-[#f6f7f9] px-2 py-1 font-semibold text-[#5b6472] ${right ? "text-right" : "text-left"}`}
+      colSpan={colSpan}
+      rowSpan={rowSpan}
+      className={`border-b border-border bg-[#f6f7f9] px-2 py-1 align-bottom font-semibold text-[#5b6472] ${center ? "text-center" : right ? "text-right" : "text-left"}`}
     >
       {children}
     </th>
@@ -308,33 +436,50 @@ function Td({
   mono,
   className = "",
   colSpan,
+  wrap,
 }: {
   children: React.ReactNode;
   right?: boolean;
   mono?: boolean;
   className?: string;
   colSpan?: number;
+  /** Let a right/mono cell wrap after all — for the one that can hold a
+   *  sentence (a refused yarn's reason) instead of a figure. */
+  wrap?: boolean;
 }) {
   return (
     <td
       colSpan={colSpan}
-      className={`border-b border-border/60 px-2 py-1 ${right ? "text-right" : "text-left"} ${mono ? "font-mono" : ""} ${className}`}
+      /* A FIGURE NEVER WRAPS — right-aligned or mono cells are numbers, codes
+         and dates; only text (a fabric's description) breaks onto a second
+         line to keep the table inside the pane. */
+      className={`border-b border-border/60 px-2 py-1 ${right ? "text-right" : "text-left"} ${mono ? "font-mono" : ""} ${(right || mono) && !wrap ? "whitespace-nowrap" : ""} ${className}`}
     >
       {children}
     </td>
   );
 }
 
-function ExportBar({ onCsv, onPdf }: { onCsv: () => void; onPdf: () => void }) {
+/**
+ * PRINT AND PDF, AND NO EXCEL (client spec 2026-09-19) — a requirement report
+ * leaves the app only as the document as issued; a spreadsheet can be edited
+ * and circulated with our figures changed. Both buttons produce the SAME PDF:
+ * Print opens it in a new tab with the print dialog up, so what is printed is
+ * what is downloaded, not a browser print of this screen.
+ */
+function ExportBar({ pdf }: { pdf: (output: PdfOutput) => Promise<void> }) {
   return (
     <div className="mb-3 flex justify-end gap-2 print:hidden">
-      <Button type="button" variant="outline" size="md" onClick={onCsv}>
-        <FileSpreadsheet className="h-4 w-4" />
-        Excel
-      </Button>
-      <Button type="button" variant="primary" size="md" onClick={onPdf}>
+      {/* Download PDF, then Print / Print Preview — the order and wording of
+          the requirement-report ticket (2026-09-20). "Print Preview" is
+          accurate: Print opens the same PDF in the browser's print dialog. */}
+      <Button type="button" variant="primary" size="md" onClick={() => void pdf("download")}>
         <Download className="h-4 w-4" />
         Download PDF
+      </Button>
+      <Button type="button" variant="outline" size="md" onClick={() => void pdf("print")}>
+        <Printer className="h-4 w-4" />
+        Print / Print Preview
       </Button>
     </div>
   );
@@ -358,7 +503,7 @@ function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
       <YarnFact label="Customer" value={header.customer} />
-      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="RE No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
       <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
       <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
@@ -426,7 +571,7 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
 
   return (
     <div>
-      <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => void exportEntryRegisterPdf(data)} />
+      <ExportBar pdf={(output) => exportEntryRegisterPdf(data, output)} />
 
       <Letterhead title="Fabric BOM Entry Register" header={data.header} />
       <EntryRegisterFactsRow header={data.header} />
@@ -762,9 +907,11 @@ function LossChainInfo({ chain }: { chain: { processName: string; lossPct: numbe
 // ---------------------------------------------------------------------------
 
 const STAGE_BADGE_TONE: Record<string, string> = {
-  GREY: "bg-[#e4e6ea] text-[#4a5261]",
+  /* The report palette's Greige and Dyed (2026-09-20), so a badge and the
+     section it sits beside speak one colour. */
+  GREY: "bg-[#eceff3] text-[#37404a]",
   RFD: "bg-[#fde8cc] text-[#8a5a15]",
-  DYED: "bg-[#dbeafe] text-[#1e5a9c]",
+  DYED: "bg-[#e1eff9] text-[#024f78]",
 };
 
 /** GREY / RFD / DYED, coloured — so a warehouse or mill supervisor reads the
@@ -828,9 +975,7 @@ function RequirementReportView({
      over this). `data` starts null while the fetch is in flight and can
      resolve to a refusal, so every piece of view state this component owns
      has to exist before either of those branches, not after. */
-  const [view, setView] = useState<"procurement" | "production">("production");
   const [openYarn, setOpenYarn] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
   if (!data) return null;
   if (isReportRefusal(data)) {
@@ -838,48 +983,27 @@ function RequirementReportView({
   }
 
   const openYarnLine = data.yarns.find((y) => y.itemId === openYarn) ?? null;
-  /* KEYED BY `processId`, NEVER BY THE NAME. Two processes may legitimately
-     share a label, and an unresolved name makes every section share ONE — at
-     which point collapsing any of them collapsed all four at once, and React
-     refused the duplicate keys outright. See `StageBreakdownGroup.processId`. */
-  const toggleStage = (id: string) => {
-    const next = new Set(collapsed);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setCollapsed(next);
-  };
+  /* NO COLLAPSE (client 2026-09-20: "that collapse all no need") — every
+     process section is always open; its bar is a heading, not a toggle.
+     Sections stay KEYED BY `processId`, never by the name: two processes may
+     share a label, and React refuses duplicate keys. */
 
   return (
     <div>
-      <ExportBar
-        onCsv={() => exportYarnRequirementCsv(data)}
-        onPdf={() => void exportYarnRequirementPdf(data)}
-      />
+      <ExportBar pdf={(output) => exportYarnRequirementPdf(data, output)} />
 
-      <Letterhead title="Yarn &amp; Fabric Requirement" header={data.header} />
+      <Letterhead title="Yarn &amp; Fabric Requirement Report" header={data.header} stageStripe />
       <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
+      <StageKey />
 
-      {/* PROCUREMENT VS PRODUCTION — sourcing wants a purchase list, a mill
-          supervisor wants the full stage-by-stage ledger; nobody at either
-          desk wants to scroll past the other's section to find their own.
-          Neither table is destroyed by the toggle — this only hides the one
-          not being read, so switching back costs nothing. */}
-      <div className="my-3 flex items-center gap-1 rounded-md border border-border bg-white p-1 text-[12.5px] font-medium">
-        {(["procurement", "production"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => setView(v)}
-            className={`flex-1 rounded px-3 py-1.5 ${view === v ? "bg-[#037bb8] text-white" : "text-[#5b6472] hover:bg-[#f1f3f5]"}`}
-          >
-            {v === "procurement" ? "Procurement View — Yarn Summary" : "Production View — Full Stage Ledger"}
-          </button>
-        ))}
-      </div>
-
+      {/* NO PROCUREMENT VIEW (requirement-report ticket, 2026-09-20). The
+          Yarn & Fabric Requirement Report already carries the purchase AND the
+          process weights, so a second "Procurement View" of the same figures
+          was redundant — the report is always shown whole, the stage ledger
+          included. */}
       <div className="mb-6">
-        <SectionHeader>Yarn Purchase Requirement</SectionHeader>
+        <SectionHeader tone={STAGE_STYLES.yarn}>Yarn Purchase Requirement</SectionHeader>
         <ReportTable>
           <thead>
             <tr>
@@ -909,13 +1033,13 @@ function RequirementReportView({
                 <Td>{y.color ?? "—"}</Td>
                 <Td right mono>{y.purchaseQty != null ? fmtNumber(y.purchaseQty) : "—"}</Td>
                 <Td right mono>—</Td>
-                <Td right mono className={y.refusalReason ? "text-destructive" : ""}>
+                <Td right mono wrap={!!y.refusalReason} className={y.refusalReason ? "text-destructive" : ""}>
                   {y.purchaseQty != null ? fmtNumber(y.purchaseQty) : (y.refusalReason ?? "—")}
                 </Td>
               </tr>
             ))}
             {data.yarnGrandTotal && (
-              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+              <tr className="font-semibold" style={{ background: STAGE_STYLES.yarn.tint, color: STAGE_STYLES.yarn.ink }}>
                 <Td colSpan={4}>Total Yarn Purchase Requirement</Td>
                 <Td right mono className="font-semibold">{fmtNumber(data.yarnGrandTotal.qty)}</Td>
                 <Td>{""}</Td>
@@ -940,7 +1064,7 @@ function RequirementReportView({
               </tr>
             ))}
             {data.yarnDyeingTotal && (
-              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+              <tr className="font-semibold" style={{ background: STAGE_STYLES.dyed.tint, color: STAGE_STYLES.dyed.ink }}>
                 <Td colSpan={4}>Total Yarn Dyeing Requirement</Td>
                 <Td right mono className="font-semibold">{fmtNumber(data.yarnDyeingTotal.plannedWt)}</Td>
                 <Td>{""}</Td>
@@ -980,7 +1104,7 @@ function RequirementReportView({
               </tr>
             ))}
             {data.clothPurchaseTotal && (
-              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+              <tr className="font-semibold" style={{ background: STAGE_STYLES.greige.tint, color: STAGE_STYLES.greige.ink }}>
                 <Td colSpan={4}>
                   Total Fabric Purchase Requirement
                   {data.clothPurchaseTotal.uomCode ? ` (${data.clothPurchaseTotal.uomCode})` : ""}
@@ -1033,99 +1157,180 @@ function RequirementReportView({
         </div>
       )}
 
-      {view === "production" && (
-        <div>
-          <SectionHeader>Process Stage Ledger</SectionHeader>
-          {data.stageBreakdown.map((g, gi) => {
-            const isOpen = !collapsed.has(g.processId);
-            return (
-              <div key={g.processId}>
-                <button
-                  type="button"
-                  onClick={() => toggleStage(g.processId)}
-                  className={`flex w-full items-center justify-between border-x border-border bg-[#f6f7f9] px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-[#5b6472] hover:bg-[#eef0f2] ${gi === 0 ? "" : "border-t"}`}
-                >
-                  <span>{g.processName}</span>
-                  <span className="font-mono text-[10px] normal-case tracking-normal text-[#8b95a3]">
-                    {fmtNumber(g.toOrderedTotal)} · {isOpen ? "▾ collapse" : "▸ expand"}
-                  </span>
-                </button>
-                {isOpen && (
-                  <ReportTable>
-                    <thead>
-                      {/* LEGACY'S OWN COLUMNS — `Color` leads (the CLOTH's
-                          colour, or its YD Combo Name; the assort colourway
-                          still bands the rows beneath), `Dia/Size` and the
-                          `Nos/Mtrs` counts sit beside each weight. A cloth
-                          bought by weight leaves the count blank. */}
-                      <tr>
-                        <Th>Color</Th>
-                        <Th>Details</Th>
-                        <Th>Component</Th>
-                        <Th right>Dia/Size</Th>
-                        <Th right>Planned Nos/Mtrs</Th>
-                        <Th right>Planned Wt</Th>
-                        <Th right>Loss %</Th>
-                        <Th right>To Ordered Nos/Mtrs</Th>
-                        <Th right>To Ordered Wt</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* GROUPED UNDER EACH ASSORT COLOUR when the section
-                          holds more than one (client spec, 2026-09-15) — the
-                          lines arrive sorted by colour, so a subtotal row is
-                          drawn where the colour changes. One colour, one flat
-                          list, no band: nothing to total under. */}
-                      {g.lines.map((l, i) => {
-                        const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
-                        const subtotal = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
-                        return (
-                          <Fragment key={i}>
-                            <tr className="odd:bg-white even:bg-[#fafbfc]">
-                              <Td>{l.fabricColour ?? "—"}</Td>
-                              <Td>
-                                <DetailsCell line={l} />
-                              </Td>
-                              <Td>{l.component ?? "—"}</Td>
-                              <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
-                              <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
-                              <Td right mono>{fmtNumber(l.plannedWt)}</Td>
-                              <Td right mono>{l.lossPct.toFixed(2)}%</Td>
-                              <Td right mono>{l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : "—"}</Td>
-                              <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
-                            </tr>
-                            {subtotal && (
-                              <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
-                                <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
-                                <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
-                                <Td colSpan={2}>{""}</Td>
-                                <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                      <tr className="bg-[#f1f3f5] font-semibold">
-                        <Td colSpan={5}>Grand Total</Td>
-                        <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
-                        <Td colSpan={2}>{""}</Td>
-                        <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
-                      </tr>
-                    </tbody>
-                  </ReportTable>
-                )}
+      <div>
+        <SectionHeader>Process Stage Ledger</SectionHeader>
+        {data.stageBreakdown.map((g, gi) => {
+          /* THE SECTION WEARS ITS STAGE (2026-09-20) — tag, tint and rule. */
+          const tone = sectionStyle(g.stages, g.isPrint);
+          /* ONE BAND PER ASSORT COLOURWAY, alternating. */
+          const runOf: number[] = [];
+          g.lines.forEach((l, i) => runOf.push(i === 0 ? 0 : runOf[i - 1] + (g.lines[i - 1].combo !== l.combo ? 1 : 0)));
+          return (
+            <div key={g.processId}>
+              <div
+                className={`flex w-full items-center justify-between border-x border-border px-4 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide ${gi === 0 ? "" : "border-t"}`}
+                style={{ background: tone.tint, color: tone.ink, borderTop: `2px solid ${tone.rule}` }}
+              >
+                <span className="flex items-center gap-2">
+                  <StageTag tone={tone} />
+                  {g.processName}
+                </span>
+                <span className="font-mono text-[11px] normal-case tracking-normal">
+                  {fmtNumber(g.toOrderedTotal)}
+                </span>
               </div>
-            );
-          })}
-          {/* WEIGHTS THE LEDGER COULD NOT PLACE — named, never dropped. */}
-          {data.stageLedgerRefusals.length > 0 && (
-            <ul className="mt-2 space-y-0.5 text-[11px] text-amber-700">
-              {data.stageLedgerRefusals.map((r, i) => (
-                <li key={i}>⚠ {r}</li>
-              ))}
-            </ul>
-          )}
+              <ReportTable>
+                <thead>
+                  {/* LEGACY'S OWN COLUMNS — `Color` leads (the CLOTH's
+                      colour, or its YD Combo Name; the assort colourway
+                      still bands the rows beneath), `Dia/Size` and the
+                      `Nos/Mtrs` counts sit beside each weight. A cloth
+                      bought by weight leaves the count blank. */}
+                  {/* TWO HEADER ROWS, the PDF's own shape — "Planned" and "To
+                      Ordered" each over their Nos/Mtrs · Wt pair. Four long
+                      labels in one row were a large part of what pushed this
+                      table past the pane's width (2026-09-20). */}
+                  <tr>
+                    <Th rowSpan={2}>Color</Th>
+                    <Th rowSpan={2}>Details</Th>
+                    <Th rowSpan={2}>Component</Th>
+                    <Th rowSpan={2} right>Dia/Size</Th>
+                    <Th colSpan={2} center>Planned</Th>
+                    <Th rowSpan={2} right>Loss %</Th>
+                    <Th colSpan={2} center>To Ordered</Th>
+                  </tr>
+                  <tr>
+                    <Th right>Nos/Mtrs</Th>
+                    <Th right>Wt</Th>
+                    <Th right>Nos/Mtrs</Th>
+                    <Th right>Wt</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* GROUPED UNDER EACH ASSORT COLOUR when the section
+                      holds more than one (client spec, 2026-09-15) — the
+                      lines arrive sorted by colour, so a subtotal row is
+                      drawn where the colour changes. One colour, one flat
+                      list, no band: nothing to total under. */}
+                  {g.lines.map((l, i) => {
+                    const colourChanges = i === g.lines.length - 1 || g.lines[i + 1].combo !== l.combo;
+                    const subtotal = g.byColour.length > 1 && colourChanges ? g.byColour.find((c) => c.combo === l.combo) : undefined;
+                    return (
+                      <Fragment key={i}>
+                        <tr style={{ background: runOf[i] % 2 === 1 ? COLOURWAY_BAND : "#ffffff" }}>
+                          <Td>
+                            <Swatch name={l.fabricColour} />
+                            {l.fabricColour ?? "—"}
+                          </Td>
+                          <Td>
+                            <DetailsCell line={l} />
+                          </Td>
+                          <Td>{l.component ?? "—"}</Td>
+                          <Td mono>{l.dia != null && String(l.dia).trim() ? String(l.dia) : "—"}</Td>
+                          <Td right mono>{l.plannedNos != null ? fmtNumber(l.plannedNos) : "—"}</Td>
+                          <Td right mono>{fmtNumber(l.plannedWt)}</Td>
+                          <Td right mono>{l.lossPct.toFixed(2)}%</Td>
+                          <Td right mono>{l.toOrderedNos != null ? fmtNumber(l.toOrderedNos) : "—"}</Td>
+                          <Td right mono>{fmtNumber(l.toOrderedWt)}</Td>
+                        </tr>
+                        {subtotal && (
+                          <tr className="bg-[#f6f7f9] italic text-[#5b6472]">
+                            <Td colSpan={5} className="italic">{subtotal.combo || "No colour"} — subtotal</Td>
+                            <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.plannedTotal)}</Td>
+                            <Td colSpan={2}>{""}</Td>
+                            <Td right mono className="font-medium not-italic text-foreground">{fmtNumber(subtotal.toOrderedTotal)}</Td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                  <tr className="font-semibold" style={{ background: tone.tint, color: tone.ink }}>
+                    <Td colSpan={5}>Grand Total</Td>
+                    <Td right mono className="font-semibold">{fmtNumber(g.plannedTotal)}</Td>
+                    <Td colSpan={2}>{""}</Td>
+                    <Td right mono className="font-semibold">{fmtNumber(g.toOrderedTotal)}</Td>
+                  </tr>
+                </tbody>
+              </ReportTable>
+            </div>
+          );
+        })}
+        {/* WEIGHTS THE LEDGER COULD NOT PLACE — named, never dropped. */}
+        {data.stageLedgerRefusals.length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-[11px] text-amber-700">
+            {data.stageLedgerRefusals.map((r, i) => (
+              <li key={i}>⚠ {r}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <FabricAllocationSection allocation={data.allocation} />
+    </div>
+  );
+}
+
+/**
+ * FABRIC ALLOCATION (CUTTING) — the requirement report's last section (client
+ * 2026-09-19, 3A): per colourway, component set and dia, the cloth that reaches
+ * the cutting table. Net Cutting Wt is before the cutting-room wastage and
+ * Allocated Wt includes it; both come off the Entry Register
+ * (`fabricAllocationOf`). The PDF prints the same rows in the same order.
+ */
+function FabricAllocationSection({ allocation }: { allocation: YarnFabricRequirementReport["allocation"] }) {
+  /* One band per colourway run, alternating (2026-09-20). */
+  const allocBand: boolean[] = [];
+  if (!isReportRefusal(allocation)) {
+    let run = 0;
+    allocation.rows.forEach((r, i) => {
+      if (i > 0 && allocation.rows[i - 1].combo !== r.combo) run++;
+      allocBand.push(run % 2 === 1);
+    });
+  }
+  return (
+    <div className="mt-3">
+      <SectionHeader tone={STAGE_STYLES.cutting}>Fabric Allocation (Cutting)</SectionHeader>
+      {isReportRefusal(allocation) ? (
+        <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-destructive">
+          {allocation.refused}
         </div>
+      ) : allocation.rows.length === 0 ? (
+        <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-muted-foreground">
+          No cutting requirement on this BOM yet — fill the Manual tab and Save.
+        </div>
+      ) : (
+        <ReportTable>
+          <thead>
+            <tr>
+              <Th>Component</Th>
+              <Th>Garment Colourway</Th>
+              <Th>Fabric</Th>
+              <Th right>Net Cutting Wt (Kg)</Th>
+              <Th>Finished Dia / GSM</Th>
+              <Th right>Allocated Wt (Kg)</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {allocation.rows.map((r, i) => (
+              <tr key={`fa-${i}`} style={{ background: allocBand[i] ? COLOURWAY_BAND : "#ffffff" }}>
+                <Td>{r.component || "—"}</Td>
+                <Td>
+                  <Swatch name={r.combo} />
+                  {r.combo || "All colours"}
+                </Td>
+                <Td>{r.fabricName}</Td>
+                <Td right mono>{fmtNumber(r.netCuttingWt)}</Td>
+                <Td mono>{[r.dia, r.gsm != null ? `${r.gsm} GSM` : null].filter(Boolean).join(" / ") || "—"}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(r.allocatedWt)}</Td>
+              </tr>
+            ))}
+            <tr className="font-semibold" style={{ background: STAGE_STYLES.cutting.tint, color: STAGE_STYLES.cutting.ink }}>
+              <Td colSpan={3}>Total</Td>
+              <Td right mono className="font-semibold">{fmtNumber(allocation.netCuttingWt)}</Td>
+              <Td>{""}</Td>
+              <Td right mono className="font-semibold">{fmtNumber(allocation.allocatedWt)}</Td>
+            </tr>
+          </tbody>
+        </ReportTable>
       )}
     </div>
   );
@@ -1156,13 +1361,13 @@ function PrintRequirementView({
   return (
     <div>
       {p.groups.length > 0 && (
-        <ExportBar onCsv={() => exportPrintRequirementCsv(data)} onPdf={() => void exportPrintRequirementPdf(data)} />
+        <ExportBar pdf={(output) => exportPrintRequirementPdf(data, output)} />
       )}
-      <Letterhead title="Printing Requirement" header={data.header} />
+      <Letterhead title="Printing Requirement" header={data.header} stageStripe />
       <YarnReportFactsRow header={data.header} />
       <QuantityBand header={data.header} />
       <div className="mt-3">
-        <SectionHeader>Fabric Sent for Printing</SectionHeader>
+        <SectionHeader tone={STAGE_STYLES.print}>Fabric Sent for Printing</SectionHeader>
         {p.groups.length === 0 ? (
           /* EMPTY-AND-EXPLAIN — an empty printing report must not read as
              "nothing to print" when the real cause is a route with no Printing
@@ -1181,30 +1386,39 @@ function PrintRequirementView({
                 <Th>Print</Th>
                 <Th>Process</Th>
                 <Th>Dia/Size</Th>
+                {/* Client 2026-09-19 (1A) — what the sent weight rests on. See
+                    `PrintRequirementRow.cutPieces` for why these never total. */}
+                <Th right>Cut Pcs</Th>
+                <Th right>Piece Wt (Kg)</Th>
                 <Th right>Wt Sent for Printing</Th>
                 <Th right>Loss %</Th>
                 <Th right>Wt After Printing</Th>
               </tr>
             </thead>
             <tbody>
-              {p.groups.map((g) => (
+              {p.groups.map((g, gi) => (
                 <Fragment key={`pg-${g.combo}`}>
                   {g.rows.map((r, i) => (
-                    <tr key={`pr-${g.combo}-${i}`} className="odd:bg-white even:bg-[#fafbfc]">
-                      <Td>{r.combo || "All colours"}</Td>
+                    <tr key={`pr-${g.combo}-${i}`} style={{ background: gi % 2 === 1 ? COLOURWAY_BAND : "#ffffff" }}>
+                      <Td>
+                        <Swatch name={r.combo} />
+                        {r.combo || "All colours"}
+                      </Td>
                       <Td>{r.fabricName}</Td>
                       <Td>{r.component || "—"}</Td>
                       <Td>{r.print || "—"}</Td>
                       <Td>{r.processName}</Td>
                       <Td>{r.dia || "—"}</Td>
+                      <Td right mono>{r.cutPieces == null ? "—" : fmtNumber(r.cutPieces)}</Td>
+                      <Td right mono>{r.pieceWt == null ? "—" : r.pieceWt.toFixed(3)}</Td>
                       <Td right mono className="font-semibold">{fmtNumber(r.sentWt)}</Td>
                       <Td right mono>{r.lossPct.toFixed(2)}%</Td>
                       <Td right mono>{fmtNumber(r.receivedWt)}</Td>
                     </tr>
                   ))}
                   {p.groups.length > 1 && (
-                    <tr className="bg-[#f6f7f9] font-semibold">
-                      <Td colSpan={6}>{g.combo || "All colours"} total</Td>
+                    <tr className="font-semibold" style={{ background: STAGE_STYLES.print.tint, color: STAGE_STYLES.print.ink }}>
+                      <Td colSpan={8}>{g.combo || "All colours"} total</Td>
                       <Td right mono>{fmtNumber(g.sentWt)}</Td>
                       <Td>{""}</Td>
                       <Td right mono>{fmtNumber(g.receivedWt)}</Td>
@@ -1212,8 +1426,8 @@ function PrintRequirementView({
                   )}
                 </Fragment>
               ))}
-              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
-                <Td colSpan={6}>Total Sent for Printing</Td>
+              <tr className="font-semibold" style={{ background: STAGE_STYLES.print.tint, color: STAGE_STYLES.print.ink }}>
+                <Td colSpan={8}>Total Sent for Printing</Td>
                 <Td right mono className="font-semibold">{fmtNumber(p.sentWt)}</Td>
                 <Td>{""}</Td>
                 <Td right mono className="font-semibold">{fmtNumber(p.receivedWt)}</Td>

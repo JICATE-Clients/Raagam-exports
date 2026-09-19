@@ -43,7 +43,7 @@ import {
   Scissors,
   Send,
   ShoppingCart,
-  Sparkles,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,16 +67,12 @@ import {
   type MasterFullScreenHandle,
 } from "@/components/masters/master-full-screen";
 import { PageHeader } from "@/components/ui/page-header";
-import { DataTable, type Column } from "@/components/ui/data-table";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { isInactive } from "@/lib/masters/inactive";
 import { ProcessFoldList, type FoldListColumn } from "@/components/orders/process-fold-list";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
-import { withCreatedColumns } from "@/components/ui/created-columns";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { RowActions } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
@@ -94,7 +90,6 @@ import {
   lineReqd,
   PROCESS_TABS,
   PULLED_SOURCES,
-  pulledLineKey,
   PURCHASE_TABS,
   salesBaseOf,
   splitFabricProcess,
@@ -107,6 +102,12 @@ import {
   type ProcessBasis,
 } from "@/lib/orders/budget/totals";
 import { copyRatesFrom } from "@/lib/orders/budget/copy-from";
+import {
+  mergeKey,
+  mergePulled,
+  pullMergeIsEmpty,
+  pullMergeSize,
+} from "@/lib/orders/budget/pull-merge";
 import {
   BUDGET_LINE_BASES,
   budgetStatusText,
@@ -147,6 +148,7 @@ import {
   orderInputsOf,
 } from "@/lib/orders/budget/figures";
 import { CopyFromSheet } from "./copy-from-sheet";
+import { BudgetQueue } from "./budget-queue";
 import { breakupOf, CmtBreakupSheet, type CmtBreakupValues } from "./cmt-breakup-sheet";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canApprove: boolean };
@@ -184,9 +186,13 @@ type CostRow = {
   component_id: string | null;
   /** Other Expenses / Other Incomes' head — a `config_lookups` row (0575). */
   cost_head_id: string | null;
-  /** Yarn Purchases' Stage — a `yarn_stage` lookup row (0590). NOT read by
-   *  `isBlankLine`: a stage alone is not a typed line. */
+  /** Yarn / Fabric Purchases' Stage — a `yarn_stage` / `fabric_stage` lookup
+   *  row (0590). NOT read by `isBlankLine`: a stage alone is not a typed line. */
   stage_id: string | null;
+  /** Pulled from a BOM (0591). Its item, description, qty, unit, stage and
+   *  colour are the BOM's and read-only here (`bomLocked`); only the rate and
+   *  its terms are typed. False on every line typed by hand. */
+  from_bom: boolean;
   /**
    * Other Expenses' Type — SCREEN STATE, NEVER SENT. The scope is what is
    * stored (doc "Phase 4"): no order = SQ Wise, an order = Order Wise, an
@@ -261,6 +267,7 @@ const blankCost = (key: string, source: BudgetSource): CostRow => ({
   component_id: null,
   cost_head_id: null,
   stage_id: null,
+  from_bom: false,
   scope: "sq",
   cutting_rate: "",
   making_rate: "",
@@ -327,6 +334,7 @@ type LineLike = {
   component_id?: string | null;
   cost_head_id?: string | null;
   stage_id?: string | null;
+  from_bom?: boolean | null;
 } & Partial<Record<CmtOperationKey, number | null>>;
 
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
@@ -367,6 +375,7 @@ const rowOf = (key: string, l: LineLike): CostRow => ({
   component_id: l.component_id ?? null,
   cost_head_id: l.cost_head_id ?? null,
   stage_id: l.stage_id ?? null,
+  from_bom: !!l.from_bom,
   scope: scopeOfLine(l),
   cutting_rate: str(l.cutting_rate),
   making_rate: str(l.making_rate),
@@ -405,7 +414,10 @@ const sectionOfSource = (source: string): BudgetSectionKey =>
  * `onAdd={() => false}`), so there is nothing a typed row could be.
  * default-row: exempt -- Fabric Processes cannot grow; its lines are the BOM split
  */
-const SEEDED_SOURCES: readonly BudgetSource[] = BUDGET_SOURCES.filter((s) => s !== "fabric_process");
+// Other Incomes is not a table on this screen any more (client, 2026-09-19).
+const SEEDED_SOURCES: readonly BudgetSource[] = BUDGET_SOURCES.filter(
+  (s) => s !== "fabric_process" && s !== "income",
+);
 const isSeeded = (source: string) => (SEEDED_SOURCES as readonly string[]).includes(source);
 
 /** A new row of this source — the ONE factory the seed, "+ Add line" and the
@@ -574,7 +586,6 @@ export function BudgetScreen({
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [costs, setCosts] = useState<CostRow[]>([]);
   const [dirty, setDirty] = useState(false);
-  const [search, setSearch] = useState("");
   const [purchaseTab, setPurchaseTab] = useState<string>(PURCHASE_TABS[0].source);
   const [processTab, setProcessTab] = useState<string>(PROCESS_TABS[0].source);
   /** Which Fabric Processes group is unfolded — `ProcessFoldList`'s `openKey`,
@@ -614,6 +625,16 @@ export function BudgetScreen({
   /** A Fabric Processes group's note from its last re-split — shown under
    *  that group's For select, the field that asked for it. */
   const [foldNotes, setFoldNotes] = useState<Readonly<Record<string, string>>>({});
+  /** Pulled lines the BOM no longer has, found by the last refresh (0591).
+   *  Kept on screen with a note under Reqd and the only pulled rows that may
+   *  be removed. Submit waits until none are left. */
+  const [staleKeys, setStaleKeys] = useState<ReadonlySet<string>>(() => new Set());
+  /** How many lines a refresh would change, found in the background when a
+   *  saved draft is opened. Null = in step, or not checked. */
+  const [bomDrift, setBomDrift] = useState<number | null>(null);
+  /** Which open the background check belongs to. A late answer about the
+   *  budget opened before this one is dropped, not shown on this one. */
+  const driftSeq = useRef(0);
 
   useUnsavedGuard(dirty || isPending);
 
@@ -654,6 +675,16 @@ export function BudgetScreen({
    *  `assertEditable` in the actions — the screen closes the door and the server
    *  is what actually holds it. */
   const editable = status === "draft" || status === "rejected";
+  /**
+   * THE BOM'S CELLS ON A PULLED LINE ARE READ-ONLY (user 2026-09-19: "the
+   * merchandiser's role is strictly to input the unit rates"). Item,
+   * description, Reqd, unit, stage, colour and process are the BOM's answer;
+   * re-typing one would be a second answer the next refresh overwrites. Rate,
+   * currency, exchange rate, rate type, Brand / Spec and the CMT breakup stay
+   * the operator's. A line typed by hand is never locked. A read-only box also
+   * leaves the Tab path and never holds the cursor (AGENTS.md).
+   */
+  const bomLocked = (r: CostRow) => !editable || r.from_bom;
 
   const pickedOrders = orders.filter((o) => o.garment_order_id);
 
@@ -661,6 +692,17 @@ export function BudgetScreen({
     () => new Map(data.orders.map((o) => [o.id, o] as const)),
     [data.orders],
   );
+
+  /** One past the highest serial Entry No on the list (0593) — see the
+   *  Entry No field for why it is only a prediction. */
+  const nextEntryNo = String(
+    budgets.reduce((m, b) => (b.code && /^\d+$/.test(b.code) ? Math.max(m, Number(b.code)) : m), 0) + 1,
+  );
+
+  /** Orders this budget holds that the gate refuses — said under the grid. */
+  const heldUnready = pickedOrders
+    .map((o) => orderById.get(o.garment_order_id as string))
+    .filter((o): o is BudgetableOrder => !!o && !!o.bom_refusal);
 
   const pickedFacts = pickedOrders
     .map((o) => orderById.get(o.garment_order_id as string))
@@ -745,6 +787,9 @@ export function BudgetScreen({
     setSaveAttempted(false);
     setRowNotes({});
     setFoldNotes({});
+    setStaleKeys(new Set());
+    setBomDrift(null);
+    driftSeq.current++;
     setDirty(false);
     setMode("edit");
   }
@@ -762,9 +807,8 @@ export function BudgetScreen({
     setOrders(
       (b.orders ?? []).map((o) => ({ key: newKey(), garment_order_id: o.garment_order_id })),
     );
-    setCosts(
-      withSeededRows((b.lines ?? []).map((l) => rowOf(newKey(), l))),
-    );
+    const rows = withSeededRows((b.lines ?? []).map((l) => rowOf(newKey(), l)));
+    setCosts(rows);
     setPurchaseTab(PURCHASE_TABS[0].source);
     setProcessTab(PROCESS_TABS[0].source);
     setFabricOpenKey(null);
@@ -773,73 +817,286 @@ export function BudgetScreen({
     setSaveAttempted(false);
     setRowNotes({});
     setFoldNotes({});
+    setStaleKeys(new Set());
+    setBomDrift(null);
+    driftSeq.current++;
     setDirty(false);
+    // A saved DRAFT is asked whether the BOMs moved since; an approved or
+    // submitted one is frozen (0576), so nothing it says could be acted on.
+    if (b.status === "draft" || b.status === "rejected") {
+      checkBomDrift((b.orders ?? []).map((o) => o.garment_order_id), rows);
+    }
     setMode("edit");
   }
 
+  /**
+   * A QUEUE CARD WAS OPENED. An order already in a budget opens THAT budget; one
+   * that is not starts a new budget with the order picked and its lines pulled,
+   * exactly as picking it in the Orders grid would (`pickOrder`).
+   */
+  function openForOrder(o: BudgetableOrder) {
+    if (o.in_budget && budgets.some((b) => b.id === o.in_budget?.id)) {
+      openExisting(o.in_budget.id);
+      return;
+    }
+    if (!perms.canCreate) {
+      toastError("You do not have permission to create a budget");
+      return;
+    }
+    openNew();
+    setOrders([{ key: newKey(), garment_order_id: o.id }]);
+    refreshFromBoms([o.id], "pick", []);
+  }
+
+
   // ---- pulling the BOM costs ----------------------------------------------
 
+  /** A row as `mergePulled` reads it — the screen's strings as numbers. */
+  const heldOf = (c: CostRow) => ({ ...c, qty: numOrNull(c.qty) });
+
+  /** The operator's half of a line — what a refresh never touches. Everything
+   *  else on a pulled line is the BOM's (`bomLocked`). */
+  const operatorFacts = (c: CostRow): Partial<CostRow> => ({
+    rate: c.rate,
+    specification: c.specification,
+    currency_code: c.currency_code,
+    ex_rate: c.ex_rate,
+    rate_type: c.rate_type,
+    no_of_pcs: c.no_of_pcs,
+    no_of_units: c.no_of_units,
+    scope: c.scope,
+    cutting_rate: c.cutting_rate,
+    making_rate: c.making_rate,
+    checking_rate: c.checking_rate,
+    ironing_rate: c.ironing_rate,
+    packing_rate: c.packing_rate,
+    is_foc: c.is_foc,
+    is_import: c.is_import,
+  });
+
+  /** Every table keeps a row (AGENTS.md default rows) — after lines leave. */
+  const reseeded = (xs: CostRow[]) => {
+    const out = [...xs];
+    for (const src of SEEDED_SOURCES) {
+      if (!out.some((x) => x.source === src)) out.push(blankFor(newKey(), src));
+    }
+    return out;
+  };
+
   /**
-   * ADDS the BOM lines that are not already here. Never replaces.
+   * FILL AND REFRESH FROM THE BOMs — one path for picking an order and for the
+   * header's "Refresh from BOMs" (0591).
    *
-   * Same call the Fabric BOM's seed makes and for the same reason: the button is
-   * most useful on a half-built budget, and wholesale replacement would throw
-   * away typed rates to re-add rows the operator had already accepted. "Already
-   * here" is the engine's `pulledLineKey` — since 0573 a pulled cost is not
-   * (source, order, item) alone: one fabric carries several processes, and a
-   * colour-wise split carries one line per combo.
+   * It used to only ADD lines not already here. That was right while a pulled
+   * quantity could be retyped; now it is read-only (`bomLocked`), so a refresh
+   * that could not UPDATE would leave the operator holding a stale quantity with
+   * no way to fix it. `mergePulled` (lib/orders/budget/pull-merge.ts) is the
+   * rule, and `submitBudget` runs the same rule against the stored lines:
    *
-   * ONE BUTTON, IN THE HEADER, for every source. It used to sit on the Costs
-   * section; it now fills two sections (Purchase Rates and Process Rates), and a
-   * copy in each would be two buttons doing one thing, one of them always on a
-   * section the operator is not looking at.
+   * - a matched line takes the BOM's facts and keeps its rate and terms;
+   * - a new BOM line is added, and a seeded blank row in that table makes way;
+   * - a pulled line the BOM no longer has is FLAGGED (a note under Reqd, its ✕
+   *   back), never silently dropped;
+   * - a Fabric Processes group whose kilograms moved is re-fitted AT THE GRAIN IT
+   *   HOLDS — a colour-wise split stays colour-wise. Its rates carry by line
+   *   where the line still exists, else only when the group had one rate.
+   *
+   * `ids` scopes it: picking one order refreshes that order's lines only.
+   *
+   * `base` is the rows to merge against when they are not yet in state. A new
+   * budget opened from a queue card passes `[]`, because `costs` in this
+   * closure is still the PREVIOUS budget's. Merged against those, its lines for
+   * the same order would read as "already here" and never be added.
    */
-  function pullFromBoms() {
-    const ids = orders.map((o) => o.garment_order_id).filter(Boolean) as string[];
+  function refreshFromBoms(ids: readonly string[], why: "pick" | "refresh", base?: readonly CostRow[]) {
+    if (ids.length === 0) return;
+    const pool = base ?? costs;
     start(async () => {
-      const res = await loadCostLines(ids);
+      const res = await loadCostLines([...ids]);
       if (!res.ok) {
         toastError(res.error);
         return;
       }
-      const held = new Set(
-        costs.filter((c) => PULLED_SOURCES.has(c.source as BudgetSource)).map(pulledLineKey),
+      const scope = new Set(ids);
+      const held = pool.filter(
+        (c) =>
+          c.garment_order_id &&
+          scope.has(c.garment_order_id) &&
+          PULLED_SOURCES.has(c.source as BudgetSource),
       );
-      // A FABRIC PROCESS GROUP ALREADY HERE IS THE OPERATOR'S SPLIT. The pull
-      // brings each one fabric-wise; once a group has been re-split colour- or
-      // process-wise its lines carry other keys, and matching line by line would
-      // add the fabric-wise lines back BESIDE the split — the same cost twice.
-      const heldGroups = new Set(
-        costs.filter((c) => c.source === "fabric_process").map(fabricGroupKey),
-      );
-      const fresh = res.lines.filter((l) =>
-        l.source === "fabric_process"
-          ? !heldGroups.has(fabricGroupKey(l))
-          : !held.has(pulledLineKey(l)),
-      );
+      const plan = mergePulled(held.map(heldOf), res.lines);
 
-      if (fresh.length === 0) {
-        success("Every BOM line for these orders is already on the budget");
+      /* A RE-FIT AT A GRAIN OTHER THAN FABRIC needs the breakdown, fetched
+         FRESH: the cached one (`fabricBreakdown`) predates the BOM change this
+         refresh is answering. */
+      const needsBreakdown = plan.refit.some((g) => g.basis && g.basis !== "fabric");
+      let breakdown: FabricBreakdownGroup[] = [];
+      if (needsBreakdown) {
+        const bd = await loadFabricProcessBreakdown([...ids]);
+        if (!bd.ok) {
+          toastError(bd.error);
+          return;
+        }
+        breakdown = bd.groups;
+      }
+      // Whatever was cached is older than this answer.
+      setFabricBreakdown(null);
+
+      const groupRows = (groupKey: string) =>
+        pool.filter((c) => c.source === "fabric_process" && fabricGroupKey(c) === groupKey);
+      const refits = new Map<string, CostRow[]>();
+      let refitNotes = 0;
+      for (const g of plan.refit) {
+        const mine = groupRows(g.groupKey);
+        const carried = carryRate(mine.map(lineInput));
+        const allFoc = mine.length > 0 && mine.every((l) => l.is_foc);
+        /* A rate carries BY LINE where the same line is still there (a
+           fabric-wise group), else only when the whole group had one. */
+        const priced = (l: Parameters<typeof rowOf>[1]): CostRow => {
+          const same = mine.find((m) => mergeKey(heldOf(m)) === mergeKey(l));
+          const row = rowOf(newKey(), { ...l, source: "fabric_process", from_bom: true });
+          if (same) return { ...row, ...operatorFacts(same) };
+          return {
+            ...row,
+            rate: carried ? String(carried.rate) : "",
+            currency_code: carried?.currency_code ?? "",
+            ex_rate: carried?.ex_rate == null ? "" : String(carried.ex_rate),
+            rate_type: carried?.rate_type ?? row.rate_type,
+            is_foc: allFoc,
+          };
+        };
+        if (!g.basis || g.basis === "fabric") {
+          refits.set(g.groupKey, g.lines.map(priced));
+          continue;
+        }
+        const src = breakdown.find((b) => fabricGroupKey(b) === g.groupKey);
+        const split = src ? splitFabricProcess(src.rows, g.basis as ProcessBasis) : [];
+        if (!src || split.length === 0) {
+          // No split at the held grain: fall back to the BOM's fabric-wise
+          // lines rather than keep kilograms the BOM no longer says.
+          refits.set(g.groupKey, g.lines.map(priced));
+          refitNotes++;
+          continue;
+        }
+        refits.set(
+          g.groupKey,
+          split.map((sp) =>
+            priced({
+              source: "fabric_process",
+              garment_order_id: src.garment_order_id,
+              process_id: src.process_id,
+              uom_id: src.uom_id,
+              item_id: sp.item_id,
+              combo: sp.combo,
+              basis: sp.basis,
+              description: sp.description,
+              qty: sp.qty,
+              rate: null,
+            }),
+          ),
+        );
+      }
+
+      const updates = new Map(plan.update.map((u) => [u.key, u.line] as const));
+      const drops = new Set(plan.stale.filter((x) => x.disposition === "drop").map((x) => x.key));
+      const flags = plan.stale.filter((x) => x.disposition === "flag").map((x) => x.key);
+      const added = plan.add.map((l) => rowOf(newKey(), l));
+      const filled = new Set<string>([
+        ...added.map((l) => l.source),
+        ...(refits.size ? ["fabric_process"] : []),
+      ]);
+
+      if (updates.size || drops.size || added.length || refits.size) {
+        mutCosts((xs) => {
+          const out: CostRow[] = [];
+          const placed = new Set<string>();
+          for (const x of xs) {
+            if (drops.has(x.key)) continue;
+            if (filled.has(x.source) && isBlankLine(x)) continue; // the seed makes way
+            if (x.source === "fabric_process" && refits.has(fabricGroupKey(x))) {
+              // IN PLACE — the group keeps its position among the others.
+              const k = fabricGroupKey(x);
+              if (!placed.has(k)) out.push(...(refits.get(k) ?? []));
+              placed.add(k);
+              continue;
+            }
+            const u = updates.get(x.key);
+            out.push(u ? { ...rowOf(x.key, u), ...operatorFacts(x), from_bom: true } : x);
+          }
+          for (const [k, rows] of refits) if (!placed.has(k)) out.push(...rows);
+          return reseeded([...out, ...added]);
+        });
+      }
+      if (flags.length) {
+        setStaleKeys((s0) => new Set([...s0, ...flags]));
+        setRowNotes((n) => {
+          const next = { ...n };
+          for (const k of flags) next[k] = "No longer on the BOM — remove this line";
+          return next;
+        });
+      }
+      if (why === "refresh") setBomDrift(null);
+
+      if (pullMergeIsEmpty(plan)) {
+        if (why === "refresh") success("The budget already matches the BOMs");
         return;
       }
-      // THE SEEDED BLANK MAKES WAY. A tab that receives real lines loses its
-      // untouched blank row, which would otherwise sit among the BOM's lines
-      // looking like one of them. A row the operator has typed on is not blank
-      // (`isBlankLine`) and stays.
-      const filled = new Set<string>(fresh.map((l) => l.source));
-      mutCosts((xs) => [
-        ...xs.filter((x) => !(filled.has(x.source) && isBlankLine(x))),
-        ...fresh.map((l) => rowOf(newKey(), l)),
-      ]);
-      success(
-        res.skipped > 0
-          ? // THE SKIPPED COUNT IS SAID OUT LOUD. A refused BOM figure dropped
-            // in silence makes a budget look complete while a real cost is
-            // missing from it — and this document gets approved.
-            `${fresh.length} cost lines pulled · ${res.skipped} BOM figures skipped as unanswered`
-          : `${fresh.length} cost line${fresh.length === 1 ? "" : "s"} pulled from the BOMs`,
-      );
+      const parts: string[] = [];
+      if (added.length) parts.push(`${added.length} added`);
+      if (updates.size) parts.push(`${updates.size} updated`);
+      if (refits.size) parts.push(`${refits.size} fabric process${refits.size === 1 ? "" : "es"} re-fitted`);
+      if (flags.length) parts.push(`${flags.length} no longer on the BOM`);
+      if (drops.size) parts.push(`${drops.size} removed`);
+      // THE SKIPPED COUNT IS SAID OUT LOUD. A refused BOM figure dropped in
+      // silence makes a budget look complete while a real cost is missing from
+      // it — and this document gets approved.
+      if (res.skipped > 0) parts.push(`${res.skipped} BOM figures skipped as unanswered`);
+      if (refitNotes > 0) parts.push(`${refitNotes} split reset to fabric-wise`);
+      success(`From the BOMs: ${parts.join(" · ")}`);
     });
+  }
+
+  /**
+   * IS THIS SAVED DRAFT STILL THE BOMs' ANSWER? Asked in the background when it
+   * is opened, so a budget left for a week says so before anyone prices it. It
+   * changes nothing — the header offers the refresh — and it is not a
+   * transition, so the editor is not held busy while the Fabric BOM report runs.
+   */
+  function checkBomDrift(ids: readonly string[], rows: readonly CostRow[]) {
+    const seq = ++driftSeq.current;
+    setBomDrift(null);
+    if (ids.length === 0) return;
+    void loadCostLines([...ids]).then((res) => {
+      if (seq !== driftSeq.current || !res.ok) return;
+      const held = rows.filter((c) => PULLED_SOURCES.has(c.source as BudgetSource) && c.garment_order_id);
+      const plan = mergePulled(held.map(heldOf), res.lines);
+      setBomDrift(pullMergeIsEmpty(plan) ? null : pullMergeSize(plan));
+    });
+  }
+
+  /** An order leaves the budget, and the lines the BOM gave it go with it. A
+   *  line TYPED against that order stays, noted — the save refuses it until it
+   *  is removed or the order comes back. */
+  function dropOrderLines(orderId: string) {
+    const typed = costs.filter((c) => c.garment_order_id === orderId && !c.from_bom).map((c) => c.key);
+    mutCosts((xs) => reseeded(xs.filter((x) => !(x.from_bom && x.garment_order_id === orderId))));
+    if (typed.length) {
+      setRowNotes((n) => {
+        const next = { ...n };
+        for (const k of typed) next[k] = "This line's order is no longer on the budget";
+        return next;
+      });
+    }
+  }
+
+  /** Picking (or changing) an order fills its lines from its BOMs — no button
+   *  (user 2026-09-19: "selecting the RE Number automatically fetches"). */
+  function pickOrder(row: OrderRow, id: string | null) {
+    const old = row.garment_order_id;
+    mutOrders((xs) => xs.map((x) => (x.key === row.key ? { ...x, garment_order_id: id } : x)));
+    if (old === id) return;
+    if (old) dropOrderLines(old);
+    if (id) refreshFromBoms([id], "pick");
   }
 
   // ---- copying rates from an earlier budget -------------------------------
@@ -935,82 +1192,45 @@ export function BudgetScreen({
 
   // ---- the grids -----------------------------------------------------------
 
-  const orderColumns: ChildGridColumn<OrderRow>[] = [
-    {
-      header: "Garment order",
-      required: true,
-      cell: (r) => (
-        <RecordPicker
-          label="Garment order"
-          compact
-          required
-          disabled={!editable}
-          items={data.orders.map((o) => ({
-            id: o.id,
-            code: o.sc_no ?? o.order_code,
-            name: [o.sc_no ?? o.order_code, o.po_no, o.customer_name].filter(Boolean).join(" · "),
-            inactive: false,
-          }))}
-          // PICK-ONCE. The same order twice would double its costs and its sales
-          // value, and the totals would look internally consistent.
-          usedIds={orders.filter((x) => x.key !== r.key).map((x) => x.garment_order_id ?? "")}
-          value={r.garment_order_id}
-          onChange={(id) =>
-            mutOrders((xs) => xs.map((x) => (x.key === r.key ? { ...x, garment_order_id: id } : x)))
-          }
-        />
-      ),
-    },
-    {
-      header: "Customer",
-      width: "12rem",
-      cell: (r) => (
-        <Truncated>
-          {(r.garment_order_id && orderById.get(r.garment_order_id)?.customer_name) || "—"}
-        </Truncated>
-      ),
-    },
-    {
-      header: "Delivery",
-      width: "8rem",
-      cell: (r) => {
-        const d = r.garment_order_id ? orderById.get(r.garment_order_id)?.delivery_date : null;
-        return <span className="tabular-nums text-sm">{d ? fmtDate(d) : "—"}</span>;
-      },
-    },
-    {
-      header: "Order value",
-      align: "right",
-      width: "12rem",
-      cell: (r) => {
-        const o = r.garment_order_id ? orderById.get(r.garment_order_id) : null;
-        if (!o) return <span className="text-muted-foreground">—</span>;
-        // THE REFUSAL IS PRINTED. "No value" and "not valued yet" are the same
-        // empty cell otherwise, and only one of them is something to act on.
-        return o.sales_value == null ? (
-          <span className="text-xs text-danger">{o.sales_refusal ?? "no value"}</span>
-        ) : (
-          <span className="tabular-nums text-sm">{fmtNumber(o.sales_value)}</span>
-        );
-      },
-    },
-    {
-      header: "Already budgeted",
-      width: "11rem",
-      cell: (r) => {
-        const b = r.garment_order_id ? orderById.get(r.garment_order_id)?.in_budget : null;
-        if (!b || b.id === editId) return <span className="text-muted-foreground">—</span>;
-        // ADVISORY, never a block. Two DRAFT budgets over one order is someone
-        // comparing two groupings; only APPROVAL is refused (0428), and it is
-        // refused by the server with the other budget named.
-        return (
-          <span className={b.status === "approved" ? "text-xs text-danger" : "text-xs text-warning"}>
-            {b.code ?? "another budget"} ({budgetStatusText(b.status)})
-          </span>
-        );
-      },
-    },
-  ];
+  /**
+   * THE RE NO IS THE ORDER PICKER (client 2026-09-19: the Orders grid "remove
+   * this totally"). A budget is one order's budget, opened from its card in the
+   * queue or by picking its RE No here — the note's "SQ No / RE No: the
+   * selection input that loads all BOM data". Picking it pulls the order's
+   * lines (`pickOrder`); changing it takes the old order's pulled lines away.
+   *
+   * THE PREREQUISITE GATE: only an order whose Fabric BOM AND Material BOM are
+   * both saved is offered. The order this budget already holds survives the
+   * filter (AGENTS.md "Disabled rows") and says why under the field; the save
+   * action refuses it until it is fixed.
+   */
+  const heldOrder = orders[0] ?? null;
+  const reOptions = data.orders
+    .filter((o) => !o.bom_refusal || o.id === heldOrder?.garment_order_id)
+    .map((o) => ({
+      id: o.id,
+      code: o.re_no ?? o.order_code,
+      name: [o.re_no ?? o.order_code, o.po_no, o.customer_name].filter(Boolean).join(" · "),
+      inactive: false,
+    }));
+  function pickReNo(id: string | null) {
+    if (heldOrder) {
+      pickOrder(heldOrder, id);
+      return;
+    }
+    if (!id) return;
+    mutOrders(() => [{ key: newKey(), garment_order_id: id }]);
+    refreshFromBoms([id], "pick");
+  }
+  /** Under the RE No: a Save tried with none, why a held order is not ready,
+   *  or which OTHER budget already covers it (advisory; only approval is
+   *  refused, by the server, with that budget named). */
+  const reMessage = (() => {
+    if (saveAttempted && pickedOrders.length === 0) return "Pick the RE No";
+    if (heldUnready.length > 0) return heldUnready.map((o) => o.bom_refusal).join(" · ");
+    const other = pickedFacts.map((o) => o.in_budget).find((b) => b && b.id !== editId);
+    return other ? `Already in budget ${other.code ?? ""} (${budgetStatusText(other.status)})`.replace("  ", " ") : null;
+  })();
 
   // ---- cost-line cells, one definition each ---------------------------------
   //
@@ -1025,7 +1245,7 @@ export function BudgetScreen({
       <RecordPicker
         label={header}
         compact
-        disabled={!editable}
+        disabled={bomLocked(r)}
         items={data.items}
         value={r.item_id}
         onChange={(id) => setCost(r.key, { item_id: id })}
@@ -1038,24 +1258,12 @@ export function BudgetScreen({
     cell: (r) => (
       <Input
         className="h-8"
-        readOnly={!editable}
+        readOnly={bomLocked(r)}
         value={r.description}
         onChange={(e) => setCost(r.key, { description: e.target.value })}
       />
     ),
   });
-
-  const specCol: CostCol = {
-    header: "Brand / Specifications",
-    cell: (r) => (
-      <Input
-        className="h-8"
-        readOnly={!editable}
-        value={r.specification}
-        onChange={(e) => setCost(r.key, { specification: e.target.value })}
-      />
-    ),
-  };
 
   const qtyCol = (header: string): CostCol => ({
     header,
@@ -1066,7 +1274,7 @@ export function BudgetScreen({
           {...errProps(r, "qty")}
           className="h-8 text-right"
           required={qtyRequired(r)}
-          readOnly={!editable}
+          readOnly={bomLocked(r)}
           inputMode="decimal"
           value={r.qty}
           onChange={(e) => setCost(r.key, { qty: e.target.value })}
@@ -1082,7 +1290,7 @@ export function BudgetScreen({
       <RecordPicker
         label="Unit"
         compact
-        disabled={!editable}
+        disabled={bomLocked(r)}
         items={data.uoms}
         value={r.uom_id}
         onChange={(id) => setCost(r.key, { uom_id: id })}
@@ -1090,6 +1298,12 @@ export function BudgetScreen({
     ),
   };
 
+  /* FOC AND IMPORT ARE THE MERCHANDISER'S, ON EVERY LINE (user 2026-09-19:
+     "now it don't allow to enable, make it enable"). A pulled accessory line
+     STARTS from the Material BOM line's own FOC / supply type (0474), but it is
+     a sourcing call the budget may change — so they are never locked with the
+     BOM's facts, and a refresh keeps what was set (`operatorFacts`,
+     pull-merge.ts). */
   const flagToggle = (r: CostRow, key: "is_foc" | "is_import", aria: string, className?: string) => (
     <Toggle
       checked={r[key]}
@@ -1104,6 +1318,7 @@ export function BudgetScreen({
     cell: (r) => flagToggle(r, key, aria),
   });
   const focCol = toggleCol("FOC", "is_foc", "Free of cost");
+  const importCol = toggleCol("Import", "is_import", "Imported");
 
   /**
    * THE CURRENCY'S BLANK IS INR, AND SAYS SO. `currency_code` NULL is INR by
@@ -1256,7 +1471,7 @@ export function BudgetScreen({
       <RecordPicker
         label="Process"
         compact
-        disabled={!editable}
+        disabled={bomLocked(r)}
         items={data.processes.filter((p) => applies(p) || p.id === r.process_id)}
         value={r.process_id}
         onChange={(id) => setCost(r.key, { process_id: id })}
@@ -1330,44 +1545,6 @@ export function BudgetScreen({
   };
 
   /**
-   * FOC and Import as ONE cell — two 36px switches side by side, FOC first,
-   * each carrying its own `aria-label`. Merged because two separate `num`
-   * columns (144px) cost the yarn grid its table on the client's display, and
-   * the pair is 88px here (Phase 6's own suggested re-cut). `hug`: 36 + 4 + 36
-   * + the cell's 12px padding = 88. Splitting them back would put Yarn
-   * Purchases at 1152px against the 1155px budget — 3px from dropping to cards.
-   *
-   * EACH SWITCH NAMES ITSELF (user 2026-09-19, screenshot 2950: "why this
-   * screen have two toggle button single field"). The header "FOC · Import"
-   * named the pair, but nothing said WHICH switch was which, so the cell read as
-   * one field with two toggles. A 10px caption sits over each switch — the
-   * cell stays 88px wide — and `min-h-0` drops `Toggle`'s 36px floor so
-   * caption + gap + switch (10 + 2 + 20) fits the row's 32px controls instead
-   * of growing every line. The captions are `aria-hidden`: each checkbox
-   * already carries its own name ("Free of cost", "Imported").
-   */
-  const flagsCol: CostCol = {
-    header: "FOC · Import",
-    cell: (r) => (
-      <span className="inline-flex items-end gap-1">
-        {(
-          [
-            ["is_foc", "FOC", "Free of cost"],
-            ["is_import", "Import", "Imported"],
-          ] as const
-        ).map(([key, caption, aria]) => (
-          <span key={key} className="flex w-9 flex-col items-center gap-0.5">
-            <span aria-hidden className="text-[10px] leading-none text-muted-foreground">
-              {caption}
-            </span>
-            {flagToggle(r, key, aria, "min-h-0")}
-          </span>
-        ))}
-      </span>
-    ),
-  };
-
-  /**
    * STAGE and COLOUR of a yarn purchase, READ-ONLY and in one 88px cell (user
    * 2026-09-19, screenshot 2952: "Stage, color field is missing in yarn
    * purchase"; chose "show them, read-only").
@@ -1402,18 +1579,23 @@ export function BudgetScreen({
    * budget's blank row left empty. Every other column stays exactly where and
    * as wide as it was.
    */
-  const stageOptions = (held: string | null) =>
-    data.lookups.filter((l) => l.kind === "yarn_stage" && (!isInactive(l) || l.id === held));
-  const stageCol: CostCol = {
+  /** ONE STAGE COLUMN, TWO LISTS: `yarn_stage` on Yarn Purchases (the Fabric
+   *  BOM's Yarn Process list), `fabric_stage` on Fabric Purchases (its Fabric
+   *  Process list — GREIGE / DYED / WASH / PRINT). */
+  type StageKind = "yarn_stage" | "fabric_stage";
+  const stageOptions = (kind: StageKind, held: string | null) =>
+    data.lookups.filter((l) => l.kind === kind && (!isInactive(l) || l.id === held));
+  const stageCol = (kind: StageKind): CostCol => ({
     header: "Stage",
     cell: (r) =>
-      // THE PICKER HAS NO READ-ONLY STATE — the Head column's own answer.
-      editable ? (
+      // THE PICKER HAS NO READ-ONLY STATE — the Head column's own answer. A
+      // pulled line's stage is the BOM's, so it shows as text too.
+      !bomLocked(r) ? (
         <LookupDialogPicker
-          kind="yarn_stage"
+          kind={kind}
           label="Stage"
           compact
-          options={stageOptions(r.stage_id)}
+          options={stageOptions(kind, r.stage_id)}
           value={r.stage_id}
           onChange={(id) => setCost(r.key, { stage_id: id || null })}
           canCreate={masterPerms.canCreate}
@@ -1426,7 +1608,7 @@ export function BudgetScreen({
           value={data.lookups.find((l) => l.id === r.stage_id)?.name ?? ""}
         />
       ),
-  };
+  });
   /** A line's colourways: its own order's, or every picked order's for a
    *  hand-added line that names none. The value it holds always survives the
    *  list (AGENTS.md "Disabled rows"), as on the Fabric BOM. */
@@ -1444,7 +1626,7 @@ export function BudgetScreen({
         className="h-8"
         aria-label="Colour"
         value={r.combo ?? ""}
-        disabled={!editable}
+        disabled={bomLocked(r)}
         onChange={(e) => setCost(r.key, { combo: e.target.value || null })}
       >
         <option value=""></option>
@@ -1481,17 +1663,25 @@ export function BudgetScreen({
      switches to a table from `7xl` (1280) instead of `5xl`. At or above 1280
      the 1272px table always fits (the client's screen gives ~1312); below it,
      one-frame cards — never a sideways scroll. 8px of headroom under 1280: the
-     next column here needs a re-cut, not a wider threshold. */
+     next column here needs a re-cut, not a wider threshold.
+     2026-09-19 (client, shot 2957): Brand / Specifications REMOVED (-112) —
+     the brand is already on the BOM line this row was pulled from. 1088, + 72
+     = 1160: still 5px past the 1155 laptop pane, so `7xl` stays.
+     Same day (user): FOC and Import split back into two `num` columns (72 +
+     72 = 144 for the merged 88, +56) — 1144, + 72 = 1216, under the 1280 of
+     `7xl`, so still one table there and one-frame cards below it. */
   const yarnPurchaseColumns: CostCol[] = withRowRules([
     // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1272px table, so it never scrolls sideways
     { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.code },
-    { ...stageCol, width: FIELD_WIDTH_CSS.hug },
+    { ...stageCol("yarn_stage"), width: FIELD_WIDTH_CSS.hug },
     { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...descCol("Description"), width: FIELD_WIDTH_CSS.hug },
-    { ...specCol, width: FIELD_WIDTH_CSS.range },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
-    { ...flagsCol, width: FIELD_WIDTH_CSS.hug },
+    // FOC and Import in their OWN columns again (user 2026-09-19: "foc and
+    // imports toggle in separate field and cell") — see the width note above.
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
     { ...currencyCol, width: FIELD_WIDTH_CSS.num },
     { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
@@ -1500,9 +1690,20 @@ export function BudgetScreen({
   ]);
 
   /* Fabric Purchases — 176 + 200 + 88 + 72 + 72 + 72 + 88 + 88 + 112 = 968,
-     + 72 = 1040 <= 1155 -> 5xl. */
+     + 72 = 1040 <= 1155 -> 5xl.
+     2026-09-19: + Stage (hug 88, a `fabric_stage` picker) and Colour (hug 88,
+     the order's colourways) after Fabric — Yarn Purchases' change, the same
+     way ("now fabric ... is also missing stage and color ... this also same").
+     NOTHING else moved or narrowed: 1144, + 72 = 1216, so this grid too is a
+     table from `7xl` (1280) and one-frame cards below it — never a sideways
+     scroll. A pulled line arrives with GREIGE / DYED from its cloth source on
+     the Fabric BOM and the colourway lot it is (the budget service's
+     `fabricStageOf`). */
   const fabricPurchaseColumns: CostCol[] = withRowRules([
+    // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1216px table, so it never scrolls sideways
     { ...itemCol("Fabric"), width: FIELD_WIDTH_CSS.term },
+    { ...stageCol("fabric_stage"), width: FIELD_WIDTH_CSS.hug },
+    { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...descCol("Fabric & Colour"), width: FIELD_WIDTH_CSS.party },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
@@ -1513,17 +1714,24 @@ export function BudgetScreen({
     { ...amountCol, width: FIELD_WIDTH_CSS.range },
   ]);
 
-  /* Accessories Purchases — 144 + 112 + 88 + 72 + 88 + 88 + 72 + 88 + 72 + 88
-     + 112 = 1024, + 72 = 1096 <= 1155 -> 5xl. Yarn's re-cut; Specifications
-     takes the `hug` here and Colour keeps `range`, because on a trim the colour
-     is the fact that varies. */
+  /* Accessories Purchases — 144 + 112 + 72 + 88 + 88 + 72 + 88 + 72 + 88
+     + 112 = 936, + 72 = 1008 <= 1155 -> 5xl. Brand / Specifications (88)
+     REMOVED 2026-09-19 (client, shot 2957), as on Yarn Purchases.
+     Same day (user): FOC and Import split back into two `num` columns (144
+     for the merged 88, +56) — 992, + 72 = 1064 <= 1155, still 5xl. The merged
+     "FOC · Import" cell was a Phase 6 re-cut to buy width; with Brand /
+     Specifications gone, both grids can afford the two columns again.
+     Colour / Description keeps `range`, because on a trim the colour is the
+     fact that varies. */
   const accessoryPurchaseColumns: CostCol[] = withRowRules([
     { ...itemCol("Item"), width: FIELD_WIDTH_CSS.code },
     { ...descCol("Colour / Description"), width: FIELD_WIDTH_CSS.range },
-    { ...specCol, width: FIELD_WIDTH_CSS.hug },
     { ...unitCol, width: FIELD_WIDTH_CSS.num },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
-    { ...flagsCol, width: FIELD_WIDTH_CSS.hug },
+    // FOC and Import in their own columns, as on Yarn Purchases (user
+    // 2026-09-19) — see the width note above.
+    { ...focCol, width: FIELD_WIDTH_CSS.num },
+    { ...importCol, width: FIELD_WIDTH_CSS.num },
     { ...currencyCol, width: FIELD_WIDTH_CSS.num },
     { ...exRateCol, width: FIELD_WIDTH_CSS.hug },
     { ...rateCol("Rate"), width: FIELD_WIDTH_CSS.num },
@@ -2084,24 +2292,44 @@ export function BudgetScreen({
    * Every grid: a table from `5xl`, one-frame cards below it (`flatRows`),
    * never a sideways scroll.
    *
-   * THE LAST LINE CAN GO, AND A BLANK ONE TAKES ITS PLACE. A PULLED grid's rows
-   * come from the BOMs, and removing the last one is a cost the operator decided
-   * not to budget — so the pulled grids keep `keepOne={false}` and the ✕ still
-   * works on the last row. But the table never empties (AGENTS.md, default rows):
-   * `removeCost` refills it with a blank row, which is never saved. Other
-   * Expenses / Incomes keep `keepOne`, as before.
+   * THE LAST LINE CAN GO, AND A BLANK ONE TAKES ITS PLACE. The pulled grids
+   * keep `keepOne={false}` so a typed line, or a pulled line the BOM no longer
+   * has, can be removed even when it is the last row — every other pulled line
+   * keeps no ✕ at all (`pulledRowLocked`, 0591). The table never empties
+   * (AGENTS.md, default rows): `removeCost` refills it with a blank row, which is
+   * never saved. Other Expenses / Incomes keep `keepOne`, as before.
    *
    * No `label=` caption: the section, and the tab inside it, names each grid.
    */
   const rowsOf = (source: string) => costs.filter((c) => c.source === source);
+  /** A PULLED LINE CANNOT BE REMOVED (0591) — it is a cost the BOM says this
+   *  order has, and the budget is the BOMs' answer with prices on it. A line
+   *  that should not be paid for is FOC, not deleted. The one exception is a
+   *  line the BOM no longer has (`staleKeys`), and a line typed by hand. */
+  const pulledRowLocked = (r: CostRow) => r.from_bom && !staleKeys.has(r.key);
   const addCost = (source: BudgetSource) => mutCosts((xs) => [...xs, blankFor(newKey(), source)]);
-  const removeCost = (r: CostRow) =>
+  const removeCost = (r: CostRow) => {
+    if (staleKeys.has(r.key)) {
+      setStaleKeys((s0) => {
+        const next = new Set(s0);
+        next.delete(r.key);
+        return next;
+      });
+    }
+    if (r.key in rowNotes) {
+      setRowNotes((n) => {
+        const next = { ...n };
+        delete next[r.key];
+        return next;
+      });
+    }
     mutCosts((xs) => {
       const rest = xs.filter((x) => x.key !== r.key);
       return isSeeded(r.source) && !rest.some((x) => x.source === r.source)
         ? [...rest, blankFor(newKey(), r.source as BudgetSource)]
         : rest;
     });
+  };
 
   const yarnPurchaseGrid = (
       <ChildGrid<CostRow>
@@ -2113,6 +2341,7 @@ export function BudgetScreen({
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
+        lockRow={pulledRowLocked}
         onAdd={() => addCost("yarn")}
         onRemove={removeCost}
         addLabel="+ Add line"
@@ -2123,12 +2352,13 @@ export function BudgetScreen({
       <ChildGrid<CostRow>
         columns={fabricPurchaseColumns}
         rows={rowsOf("fabric")}
-        tableFrom="5xl"
+        tableFrom="7xl"
         flatRows
         renderMobileRow={(row, i) => costCard(fabricPurchaseColumns, row, i)}
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
+        lockRow={pulledRowLocked}
         onAdd={() => addCost("fabric")}
         onRemove={removeCost}
         addLabel="+ Add line"
@@ -2145,6 +2375,7 @@ export function BudgetScreen({
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
+        lockRow={pulledRowLocked}
         onAdd={() => addCost("material")}
         onRemove={removeCost}
         addLabel="+ Add line"
@@ -2161,6 +2392,7 @@ export function BudgetScreen({
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
+        lockRow={pulledRowLocked}
         onAdd={() => addCost("yarn_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
@@ -2177,6 +2409,7 @@ export function BudgetScreen({
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
+        lockRow={pulledRowLocked}
         onAdd={() => addCost("material_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
@@ -2195,6 +2428,7 @@ export function BudgetScreen({
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
+        lockRow={pulledRowLocked}
         onAdd={() => addCost("garment_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
@@ -2211,6 +2445,7 @@ export function BudgetScreen({
         hideAdd={!editable}
         lockExisting={!editable}
         keepOne={false}
+        lockRow={pulledRowLocked}
         onAdd={() => addCost("cmt")}
         onRemove={removeCost}
         addLabel="+ Add line"
@@ -2409,6 +2644,9 @@ export function BudgetScreen({
           ex_rate: carried?.ex_rate ?? null,
           rate_type: carried?.rate_type ?? null,
           is_foc: allFoc,
+          // Still the BOM's kilograms at another grain — locked, like the lines
+          // it replaces (0591).
+          from_bom: true,
         }),
       );
       // IN PLACE — the group keeps its position among the other groups, so the
@@ -2475,6 +2713,7 @@ export function BudgetScreen({
             hideAdd
             lockExisting={!editable}
             keepOne={false}
+            lockRow={pulledRowLocked}
             onAdd={() => false}
             onRemove={removeCost}
           />
@@ -2695,23 +2934,50 @@ export function BudgetScreen({
               is "HO/RE/26-27/0001", 16 characters, ~150px — `code` (144)
               clipped the RE No, and Entry No / SQ No follow the same series.
 
-              THE CAP IS DEFINITE — 68rem, 1088px: the 1076 budget row plus
-              12px of slack so a sub-pixel font metric cannot wrap it. Below it (a 1366 laptop's pane is
-              ~1090px, so it just fits) a row folds its last field onto a new
-              line, like any `FieldRow`, rather than scrolling. Never `max-w-fit`:
-              inside a container-query ancestor a content-sized cap resolves to
-              zero (the Vendor bug, 8f37c22). */}
-          <div className="max-w-[68rem] space-y-2">
+              6. CURRENCY, EXCHANGE RATE AND SQ DESCRIPTION REMOVED (client,
+                 2026-09-19, shot 2957), then Group (same day).
+              7. ONE LINE (user, shot 2959: "align it in single line using the
+                 required skill"). With four boxes gone, the two rows were two
+                 short lines — Entry No · Date alone above the order facts. They
+                 are one FieldRow now, and the two boxes whose values are short
+                 took the step that fits the VALUE (raagam-screen-layout: width
+                 by the kind of value), which is what makes the line fit:
+
+                   Entry No  hug   88   a plain serial (0593), "1" … "9999"
+                   Date      code 144   the house step for a date box
+                   SQ No     term 176   a document number, "HO/…/26-27/0001"
+                   RE No     term 176   the same series; the picker
+                   Customer  party 200
+                   Order Qty hug   88
+                   SQ Qty    hug   88
+                   Unit      num   72   "PCS" / "SETS"; a one-word label
+
+                   88 + 144 + 176 + 176 + 200 + 88 + 88 + 72 = 1032,
+                   + 7 x 12 gaps = 1116.
+
+              THE CAP IS DEFINITE — 71rem, 1136px: the 1116 line plus 20px of
+              slack so a sub-pixel font metric cannot wrap it. On the client's
+              ~1,270px pane it is one line. On a pane narrower than 1116 (a
+              1366 laptop's section is ~1090) the LAST box, Unit, folds onto a
+              second line like any `FieldRow` — never a sideways scroll. Never
+              `max-w-fit`: inside a container-query ancestor a content-sized cap
+              resolves to zero (the Vendor bug, 8f37c22). */}
+          <div className="max-w-[71rem]">
             <FieldRow>
-              {/* THE BUDGET'S OWN NUMBER — assigned on first save, so blank on a
-                  new one rather than a guess at what it will be. */}
-              <Field label="Entry No" w="term" htmlFor="bg-code">
-                <Input id="bg-code" readOnly value={editCode ?? ""} />
+              {/* THE BUDGET'S OWN NUMBER — a plain serial, 1, 2, 3 … (client,
+                  2026-09-19), given by the database on first save (0593's
+                  `trg_ob_assign_code`). A new budget shows the number it will
+                  most likely get: one past the highest on the list. That is a
+                  prediction, not a reservation — two people saving at once, or
+                  a unit's budgets this user cannot see, can move it, and the
+                  saved number is the database's. */}
+              <Field label="Entry No" w="hug" htmlFor="bg-code">
+                <Input id="bg-code" readOnly value={editCode ?? (editId ? "" : nextEntryNo)} />
               </Field>
               <Field
                 label="Date"
                 required
-                w="term"
+                w="code"
                 htmlFor="bg-date"
                 error={saveAttempted && !form.budget_date ? "Enter the budget date" : null}
               >
@@ -2723,44 +2989,41 @@ export function BudgetScreen({
                   onChange={(e) => set({ budget_date: e.target.value })}
                 />
               </Field>
-              <Field label="Group" w="party" htmlFor="bg-desc">
-                <Input
-                  id="bg-desc"
-                  readOnly={!editable}
-                  value={form.description}
-                  onChange={(e) => set({ description: e.target.value })}
-                />
-              </Field>
-              {/* CURRENCY AND EXCHANGE RATE ARE READ OFF ORDER ENTRY (user
-                  2026-09-19: "all the fields data need to fetch from order
-                  entry"). Both are terms of the ORDER — its Prices tab — and
-                  were typed a second time here as a "planning rate" that the
-                  sales figures never used: `inrValue` converts each order at
-                  its own booked rate, so a different number typed here could
-                  only ever disagree with the bottom bar. Now both are
-                  `salesSummary()`'s — the same figures the bar shows — and a
-                  group that disagrees (two currencies, two rates) says so under
-                  the field rather than picking one. Blank with no order picked. */}
-              <Field label="Currency" w="hug" htmlFor="bg-cur" error={refusalOf(sales.currency)}>
-                <Input id="bg-cur" readOnly value={figureText(sales.currency)} />
-              </Field>
-              <Field label="Exchange rate" w="hug" htmlFor="bg-exr" error={refusalOf(sales.conv)}>
-                <Input id="bg-exr" readOnly className="text-right" value={figureText(sales.conv)} />
-              </Field>
-              {/* UP HERE, beside the exchange rate, to fill that row's gap — see
-                  the layout comment above (user, screenshot 2948). */}
-              <Field label="SQ Description" w="name" htmlFor="bg-sqd">
-                <Input id="bg-sqd" readOnly value={groupFact((o) => o.sq_description, "Mixed")} />
-              </Field>
-            </FieldRow>
-            {/* THE SQ FACTS — read off the picked orders, read-only, and so off
-                the Tab path by `readOnly` alone. */}
-            <FieldRow>
+              {/* NO GROUP BOX (client, 2026-09-19): a budget is one order's and
+                  is known by its Entry No and RE No. `order_budgets.description`
+                  stays in the schema and in what an older budget saved; the
+                  editor just no longer asks for it. */}
+              {/* NO CURRENCY, EXCHANGE RATE OR SQ DESCRIPTION (client, 2026-09-19,
+                  screenshot 2957). Currency and rate are the ORDER's, fetched
+                  from Order Entry and shown in the Sales bar below, which is
+                  where they are used; a second, read-only copy up here was one
+                  more box to read. SQ Description went because an order is
+                  known by its RE No / SQ No, never by its description text. */}
+              {/* THE SQ FACTS — read off the picked order, read-only, and so off
+                  the Tab path by `readOnly` alone. The RE No is the one picker. */}
               <Field label="SQ No" w="term" htmlFor="bg-sq">
                 <Input id="bg-sq" readOnly value={groupFact((o) => o.sq_no, nOrders)} />
               </Field>
-              <Field label="RE No" w="term" htmlFor="bg-re">
-                <Input id="bg-re" readOnly value={groupFact((o) => o.re_no, nOrders)} />
+              <Field label="RE No" required w="term" htmlFor="bg-re" error={reMessage}>
+                {/* A budget saved over SEVERAL orders (the old grid allowed it)
+                    shows them as text rather than a picker that could only
+                    hold one of them. */}
+                {editable && pickedFacts.length <= 1 ? (
+                  <RecordPicker
+                    id="bg-re"
+                    label="RE No"
+                    /* `compact` — the Field above already prints "RE No *";
+                       without it the picker drew its own caption as well and
+                       the label showed twice (screenshot 2958). */
+                    compact
+                    required
+                    items={reOptions}
+                    value={heldOrder?.garment_order_id ?? null}
+                    onChange={(id) => pickReNo(id || null)}
+                  />
+                ) : (
+                  <Input id="bg-re" readOnly value={groupFact((o) => o.re_no, nOrders)} />
+                )}
               </Field>
               <Field label="Customer" w="party" htmlFor="bg-cust">
                 <Input id="bg-cust" readOnly value={groupFact((o) => o.customer_name, "Mixed")} />
@@ -2780,40 +3043,10 @@ export function BudgetScreen({
               <Field label="SQ Qty" w="hug" htmlFor="bg-sqqty" error={refusalOf(groupSqQty)}>
                 <Input id="bg-sqqty" readOnly className="text-right" value={figureText(groupSqQty)} />
               </Field>
-              <Field label="Unit" w="hug" htmlFor="bg-unit">
+              <Field label="Unit" w="num" htmlFor="bg-unit">
                 <Input id="bg-unit" readOnly value={asText(sales.unit)} />
               </Field>
             </FieldRow>
-          </div>
-
-          {/* THE ORDERS ARE PICKED HERE, UNDER THE FIELDS THEY FILL (user
-              2026-09-19: "hide the order tab i mean the second tab of the
-              budget"). They were a rail section of their own, one click away
-              from the SQ No / RE No / Customer / Currency boxes above — which
-              read as empty fields that never fetched, when the answer was on
-              the next tab. Picking an order here fills those boxes in place.
-              The grid is unchanged: a budget still groups MANY orders. */}
-          <div className="mt-4">
-            <ChildGrid<OrderRow>
-              /* grid-caption: exempt -- the Budget section holds the header
-                 fields AND this grid since the Orders section was folded in,
-                 so the section title no longer names it. */
-              label="Orders"
-              columns={orderColumns}
-              rows={orders}
-              seedRow
-              hideAdd={!editable}
-              lockExisting={!editable}
-              onAdd={() => mutOrders((xs) => [...xs, { key: newKey(), garment_order_id: null }])}
-              onRemove={(r) => mutOrders((xs) => xs.filter((x) => x.key !== r.key))}
-              addLabel="+ Add order"
-            />
-            {/* UNDER THE GRID IT IS ABOUT — a blocked Save used to toast it. Only
-                once a Save was tried: a new budget with no order yet is not an
-                error, it is a budget nobody has started. */}
-            <FieldError id="bg-orders-error">
-              {saveAttempted && pickedOrders.length === 0 ? "Add at least one garment order." : null}
-            </FieldError>
           </div>
 
           {!editable && (
@@ -2830,7 +3063,12 @@ export function BudgetScreen({
         </SectionBody>
       ),
     },
-    ...BUDGET_SECTIONS.map((s): FullScreenSection => {
+    /* OTHER INCOMES IS GONE FROM THE RAIL (client, 2026-09-19, shot 2957):
+       duty drawback and export incentives are not added to an order budget by
+       the merchandiser. Hidden here, not deleted from the engine: `income`
+       stays a source (the partition check, and any line an older budget
+       holds), it just has no table to type one into. */
+    ...BUDGET_SECTIONS.filter((s) => s.key !== "income").map((s): FullScreenSection => {
       const lines = enteredCosts.filter((c) => (s.sources as readonly string[]).includes(c.source));
       /** THE STRIP CARRIES A COUNT even though the rail does not (operator
        *  rule 2): one tab is mounted at a time, and a line refusing on a closed
@@ -3022,6 +3260,7 @@ export function BudgetScreen({
         component_id: c.component_id,
         cost_head_id: c.cost_head_id,
         stage_id: c.stage_id,
+        from_bom: c.from_bom,
         // 0574 — null each when not broken up. The schema derives `rate` from
         // these when any is set, so the two cannot be sent disagreeing.
         ...breakupOf(c),
@@ -3085,97 +3324,54 @@ export function BudgetScreen({
 
   // ---- the list ------------------------------------------------------------
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return budgets;
-    return budgets.filter((b) =>
-      [b.code, b.description].filter(Boolean).some((v) => (v as string).toLowerCase().includes(q)),
-    );
-  }, [budgets, search]);
+  /** The budget a queue card stands for — the one `in_budget` names. A
+   *  submitted or approved budget is not deletable (with the approver / what
+   *  purchase acts on), nor one ever reopened (0576's audit history):
+   *  `canDeleteBudget` says so, as it did for the table's row action. */
+  const budgetOfCard = (o: BudgetableOrder) =>
+    o.in_budget ? (budgets.find((x) => x.id === o.in_budget?.id) ?? null) : null;
 
-  const columns: Column<OrderBudget>[] = [
-    {
-      header: "Budget",
-      cell: (b) => (
-        <button
-          type="button"
-          className="font-mono text-xs font-medium text-primary hover:underline"
-          onClick={() => openExisting(b.id)}
-        >
-          {b.code ?? b.id.slice(0, 8)}
-        </button>
-      ),
-    },
-    { header: "Group", cell: (b) => <Truncated>{b.description ?? "—"}</Truncated> },
-    {
-      header: "Date",
-      cell: (b) => <span className="tabular-nums text-sm">{fmtDate(b.budget_date)}</span>,
-    },
-    {
-      header: "Orders",
-      align: "right",
-      cell: (b) => <span className="tabular-nums text-sm">{(b.orders ?? []).length}</span>,
-    },
-    {
-      header: "Lines",
-      align: "right",
-      cell: (b) => <span className="tabular-nums text-sm">{(b.lines ?? []).length}</span>,
-    },
-    {
-      header: "Status",
-      cell: (b) => <StatusPill tone={budgetStatusTone(b.status)}>{budgetStatusText(b.status)}</StatusPill>,
-    },
-    rowActionsColumn<OrderBudget>((b) => (
-      <RowActions
-        label={b.code ?? b.description}
-        onEdit={() => openExisting(b.id)}
-        canEdit={perms.canEdit}
-        // A SUBMITTED OR APPROVED BUDGET IS NOT DELETABLE. The first is with
-        // someone else and the second is what purchase is acting on.
-        // `canDeleteBudget`: draft or rejected AND never reopened — a reopened
-        // budget's revisions are the Amendment Protocol's audit history, and the
-        // server and 0576 both refuse to delete it.
-        canDelete={perms.canDelete && canDeleteBudget(b)}
-        onDelete={() => remove(b.id)}
-        deleteLabel="Delete budget"
-        isPending={isPending}
-      />
-    )),
-  ];
-
+  /* NOT SENT WHILE THE BUDGET TRAILS ITS BOMs (0591) — a pending refresh or a
+     line the BOM no longer has. `submitBudget` refuses it anyway; the button
+     just does not offer what the server will refuse. */
   const canSubmit =
-    editable && canTransition(status, "submitted") && validity.canSave && enteredCosts.length > 0;
+    editable &&
+    canTransition(status, "submitted") &&
+    validity.canSave &&
+    enteredCosts.length > 0 &&
+    bomDrift == null &&
+    staleKeys.size === 0;
 
   return (
     <>
       <div className="space-y-4">
+        {/* ONE LIST — the orders, as cards (user 2026-09-20, screenshot 2964:
+            the page "listing two type, hold the card type listing, remove the
+            budget … section"). The Budgets table and its search box are gone:
+            every budget is reached through its order's card, which opens it,
+            and deleted there too. "+ New Budget" moved into the header. */}
         <PageHeader
           title="Budgeting"
           description="Step 5 — cost a group of orders from their BOMs, and send the budget for approval."
-        />
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* caps-input: exempt -- a search QUERY is not a stored value. */}
-          <Input uppercase={false}
-            className="w-64"
-            placeholder="Search budget or group…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <div className="flex flex-1 items-center justify-end gap-2">
-            {perms.canCreate && (
+          actions={
+            perms.canCreate ? (
               <Button size="md" onClick={openNew}>
                 + New Budget
               </Button>
-            )}
-          </div>
-        </div>
+            ) : undefined
+          }
+        />
 
-        <DataTable
-          columns={withCreatedColumns(columns, filtered)}
-          rows={filtered}
-          getKey={(b) => b.id}
-          empty="No budgets yet. A budget groups several orders and costs them from their BOMs."
+        <BudgetQueue
+          orders={data.orders}
+          onOpen={openForOrder}
+          canDelete={perms.canDelete}
+          canDeleteRow={(o) => !!budgetOfCard(o) && canDeleteBudget(budgetOfCard(o)!)}
+          onDelete={(o) => {
+            const b = budgetOfCard(o);
+            if (b) remove(b.id);
+          }}
+          isPending={isPending}
         />
       </div>
 
@@ -3192,7 +3388,10 @@ export function BudgetScreen({
         }
         header={{
           initials: "BG",
-          title: form.description || (editId ? "Budget" : "New budget"),
+          // The order it budgets, now that there is no Group to name it by.
+          title:
+            (pickedFacts.length === 1 ? (pickedFacts[0].re_no ?? pickedFacts[0].order_code) : null) ??
+            (form.description || (editId ? "Budget" : "New budget")),
           badges: (
             <span className="flex items-center gap-2">
               <StatusPill tone={budgetStatusTone(status)}>{budgetStatusText(status)}</StatusPill>
@@ -3211,6 +3410,17 @@ export function BudgetScreen({
               </span>
               <span>· {enteredCosts.length} cost lines</span>
               {form.budget_date && <span>· {fmtDate(form.budget_date)}</span>}
+              {editable && bomDrift != null && (
+                <span className="font-medium text-warning">
+                  · The BOMs changed since this budget was filled ({bomDrift}{" "}
+                  {bomDrift === 1 ? "line" : "lines"}) — Refresh from BOMs
+                </span>
+              )}
+              {editable && staleKeys.size > 0 && (
+                <span className="font-medium text-warning">
+                  · {staleKeys.size} {staleKeys.size === 1 ? "line is" : "lines are"} no longer on the BOM
+                </span>
+              )}
             </>
           ),
           // SUBMIT LIVES HERE, NOT IN THE FOOTER. See the file header:
@@ -3218,16 +3428,23 @@ export function BudgetScreen({
           // the last field would otherwise send the document for approval.
           right: editable ? (
             <span className="flex items-center gap-2">
-              {/* ONE PULL FOR EVERY SOURCE — see `pullFromBoms`. */}
+              {/* ONE REFRESH FOR EVERY SOURCE — see `refreshFromBoms`. Picking an
+                  order already fills its lines; this brings them back in step
+                  after a BOM is edited. */}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={pullFromBoms}
+                onClick={() =>
+                  refreshFromBoms(
+                    pickedOrders.map((o) => o.garment_order_id as string),
+                    "refresh",
+                  )
+                }
                 disabled={pickedOrders.length === 0 || isPending}
               >
-                <Sparkles className="h-4 w-4" aria-hidden />
-                Pull costs from the BOMs
+                <RefreshCw className="h-4 w-4" aria-hidden />
+                Refresh from BOMs
               </Button>
               <Button
                 type="button"

@@ -105,3 +105,27 @@ export function companyAddressOf(profile: Record<string, unknown> | null): strin
   const legacy = s("address") || s("address_line1");
   return parts.length ? parts.join(", ") : legacy || null;
 }
+
+/**
+ * THE REGISTERED ADDRESS, ONE LINE — what the requirement reports print (client
+ * spec 2026-09-19: "Company Name, Unit Name and Registered Address pulled from
+ * the Company Master").
+ *
+ * The Company Profile holds TWO address blocks, and 0318 names them: `street1..3`
+ * / `city` / `state` / `pin_code` is "Registered address", and `reg_street1..3` /
+ * `reg_city` / `reg_state` / `reg_pin_code` is "Registered office (if
+ * different)". So the `reg_*` block wins when ANY of it is filled, and the main
+ * block answers otherwise — reading `reg_*` alone would print nothing for the
+ * ordinary company whose registered office is its only address.
+ *
+ * A separate function rather than a change to `companyAddressOf`, because the
+ * Fabric Requirement Sheet and the requirement service print that one as the
+ * company's working address, and neither asked for this change.
+ */
+export function registeredAddressOf(profile: Record<string, unknown> | null): string | null {
+  if (!profile) return null;
+  const s = (k: string) => (typeof profile[k] === "string" ? (profile[k] as string).trim() : "");
+  const cityPin = [s("reg_city"), s("reg_pin_code")].filter(Boolean).join(" - ");
+  const parts = [s("reg_street1"), s("reg_street2"), s("reg_street3"), cityPin, s("reg_state")].filter(Boolean);
+  return parts.length ? parts.join(", ") : companyAddressOf(profile);
+}

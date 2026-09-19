@@ -187,6 +187,7 @@ import {
 } from "@/lib/orders/styles/rules";
 import { componentsForCoordinate } from "@/lib/masters/component-coordinates";
 import { previewOrderNumber } from "@/lib/orders/actions";
+import { ORDER_REPORTS, orderReportHref } from "@/lib/orders/order-reports";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CategoryPicker } from "@/components/masters/lookup-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
@@ -5383,13 +5384,19 @@ export function GarmentOrderScreen({
                "which document" question, and the menu was the redundant one.
                Reports now opens straight to the order sheet (the one document
                with no gate — see the note this replaced), and the tab strip on
-               that page reaches the other two in one click each. */
+               that page reaches the rest in one click each.
+
+               THE STRIP IS `ORDER_REPORTS` (client 2026-09-19: "report option
+               is not linked with the actual report"). It was a list of three
+               while the Fabric BOM's own reports lived only inside its editor;
+               every report registered in `lib/orders/order-reports.ts` is now on
+               it, and this entry opens the registry's first. */
             return [
               {
                 label: soId ? "Reports" : "Reports — no order number yet",
                 icon: FileText,
                 disabled: !soId,
-                onClick: () => router.push(`/orders/${soId}/gos`),
+                onClick: () => soId && router.push(orderReportHref(soId, ORDER_REPORTS[0])),
               },
             ];
           })()}

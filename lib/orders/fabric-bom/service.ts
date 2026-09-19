@@ -395,6 +395,10 @@ export type PickerRow = {
    * prints it as legacy's `Structure Type`.
    */
   knit?: string | null;
+  /** The same family as its CODE — `circular` / `flat_knit` / `woven`, the
+   *  vocabulary `order_fabric_bom_dias.knit_type` stores. What Manual's Finish
+   *  Dia scopes by (`dia-knit.ts`); `knit` above is only its display name. */
+  knitCode?: string | null;
 };
 export type UomRow = PickerRow & { decimal_places_allowed: number | null };
 
@@ -638,11 +642,11 @@ async function getStructureRows(): Promise<PickerRow[]> {
   /* ONLY THE IDS THAT ACTUALLY APPEAR, never the whole lookup table. */
   const knitIds = [...new Set(cats.map((r) => r.fabric_structure_id).filter(Boolean))] as string[];
   const knitRes = knitIds.length
-    ? await s.from("config_lookups").select("id, name").in("id", knitIds)
-    : { data: [] as { id: string; name: string | null }[] };
-  const knitById = new Map(
-    ((knitRes.data ?? []) as { id: string; name: string | null }[]).map((r) => [r.id, r.name]),
-  );
+    ? await s.from("config_lookups").select("id, code, name").in("id", knitIds)
+    : { data: [] as { id: string; code: string | null; name: string | null }[] };
+  const knitRows = (knitRes.data ?? []) as { id: string; code: string | null; name: string | null }[];
+  const knitById = new Map(knitRows.map((r) => [r.id, r.name]));
+  const knitCodeById = new Map(knitRows.map((r) => [r.id, r.code]));
 
   return cats
     .filter((r) => isFabricClassId(classes, r.item_class_id))
@@ -658,6 +662,7 @@ async function getStructureRows(): Promise<PickerRow[]> {
          with the structure everywhere the structure goes, so a screen that has
          the row already has the answer — see `PickerRow.knit`. */
       knit: r.fabric_structure_id ? (knitById.get(r.fabric_structure_id) ?? null) : null,
+      knitCode: r.fabric_structure_id ? (knitCodeById.get(r.fabric_structure_id) ?? null) : null,
     }));
 }
 

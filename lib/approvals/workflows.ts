@@ -26,6 +26,7 @@
 
 export type WorkflowKey =
   | "order_budget"
+  | "iwo_budget"
   | "order_amendment"
   | "purchase_indent"
   | "purchase_order";
@@ -46,6 +47,14 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "order_budgets",
     label: "Order Budget",
     href: "/orders/budget-approval",
+  },
+  /* 0595 — an Internal Work Order's budget. The queue row opens the IWO Budget
+     screen on that budget (`useOpenIntent` there accepts a budget id). */
+  iwo_budget: {
+    key: "iwo_budget",
+    subjectTable: "iwo_budgets",
+    label: "IWO Budget",
+    href: "/orders/iwo-budgets?open=:id",
   },
   order_amendment: {
     key: "order_amendment",

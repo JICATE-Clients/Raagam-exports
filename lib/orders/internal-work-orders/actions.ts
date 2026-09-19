@@ -22,8 +22,9 @@ function headerOf(p: IwoParsed) {
   return {
     iwo_date: p.iwo_date,
     iwo_for: p.iwo_for,
-    sales_order_id: p.sales_order_id,
-    style_ref_no: p.style_ref_no || null,
+    // 0597: the Reference is typed. `sales_order_id` and `style_ref_no` are
+    // NOT written, so a value an older row holds is kept as it was.
+    reference_no: p.reference_no || null,
     deli_date: p.deli_date || null,
     remarks: p.remarks || null,
   };

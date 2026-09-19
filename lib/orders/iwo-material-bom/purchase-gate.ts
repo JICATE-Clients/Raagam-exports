@@ -8,7 +8,9 @@
  *    unticks it, no purchase order line may buy it for that work order.
  *
  * 2. THE CEILING (client 2026-09-19: "refuse outright"). A work order may not
- *    buy more of a material than its Material BOM's purchase quantity. On a
+ *    buy more of a material than its BOM's purchase quantity — the Material BOM
+ *    on an Accessories work order, and SINCE 0595 the IWO Fabric BOM's YARNS on
+ *    a Yarn or Fabric one (user 2026-09-19: approval "caps yarn POs"). On a
  *    garment order the ceiling bites only once a budget is approved; a work
  *    order has no budget, so its BOM is the ONLY approved figure — which is
  *    why, unlike the order side, a material the BOM does not plan is refused
@@ -27,13 +29,15 @@ export type IwoPurchaseCheck = {
   code: string | null;
   iwo_for: string;
   status: string;
-  /** The work order's Material BOM, or null when it has none. */
+  /** The work order's BOM — Material BOM (Accessories) or Fabric BOM (Yarn /
+   *  Fabric, 0595) — or null when it has none. */
   bom: { is_draft: boolean } | null;
   /** Its Advised materials in S No order, each once per BOM line. */
   advised: { item_id: string; name: string | null }[];
   /**
-   * Every BOM line naming a material (0587): its purchase quantity — NULL where
-   * the BOM refused to calculate one — and the unit that figure is in.
+   * Every BOM line naming a material (0587) — or, on a Yarn / Fabric work
+   * order, every yarn the Fabric BOM buys (0595): its purchase quantity — NULL
+   * where the BOM refused to calculate one — and the unit that figure is in.
    */
   lines: { item_id: string; name: string | null; purchase_qty: number | null; uom: string | null }[];
   /** What OTHER, uncancelled purchase orders already hold per material (0587). */
@@ -87,13 +91,13 @@ export function advisedRefusal(names: readonly string[], iwoCode: string | null)
  * to check against" any more (0587) — nothing on it can be bought.
  */
 export function iwoPurchaseHint(check: IwoPurchaseCheck): string {
-  if (check.iwo_for !== "accessories") {
-    return "Only an Accessories work order is limited by a Material BOM — nothing to check against";
-  }
-  if (!check.bom) return "This work order has no Material BOM yet — nothing on it can be bought";
+  const bom = bomLabel(check);
+  if (!check.bom) return `This work order has no ${bom} yet — nothing on it can be bought`;
   if (check.bom.is_draft) {
-    return "Its Material BOM is still a draft — nothing on it can be bought until it is saved";
+    return `Its ${bom} is still a draft — nothing on it can be bought until it is saved`;
   }
+  // 0595 — a Yarn / Fabric work order buys yarn, held to the Fabric BOM's weights.
+  if (check.iwo_for !== "accessories") return "Limited to the IWO Fabric BOM's yarn purchase weights";
   const names = [...new Set(check.advised.map((a) => a.name?.trim() || "A material"))];
   const limit = "Limited to IWO Material BOM's purchase quantities";
   if (names.length === 0) return `${limit} — nothing on it is Advised`;
@@ -119,11 +123,12 @@ const EPS = 1e-9;
 
 /**
  * The first refusal among `wanted` (material → quantity on THIS payload, its
- * own lines already summed), or null to allow. Only an Accessories work order is
- * capped here: a Yarn or Fabric work order's plan lives on the IWO Fabric BOM.
+ * own lines already summed), or null to allow. An Accessories work order is
+ * held to its Material BOM; a Yarn or Fabric work order to its Fabric BOM's
+ * yarns (0595) — the same rules, the BOM named in every sentence.
  *
  * In order, each a refusal the operator can act on:
- *   - no Material BOM, or one still a draft — nothing is approved yet;
+ *   - no BOM, or one still a draft — nothing is approved yet;
  *   - a material the BOM does not plan — 0 approved;
  *   - a material whose BOM line could not work out a purchase quantity;
  *   - a material planned in two different purchase units — the two figures
@@ -134,16 +139,16 @@ export function iwoCeilingRefusal(
   check: IwoPurchaseCheck,
   wanted: ReadonlyMap<string, number>,
 ): string | null {
-  if (check.iwo_for !== "accessories") return null;
   const buying = [...wanted].filter(([, q]) => Number.isFinite(q) && q > 0);
   if (buying.length === 0) return null;
 
   const on = theIwo(check.code);
+  const bom = bomLabel(check);
   if (!check.bom) {
-    return `${cap(on)} has no Material BOM yet, so nothing on it is approved to buy. Plan it on IWO Material BOM first.`;
+    return `${cap(on)} has no ${bom} yet, so nothing on it is approved to buy. Plan it on IWO ${bom} first.`;
   }
   if (check.bom.is_draft) {
-    return `${cap(on)}'s Material BOM is still a draft, so nothing on it is approved to buy yet. Save it (not as a draft) first.`;
+    return `${cap(on)}'s ${bom} is still a draft, so nothing on it is approved to buy yet. Save it (not as a draft) first.`;
   }
 
   const committed = new Map(check.committed.map((c) => [c.item_id, Number(c.qty) || 0]));
@@ -151,10 +156,12 @@ export function iwoCeilingRefusal(
     const planned = check.lines.filter((l) => l.item_id === itemId);
     const name = planned[0]?.name?.trim() || "This material";
     if (planned.length === 0) {
-      return `This material is not on ${on}'s Material BOM, so none of it is approved to buy. Add it there first.`;
+      return check.iwo_for === "accessories"
+        ? `This material is not on ${on}'s Material BOM, so none of it is approved to buy. Add it there first.`
+        : `This is not a yarn ${on}'s Fabric BOM buys, so none of it is approved to buy. Plan it on IWO Fabric BOM first.`;
     }
     if (planned.some((l) => l.purchase_qty == null)) {
-      return `The Material BOM for ${on} could not work out a purchase quantity for ${name}. Fix that line on IWO Material BOM first.`;
+      return `The ${bom} for ${on} could not work out a purchase quantity for ${name}. Fix that line on IWO ${bom} first.`;
     }
     const units = [...new Set(planned.map((l) => l.uom ?? ""))];
     if (units.length > 1) {
@@ -171,8 +178,8 @@ export function iwoCeilingRefusal(
     const plus = held > 0 ? ` plus ${qty(held)}${unit} already on other purchase orders` : "";
     const room = held > 0 ? ` This one can take at most ${qty(Math.max(0, allowed - held))}${unit}.` : "";
     return (
-      `Purchase order quantity (${qty(thisPo)}${unit})${plus} exceeds the approved IWO Material ` +
-      `BOM allocation (${qty(allowed)}${unit}) for ${name} on ${on}.${room} ` +
+      `Purchase order quantity (${qty(thisPo)}${unit})${plus} exceeds the approved IWO ${bom} ` +
+      `allocation (${qty(allowed)}${unit}) for ${name} on ${on}.${room} ` +
       `Over-ordering on work orders is blocked.`
     );
   }
@@ -180,3 +187,8 @@ export function iwoCeilingRefusal(
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Which BOM holds the work order's approved quantities. */
+function bomLabel(check: IwoPurchaseCheck): "Material BOM" | "Fabric BOM" {
+  return check.iwo_for === "accessories" ? "Material BOM" : "Fabric BOM";
+}

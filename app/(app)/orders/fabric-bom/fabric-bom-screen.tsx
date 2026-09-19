@@ -167,6 +167,7 @@ import {
 /* PRINT CHECKPOINTS A + B and the per-branch print gate (client 2026-09-19) —
    the same functions the server's guard reads. */
 import { printRouteProblems, printedGroup } from "@/lib/orders/fabric-bom/print-route";
+import { diaKey, knitLabel, knitTypesOfDia, manualDiaKnitProblems } from "@/lib/orders/fabric-bom/dia-knit";
 /* WHERE THIS FABRIC COMES FROM (0564, `doc/order/fabriprocess.md` §2) — the
    planner's Default Rule 1 / Rule 2 choice, declared PER FABRIC because one
    order legitimately knits the body and buys greige rolls for the collar rib.
@@ -245,8 +246,10 @@ import {
   panelGroupKey,
   panelKey,
   rollUp,
+  ydPartKey,
   type StyleComponentDecl,
 } from "@/lib/orders/fabric-bom/component-map";
+import { nextYdPartName, ydPartProblems, ydPartsOf } from "@/lib/orders/fabric-bom/yd-part";
 
 /**
  * REACT KEYS FOR NEW ROWS — a module counter, NOT a `useRef` (2026-09-02).
@@ -341,6 +344,9 @@ type LineRow = {
    */
   panel_uid: string;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this panel is cut
+   *  from (TOP, BOTTOM, …). "" = the fabric's only part. See `ydPartKey`. */
+  yd_part: string;
   fabric_type: string;
   /* Legacy Components ▸ "Required Color". `combo` is the ASSORT colour; this is
      the colour the panel is required in within it. Edited on the [Detail]
@@ -481,6 +487,9 @@ type ManualEntryRow = {
    * with a Fabric column and has no Structure column).
    */
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this piece weight
+   *  is for. "" while the fabric has only one. */
+  yd_part: string;
   /** DERIVED FROM `item_id`, never typed — the fabric's `items.category_id`.
    *  Held on the row because the GSM lookup and the size explosion both key by
    *  it; the server re-derives it on save, so a stale value cannot survive. */
@@ -900,6 +909,7 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
   style_ref_no,
   width_form: "",
   item_id: null,
+  yd_part: "",
   /* NOT SEEDED. It is derived from the fabric the planner is about to pick, and
      a blank row has picked none — `setEntryCell` writes both together. */
   structure_id: null,
@@ -940,6 +950,9 @@ type YdAddress = {
   style_ref_no: string;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — the fourth part of the address: a Top and a Bottom cut
+   *  from one yarn-dyed cloth keep separate Yarn Dyed Details. */
+  yd_part: string;
 };
 
 type YdRepeat = YdRepeatRow & YdAddress;
@@ -957,6 +970,7 @@ const ydAddressOf = (l: YdAddress): YdAddress => ({
   style_ref_no: l.style_ref_no,
   structure_id: l.structure_id,
   item_id: l.item_id,
+  yd_part: l.yd_part,
 });
 
 /**
@@ -1014,6 +1028,7 @@ const blankLine = (key: string): LineRow => ({
      overwrites this with one uid shared across the colourways it creates. */
   panel_uid: key,
   item_id: null,
+  yd_part: "",
   fabric_type: "",
   color_name: "",
   fabric_form: "",
@@ -2309,6 +2324,7 @@ export function FabricBomScreen({
           ? panelKey({ coordinate_id: l.coordinate_id, component_id: l.component_id })
           : `p${l.id}`,
         item_id: l.item_id,
+        yd_part: l.yd_part ?? "",
         fabric_type: l.fabric_type ?? "",
         color_name: l.color_name ?? "",
         fabric_form: l.fabric_form ?? "",
@@ -2341,6 +2357,7 @@ export function FabricBomScreen({
         style_ref_no: e.style_ref_no ?? "",
         width_form: e.width_form ?? "",
         item_id: e.item_id,
+        yd_part: e.yd_part ?? "",
         structure_id: e.structure_id,
         calc_mode: e.calc_mode ?? "direct",
         wastage_pct: e.wastage_pct == null ? "" : String(e.wastage_pct),
@@ -2427,6 +2444,7 @@ export function FabricBomScreen({
         style_ref_no: r.style_ref_no ?? "",
         structure_id: r.structure_id,
         item_id: r.item_id,
+        yd_part: r.yd_part ?? "",
         sno: r.sno ?? 0,
         yarn_item_id: r.yarn_item_id,
         dye_type: r.dye_type === "grey" ? ("grey" as const) : ("dyed" as const),
@@ -2442,6 +2460,7 @@ export function FabricBomScreen({
         style_ref_no: r.style_ref_no ?? "",
         structure_id: r.structure_id,
         item_id: r.item_id,
+        yd_part: r.yd_part ?? "",
         combo: r.combo ?? "",
         yd_combo_name: r.yd_combo_name ?? "",
         // `colors` arrives pre-sorted by `sno` (service.ts) — a fresh client
@@ -2891,8 +2910,12 @@ export function FabricBomScreen({
     return sub ? `TYPE:${sub}` : `COMBO:${l.combo}`;
   };
 
+  /* THE YD PART IS THE FIFTH PART OF THE KEY (0596) — a Top and a Bottom cut
+     from one yarn-dyed cloth are two allocation rows, not one. It is "" on
+     every other fabric (nothing assigns a part to a non-yarn-dyed cloth), so
+     the key of every row that existed before 0596 is unchanged. */
   const allocationKeyOf = (l: LineRow) =>
-    [l.style_ref_no, dyeingKeyOf(l), l.structure_id ?? "", l.item_id ?? ""]
+    [l.style_ref_no, dyeingKeyOf(l), l.structure_id ?? "", l.item_id ?? "", l.yd_part]
       .map((v) => v.trim().toUpperCase())
       .join(SEP);
 
@@ -2997,6 +3020,85 @@ export function FabricBomScreen({
       (x) => x.key !== row.key && allocationKeyOf(x) === nextKey,
     );
     return idx === -1 ? null : idx + 1;
+  };
+
+  /**
+   * A YARN-DYED FABRIC MAY BE ALLOCATED MORE THAN ONCE (client ticket
+   * 2026-09-19, 0596) — a Top and a Bottom knitted from the same cloth to
+   * different stripe ratios. Everything else keeps the collision refusal above.
+   *
+   * The fabric's type is the MASTER's (`fabricTypeOf`), the same gate the
+   * yarn-dyed cells and the server's `yarnDyedProblem` read.
+   */
+  const isYdFabric = (itemId: string | null) => !!itemId && isYarnDyed(fabricTypeOf(itemId));
+
+  /** The YD Parts one fabric carries in one style — `ydPartsOf`, the same
+   *  reading the Save gate and the server make. */
+  const partsOfFabric = (itemId: string | null, styleRefNo: string) =>
+    itemId ? ydPartsOf(lines, itemId, styleRefNo) : [];
+
+  /**
+   * ACCEPTS A SECOND PICK OF A YARN-DYED FABRIC instead of refusing it.
+   *
+   * The new row gets the next free placeholder ("PART 2") and, if the row it
+   * collided with has no part yet, THAT row becomes "PART 1" — so both are
+   * visibly separate the moment the pick lands, and the Save gate's "every part
+   * named" rule is satisfied until the planner renames them TOP / BOTTOM.
+   * Returns the part the new row should carry, or null when the fabric is not
+   * yarn-dyed or is not allocated anywhere else yet (the caller then behaves as
+   * before).
+   *
+   * SIBLINGS ARE FOUND BY THE CLOTH, NOT BY `collidesWith`. A just-added row has
+   * no colourway yet, so its dyeing half of the key can read `COMBO:` where the
+   * existing row reads `TYPE:Yarn Dyed` — the keys differ, nothing collides, and
+   * without this the two allocations would silently share one part and one set
+   * of Yarn Dyed Details.
+   */
+  const acceptSecondYdPick = (row: LineRow, itemId: string): string | null => {
+    if (!isYdFabric(itemId)) return null;
+    const siblings = allocationRows.filter(
+      (x) =>
+        x.key !== row.key &&
+        x.item_id === itemId &&
+        (x.structure_id ?? "") === (row.structure_id ?? "") &&
+        x.style_ref_no.trim().toUpperCase() === row.style_ref_no.trim().toUpperCase(),
+    );
+    if (siblings.length === 0) return null;
+    const taken = siblings.map((x) => x.yd_part);
+    const unnamed = siblings.find((x) => !ydPartKey(x.yd_part));
+    if (unnamed) {
+      renameAllocPart(unnamed, "PART 1");
+      taken.push("PART 1");
+    }
+    return nextYdPartName(taken);
+  };
+
+  /**
+   * RENAMING A PART RENAMES EVERYTHING ADDRESSED BY IT — the allocation's lines,
+   * its Yarn Dyed Details (Repeats and Combinations) and the Manual entries that
+   * weigh it. Without the cascade, typing TOP over PART 1 would leave that
+   * part's stripes and piece weight filed under a name no row has any more.
+   */
+  const renameAllocPart = (row: LineRow, next: string) => {
+    const from = ydPartKey(row.yd_part);
+    const style = row.style_ref_no.trim().toUpperCase();
+    const sameCloth = (r: { style_ref_no: string; structure_id: string | null; item_id: string | null; yd_part: string }) =>
+      r.item_id === row.item_id &&
+      (r.structure_id ?? "") === (row.structure_id ?? "") &&
+      r.style_ref_no.trim().toUpperCase() === style &&
+      ydPartKey(r.yd_part) === from;
+    setAlloc(row, { yd_part: next });
+    mutYdRepeats((xs) => xs.map((r) => (sameCloth(r) ? { ...r, yd_part: next } : r)));
+    mutYdCombinations((xs) => xs.map((r) => (sameCloth(r) ? { ...r, yd_part: next } : r)));
+    mutEntries((xs) =>
+      xs.map((e) =>
+        e.item_id === row.item_id &&
+        ydPartKey(e.yd_part) === from &&
+        (!e.style_ref_no.trim() || !style || e.style_ref_no.trim().toUpperCase() === style)
+          ? { ...e, yd_part: next }
+          : e,
+      ),
+    );
   };
 
   /**
@@ -3239,17 +3341,19 @@ export function FabricBomScreen({
   const declaredDiaOptions = useMemo(() => {
     const kinds = new Map<string, string[]>();
     for (const d of dias) {
-      const key = d.dia.trim().toUpperCase();
+      const key = diaKey(d.dia);
       if (!key) continue;
-      const label = KNIT_TYPE_OPTIONS.find((o) => o.value === d.knit_type)?.label;
       const seen = kinds.get(key) ?? [];
-      if (label && !seen.includes(label)) seen.push(label);
+      if (d.knit_type && !seen.includes(d.knit_type)) seen.push(d.knit_type);
       kinds.set(key, seen);
     }
-    return [...kinds].map(([value, ks]) => ({
+    /* `codes` KEEPS THE FAMILIES, not just their labels, so `diaOptionsFor`
+       can scope the list to one fabric's family (`dia-knit.ts`). */
+    return [...kinds].map(([value, codes]) => ({
       value,
       label: value,
-      sublabel: ks.length ? ks.join(" · ") : undefined,
+      sublabel: codes.length ? codes.map(knitLabel).join(" · ") : undefined,
+      codes,
     }));
   }, [dias]);
 
@@ -3295,10 +3399,33 @@ export function FabricBomScreen({
     return [bare ? `${v}"` : v, form].filter(Boolean).join(" ");
   };
 
-  const diaOptionsFor = (held: string) => {
+  /**
+   * THE DIAS ONE FABRIC MAY PICK — its OWN knit family's only (client
+   * 2026-09-19: "if the fabric is circular, circular dias only; if flat, flat
+   * only"). `knit` is the fabric's structure family (`entryKnitCode`); with
+   * none set there is nothing to scope by and every declared dia stays on
+   * offer, as before. An UNTYPED dia is not offered to a typed fabric — it has
+   * not been said to be either.
+   *
+   * A HELD VALUE OF THE WRONG FAMILY SURVIVES, TAGGED, for the reason above:
+   * dropping it would show the cell empty and the next Save would blank it.
+   * It is not left standing silently either — `manualBlockers` refuses Save on
+   * it with `diaKnitProblem`, the sentence the server returns too.
+   */
+  const diaOptionsFor = (held: string, knit: string | null) => {
+    const scoped = (knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions).map(
+      ({ codes: _codes, ...o }) => o,
+    );
     const v = held.trim();
-    if (!v || declaredDiaOptions.some((o) => o.value === v)) return declaredDiaOptions;
-    return [...declaredDiaOptions, { value: v, label: v, sublabel: "not declared" }];
+    if (!v || scoped.some((o) => o.value === diaKey(v))) return scoped;
+    const kinds = knitTypesOfDia(v, dias);
+    const sublabel =
+      knit && kinds.length && !kinds.includes(knit)
+        ? `${kinds.map(knitLabel).join(" / ")} — not ${knitLabel(knit)}`
+        : kinds.length
+          ? `${kinds.map(knitLabel).join(" / ")}`
+          : "not declared";
+    return [...scoped, { value: v, label: v, sublabel }];
   };
 
   /**
@@ -3381,6 +3508,19 @@ export function FabricBomScreen({
    */
   const fabricStructureOf = (itemId: string | null) =>
     itemId ? (fabrics.find((f) => f.id === itemId)?.category_id ?? null) : null;
+
+  /**
+   * THE KNIT FAMILY A FABRIC IS MADE IN — `circular` / `flat_knit` / `woven`,
+   * off its STRUCTURE master (`categories.fabric_structure_id`), never off the
+   * dias it picked. What Finish Dia is scoped by; see `dia-knit.ts`.
+   */
+  const knitCodeOfFabric = (itemId: string | null): string | null => {
+    const structureId = fabricStructureOf(itemId);
+    return structureId ? (data.structures.find((x) => x.id === structureId)?.knitCode ?? null) : null;
+  };
+  const entryKnitCode = (e: ManualEntryRow): string | null =>
+    knitCodeOfFabric(e.item_id) ??
+    (e.structure_id ? (data.structures.find((x) => x.id === e.structure_id)?.knitCode ?? null) : null);
 
   /**
    * WHAT THIS ROW SAYS ITS CLOTH IS — the fabric's own type, else the one the
@@ -3524,7 +3664,14 @@ export function FabricBomScreen({
    * programme. The cell still PICKS from all of them, so nothing is harder to
    * reach — it just starts empty rather than starting wrong.
    */
-  const defaultDia = declaredDiaOptions.length === 1 ? declaredDiaOptions[0].value : "";
+  /* PER FABRIC FAMILY since 2026-09-19: "exactly one" is counted among the dias
+     this fabric may pick, so a circular jersey on an order declaring one
+     circular and one flat dia still opens on its one circular dia — and never
+     on the flat one. */
+  const defaultDiaFor = (knit: string | null) => {
+    const scoped = knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions;
+    return scoped.length === 1 ? scoped[0].value : "";
+  };
 
   /** One entry's rows, as `manual.ts` wants them. Text to numbers, once. */
   const sizeInputsOf = (e: ManualEntryRow): ManualSizeInput[] =>
@@ -3722,7 +3869,7 @@ export function FabricBomScreen({
          with it. */
       if (!row) {
         out.push({
-          ...blankManualSize(`size:${z.size_id}`, z.size_id, defaultDia),
+          ...blankManualSize(`size:${z.size_id}`, z.size_id, defaultDiaFor(entryKnitCode(e))),
           label: z.label,
           declared: true,
         });
@@ -4154,7 +4301,7 @@ export function FabricBomScreen({
             inputClassName="h-8"
             /* `value` STAYS THE STORED STRING and only `label` is decorated —
                see `diaDisplay`. Rewriting `value` would save the decoration. */
-            options={diaOptionsFor(r.dia).map((o) => ({
+            options={diaOptionsFor(r.dia, entryKnitCode(e)).map((o) => ({
               ...o,
               label: diaDisplay(o.value, e.width_form),
             }))}
@@ -4413,7 +4560,21 @@ export function FabricBomScreen({
       return;
     }
     const d = fabricDefaultsFor(e.style_ref_no, id, e.key);
-    const patch: Partial<ManualEntryRow> = { item_id: id, structure_id: d.structureId };
+    /* A SPLIT YARN-DYED CLOTH (0596) STARTS ON THE FIRST PART NO OTHER ENTRY
+       WEIGHS YET — the natural next answer, and still a pick the planner can
+       change. A cloth with one part carries that part (usually ""). */
+    const parts = partsOfFabric(id, e.style_ref_no);
+    const unweighed = parts.find(
+      (p) =>
+        !entries.some(
+          (x) => x.key !== e.key && x.item_id === id && ydPartKey(x.yd_part) === p,
+        ),
+    );
+    const patch: Partial<ManualEntryRow> = {
+      item_id: id,
+      structure_id: d.structureId,
+      yd_part: parts.length > 1 ? (unweighed ?? "") : (parts[0] ?? ""),
+    };
     if (e.panels.length === 0) patch.panels = d.panels;
     if (!e.width_form && d.widthForm) patch.width_form = d.widthForm;
     setEntryCell(e.key, patch);
@@ -4472,14 +4633,24 @@ export function FabricBomScreen({
     for (const l of lines) {
       if (!l.item_id) continue;
       const styleRef = l.style_ref_no.trim();
-      const seedKey = `${styleRef}${SEP}${l.item_id}`;
+      /* PER (STYLE, FABRIC, YD PART) since 0596 — a yarn-dyed cloth allocated
+         as TOP and BOTTOM is two piece weights, so each part gets its own
+         entry. The part is "" on every other fabric, so their key is as before. */
+      const part = ydPartKey(l.yd_part);
+      const seedKey = `${styleRef}${SEP}${l.item_id}${SEP}${part}`;
       if (seen.has(seedKey) || manualSeededFabrics.current.has(seedKey)) continue;
       seen.add(seedKey);
       manualSeededFabrics.current.add(seedKey);
-      if (entriesForStyle(styleRef).some((e) => e.item_id === l.item_id)) continue;
+      if (
+        entriesForStyle(styleRef).some(
+          (e) => e.item_id === l.item_id && ydPartKey(e.yd_part) === part,
+        )
+      )
+        continue;
       const d = fabricDefaultsFor(styleRef, l.item_id);
       const entry = blankManualEntry(newKey(), styleRef);
       entry.item_id = l.item_id;
+      entry.yd_part = l.yd_part;
       entry.structure_id = d.structureId;
       entry.panels = d.panels;
       entry.width_form = d.widthForm;
@@ -4646,6 +4817,7 @@ export function FabricBomScreen({
       header: "Fabric",
       width: "9rem",
       cell: (e) => (
+        <div className="min-w-0">
         <RecordPicker
           label="Fabric"
           compact
@@ -4664,6 +4836,43 @@ export function FabricBomScreen({
              master (AGENTS.md, nominated vendors). */
           emptyHint="No fabric on this BOM yet — name one on Fabric Allocation first, and it appears here"
         />
+        {/* WHICH YD PART THIS PIECE WEIGHT IS FOR (0596) — only on a yarn-dyed
+            cloth Fabric Allocation lists more than once (TOP, BOTTOM). Each part
+            is knitted to its own stripe ratio, so its weight is grossed by that
+            part's Yarn Dyed Details and no other. Blank here is refused on Save
+            (`ydPartProblems`) rather than guessed: a weight filed under no part
+            would be dyed by nobody's stripes. A native Select — the list is the
+            parts Fabric Allocation already named, a handful at most; a part
+            that no longer exists survives, tagged, so the cell never reads
+            empty while holding a value. */}
+        {(() => {
+          const parts = partsOfFabric(e.item_id, e.style_ref_no);
+          const held = ydPartKey(e.yd_part);
+          if (parts.length < 2 && !held) return null;
+          return (
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                YD Part
+              </span>
+              <Select
+                compact
+                required={parts.length > 1}
+                aria-label="YD Part"
+                value={held}
+                onChange={(ev) => setEntryCell(e.key, { yd_part: ev.target.value })}
+              >
+                <option value="" />
+                {parts.filter(Boolean).map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+                {held && !parts.includes(held) && <option value={held}>{held} (not on Fabric Allocation)</option>}
+              </Select>
+            </div>
+          );
+        })()}
+        </div>
       ),
     },
     /* KNIT TYPE / FAMILY AND GSM ARE OFF THIS GRID (client redesign,
@@ -6219,7 +6428,12 @@ export function FabricBomScreen({
              is the rule `styleForCombo` and `pickStyle` both state. */
           onChange={(id) => {
             const rowNo = collidesWith(r, { item_id: id });
-            if (rowNo) {
+            /* A YARN-DYED CLOTH IS ACCEPTED A SECOND TIME (0596), as a new YD
+               Part — see `acceptSecondYdPick`. Every other fabric is refused
+               exactly as before: two rows with one key would merge and the
+               second would vanish. */
+            const part = id && id !== r.item_id ? acceptSecondYdPick(r, id) : null;
+            if (rowNo && !part) {
               toastError(
                 `This Fabric is already listed under the same Structure and Type as row ${rowNo}. No need to add it twice — edit row ${rowNo} instead.`,
               );
@@ -6228,6 +6442,9 @@ export function FabricBomScreen({
             const f = id ? fabrics.find((x) => x.id === id) : null;
             setAlloc(r, {
               item_id: id,
+              /* A part belongs to ONE allocation of ONE yarn-dyed cloth, so
+                 changing the cloth drops it unless this pick just earned one. */
+              yd_part: part ?? (id && isYdFabric(id) && id === r.item_id ? r.yd_part : ""),
               ...(r.consumption_uom_id || !f?.base_uom_id
                 ? {}
                 : { consumption_uom_id: f.base_uom_id }),
@@ -6243,6 +6460,46 @@ export function FabricBomScreen({
           <Truncated className="block text-[10px] leading-tight text-muted-foreground">
             {descriptorFor(r).gsm} GSM
           </Truncated>
+        )}
+        {/* THE YD PART (0596) — which allocation of this yarn-dyed cloth the row
+            is: TOP, BOTTOM. Under the Fabric rather than in a column of its own,
+            because it exists only on the rows of a cloth allocated more than
+            once and a column would be blank on every other row of every order
+            (the grid's width budget, `check:grid-budget`). Shown once the row
+            HAS a part, which `acceptSecondYdPick` gives it on the second pick.
+            Renaming cascades to the part's Yarn Dyed Details and Manual entries
+            (`renameAllocPart`); a name another allocation of the same cloth
+            already has is refused, since the two would merge into one row. */}
+        {isYdFabric(r.item_id) && (r.yd_part || partsOfFabric(r.item_id, r.style_ref_no).length > 1) && (
+          <div className="mt-1 flex items-center gap-1.5">
+            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              YD Part
+            </span>
+            <Input
+              className="h-7 text-xs"
+              aria-label="YD Part"
+              value={r.yd_part}
+              onChange={(ev) => {
+                const next = ev.target.value;
+                const clash = allocationRows.find(
+                  (x) =>
+                    x.key !== r.key &&
+                    x.item_id === r.item_id &&
+                    (x.structure_id ?? "") === (r.structure_id ?? "") &&
+                    x.style_ref_no.trim().toUpperCase() === r.style_ref_no.trim().toUpperCase() &&
+                    !!ydPartKey(next) &&
+                    ydPartKey(x.yd_part) === ydPartKey(next),
+                );
+                if (clash) {
+                  toastError(
+                    `Another allocation of this fabric is already called ${ydPartKey(next)} — give this one a different YD Part.`,
+                  );
+                  return;
+                }
+                renameAllocPart(r, next);
+              }}
+            />
+          </div>
         )}
         </div>
       ),
@@ -6912,6 +7169,8 @@ export function FabricBomScreen({
        `fabricGrossOf` (actions.ts) calls the same function on the saved
        entries, so the preview and the stored figure cannot disagree. */
     const componentsByEntry = new Map(entries.map((e) => [e.key, componentIdsOf(e.panels)]));
+    /* THE PART EACH ENTRY WEIGHS (0596) — `fabricGrossOf` stamps the same. */
+    const partByEntry = new Map(entries.map((e) => [e.key, e.yd_part || null]));
     for (const p of preview) {
       /* A ROW THAT COULD NOT NAME ITS FABRIC IS SKIPPED. It is a refusal about
          the Fabric Lines tab ("no fabric uses this structure"), so there is no
@@ -6925,6 +7184,7 @@ export function FabricBomScreen({
       if (held && held.gross === null) continue;
       byBucket.set(bucket, {
         fabric_id: p.item_id,
+        yd_part: partByEntry.get(p.entry_key) ?? null,
         combo: p.combo,
         gross: p.qty == null ? null : (held?.gross ?? 0) + p.qty,
         uom_id: p.uom_id,
@@ -7029,6 +7289,9 @@ export function FabricBomScreen({
       style_ref_no: anchor?.style_ref_no ?? "",
       structure_id: anchor?.structure_id ?? null,
       item_id: anchor?.item_id ?? null,
+      /* THE ANCHOR'S YD PART (0596) — so a Top's popup adds rows to the Top's
+         stripes, never the Bottom's. `fabricGroupKey(anchor)` above reads it. */
+      yd_part: anchor?.yd_part ?? "",
     };
     return {
       repeats: key ? ydRepeats.filter((r) => ydAddress(r) === key) : [],
@@ -7160,20 +7423,25 @@ export function FabricBomScreen({
    * implementation that happens to agree.
    */
   const yarnShades = (() => {
-    const fabricIds = [
-      ...new Set(ydRepeats.map((r) => r.item_id).filter(Boolean)),
-    ] as string[];
-    return fabricIds.flatMap((fabricId) =>
+    /* ONE SET PER (FABRIC, YD PART) since 0596 — `yarnShadesOf` in actions.ts
+       groups the same way, so a Top's stripes never gross a Bottom's weight. */
+    const groups = new Map<string, { fabricId: string; part: string }>();
+    for (const r of ydRepeats) {
+      if (!r.item_id) continue;
+      const part = ydPartKey(r.yd_part);
+      groups.set(`${r.item_id}|${part}`, { fabricId: r.item_id, part });
+    }
+    return [...groups.values()].flatMap(({ fabricId, part }) =>
       yarnShadesFrom(
         fabricId,
-        ydRepeats.filter((r) => r.item_id === fabricId),
+        ydRepeats.filter((r) => r.item_id === fabricId && ydPartKey(r.yd_part) === part),
         compositionById.get(fabricId) ?? null,
         /* `sno` FROM ROW ORDER, which is precisely how the payload above
            numbers these colours (`sno: i + 1`). Deriving it the same way is
            what keeps the preview's stripe pairing identical to the stored
            one — `yarnShadesFrom` pairs share to colour BY POSITION. */
         ydCombinations
-          .filter((c) => c.item_id === fabricId)
+          .filter((c) => c.item_id === fabricId && ydPartKey(c.yd_part) === part)
           .map((c) => ({
             ...c,
             colors: c.colors.map((x, i) => ({
@@ -7181,6 +7449,8 @@ export function FabricBomScreen({
               dyeing_loss_pct: x.dyeing_loss_pct,
             })),
           })),
+        undefined,
+        part || null,
       ),
     );
   })();
@@ -7280,7 +7550,36 @@ export function FabricBomScreen({
         kind: "custom" as const,
       },
     ];
-  });
+  }).concat(
+    /* A FINISH DIA OF THE WRONG KNIT FAMILY (client 2026-09-19) — the same
+       function `updateFabricBom` runs on the payload, so the screen and the
+       server refuse the same row with the same sentence. */
+    manualDiaKnitProblems(
+      entries,
+      dias,
+      (itemId) => knitCodeOfFabric(itemId),
+      (itemId) => fabricById.get(itemId) ?? "This fabric",
+    ).map((message) => ({
+      section: "manual",
+      label: "Manual entry",
+      message,
+      kind: "custom" as const,
+    })),
+    /* YD PARTS (0596) — a yarn-dyed cloth allocated more than once must name
+       every allocation, and every Manual entry of it must say which one it
+       weighs. `ydPartProblems` is the function the server runs on the payload. */
+    ydPartProblems(
+      lines,
+      entries,
+      (itemId) => isYdFabric(itemId),
+      (itemId) => fabricById.get(itemId) ?? "This fabric",
+    ).map((message) => ({
+      section: message.includes("Fabric Allocation.") ? "lines" : "manual",
+      label: message.includes("Fabric Allocation.") ? "Fabric Allocation" : "Manual entry",
+      message,
+      kind: "custom" as const,
+    })),
+  );
 
   /**
    * THE FABRIC PROCESS SECTION'S FIRST SAVE-BLOCKING RULE (0570).
@@ -7667,6 +7966,7 @@ export function FabricBomScreen({
           coordinate_id: l.coordinate_id,
           component_id: l.component_id,
           item_id: l.item_id,
+          yd_part: l.yd_part ?? "",
           fabric_type: l.fabric_type ?? "",
           color_name: l.color_name ?? "",
           fabric_form: l.fabric_form ?? "",
@@ -9106,6 +9406,12 @@ export function FabricBomScreen({
                     onPatchLine={patchLine}
                     onAddPanel={h.addPanel}
                     onRemovePanel={h.removePanel}
+                    /* THE PARTS FABRIC ALLOCATION NAMED (0596) — only a
+                       yarn-dyed cloth is ever split, so every other cloth
+                       answers none and its row draws no part cell. */
+                    ydPartsFor={(itemId, styleRefNo) =>
+                      isYdFabric(itemId) ? partsOfFabric(itemId, styleRefNo) : []
+                    }
                   />
                 );
               })}
@@ -9856,6 +10162,7 @@ export function FabricBomScreen({
         coordinate_id: l.coordinate_id,
         component_id: l.component_id,
         item_id: l.item_id,
+        yd_part: l.yd_part.trim() || null,
         fabric_type: l.fabric_type || null,
         color_name: l.color_name || null,
         fabric_form: (l.fabric_form || null) as "open" | "tubular" | null,
@@ -9910,6 +10217,7 @@ export function FabricBomScreen({
           style_ref_no: r.style_ref_no || null,
           structure_id: r.structure_id,
           item_id: r.item_id,
+          yd_part: r.yd_part.trim() || null,
           sno: i + 1,
           yarn_item_id: r.yarn_item_id,
           dye_type: r.dye_type,
@@ -9927,6 +10235,7 @@ export function FabricBomScreen({
         style_ref_no: r.style_ref_no || null,
         structure_id: r.structure_id,
         item_id: r.item_id,
+        yd_part: r.yd_part.trim() || null,
         combo: r.combo || null,
         yd_combo_name: r.yd_combo_name || null,
         // `sno` FROM ARRAY POSITION, same as `dias` below — the nested Color
@@ -9959,6 +10268,7 @@ export function FabricBomScreen({
         style_ref_no: e.style_ref_no.trim() || null,
         width_form: (e.width_form || null) as "open_width" | "tubular" | null,
         item_id: e.item_id,
+        yd_part: e.yd_part.trim() || null,
         /* SENT, THOUGH THE SERVER OVERWRITES IT from the fabric (0522). It is
            still the honest value to send: on an entry whose cloth the master
            cannot resolve, this is the structure the row was last known by. */
@@ -10308,6 +10618,11 @@ export function FabricBomScreen({
             ? ` — ${
                 fabrics.find((f) => f.id === detailLine.item_id)?.name ??
                 "(no fabric)"
+              }${
+                /* THE PART, when the cloth has one (0596): TOP and BOTTOM open
+                   the same cloth's popup with different stripes, and a title
+                   that named only the cloth would not say which. */
+                ydPartKey(detailLine.yd_part) ? ` · ${ydPartKey(detailLine.yd_part)}` : ""
               }`
             : ""
         }`}

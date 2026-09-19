@@ -158,9 +158,16 @@ check(
   "Limited to IWO Material BOM's purchase quantities — still Advised, cannot be bought: BRAND MAIN LABEL, TWILL TAPE",
 );
 check(
-  "§8 a Fabric work order has nothing to hold",
+  // REVERSED ON PURPOSE (0595, user 2026-09-19): a Fabric work order's yarn is
+  // now held to its Fabric BOM — with none, nothing on it can be bought.
+  "§8 a Fabric work order with no Fabric BOM says nothing can be bought",
   iwoPurchaseHint(iwoCheck({ iwo_for: "fabric", bom: null, advised: [] })),
-  "Only an Accessories work order is limited by a Material BOM — nothing to check against",
+  "This work order has no Fabric BOM yet — nothing on it can be bought",
+);
+check(
+  "§8 a saved Fabric BOM holds yarn to its purchase weights",
+  iwoPurchaseHint(iwoCheck({ iwo_for: "yarn", bom: { is_draft: false }, advised: [] })),
+  "Limited to the IWO Fabric BOM's yarn purchase weights",
 );
 check(
   "§8 no Material BOM yet says nothing can be bought (it agrees with the ceiling)",
@@ -220,12 +227,51 @@ refute(
   iwoCeilingRefusal(saved({ lines: [LABEL_LINE, { ...LABEL_LINE, uom: "BOX" }] }), want([["label", 1]])),
   null,
 );
-check("§9 a Fabric work order is not capped here (its plan is the Fabric BOM)", iwoCeilingRefusal(saved({ iwo_for: "fabric", bom: null }), want([["label", 999]])), null);
+// §9's old "a Fabric work order is not capped here" is REVERSED by §10 (0595).
 check("§9 a zero-quantity line is not judged", iwoCeilingRefusal(saved({ bom: null }), want([["label", 0]])), null);
 check(
   "§9 the allowance prints every decimal it has (never fmtNumber's 3)",
   iwoCeilingRefusal(saved({ lines: [{ ...LABEL_LINE, purchase_qty: 16.6667, uom: "BOX" }] }), want([["label", 17]]))?.includes("(16.6667 BOX)"),
   true,
+);
+
+// §10 — the YARN ceiling (0595, user 2026-09-19: approval "caps yarn POs"). A
+// Yarn or Fabric work order is held to its IWO Fabric BOM's yarn purchase
+// weights by the same rule, the BOM named in every sentence.
+const YARN_LINE = { item_id: "cotton", name: "30'S COTTON", purchase_qty: 1111.112, uom: "KGS" };
+const yarnSaved = (over: Partial<IwoPurchaseCheck>) => saved({ iwo_for: "yarn", lines: [YARN_LINE], ...over });
+check("§10 a yarn up to its purchase weight is allowed", iwoCeilingRefusal(yarnSaved({}), want([["cotton", 1111.112]])), null);
+check(
+  "§10 over it is refused, naming the Fabric BOM",
+  iwoCeilingRefusal(yarnSaved({}), want([["cotton", 1200]])),
+  "Purchase order quantity (1,200 KGS) exceeds the approved IWO Fabric BOM allocation (1,111.112 KGS) for 30'S COTTON on work order U2/IWO/2627/0005. Over-ordering on work orders is blocked.",
+);
+check(
+  "§10 a yarn the Fabric BOM does not buy is refused",
+  iwoCeilingRefusal(yarnSaved({}), want([["lycra", 1]])),
+  "This is not a yarn work order U2/IWO/2627/0005's Fabric BOM buys, so none of it is approved to buy. Plan it on IWO Fabric BOM first.",
+);
+check(
+  "§10 a Fabric work order with no Fabric BOM refuses",
+  iwoCeilingRefusal(saved({ iwo_for: "fabric", bom: null }), want([["cotton", 1]])),
+  "Work order U2/IWO/2627/0005 has no Fabric BOM yet, so nothing on it is approved to buy. Plan it on IWO Fabric BOM first.",
+);
+check(
+  "§10 a draft Fabric BOM refuses",
+  iwoCeilingRefusal(yarnSaved({ bom: { is_draft: true } }), want([["cotton", 1]])),
+  "Work order U2/IWO/2627/0005's Fabric BOM is still a draft, so nothing on it is approved to buy yet. Save it (not as a draft) first.",
+);
+check(
+  "§10 other purchase orders count for yarn too",
+  iwoCeilingRefusal(yarnSaved({ committed: [{ item_id: "cotton", qty: 1000 }] }), want([["cotton", 200]]))?.includes(
+    "This one can take at most 111.112 KGS",
+  ),
+  true,
+);
+check(
+  "§10 a yarn the BOM could not weigh refuses, naming the Fabric BOM",
+  iwoCeilingRefusal(yarnSaved({ lines: [{ ...YARN_LINE, purchase_qty: null }] }), want([["cotton", 1]])),
+  "The Fabric BOM for work order U2/IWO/2627/0005 could not work out a purchase quantity for 30'S COTTON. Fix that line on IWO Fabric BOM first.",
 );
 
 if (failed) {

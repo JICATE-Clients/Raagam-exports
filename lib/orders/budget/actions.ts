@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import {
+  bomRefusalOf,
   budgetReopenInput,
   canReopen,
   canTransition,
@@ -24,6 +25,7 @@ import {
   type PulledCostLine,
 } from "./service";
 import { isRefusal } from "./totals";
+import { mergePulled, pullMergeIsEmpty, pullMergeSize } from "./pull-merge";
 import { budgetBaseline, kpisToJson } from "./amendment";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
@@ -124,6 +126,8 @@ async function writeChildren(
     cost_head_id: l.cost_head_id ?? null,
     // 0590 — the yarn stage.
     stage_id: l.stage_id ?? null,
+    // 0591 — pulled from a BOM (item / qty / unit are the BOM's).
+    from_bom: l.from_bom,
   }));
 
   if (lines.length) {
@@ -131,6 +135,65 @@ async function writeChildren(
     if (error) return fail(error.message);
   }
   return { ok: true };
+}
+
+/**
+ * THE PREREQUISITE GATE (user 2026-09-19): every order on a budget has a SAVED
+ * Fabric BOM and a SAVED Material BOM. The picker hides the others; this is the
+ * half a stale tab, a second window and a crafted post still have to pass, the
+ * same split as the duplicate-name guard.
+ *
+ * Returns the refusal naming every order that fails, or null.
+ */
+async function refuseUnreadyOrders(
+  s: Awaited<ReturnType<typeof createClient>>,
+  orderIds: readonly string[],
+): Promise<Result | null> {
+  if (orderIds.length === 0) return null;
+  const ids = [...orderIds];
+  const [fab, mat, named] = await Promise.all([
+    s.from("order_fabric_boms").select("garment_order_id").eq("is_draft", false).in("garment_order_id", ids),
+    s.from("material_bom_amendments").select("garment_order_id").eq("is_draft", false).in("garment_order_id", ids),
+    s
+      .from("garment_order_amendments")
+      .select("id, code, sales_order:sales_orders(order_number)")
+      .in("id", ids),
+  ]);
+  // A FAILED READ REFUSES. Passing on an error would open the gate on a query
+  // that never ran.
+  for (const r of [fab, mat, named]) if (r.error) return fail(`Could not check the orders' BOMs: ${r.error.message}`);
+  const has = (rows: unknown[] | null) =>
+    new Set(((rows ?? []) as { garment_order_id: string }[]).map((r) => r.garment_order_id));
+  const fabric = has(fab.data);
+  const material = has(mat.data);
+  const label = new Map(
+    ((named.data ?? []) as unknown as { id: string; code: string | null; sales_order: { order_number: string | null } | null }[]).map(
+      (o) => [o.id, o.sales_order?.order_number ?? o.code ?? "an order"],
+    ),
+  );
+  const refused = ids.flatMap((id) => {
+    const why = bomRefusalOf(fabric.has(id), material.has(id));
+    return why ? [`${label.get(id) ?? "an order"}: ${why}`] : [];
+  });
+  return refused.length === 0
+    ? null
+    : fail(`Save both BOMs before budgeting — ${refused.join("; ")}`);
+}
+
+/**
+ * A cost line must belong to an order ON THE BUDGET, or to none (a whole-group
+ * overhead). A line keyed to an order that was removed would be costed into the
+ * totals of an order the budget no longer sells, so it is refused rather than
+ * saved.
+ */
+function refuseOrphanLines(data: OrderBudgetInput): Result | null {
+  const onBudget = new Set(data.orders.map((o) => o.garment_order_id));
+  const orphans = data.lines.filter((l) => l.garment_order_id && !onBudget.has(l.garment_order_id));
+  return orphans.length === 0
+    ? null
+    : fail(
+        `${orphans.length} cost line${orphans.length === 1 ? " belongs" : "s belong"} to an order no longer on this budget — remove ${orphans.length === 1 ? "it" : "them"}, or add the order back`,
+      );
 }
 
 /**
@@ -161,8 +224,12 @@ export async function createOrderBudget(data: OrderBudgetInput): Promise<Result>
   if (!(await can("orders", "create"))) return fail("Forbidden");
   const p = orderBudgetInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  const orphan = refuseOrphanLines(p.data);
+  if (orphan) return orphan;
 
   const s = await createClient();
+  const unready = await refuseUnreadyOrders(s, p.data.orders.map((o) => o.garment_order_id));
+  if (unready) return unready;
   const { data: created, error } = await s
     .from("order_budgets")
     .insert(headerOnly(p.data))
@@ -187,9 +254,14 @@ export async function updateOrderBudget(id: string, data: OrderBudgetInput): Pro
   const p = orderBudgetInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
+  const orphan = refuseOrphanLines(p.data);
+  if (orphan) return orphan;
+
   const s = await createClient();
   const guard = await assertEditable(s, id);
   if (!guard.ok) return guard;
+  const unready = await refuseUnreadyOrders(s, p.data.orders.map((o) => o.garment_order_id));
+  if (unready) return unready;
 
   const { error } = await s.from("order_budgets").update(headerOnly(p.data)).eq("id", id);
   if (error) return fail(error.message);
@@ -276,6 +348,31 @@ export async function submitBudget(id: string): Promise<Result> {
   } catch (e) {
     return fail(e instanceof Error ? e.message : "The budget's figures could not be worked out");
   }
+  /* THE BUDGET SENT FOR APPROVAL IS THE BOMs' CURRENT ANSWER (0591). A pulled
+     line's quantity is read-only on the screen, so it is only right while it
+     still matches the BOM. The screen offers "Refresh from BOMs"; this is the
+     half a stale tab cannot skip. The same `mergePulled` the screen applies,
+     run against the STORED lines: anything it would change (a moved quantity, a
+     new BOM line, a stale one, a re-fit fabric process) refuses the submit. */
+  const orderIds = budget.orders.map((o) => o.garment_order_id);
+  const unready = await refuseUnreadyOrders(s, orderIds);
+  if (unready) return unready;
+  try {
+    const { lines: freshLines } = await pullCostLines(orderIds);
+    const drift = mergePulled(
+      budget.lines.map((l) => ({ ...l, key: l.id, qty: l.qty == null ? null : Number(l.qty) })),
+      freshLines,
+    );
+    if (!pullMergeIsEmpty(drift)) {
+      const n = pullMergeSize(drift);
+      return fail(
+        `The BOMs have changed since this budget was filled (${n} line${n === 1 ? "" : "s"}) — open it, press Refresh from BOMs, and save before sending it`,
+      );
+    }
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "The BOMs could not be read to check this budget");
+  }
+
   const { totals } = figures;
   const summary = kpisToJson(figures.kpis);
 

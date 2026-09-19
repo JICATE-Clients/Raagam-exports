@@ -168,6 +168,21 @@ export function IwoMaterialBomScreen({
   const [isPending, start] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
+
+
+  /** Leaving the editor goes back to the WORK ORDER (2026-09-20): this
+
+   *  screen has no entry of its own on Order Execution any more — it is
+
+   *  opened from the work order, so that is where closing it returns. */
+
+  function leaveEditor() {
+
+    setMode("list");
+
+    router.push("/orders/internal-work-orders");
+
+  }
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>({ iwo_id: null, bom_date: today() });
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -325,7 +340,7 @@ export function IwoMaterialBomScreen({
       if (res.ok) {
         success(editId ? "Material BOM updated" : "Material BOM created");
         setDirty(false);
-        setMode("list");
+        leaveEditor();
         router.refresh();
       } else {
         toastError(res.error);
@@ -363,8 +378,7 @@ export function IwoMaterialBomScreen({
       ),
     },
     { header: "Date", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.iwo_date)}</span> },
-    { header: "Style", cell: (t) => <span className="text-sm">{t.style_ref_no ?? "—"}</span> },
-    { header: "RE No", cell: (t) => <span className="font-mono text-xs">{t.sales_orders?.order_number ?? "—"}</span> },
+    { header: "RE No", cell: (t) => <span className="font-mono text-xs">{t.reference_no ?? "—"}</span> },
     { header: "Deli Dt", cell: (t) => <span className="tabular-nums text-xs">{fmtDate(t.deli_date)}</span> },
     {
       header: "Material BOM",
@@ -768,11 +782,8 @@ export function IwoMaterialBomScreen({
                 onChange={(e) => set({ bom_date: e.target.value })}
               />
             </Field>
-            <Field label="Style" className="w-[150px]" htmlFor="imb-style">
-              <Input id="imb-style" readOnly value={picked?.style_ref_no ?? ""} />
-            </Field>
             <Field label="RE No" className="w-[170px]" htmlFor="imb-re">
-              <Input id="imb-re" readOnly value={picked?.sales_orders?.order_number ?? ""} />
+              <Input id="imb-re" readOnly value={picked?.reference_no ?? ""} />
             </Field>
             <Field label="Deli Dt" className="w-[130px]" htmlFor="imb-deli">
               <Input id="imb-deli" readOnly value={picked?.deli_date ? fmtDate(picked.deli_date) : ""} />
@@ -904,7 +915,7 @@ export function IwoMaterialBomScreen({
         ref={shellRef}
         mount="overlay"
         open={mode === "edit"}
-        onClose={() => setMode("list")}
+        onClose={() => leaveEditor()}
         modeLabel={
           <>
             {editId ? "Editing" : "New"} <span className="font-semibold text-foreground">IWO material BOM</span>
@@ -918,14 +929,13 @@ export function IwoMaterialBomScreen({
             <>
               <span>{picked ? "For Accessories" : "No work order chosen"}</span>
               {form.bom_date && <span>· {fmtDate(form.bom_date)}</span>}
-              {picked?.style_ref_no && <span>· {picked.style_ref_no}</span>}
             </>
           ),
         }}
         sections={sections}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New Material BOM",
-          onCancel: () => setMode("list"),
+          onCancel: () => leaveEditor(),
           onSave: () => submit(false),
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           saveLabel: "Save Material BOM",

@@ -958,6 +958,13 @@ function requirementRows(
           // The slice's own style wins: a line marked "every style" still
           // produces per-style rows when the order splits by colour.
           style_ref_no: slice.style_ref_no ?? line.style_ref_no,
+          /* THE WASTAGE THIS ROW WAS COMPUTED WITH, not the line's — the same
+             provenance rule as `no_of_items` / `per_pieces` below. `common`
+             carries the line's, which differs wherever a per-attribute Excess %
+             override (0450) resolved to something else, and the Material BOM
+             Requirement report re-derives Calculated Qty from these columns
+             (2026-09-20). Nothing else reads this column. */
+          excess_pct: use.excess_pct ?? 0,
           combo: slice.combo,
           size_id: slice.size_id,
           // 0444. NULL on every basis but country-wise, and NULL is a value

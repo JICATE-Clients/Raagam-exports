@@ -47,7 +47,10 @@ import {
   type StandardStage,
 } from "../lib/orders/fabric-bom/standard-routes.ts";
 import {
+  isRouteStart,
+  routeStartAllowedAt,
   narrowToStage,
+  processesUsedInStage,
   stageRank,
   stageRouteProblems,
   type FabricProcessOption,
@@ -133,7 +136,7 @@ const MASTER: FabricProcessOption[] = [
 const byName = (name: string) => MASTER.find((p) => p.name === name)!;
 
 /** One route row, as the grid holds it. */
-function row(stage: FabricStageLike, processId: string, i: number): FabricProcessRow {
+function row(stage: FabricStageLike, processId: string | null, i: number): FabricProcessRow {
   return {
     key: `r${i}`,
     item_id: "fab-1",
@@ -161,10 +164,20 @@ function rowsFor(routeKey: string): { rows: FabricProcessRow[]; unofferable: str
        (the grid's own filter), then the stage rules. `printDeclared` is true
        for every chain here — chains 2 and 4 declare an all-over print, and for
        1 · 3 · 5 no step names a print process at all. */
-    const offered = narrowToStage(
-      MASTER.filter((p) => p.for_fabric),
+    /* …AND THE TWO 2026-09-19 PICKER RULES: a purchase only on Step 1, and a
+       process another row of this stage holds is greyed "(already added)" —
+       so a chain whose step is taken in its own stage is NOT enterable. */
+    const legal = narrowToStage(
+      MASTER.filter(
+        (p) => p.for_fabric && (routeStartAllowedAt(rows, rows.length) || !isRouteStart(p)),
+      ),
       { stageId: stage.id, isFirstOfStage: opensStage },
-    ).filter((p) => processMatchesStep(p.name, step));
+    );
+    const draft = [...rows, row(stage, null, rows.length)];
+    const taken = processesUsedInStage(draft, rows.length, legal);
+    const offered = legal
+      .filter((p) => !taken.has(p.id))
+      .filter((p) => processMatchesStep(p.name, step));
     if (!offered.length) {
       unofferable.push(`[${step.stage}] ${step.process}`);
       continue;
@@ -186,6 +199,13 @@ const RULE = {
   repeated: "already moved this fabric into",
   pair: "does not run",
   base: "route opens with",
+  /* 2026-09-19 */
+  repeatedInStage: "stage runs each process once",
+  purchaseFirst: "initial procurement step",
+  /* 2026-09-20 */
+  knittingFirst: "can only be defined as the initial step",
+  ydDyedStage: "never enters the",
+  yarnDyed: "Fabric Dyeing steps cannot be added",
 } as const;
 function rulesFired(rows: FabricProcessRow[]): string[] {
   return stageRouteProblems(rows, MASTER, STAGES).map((p) => {
@@ -352,6 +372,10 @@ check(
   ]),
   ["repeated"],
 );
+/* SINCE 2026-09-20 THE STRICTER RULE SPEAKS FIRST: Knitting is a route start,
+   Step 1 only, so the 2nd and 3rd are refused as "not Step 1" before the
+   base-repeated rule is reached (one fault per row). The base-repeated rule is
+   still pinned by `check-fabric-stage-routes` §13 (DYEING twice). */
 check(
   "KNITTING three times under GREIGE reports the 2nd and 3rd only",
   rulesFired([
@@ -359,7 +383,7 @@ check(
     row(STAGE.grey, byName("KNITTING").id, 1),
     row(STAGE.grey, byName("KNITTING").id, 2),
   ]),
-  ["repeated", "repeated"],
+  ["knittingFirst", "knittingFirst"],
 );
 /* THE CASE THE WIDE READING WOULD HAVE BROKEN, and it is the client's own:
    chains 2 and 4 compact in the coloured stage and AGAIN after printing. A
@@ -375,13 +399,16 @@ check(
   [],
 );
 check(
-  "…and STENTERING twice in one stage is left alone (it is nobody's base)",
+  /* REVERSED 2026-09-19 (client rule 3, scoped to a STAGE by the user): a
+     process is picked once per stage, base or not. The vector above is the
+     half that must still hold — the same process in a LATER stage. */
+  "…but STENTERING twice in one stage IS refused (once per stage)",
   rulesFired([
     row(STAGE.dyed, byName("DYEING").id, 0),
     row(STAGE.dyed, byName("STENTERING").id, 1),
     row(STAGE.dyed, byName("STENTERING").id, 2),
   ]),
-  [],
+  ["repeatedInStage"],
 );
 /* Chain 2 and 4 in full, through the same assembler section 4 uses — the
    regression test for the rule above, stated as the route rather than as

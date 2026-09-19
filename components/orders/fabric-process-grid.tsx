@@ -76,7 +76,11 @@ import {
   baseProcessRepeated,
   baseProcessesForStage,
   blankFabricProcess,
-  clothPurchaseNotFirst,
+  routeStartAllowedAt,
+  routeStartNotFirst,
+  yarnDyedStageBlocked,
+  processesUsedInStage,
+  processRepeatedInStage,
   processPickValue,
   processPickerItems,
   splitProcessPick,
@@ -102,6 +106,9 @@ import {
   sourceSuppressedReason,
   type FabricSource,
 } from "@/lib/orders/fabric-bom/fabric-source";
+
+/** The route's trailing "Type" cell — hidden for now (client 2026-09-20). */
+const SHOW_TYPE_COLUMN = false;
 
 export function FabricProcessGrid({
   itemId,
@@ -306,8 +313,19 @@ export function FabricProcessGrid({
    *  (`printDeclaredFor`), else the fabric-wide flag. Every narrowing and twin
    *  on the row reads this one value, so they cannot disagree. */
   const printOk = (r: FabricProcessRow) => (printDeclaredFor ? printDeclaredFor(r) : printDeclared);
-  const baseCandidatesFor = (r: FabricProcessRow) =>
-    processesForFabric(processes, { printDeclared: printOk(r), fabricIsYarnDyed });
+  /** STEP 1 OR NOTHING — may this row still START the route: buy the cloth
+   *  (client 2026-09-19) or knit it (2026-09-20)? Positional, so it is read off
+   *  the branch like the stage helpers, and handed to the picker AND every twin
+   *  below for the same reason `printOk` is: a twin given a different gate
+   *  warns about a row the ▾ permitted. `stageRouteProblems` computes the
+   *  identical answer per row. */
+  const routeStartOk = (r: FabricProcessRow) => routeStartAllowedAt(rowsInBranch(r), indexInBranch(r));
+  const gatesFor = (r: FabricProcessRow) => ({
+    printDeclared: printOk(r),
+    fabricIsYarnDyed,
+    routeStartAllowed: routeStartOk(r),
+  });
+  const baseCandidatesFor = (r: FabricProcessRow) => processesForFabric(processes, gatesFor(r));
   /**
    * Does this fabric's SOURCE stop the engine charging for this step? (0564.)
    *
@@ -334,16 +352,23 @@ export function FabricProcessGrid({
     sourceSuppressedReason(r, processes, source);
 
   /*
-   * NO `usedIds`, AND THE OMISSION IS THE RULE RATHER THAN AN OVERSIGHT.
+   * A PROCESS IS PICKED ONCE PER STAGE — NOT ONCE PER ROUTE (client
+   * 2026-09-19; the scope is the user's decision the same day).
    *
-   * `StyleProcessGrid` scopes taken process ids by Type, because 0411's unique
-   * key is (style, kind, process) — a style cannot name one process twice. A
-   * ROUTE is the opposite: a fabric legitimately runs DYEING twice (a ground
-   * shade, then a garment-wash correction), and compacting can appear before
-   * and after printing. What makes two rows different here is their POSITION,
-   * which is why 0492's unique index is (line_id, sno) and not (line_id,
-   * process_id). Adding `usedIds` would withhold a correct second entry with no
-   * explanation on screen.
+   * This grid carried no `usedIds` at all until then, on the reasoning that a
+   * fabric may dye twice and compact before and after printing. The first half
+   * was already overruled by 2026-09-18's "a stage is entered once"
+   * (`baseProcessRepeated`); the second half is still true and is why the
+   * dedupe is scoped to a STAGE: chains 2 and 4 in `standard-routes.ts` run
+   * COMPACTING under DYED/WASH and again under PRINT, and a saved live route
+   * does exactly that. So `processesUsedInStage` names what OTHER rows of the
+   * same stage hold, and a later stage offers it again.
+   *
+   * GREYED, NOT REMOVED. It feeds the picker's own `usedIds`, so a taken
+   * process stays in the ▾ tagged "(already added)" — `DataPicker`'s standing
+   * reason: a process that vanished reads as missing from the master. The set
+   * has a floor for a blank row whose every option is taken, so the ▾ can
+   * never offer nothing to a `required` cell.
    */
 
   const columns: ChildGridColumn<FabricProcessRow>[] = [
@@ -486,7 +511,13 @@ export function FabricProcessGrid({
                the value a row already HOLDS always survives, with the twin
                underneath naming it. An operator-invented stage is unranked and
                therefore never withheld; see `stageRank`. */
-            options={stagesForRow(lookups.stages, rowsInBranch(r), indexInBranch(r))}
+            /* 2026-09-20 — on a Yarn-Dyed fabric DYED is withheld unless the
+               route starts with a dyed-roll purchase (`yarnDyedStageBlocked`
+               below names a held one). */
+            options={stagesForRow(lookups.stages, rowsInBranch(r), indexInBranch(r), {
+              fabricIsYarnDyed,
+              options: processes,
+            })}
             value={r.stage_id}
             onChange={(id) => patch(r.key, { stage_id: id || null })}
             required={fabricProcessRowStarted(r)}
@@ -503,6 +534,13 @@ export function FabricProcessGrid({
               This route has already reached a later stage — a fabric cannot go
               back to{" "}
               {lookups.stages.find((s) => s.id === r.stage_id)?.name ?? "an earlier stage"}.
+            </p>
+          )}
+          {/* 2026-09-20 — the Save gate's sentence, shortened for the cell. */}
+          {yarnDyedStageBlocked(rowsInBranch(r), indexInBranch(r), processes, lookups.stages, fabricIsYarnDyed) && (
+            <p className="mt-1 text-xs text-warning">
+              This fabric is Yarn-Dyed — {stageName(r.stage_id)} is only for a route that starts with a
+              dyed-roll purchase. Use WASH for its washing and finishing.
             </p>
           )}
         </div>
@@ -550,44 +588,54 @@ export function FabricProcessGrid({
            change, and refusing the source change would be the post-hoc block
            this module refuses everywhere else. */
         <div className={`min-w-0${suppressedReason(r) ? " opacity-60" : ""}`}>
-          <RecordPicker
-            label=""
-            compact
-            items={(() => {
-              const narrowed = processesForFabric(processes, {
-                currentValue: r.process_id,
-                printDeclared: printOk(r),
-                fabricIsYarnDyed,
-                /* 0563 — the two stage narrowings. Both are OPTIONAL opts that
-                   default to no narrowing, so a row with no Stage named yet sees
-                   exactly the list this grid offered before they existed. */
-                stageId: r.stage_id,
-                isFirstOfStage: opensStage(r),
-              });
-              /* 0583 — each process, then "PROCESS [SUB]" for each of its
-                 sub-categories. Expanded AFTER every narrowing, so a
-                 sub-category is offered exactly where its process is. */
-              return subCategories ? processPickerItems(narrowed, r) : narrowed;
-            })()}
-            value={subCategories ? processPickValue(r) : r.process_id}
-            onChange={(id) =>
-              patch(
-                r.key,
-                subCategories
-                  ? splitProcessPick(id)
-                  : /* A caller without sub-categories still clears any it was
-                       handed, so a process change never keeps the old one's. */
-                    { process_id: id, sub_category_id: null },
-              )
-            }
-            disabled={readOnly}
-            required={fabricProcessRowStarted(r)}
-            /* Empty-and-explain. An empty list here means the Process master has
-               nothing flagged "Fabric", which is fixed on a DIFFERENT screen — a
-               bare "— Select —" over nothing reads as a broken dropdown and
-               teaches the operator nothing (AGENTS.md, nominated vendors). */
-            emptyHint="No process is flagged for Fabric — tick it on Master Data ▸ Materials ▸ Processes"
-          />
+          {(() => {
+            const narrowed = processesForFabric(processes, {
+              currentValue: r.process_id,
+              ...gatesFor(r),
+              /* 0563 — the two stage narrowings. Both are OPTIONAL opts that
+                 default to no narrowing, so a row with no Stage named yet sees
+                 exactly the list this grid offered before they existed. */
+              stageId: r.stage_id,
+              isFirstOfStage: opensStage(r),
+            });
+            /* 0583 — each process, then "PROCESS [SUB]" for each of its
+               sub-categories. Expanded AFTER every narrowing, so a
+               sub-category is offered exactly where its process is. */
+            const items = subCategories ? processPickerItems(narrowed, r) : narrowed;
+            /* ONCE PER STAGE (2026-09-19) — see the block above `columns`.
+               Keyed by process, so every "PROCESS [SUB]" entry of a taken
+               process greys with it. */
+            const used = processesUsedInStage(rowsInBranch(r), indexInBranch(r), narrowed);
+            const usedIds = used.size
+              ? items.filter((i) => used.has(splitProcessPick(i.id).process_id ?? "")).map((i) => i.id)
+              : null;
+            return (
+              <RecordPicker
+                label=""
+                compact
+                items={items}
+                usedIds={usedIds}
+                value={subCategories ? processPickValue(r) : r.process_id}
+                onChange={(id) =>
+                  patch(
+                    r.key,
+                    subCategories
+                      ? splitProcessPick(id)
+                      : /* A caller without sub-categories still clears any it was
+                           handed, so a process change never keeps the old one's. */
+                        { process_id: id, sub_category_id: null },
+                  )
+                }
+                disabled={readOnly}
+                required={fabricProcessRowStarted(r)}
+                /* Empty-and-explain. An empty list here means the Process master has
+                   nothing flagged "Fabric", which is fixed on a DIFFERENT screen — a
+                   bare "— Select —" over nothing reads as a broken dropdown and
+                   teaches the operator nothing (AGENTS.md, nominated vendors). */
+                emptyHint="No process is flagged for Fabric — tick it on Master Data ▸ Materials ▸ Processes"
+              />
+            );
+          })()}
           {/* 0528 — "block the dyer/planner from selecting Print … Print
               details are not available for this style". `printDeclared`
               withholds every Print-flagged process from the list ABOVE, so
@@ -609,10 +657,12 @@ export function FabricProcessGrid({
               fabric belongs on the Yarn Process tab instead). Same "held
               value survives, tagged" idiom as `printBlocked` above — never
               silently dropped. */}
+          {/* Since 2026-09-19 this also BLOCKS SAVE (`stageRouteProblems`),
+              so it is worded as the client's refusal, not as advice. */}
           {dyeingBlocked(r, processes, fabricIsYarnDyed) && (
             <div className="mt-0.5 text-xs text-warning">
-              Dyeing is not needed here — this fabric is Yarn Dyed, so its
-              dyeing loss is carried on the Yarn Process tab instead.
+              This fabric is Yarn-Dyed. Fabric Dyeing steps cannot be added to a
+              yarn-dyed fabric route — remove this step.
             </div>
           )}
           {/* 0563 — this row holds a process its own Stage does not allow: a
@@ -629,7 +679,7 @@ export function FabricProcessGrid({
               which differs when a stage's only allowed process is print-gated
               — so the twin could name a mismatch the narrowing had already
               permitted. */}
-          {stageMismatchBlocked(r, processes, { printDeclared: printOk(r), fabricIsYarnDyed }) && (
+          {stageMismatchBlocked(r, processes, gatesFor(r)) && (
             <div className="mt-0.5 text-xs text-warning">
               {stageName(r.stage_id)} does not run {""}
               {processes.find((p) => p.id === r.process_id)?.name ?? "this process"} — the
@@ -660,18 +710,28 @@ export function FabricProcessGrid({
               moved this fabric into {stageName(r.stage_id)} — a stage is entered once.
             </div>
           )}
-          {/* 0583 — a bought roll starts the route. Same sentence the Save gate
-              prints (`stageRouteProblems`), shortened for the cell. */}
-          {clothPurchaseNotFirst(rowsInBranch(r), indexInBranch(r), processes) && (
+          {/* 2026-09-19 — any other process twice in one stage. The base case
+              above has the sharper sentence, so this stands down for it: one
+              cell, one message. */}
+          {!baseProcessRepeated(rowsInBranch(r), indexInBranch(r), processes) &&
+            processRepeatedInStage(rowsInBranch(r), indexInBranch(r)) && (
+              <div className="mt-0.5 text-xs text-warning">
+                {processes.find((p) => p.id === r.process_id)?.name ?? "This process"} is
+                already in the {stageName(r.stage_id)} stage — a stage runs each process once.
+              </div>
+            )}
+          {/* A ROUTE START (a purchase, 0583; Knitting, 2026-09-20) is Step 1
+              only. Same rule the Save gate prints (`stageRouteProblems`),
+              shortened for the cell. The ▾ no longer offers one below Step 1
+              (`routeStartOk`), so this only fires on a row saved before that,
+              or one whose rows above were filled in afterwards. */}
+          {routeStartNotFirst(rowsInBranch(r), indexInBranch(r), processes) && (
             <div className="mt-0.5 text-xs text-warning">
-              A purchased roll is where the route starts — move{" "}
-              {processes.find((p) => p.id === r.process_id)?.name ?? "this step"} to the first row.
+              {processes.find((p) => p.id === r.process_id)?.name ?? "This step"} can only be the
+              initial step (Step 1) — move it to the first row.
             </div>
           )}
-          {baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, {
-            printDeclared: printOk(r),
-            fabricIsYarnDyed,
-          }) && (
+          {baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, gatesFor(r)) && (
             <div className="mt-0.5 text-xs text-warning">
               A {stageName(r.stage_id)} route opens with{" "}
               {baseProcessesForStage(baseCandidatesFor(r), r.stage_id)
@@ -771,7 +831,14 @@ export function FabricProcessGrid({
      * Leaving any one of them would be the "stated vs enforced" split — a field
      * the screen has closed that an import can still write.
      */
-    {
+    /*
+     * HIDDEN FOR NOW (client 2026-09-20: "the last type field hide it for
+     * now"). Only the COLUMN goes — `type_id`, the payload, the DB column and
+     * the `fabric_process_type` lookup all stay, so a row saved with a Type
+     * keeps it and flipping `SHOW_TYPE_COLUMN` back restores the cell as it
+     * was. Nothing reads the value, so hiding it changes no figure.
+     */
+    ...(SHOW_TYPE_COLUMN ? [{
       /**
        * The legacy tab's trailing ▾, BLANK on both rows of the screenshot with
        * no evidence anywhere of what it offers.
@@ -784,7 +851,9 @@ export function FabricProcessGrid({
        */
       header: "Type",
       width: "7rem",
-      cell: (r) => (
+      /* Typed here: inside the `SHOW_TYPE_COLUMN ? [...] : []` spread the
+         column array's element type no longer reaches this parameter. */
+      cell: (r: FabricProcessRow) => (
         <LookupDialogPicker
           kind="fabric_process_type"
           label="Type"
@@ -796,7 +865,7 @@ export function FabricProcessGrid({
           canEdit={canEdit && !readOnly}
         />
       ),
-    },
+    }] : []),
   ];
 
   return (
@@ -817,7 +886,8 @@ export function FabricProcessGrid({
          it — and nothing on this screen requires a route. */
       keepOne={false}
       /* @5xl (1024). Declared widths (Stage 7 + Process 12 + Loss for 7.5 +
-         Loss % 4.5 + Type 7 = 38rem = 608px) plus ~170px of `#`/remove/cell
+         Loss % 4.5 + Type 7 = 38rem = 608px; 31rem while Type is hidden,
+         `SHOW_TYPE_COLUMN`) plus ~170px of `#`/remove/cell
          chrome leaves the flexible Process column comfortable room at 1024 —
          MORE than before Descriptions (10rem) went (0528, "this description
          column is not needed"). WITH BOTH SPLIT COLUMNS ON (2026-09-15) that
