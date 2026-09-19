@@ -74,6 +74,11 @@ export const companyProfileInput = z.object({
 
   footer_text: z.string().optional().nullable(),
   with_logo: z.boolean().optional(),
+  /* THE LOGO'S PUBLIC URL (2026-09-19) — uploaded to the `company-assets`
+     bucket (0589) by the Company Profile screen, printed on every document
+     letterhead (`letterheadLogoOf`, lib/orders/fabric-bom/letterhead.ts). The
+     column existed since 0318; nothing could fill it until now. */
+  logo: z.string().optional().nullable(),
 });
 
 export type CompanyProfileInput = z.infer<typeof companyProfileInput>;

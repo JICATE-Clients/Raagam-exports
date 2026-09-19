@@ -19,6 +19,12 @@ type Props = {
   bucket?: string;
   folder?: string;
   disabled?: boolean;
+  /** How the preview draws the image. `cover` (default) crops to the square —
+   *  right for a face; `contain` shows the whole image — right for a logo,
+   *  which is usually wide and must not lose its ends (2026-09-19). */
+  fit?: "cover" | "contain";
+  /** The empty preview's text. Default "No photo". */
+  emptyLabel?: string;
 };
 
 const ACCEPTED = "image/jpeg,image/png,image/webp";
@@ -31,6 +37,8 @@ export function PhotoUpload({
   folder = "photos",
   disabled,
   showPreview = true,
+  fit = "cover",
+  emptyLabel = "No photo",
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -80,11 +88,11 @@ export function PhotoUpload({
             <img
               src={value}
               alt="Photo"
-              className="h-full w-full object-cover"
+              className={`h-full w-full ${fit === "contain" ? "object-contain p-1" : "object-cover"}`}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-              No photo
+              {emptyLabel}
             </div>
           )}
         </div>
