@@ -17,7 +17,8 @@ import {
   type FabricSource,
 } from "./fabric-source";
 import { stageRank } from "./stage-routes";
-import { companyAddressOf, letterheadLogoOf } from "./letterhead";
+import { letterheadLogoOf, registeredAddressOf } from "./letterhead";
+import { fabricAllocationOf, type FabricAllocation } from "./fabric-allocation-report";
 import { consolidateContributions, mergeGreigeClothLines, mergeGreigeLines } from "./stage-ledger";
 import { layoutTypeLabel } from "./component-map";
 import { mixingDetailRows, type MixingDetailRow, type YdRepeatRow } from "./yarn-dyed";
@@ -25,6 +26,9 @@ import { isReportRefusal, type ReportRefusal } from "./report-refusal";
 /* THE PRINTING REQUIREMENT (client 2026-09-19) — which groups print, and the
    pure grouping the Printing tab renders. */
 import {
+  garmentKey,
+  garmentTotal,
+  mergeGarmentCounts,
   printNamesFor,
   printRequirement,
   printedGroup,
@@ -214,7 +218,14 @@ export type BomDocHeader = {
    *  report resolves a name on the same row the Fabric Requirement Sheet does. */
   company: {
     name: string | null;
+    /** The REGISTERED address (client spec 2026-09-19) — `registeredAddressOf`
+     *  in ./letterhead.ts, which prefers the profile's "Registered office (if
+     *  different)" block and falls back to its main one. */
     address: string | null;
+    /** The factory UNIT this BOM belongs to — "Head Office", "Unit 2" — the
+     *  BOM's own `location_id` (0426), falling back to its order's. Null when
+     *  neither names one; the letterhead then prints no unit line. */
+    unit: string | null;
     gstin: string | null;
     /** The letterhead logo to draw (2026-09-19) — the Company Profile's, or
      *  the Raagam wordmark placeholder; null = the profile says no logo. See
@@ -228,7 +239,7 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
 
   const { data: bomRow, error: bomErr } = await s
     .from("order_fabric_boms")
-    .select("id, code, garment_order_id, bom_date, computed_at, is_draft")
+    .select("id, code, garment_order_id, bom_date, computed_at, is_draft, location_id")
     .eq("id", bomId)
     .maybeSingle();
 
@@ -239,7 +250,7 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     .from("garment_order_amendments")
     .select(
       "id, po_no, delivery_date, excess_pct, customer:customers(name), " +
-        "sales_order:sales_orders(order_number), " +
+        "sales_order:sales_orders(order_number, location_id), " +
         "sq_detail:sq_details!sq_detail_id(code, sq_description)",
     )
     .eq("id", bomRow.garment_order_id)
@@ -254,9 +265,27 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     delivery_date: string | null;
     excess_pct: number | null;
     customer: { name: string } | null;
-    sales_order: { order_number: string | null } | null;
+    sales_order: { order_number: string | null; location_id: string | null } | null;
     sq_detail: { code: string | null; sq_description: string | null } | null;
   };
+
+  /* THE UNIT (client spec 2026-09-19: "Unit Name (e.g. Unit 2)"). The BOM's own
+     `location_id` first — it is the document's unit and all nine live BOMs
+     carry one — then its order's. A failed read REFUSES the report rather than
+     printing no unit: an empty unit line on a document sent to a supplier reads
+     as "this came from nowhere", and `data ?? null` would hide the failure. */
+  const locationId =
+    (bomRow as { location_id?: string | null }).location_id ?? go.sales_order?.location_id ?? null;
+  let unitName: string | null = null;
+  if (locationId) {
+    const { data: loc, error: locErr } = await s
+      .from("locations")
+      .select("name")
+      .eq("id", locationId)
+      .maybeSingle();
+    if (locErr) return { refused: `Could not read the BOM's unit: ${locErr.message}` };
+    unitName = (loc as { name: string | null } | null)?.name ?? null;
+  }
 
   /* THERE IS NO SINGLE "Style Ref No" ON THE ORDER — `style_ref_no` lives on
      the BOM's own lines (NULL there means "every style", 0495's shape), and
@@ -334,9 +363,11 @@ async function loadBomDocHeader(bomId: string): Promise<BomDocHeader | ReportRef
     customer: go.customer?.name ?? null,
     company: {
       name: str("name") ?? str("company_name"),
-      /* Built from street1..3 / city / state / pin — the columns the Company
-         Profile actually saves (2026-09-19; `address` never existed). */
-      address: companyAddressOf(co),
+      /* THE REGISTERED ADDRESS (client spec 2026-09-19) — the "Registered
+         office (if different)" block when filled, else the main street1..3 /
+         city / state / pin block. See `registeredAddressOf`. */
+      address: registeredAddressOf(co),
+      unit: unitName,
       gstin: str("gstin"),
       logo: letterheadLogoOf(co),
     },
@@ -1225,6 +1256,11 @@ export type StageBreakdownLine = {
   /** The print the order names for this group ("AOP") — set on a PRINT
    *  section's lines only (2026-09-19). */
   printName?: string | null;
+  /** GARMENTS CUT and kg of cloth PER GARMENT (before wastage) — PRINT lines
+   *  only, for the Printing Requirement (client 2026-09-19, 1A). See
+   *  `PrintRequirementRow` in ./print-route.ts. */
+  cutPieces?: number | null;
+  pieceWt?: number | null;
 };
 
 /**
@@ -1401,6 +1437,15 @@ export type YarnFabricRequirementReport = {
    * ladder. Empty when no route prints.
    */
   printing: PrintRequirement;
+  /**
+   * THE FABRIC ALLOCATION (CUTTING) SECTION (client 2026-09-19, 3A) — the
+   * report's last block: per colourway, component set and dia, the cloth that
+   * reaches the cutting table (net of and including cutting wastage). Read off
+   * the Entry Register rather than re-derived — see
+   * `./fabric-allocation-report.ts`. The register's own refusal, when it has
+   * one, stands in its place: the rest of this report does not depend on it.
+   */
+  allocation: FabricAllocation | ReportRefusal;
   /** WEIGHTS THE LEDGER COULD NOT PLACE, in the engine's own words — an
    *  entry whose panels run different "Component Wise" routes, or a loss out
    *  of range. Listed under the ledger rather than dropped: a section that
@@ -1483,7 +1528,10 @@ export async function yarnFabricRequirementReport(
          hard-codes a unit is a report that keeps printing it after the unit
          changes. */
       .from("order_fabric_bom_requirements")
-      .select("item_id, combo, required_qty, entry_id, size_id, basis_qty, consumption_uom_id")
+      /* `consumption` JOINED 2026-09-19 for the Printing Requirement's Piece
+         Wt (client decision 1A) — kg per garment, checked live against every
+         row: required_qty = basis_qty x consumption x (1 + wastage%). */
+      .select("item_id, combo, required_qty, entry_id, size_id, style_ref_no, basis_qty, consumption, consumption_uom_id")
       .eq("bom_id", bomId),
     uomIds.length ? s.from("uoms").select("id, code").in("id", uomIds) : Promise.resolve({ data: [], error: null }),
     /* WHICH PANELS EACH ENTRY COVERS — what a "Component Wise" route (0528)
@@ -1572,7 +1620,9 @@ export async function yarnFabricRequirementReport(
     required_qty: number | null;
     entry_id: string | null;
     size_id: string | null;
+    style_ref_no: string | null;
     basis_qty: number | null;
+    consumption: number | null;
     consumption_uom_id: string | null;
   }[];
   /** The unit the requirement is stored in — the kilogram (0562), read from
@@ -1637,7 +1687,24 @@ export async function yarnFabricRequirementReport(
      "64" and "64 CM" are two answers where two numerics 64 and 64.00 were one.
      That is the right stricter, because the unit is now part of what the
      planner said. */
-  type NetSlice = { net: number; nos: number; dias: Set<string>; panels: string[] };
+  /* `garments` / `consWt` (2026-09-19) — for the Printing Requirement's Cut
+     Pcs and Piece Wt (client 1A), over the same rows as `net`.
+
+     GARMENTS ARE COUNTED ONCE PER (STYLE, SIZE), NEVER SUMMED ACROSS ENTRIES.
+     A body and its sleeves are often two Manual entries of one cloth, and each
+     entry's rows carry the SAME garments — summing them would double the count
+     and halve the piece weight. So the count keeps the largest `basis_qty` seen
+     for a (style, size), while `consWt` (Σ basis x consumption, the cloth BEFORE
+     wastage) does sum across panels: body + sleeves is the garment's cloth. */
+  type NetSlice = {
+    net: number;
+    nos: number;
+    garments: Map<string, number>;
+    consWt: number;
+    dias: Set<string>;
+    panels: string[];
+  };
+
   const netByFabricComboPanels = new Map<string, Map<string, Map<string, NetSlice>>>();
   const structureByFabric = new Map<string, string>();
   const widthFormByFabric = new Map<string, string>();
@@ -1649,8 +1716,20 @@ export async function yarnFabricRequirementReport(
     const entry = r.entry_id ? entryFacts.get(r.entry_id) : undefined;
     const panels = entry?.panels ?? [];
     const panelKey = [...panels].sort().join(",");
-    const held = byPanels.get(panelKey) ?? { net: 0, nos: 0, dias: new Set<string>(), panels };
+    const held = byPanels.get(panelKey) ?? {
+      net: 0,
+      nos: 0,
+      garments: new Map<string, number>(),
+      consWt: 0,
+      dias: new Set<string>(),
+      panels,
+    };
     held.net += r.required_qty ?? 0;
+    /* Within ONE entry a (style, size) appears once, so this adds; across
+       entries `mergeGarmentCounts` keeps the max. */
+    const gKey = garmentKey(r.style_ref_no, r.size_id);
+    held.garments.set(gKey, (held.garments.get(gKey) ?? 0) + (r.basis_qty ?? 0));
+    held.consWt += (r.basis_qty ?? 0) * (r.consumption ?? 0);
     const size = entry && r.size_id ? entry.sizes.get(r.size_id) : undefined;
     /* A REFUSED ROW CARRIES `basis_qty` 0 and contributes nothing, which is
        right: it has no weight either. */
@@ -2065,9 +2144,18 @@ export async function yarnFabricRequirementReport(
          set the route refuses is named under the ledger, never dropped. */
       const byBranch = new Map<
         string,
-        { net: number; nos: number; dias: Set<string>; branch: string[]; printed: boolean; panels: Set<string> }
+        {
+          net: number;
+          nos: number;
+          garments: Map<string, number>;
+          consWt: number;
+          dias: Set<string>;
+          branch: string[];
+          printed: boolean;
+          panels: Set<string>;
+        }
       >();
-      for (const { net, nos, dias, panels } of byPanels.values()) {
+      for (const { net, nos, garments, consWt, dias, panels } of byPanels.values()) {
         const forColour = route.filter((st) => stageCoversCombo(st.combo, combo));
         const branch = resolveRouteComponents(forColour, panels);
         if (isReportRefusal(branch)) {
@@ -2083,6 +2171,8 @@ export async function yarnFabricRequirementReport(
         const held = byBranch.get(branchKey) ?? {
           net: 0,
           nos: 0,
+          garments: new Map<string, number>(),
+          consWt: 0,
           dias: new Set<string>(),
           branch,
           printed,
@@ -2090,6 +2180,8 @@ export async function yarnFabricRequirementReport(
         };
         held.net += net;
         held.nos += nos;
+        mergeGarmentCounts(held.garments, garments);
+        held.consWt += consWt;
         for (const d of dias) held.dias.add(d);
         for (const p of panels) held.panels.add(p);
         byBranch.set(branchKey, held);
@@ -2111,7 +2203,8 @@ export async function yarnFabricRequirementReport(
       const gsm = resolveGsm(fabricId, combo);
       const nosUomCode = countUnitOf(fabricId);
 
-      for (const { net, nos, dias, branch, printed, panels } of byBranch.values()) {
+      for (const { net, nos, garments, consWt, dias, branch, printed, panels } of byBranch.values()) {
+        const pcs = garmentTotal(garments);
         /* ONE DISTINCT DIA OR NOTHING — the same abstain this file makes for
            the header's Style Ref No and for GSM. Two sizes knitted at
            different diameters have no single answer, and printing one of them
@@ -2181,6 +2274,11 @@ export async function yarnFabricRequirementReport(
             toOrderedNos: nosUomCode ? Number((nos * step.factorAfter).toFixed(3)) : null,
             nosUomCode,
             printName: isPrint ? printName : null,
+            /* PRINT LINES ONLY, like `printName`: the Printing Requirement's
+               Cut Pcs / Piece Wt (client 1A). Left off every other line so the
+               greige merge, which sums lines, never has to add them. */
+            cutPieces: isPrint ? pcs : null,
+            pieceWt: isPrint && pcs > 0 ? Number((consWt / pcs).toFixed(4)) : null,
           });
           group.plannedTotal += plannedWt;
           group.toOrderedTotal += toOrderedWt;
@@ -2475,6 +2573,11 @@ export async function yarnFabricRequirementReport(
         }
       : null;
 
+  /* THE REGISTER, READ ONCE MORE FOR THE ALLOCATION SECTION — its rows are
+     what the section regroups, and building them a second way here would be
+     two implementations of one document. */
+  const register = await fabricBomEntryRegister(bomId);
+
   return {
     header,
     yarns,
@@ -2497,12 +2600,15 @@ export async function yarnFabricRequirementReport(
             component: l.component ?? "",
             print: l.printName ?? "",
             dia: l.dia ?? "",
+            cutPieces: l.cutPieces ?? null,
+            pieceWt: l.pieceWt ?? null,
             lossPct: l.lossPct,
             sentWt: l.toOrderedWt,
             receivedWt: l.plannedWt,
           })),
         ),
     ),
+    allocation: isReportRefusal(register) ? register : fabricAllocationOf(register),
     stageLedgerRefusals,
   };
 }

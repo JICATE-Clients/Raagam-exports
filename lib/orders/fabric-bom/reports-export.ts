@@ -1,8 +1,19 @@
 /**
- * Downloading the two Fabric BOM reports — PDF and Excel (CSV, same as
- * `lib/orders/fabric-requirement/export.ts`'s own "Excel" button; a `.xlsx`
- * library was never introduced there and this file doesn't introduce one
- * either, on purpose — one convention for "download to Excel" across the app).
+ * The Fabric BOM reports as documents — PDF download and PRINT, and nothing else.
+ *
+ * ## NO EXCEL, ON PURPOSE (client spec 2026-09-19)
+ *
+ * These are requirement documents that go to suppliers and the floor, and the
+ * client removed every spreadsheet export from them: a CSV opens in Excel, is
+ * edited, and circulates as if the app had issued it — tampered requirement
+ * figures with our header on them. A PDF is the document as issued. The three
+ * `export…Csv` functions that lived here were deleted, not hidden, so no screen
+ * can wire one back by accident. (The Fabric Requirement Sheet, a different
+ * report, keeps its own Excel button — the client's spec named this report.)
+ *
+ * "Print" is the SAME PDF opened in a new tab with the print dialog raised
+ * (`output: "print"`), so what is printed and what is downloaded are one
+ * document, not a browser print of the screen beside it.
  *
  * Browser-only (blob downloads): call from a `"use client"` island, same as
  * the sibling file. Landscape A4, mono `jspdf-autotable` theme, letterhead +
@@ -36,31 +47,39 @@ function monoHead() {
   return { fillColor: [235, 237, 240] as [number, number, number], textColor: 20, fontStyle: "bold" as const };
 }
 
+/** How a PDF leaves: saved as a file, or opened for printing. */
+export type PdfOutput = "download" | "print";
+
+/**
+ * THE PRINT TAB IS OPENED FIRST, before anything is awaited. A browser allows
+ * `window.open` only inside the click that asked for it; every exporter below
+ * awaits the letterhead logo, and a tab opened after that await can be
+ * swallowed by the popup blocker. So the exporter opens an empty tab
+ * synchronously and fills it at the end. Null for a download.
+ */
+function openPrintTab(output: PdfOutput): Window | null {
+  return output === "print" && typeof window !== "undefined" ? window.open("", "_blank") : null;
+}
+
+/**
+ * Save the PDF, or show it in the tab `openPrintTab` opened with the print
+ * dialog raised (`autoPrint`). A print whose tab was blocked falls back to the
+ * download — the operator still gets the document, just not the dialog.
+ */
+function finishPdf(doc: jsPDF, filename: string, output: PdfOutput, tab: Window | null): void {
+  if (output === "print" && tab && !tab.closed) {
+    doc.autoPrint();
+    tab.location.href = doc.output("bloburl").toString();
+    return;
+  }
+  doc.save(filename);
+}
+
 function stem(prefix: string, header: BomDocHeader): string {
   const key = (header.scNo || header.bomCode || "bom")
     .replace(/[^A-Za-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
   return `${prefix}_${key}`;
-}
-
-function csvCell(v: string): string {
-  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-}
-
-function toCsv(rows: readonly (readonly string[])[]): string {
-  return rows.map((r) => r.map(csvCell).join(",")).join("\n");
-}
-
-function download(filename: string, text: string, mime: string): void {
-  // The BOM prefix keeps Excel from reading a leading `=`/`+` as a formula —
-  // the same guard `exportFabricRequirementCsv` uses.
-  const blob = new Blob(["﻿" + text], { type: `${mime};charset=utf-8;` });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 /** The default facts line — every report except the Yarn & Fabric
@@ -70,7 +89,7 @@ function download(filename: string, text: string, mime: string): void {
 function defaultFacts(header: BomDocHeader): string[] {
   return [
     header.customer ? `Customer: ${header.customer}` : null,
-    header.scNo ? `SC No: ${header.scNo}` : null,
+    header.scNo ? `RE No: ${header.scNo}` : null,
     header.sqNo ? `SQ No: ${header.sqNo}` : null,
     header.orderNo ? `Order No: ${header.orderNo}` : null,
     header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
@@ -79,7 +98,7 @@ function defaultFacts(header: BomDocHeader): string[] {
 }
 
 /** The Yarn & Fabric Requirement Report's OWN header line (client spec,
- *  2026-09-11): Customer / SC No / Order No / Style Ref No / Delivery, in
+ *  2026-09-11): Customer / RE No / Order No / Style Ref No / Delivery, in
  *  this order, and NOTHING ELSE — never `defaultFacts`, which now also
  *  carries Report 1's SQ No. Widening one shared facts line for one report's
  *  spec is exactly how the two came to need separating in the first place;
@@ -87,7 +106,7 @@ function defaultFacts(header: BomDocHeader): string[] {
 function yarnReportFacts(header: BomDocHeader): string[] {
   return [
     header.customer ? `Customer: ${header.customer}` : null,
-    header.scNo ? `SC No: ${header.scNo}` : null,
+    header.scNo ? `RE No: ${header.scNo}` : null,
     header.orderNo ? `Order No: ${header.orderNo}` : null,
     header.styleRefNo ? `Style Ref No: ${header.styleRefNo}` : null,
     header.deliveryFromDate ? `Delivery: ${fmtDate(header.deliveryFromDate)}` : null,
@@ -133,7 +152,19 @@ function drawLetterhead(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(90);
-  if (header.company.address) doc.text(header.company.address, textX, (y += 12));
+  /* THE UNIT, THEN THE REGISTERED ADDRESS (client spec 2026-09-19: Company
+     Name, Unit Name, Registered Address on every exported report). The address
+     WRAPS rather than running under the title on the right: it is typed on the
+     Company Profile at whatever length the office uses. */
+  if (header.company.unit) {
+    doc.setFont("helvetica", "bold");
+    doc.text(header.company.unit.toUpperCase(), textX, (y += 12));
+    doc.setFont("helvetica", "normal");
+  }
+  if (header.company.address) {
+    const lines = doc.splitTextToSize(header.company.address, Math.max(160, RIGHT - textX - 220)) as string[];
+    for (const line of lines.slice(0, 3)) doc.text(line, textX, (y += 10));
+  }
   if (header.company.gstin) doc.text(`GSTIN ${header.company.gstin}`, textX, (y += 10));
 
   doc.setTextColor(3, 123, 184);
@@ -316,7 +347,8 @@ function registerBody(data: EntryRegister): { body: string[][]; totalAt: number[
   return { body, totalAt };
 }
 
-export async function exportEntryRegisterPdf(data: EntryRegister): Promise<void> {
+export async function exportEntryRegisterPdf(data: EntryRegister, output: PdfOutput = "download"): Promise<void> {
+  const tab = openPrintTab(output);
   const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
@@ -382,39 +414,7 @@ export async function exportEntryRegisterPdf(data: EntryRegister): Promise<void>
   }
 
   pageFooter(doc, data.header);
-  doc.save(`${stem("FabricBomEntryRegister", data.header)}.pdf`);
-}
-
-export function exportEntryRegisterCsv(data: EntryRegister): void {
-  const rows: string[][] = [REGISTER_COLUMNS];
-  // A total row is dropped here, same reason `fabricRequirementCsv` drops one:
-  // a spreadsheet sums its own column, and a stored total among the rows would
-  // be double-counted by anyone who does.
-  for (const cg of data.groups) {
-    for (const comp of cg.components) {
-      const componentLabel = comp.componentNames.join(", ");
-      for (const sz of comp.sizes) {
-        rows.push([
-          cg.combo ?? "",
-          componentLabel,
-          comp.fabricName,
-          comp.itemForm ?? "",
-          comp.gsm != null ? String(comp.gsm) : "",
-          sz.sizeLabel,
-          sz.dia ?? "",
-          sz.purchaseWidth != null ? String(sz.purchaseWidth) : "",
-          String(sz.sqQty),
-          sz.pieceWt != null ? String(sz.pieceWt) : "",
-          sz.wastagePct != null ? String(sz.wastagePct) : "",
-          String(sz.netReqWt),
-          sz.lossPct != null ? String(sz.lossPct) : "",
-          String(sz.grossWt),
-          sz.uomCode ?? "",
-        ]);
-      }
-    }
-  }
-  download(`${stem("FabricBomEntryRegister", data.header)}.csv`, toCsv(rows), "text/csv");
+  finishPdf(doc, `${stem("FabricBomEntryRegister", data.header)}.pdf`, output, tab);
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +437,7 @@ export function exportEntryRegisterCsv(data: EntryRegister): void {
  * arithmetic:
  *
  *  1. The order facts were ONE RUN-ON LINE. Legacy sets them as a bordered
- *     grid — SQ No / SQ Description / Customer / Delivery over SC No / Order
+ *     grid — SQ No / SQ Description / Customer / Delivery over RE No / Order
  *     No / Style Ref No / Style / Excess% / Unit and a five-column Quantity
  *     block — and the grid is what makes five numbers beside each other
  *     readable as a breakdown rather than a sentence.
@@ -450,7 +450,8 @@ export function exportEntryRegisterCsv(data: EntryRegister): void {
  *  5. No `Prepared By / Checked By / Approved By`. A document that is signed
  *     needs somewhere to sign it.
  */
-export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport): Promise<void> {
+export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport, output: PdfOutput = "download"): Promise<void> {
+  const tab = openPrintTab(output);
   const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const M = 28;
@@ -482,19 +483,39 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  doc.text(h.company.name ?? "RAAGAM EXPORTS", MID, 34, { align: "center" });
+  doc.text(h.company.name ?? "RAAGAM EXPORTS", MID, 32, { align: "center" });
+
+  /* THE UNIT AND THE REGISTERED ADDRESS, centred under the name (client spec
+     2026-09-19: Company Name, Unit Name, Registered Address on every exported
+     report — this header printed the name alone). The address wraps inside the
+     band the logo leaves clear (96 pt each side plus a gap), so it never runs
+     under the logo, and everything below moves down by however many lines it
+     took — a blank address costs no space at all. */
+  let headY = 32;
+  doc.setFontSize(7.5);
+  if (h.company.unit) doc.text(h.company.unit.toUpperCase(), MID, (headY += 9), { align: "center" });
+  doc.setFont("helvetica", "normal");
+  if (h.company.address) {
+    const band = RIGHT - M - 2 * (96 + 12);
+    const lines = doc.splitTextToSize(h.company.address, band) as string[];
+    for (const line of lines.slice(0, 2)) doc.text(line, MID, (headY += 8.5), { align: "center" });
+  }
+
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text("YARN AND FABRIC REQUIREMENT", MID, 48, { align: "center" });
+  const titleY = Math.max(48, headY + 13);
+  doc.text("YARN AND FABRIC REQUIREMENT", MID, titleY, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
-  doc.text(`Report Printed Date & Time: ${printed}`, M, 62);
+  const printedY = titleY + 14;
+  doc.text(`Report Printed Date & Time: ${printed}`, M, printedY);
   /* `Page : 1/1` SITS AT THE TOP RIGHT, where legacy puts it, as well as in
      the page footer. Written after every table has been laid out (the total
      is not known until then) — see the `stampTopPageNumbers` call at the
      foot of this function. */
 
-  let y = 70;
+  let y = printedY + 8;
 
   // -- the order facts, as a grid --------------------------------------------
   const fact = (label: string, value: string | null | undefined) => ({
@@ -532,7 +553,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
   autoTable(doc, {
     head: [
       [
-        { content: "SC No.", rowSpan: 2 },
+        { content: "RE No.", rowSpan: 2 },
         { content: "Order No.", rowSpan: 2 },
         { content: "Style Ref No", rowSpan: 2 },
         { content: "Style", rowSpan: 2 },
@@ -848,16 +869,89 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
     y = ry;
   }
 
+  /* -- FABRIC ALLOCATION (CUTTING) — the report's last section (client
+     2026-09-19, 3A). What reaches the cutting table per colourway, component
+     set and dia: Net Cutting Wt before the cutting-room wastage, Allocated Wt
+     with it. Rows are `fabricAllocationOf`'s — see ./fabric-allocation-report.ts.
+     `Fabric` is carried beside the spec's five columns because one colourway's
+     component sets are often cut from different cloths (a jersey body, a rib
+     collar), and a row that does not say which reads as a total of both. */
+  {
+    const pageH = doc.internal.pageSize.getHeight();
+    let startY = y + 22;
+    /* A HEADING WITH NO ROOM FOR A ROW UNDER IT goes to the next page with its
+       table, rather than standing alone at the foot of this one. */
+    if (startY > pageH - 110) {
+      doc.addPage();
+      startY = 44;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.text("FABRIC ALLOCATION (CUTTING)", M, startY - 6);
+    if (isReportRefusal(data.allocation)) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(`! ${data.allocation.refused}`, M, startY + 6);
+      y = startY + 10;
+    } else if (!data.allocation.rows.length) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text("No cutting requirement on this BOM yet.", M, startY + 6);
+      y = startY + 10;
+    } else {
+      const allocBody: string[][] = data.allocation.rows.map((r) => [
+        r.component,
+        r.combo || "All colours",
+        r.fabricName,
+        fmtNumber(r.netCuttingWt),
+        [r.dia, r.gsm != null ? `${r.gsm} GSM` : null].filter(Boolean).join(" / "),
+        fmtNumber(r.allocatedWt),
+      ]);
+      const totalRow = allocBody.length;
+      allocBody.push([
+        "",
+        "",
+        "Total :",
+        fmtNumber(data.allocation.netCuttingWt),
+        "",
+        fmtNumber(data.allocation.allocatedWt),
+      ]);
+      autoTable(doc, {
+        head: [["Component", "Garment Colourway", "Fabric", "Net Cutting Wt (Kg)", "Finished Dia / GSM", "Allocated Wt (Kg)"]],
+        body: allocBody,
+        startY,
+        margin: { left: M, right: M },
+        styles: { ...monoStyles(), fontSize: 7 },
+        headStyles: { ...monoHead(), fontSize: 6.5 },
+        theme: "grid",
+        columnStyles: {
+          0: { cellWidth: 92 },
+          1: { cellWidth: 70 },
+          3: { halign: "right", cellWidth: 70 },
+          4: { cellWidth: 72 },
+          5: { halign: "right", cellWidth: 70 },
+        },
+        didParseCell: (d) => {
+          if (d.section === "body" && d.row.index === totalRow) d.cell.styles.fontStyle = "bold";
+        },
+      });
+      y = finalY(doc, y);
+    }
+  }
+
   signOffFooter(doc);
-  stampTopPageNumbers(doc);
+  stampTopPageNumbers(doc, printedY);
   pageFooter(doc, data.header, { pageNumbers: false });
-  doc.save(`${stem("YarnFabricRequirement", data.header)}.pdf`);
+  finishPdf(doc, `${stem("YarnFabricRequirement", data.header)}.pdf`, output, tab);
 }
 
 /** `Page : 1/1` at the top right of every page — legacy's own placement,
  *  beside the printed-at line. Written last because the page COUNT is not
  *  known until every table has been laid out. */
-function stampTopPageNumbers(doc: jsPDF): void {
+/* `firstPageY` keeps page 1's stamp level with its "Report Printed" line,
+   which moves down when the unit and registered address print above it;
+   later pages keep the fixed position they always had. */
+function stampTopPageNumbers(doc: jsPDF, firstPageY = 62): void {
   const M = 28;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
   const pages = doc.getNumberOfPages();
@@ -866,7 +960,7 @@ function stampTopPageNumbers(doc: jsPDF): void {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(0);
-    doc.text(`Page : ${p}/${pages}`, RIGHT, 62, { align: "right" });
+    doc.text(`Page : ${p}/${pages}`, RIGHT, p === 1 ? firstPageY : 62, { align: "right" });
   }
 }
 
@@ -931,130 +1025,18 @@ function finalY(doc: jsPDF, fallback: number): number {
   return after?.finalY ?? fallback;
 }
 
-export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): void {
-  /* ONE ROW SHAPE FOR EVERY SECTION, which is what makes the file sortable and
-     pivotable — a spreadsheet cannot filter three tables stacked in one sheet.
-     The columns the PDF splits into `Planned`/`To Ordered` pairs are flat here
-     for the same reason. */
-  const rows: string[][] = [
-    [
-      "Section",
-      "Stage",
-      "Type",
-      "Yarn / Fabric",
-      "Color",
-      "Component",
-      "Dia/Size",
-      "Planned Nos/Mtrs",
-      "Planned Wt",
-      "Loss %",
-      "To Ordered Nos/Mtrs",
-      "To Ordered Wt",
-      "Count Unit",
-      "Unit",
-      "Note",
-    ],
-  ];
-  for (const y of data.yarns) {
-    rows.push([
-      "Yarn Purchase",
-      y.stageState,
-      y.itemType,
-      y.yarnName,
-      y.color ?? "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      y.purchaseQty != null ? String(y.purchaseQty) : "",
-      "",
-      y.uomCode ?? "",
-      y.refusalReason ?? "",
-    ]);
-  }
-  if (data.yarnGrandTotal) {
-    rows.push([
-      "Yarn Purchase",
-      "",
-      "",
-      "TOTAL YARN PURCHASE REQUIREMENT",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      String(data.yarnGrandTotal.qty),
-      "",
-      data.yarnGrandTotal.uomCode ?? "",
-      "",
-    ]);
-  }
-  /* THE YARN DYEING BLOCK — one row per (yarn, colourway, colour), same rows
-     the PDF prints. Its Planned and To Ordered are real figures, so they go in
-     the same two columns every other section uses rather than columns of
-     their own. */
-  for (const l of data.yarnDyeing) {
-    rows.push([
-      "Yarn Dyeing",
-      "DYED",
-      "YARN",
-      l.yarnName,
-      l.colorName,
-      "",
-      "",
-      "",
-      String(l.plannedWt),
-      String(l.lossPct),
-      "",
-      String(l.toOrderedWt),
-      "",
-      l.uomCode ?? "",
-      "",
-    ]);
-  }
-  for (const g of data.stageBreakdown) {
-    for (const l of g.lines) {
-      rows.push([
-        g.processName,
-        "",
-        "",
-        /* THE DETAILS CELL'S OWN SENTENCE, so a row read out of the spreadsheet
-           says which cloth, in which composition, at which form and GSM —
-           the same string the PDF prints. */
-        detailsCell(l).replace(/\n/g, " "),
-        /* THE CLOTH'S COLOUR, then the assort colourway it belongs to — the
-           PDF shows the first as a column and the second as a band, and a
-           flat file has to carry both or a filtered row loses its colourway. */
-        [l.fabricColour, l.combo].filter(Boolean).join(" · "),
-        l.component ?? "",
-        l.dia ?? "",
-        l.plannedNos != null ? String(l.plannedNos) : "",
-        String(l.plannedWt),
-        String(l.lossPct),
-        l.toOrderedNos != null ? String(l.toOrderedNos) : "",
-        String(l.toOrderedWt),
-        l.nosUomCode ?? "",
-        "",
-        "",
-      ]);
-    }
-  }
-  for (const r of data.stageLedgerRefusals) {
-    rows.push(["Process Stage Ledger", "", "", "", "", "", "", "", "", "", "", "", "", "", r]);
-  }
-  download(`${stem("YarnFabricRequirement", data.header)}.csv`, toCsv(rows), "text/csv");
-}
-
 // ---------------------------------------------------------------------------
 // Printing Requirement (client 2026-09-19)
 // ---------------------------------------------------------------------------
 
-/* ONE COLUMN SET for the PDF, the CSV and the on-screen tab — "the exact
-   weight sent for printing" is `Sent Wt`, the print step's INPUT. */
+/* ONE COLUMN SET for the PDF and the on-screen tab — "the exact weight sent
+   for printing" is `Sent Wt`, the print step's INPUT.
+
+   `Cut Pcs` / `Piece Wt (Kg)` (client 2026-09-19, decision 1A): the weight
+   keeps the engine's backward walk, and these show what it rests on — the
+   garments cut for this printed group and the cloth per garment before
+   wastage. Never TOTALLED: a body fabric and a rib on one colourway count the
+   same garments, so a sum would double them. */
 const PRINT_COLUMNS = [
   "Assort Colour",
   "Fabric",
@@ -1062,6 +1044,8 @@ const PRINT_COLUMNS = [
   "Print",
   "Process",
   "Dia/Size",
+  "Cut Pcs",
+  "Piece Wt (Kg)",
   "Wt Sent for Printing",
   "Loss %",
   "Wt After Printing",
@@ -1075,6 +1059,8 @@ function printRow(r: YarnFabricRequirementReport["printing"]["groups"][number]["
     r.print,
     r.processName,
     r.dia,
+    r.cutPieces == null ? "" : fmtNumber(r.cutPieces),
+    r.pieceWt == null ? "" : r.pieceWt.toFixed(3),
     fmtNumber(r.sentWt),
     `${r.lossPct.toFixed(2)}%`,
     fmtNumber(r.receivedWt),
@@ -1088,7 +1074,8 @@ function printRow(r: YarnFabricRequirementReport["printing"]["groups"][number]["
  * unprinted group never reaches a print section, so there is nothing here to
  * filter out.
  */
-export async function exportPrintRequirementPdf(data: YarnFabricRequirementReport): Promise<void> {
+export async function exportPrintRequirementPdf(data: YarnFabricRequirementReport, output: PdfOutput = "download"): Promise<void> {
+  const tab = openPrintTab(output);
   const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
@@ -1099,11 +1086,11 @@ export async function exportPrintRequirementPdf(data: YarnFabricRequirementRepor
     for (const r of g.rows) body.push(printRow(r));
     if (data.printing.groups.length > 1) {
       bold.add(body.length);
-      body.push([`${g.combo || "All colours"} total`, "", "", "", "", "", fmtNumber(g.sentWt), "", fmtNumber(g.receivedWt)]);
+      body.push([`${g.combo || "All colours"} total`, "", "", "", "", "", "", "", fmtNumber(g.sentWt), "", fmtNumber(g.receivedWt)]);
     }
   }
   bold.add(body.length);
-  body.push(["TOTAL SENT FOR PRINTING", "", "", "", "", "", fmtNumber(data.printing.sentWt), "", fmtNumber(data.printing.receivedWt)]);
+  body.push(["TOTAL SENT FOR PRINTING", "", "", "", "", "", "", "", fmtNumber(data.printing.sentWt), "", fmtNumber(data.printing.receivedWt)]);
   autoTable(doc, {
     head: [PRINT_COLUMNS],
     body,
@@ -1111,34 +1098,19 @@ export async function exportPrintRequirementPdf(data: YarnFabricRequirementRepor
     margin: { left: M, right: M },
     styles: monoStyles(),
     headStyles: monoHead(),
-    columnStyles: { 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" } },
+    columnStyles: {
+      6: { halign: "right" },
+      7: { halign: "right" },
+      8: { halign: "right" },
+      9: { halign: "right" },
+      10: { halign: "right" },
+    },
     didParseCell: (d) => {
       if (d.section === "body" && bold.has(d.row.index)) d.cell.styles.fontStyle = "bold";
     },
   });
   signOffFooter(doc);
   pageFooter(doc, data.header);
-  doc.save(`${stem("PrintingRequirement", data.header)}.pdf`);
+  finishPdf(doc, `${stem("PrintingRequirement", data.header)}.pdf`, output, tab);
 }
 
-export function exportPrintRequirementCsv(data: YarnFabricRequirementReport): void {
-  /* No total rows — a spreadsheet sums its own column (the Entry Register's
-     reason, above). */
-  const rows: string[][] = [PRINT_COLUMNS];
-  for (const g of data.printing.groups) {
-    for (const r of g.rows) {
-      rows.push([
-        r.combo,
-        r.fabricName,
-        r.component,
-        r.print,
-        r.processName,
-        r.dia,
-        String(r.sentWt),
-        String(r.lossPct),
-        String(r.receivedWt),
-      ]);
-    }
-  }
-  download(`${stem("PrintingRequirement", data.header)}.csv`, toCsv(rows), "text/csv");
-}

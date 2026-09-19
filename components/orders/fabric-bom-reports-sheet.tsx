@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, FileSpreadsheet } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -21,12 +21,10 @@ import type {
 } from "@/lib/orders/fabric-bom/reports";
 import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import {
-  exportEntryRegisterCsv,
   exportEntryRegisterPdf,
-  exportPrintRequirementCsv,
   exportPrintRequirementPdf,
-  exportYarnRequirementCsv,
   exportYarnRequirementPdf,
+  type PdfOutput,
 } from "@/lib/orders/fabric-bom/reports-export";
 
 /**
@@ -159,7 +157,11 @@ export function FabricBomReportsSheet({
  */
 function Letterhead({ title, header }: { title: string; header: BomDocHeader }) {
   const c = header.company;
-  const contact = [c.address, c.gstin ? `GSTIN ${c.gstin}` : null].filter(Boolean).join("  ·  ");
+  /* THE UNIT AND THE REGISTERED ADDRESS (client spec 2026-09-19) — the same
+     facts, in the same order, as the PDF letterhead beside this screen. */
+  const contact = [c.unit?.toUpperCase(), c.address, c.gstin ? `GSTIN ${c.gstin}` : null]
+    .filter(Boolean)
+    .join("  ·  ");
   return (
     <div className="overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
       <div className="h-[3px] bg-[#85c227]" />
@@ -203,7 +205,7 @@ function YarnReportFactsRow({ header }: { header: BomDocHeader }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
       <YarnFact label="Customer" value={header.customer} />
-      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="RE No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
       <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
       {/* THE `Style` COLUMN beside `Style Ref No`, legacy's own pairing —
@@ -325,14 +327,21 @@ function Td({
   );
 }
 
-function ExportBar({ onCsv, onPdf }: { onCsv: () => void; onPdf: () => void }) {
+/**
+ * PRINT AND PDF, AND NO EXCEL (client spec 2026-09-19) — a requirement report
+ * leaves the app only as the document as issued; a spreadsheet can be edited
+ * and circulated with our figures changed. Both buttons produce the SAME PDF:
+ * Print opens it in a new tab with the print dialog up, so what is printed is
+ * what is downloaded, not a browser print of this screen.
+ */
+function ExportBar({ pdf }: { pdf: (output: PdfOutput) => Promise<void> }) {
   return (
     <div className="mb-3 flex justify-end gap-2 print:hidden">
-      <Button type="button" variant="outline" size="md" onClick={onCsv}>
-        <FileSpreadsheet className="h-4 w-4" />
-        Excel
+      <Button type="button" variant="outline" size="md" onClick={() => void pdf("print")}>
+        <Printer className="h-4 w-4" />
+        Print
       </Button>
-      <Button type="button" variant="primary" size="md" onClick={onPdf}>
+      <Button type="button" variant="primary" size="md" onClick={() => void pdf("download")}>
         <Download className="h-4 w-4" />
         Download PDF
       </Button>
@@ -358,7 +367,7 @@ function EntryRegisterFactsRow({ header }: { header: BomDocHeader }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-t-0 border-border bg-white px-5 py-2.5 text-[12.5px]">
       <YarnFact label="Customer" value={header.customer} />
-      <YarnFact label="SC No" value={header.scNo} mono />
+      <YarnFact label="RE No" value={header.scNo} mono />
       <YarnFact label="Order No" value={header.orderNo} mono />
       <YarnFact label="Style Ref No" value={header.styleRefNo} mono />
       <YarnFact label="Delivery" value={fmtDate(header.deliveryFromDate)} mono />
@@ -426,7 +435,7 @@ function EntryRegisterView({ data }: { data: EntryRegister | { refused: string }
 
   return (
     <div>
-      <ExportBar onCsv={() => exportEntryRegisterCsv(data)} onPdf={() => void exportEntryRegisterPdf(data)} />
+      <ExportBar pdf={(output) => exportEntryRegisterPdf(data, output)} />
 
       <Letterhead title="Fabric BOM Entry Register" header={data.header} />
       <EntryRegisterFactsRow header={data.header} />
@@ -851,10 +860,7 @@ function RequirementReportView({
 
   return (
     <div>
-      <ExportBar
-        onCsv={() => exportYarnRequirementCsv(data)}
-        onPdf={() => void exportYarnRequirementPdf(data)}
-      />
+      <ExportBar pdf={(output) => exportYarnRequirementPdf(data, output)} />
 
       <Letterhead title="Yarn &amp; Fabric Requirement" header={data.header} />
       <YarnReportFactsRow header={data.header} />
@@ -1127,6 +1133,62 @@ function RequirementReportView({
           )}
         </div>
       )}
+      <FabricAllocationSection allocation={data.allocation} />
+    </div>
+  );
+}
+
+/**
+ * FABRIC ALLOCATION (CUTTING) — the requirement report's last section (client
+ * 2026-09-19, 3A): per colourway, component set and dia, the cloth that reaches
+ * the cutting table. Net Cutting Wt is before the cutting-room wastage and
+ * Allocated Wt includes it; both come off the Entry Register
+ * (`fabricAllocationOf`). The PDF prints the same rows in the same order.
+ */
+function FabricAllocationSection({ allocation }: { allocation: YarnFabricRequirementReport["allocation"] }) {
+  return (
+    <div className="mt-3">
+      <SectionHeader>Fabric Allocation (Cutting)</SectionHeader>
+      {isReportRefusal(allocation) ? (
+        <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-destructive">
+          {allocation.refused}
+        </div>
+      ) : allocation.rows.length === 0 ? (
+        <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-muted-foreground">
+          No cutting requirement on this BOM yet — fill the Manual tab and Save.
+        </div>
+      ) : (
+        <ReportTable>
+          <thead>
+            <tr>
+              <Th>Component</Th>
+              <Th>Garment Colourway</Th>
+              <Th>Fabric</Th>
+              <Th right>Net Cutting Wt (Kg)</Th>
+              <Th>Finished Dia / GSM</Th>
+              <Th right>Allocated Wt (Kg)</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {allocation.rows.map((r, i) => (
+              <tr key={`fa-${i}`} className="odd:bg-white even:bg-[#fafbfc]">
+                <Td>{r.component || "—"}</Td>
+                <Td>{r.combo || "All colours"}</Td>
+                <Td>{r.fabricName}</Td>
+                <Td right mono>{fmtNumber(r.netCuttingWt)}</Td>
+                <Td mono>{[r.dia, r.gsm != null ? `${r.gsm} GSM` : null].filter(Boolean).join(" / ") || "—"}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(r.allocatedWt)}</Td>
+              </tr>
+            ))}
+            <tr className="bg-[#f1f3f5] font-semibold">
+              <Td colSpan={3}>Total</Td>
+              <Td right mono className="font-semibold">{fmtNumber(allocation.netCuttingWt)}</Td>
+              <Td>{""}</Td>
+              <Td right mono className="font-semibold">{fmtNumber(allocation.allocatedWt)}</Td>
+            </tr>
+          </tbody>
+        </ReportTable>
+      )}
     </div>
   );
 }
@@ -1156,7 +1218,7 @@ function PrintRequirementView({
   return (
     <div>
       {p.groups.length > 0 && (
-        <ExportBar onCsv={() => exportPrintRequirementCsv(data)} onPdf={() => void exportPrintRequirementPdf(data)} />
+        <ExportBar pdf={(output) => exportPrintRequirementPdf(data, output)} />
       )}
       <Letterhead title="Printing Requirement" header={data.header} />
       <YarnReportFactsRow header={data.header} />
@@ -1181,6 +1243,10 @@ function PrintRequirementView({
                 <Th>Print</Th>
                 <Th>Process</Th>
                 <Th>Dia/Size</Th>
+                {/* Client 2026-09-19 (1A) — what the sent weight rests on. See
+                    `PrintRequirementRow.cutPieces` for why these never total. */}
+                <Th right>Cut Pcs</Th>
+                <Th right>Piece Wt (Kg)</Th>
                 <Th right>Wt Sent for Printing</Th>
                 <Th right>Loss %</Th>
                 <Th right>Wt After Printing</Th>
@@ -1197,6 +1263,8 @@ function PrintRequirementView({
                       <Td>{r.print || "—"}</Td>
                       <Td>{r.processName}</Td>
                       <Td>{r.dia || "—"}</Td>
+                      <Td right mono>{r.cutPieces == null ? "—" : fmtNumber(r.cutPieces)}</Td>
+                      <Td right mono>{r.pieceWt == null ? "—" : r.pieceWt.toFixed(3)}</Td>
                       <Td right mono className="font-semibold">{fmtNumber(r.sentWt)}</Td>
                       <Td right mono>{r.lossPct.toFixed(2)}%</Td>
                       <Td right mono>{fmtNumber(r.receivedWt)}</Td>
@@ -1204,7 +1272,7 @@ function PrintRequirementView({
                   ))}
                   {p.groups.length > 1 && (
                     <tr className="bg-[#f6f7f9] font-semibold">
-                      <Td colSpan={6}>{g.combo || "All colours"} total</Td>
+                      <Td colSpan={8}>{g.combo || "All colours"} total</Td>
                       <Td right mono>{fmtNumber(g.sentWt)}</Td>
                       <Td>{""}</Td>
                       <Td right mono>{fmtNumber(g.receivedWt)}</Td>
@@ -1213,7 +1281,7 @@ function PrintRequirementView({
                 </Fragment>
               ))}
               <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
-                <Td colSpan={6}>Total Sent for Printing</Td>
+                <Td colSpan={8}>Total Sent for Printing</Td>
                 <Td right mono className="font-semibold">{fmtNumber(p.sentWt)}</Td>
                 <Td>{""}</Td>
                 <Td right mono className="font-semibold">{fmtNumber(p.receivedWt)}</Td>

@@ -238,12 +238,50 @@ export type PrintRequirementRow = {
   component: string;
   print: string;
   dia: string;
+  /**
+   * GARMENTS CUT from this printed group — Σ `basis_qty` over its requirement
+   * rows (the cut quantity, allowances included). Client decision 2026-09-19
+   * (1A): the printing weight keeps the engine's backward walk, and these two
+   * columns are added so the printout shows what that weight rests on.
+   * Optional so a row built before them (vectors) reads as "not stated".
+   */
+  cutPieces?: number | null;
+  /** Kilograms of cloth per garment — Σ(basis × consumption) ÷ Σ basis, i.e.
+   *  a piece-weighted average across sizes, BEFORE the cutting-room wastage
+   *  (the weight columns beside it include that wastage and the print loss). */
+  pieceWt?: number | null;
   lossPct: number;
   /** Cloth SENT to the printer — the step's input. */
   sentWt: number;
   /** Cloth coming BACK — the step's output. */
   receivedWt: number;
 };
+
+/**
+ * GARMENTS CUT, COUNTED ONCE PER (STYLE, SIZE) — for `cutPieces` above.
+ *
+ * A body and its sleeves are often two Manual entries of one cloth, and each
+ * entry's requirement rows carry the SAME garments. Summing `basis_qty` across
+ * them would double the count (and halve the piece weight). So counts are kept
+ * per (style, size) and two entries MERGE by taking the larger — while the
+ * cloth weight beside them still sums across panels, since body + sleeves is
+ * the garment's cloth.
+ */
+export function garmentKey(styleRefNo: string | null, sizeId: string | null): string {
+  return JSON.stringify([styleRefNo ?? "", sizeId ?? ""]);
+}
+
+/** Fold `from` into `into`, keeping the larger count per (style, size). */
+export function mergeGarmentCounts(into: Map<string, number>, from: ReadonlyMap<string, number>): void {
+  for (const [k, q] of from) into.set(k, Math.max(into.get(k) ?? 0, q));
+}
+
+/** The garments a merged count stands for. */
+export function garmentTotal(counts: ReadonlyMap<string, number>): number {
+  let n = 0;
+  for (const q of counts.values()) n += q;
+  return n;
+}
 
 /** One colourway's subtotal, in the report's own order. */
 export type PrintRequirementGroup = {

@@ -47,10 +47,14 @@ import {
 } from "../lib/orders/fabric-bom/yarn-process.ts";
 import { consolidateContributions, mergeGreigeClothLines, mergeGreigeLines, shadeDyeingCharges } from "../lib/orders/fabric-bom/stage-ledger.ts";
 import {
+  garmentKey,
+  garmentTotal,
+  mergeGarmentCounts,
   printRequirement,
   printRouteProblems,
   printedGroup,
 } from "../lib/orders/fabric-bom/print-route.ts";
+import { fabricAllocationOf } from "../lib/orders/fabric-bom/fabric-allocation-report.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -455,6 +459,87 @@ check(
     mergeGreigeClothLines([cl("dyed_purchase", "NAVY", 500, 510), cl("dyed_purchase", "RED", 300, 306)]).map((l) => l.combo),
     ["NAVY", "RED"],
   );
+}
+
+// ===========================================================================
+console.log("\n--- 7. Printing Cut Pcs, and the Fabric Allocation section (client 2026-09-19, 1A / 3A) ---");
+// ===========================================================================
+{
+  /* A body entry and a sleeve entry of ONE cloth carry the SAME garments. */
+  const body = new Map([[garmentKey("STY1", "S"), 100], [garmentKey("STY1", "M"), 150]]);
+  const sleeve = new Map([[garmentKey("STY1", "S"), 100], [garmentKey("STY1", "M"), 150]]);
+  const merged = new Map<string, number>();
+  mergeGarmentCounts(merged, body);
+  mergeGarmentCounts(merged, sleeve);
+  check("body + sleeve entries count the garments ONCE (250, not 500)", garmentTotal(merged), 250);
+  mergeGarmentCounts(merged, new Map([[garmentKey("STY2", "S"), 40]]));
+  check("a second STYLE at the same size adds (its own garments)", garmentTotal(merged), 290);
+  check("a blank style and a blank size still key", garmentKey(null, null), JSON.stringify(["", ""]));
+}
+{
+  /* The register's own shape: required = basis x consumption x (1 + wastage%),
+     the relation checked on all 342 live rows (2026-09-19). */
+  const size = (sizeLabel: string, dia: string | null, basis: number, cons: number, w: number | null) => ({
+    sizeLabel,
+    sqQty: basis,
+    pieceWt: cons,
+    wastagePct: w,
+    netReqWt: basis * cons * (1 + (w ?? 0) / 100),
+    grossWt: 0,
+    lossPct: null,
+    dia,
+    purchaseWidth: null,
+    uomCode: "KGS",
+    styleRefNo: null,
+  });
+  const comp = (componentNames: string[], fabricName: string, gsm: number | null, sizes: ReturnType<typeof size>[]) => ({
+    key: componentNames.join("|"),
+    componentNames,
+    fabricName,
+    itemId: fabricName,
+    gsm,
+    itemForm: null,
+    lossChain: [],
+    routeRefusal: null,
+    sizes,
+    subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 },
+  });
+  const alloc = fabricAllocationOf({
+    groups: [
+      {
+        combo: "NAVY",
+        subtotal: { sqQty: 0, netReqWt: 0, grossWt: 0 },
+        components: [
+          comp(["BACK", "FRONT BODY"], "SINGLE JERSEY", 180, [
+            size("S", "30", 100, 0.3, 5),
+            size("M", "30", 150, 0.3, 5),
+            size("L", "32", 120, 0.32, 5),
+          ]),
+          comp(["COLLAR"], "1X1 RIB", 220, [size("S", null, 100, 0.02, null)]),
+        ],
+      },
+    ],
+  });
+  check(
+    "one row per (colourway, component set, fabric, DIA) - S and M share dia 30, L is its own",
+    alloc.rows.map((r) => [r.combo, r.component, r.fabricName, r.dia, r.gsm]),
+    [
+      ["NAVY", "BACK, FRONT BODY", "SINGLE JERSEY", "30", 180],
+      ["NAVY", "BACK, FRONT BODY", "SINGLE JERSEY", "32", 180],
+      ["NAVY", "COLLAR", "1X1 RIB", null, 220],
+    ],
+  );
+  check(
+    "Net Cutting Wt = garments x consumption (no wastage); Allocated Wt = the requirement (with it)",
+    alloc.rows.map((r) => [r.netCuttingWt, r.allocatedWt]),
+    [
+      [75, 78.75], // (100 + 150) x 0.3 = 75; x 1.05
+      [38.4, 40.32], // 120 x 0.32 = 38.4; x 1.05
+      [2, 2], // no wastage: the two are equal
+    ],
+  );
+  check("totals are the rows summed", [alloc.netCuttingWt, alloc.allocatedWt], [115.4, 121.07]);
+  check("an empty register allocates nothing", fabricAllocationOf({ groups: [] }), { rows: [], netCuttingWt: 0, allocatedWt: 0 });
 }
 
 if (failed) {
