@@ -85,15 +85,18 @@ export default async function OrderCompletionsPage() {
         title="Garment Order Completion"
         description="Mark a garment order complete and closed."
         actions={
-          <Link href="/orders">
-            <Button variant="outline" size="md">
-              ← Garment Orders
-            </Button>
-          </Link>
+          <>
+            <Link href="/orders">
+              <Button variant="outline" size="md">
+                ← Garment Orders
+              </Button>
+            </Link>
+            {/* The entry opens in a Sheet over this listing (client
+                2026-09-20) — the button belongs in the header row. */}
+            <NewCompletionForm orders={orders} buyers={buyers} />
+          </>
         }
       />
-
-      <NewCompletionForm orders={orders} buyers={buyers} />
 
       <DataTable
         columns={withCreatedColumns(columns, completions)}

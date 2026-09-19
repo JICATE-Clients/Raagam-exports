@@ -4,13 +4,14 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { today } from "@/lib/calendar";
 import { completeOrder } from "@/lib/orders/completions/actions";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldGrid, FieldRow } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Sheet } from "@/components/ui/sheet";
 import { RecordPicker } from "@/components/masters/record-picker";
 import type { OrderOption, BuyerOption } from "@/lib/orders/completions/service";
 
@@ -19,28 +20,35 @@ interface Props {
   buyers: BuyerOption[];
 }
 
+/**
+ * THE ENTRY OPENS OVER THE LISTING, NOT INSIDE IT (client 2026-09-20,
+ * screenshot 2965) — the same fix, and the same reasoning, as
+ * `cancellations/new-cancellation-form.tsx`. The page is the listing; this is
+ * its "+ New completion" button and the `Sheet` it opens.
+ *
+ * WIDTHS: Completion No range 112 + Date code 144 + RE No party 200 +
+ * Customer name 288 + 3 gaps x 12 = 780px; `max-w-[860px]` leaves ~38px of
+ * headroom over the card's padding and border.
+ */
 export function NewCompletionForm({ orders, buyers }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
 
-  // Expand-in-place form, invisible to the guard's DOM scan — see
-  // new-order-form.tsx.
-  useUnsavedGuard(open || isPending);
-  useCreateIntent(() => setOpen(true));
+  // `Sheet` covers the open state; `isPending` covers a reload landing
+  // mid-save (AGENTS.md, "Auto-reload guard").
+  useUnsavedGuard(isPending);
 
   const [orderId, setOrderId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [orderNo, setOrderNo] = useState("");
-  // The form only ever mounts client-side (starts collapsed), so a `new Date()`
-  // initializer can't cause a hydration mismatch.
-  const [completionDate, setCompletionDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  // The FACTORY's today, not `toISOString()`'s UTC day, which read yesterday
+  // for the first 5½ hours of every IST day.
+  const [completionDate, setCompletionDate] = useState(() => today());
   const [remarks, setRemarks] = useState("");
 
-  // SC No picker items: {id, code: order_number, name: buyer_name}.
+  // RE No picker items: {id, code: order_number, name: buyer_name}.
   const orderItems = useMemo(
     () =>
       orders.map((o) => ({
@@ -55,20 +63,24 @@ export function NewCompletionForm({ orders, buyers }: Props) {
     [buyers],
   );
 
-  function resetForm() {
+  // Seeded on every OPEN, not once per mount — the page does not remount
+  // between entries, so a second "New" would otherwise show the last one.
+  function openNew() {
     setOrderId(null);
     setCustomerId(null);
     setOrderNo("");
     setRemarks("");
-    setCompletionDate(new Date().toISOString().slice(0, 10));
+    setCompletionDate(today());
+    setOpen(true);
   }
+  useCreateIntent(openNew);
 
   function handleClose() {
+    if (isPending) return;
     setOpen(false);
-    resetForm();
   }
 
-  // Picking an SC No auto-loads the order's buyer as the Customer.
+  // Picking an RE No auto-loads the order's buyer as the Customer.
   function onSelectOrder(id: string | null) {
     setOrderId(id);
     if (id) {
@@ -77,8 +89,7 @@ export function NewCompletionForm({ orders, buyers }: Props) {
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleSubmit() {
     if (!orderId) {
       toastError("Select the RE No");
       return;
@@ -93,7 +104,7 @@ export function NewCompletionForm({ orders, buyers }: Props) {
       });
       if (result.ok) {
         success("Order completed");
-        handleClose();
+        setOpen(false);
         router.refresh();
       } else {
         toastError(result.error);
@@ -101,106 +112,90 @@ export function NewCompletionForm({ orders, buyers }: Props) {
     });
   }
 
-  if (!open) {
-    return (
-      <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>New completion</Button>
-      </div>
-    );
-  }
-
   return (
-    <div>
-      <div className="mb-3 flex justify-end">
-        <Button variant="outline" size="sm" onClick={handleClose}>
-          Cancel
-        </Button>
-      </div>
+    <>
+      <Button onClick={openNew}>+ New completion</Button>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Complete a garment order</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <form
-            onSubmit={handleSubmit}
-            // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
-            // is false, Tab keeps native order and leaves the form.
-            // See the `raagam-keyboard-contract` skill.
-            data-focus-scope
-            className="space-y-4"
-          >
-            {/* `FieldGrid`, not a hand-rolled `grid-cols-*` — a screen composes
-                primitives, it does not draw (LAYOUT.md §3). */}
-            <FieldGrid>
-              <Field label="Completion No" size="sm" htmlFor="gcm-complno">
-                <Input id="gcm-complno" value="(auto)" readOnly />
-              </Field>
-              {/* `required` on the Field, not a `*` typed into the label — the
-                  same prop draws the star AND holds the cursor on a blank box. */}
-              <Field label="Date" required size="sm" htmlFor="gcm-date">
-                <Input
-                  id="gcm-date"
-                  type="date"
-                  value={completionDate}
-                  onChange={(e) => setCompletionDate(e.target.value)}
-                  required
-                />
-              </Field>
-              {/* The picker draws its own label and `*`; `Field` carries the span.
-                  `identity="code"` is master's fix and is kept: on an SC No the
-                  CODE is the identity and the name is the customer. */}
-              <Field size="sm">
-                <RecordPicker
-                  id="gcm-order"
-                  label="RE No"
-                  identity="code"
-                  items={orderItems}
-                  value={orderId}
-                  onChange={onSelectOrder}
-                  required
-                />
-              </Field>
-              <Field size="sm">
-                <RecordPicker
-                  label="Customer"
-                  items={buyerItems}
-                  value={customerId}
-                  onChange={setCustomerId}
-                />
-              </Field>
-              <Field label="Order No" size="sm" htmlFor="gcm-orderno">
-                <Input
-                  id="gcm-orderno"
-                  uppercase
-                  value={orderNo}
-                  onChange={(e) => setOrderNo(e.target.value)}
-                  placeholder="Customer order / PO reference"
-                />
-              </Field>
-              {/* `full` is the row, which is what a textarea takes. */}
-              <Field label="Remarks" size="full" htmlFor="gcm-remarks">
-                <Textarea
-                  id="gcm-remarks"
+      <Sheet
+        open={open}
+        onClose={handleClose}
+        title="Complete a garment order"
+        size="md"
+        maxWidthClass="max-w-[860px]"
+        alignToPane
+        footer={
+          <>
+            <Button variant="outline" size="md" onClick={handleClose} disabled={isPending}>
+              Cancel
+            </Button>
+            <Button size="md" onClick={handleSubmit} disabled={isPending || orders.length === 0}>
+              {isPending ? "Completing…" : "Complete order"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <FieldRow>
+            <Field label="Completion No" w="range" htmlFor="gcm-complno">
+              <Input id="gcm-complno" value="(auto)" readOnly />
+            </Field>
+            {/* `required` on the Field, not a `*` typed into the label — the
+                same prop draws the star AND holds the cursor on a blank box. */}
+            <Field label="Date" required w="code" htmlFor="gcm-date">
+              <Input
+                id="gcm-date"
+                type="date"
+                value={completionDate}
+                onChange={(e) => setCompletionDate(e.target.value)}
+                required
+              />
+            </Field>
+            {/* The picker draws its own label and `*`; `Field` carries the
+                width. `identity="code"`: on an RE No the CODE is the identity. */}
+            <Field w="party">
+              <RecordPicker
+                id="gcm-order"
+                label="RE No"
+                identity="code"
+                items={orderItems}
+                value={orderId}
+                onChange={onSelectOrder}
+                required
+              />
+            </Field>
+            <Field w="name">
+              <RecordPicker
+                label="Customer"
+                items={buyerItems}
+                value={customerId}
+                onChange={setCustomerId}
+              />
+            </Field>
+          </FieldRow>
+          <FieldRow>
+            <Field label="Order No" w="term" htmlFor="gcm-orderno">
+              <Input
+                id="gcm-orderno"
+                value={orderNo}
+                onChange={(e) => setOrderNo(e.target.value)}
+                placeholder="Customer order / PO reference"
+              />
+            </Field>
+          </FieldRow>
+          {/* `full` is the row, which is what a textarea takes. */}
+          <FieldGrid>
+            <Field label="Remarks" size="full" htmlFor="gcm-remarks">
+              <Textarea
+                id="gcm-remarks"
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 placeholder="Optional"
                 rows={3}
-                />
-              </Field>
-            </FieldGrid>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={handleClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isPending || orders.length === 0}>
-                {isPending ? "Completing…" : "Complete order"}
-              </Button>
-            </div>
-          </form>
-        </CardBody>
-      </Card>
-    </div>
+              />
+            </Field>
+          </FieldGrid>
+        </div>
+      </Sheet>
+    </>
   );
 }

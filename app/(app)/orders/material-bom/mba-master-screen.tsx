@@ -7,6 +7,7 @@ import {
   ClipboardList,
   TriangleAlert,
   Copy,
+  FileText,
   Workflow,
   ChevronRight,
   ChevronDown,
@@ -86,6 +87,7 @@ import {
   type Axis,
 } from "@/lib/orders/bom-explosion/exploder";
 import { BomCopySheet, BomCopyConfirm } from "@/components/orders/bom-copy-sheet";
+import { MaterialBomReportsSheet } from "@/components/orders/material-bom-reports-sheet";
 import {
   BomSliceGrid,
   type BomSliceCell,
@@ -1208,6 +1210,17 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
   /*
    * ADVISED ITEMS (0588) — a run of their own, after the line it describes.
    *
+   *   Pending Reason lg 6 = 6 of 32
+   *
+   * EST. RATE WAS THE FIRST CELL HERE AND THE CLIENT REMOVED IT (2026-09-20:
+   * "est.rate field need to remove it, material bom item"). The field is off
+   * the SCREEN, not off the record — `estimated_rate` is still loaded, carried
+   * and saved unchanged, so a line priced before today keeps its rate for the
+   * Budget pull and the Advised Items list. A new line simply stores none. So
+   * on an Available line this run is empty and the renderer drops it.
+   *
+   * What follows is the note as written while Est. Rate stood here:
+   *
    *   Est. Rate sm 3 + Pending Reason lg 6 = 9 of 32
    *
    * NOT squeezed into the run above: that run is the client's own field order
@@ -1222,10 +1235,7 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
    * (a hidden field is not rendered, never `hidden`), so the run is Est. Rate
    * alone on an Available line.
    */
-  [
-    { header: H.estimatedRate, size: "sm", weight: "plain" },
-    { header: H.pendingReason, size: "lg", weight: "plain" },
-  ],
+  [{ header: H.pendingReason, size: "lg", weight: "plain" }],
 ];
 
 export function MbaMasterScreen({
@@ -1370,6 +1380,10 @@ export function MbaMasterScreen({
   const [comboOrigin, setComboOrigin] = useState<DOMRect | null>(null);
 
   const [copyOpen, setCopyOpen] = useState(false);
+  /** THE BOM WHOSE REPORTS ARE OPEN (client 2026-09-20) — reachable from the
+   *  editor's own "Reports" button (`editId`) and from the queue card, straight
+   *  off the list. Same arrangement as Fabric BOM's `reportsBomId`. */
+  const [reportsBomId, setReportsBomId] = useState<string | null>(null);
   const [pendingCopy, setPendingCopy] = useState<{
     items: ItemRow[];
     procs: ProcRow[];
@@ -5321,24 +5335,9 @@ export function MbaMasterScreen({
     /*
      * ADVISED ITEMS (0588) — their own run in `FIELD_GROUPS`, after the line.
      *
-     * ESTIMATED RATE is on every line: the budget's rate for a material before
-     * it is confirmed, which the Budget pull pre-fills its material line from
-     * (plan, "Estimated rate"). A number, typed like MOQ beside it.
+     * ESTIMATED RATE WAS THE CELL HERE, removed by the client (2026-09-20).
+     * `estimated_rate` still round-trips untouched — see the `FIELD_GROUPS` note.
      */
-    {
-      header: H.estimatedRate,
-      align: "right",
-      cell: (r) => (
-        <Input
-          type="number"
-          min="0"
-          step="0.0001"
-          value={r.estimated_rate}
-          onChange={(e) => updItem(r.key, { estimated_rate: e.target.value })}
-          className="h-8 text-right"
-        />
-      ),
-    },
     /*
      * PENDING REASON — WHY the material is still To be advised. It exists only
      * while the TBA switch is on (the renderer drops the cell otherwise), and
@@ -6822,6 +6821,9 @@ export function MbaMasterScreen({
           onOpen={openTask}
           canDelete={perms.canDelete}
           onDelete={del}
+          /* A Pending row has no `bom_id` and `BomQueue` never renders the
+             button on one (`canReportsRow`). Opens straight off the queue. */
+          onReports={(t) => setReportsBomId(t.bom_id as string)}
           isPending={isPending}
         />
       </div>
@@ -6878,16 +6880,35 @@ export function MbaMasterScreen({
             </>
           ),
           right: (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setCopyOpen(true)}
-              disabled={isPending}
-            >
-              <Copy className="h-4 w-4" aria-hidden />
-              Copy from…
-            </Button>
+            /* ONE ROW — `MasterFullScreen` stacks its `right` slot in a column,
+               which would put Reports and Copy on two lines. */
+            <div className="flex items-center gap-2">
+              {/* THE REPORT (client 2026-09-20) — reads the STORED requirement,
+                  so it is offered once the BOM has been saved (`editId`). A
+                  saved BOM with unrelated edits pending still has a real,
+                  printable requirement on file. */}
+              {editId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReportsBomId(editId)}
+                >
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Reports
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCopyOpen(true)}
+                disabled={isPending}
+              >
+                <Copy className="h-4 w-4" aria-hidden />
+                Copy from…
+              </Button>
+            </div>
           ),
         }}
         sections={sections}
@@ -6903,6 +6924,15 @@ export function MbaMasterScreen({
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
         }}
+      />
+
+      {/* THE REPORTS SHEET — read-only, no Save, no unsaved guard; see
+          `MaterialBomReportsSheet`'s own header. At the editor root so it is
+          reachable from the queue with the editor shut. */}
+      <MaterialBomReportsSheet
+        bomId={reportsBomId}
+        open={!!reportsBomId}
+        onClose={() => setReportsBomId(null)}
       />
 
       {/*

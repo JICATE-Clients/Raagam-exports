@@ -37,7 +37,7 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { cn } from "@/lib/utils";
-import { FigureCell } from "../budgets/budget-general";
+import { FigureCell, HighlightTile, signTone } from "../budgets/budget-general";
 import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { budgetTotals, BUDGET_SOURCE_LABELS, type BudgetSource } from "@/lib/orders/budget/totals";
 import {
@@ -82,12 +82,26 @@ import type {
  *
  * FIGURES and AS SUBMITTED — the General section's `FigureCell` rows. Their
  * longest line is the cost-by-source row, five `code` cells:
- *     5 x 144 + 4 x 12 = 768, + 22 = 790  ->  50rem (800), 10px of slack
- * (the figures row is 4 x 144 + 88 + 4 x 12 = 712 and fits beneath it).
+ *     5 x 144 + 4 x 12 = 768, + 22 = 790
+ *
+ * ONE CAP FOR EVERY SECTION (user 2026-09-20, screenshot 2970: "fix the ui of
+ * the approval screen"). Each section used to be capped to its OWN widest row
+ * — 880 / 640 / 800 / full — so the cards ended at four different right edges
+ * and the Approval card ran the whole pane. They now share the widest row's
+ * cap, the Budget row's 866 -> 55rem (880), and read as one column.
  */
-const BUDGET_BOX_W = "max-w-[55rem]";
-const ORDERS_BOX_W = "max-w-[40rem]";
-const FIGURES_BOX_W = "max-w-[50rem]";
+const SHEET_BOX_W = "max-w-[55rem]";
+const BUDGET_BOX_W = SHEET_BOX_W;
+const ORDERS_BOX_W = SHEET_BOX_W;
+const FIGURES_BOX_W = SHEET_BOX_W;
+
+/** The RE Nos a budget covers, for the sheet's title — the reference an
+ *  approver knows an order by. */
+function reNosOf(b: OrderBudget | null | undefined): string[] {
+  return (b?.orders ?? [])
+    .map((o) => o.garment_order?.sales_order?.order_number ?? o.garment_order?.code ?? "")
+    .filter(Boolean);
+}
 
 export function BudgetApprovalScreen({
   rows,
@@ -334,15 +348,20 @@ export function BudgetApprovalScreen({
       <Sheet
         open={!!budget}
         onClose={close}
+        /* "BUDGET 1 · HO/RE/26-27/0012" and its state — it was the bare Entry
+           No ("1"), which named nothing an approver recognises. */
         title={
-          <>
-            {budget?.code ?? "Budget"}
-            {budget?.description && (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                {budget.description}
+          <span className="flex flex-wrap items-center gap-2">
+            <span>Budget {budget?.code ?? ""}</span>
+            {reNosOf(budget).length > 0 && (
+              <span className="font-mono text-sm font-medium text-muted-foreground">
+                · {reNosOf(budget).join(", ")}
               </span>
             )}
-          </>
+            {budget && (
+              <StatusPill tone={budgetStatusTone(budget.status)}>{budgetStatusText(budget.status)}</StatusPill>
+            )}
+          </span>
         }
         size="lg"
       >
@@ -417,12 +436,15 @@ export function BudgetApprovalScreen({
             </DetailSection>
 
             <DetailSection label="Figures" cols={1} className={FIGURES_BOX_W}>
-              <dl className={FIELD_ROW}>
-                <FigureCell w="code" label="Sales value" value={totals.sales} />
-                <FigureCell w="code" label="Total cost" value={totals.cost} />
-                <FigureCell w="code" label="Other income" value={totals.income} />
-                <FigureCell w="code" label="Profit / loss" value={totals.profit} strong signed />
-                <FigureCell w="hug" label="Margin %" value={totals.profitPct} suffix="%" signed />
+              {/* THE BOTTOM LINE AS THE BUDGET'S OWN TILES (budget-general.tsx):
+                  the approver reads the figures in the colours the merchandiser
+                  priced them in. No Other income — the tab left the budget
+                  (client, 2026-09-19). */}
+              <dl className="flex flex-wrap items-stretch gap-2.5">
+                <HighlightTile w="code" tone="sales" label="Sales value" value={totals.sales} />
+                <HighlightTile w="code" tone="plain" label="Total cost" value={totals.cost} />
+                <HighlightTile w="code" tone={signTone(totals.profit)} label="Profit / loss" value={totals.profit} />
+                <HighlightTile w="hug" tone={signTone(totals.profit)} label="Margin %" value={totals.profitPct} suffix="%" />
               </dl>
 
               {/* COST BY SOURCE, the same cells one tier down. A SOURCE CAN
@@ -480,7 +502,9 @@ export function BudgetApprovalScreen({
                     value={submitted.delivery_dates.map((d) => fmtDate(d)).join(", ")}
                   />
                   <FigureCell w="code" label="Order qty" value={submitted.order_qty} />
-                  <FigureCell w="code" label="Total income" value={submitted.total_income} />
+                  {/* "Gross sales", not "Total income": with Other Incomes gone
+                      (2026-09-19) the stored total income IS the sales value. */}
+                  <FigureCell w="code" label="Gross sales" value={submitted.total_income} />
                   <FigureCell w="code" label="Total expenses" value={submitted.total_expenses} />
                   <FigureCell w="code" label="Profit / loss" value={submitted.profit} strong signed />
                   <FigureCell w="hug" label="Profit %" value={submitted.profit_pct} suffix="%" signed />
@@ -490,7 +514,7 @@ export function BudgetApprovalScreen({
             )}
 
             {budget.decision_remark && (
-              <DetailSection label="Decision" cols={12}>
+              <DetailSection label="Decision" cols={1} className={SHEET_BOX_W}>
                 <p className="text-sm">{budget.decision_remark}</p>
               </DetailSection>
             )}
@@ -500,13 +524,18 @@ export function BudgetApprovalScreen({
                 budget's trail is the one the author most needs to read, because
                 it carries the reason. */}
             {panel?.run && (
-              <DetailSection label="Approval" cols={12}>
+              /* `cols={1}`, NOT 12 (screenshot 2970). In the 12-column density
+                 track every child that is not a `Field` took ONE column, so the
+                 timeline and the action bar were squeezed into ~80px each and
+                 "Step 1 · Managing Director" printed over itself. These sections
+                 hold blocks, not fields; they stack. */
+              <DetailSection label="Approval" cols={1} className={SHEET_BOX_W}>
                 <ApprovalTimeline
                   rows={panel.timeline}
                   resolveUserName={(id) => panel.names[id]}
                 />
                 {panel.verdict && (
-                  <div className="mt-3">
+                  <div className="mt-3 border-t border-border pt-3">
                     {/* Renders NOTHING unless `approval_can_act` said yes, so
                         there is no permission check to write here and none to
                         get wrong. */}
@@ -532,8 +561,8 @@ export function BudgetApprovalScreen({
                 button, which is a worse failure than an extra code path. Delete
                 this block once no `submitted` budget predates 0503. */}
             {!panel?.run && canApprove && canTransition(budget.status, "approved") && (
-              <DetailSection label="Decide" cols={12}>
-                <Field label="Remark" size="full" htmlFor="ba-remark">
+              <DetailSection label="Decide" cols={1} className={SHEET_BOX_W}>
+                <Field label="Remark" htmlFor="ba-remark">
                   <Textarea
                     id="ba-remark"
                     rows={3}
@@ -566,7 +595,7 @@ export function BudgetApprovalScreen({
             )}
 
             {canEdit && canTransition(budget.status, "draft") && (
-              <DetailSection label="Rework" cols={12}>
+              <DetailSection label="Rework" cols={1} className={SHEET_BOX_W}>
                 <p className="mb-2 text-xs text-muted-foreground">
                   Sending this back to draft clears the rejection so the author can rework it. The
                   decision stays in the audit log.

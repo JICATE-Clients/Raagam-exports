@@ -193,6 +193,9 @@ export type MapLine = {
   coordinate_id: string | null;
   component_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed cloth this colourway of
+   *  the panel is cut from (TOP, BOTTOM). "" = the cloth's only part. */
+  yd_part: string;
   color_name: string;
   fabric_form: string;
   /** 'open_width' | 'tubular' (0530) — the PANEL's Layout Type, chosen before
@@ -392,6 +395,7 @@ export function ComponentMapBody({
   onPatchLine,
   onAddPanel,
   onRemovePanel,
+  ydPartsFor,
 }: {
   lines: MapLine[];
   decls: readonly StyleComponentDecl[];
@@ -501,6 +505,14 @@ export function ComponentMapBody({
   onPatchPanel: (panelKey: string, patch: Partial<MapLine>) => void;
   /** Patch one colourway's line — Required Colour / Print / Specification. */
   onPatchLine: (lineKey: string, patch: Partial<MapLine>) => void;
+  /**
+   * THE YD PARTS FABRIC ALLOCATION HAS NAMED FOR ONE CLOTH (0596) — TOP,
+   * BOTTOM — so a colourway row of a split yarn-dyed cloth can say which part
+   * it is cut from. That choice is what puts a panel under the Top's stripes or
+   * the Bottom's. Returns fewer than two for every other cloth, and the cell
+   * then draws nothing.
+   */
+  ydPartsFor?: (itemId: string | null, styleRefNo: string) => readonly string[];
   /** Adds one panel. The sheet passes the auto-default where there is one —
    *  see the `solePanel` call at the button. */
   onAddPanel: (seed: { component_id: string | null; coordinate_id: string | null }) => void;
@@ -1154,7 +1166,11 @@ export function ComponentMapBody({
           }
           value={l.item_id}
           onChange={(id) => {
-            onPatchLine(l.key, { item_id: id });
+            /* A SPLIT CLOTH STARTS ON ITS FIRST PART (0596) — a real answer the
+               planner can switch, rather than a blank that the Save gate would
+               read as a third, unnamed allocation. Any other cloth has none. */
+            const parts = ydPartsFor?.(id, l.style_ref_no) ?? [];
+            onPatchLine(l.key, { item_id: id, yd_part: parts.length > 1 ? parts[0] : "" });
             clearFilter(l.key);
           }}
         />
@@ -1165,6 +1181,34 @@ export function ComponentMapBody({
             {factsFor(l).gsm} GSM
           </Truncated>
         )}
+        {/* WHICH YD PART THIS COLOURWAY IS CUT FROM (0596) — see `ydPartsFor`.
+            A part this line holds that Fabric Allocation no longer lists
+            survives, tagged, so the cell never reads empty while holding one. */}
+        {(() => {
+          const parts = ydPartsFor?.(l.item_id, l.style_ref_no) ?? [];
+          if (parts.length < 2) return null;
+          const held = (l.yd_part ?? "").trim().toUpperCase();
+          return (
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                YD Part
+              </span>
+              <Select
+                compact
+                aria-label="YD Part"
+                value={held}
+                onChange={(ev) => onPatchLine(l.key, { yd_part: ev.target.value })}
+              >
+                {parts.map((p) => (
+                  <option key={p || "_blank"} value={p}>
+                    {p || "(unnamed)"}
+                  </option>
+                ))}
+                {held && !parts.includes(held) && <option value={held}>{held} (not on Fabric Allocation)</option>}
+              </Select>
+            </div>
+          );
+        })()}
         </div>
       ),
     },

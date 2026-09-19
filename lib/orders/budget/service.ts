@@ -32,6 +32,7 @@ import {
 import { orderSalesValue } from "./totals";
 import { budgetFigures, type BudgetFigures } from "./figures";
 import type { BudgetSource, FabricProcessRow } from "./totals";
+import { bomRefusalOf } from "./types";
 import type {
   BudgetApprovalRow,
   BudgetableOrder,
@@ -425,10 +426,12 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     s
       .from("order_budget_orders")
       .select("garment_order_id, budget:order_budgets(id, code, status)"),
-    s.from("order_fabric_bom_requirements").select("item_id, bom:order_fabric_boms(garment_order_id)"),
-    s
-      .from("material_bom_amendment_requirements")
-      .select("item_id, bom:material_bom_amendments(garment_order_id)"),
+    /* THE PREREQUISITE GATE (user 2026-09-19) — which orders have a SAVED
+       Fabric BOM and a SAVED Material BOM. `is_draft = false` is the test
+       `pullCostLines` uses to decide what it pulls, so "ready to budget" and
+       "has something to pull" are one fact. */
+    s.from("order_fabric_boms").select("garment_order_id").eq("is_draft", false),
+    s.from("material_bom_amendments").select("garment_order_id").eq("is_draft", false),
     /* EACH ORDER'S COLOURWAYS (0590) — Yarn Purchases' Colour dropdown, the
        same list the Fabric BOM's Yarn Process offers. `amendment_id` IS the
        garment order. */
@@ -466,26 +469,19 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
     }
   }
 
-  const countBy = (
-    rows: unknown[],
-    key: (r: never) => string | null | undefined,
-  ): Map<string, number> => {
-    const m = new Map<string, number>();
-    for (const r of rows) {
-      const id = key(r as never);
-      if (id) m.set(id, (m.get(id) ?? 0) + 1);
-    }
-    return m;
-  };
-
-  const fabricCounts = countBy(
-    fabricRes.data ?? [],
-    (r: { bom: { garment_order_id: string } | null }) => r.bom?.garment_order_id,
-  );
-  const materialCounts = countBy(
-    materialRes.data ?? [],
-    (r: { bom: { garment_order_id: string | null } | null }) => r.bom?.garment_order_id,
-  );
+  /* A FAILED READ THROWS. Coalesced to empty, every order would read "BOMs not
+     saved" and vanish from the picker — the gate closing on a query that never
+     ran, with a sentence that sends the operator to the wrong screen. */
+  if (fabricRes.error) throw new Error(`Could not read the Fabric BOMs: ${fabricRes.error.message}`);
+  if (materialRes.error) throw new Error(`Could not read the Material BOMs: ${materialRes.error.message}`);
+  const savedIds = (rows: unknown[] | null) =>
+    new Set(
+      ((rows ?? []) as { garment_order_id: string | null }[]).flatMap((r) =>
+        r.garment_order_id ? [r.garment_order_id] : [],
+      ),
+    );
+  const fabricSaved = savedIds(fabricRes.data);
+  const materialSaved = savedIds(materialRes.data);
 
   type OrderRow = {
     id: string;
@@ -535,8 +531,9 @@ export async function listBudgetableOrders(): Promise<BudgetableOrder[]> {
       sq_refusal: sf ? sf.sq_refusal : "this order's styles could not be read",
       styles: sf?.styles ?? [],
       in_budget: covered.get(o.id) ?? null,
-      fabric_cost_lines: fabricCounts.get(o.id) ?? 0,
-      material_cost_lines: materialCounts.get(o.id) ?? 0,
+      fabric_bom_saved: fabricSaved.has(o.id),
+      material_bom_saved: materialSaved.has(o.id),
+      bom_refusal: bomRefusalOf(fabricSaved.has(o.id), materialSaved.has(o.id)),
     };
   });
 }
@@ -590,6 +587,9 @@ export type PulledCostLine = {
   /** The stage (0590) — a `yarn` line's from its Fabric BOM Yarn Process, a
    *  `fabric` line's from its cloth source; NULL on every other source. */
   stage_id: string | null;
+  /** Always true (0591) — every line this module builds came from a BOM, and
+   *  that is what locks its item, qty and unit on the budget. */
+  from_bom: boolean;
 };
 
 /** The 0572 / 0573 facts every pulled line starts from. `satisfies` rather
@@ -616,6 +616,7 @@ const PULLED_DEFAULTS = {
   packing_rate: null,
   cost_head_id: null,
   stage_id: null,
+  from_bom: true,
 } satisfies Omit<
   PulledCostLine,
   "source" | "garment_order_id" | "item_id" | "description" | "qty" | "uom_id" | "rate"

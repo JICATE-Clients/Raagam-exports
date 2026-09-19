@@ -139,6 +139,7 @@
 import { z } from "zod";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import { isRefusal, type Refusal } from "./requirement";
+import { ydPartKey } from "./component-map";
 import {
   clothPurchaseLabel,
   routeForSource,
@@ -195,6 +196,9 @@ export type FabricComposition = {
  */
 export type FabricGross = {
   fabric_id: string;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this weight is
+   *  for, so it is grossed by THAT part's stripes. Absent/blank = the only part. */
+  yd_part?: string | null;
   combo: string | null;
   /** Net cloth required for this slice, in `uom_id`. NULL when the requirement
    *  engine refused it — carried, not dropped, so the yarn row can say WHY it
@@ -877,6 +881,9 @@ export type YarnFabricWeight = {
  */
 export type YarnShade = {
   fabric_id: string;
+  /** YD PART (0596) — which allocation of the fabric declared this shade.
+   *  Absent/blank = the fabric's only part. See `ydPartKey`. */
+  yd_part?: string | null;
   yarn_id: string;
   /** The assort colourway whose combination declared this shade. */
   combo: string | null;
@@ -917,9 +924,18 @@ export function shadeDyeFactor(
   fabricId: string,
   yarnId: string,
   combo: string,
+  /** YD PART (0596): a Top knitted 80/20 and a Bottom knitted 70/30 from one
+   *  cloth are two sets of shades; each weight is grossed by its own part's.
+   *  Omitted = the only part, which is every document before 0596. */
+  ydPart: string | null = null,
 ): number | Refusal {
+  const part = ydPartKey(ydPart);
   const mine = shades.filter(
-    (h) => h.fabric_id === fabricId && h.yarn_id === yarnId && comboKey(h.combo) === combo,
+    (h) =>
+      h.fabric_id === fabricId &&
+      h.yarn_id === yarnId &&
+      comboKey(h.combo) === combo &&
+      ydPartKey(h.yd_part) === part,
   );
   if (mine.length === 0) return 1;
 
@@ -1064,7 +1080,7 @@ export function yarnPurchase(
        BEFORE it was knitted, so its own loss grosses what comes out of that,
        never the other way round. Legacy's own numbers pin it: 1021.000 kg of
        cloth-at-knitting becomes 1067.311 kg of grey yarn, not the reverse. */
-    const dye = shadeDyeFactor(shades, f.fabric_id, yarnId, combo);
+    const dye = shadeDyeFactor(shades, f.fabric_id, yarnId, combo, f.yd_part ?? null);
     if (isRefusal(dye)) return { refused: `${comp.fabric_name || "One fabric"}: ${dye.refused}` };
 
     /* ONE DYEING LOSS, NOT TWO (client decision 2026-09-19). When this

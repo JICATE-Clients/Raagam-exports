@@ -1167,6 +1167,35 @@ real candidate list is the smaller set of nested `[Click]` sub-details scattered
 mechanically re-flagged. Until an audit script exists, a new sub-detail sheet gets this right
 by reading this section, not by a check catching it after the fact.
 
+## An order's reports are declared once (STANDING)
+
+**Every report printed for ONE order is an entry in `ORDER_REPORTS`
+(`lib/orders/order-reports.ts`)** — and that entry is the only thing that links it.
+Three readers map over it: the report strip on every order document page (where
+Order Entry's row-menu "Reports" lands), the Fabric BOM editor's own Reports sheet,
+and the generic `/orders/<id>/reports/<key>` route that gives a report without a
+page of its own a URL keyed on the RE Number.
+
+It exists because the strip used to be a hand-typed list of three, and the three
+Fabric BOM reports built after it (Entry Register, Yarn & Fabric Requirement,
+Printing Requirement) lived only behind a button inside the Fabric BOM editor —
+"Order Entry report option is not linked with the actual report" (client
+2026-09-19). Each report was right; none was reachable from the order.
+
+**Never hand-type a report's tab, menu entry or link.** Add the registry entry; a
+`fabric-bom` report then needs one view in `FABRIC_BOM_REPORT_VIEWS` (a type error
+until it exists) and is linked everywhere at once. A new source (Budget, IWO, …)
+either gets its own page under `app/(app)/orders/[orderId]/` or a branch on the
+generic route. "Current BOM" is resolved by `currentFabricBom()` and nothing else.
+
+Gated by `npm run check:order-reports` (inside `build:check`): every entry is
+reachable and rendered, every per-order folder is registered or listed in
+`NOT_REPORTS` with a reason, and every `load…Report` / `load…Register` server
+action under `lib/orders/` is rendered only from files that read the registry.
+**Its floor:** it recognises a report by its loader's NAME, so name loaders
+`load<Thing>Report`. Verified by being made to FAIL first, against the Fabric BOM
+sheet as committed before the registry.
+
 ## Build the UI compact the first time (STANDING)
 
 **A screen is width-laid-out from its first commit — never built loose and compacted

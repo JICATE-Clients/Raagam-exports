@@ -47,7 +47,8 @@ import {
   type StandardStage,
 } from "../lib/orders/fabric-bom/standard-routes.ts";
 import {
-  clothPurchaseAllowedAt,
+  isRouteStart,
+  routeStartAllowedAt,
   narrowToStage,
   processesUsedInStage,
   stageRank,
@@ -168,7 +169,7 @@ function rowsFor(routeKey: string): { rows: FabricProcessRow[]; unofferable: str
        so a chain whose step is taken in its own stage is NOT enterable. */
     const legal = narrowToStage(
       MASTER.filter(
-        (p) => p.for_fabric && (clothPurchaseAllowedAt(rows, rows.length) || !p.is_cloth_purchase),
+        (p) => p.for_fabric && (routeStartAllowedAt(rows, rows.length) || !isRouteStart(p)),
       ),
       { stageId: stage.id, isFirstOfStage: opensStage },
     );
@@ -201,6 +202,9 @@ const RULE = {
   /* 2026-09-19 */
   repeatedInStage: "stage runs each process once",
   purchaseFirst: "initial procurement step",
+  /* 2026-09-20 */
+  knittingFirst: "can only be defined as the initial step",
+  ydDyedStage: "never enters the",
   yarnDyed: "Fabric Dyeing steps cannot be added",
 } as const;
 function rulesFired(rows: FabricProcessRow[]): string[] {
@@ -368,6 +372,10 @@ check(
   ]),
   ["repeated"],
 );
+/* SINCE 2026-09-20 THE STRICTER RULE SPEAKS FIRST: Knitting is a route start,
+   Step 1 only, so the 2nd and 3rd are refused as "not Step 1" before the
+   base-repeated rule is reached (one fault per row). The base-repeated rule is
+   still pinned by `check-fabric-stage-routes` §13 (DYEING twice). */
 check(
   "KNITTING three times under GREIGE reports the 2nd and 3rd only",
   rulesFired([
@@ -375,7 +383,7 @@ check(
     row(STAGE.grey, byName("KNITTING").id, 1),
     row(STAGE.grey, byName("KNITTING").id, 2),
   ]),
-  ["repeated", "repeated"],
+  ["knittingFirst", "knittingFirst"],
 );
 /* THE CASE THE WIDE READING WOULD HAVE BROKEN, and it is the client's own:
    chains 2 and 4 compact in the coloured stage and AGAIN after printing. A

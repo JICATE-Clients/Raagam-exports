@@ -76,8 +76,9 @@ import {
   baseProcessRepeated,
   baseProcessesForStage,
   blankFabricProcess,
-  clothPurchaseAllowedAt,
-  clothPurchaseNotFirst,
+  routeStartAllowedAt,
+  routeStartNotFirst,
+  yarnDyedStageBlocked,
   processesUsedInStage,
   processRepeatedInStage,
   processPickValue,
@@ -105,6 +106,9 @@ import {
   sourceSuppressedReason,
   type FabricSource,
 } from "@/lib/orders/fabric-bom/fabric-source";
+
+/** The route's trailing "Type" cell — hidden for now (client 2026-09-20). */
+const SHOW_TYPE_COLUMN = false;
 
 export function FabricProcessGrid({
   itemId,
@@ -309,16 +313,17 @@ export function FabricProcessGrid({
    *  (`printDeclaredFor`), else the fabric-wide flag. Every narrowing and twin
    *  on the row reads this one value, so they cannot disagree. */
   const printOk = (r: FabricProcessRow) => (printDeclaredFor ? printDeclaredFor(r) : printDeclared);
-  /** STEP 1 OR NOTHING (client 2026-09-19) — may this row still buy the
-   *  cloth? Positional, so it is read off the branch like the stage helpers,
-   *  and handed to the picker AND every twin below for the same reason
-   *  `printOk` is: a twin given a different gate warns about a row the ▾
-   *  permitted. `stageRouteProblems` computes the identical answer per row. */
-  const purchaseOk = (r: FabricProcessRow) => clothPurchaseAllowedAt(rowsInBranch(r), indexInBranch(r));
+  /** STEP 1 OR NOTHING — may this row still START the route: buy the cloth
+   *  (client 2026-09-19) or knit it (2026-09-20)? Positional, so it is read off
+   *  the branch like the stage helpers, and handed to the picker AND every twin
+   *  below for the same reason `printOk` is: a twin given a different gate
+   *  warns about a row the ▾ permitted. `stageRouteProblems` computes the
+   *  identical answer per row. */
+  const routeStartOk = (r: FabricProcessRow) => routeStartAllowedAt(rowsInBranch(r), indexInBranch(r));
   const gatesFor = (r: FabricProcessRow) => ({
     printDeclared: printOk(r),
     fabricIsYarnDyed,
-    purchaseAllowed: purchaseOk(r),
+    routeStartAllowed: routeStartOk(r),
   });
   const baseCandidatesFor = (r: FabricProcessRow) => processesForFabric(processes, gatesFor(r));
   /**
@@ -506,7 +511,13 @@ export function FabricProcessGrid({
                the value a row already HOLDS always survives, with the twin
                underneath naming it. An operator-invented stage is unranked and
                therefore never withheld; see `stageRank`. */
-            options={stagesForRow(lookups.stages, rowsInBranch(r), indexInBranch(r))}
+            /* 2026-09-20 — on a Yarn-Dyed fabric DYED is withheld unless the
+               route starts with a dyed-roll purchase (`yarnDyedStageBlocked`
+               below names a held one). */
+            options={stagesForRow(lookups.stages, rowsInBranch(r), indexInBranch(r), {
+              fabricIsYarnDyed,
+              options: processes,
+            })}
             value={r.stage_id}
             onChange={(id) => patch(r.key, { stage_id: id || null })}
             required={fabricProcessRowStarted(r)}
@@ -523,6 +534,13 @@ export function FabricProcessGrid({
               This route has already reached a later stage — a fabric cannot go
               back to{" "}
               {lookups.stages.find((s) => s.id === r.stage_id)?.name ?? "an earlier stage"}.
+            </p>
+          )}
+          {/* 2026-09-20 — the Save gate's sentence, shortened for the cell. */}
+          {yarnDyedStageBlocked(rowsInBranch(r), indexInBranch(r), processes, lookups.stages, fabricIsYarnDyed) && (
+            <p className="mt-1 text-xs text-warning">
+              This fabric is Yarn-Dyed — {stageName(r.stage_id)} is only for a route that starts with a
+              dyed-roll purchase. Use WASH for its washing and finishing.
             </p>
           )}
         </div>
@@ -702,15 +720,15 @@ export function FabricProcessGrid({
                 already in the {stageName(r.stage_id)} stage — a stage runs each process once.
               </div>
             )}
-          {/* 0583 — a bought roll starts the route. Same rule the Save gate
-              prints (`stageRouteProblems`), shortened for the cell. The ▾ no
-              longer offers a purchase below Step 1 (`purchaseOk`), so this
-              only fires on a row saved before that, or one whose rows above
-              were filled in afterwards. */}
-          {clothPurchaseNotFirst(rowsInBranch(r), indexInBranch(r), processes) && (
+          {/* A ROUTE START (a purchase, 0583; Knitting, 2026-09-20) is Step 1
+              only. Same rule the Save gate prints (`stageRouteProblems`),
+              shortened for the cell. The ▾ no longer offers one below Step 1
+              (`routeStartOk`), so this only fires on a row saved before that,
+              or one whose rows above were filled in afterwards. */}
+          {routeStartNotFirst(rowsInBranch(r), indexInBranch(r), processes) && (
             <div className="mt-0.5 text-xs text-warning">
-              {processes.find((p) => p.id === r.process_id)?.name ?? "A purchase"} must be the
-              initial procurement step (Step 1) — move it to the first row.
+              {processes.find((p) => p.id === r.process_id)?.name ?? "This step"} can only be the
+              initial step (Step 1) — move it to the first row.
             </div>
           )}
           {baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, gatesFor(r)) && (
@@ -813,7 +831,14 @@ export function FabricProcessGrid({
      * Leaving any one of them would be the "stated vs enforced" split — a field
      * the screen has closed that an import can still write.
      */
-    {
+    /*
+     * HIDDEN FOR NOW (client 2026-09-20: "the last type field hide it for
+     * now"). Only the COLUMN goes — `type_id`, the payload, the DB column and
+     * the `fabric_process_type` lookup all stay, so a row saved with a Type
+     * keeps it and flipping `SHOW_TYPE_COLUMN` back restores the cell as it
+     * was. Nothing reads the value, so hiding it changes no figure.
+     */
+    ...(SHOW_TYPE_COLUMN ? [{
       /**
        * The legacy tab's trailing ▾, BLANK on both rows of the screenshot with
        * no evidence anywhere of what it offers.
@@ -826,7 +851,9 @@ export function FabricProcessGrid({
        */
       header: "Type",
       width: "7rem",
-      cell: (r) => (
+      /* Typed here: inside the `SHOW_TYPE_COLUMN ? [...] : []` spread the
+         column array's element type no longer reaches this parameter. */
+      cell: (r: FabricProcessRow) => (
         <LookupDialogPicker
           kind="fabric_process_type"
           label="Type"
@@ -838,7 +865,7 @@ export function FabricProcessGrid({
           canEdit={canEdit && !readOnly}
         />
       ),
-    },
+    }] : []),
   ];
 
   return (
@@ -859,7 +886,8 @@ export function FabricProcessGrid({
          it — and nothing on this screen requires a route. */
       keepOne={false}
       /* @5xl (1024). Declared widths (Stage 7 + Process 12 + Loss for 7.5 +
-         Loss % 4.5 + Type 7 = 38rem = 608px) plus ~170px of `#`/remove/cell
+         Loss % 4.5 + Type 7 = 38rem = 608px; 31rem while Type is hidden,
+         `SHOW_TYPE_COLUMN`) plus ~170px of `#`/remove/cell
          chrome leaves the flexible Process column comfortable room at 1024 —
          MORE than before Descriptions (10rem) went (0528, "this description
          column is not needed"). WITH BOTH SPLIT COLUMNS ON (2026-09-15) that

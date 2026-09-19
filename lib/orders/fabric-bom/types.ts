@@ -66,6 +66,9 @@ export interface FabricBomLine {
   component_id: string | null;
   /** The fabric itself — an `items` row of item class FABRIC. */
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   fabric_type: string | null;
   /** Legacy Components ▸ "Required Color". `combo` is the ASSORT colour; this is
    *  the colour this panel is required in within it (0408's wording: "the front
@@ -137,6 +140,9 @@ export interface FabricBomManualEntry {
    * off this cloth rather than typed.
    */
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   /** A `categories` row — the same vocabulary `order_fabric_bom_lines.structure_id`
    *  and the order's own combo structures use. DERIVED SINCE 0522: the save
    *  writes it as `item_id`'s `items.category_id`, because the requirement
@@ -420,6 +426,9 @@ export interface FabricBomYdRepeat {
   style_ref_no: string | null;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   sno: number;
   yarn_item_id: string | null;
   dye_type: "dyed" | "grey";
@@ -435,6 +444,9 @@ export interface FabricBomYdCombination {
   style_ref_no: string | null;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — which allocation of a yarn-dyed fabric this row
+   *  belongs to (TOP, BOTTOM, …). NULL = the fabric's only part. */
+  yd_part: string | null;
   combo: string | null;
   yd_combo_name: string | null;
   /** The nested Color breakdown (0560) — reference only, sorted by `sno`. */
@@ -591,6 +603,9 @@ export const fabricBomManualEntryInput = z.object({
      a draft entry that has not chosen yet is a real state, and refusing it in
      the schema would make a half-filled row unsaveable as a DRAFT. */
   item_id: uuidN,
+  /* YD PART (0596) — CAPS in the schema, the rule every text value here
+     follows. Optional: every payload written before 0596 has none. */
+  yd_part: capsTextNullable(),
   /* DERIVED FROM `item_id` AND STILL WRITTEN — the action sets it to the
      fabric's `items.category_id` (0405 · 0415 · 0426: a Structure on this screen
      IS a fabric category), because the requirement engine keys its GSM lookup on
@@ -647,6 +662,9 @@ export const fabricBomLineInput = z
     coordinate_id: uuidN,
     component_id: uuidN,
     item_id: uuidN,
+    /* YD PART (0596) — CAPS in the schema, the rule every text value here
+       follows. Optional: every payload written before 0596 has none. */
+    yd_part: capsTextNullable(),
     fabric_type: nullableText,
     // CAPS in the SCHEMA, not the action: `lib/data-io` parses imports with this
     // same schema and writes straight to Postgres, so an action-level
@@ -803,6 +821,9 @@ export const fabricBomYdRepeatInput = z.object({
   style_ref_no: nullableText,
   structure_id: uuidN,
   item_id: uuidN,
+  /* YD PART (0596) — CAPS in the schema, the rule every text value here
+     follows. Optional: every payload written before 0596 has none. */
+  yd_part: capsTextNullable(),
   sno: z.coerce.number().int().nonnegative().default(0),
   yarn_item_id: uuidN,
   dye_type: z.enum(["dyed", "grey"]).default("dyed"),
@@ -841,6 +862,9 @@ export const fabricBomYdCombinationInput = z.object({
   style_ref_no: nullableText,
   structure_id: uuidN,
   item_id: uuidN,
+  /* YD PART (0596) — CAPS in the schema, the rule every text value here
+     follows. Optional: every payload written before 0596 has none. */
+  yd_part: capsTextNullable(),
   combo: capsTextNullable(),
   yd_combo_name: capsTextNullable(),
   /** The nested Color breakdown (0560) — reference only, see that migration. */

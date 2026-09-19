@@ -117,6 +117,17 @@ export function canDeleteBudget(b: { status: BudgetStatus; revisions?: readonly 
   return (b.status === "draft" || b.status === "rejected") && (b.revisions?.length ?? 0) === 0;
 }
 
+/**
+ * Why an order cannot be budgeted yet — or null once BOTH BOMs are saved (the
+ * prerequisite gate, user 2026-09-19). ONE SENTENCE for the picker and the save
+ * action, so the operator reads the same words on screen and in a refusal.
+ */
+export function bomRefusalOf(fabricSaved: boolean, materialSaved: boolean): string | null {
+  if (fabricSaved && materialSaved) return null;
+  if (!fabricSaved && !materialSaved) return "Fabric BOM and Material BOM not saved";
+  return fabricSaved ? "Material BOM not saved" : "Fabric BOM not saved";
+}
+
 export interface BudgetOrder {
   id: string;
   budget_id: string;
@@ -193,6 +204,10 @@ export interface BudgetLine {
    *  Fabric Purchases line — the lists the Fabric BOM's Yarn Process and Fabric
    *  Process use. NULL on every other source. */
   stage_id: string | null;
+  /** Pulled from a BOM (0591) — its item, description, qty, unit, stage and
+   *  colour are the BOM's and read-only on the budget; false = typed by hand.
+   *  `source` cannot say which: every pulled grid takes a hand-added line too. */
+  from_bom: boolean;
 }
 
 /** 0573's `chk_obl_basis`. `part` is Garment Processes' Partwise — never a
@@ -323,6 +338,9 @@ export const budgetLineInput = z
     cost_head_id: uuidN,
     // 0590 — Yarn Purchases' Stage.
     stage_id: uuidN,
+    /* 0591 — pulled from a BOM. A real boolean, never `z.coerce` (the
+       spreadsheet "false" reason above); absent means typed by hand. */
+    from_bom: z.boolean().default(false),
   })
   /**
    * The line rules, in the SCHEMA — `lib/data-io` parses imports with these same
@@ -531,10 +549,18 @@ export type BudgetableOrder = {
    *  one order is someone comparing two groupings, and only APPROVAL is refused
    *  (0428). */
   in_budget: { id: string; code: string | null; status: BudgetStatus } | null;
-  /** The BOM figures this order can contribute, so the operator can see there is
-   *  something to pull before opening the budget. */
-  fabric_cost_lines: number;
-  material_cost_lines: number;
+  /**
+   * THE PREREQUISITE GATE (user 2026-09-19): an order is budgeted only once
+   * BOTH its Fabric BOM and its Material BOM are saved — `is_draft = false`, the
+   * same test `pullCostLines` uses to decide what it will pull. A draft BOM is
+   * somebody's half-finished thinking, and a budget built on it would be
+   * approved against figures that were never recorded.
+   */
+  fabric_bom_saved: boolean;
+  material_bom_saved: boolean;
+  /** Why the order cannot be budgeted yet ("Material BOM not saved"), or null
+   *  when both are. The picker prints it; the save action refuses on it. */
+  bom_refusal: string | null;
 };
 
 /** One style of a garment order, as the CMT tab and the header need it. */

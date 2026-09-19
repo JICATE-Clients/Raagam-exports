@@ -39,6 +39,89 @@ import { isReportRefusal } from "./report-refusal";
    drawn into every PDF header below. A logo that fails to load prints nothing
    rather than stopping the download. */
 import { fitLogo, loadLetterheadImage, type LetterheadImage } from "./letterhead";
+/* THE STAGE COLOURS (client 2026-09-20, design A "with colourful
+   differentiation") — one palette shared with the on-screen report. */
+import {
+  COLOURWAY_BAND,
+  STAGE_STRIPE,
+  STAGE_STYLES,
+  rgb,
+  sectionStyle,
+  swatchFor,
+  type StageStyle,
+} from "./report-colours";
+
+/** The four-stage stripe across the top of a requirement document — yarn,
+ *  greige, dyed, print, left to right: the order the cloth moves in. */
+function drawStageStripe(doc: jsPDF, x: number, y: number, w: number, h: number): void {
+  const seg = w / STAGE_STRIPE.length;
+  STAGE_STRIPE.forEach((c, i) => {
+    doc.setFillColor(...rgb(c));
+    doc.rect(x + i * seg, y, seg, h, "F");
+  });
+}
+
+/** A stage tag — pale fill, strong border, dark ink. Returns its width. */
+function drawStageTag(doc: jsPDF, x: number, baselineY: number, st: StageStyle): number {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6.5);
+  const w = doc.getTextWidth(st.label) + 8;
+  doc.setFillColor(...rgb(st.tint));
+  doc.setDrawColor(...rgb(st.rule));
+  doc.setLineWidth(0.6);
+  doc.roundedRect(x, baselineY - 7, w, 9.5, 1.5, 1.5, "FD");
+  doc.setTextColor(...rgb(st.ink));
+  doc.text(st.label, x + 4, baselineY);
+  doc.setTextColor(0);
+  doc.setDrawColor(0);
+  doc.setLineWidth(0.4);
+  return w;
+}
+
+/**
+ * A SECTION HEADING — the stage tag, the title beside it, and the stage's rule
+ * across the width where the table starts. Returns the table's startY.
+ */
+function drawSectionHeading(doc: jsPDF, x: number, y: number, width: number, st: StageStyle, title: string): number {
+  const tagW = drawStageTag(doc, x, y, st);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.text(title, x + tagW + 5, y);
+  doc.setFillColor(...rgb(st.rule));
+  doc.rect(x, y + 4, width, 2, "F");
+  return y + 6;
+}
+
+/** A colourway swatch at the left of a table cell (the cell's own left
+ *  padding is widened in `didParseCell` to make room). */
+function drawSwatch(doc: jsPDF, cell: { x: number; y: number; height: number }, hex: string): void {
+  const size = 6;
+  doc.setFillColor(...rgb(hex));
+  doc.setDrawColor(110, 116, 128);
+  doc.setLineWidth(0.5);
+  /* ON THE FIRST TEXT LINE — a Details cell wraps to two lines, and a swatch
+     centred in it sat beside the second. */
+  doc.rect(cell.x + 3, cell.y + 3.5, size, size, "FD");
+  doc.setDrawColor(0);
+  doc.setLineWidth(0.4);
+}
+const SWATCH_PADDING = { top: 3, right: 3, bottom: 3, left: 12 };
+
+/** WHERE A CONTINUED TABLE RESUMES on a later page of the portrait
+ *  requirement PDF — below the `Page : n/m` stamp at y = 62, which a table
+ *  resuming at autoTable's default margin printed straight over. */
+const CONTINUED_TOP = 72;
+
+/**
+ * KEEP A HEADING WITH ITS TABLE. With less than `need` points left above the
+ * sign-off band, start a new page — a section heading alone at the foot of a
+ * page, its rows overleaf, reads as a section with no rows.
+ */
+function roomFor(doc: jsPDF, y: number, need: number): number {
+  if (y + need <= doc.internal.pageSize.getHeight() - 60) return y;
+  doc.addPage();
+  return CONTINUED_TOP - 14;
+}
 
 function monoStyles() {
   return { fontSize: 7.5, cellPadding: 3, textColor: 20, lineColor: 200, lineWidth: 0.4 };
@@ -125,14 +208,21 @@ function drawLetterhead(
   /** The company logo (2026-09-19) — see ./letterhead.ts. Null draws the
    *  text-only letterhead this function always drew. */
   logo: LetterheadImage | null = null,
+  /** A requirement document (2026-09-20) wears the four-stage stripe; the
+   *  Entry Register keeps the brand-green rule. */
+  stageStripe = false,
 ): number {
   const M = 36;
   const RIGHT = doc.internal.pageSize.getWidth() - M;
 
-  /* THE FRAME — a thin brand-green rule across the top, the same the on-screen
-     letterhead carries, so the page and the printout read as one document. */
-  doc.setFillColor(133, 194, 39);
-  doc.rect(M, 20, RIGHT - M, 2.5, "F");
+  /* THE FRAME — a thin rule across the top, the same the on-screen letterhead
+     carries, so the page and the printout read as one document. */
+  if (stageStripe) {
+    drawStageStripe(doc, M, 20, RIGHT - M, 3);
+  } else {
+    doc.setFillColor(133, 194, 39);
+    doc.rect(M, 20, RIGHT - M, 2.5, "F");
+  }
 
   /* THE LOGO, LEFT, fitted into 120 x 40 pt keeping its aspect ratio; the
      company's name and address sit beside it. */
@@ -463,8 +553,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
      the top LEFT, fitted to 96 x 32 pt, clear of the centred lines and above
      the "Report Printed" line at y = 62. A thin brand-green rule runs across
      the top, the same frame the other Fabric BOM documents carry. */
-  doc.setFillColor(133, 194, 39);
-  doc.rect(M, 12, RIGHT - M, 2, "F");
+  drawStageStripe(doc, M, 12, RIGHT - M, 3);
   if (logo) {
     const { w, h: lh } = fitLogo(logo, 96, 32);
     doc.addImage(logo.dataUrl, "PNG", M, 20, w, lh);
@@ -537,7 +626,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       ],
     ],
     startY: y,
-    margin: { left: M, right: M },
+    margin: { left: M, right: M, top: CONTINUED_TOP },
     styles: { ...monoStyles(), fontSize: 7 },
     theme: "grid",
   });
@@ -589,7 +678,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       ],
     ],
     startY: y + 4,
-    margin: { left: M, right: M },
+    margin: { left: M, right: M, top: CONTINUED_TOP },
     styles: { ...monoStyles(), fontSize: 7 },
     headStyles: { ...monoHead(), fontSize: 6.5 },
     theme: "grid",
@@ -600,8 +689,45 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       9: { halign: "right" },
       10: { halign: "right" },
     },
+    /* THE TWO FIGURES PEOPLE LOOK UP FIRST — the RE No and the Cut quantity —
+       tinted (2026-09-20). */
+    didParseCell: (d) => {
+      if (d.section === "body" && (d.column.index === 0 || d.column.index === 10)) {
+        d.cell.styles.fillColor = rgb(STAGE_STYLES.dyed.tint);
+        d.cell.styles.textColor = rgb(STAGE_STYLES.dyed.ink);
+        d.cell.styles.fontStyle = "bold";
+      }
+    },
   });
   y = finalY(doc, y);
+
+  /* THE KEY — what the stage colours below mean, once, under the order
+     facts (2026-09-20). */
+  {
+    const keyY = y + 12;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.5);
+    doc.setTextColor(0);
+    doc.text("KEY", M, keyY);
+    let kx = M + doc.getTextWidth("KEY") + 6;
+    const entries: [StageStyle, string][] = [
+      [STAGE_STYLES.yarn, "yarn to buy"],
+      [STAGE_STYLES.greige, "one lot per fabric"],
+      [STAGE_STYLES.dyed, "per colourway"],
+      [STAGE_STYLES.print, "printed colourways only"],
+      [STAGE_STYLES.cutting, "to the cutting table"],
+    ];
+    for (const [st, text] of entries) {
+      kx += drawStageTag(doc, kx, keyY, st) + 3;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+      doc.setTextColor(85, 92, 102);
+      doc.text(text, kx, keyY);
+      kx += doc.getTextWidth(text) + 9;
+    }
+    doc.setTextColor(0);
+    y = keyY + 2;
+  }
 
   /* THE REFUSAL, WHERE THE BREAKDOWN WOULD HAVE BEEN. `productionTarget`
      refuses by name (no Approval Qty yet, a rejection tier with a gap) and
@@ -615,9 +741,10 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
   }
 
   // -- YARN REQUIREMENT ------------------------------------------------------
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.text("YARN REQUIREMENT", M, y + 14);
+  const yarnStartY = drawSectionHeading(doc, M, y + 14, RIGHT - M, STAGE_STYLES.yarn, "YARN REQUIREMENT");
+  /* THE STAGE OF EACH ROW'S LABEL CELLS — the yarn dyeing rows are Dyed, a
+     bought roll is Greige or Dyed (2026-09-20). Rows not here stay white. */
+  const yarnRowTone = new Map<number, StageStyle>();
 
   /* A CELL IS A STRING OR A SPANNING BOX — `jspdf-autotable`'s own shape,
      narrowed to the parts this document uses. Declared once here because the
@@ -665,6 +792,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
     ]);
   }
   data.yarnDyeing.forEach((l, i) => {
+    yarnRowTone.set(yarnBody.length, STAGE_STYLES.dyed);
     yarnBody.push([
       i === 0 ? "YARN DYEING" : "",
       "DYED",
@@ -701,6 +829,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
      It is LAST because it is downstream of nothing: a purchased roll has no
      yarn above it to read first. */
   data.clothPurchase.forEach((l, i) => {
+    yarnRowTone.set(yarnBody.length, l.source === "dyed_purchase" ? STAGE_STYLES.dyed : STAGE_STYLES.greige);
     yarnBody.push([
       i === 0 ? "FABRIC PURCHASE" : "",
       l.source === "dyed_purchase" ? "DYED" : "GREIGE",
@@ -731,10 +860,15 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
   autoTable(doc, {
     head: [["Stage", "Type", "Yarn", "Color", "Plan Wt", "Loss %", "To Ordered Wt"]],
     body: yarnBody,
-    startY: y + 18,
-    margin: { left: M, right: M },
+    startY: yarnStartY,
+    margin: { left: M, right: M, top: CONTINUED_TOP },
     styles: { ...monoStyles(), fontSize: 7 },
-    headStyles: { ...monoHead(), fontSize: 6.5 },
+    headStyles: {
+      ...monoHead(),
+      fontSize: 6.5,
+      fillColor: rgb(STAGE_STYLES.yarn.tint),
+      textColor: rgb(STAGE_STYLES.yarn.ink),
+    },
     theme: "grid",
     columnStyles: {
       0: { cellWidth: 74 },
@@ -745,18 +879,27 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       6: { halign: "right", cellWidth: 76 },
     },
     didParseCell: (d) => {
-      if (d.section === "body" && boldYarnRows.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+      if (d.section === "body" && boldYarnRows.has(d.row.index)) {
+        d.cell.styles.fontStyle = "bold";
+        d.cell.styles.fillColor = rgb(STAGE_STYLES.yarn.tint);
+      }
       if (d.section === "body" && noteRows.has(d.row.index)) d.cell.styles.fontStyle = "italic";
+      const tone = d.section === "body" ? yarnRowTone.get(d.row.index) : undefined;
+      if (tone && d.column.index <= 1) {
+        d.cell.styles.fillColor = rgb(tone.tint);
+        d.cell.styles.textColor = rgb(tone.ink);
+      }
     },
   });
   y = finalY(doc, y);
 
   // -- one block per process -------------------------------------------------
   for (const g of data.stageBreakdown) {
-    const startY = y + 20;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.text(g.processName.toUpperCase(), M, startY - 6);
+    /* THE SECTION WEARS ITS STAGE (2026-09-20) — Greige slate, Dyed blue,
+       Wash teal, Print green; a process run in two stages names both. */
+    const style = sectionStyle(g.stages, g.isPrint);
+    y = roomFor(doc, y, 90);
+    const startY = drawSectionHeading(doc, M, y + 14, RIGHT - M, style, g.processName.toUpperCase());
 
     /* THE `Nos/Mtrs` PAIR IS ON EVERY SECTION, even one whose cloths are all
        bought by weight — legacy's own shape, and the reason is the document
@@ -767,7 +910,13 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
 
     const body: Cell[][] = [];
     const boldRows = new Set<number>();
+    /* ONE BAND PER ASSORT COLOURWAY (alternating) and a swatch of the cloth's
+       own colour beside its name — row index → how to draw it. */
+    const rowLook = new Map<number, { band: boolean; swatch: string | null }>();
+    let colourRun = 0;
     g.lines.forEach((l, i) => {
+      if (i > 0 && g.lines[i - 1].combo !== l.combo) colourRun++;
+      rowLook.set(body.length, { band: colourRun % 2 === 1, swatch: swatchFor(l.fabricColour) });
       body.push([
         l.fabricColour ?? "",
         detailsCell(l),
@@ -829,13 +978,14 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
         { content: "Wt", styles: { halign: "right" } },
       ],
     ];
+    const grandRow = body.length - 1;
     autoTable(doc, {
       head,
       body,
       startY,
-      margin: { left: M, right: M },
+      margin: { left: M, right: M, top: CONTINUED_TOP },
       styles: { ...monoStyles(), fontSize: 7 },
-      headStyles: { ...monoHead(), fontSize: 6.5 },
+      headStyles: { ...monoHead(), fontSize: 6.5, fillColor: rgb(style.tint), textColor: rgb(style.ink) },
       theme: "grid",
       columnStyles: {
         0: { cellWidth: 72 },
@@ -851,7 +1001,18 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
         7: { halign: "right" },
       },
       didParseCell: (d) => {
-        if (d.section === "body" && boldRows.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+        if (d.section !== "body") return;
+        if (boldRows.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+        if (d.row.index === grandRow) d.cell.styles.fillColor = rgb(style.tint);
+        else if (boldRows.has(d.row.index)) d.cell.styles.fillColor = [226, 231, 236];
+        const look = rowLook.get(d.row.index);
+        if (look?.band) d.cell.styles.fillColor = rgb(COLOURWAY_BAND);
+        if (look?.swatch && d.column.index === 0) d.cell.styles.cellPadding = SWATCH_PADDING;
+      },
+      didDrawCell: (d) => {
+        if (d.section !== "body" || d.column.index !== 0) return;
+        const hex = rowLook.get(d.row.index)?.swatch;
+        if (hex) drawSwatch(doc, d.cell, hex);
       },
     });
     y = finalY(doc, y);
@@ -885,9 +1046,7 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
       doc.addPage();
       startY = 44;
     }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.text("FABRIC ALLOCATION (CUTTING)", M, startY - 6);
+    startY = drawSectionHeading(doc, M, startY - 6, RIGHT - M, STAGE_STYLES.cutting, "FABRIC ALLOCATION (CUTTING)");
     if (isReportRefusal(data.allocation)) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
@@ -908,6 +1067,14 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
         fmtNumber(r.allocatedWt),
       ]);
       const totalRow = allocBody.length;
+      /* Band per colourway run, swatch beside the colourway (2026-09-20). */
+      const allocRows = data.allocation.rows;
+      const allocBand = new Set<number>();
+      let run = 0;
+      allocRows.forEach((r, i) => {
+        if (i > 0 && allocRows[i - 1].combo !== r.combo) run++;
+        if (run % 2 === 1) allocBand.add(i);
+      });
       allocBody.push([
         "",
         "",
@@ -920,9 +1087,14 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
         head: [["Component", "Garment Colourway", "Fabric", "Net Cutting Wt (Kg)", "Finished Dia / GSM", "Allocated Wt (Kg)"]],
         body: allocBody,
         startY,
-        margin: { left: M, right: M },
+        margin: { left: M, right: M, top: CONTINUED_TOP },
         styles: { ...monoStyles(), fontSize: 7 },
-        headStyles: { ...monoHead(), fontSize: 6.5 },
+        headStyles: {
+          ...monoHead(),
+          fontSize: 6.5,
+          fillColor: rgb(STAGE_STYLES.cutting.tint),
+          textColor: rgb(STAGE_STYLES.cutting.ink),
+        },
         theme: "grid",
         columnStyles: {
           0: { cellWidth: 92 },
@@ -932,7 +1104,19 @@ export async function exportYarnRequirementPdf(data: YarnFabricRequirementReport
           5: { halign: "right", cellWidth: 70 },
         },
         didParseCell: (d) => {
-          if (d.section === "body" && d.row.index === totalRow) d.cell.styles.fontStyle = "bold";
+          if (d.section !== "body") return;
+          if (d.row.index === totalRow) {
+            d.cell.styles.fontStyle = "bold";
+            d.cell.styles.fillColor = rgb(STAGE_STYLES.cutting.tint);
+            return;
+          }
+          if (allocBand.has(d.row.index)) d.cell.styles.fillColor = rgb(COLOURWAY_BAND);
+          if (d.column.index === 1 && swatchFor(allocRows[d.row.index]?.combo)) d.cell.styles.cellPadding = SWATCH_PADDING;
+        },
+        didDrawCell: (d) => {
+          if (d.section !== "body" || d.column.index !== 1 || d.row.index === totalRow) return;
+          const hex = swatchFor(allocRows[d.row.index]?.combo);
+          if (hex) drawSwatch(doc, d.cell, hex);
         },
       });
       y = finalY(doc, y);
@@ -1079,16 +1263,32 @@ export async function exportPrintRequirementPdf(data: YarnFabricRequirementRepor
   const logo = await loadLetterheadImage(data.header.company.logo);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const M = 36;
-  const y = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header), logo);
+  const top = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header), logo, true);
+  const y = drawSectionHeading(
+    doc,
+    M,
+    top + 12,
+    doc.internal.pageSize.getWidth() - M * 2,
+    STAGE_STYLES.print,
+    "FABRIC SENT FOR PRINTING",
+  );
   const body: string[][] = [];
   const bold = new Set<number>();
-  for (const g of data.printing.groups) {
-    for (const r of g.rows) body.push(printRow(r));
+  /* Band per colourway group, swatch beside its name (2026-09-20). */
+  const band = new Set<number>();
+  const swatchAt = new Map<number, string>();
+  data.printing.groups.forEach((g, gi) => {
+    for (const r of g.rows) {
+      if (gi % 2 === 1) band.add(body.length);
+      const hex = swatchFor(r.combo);
+      if (hex) swatchAt.set(body.length, hex);
+      body.push(printRow(r));
+    }
     if (data.printing.groups.length > 1) {
       bold.add(body.length);
       body.push([`${g.combo || "All colours"} total`, "", "", "", "", "", "", "", fmtNumber(g.sentWt), "", fmtNumber(g.receivedWt)]);
     }
-  }
+  });
   bold.add(body.length);
   body.push(["TOTAL SENT FOR PRINTING", "", "", "", "", "", "", "", fmtNumber(data.printing.sentWt), "", fmtNumber(data.printing.receivedWt)]);
   autoTable(doc, {
@@ -1097,7 +1297,7 @@ export async function exportPrintRequirementPdf(data: YarnFabricRequirementRepor
     startY: y,
     margin: { left: M, right: M },
     styles: monoStyles(),
-    headStyles: monoHead(),
+    headStyles: { ...monoHead(), fillColor: rgb(STAGE_STYLES.print.tint), textColor: rgb(STAGE_STYLES.print.ink) },
     columnStyles: {
       6: { halign: "right" },
       7: { halign: "right" },
@@ -1106,7 +1306,19 @@ export async function exportPrintRequirementPdf(data: YarnFabricRequirementRepor
       10: { halign: "right" },
     },
     didParseCell: (d) => {
-      if (d.section === "body" && bold.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+      if (d.section !== "body") return;
+      if (bold.has(d.row.index)) {
+        d.cell.styles.fontStyle = "bold";
+        d.cell.styles.fillColor = rgb(STAGE_STYLES.print.tint);
+        return;
+      }
+      if (band.has(d.row.index)) d.cell.styles.fillColor = rgb(COLOURWAY_BAND);
+      if (d.column.index === 0 && swatchAt.has(d.row.index)) d.cell.styles.cellPadding = SWATCH_PADDING;
+    },
+    didDrawCell: (d) => {
+      if (d.section !== "body" || d.column.index !== 0) return;
+      const hex = swatchAt.get(d.row.index);
+      if (hex) drawSwatch(doc, d.cell, hex);
     },
   });
   signOffFooter(doc);

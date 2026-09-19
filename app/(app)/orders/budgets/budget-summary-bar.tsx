@@ -8,6 +8,43 @@
  * figures sat one click away from every rate that changes them, so the operator
  * typed a yarn rate and had to leave the grid to see what it did to the margin.
  *
+ * ## REDESIGNED 2026-09-19 — FOUR PASSES IN ONE EVENING, keep all four in mind
+ *
+ *   1. Screenshot 2961: "the footer area is too important but look too small …
+ *      I need all the footer fields without missing fields". It was two lines
+ *      of 12px grey text, label BESIDE figure.
+ *   2. Framed panels with the title on its own line above: 15px values, 18px
+ *      leads — "too small".
+ *   3. 18px bold / 22px extra-bold, 2px borders — "much bigger".
+ *   4. 16px / 20px ("medium") — then "more compacted with better colouring and
+ *      better design layout … better visibility is important".
+ *
+ * WHAT THIS IS (pass 4): the SIZE stays at medium, and the height comes out of
+ * the LAYOUT instead of the type — which is where the first three passes went
+ * wrong, trading readability against height when the title line and the gaps
+ * were the real cost.
+ *
+ *   - ONE ROW PER GROUP. Each group opens with a small solid TAG (icon + name)
+ *     rather than a title line above it: −16px of height, same meaning.
+ *   - DIVIDED CELLS, not gaps. Fields sit edge to edge with a hairline between
+ *     them, so the eye reads a strip, not scattered numbers.
+ *   - COLOUR THAT MEANS SOMETHING, never decoration:
+ *       Sales          brand blue — tinted strip, solid tag, Gross Sales in blue;
+ *       Profit / Loss  green for a profit, red for a loss, grey while it cannot
+ *                      be worked out — the tag's icon turns with it
+ *                      (TrendingUp / TrendingDown);
+ *       counts         red for unpriced lines, amber for lines waiting on sales.
+ *   - EVERY FIELD IS KEPT, label ABOVE figure: Currency, Conv, Avg Price,
+ *     Order Qty, Gross Sales Value (INR); Expenses, Profit Value, Profit %.
+ *     (Other Income left with its tab — client, 2026-09-19.)
+ *
+ * ~60px high. Widths are `FIELD_WIDTH` steps, so a figure does not move
+ * sideways as its digits change: Sales 72 + 72 + 88 + 112 + 176 = 520 + 5 cells
+ * x 24 + tag ~76 ≈ 716; Profit / Loss 144 + 176 + 88 = 408 + 72 + ~96 ≈ 576;
+ * chips ~180 — ≈ 1470 with gaps, so on the 1440 bar the chips take a second
+ * line only when BOTH are showing; narrower, whole groups fold under. Never a
+ * sideways scroll.
+ *
  * ## CHROME, NOT FIELDS
  *
  * Text only — nothing here is focusable, so Tab never lands on it and the
@@ -20,50 +57,13 @@
  * alike, and on this document the difference is whether a budget gets approved
  * on a margin nobody could compute. The sentence is the engine's
  * (`budgetTotals` / `salesSummary`), word for word — and it WRAPS inside its
- * cell rather than being clipped to fit the column.
- *
- * ## TWO ROWS, ONE SET OF COLUMNS (Phase 6, 2026-09-18)
- *
- * Each band is a row of cells whose widths are `FIELD_WIDTH` steps, and both
- * bands use the SAME steps in the same order (`COLS`), so Expenses sits under
- * Currency, Profit Value under Avg Price, and the eye reads down a column as
- * well as along a row. Before, each figure was as wide as its own text and the
- * two lines drifted apart after the first cell.
- *
- * ## ONE LINE PER BAND — THE LABEL BESIDE ITS FIGURE, NOT ABOVE IT
- *
- * This strip is PINNED on every section, so every pixel of its height is taken
- * from every tab. Label-over-figure cells doubled it (~36px → ~70px of text);
- * the lead sent it back the same day. Each cell is label (muted, left) and
- * figure (right, tabular) side by side inside its one width step, so the two
- * bands are two lines again. `FigureCell` in `budget-general.tsx` stays
- * label-over-figure: those sections scroll and are not pinned.
- *
- * So a column is sized by its LONGEST label plus a lakh figure beside it, at
- * the strip's 12px ("38,85,638.40" is ~82px of tabular digits):
- *
- *     112              the band's title — "PROFIT / LOSS" at 12px/700 caps
- *   + 144   `code`     Currency / Expenses            ~50 + 6 + 82 = 138
- *   + 176   `term`     Conv / Other Income            ~68 + 6 + 82 = 156
- *   + 176   `term`     Avg Price / Profit Value       ~65 + 6 + 82 = 153
- *   + 176   `term`     Order Qty / Profit %           ~55 + 6 + 80 = 141
- *   + 288   `name`     Gross Sales Value (INR) / the unpriced counts
- *                                                    ~138 + 6 + 82 = 226
- *   + 5 x 12           `FIELD_ROW`'s gap
- *   = 1132
- *
- * A CRORE FIGURE WRAPS, IT IS NEVER CLIPPED: the cell is `flex-wrap`, so a
- * value too long to sit beside its label drops under it inside the same
- * column — rare, honest, and the column stays aligned. A refusal sentence
- * does the same.
- *
- * No cap of its own: `MasterFullScreen` already bounds the strip to the pane's
- * width (1440px), and a row of fixed cells ends where its cells end. Below
- * 1132px it folds, like any `FieldRow`, rather than scrolling sideways.
+ * cell rather than being clipped. A NEW budget with no order yet shows a muted
+ * dash instead (`isNoOrdersYet`): empty, not wrong.
  */
 
 import type { ReactNode } from "react";
-import { FIELD_ROW_TOP, FIELD_WIDTH } from "@/components/ui/field";
+import { AlertTriangle, Clock3, IndianRupee, Scale, TrendingDown, TrendingUp } from "lucide-react";
+import { FIELD_WIDTH } from "@/components/ui/field";
 import type { FieldWidth } from "@/lib/ui/sizes";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -74,9 +74,6 @@ import {
   type SalesSummary,
 } from "@/lib/orders/budget/totals";
 import { cn } from "@/lib/utils";
-
-/** The five figure columns, shared by both bands — see the header. */
-const COLS = ["code", "term", "term", "term", "name"] as const satisfies readonly FieldWidth[];
 
 export function BudgetSummaryBar({
   totals,
@@ -94,64 +91,98 @@ export function BudgetSummaryBar({
       ? sales.unit
       : `${fmtNumber(sales.qty)} ${sales.unit}`;
 
+  /** The profit group's tone: its sign, or none while it cannot be worked out. */
+  const profitTone: GroupTone =
+    typeof totals.profit === "number" ? (totals.profit < 0 ? "loss" : "profit") : "none";
+  const ProfitIcon = profitTone === "loss" ? TrendingDown : profitTone === "profit" ? TrendingUp : Scale;
+
   return (
-    <div className="space-y-1 text-xs">
-      <Band title="Sales">
-        <Figure w={COLS[0]} label="Currency" value={sales.currency} />
-        <Figure w={COLS[1]} label="Conv" value={sales.conv} />
-        <Figure w={COLS[2]} label="Avg Price" value={sales.avgPrice} />
+    <div className="flex flex-wrap items-stretch gap-2.5">
+      <Group title="Sales" tone="sales" icon={<IndianRupee className="h-3.5 w-3.5" aria-hidden />}>
+        <Figure w="num" label="Currency" value={sales.currency} />
+        <Figure w="num" label="Conv" value={sales.conv} />
+        <Figure w="hug" label="Avg Price" value={sales.avgPrice} />
         {/* ORDER Qty — what was sold, and what Avg Price divides by. SQ Qty
             (what is made) is a different, larger figure; see the Budget
             section's pair. */}
-        <Figure w={COLS[3]} label="Order Qty" value={qty} />
+        <Figure w="range" label="Order Qty" value={qty} />
         {/* THE UNIT IS NAMED — each order's value is converted to INR before it
             reaches a budget, and an unlabelled total reads as the buyer's own
             currency to the one person most likely to check it. */}
-        <Figure w={COLS[4]} label="Gross Sales Value (INR)" value={totals.sales} strong />
-      </Band>
-      <Band title="Profit / Loss">
-        <Figure w={COLS[0]} label="Expenses" value={totals.cost} />
-        <Figure w={COLS[1]} label="Other Income" value={totals.income} />
-        <Figure w={COLS[2]} label="Profit Value" value={totals.profit} strong signed />
-        <Figure w={COLS[3]} label="Profit %" value={totals.profitPct} suffix="%" signed />
-        {/* THE FIFTH COLUMN, under Gross Sales: what the totals could not
-            count. Absent when there is nothing to say. */}
-        {(totals.unpriced.length > 0 || totals.pending.length > 0) && (
-          /* ONE LINE, like the figures: the two counts sit side by side
-             (~230px together inside `name`'s 288) and wrap only if they must. */
-          <span className={cn(FIELD_WIDTH[COLS[4]], "flex min-w-0 flex-wrap gap-x-3 text-danger")}>
-            {totals.unpriced.length > 0 && (
-              // NEVER SILENTLY EXCLUDED. A cost total that quietly ignored a
-              // half-typed line is smaller, plausible, and about to be approved.
-              <span>
-                {totals.unpriced.length} {totals.unpriced.length === 1 ? "line" : "lines"} unpriced
-              </span>
-            )}
-            {totals.pending.length > 0 && (
-              // PRICED, BUT A PERCENTAGE OF A SALES VALUE NOBODY HAS YET. Said
-              // apart from "unpriced": it does not block Save, and the fix is on
-              // the ORDER (its price or exchange rate), not on this budget.
-              <span>
-                {totals.pending.length} {totals.pending.length === 1 ? "line" : "lines"} waiting on sales
-              </span>
-            )}
-          </span>
-        )}
-      </Band>
+        <Figure w="term" label="Gross Sales Value (INR)" value={totals.sales} lead accent="primary" />
+      </Group>
+
+      <Group title="Profit / Loss" tone={profitTone} icon={<ProfitIcon className="h-3.5 w-3.5" aria-hidden />}>
+        <Figure w="code" label="Expenses" value={totals.cost} />
+        <Figure w="term" label="Profit Value" value={totals.profit} lead signed />
+        <Figure w="hug" label="Profit %" value={totals.profitPct} suffix="%" lead signed />
+      </Group>
+
+      {(totals.unpriced.length > 0 || totals.pending.length > 0) && (
+        <div className="flex flex-col justify-center gap-1.5">
+          {totals.unpriced.length > 0 && (
+            // NEVER SILENTLY EXCLUDED. A cost total that quietly ignored a
+            // half-typed line is smaller, plausible, and about to be approved.
+            <Chip tone="danger" icon={<AlertTriangle className="h-3.5 w-3.5" aria-hidden />}>
+              {totals.unpriced.length} {totals.unpriced.length === 1 ? "line" : "lines"} unpriced
+            </Chip>
+          )}
+          {totals.pending.length > 0 && (
+            // PRICED, BUT A PERCENTAGE OF A SALES VALUE NOBODY HAS YET. Said
+            // apart from "unpriced": it does not block Save, and the fix is on
+            // the ORDER (its price or exchange rate), not on this budget.
+            <Chip tone="warning" icon={<Clock3 className="h-3.5 w-3.5" aria-hidden />}>
+              {totals.pending.length} {totals.pending.length === 1 ? "line" : "lines"} waiting on sales
+            </Chip>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function Band({ title, children }: { title: string; children: ReactNode }) {
+type GroupTone = "sales" | "profit" | "loss" | "none";
+
+/** Each group's strip, divider and tag — one row, so the tones stay in step. */
+const GROUP_TONE: Record<GroupTone, { strip: string; tag: string }> = {
+  sales: { strip: "border-primary/30 bg-primary/5 divide-primary/20", tag: "bg-primary text-primary-foreground" },
+  profit: { strip: "border-success/40 bg-success-soft divide-success/25", tag: "bg-success text-white" },
+  loss: { strip: "border-danger/40 bg-danger-soft divide-danger/25", tag: "bg-danger text-white" },
+  none: { strip: "border-border bg-surface divide-border", tag: "bg-surface-muted text-foreground" },
+};
+
+/** One group: a solid tag, then its fields edge to edge with a hairline between. */
+function Group({
+  title,
+  tone,
+  icon,
+  children,
+}: {
+  title: string;
+  tone: GroupTone;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    /* TOP-aligned: a refusal (or a crore) wraps DOWN inside its cell, and the
-       rest of the band stays on its one line. */
-    <div className={FIELD_ROW_TOP}>
-      <span className={cn(FIELD_WIDTH.range, "shrink-0 font-bold uppercase tracking-wide text-foreground")}>
+    <section
+      aria-label={title}
+      className={cn(
+        "flex flex-wrap items-center divide-x overflow-hidden rounded-lg border",
+        GROUP_TONE[tone].strip,
+      )}
+    >
+      {/* THE TAG — the group's name where a title line used to sit above. */}
+      <h3
+        className={cn(
+          "m-1.5 mr-0 inline-flex shrink-0 items-center gap-1 self-stretch rounded-md border-0 px-2 text-[11px] font-bold uppercase tracking-wide",
+          GROUP_TONE[tone].tag,
+        )}
+      >
+        {icon}
         {title}
-      </span>
+      </h3>
       {children}
-    </div>
+    </section>
   );
 }
 
@@ -160,37 +191,78 @@ function Figure({
   label,
   value,
   suffix = "",
-  strong = false,
+  lead = false,
   signed = false,
+  accent,
 }: {
   w: FieldWidth;
   label: string;
   value: number | string | Refusal;
   suffix?: string;
-  strong?: boolean;
-  /** A negative figure is a LOSS and is coloured as one. */
+  /** One of the figures the budget exists for — drawn larger and bold. */
+  lead?: boolean;
+  /** A negative figure is a LOSS and is coloured as one; a positive one, a gain. */
   signed?: boolean;
+  /** An unsigned lead figure's colour — Gross Sales takes the brand blue. */
+  accent?: "primary";
 }) {
   return (
-    <span className={cn(FIELD_WIDTH[w], "flex min-w-0 flex-wrap items-baseline justify-between gap-x-1.5")}>
-      <span className="text-muted-foreground">{label}</span>
+    // `box-content` so the step is the TEXT's width and the 12px each side is
+    // added to it, rather than eating into a width chosen for the figure.
+    <div className={cn(FIELD_WIDTH[w], "box-content flex min-w-0 flex-col self-stretch justify-center px-3 py-1.5")}>
+      {/* Every label fits its step ("Gross Sales Value (INR)" is ~140px in
+          `term`'s 176), so nothing is clipped and nothing needs revealing. */}
+      <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">{label}</span>
       {isNoOrdersYet(value) ? (
         // A NEW BUDGET IS EMPTY, NOT WRONG — a muted dash, not the sentence in
-        // red on every cell of both bands. General says why, once.
-        <span className="ml-auto text-right text-muted-foreground">—</span>
+        // red on every cell. General says why, once.
+        <span className="text-base font-semibold text-muted-foreground">—</span>
       ) : isRefusal(value) ? (
-        <span className="min-w-0 break-words text-right text-danger">{value.refused}</span>
+        <span className="break-words text-xs font-semibold leading-snug text-danger">{value.refused}</span>
       ) : (
         <span
           className={cn(
-            "ml-auto text-right tabular-nums",
-            strong ? "font-semibold" : "font-medium",
-            signed && typeof value === "number" && value < 0 ? "text-danger" : "text-foreground",
+            "tabular-nums leading-tight",
+            lead ? "text-xl font-bold" : "text-base font-semibold",
+            signed && typeof value === "number"
+              ? value < 0
+                ? "text-danger"
+                : "text-success"
+              : accent === "primary"
+                ? "text-primary"
+                : "text-foreground",
           )}
         >
           {typeof value === "number" ? `${fmtNumber(value)}${suffix}` : value}
         </span>
       )}
+    </div>
+  );
+}
+
+const CHIP_TONE = {
+  danger: "border-danger/40 bg-danger-soft text-danger",
+  warning: "border-warning/40 bg-warning-soft text-warning",
+} as const;
+
+function Chip({
+  tone,
+  icon,
+  children,
+}: {
+  tone: keyof typeof CHIP_TONE;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-semibold",
+        CHIP_TONE[tone],
+      )}
+    >
+      {icon}
+      {children}
     </span>
   );
 }

@@ -85,15 +85,18 @@ export default async function OrderCancellationsPage() {
         title="Garment Order Cancellation"
         description="Cancel a confirmed order — pick the RE No, and the order's status is flipped to Cancelled."
         actions={
-          <Link href="/orders">
-            <Button variant="outline" size="md">
-              ← Garment Orders
-            </Button>
-          </Link>
+          <>
+            <Link href="/orders">
+              <Button variant="outline" size="md">
+                ← Garment Orders
+              </Button>
+            </Link>
+            {/* The entry opens in a Sheet over this listing (client
+                2026-09-20) — the button belongs in the header row. */}
+            <NewCancellationForm orders={orders} buyers={buyers} />
+          </>
         }
       />
-
-      <NewCancellationForm orders={orders} buyers={buyers} />
 
       <DataTable
         columns={withCreatedColumns(columns, cancellations)}

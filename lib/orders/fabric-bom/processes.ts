@@ -49,7 +49,7 @@
 import { z } from "zod";
 import { capsTextNullable } from "@/lib/validation/formats";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
-import { narrowToStage } from "./stage-routes";
+import { isRouteStart, narrowToStage } from "./stage-routes";
 import type { FabricStageRole } from "./stage-routes";
 
 /* THE STAGE ROUTE RULE LIVES NEXT DOOR (0563), AND IS RE-EXPORTED HERE so that
@@ -71,10 +71,17 @@ export {
   clothPurchaseNotFirst,
   /* 2026-09-19 — the three route rules: Step 1 for a purchase, no fabric
      dyeing on yarn-dyed cloth, and no process twice within one stage. */
-  clothPurchaseAllowedAt,
   dyeingBlocked,
   processesUsedInStage,
   processRepeatedInStage,
+  /* 2026-09-20 — a route START (purchase or Knitting) is Step 1 only, and a
+     yarn-dyed fabric enters the DYED stage only as a dyed-roll purchase. */
+  isRouteStart,
+  routeStartAllowedAt,
+  routeStartNotFirst,
+  isDyedStage,
+  dyedStageAllowedOnYarnDyed,
+  yarnDyedStageBlocked,
   narrowToStage,
   stageAllowsProcess,
   stageMismatchBlocked,
@@ -125,13 +132,16 @@ export type FabricProcessOption = {
   /**
    * Is this the GREIGE KNITTING step? (0564.)
    *
-   * READ BY THE DEMAND ENGINE, NOT BY THE PICKER, which is what makes it the
-   * odd one of the three. `is_print` and `is_dyeing` decide what a route may
-   * NAME; this one decides what a declared route COSTS — a fabric bought as
-   * greige rolls does not pay for the knitting its supplier did, so the step
-   * leaves the ladder (`./fabric-source.ts`). Nothing withholds Knitting from
-   * anyone's offered list, and nothing should: a purchased cloth's route is
-   * still allowed to record that it was knitted, by somebody else.
+   * READ BY THE DEMAND ENGINE, and since 2026-09-20 BY THE PICKER TOO. It
+   * decides what a declared route COSTS — a fabric bought as greige rolls does
+   * not pay for knitting, so the step leaves the ladder (`./fabric-source.ts`).
+   * And it marks a ROUTE START (`isRouteStart` in `./stage-routes.ts`): the
+   * client ruled that Knitting, like a cloth purchase, is Step 1 only ("fabric
+   * cannot be purchased or re-knitted after knitting/processing has begun").
+   * That REVERSES the 0564 reading that "a purchased cloth's route may still
+   * record that it was knitted, by somebody else": with a purchase fixed at
+   * Step 1 (2026-09-19), Knitting below it could only mean knitting bought
+   * cloth, so it is withheld and refused rather than greyed.
    */
   is_knitting: boolean;
   /**
@@ -392,12 +402,13 @@ export function processesForFabric(
      *  pickable, where the restriction stands down rather than offering an
      *  empty list. See `narrowToStage`. */
     isFirstOfStage?: boolean;
-    /** 2026-09-19 — may this row BUY the cloth? False on any row with a step
-     *  above it (`clothPurchaseAllowedAt`): a purchase is Step 1 or nothing.
-     *  Applied with the flag gates, BEFORE the stage narrowing, so a Dyed
-     *  stage opened on row 3 stands down to its other base rather than
-     *  offering DYED FABRIC PURCHASE. Default true = withhold nothing. */
-    purchaseAllowed?: boolean;
+    /** May this row START the route — buy the cloth (2026-09-19) or knit it
+     *  (2026-09-20)? False on any row with a step above it
+     *  (`routeStartAllowedAt`): a route start is Step 1 or nothing. Applied
+     *  with the flag gates, BEFORE the stage narrowing, so a Dyed stage
+     *  opened on row 3 stands down to its other base rather than offering
+     *  DYED FABRIC PURCHASE. Default true = withhold nothing. */
+    routeStartAllowed?: boolean;
     /* NO `usedInStage` HERE, deliberately. "A stage runs each process once"
        is enforced by the picker's own `usedIds` (`processesUsedInStage`),
        which keeps a taken process VISIBLE, greyed "(already added)", rather
@@ -409,14 +420,14 @@ export function processesForFabric(
   const held = opts.currentValue ?? null;
   const printDeclared = opts.printDeclared ?? true;
   const fabricIsYarnDyed = opts.fabricIsYarnDyed ?? false;
-  const purchaseAllowed = opts.purchaseAllowed ?? true;
+  const routeStartAllowed = opts.routeStartAllowed ?? true;
   const flagged = narrowToStage(
     options.filter(
       (p) =>
         p.for_fabric &&
         (printDeclared || !p.is_print) &&
         (!fabricIsYarnDyed || !p.is_dyeing) &&
-        (purchaseAllowed || !p.is_cloth_purchase),
+        (routeStartAllowed || !isRouteStart(p)),
     ),
     { stageId: opts.stageId, isFirstOfStage: opts.isFirstOfStage },
   );

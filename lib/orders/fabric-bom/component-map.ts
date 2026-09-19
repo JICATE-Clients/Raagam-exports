@@ -603,6 +603,25 @@ export function fabricGroupKey(l: {
   style_ref_no: string | null;
   structure_id: string | null;
   item_id: string | null;
+  /** YD PART (0596) — optional so every caller that predates it still builds
+   *  the key a part-less row always had. */
+  yd_part?: string | null;
 }): string {
-  return [styleKey(l.style_ref_no), l.structure_id ?? "", l.item_id ?? ""].join(SEP);
+  return [styleKey(l.style_ref_no), l.structure_id ?? "", l.item_id ?? "", ydPartKey(l.yd_part)].join(SEP);
 }
+
+/**
+ * WHICH ALLOCATION OF A YARN-DYED FABRIC — the fourth part of its address (0596).
+ *
+ * A Top and a Bottom may be knitted from the SAME yarn-dyed cloth to different
+ * stripe ratios (client ticket 2026-09-19), so the cloth alone no longer says
+ * which Yarn Dyed Details a line, a piece weight or a shade belongs to. The
+ * operator names each allocation — TOP, BOTTOM — and this is how every reader
+ * compares those names: trimmed and upper-cased, with blank (and NULL, which
+ * is every row written before 0596) meaning "the fabric's only part".
+ *
+ * ONE FUNCTION FOR EVERY READER — the screen's allocation key, the Yarn Dyed
+ * address, the engine's shade match and the save path — so "no part" cannot be
+ * spelt two ways and quietly split one allocation into two.
+ */
+export const ydPartKey = (p: string | null | undefined): string => (p ?? "").trim().toUpperCase();

@@ -26,6 +26,8 @@ import {
 } from "./service";
 import type { OrderFabricSeedRow, OrderPalette } from "./types";
 import type { StyleComponentDecl } from "./component-map";
+import { ydPartKey } from "./component-map";
+import { ydPartProblems } from "./yd-part";
 /* NO `fabricBasisOf` / `FabricBasis` ANY MORE (0494). They resolved a LINE's
    Split cell, and `requirementRows` now hardcodes `colour_size` — an entry
    states grams per size, and fabric is dyed per colourway, so there is no second
@@ -69,6 +71,7 @@ import { asFabricSource, sourceFromRoute, type FabricSource } from "./fabric-sou
 /* PRINT CHECKPOINTS A + B and the per-branch print gate (client 2026-09-19) —
    the screen's Save gate reads the identical functions. */
 import { printRouteProblems, printedGroup } from "./print-route";
+import { diaKey, manualDiaKnitProblems } from "./dia-knit";
 import {
   basisFingerprint,
   totalProductionOf,
@@ -159,6 +162,9 @@ function normalizeLines(data: FabricBomInput) {
       coordinate_id: c.coordinate_id ?? null,
       component_id: c.component_id ?? null,
       item_id: c.item_id ?? null,
+      /* YD PART (0596) — which allocation of a yarn-dyed cloth this panel is
+         cut from. Field by field here, so it is named here or it is lost. */
+      yd_part: clean(c.yd_part),
       fabric_type: clean(c.fabric_type),
       color_name: clean(c.color_name),
       fabric_form: c.fabric_form ?? null,
@@ -210,6 +216,9 @@ function normalizeManualEntries(data: FabricBomInput) {
          from this fabric before the insert — see `withDerivedStructure`. It is
          kept on the shape because `requirementRows` keys the order's GSM by it. */
       item_id: e.item_id ?? null,
+      /* YD PART (0596) — which allocation of the cloth this piece weight is
+         for; see `normalizeLines` for why it must be named here. */
+      yd_part: clean(e.yd_part),
       structure_id: e.structure_id ?? null,
       calc_mode: e.calc_mode ?? "direct",
       wastage_pct: e.wastage_pct ?? 0,
@@ -1048,14 +1057,20 @@ function yarnShadesOf(
   data: FabricBomInput,
   compositions: ReadonlyMap<string, FabricComposition>,
 ): YarnShade[] {
-  const fabricIds = [
-    ...new Set((data.yd_repeats ?? []).map((r) => r.item_id).filter(Boolean)),
-  ] as string[];
-  return fabricIds.flatMap((fabricId) =>
+  /* ONE SET OF SHADES PER (FABRIC, YD PART) since 0596 — a Top knitted 80/20
+     and a Bottom knitted 70/30 from one cloth must not pool their stripes. The
+     screen's `yarnShades` groups the same way. */
+  const groups = new Map<string, { fabricId: string; part: string }>();
+  for (const r of data.yd_repeats ?? []) {
+    if (!r.item_id) continue;
+    const part = ydPartKey(r.yd_part);
+    groups.set(`${r.item_id}|${part}`, { fabricId: r.item_id, part });
+  }
+  return [...groups.values()].flatMap(({ fabricId, part }) =>
     yarnShadesFrom(
       fabricId,
       (data.yd_repeats ?? [])
-        .filter((r) => r.item_id === fabricId)
+        .filter((r) => r.item_id === fabricId && ydPartKey(r.yd_part) === part)
         .map((r) => ({
           key: `${fabricId}:${r.sno}`,
           sno: r.sno,
@@ -1068,7 +1083,7 @@ function yarnShadesOf(
         })),
       compositions.get(fabricId) ?? null,
       (data.yd_combinations ?? [])
-        .filter((c) => c.item_id === fabricId)
+        .filter((c) => c.item_id === fabricId && ydPartKey(c.yd_part) === part)
         .map((c) => ({
           combo: c.combo ?? null,
           colors: (c.colors ?? []).map((x) => ({
@@ -1076,6 +1091,8 @@ function yarnShadesOf(
             dyeing_loss_pct: x.dyeing_loss_pct ?? 0,
           })),
         })),
+      undefined,
+      part || null,
     ),
   );
 }
@@ -1465,6 +1482,7 @@ async function writeLines(
           style_ref_no: r.style_ref_no,
           structure_id: r.structure_id,
           item_id: r.item_id,
+          yd_part: clean(r.yd_part),
           combo: r.combo,
           yd_combo_name: r.yd_combo_name,
           bom_id: bomId,
@@ -1775,6 +1793,10 @@ function fabricGrossOf(
      All Body run the same sequence; `componentIdsOf` is the one place that
      flattening lives, and it dedupes so one route cannot be applied twice. */
   const componentsByEntry = new Map(entries.map((e) => [e.id, componentIdsOf(e.panels)]));
+  /* WHICH YD PART EACH ENTRY WEIGHS (0596) — stamped on its buckets so the
+     yarn is grossed by that part's own stripes (`shadeDyeFactor`). The bucket
+     is already per ENTRY, so two parts of one cloth never share one. */
+  const partByEntry = new Map(entries.map((e) => [e.id, e.yd_part ?? null]));
   /* KEYED BY (entry, COLOURWAY) SINCE 0504, not by entry alone. A stage may
      treat PURPLE and not GREEN, so the yarn has to be weighed per colourway
      before any loss is applied — summing an entry's slices into one figure first
@@ -1799,6 +1821,7 @@ function fabricGrossOf(
     const qty = r.required_qty as number | null;
     byBucket.set(bucket, {
       fabric_id: itemId,
+      yd_part: partByEntry.get(key) ?? null,
       combo,
       gross: qty == null ? null : (held?.gross ?? 0) + Number(qty),
       uom_id: (r.consumption_uom_id as string | null) ?? null,
@@ -1853,7 +1876,7 @@ async function yarnDyedProblem(
 
   const { data: rows } = await s
     .from("items")
-    .select("id, fabric_type:config_lookups!fabric_type_id(name)")
+    .select("id, name, fabric_type:config_lookups!fabric_type_id(name)")
     .in("id", ids);
 
   /* THE EMBED COMES BACK AS AN ARRAY OR AN OBJECT depending on how PostgREST
@@ -1881,7 +1904,74 @@ async function yarnDyedProblem(
     );
     if (problems.length) return problems[0].message;
   }
+
+  /* YD PARTS (0596) — the screen's own rule over the payload, gated by the
+     MASTER's fabric type (never the payload's word): a split yarn-dyed fabric
+     must name every part, and every Manual entry of it must name one. */
+  const nameById = new Map(
+    ((rows ?? []) as unknown as { id: string; name: string | null }[]).map((r) => [r.id, r.name ?? ""]),
+  );
+  const partProblems = ydPartProblems(
+    data.lines,
+    data.manualEntries,
+    (itemId) => isYarnDyed(typeById.get(itemId) ?? null),
+    (itemId) => nameById.get(itemId) || "This fabric",
+  );
+  if (partProblems.length) return partProblems[0];
   return null;
+}
+
+/**
+ * A FINISH DIA OF THE WRONG KNIT FAMILY (client 2026-09-19) — `dia-knit.ts`'s
+ * rule over the payload. The screen only offers a fabric its own family's dias
+ * and blocks Save on a held mismatch; this is the guard, because a stale page
+ * or a replayed request is not the picker.
+ *
+ * THE FABRIC'S FAMILY IS READ FROM THE MASTER, never from the payload: the
+ * item's `category_id` (its structure), that structure's
+ * `fabric_structure_id`, that lookup's code. Three plain selects rather than an
+ * embed — `getStructureRows` records why the embed does not parse here.
+ */
+async function diaKnitServerProblem(
+  s: Awaited<ReturnType<typeof createClient>>,
+  data: FabricBomInput,
+): Promise<string | null> {
+  const entries = data.manualEntries.filter((e) => e.item_id && e.sizes.some((z) => diaKey(z.dia)));
+  if (entries.length === 0 || data.dias.length === 0) return null;
+
+  const itemIds = [...new Set(entries.map((e) => e.item_id as string))];
+  const { data: items, error: itemErr } = await s.from("items").select("id, name, category_id").in("id", itemIds);
+  if (itemErr) return `Could not check the fabrics' knit type: ${itemErr.message}`;
+  const itemRows = (items ?? []) as { id: string; name: string | null; category_id: string | null }[];
+
+  const catIds = [...new Set(itemRows.map((r) => r.category_id).filter(Boolean))] as string[];
+  const { data: cats, error: catErr } = catIds.length
+    ? await s.from("categories").select("id, fabric_structure_id").in("id", catIds)
+    : { data: [], error: null };
+  if (catErr) return `Could not check the fabrics' knit type: ${catErr.message}`;
+  const catRows = (cats ?? []) as { id: string; fabric_structure_id: string | null }[];
+
+  const lookupIds = [...new Set(catRows.map((r) => r.fabric_structure_id).filter(Boolean))] as string[];
+  const { data: lookups, error: lkErr } = lookupIds.length
+    ? await s.from("config_lookups").select("id, code").in("id", lookupIds)
+    : { data: [], error: null };
+  if (lkErr) return `Could not check the fabrics' knit type: ${lkErr.message}`;
+
+  const codeByLookup = new Map(((lookups ?? []) as { id: string; code: string | null }[]).map((r) => [r.id, r.code]));
+  const lookupByCat = new Map(catRows.map((r) => [r.id, r.fabric_structure_id]));
+  const itemById = new Map(itemRows.map((r) => [r.id, r]));
+
+  const problems = manualDiaKnitProblems(
+    entries.map((e) => ({ item_id: e.item_id ?? null, sizes: e.sizes })),
+    data.dias,
+    (itemId) => {
+      const cat = itemById.get(itemId)?.category_id;
+      const lookup = cat ? lookupByCat.get(cat) : null;
+      return lookup ? (codeByLookup.get(lookup) ?? null) : null;
+    },
+    (itemId) => itemById.get(itemId)?.name || "This fabric",
+  );
+  return problems[0] ?? null;
 }
 
 /**
@@ -2301,6 +2391,9 @@ export async function createFabricBom(data: FabricBomFormInput): Promise<Result>
   const routeProblem = await stageRouteProblem(s, p.data);
   if (routeProblem) return fail(routeProblem);
 
+  const diaProblem = await diaKnitServerProblem(s, p.data);
+  if (diaProblem) return fail(diaProblem);
+
   /* THE ROUTE SAYS WHERE THE CLOTH COMES FROM (2026-09-19) — written into the
      payload once, here, so every reader below stores the route's answer. */
   p.data.processScopes = await withRouteSources(p.data);
@@ -2366,6 +2459,9 @@ export async function updateFabricBom(id: string, data: FabricBomFormInput): Pro
      document. */
   const routeProblem = await stageRouteProblem(s, p.data);
   if (routeProblem) return fail(routeProblem);
+
+  const diaProblem = await diaKnitServerProblem(s, p.data);
+  if (diaProblem) return fail(diaProblem);
 
   /* THE ROUTE SAYS WHERE THE CLOTH COMES FROM (2026-09-19) — written into the
      payload once, here, so every reader below stores the route's answer. */

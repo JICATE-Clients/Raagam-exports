@@ -30,7 +30,7 @@
  */
 
 import type { ReactNode } from "react";
-import { FIELD_ROW, FIELD_WIDTH } from "@/components/ui/field";
+import { FIELD_WIDTH } from "@/components/ui/field";
 import type { FieldWidth } from "@/lib/ui/sizes";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -83,18 +83,22 @@ const MATRIX_W = "max-w-[30rem]";
 const BASELINE_W = "max-w-[44rem]";
 
 /**
- * THE HIGHLIGHTS' CAP. One wrapping row of label-over-figure cells:
+ * THE HIGHLIGHTS' CAP. One wrapping row of TILES (user 2026-09-20: "this area
+ * also need some highlighted good visibility", then "make it compacted, no
+ * need this much bigger" — so the tint and the bold carry it, at 16px, not
+ * the size). Each figure's step plus the tile's 12px padding each side and
+ * 1px border:
  *
- *     4 x 144          Gross Sales, Total Expenses, Other Incomes, Net Profit
- *   + 88               Margin %
- *   + 176              "Cost per piece (on SQ Qty)" — its label is the width
- *   + 5 x 12           `FIELD_ROW`'s gap
- *   = 900  ->  57rem (912), 12px of slack
+ *     3 x (144 + 26)   Gross Sales, Total Expenses, Net Profit
+ *   + 88 + 26          Margin %
+ *   + 176 + 26         "Cost per piece (on SQ Qty)" — its label is the width
+ *   + 4 x 10           the row's gap
+ *   = 866  ->  55rem (880), 14px of slack
  *
- * Unboxed, so the cap does not stop a card trailing — it fixes WHERE the row
- * folds, so a laptop and a 1920 monitor break it in the same place.
+ * It fixes WHERE the row folds, so a laptop and a 1920 monitor break it in the
+ * same place. (Other Incomes left with its tab, 2026-09-19.)
  */
-const HIGHLIGHTS_W = "max-w-[57rem]";
+const HIGHLIGHTS_W = "max-w-[55rem]";
 
 export function BudgetGeneral({
   summary,
@@ -134,17 +138,21 @@ export function BudgetGeneral({
         />
       </div>
 
-      <dl className={cn(FIELD_ROW, HIGHLIGHTS_W)}>
+      {/* THE BOTTOM LINE, AS TILES — the same colour language as the pinned
+          Sales / Profit bar (budget-summary-bar.tsx), so the two read as one:
+          Gross Sales in the brand blue, Net Profit and Margin green for a
+          profit and red for a loss, the rest on white. NOT `FigureCell`, which
+          the approval sheet shares and keeps as plain cells. */}
+      <dl className={cn("flex flex-wrap items-stretch gap-2.5", HIGHLIGHTS_W)}>
         {/* THE UNIT IS NAMED on the sales figure — every order is converted to
             INR before it reaches a budget (see the bottom bar's note). */}
-        <FigureCell w="code" label="Gross Sales (INR)" value={summary.sales} />
-        <FigureCell w="code" label="Total Expenses" value={summary.total.amount} />
-        <FigureCell w="code" label="Other Incomes" value={summary.income} />
-        <FigureCell w="code" label="Net Profit" value={summary.profit} strong signed />
-        <FigureCell w="hug" label="Margin %" value={summary.marginPct} suffix="%" signed />
+        <HighlightTile w="code" tone="sales" label="Gross Sales (INR)" value={summary.sales} />
+        <HighlightTile w="code" tone="plain" label="Total Expenses" value={summary.total.amount} />
+        <HighlightTile w="code" tone={signTone(summary.profit)} label="Net Profit" value={summary.profit} />
+        <HighlightTile w="hug" tone={signTone(summary.profit)} label="Margin %" value={summary.marginPct} suffix="%" />
         {/* ON SQ QTY — the pieces MADE, the client's own definition, not the
             Order Qty the sales figure is priced on. */}
-        <FigureCell w="term" label="Cost per piece (on SQ Qty)" value={summary.costPerPiece} />
+        <HighlightTile w="term" tone="plain" label="Cost per piece (on SQ Qty)" value={summary.costPerPiece} />
       </dl>
 
       {baseline && baseline.length > 0 && (
@@ -272,6 +280,57 @@ export function FigureCell({
           <span className="text-sm text-foreground">{value || "—"}</span>
         ) : (
           <Figure value={value} suffix={suffix} strong={strong} signed={signed} />
+        )}
+      </dd>
+    </div>
+  );
+}
+
+export type TileTone = "sales" | "profit" | "loss" | "plain";
+
+/** A profit figure's tone: its sign, or plain while it cannot be worked out. */
+export const signTone = (v: number | Refusal): TileTone =>
+  typeof v === "number" ? (v < 0 ? "loss" : "profit") : "plain";
+
+const TILE_TONE: Record<TileTone, { box: string; value: string }> = {
+  sales: { box: "border-primary/30 bg-primary/5", value: "text-primary" },
+  profit: { box: "border-success/40 bg-success-soft", value: "text-success" },
+  loss: { box: "border-danger/40 bg-danger-soft", value: "text-danger" },
+  plain: { box: "border-border bg-surface", value: "text-foreground" },
+};
+
+/** One highlight: label above, the figure large and bold, the tile tinted by
+ *  what the figure means. A refusal prints its sentence; no order yet, a dash.
+ *  Exported for the approval sheet, which shows the same bottom line and must
+ *  read the same way (2026-09-20). */
+export function HighlightTile({
+  w,
+  tone,
+  label,
+  value,
+  suffix = "",
+}: {
+  w: FieldWidth;
+  tone: TileTone;
+  label: string;
+  value: number | Refusal;
+  suffix?: string;
+}) {
+  return (
+    <div className={cn("flex flex-col rounded-md border px-3 py-1.5", TILE_TONE[tone].box)}>
+      {/* `FIELD_WIDTH` on the INNER box, so the step is the figure's width and
+          the padding is added to it rather than taken out of it. */}
+      <dt className={cn(FIELD_WIDTH[w], "text-xs font-medium text-muted-foreground")}>{label}</dt>
+      <dd className={cn(FIELD_WIDTH[w], "break-words")}>
+        {isNoOrdersYet(value) ? (
+          <span className="text-base font-bold text-muted-foreground">—</span>
+        ) : isRefusal(value) ? (
+          <span className="text-xs font-semibold text-danger">{value.refused}</span>
+        ) : (
+          <span className={cn("text-base font-bold tabular-nums", TILE_TONE[tone].value)}>
+            {fmtNumber(value)}
+            {suffix}
+          </span>
         )}
       </dd>
     </div>

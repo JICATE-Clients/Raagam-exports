@@ -299,6 +299,10 @@ export function yarnShadesFrom(
   fabric: FabricComposition | null,
   combinations: readonly YdCombinationLike[],
   yarnName: (id: string | null) => string = () => "",
+  /** YD PART (0596) — stamped on every shade so `shadeDyeFactor` grosses each
+   *  part's weight by that part's stripes only. The caller passes ONE part's
+   *  repeats and combinations; this does not filter them. */
+  ydPart: string | null = null,
 ): YarnShade[] {
   const mixing = mixingDetailRows(repeats, fabric, yarnName);
   if (mixing.length === 0) return [];
@@ -310,6 +314,7 @@ export function yarnShadesFrom(
       if (!m.yarn_item_id || m.calculated_pct == null) return;
       out.push({
         fabric_id: fabricId,
+        yd_part: ydPart,
         yarn_id: m.yarn_item_id,
         combo: c.combo,
         share: m.calculated_pct / 100,
