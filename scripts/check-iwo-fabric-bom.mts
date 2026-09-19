@@ -20,7 +20,14 @@ import {
   type FabricComposition,
 } from "../lib/orders/fabric-bom/yarn-process.ts";
 import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase } from "../lib/orders/iwo-fabric-bom/yarn.ts";
-import { iwoShadeTotal, iwoYarnLineProblems, keptIwoYarnLines } from "../lib/orders/iwo-fabric-bom/lines.ts";
+import {
+  iwoFabricLineProblems,
+  iwoFabricStages,
+  iwoGreigeRouteProblems,
+  iwoShadeTotal,
+  iwoYarnLineProblems,
+  keptIwoYarnLines,
+} from "../lib/orders/iwo-fabric-bom/lines.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -321,6 +328,106 @@ check(
   "§12 Colour by missing refuses by name",
   iwoYarnModePurchase(null, [], KG, 3, "70D ELASTANE", { colourBy: null, shades: two }),
   { refused: "Choose how 70D ELASTANE is coloured (Colour by) on Yarn Lines." },
+);
+
+// ---------------------------------------------------------------------------
+// §13 FABRIC STAGE, COLOUR, DIA (Phase 2, client audio 2026-09-19): GREIGE has
+// no colour and its route stops at Greige; a coloured stage owes its Colour;
+// one Stage per fabric; one line per (fabric, colour, dia).
+// ---------------------------------------------------------------------------
+
+const GREIGE = "st-greige";
+const DYED = "st-dyed";
+const rank = (id: string) => (id === GREIGE ? 0 : id === DYED ? 1 : null);
+const fl = (over: Partial<Parameters<typeof iwoFabricLineProblems>[0][number]>) => ({
+  structure_id: null,
+  item_id: FAB,
+  color_name: null,
+  fabric_form: null,
+  mixing_uom_id: null,
+  no_of_colors: null,
+  gsm: null,
+  finish_dia: null,
+  stage_id: GREIGE,
+  req_kgs: 1000,
+  ...over,
+});
+const fmsgs = (ls: ReturnType<typeof fl>[]) => iwoFabricLineProblems(ls, () => null, rank).map((p) => p.message);
+
+check("§13 a GREIGE line with no colour is clean", fmsgs([fl({})]), []);
+check(
+  "§13 GREIGE carries no colour",
+  fmsgs([fl({ color_name: "NAVY" })]),
+  ["Fabric line 1: a GREIGE line has no colour — clear it (greige is one lot, dyed later)."],
+);
+check(
+  "§13 a DYED line owes its Colour",
+  fmsgs([fl({ stage_id: DYED })]),
+  ["Fabric line 1: choose the Colour — a dyed line is planned per colour."],
+);
+check(
+  "§13 two colours of one DYED fabric are two lines — allowed",
+  fmsgs([fl({ stage_id: DYED, color_name: "NAVY" }), fl({ stage_id: DYED, color_name: "BLACK" })]),
+  [],
+);
+check(
+  "§13 multi-dia: one fabric at two dias is two lines — allowed",
+  fmsgs([fl({ finish_dia: "24" }), fl({ finish_dia: "30" })]),
+  [],
+);
+check(
+  "§13 the same fabric, colour and dia twice is refused (merge it)",
+  fmsgs([fl({ finish_dia: "24" }), fl({ finish_dia: " 24 " })]),
+  ["Fabric line 2: the same fabric, colour and dia are on line 1 — put the weight on one line."],
+);
+check(
+  "§13 two GREIGE lines with no dia are one lot — refused (the consolidation rule)",
+  fmsgs([fl({}), fl({ req_kgs: 500 })]),
+  ["Fabric line 2: the same fabric, colour and dia are on line 1 — put the weight on one line."],
+);
+check(
+  "§13 one Stage per fabric",
+  fmsgs([fl({ finish_dia: "24" }), fl({ stage_id: DYED, color_name: "NAVY", finish_dia: "30" })]),
+  [
+    "Fabric line 2: this fabric is at a different Stage on line 1 — one Stage per fabric (its Fabric Process route is shared).",
+  ],
+);
+check("§13 an unrecognised stage asks nothing more", fmsgs([fl({ stage_id: "st-other", color_name: "NAVY" })]), []);
+
+const routeNames = { fabric: () => "SINGLE JERSEY", stage: (id: string) => (id === DYED ? "DYED" : "GREIGE") };
+const greigeOf = new Map([[FAB, GREIGE]]);
+check(
+  "§13 a GREIGE fabric may knit (a Greige step)",
+  iwoGreigeRouteProblems([{ item_id: FAB, stage_id: GREIGE, process_id: "knit" }], greigeOf, rank, routeNames),
+  [],
+);
+check(
+  "§13 a GREIGE fabric may not be dyed — its route stops at Greige",
+  iwoGreigeRouteProblems(
+    [
+      { item_id: FAB, stage_id: GREIGE, process_id: "knit" },
+      { item_id: FAB, stage_id: DYED, process_id: "dye" },
+    ],
+    greigeOf,
+    rank,
+    routeNames,
+  ).map((p) => p.message),
+  ["SINGLE JERSEY is planned GREIGE, so its route stops at Greige — remove the DYED step, or plan the fabric in that stage."],
+);
+check(
+  "§13 a DYED fabric's route may pass through DYED",
+  iwoGreigeRouteProblems([{ item_id: FAB, stage_id: DYED, process_id: "dye" }], new Map([[FAB, DYED]]), rank, routeNames),
+  [],
+);
+check(
+  "§13 a step naming no process is not judged",
+  iwoGreigeRouteProblems([{ item_id: FAB, stage_id: DYED, process_id: null }], greigeOf, rank, routeNames),
+  [],
+);
+check(
+  "§13 each fabric's Stage is its first kept line's",
+  [...iwoFabricStages([fl({ item_id: null, stage_id: null, req_kgs: null }), fl({ stage_id: DYED }), fl({ stage_id: GREIGE })])],
+  [[FAB, DYED]],
 );
 
 if (failed) {

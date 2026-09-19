@@ -42,6 +42,11 @@
  * and its SHADES in a [Shades] popup (`yarn-shades-sheet.tsx`), and its
  * Planned Weight becomes Σ shades. Each shade is its own bucket in the engine,
  * so Yarn Process offers the shades in its For column with no new code there.
+ *
+ * Phase 2 (same audio): a fabric line's Stage decides its shape too. GREIGE
+ * has no colour (the colourways consolidate into one line) and its route stops
+ * at Greige; a coloured stage owes its Colour; one Stage per fabric; one line
+ * per (fabric, colour, dia). Finish Dia picks from the Dia panel.
  */
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -50,6 +55,7 @@ import { Layers, ListChecks, Scale, Shirt, Spool, Waypoints } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldGrid, FieldRow, FIELD_WIDTH_CSS, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, gridKeyNav, type ChildGridColumn } from "@/components/masters/child-grid";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -78,7 +84,13 @@ import { IWO_FOR_LABELS } from "@/lib/orders/internal-work-orders/types";
 import { KNIT_TYPE_OPTIONS, type PaletteSection } from "@/lib/orders/iwo-fabric-bom/types";
 import { deleteIwoFabricBom, saveIwoFabricBom } from "@/lib/orders/iwo-fabric-bom/actions";
 import type { IwoFabricBomFormData, IwoFabricBomTask } from "@/lib/orders/iwo-fabric-bom/service";
-import { iwoFabricLineProblems, keptIwoFabricLines, type IwoFabricLineFacts } from "@/lib/orders/iwo-fabric-bom/lines";
+import {
+  iwoFabricLineProblems,
+  iwoFabricStages,
+  iwoGreigeRouteProblems,
+  keptIwoFabricLines,
+  type IwoFabricLineFacts,
+} from "@/lib/orders/iwo-fabric-bom/lines";
 import { FABRIC_FORM_OPTIONS } from "@/lib/orders/fabric-bom/component-map";
 import { isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import { ProcessFoldList, type FoldListColumn } from "@/components/orders/process-fold-list";
@@ -98,7 +110,7 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
-import { colouredStageIds, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
+import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { fabricFormLabel } from "@/lib/orders/fabric-bom/component-map";
 import {
   IWO_COLOUR_BY_OPTIONS,
@@ -675,15 +687,36 @@ export function IwoFabricBomScreen({
     return [...dup].map((n) => `${PANEL_LABEL[section]}: ${n} is listed twice.`);
   });
 
+  /** GREIGE (0) / coloured (≥1) per `fabric_stage` id — `stageRank`, the
+   *  Fabric BOM's own test and the one the save runs (Phase 2). */
+  const fabricStageById = new Map(
+    [...data.processLookups.stages, ...data.fabricStages].map((st) => [st.id, st]),
+  );
+  const fabricStageRank = (id: string | null) => {
+    const st = id ? fabricStageById.get(id) : undefined;
+    return st ? stageRank(st) : null;
+  };
+
   /** The line rules (`lines.ts`) — the same function the action runs. */
-  const lineProblems = iwoFabricLineProblems(lines.map(lineFacts), (id) => fabricTypeOf(id));
+  const lineProblems = iwoFabricLineProblems(lines.map(lineFacts), (id) => fabricTypeOf(id), fabricStageRank);
+
+  /** Each fabric's line Stage — what decides whether its route stops at Greige. */
+  const fabricStageOf = iwoFabricStages(lines.map(lineFacts));
+  const isGreigeFabric = (itemId: string) => fabricStageRank(fabricStageOf.get(itemId) ?? null) === 0;
 
   /** The Fabric Process stage rules (0570) — the order screen's `routeBlockers`,
    *  with this BOM's own prints as the Print gate. */
-  const routeBlockers = stageRouteProblems(procs, data.processes, data.processLookups.stages, {
-    gatesFor: (itemId) => ({ printDeclared, fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)) }),
-    fabricName: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
-  });
+  const routeBlockers = [
+    ...stageRouteProblems(procs, data.processes, data.processLookups.stages, {
+      gatesFor: (itemId) => ({ printDeclared, fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)) }),
+      fabricName: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
+    }),
+    // Phase 2 — a GREIGE fabric's route stops at Greige (the save's rule too).
+    ...iwoGreigeRouteProblems(procs, fabricStageOf, (id) => fabricStageRank(id), {
+      fabric: (itemId) => fabricById.get(itemId)?.name ?? "This fabric",
+      stage: (id) => fabricStageById.get(id)?.name ?? "coloured",
+    }),
+  ];
 
   /** "Yarn compositions still loading" — the order screen's guard. Saving now
    *  would send an empty yarn list and the server would refuse it; saying so
@@ -979,6 +1012,19 @@ export function IwoFabricBomScreen({
    *  `missingFabricLineFields`); the header star shows while any line owes it. */
   const owesMixing = (r: LineRow) => !!r.item_id && isYarnDyed(fabricTypeOf(r.item_id));
 
+  /** A coloured Stage (DYED / WASH / PRINT) owes its Colour (Phase 2). */
+  const owesColour = (r: LineRow) => !!r.item_id && (fabricStageRank(r.stage_id) ?? 0) >= 1;
+
+  /** The Dia panel's values — what Finish Dia offers (Phase 2, the order
+   *  screen's `declaredDiaOptions`). Capitals, like the stored value. */
+  const declaredDias = [...new Set(dias.map((d) => d.dia.trim().toUpperCase()).filter(Boolean))];
+  const diaOptionsFor = (held: string) => {
+    const opts = declaredDias.map((d) => ({ value: d, label: d }));
+    const v = held.trim();
+    // A value the line already holds always survives, tagged.
+    return !v || declaredDias.includes(v.toUpperCase()) ? opts : [...opts, { value: v, label: v, sublabel: "not on the Dia panel" }];
+  };
+
   /**
    * FABRIC ALLOCATION — the order screen's legacy row minus what only an order
    * has (the style columns, and [Detail], which maps garment components). The
@@ -1028,6 +1074,9 @@ export function IwoFabricBomScreen({
             patchLine(r.key, {
               item_id: id,
               structure_id: (id ? fabricById.get(id)?.category_id : null) ?? r.structure_id,
+              // ONE DIA DECLARED → PREFILLED, and still editable (the order
+              // screen's rule: "automatically prepopulate … but remain editable").
+              ...(id && !r.finish_dia.trim() && declaredDias.length === 1 ? { finish_dia: declaredDias[0] } : {}),
             })
           }
         />
@@ -1043,24 +1092,36 @@ export function IwoFabricBomScreen({
     {
       header: "Colour",
       width: FIELD_WIDTH_CSS.code,
+      // OWED ON A COLOURED STAGE, REFUSED ON GREIGE (Phase 2) — so the hold is
+      // per ROW under a column star that shows while any line owes it (the
+      // Mixing Uom shape below).
+      required: lines.some(owesColour),
       cell: (r) => {
         // A name the line already holds survives a panel edit that removed it.
         const held = r.color_name && !fabricColourNames.includes(normName(r.color_name)) ? [r.color_name] : [];
+        // Disabled on a GREIGE line with nothing in it — but LIVE while it
+        // still holds a colour, or the rule refusing that colour would have
+        // no way out.
+        const greigeEmpty = fabricStageRank(r.stage_id) === 0 && !r.color_name;
         return (
-          <Select
-            compact
-            className="h-8"
-            aria-label="Colour"
-            value={r.color_name}
-            onChange={(e) => patchLine(r.key, { color_name: e.target.value })}
-          >
-            <option value="" />
-            {[...fabricColourNames, ...held].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
+          <RequiredScope required={owesColour(r)} label="Colour">
+            <Select
+              compact
+              className="h-8"
+              aria-label="Colour"
+              required={owesColour(r)}
+              disabled={greigeEmpty}
+              value={r.color_name}
+              onChange={(e) => patchLine(r.key, { color_name: e.target.value })}
+            >
+              <option value="" />
+              {[...fabricColourNames, ...held].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </RequiredScope>
         );
       },
     },
@@ -1104,13 +1165,29 @@ export function IwoFabricBomScreen({
   /** The lines Fabric Consumption shows: those that name a fabric. */
   const consumptionRows = lines;
 
+  /** Fabrics planned on MORE THAN ONE line, with their total — derived. */
+  const fabricTotals = [...new Set(lines.map((l) => l.item_id).filter((x): x is string => !!x))]
+    .map((itemId) => {
+      const ls = lines.filter((l) => l.item_id === itemId);
+      return {
+        item_id: itemId,
+        name: fabricById.get(itemId)?.name ?? "",
+        lines: ls.length,
+        kgs: ls.reduce((a, l) => a + (num(l.req_kgs) || 0), 0),
+        dias: new Set(ls.map((l) => l.finish_dia.trim().toUpperCase())).size,
+        colours: new Set(ls.map((l) => normName(l.color_name))).size,
+      };
+    })
+    .filter((t) => t.lines > 1);
+
   /**
    * FABRIC CONSUMPTION — screenshot 2940 / SRS §4: the garment breakdown is
    * bypassed, so the weight is TYPED. Rows are the Allocation lines that name
    * a fabric; a line is added or removed on Allocation, never here.
    *
    * WIDTHS (check:grid-budget): name 288 + code 144 + range 112 + num 72 +
-   * hug 88 + code 144 + range 112 = 960 + 72 chrome = 1032 <= 1155.
+   * hug 88 + code 144 + range 112 + range 112 (Gross Yarn) = 1072, and 1112
+   * with the grid's chrome <= 1155.
    */
   const consumptionColumns: ChildGridColumn<LineRow>[] = [
     {
@@ -1158,14 +1235,19 @@ export function IwoFabricBomScreen({
       ),
     },
     {
+      // PICKS FROM THE DIA PANEL (Phase 2, the order screen's Finish Dia): a
+      // Combobox, so typed text is a SEARCH, never a stored value. Several
+      // dias of one fabric are several lines — one per dia.
       header: "Finish Dia",
       width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
-        <Input
-          className="h-8"
-          aria-label="Finish Dia"
+        <Combobox
+          compact
+          inputClassName="h-8"
+          options={diaOptionsFor(r.finish_dia)}
           value={r.finish_dia}
-          onChange={(e) => patchLine(r.key, { finish_dia: e.target.value })}
+          onChange={(v) => patchLine(r.key, { finish_dia: v })}
+          clearable
         />
       ),
     },
@@ -1720,6 +1802,19 @@ export function IwoFabricBomScreen({
             onAdd={() => false}
             onRemove={() => {}}
           />
+          {/* ONE FABRIC ACROSS SEVERAL DIAS / COLOURS (Phase 2) — the total the
+              lines add up to, per fabric, so a split reads as one plan. */}
+          {fabricTotals.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+              {fabricTotals.map((t) => (
+                <li key={t.item_id}>
+                  <span className="font-medium text-foreground">{t.name}</span> — {kg(t.kgs)} KGS across {t.lines} lines
+                  {t.dias > 1 ? ` · ${t.dias} dias` : ""}
+                  {t.colours > 1 ? ` · ${t.colours} colours` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
         </SectionBody>
       ),
     },
@@ -1816,7 +1911,23 @@ export function IwoFabricBomScreen({
                   rows={procs.filter((p) => p.item_id === r.item_id)}
                   onChange={(next) => setFabricProcs(r.item_id, next)}
                   processes={data.processes}
-                  lookups={data.processLookups}
+                  // A GREIGE fabric is offered the Greige stage only (Phase 2),
+                  // so its processes narrow to greige ones (Knitting) through
+                  // the grid's own stage → process rule. A stage a step already
+                  // holds survives ("Disabled rows"), and the rule above says
+                  // why it has to go.
+                  lookups={
+                    isGreigeFabric(r.item_id)
+                      ? {
+                          ...data.processLookups,
+                          stages: data.processLookups.stages.filter(
+                            (st) =>
+                              stageRank(st) === 0 ||
+                              procs.some((p) => p.item_id === r.item_id && p.stage_id === st.id),
+                          ),
+                        }
+                      : data.processLookups
+                  }
                   printDeclared={printDeclared}
                   fabricIsYarnDyed={isYarnDyed(fabricTypeOf(r.item_id))}
                   source="yarn_knit"

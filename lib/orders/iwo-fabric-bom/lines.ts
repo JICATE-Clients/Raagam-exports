@@ -45,6 +45,8 @@ export type IwoFabricLineFacts = {
 
 export type IwoFabricLineField =
   | "item_id"
+  | "color_name"
+  | "finish_dia"
   | "stage_id"
   | "req_kgs"
   | "gsm"
@@ -87,12 +89,35 @@ export function keptIwoFabricLines<T extends IwoFabricLineFacts>(lines: readonly
  * Everything stopping a save, in screen order. `fabricTypeOf` resolves a
  * fabric's Solid / Melange / Yarn Dyed name — the SCREEN reads it off the
  * loaded master, the ACTION off `items` again, never off the payload.
+ *
+ * ## THE STAGE DECIDES THE LINE'S SHAPE (client audio 2026-09-19, Phase 2)
+ *
+ * `stageRankOf` is `stageRank` over the `fabric_stage` master (0 GREIGE,
+ * 1 DYED / WASH, 2 PRINT, null unrecognised) — read by the caller so this file
+ * stays pure. Defaults to "unrecognised", every pre-Phase-2 caller's reading.
+ *
+ *   - **GREIGE carries no colour.** Greige cloth is one lot whatever colour it
+ *     is later dyed, so the colourways CONSOLIDATE into one line — which is the
+ *     (fabric, colour, dia) rule below with the colour always blank.
+ *   - **A coloured stage owes its Colour** — the weight is planned per colour.
+ *   - **One stage per fabric per BOM.** The Fabric Process route is kept PER
+ *     FABRIC (0581), so a cloth half greige and half dyed would run its greige
+ *     half through the dyeing steps too, and the yarn it gross-ups by would be
+ *     wrong for both halves.
+ *   - **One line per (fabric, colour, dia)** — two lines equal in all three are
+ *     one plan typed twice; multi-dia is several lines of one fabric, one per
+ *     dia (0592's unique index is the backstop, this is the sentence).
  */
 export function iwoFabricLineProblems(
   lines: readonly IwoFabricLineFacts[],
   fabricTypeOf: (itemId: string) => string | null,
+  stageRankOf: (stageId: string) => number | null = () => null,
 ): IwoFabricLineProblem[] {
   const out: IwoFabricLineProblem[] = [];
+  /** The first line (1-based) each fabric was seen on, with its stage. */
+  const stageOfFabric = new Map<string, { row: number; stage_id: string }>();
+  /** The first line each (fabric, colour, dia) was seen on. */
+  const rowOfKey = new Map<string, number>();
   lines.forEach((l, i) => {
     if (isBlankIwoFabricLine(l)) return;
     const row = i + 1;
@@ -117,7 +142,78 @@ export function iwoFabricLineProblems(
     if (l.gsm != null && !(l.gsm > 0)) need("gsm", "consumption", "GSM must be a number more than 0.");
     if (l.req_kgs == null) need("req_kgs", "consumption", "enter the Req Wt (KGS).");
     else if (!(l.req_kgs > 0)) need("req_kgs", "consumption", "Req Wt must be a number more than 0.");
+
+    const colour = (l.color_name ?? "").trim().toUpperCase();
+    if (l.stage_id) {
+      const rank = stageRankOf(l.stage_id);
+      if (rank === 0 && colour) {
+        need("color_name", "lines", "a GREIGE line has no colour — clear it (greige is one lot, dyed later).");
+      } else if (rank != null && rank >= 1 && !colour) {
+        need("color_name", "lines", "choose the Colour — a dyed line is planned per colour.");
+      }
+      const first = stageOfFabric.get(l.item_id);
+      if (!first) stageOfFabric.set(l.item_id, { row, stage_id: l.stage_id });
+      else if (first.stage_id !== l.stage_id) {
+        need(
+          "stage_id",
+          "consumption",
+          `this fabric is at a different Stage on line ${first.row} — one Stage per fabric (its Fabric Process route is shared).`,
+        );
+      }
+    }
+    const key = `${l.item_id}|${colour}|${(l.finish_dia ?? "").trim().toUpperCase()}`;
+    const dup = rowOfKey.get(key);
+    if (dup) {
+      need("finish_dia", "consumption", `the same fabric, colour and dia are on line ${dup} — put the weight on one line.`);
+    } else rowOfKey.set(key, row);
   });
+  return out;
+}
+
+/**
+ * A GREIGE FABRIC'S ROUTE STOPS AT GREIGE (client audio 2026-09-19): greige
+ * cloth is knitted, not dyed, so a route step in a coloured stage (DYED, WASH,
+ * PRINT) is refused for a fabric whose lines are GREIGE. Steps with no process
+ * or no stage are the route grid's own concern, not this rule's.
+ *
+ * `fabricStageOf` is each fabric's line stage — ONE per fabric by the rule
+ * above; a fabric with mixed stages is already refused there, so this reads
+ * the first.
+ */
+export function iwoGreigeRouteProblems(
+  steps: readonly { item_id: string; stage_id: string | null; process_id: string | null }[],
+  fabricStageOf: ReadonlyMap<string, string>,
+  stageRankOf: (stageId: string) => number | null,
+  names: { fabric: (itemId: string) => string; stage: (stageId: string) => string },
+): { item_id: string; message: string }[] {
+  const out: { item_id: string; message: string }[] = [];
+  const said = new Set<string>();
+  for (const st of steps) {
+    if (!st.process_id || !st.stage_id) continue;
+    const lineStage = fabricStageOf.get(st.item_id);
+    if (!lineStage || stageRankOf(lineStage) !== 0) continue;
+    const rank = stageRankOf(st.stage_id);
+    if (rank == null || rank < 1) continue;
+    const key = `${st.item_id}|${st.stage_id}`;
+    if (said.has(key)) continue;
+    said.add(key);
+    out.push({
+      item_id: st.item_id,
+      message:
+        `${names.fabric(st.item_id)} is planned GREIGE, so its route stops at Greige — ` +
+        `remove the ${names.stage(st.stage_id)} step, or plan the fabric in that stage.`,
+    });
+  }
+  return out;
+}
+
+/** Each fabric's line stage — the first kept line naming one. */
+export function iwoFabricStages(lines: readonly IwoFabricLineFacts[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const l of lines) {
+    if (isBlankIwoFabricLine(l) || !l.item_id || !l.stage_id) continue;
+    if (!out.has(l.item_id)) out.set(l.item_id, l.stage_id);
+  }
   return out;
 }
 

@@ -8,6 +8,8 @@ import { today } from "@/lib/calendar";
 import { iwoFabricBomInput, type IwoFabricBomInput, type IwoFabricBomParsed } from "./types";
 import {
   iwoFabricLineProblems,
+  iwoFabricStages,
+  iwoGreigeRouteProblems,
   iwoShadeTotal,
   iwoYarnLineProblems,
   keptIwoFabricLines,
@@ -28,7 +30,7 @@ import {
   yarnStageStarted,
   type FabricComposition,
 } from "@/lib/orders/fabric-bom/yarn-process";
-import { colouredStageIds, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
+import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import {
   getBomYarnComposition,
@@ -108,7 +110,10 @@ async function writeChildren(
       const { error } = await s.from("iwo_fabric_bom_lines").insert(rows);
       if (error) {
         // 0581's item guard: a line that names something other than a FABRIC.
-        return error.code === "23514" ? "A fabric line names an item that is not a fabric." : error.message;
+        if (error.code === "23514") return "A fabric line names an item that is not a fabric.";
+        // 0592's (fabric, colour, dia) index — `lines.ts` says it first, by row.
+        if (error.code === "23505") return "The same fabric, colour and dia are on two lines — put the weight on one line.";
+        return error.message;
       }
     }
   }
@@ -451,11 +456,25 @@ function yarnLineProblem(p: IwoFabricBomParsed, facts: YarnModeFacts, yarnColour
  * the Roll form prints panel; the server does not second-guess it). A yarn-dyed
  * cloth's dyeing belongs on Yarn Process — that gate comes from `items`.
  */
-async function routeProblem(s: Db, p: IwoFabricBomParsed): Promise<string | null> {
+async function routeProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed): Promise<string | null> {
   const rows = (p.processes ?? []).filter((r) => r.stage_id || r.process_id);
   if (rows.length === 0) return null;
   const [options, lookups] = await Promise.all([getFabricProcessRows(), getFabricProcessLookupRows()]);
-  if (!lookups.stages.length) return null;
+  if (!lookups.stages.length) return "Could not read the fabric stages — try again.";
+
+  /* A GREIGE FABRIC'S ROUTE STOPS AT GREIGE (Phase 2, `lines.ts`). The line
+     stages are the payload's when it carries lines, else the stored ones. */
+  const stageById = new Map(lookups.stages.map((st) => [st.id, st]));
+  const rankOf = (id: string) => {
+    const st = stageById.get(id);
+    return st ? stageRank(st) : null;
+  };
+  const lineFacts = p.lines ?? (await storedLineFacts(s, bomId));
+  const greige = iwoGreigeRouteProblems(rows, iwoFabricStages(lineFacts), rankOf, {
+    fabric: () => "This fabric",
+    stage: (id) => stageById.get(id)?.name ?? "coloured",
+  })[0];
+  if (greige) return greige.message;
   const typeById = await fabricTypesOf(s, [...new Set(rows.map((r) => r.item_id))]);
   if (typeof typeById === "string") return typeById;
   const problems = stageRouteProblems(
@@ -475,6 +494,28 @@ async function routeProblem(s: Db, p: IwoFabricBomParsed): Promise<string | null
     { gatesFor: (itemId) => ({ printDeclared: true, fabricIsYarnDyed: isYarnDyed(typeById.get(itemId) ?? null) }) },
   );
   return problems[0]?.message ?? null;
+}
+
+/** The stored lines as the rules read them — for a save that did not carry
+ *  `lines` (the payload rule in types.ts). */
+async function storedLineFacts(s: Db, bomId: string | null) {
+  if (!bomId) return [];
+  const { data } = await s
+    .from("iwo_fabric_bom_lines")
+    .select("structure_id, item_id, color_name, fabric_form, mixing_uom_id, no_of_colors, gsm, finish_dia, stage_id, req_kgs")
+    .eq("bom_id", bomId);
+  return (data ?? []) as {
+    structure_id: string | null;
+    item_id: string | null;
+    color_name: string | null;
+    fabric_form: string | null;
+    mixing_uom_id: string | null;
+    no_of_colors: number | null;
+    gsm: number | null;
+    finish_dia: string | null;
+    stage_id: string | null;
+    req_kgs: number | null;
+  }[];
 }
 
 /** Each fabric's Solid / Melange / Yarn Dyed name, off `items` — or the
@@ -517,7 +558,20 @@ async function lineProblem(s: Db, p: IwoFabricBomParsed): Promise<string | null>
       typeById.set(r.id, Array.isArray(t) ? (t[0]?.name ?? null) : (t?.name ?? null));
     }
   }
-  const first = iwoFabricLineProblems(p.lines, (id) => typeById.get(id) ?? null)[0];
+  /* GREIGE / coloured (Phase 2) off the stage master — a failed read refuses,
+     since an empty list would read every stage as unrecognised and waive the
+     colour rules. */
+  const { stages } = await getFabricProcessLookupRows();
+  if (!stages.length) return "Could not read the fabric stages — try again.";
+  const stageById = new Map(stages.map((st) => [st.id, st]));
+  const first = iwoFabricLineProblems(
+    p.lines,
+    (id) => typeById.get(id) ?? null,
+    (id) => {
+      const st = stageById.get(id);
+      return st ? stageRank(st) : null;
+    },
+  )[0];
   return first?.message ?? null;
 }
 
@@ -558,7 +612,7 @@ export async function saveIwoFabricBom(
   }
   const lineErr = await lineProblem(s, p);
   if (lineErr) return { ok: false, error: lineErr };
-  const routeErr = await routeProblem(s, p);
+  const routeErr = await routeProblem(s, bomId, p);
   if (routeErr) return { ok: false, error: routeErr };
   const header = { iwo_id: p.iwo_id, bom_date: p.bom_date, is_draft: p.is_draft, remark: p.remark || null };
 
