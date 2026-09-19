@@ -18,12 +18,14 @@
  * The order screen's own history is the reason: its preview and its stored
  * figure diverged twice when each built these maps separately.
  *
- * NO COLOURWAY, NO COMPONENT. `combo` is null on every gross and every route
- * step, which `comboKey` reads as "" — so only steps that name no colour apply,
- * and on an IWO no step can name one.
+ * NO COLOURWAY, NO COMPONENT ON A FABRIC. `combo` is null on every fabric gross
+ * and every route step, which `comboKey` reads as "" — so only steps that name
+ * no colour apply. The one place a colour exists is a DYED Yarn IWO's shades
+ * (0592), where each shade is its own bucket — see `iwoYarnModePurchase`.
  */
 
 import {
+  comboKey,
   comboUplift,
   isRefusal,
   type FabricGross,
@@ -114,6 +116,27 @@ export function iwoRoutesByFabric(
   return out;
 }
 
+/** How a DYED yarn gets its colour (0592). */
+export type IwoColourBy = "dyed_purchase" | "yarn_dyeing";
+
+export const IWO_COLOUR_BY_OPTIONS: readonly { value: IwoColourBy; label: string }[] = [
+  { value: "dyed_purchase", label: "Dyed Purchase" },
+  { value: "yarn_dyeing", label: "Yarn Dyeing" },
+];
+
+/** One shade of a DYED yarn: a Yarn Colour panel name and the KGS planned in it. */
+export type IwoYarnShade = { color_name: string; planned_kgs: number | null };
+
+export type IwoYarnModeAnswer = {
+  qty: number;
+  uom_id: string | null;
+  byCombo: YarnComboWeight[];
+  /** Dyed Purchase only — each shade's own rounded purchase, keyed by
+   *  `comboKey(color_name)`. Absent on GREY and on Yarn Dyeing, where the
+   *  purchase is ONE grey lot. */
+  shadeQty?: Record<string, number>;
+};
+
 /**
  * FOR = YARN (step 4, screenshot 2937): the yarn is PICKED and WEIGHED, not
  * derived from a cloth, so there is no fabric, no blend and no fabric route.
@@ -122,27 +145,80 @@ export function iwoRoutesByFabric(
  * `yarnPurchase` applies, so a Yarn IWO and a Fabric IWO gross a 10% dyeing
  * loss identically.
  *
- * Returns the order engine's success shape (`byCombo` with one uncoloured
- * bucket) so `stageProcessQty` answers each stage's quantity exactly as it
- * does on an order.
+ * ## THREE SHAPES (client audio, 2026-09-19; 0592)
+ *
+ *   - **GREY** (`colourBy` null, no shades) — one uncoloured bucket, every
+ *     stage applies. The pre-0592 answer, unchanged.
+ *   - **DYED · Yarn Dyeing** — ONE BUCKET PER SHADE, each grossed by the steps
+ *     that cover it (its own dyeing step, and any step For every colour). The
+ *     purchase is the grey lot: Σ shade gross, ROUNDED ONCE — the order rule
+ *     ("grey yarn one lot"), since rounding each shade up and adding would buy
+ *     a few grams per shade more than the dye house needs.
+ *   - **DYED · Dyed Purchase** — the same buckets, but each shade IS a
+ *     purchase, so each is rounded up on its own and the yarn's total is their
+ *     sum; `shadeQty` carries them for the shade rows.
+ *
+ * WHY BUCKETS PER SHADE IS THE WHOLE TRICK: `stageProcessQty` already charges a
+ * colour-scoped step on the bucket it names, and the Yarn Process grid's For
+ * list is `byCombo`'s names — so per-shade dyeing needs nothing new in the
+ * order engine, and a step For NAVY stops reading "this BOM needs no NAVY".
+ *
+ * Returns the order engine's success shape so `stageProcessQty` answers each
+ * stage's quantity exactly as it does on an order.
  */
 export function iwoYarnModePurchase(
   plannedKgs: number | null,
-  ownStages: readonly { loss_pct: number | null }[],
+  ownStages: readonly { combo?: string | null; loss_pct: number | null }[],
   kgUomId: string | null,
   decimals: number | null,
   yarnName: string,
-): { qty: number; uom_id: string | null; byCombo: YarnComboWeight[] } | Refusal {
+  dyed: { colourBy: IwoColourBy | null; shades: readonly IwoYarnShade[] } | null = null,
+): IwoYarnModeAnswer | Refusal {
   if (!kgUomId) return { refused: "The UOM master has no active KGS row, so no yarn weight can be stated." };
-  if (plannedKgs == null || !(plannedKgs > 0)) {
-    return { refused: `Enter the Planned Weight for ${yarnName} on Yarn Lines.` };
+  const precision = uomPrecision(decimals);
+
+  if (!dyed) {
+    if (plannedKgs == null || !(plannedKgs > 0)) {
+      return { refused: `Enter the Planned Weight for ${yarnName} on Yarn Lines.` };
+    }
+    const factor = comboUplift(
+      ownStages.map((s) => ({ combo: null, loss_pct: s.loss_pct })),
+      "",
+      [],
+    );
+    if (isRefusal(factor)) return factor;
+    const gross = ceilToPrecision(plannedKgs * factor, precision);
+    return { qty: gross, uom_id: kgUomId, byCombo: [{ combo: "", net: plannedKgs, gross }] };
   }
-  const factor = comboUplift(
-    ownStages.map((s) => ({ combo: null, loss_pct: s.loss_pct })),
-    "",
-    [],
-  );
-  if (isRefusal(factor)) return factor;
-  const gross = ceilToPrecision(plannedKgs * factor, uomPrecision(decimals));
-  return { qty: gross, uom_id: kgUomId, byCombo: [{ combo: "", net: plannedKgs, gross }] };
+
+  if (!dyed.colourBy) return { refused: `Choose how ${yarnName} is coloured (Colour by) on Yarn Lines.` };
+  if (dyed.shades.length === 0) return { refused: `Add the shades of ${yarnName} on Yarn Lines.` };
+
+  const steps = ownStages.map((s) => ({ combo: s.combo ?? null, loss_pct: s.loss_pct }));
+  const byCombo: YarnComboWeight[] = [];
+  const shadeQty: Record<string, number> = {};
+  let rawTotal = 0;
+  for (const sh of dyed.shades) {
+    const key = comboKey(sh.color_name);
+    if (!key) return { refused: `A shade of ${yarnName} names no colour.` };
+    if (sh.planned_kgs == null || !(sh.planned_kgs > 0)) {
+      return { refused: `Enter the KGS for ${key} of ${yarnName}.` };
+    }
+    const factor = comboUplift(steps, key, []);
+    if (isRefusal(factor)) return factor;
+    const raw = sh.planned_kgs * factor;
+    if (dyed.colourBy === "dyed_purchase") {
+      const bought = ceilToPrecision(raw, precision);
+      shadeQty[key] = bought;
+      byCombo.push({ combo: key, net: sh.planned_kgs, gross: bought });
+    } else {
+      byCombo.push({ combo: key, net: sh.planned_kgs, gross: raw });
+    }
+    rawTotal += raw;
+  }
+  if (dyed.colourBy === "dyed_purchase") {
+    const qty = Number(Object.values(shadeQty).reduce((a, b) => a + b, 0).toFixed(6));
+    return { qty, uom_id: kgUomId, byCombo, shadeQty };
+  }
+  return { qty: ceilToPrecision(rawTotal, precision), uom_id: kgUomId, byCombo };
 }

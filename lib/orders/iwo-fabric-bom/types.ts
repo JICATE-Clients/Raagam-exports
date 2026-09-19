@@ -5,6 +5,7 @@ import { capsName, capsTextNullable } from "@/lib/validation/formats";
 // exactly as an order step is. Importing them edits nothing on the order side.
 import { fabricBomProcessInput } from "@/lib/orders/fabric-bom/processes";
 import { fabricBomYarnInput } from "@/lib/orders/fabric-bom/yarn-process";
+import type { IwoColourBy } from "./yarn";
 
 /**
  * IWO Fabric BOM — the order Fabric BOM, duplicated for an Internal Work Order
@@ -98,6 +99,17 @@ export interface IwoFabricBomYarnStageRow {
   refusal_reason: string | null;
 }
 
+/** One shade of a DYED Yarn IWO line (0592). `purchase_qty` is the server's,
+ *  and only on Dyed Purchase — each shade is then its own purchase. */
+export interface IwoFabricBomYarnShadeRow {
+  id: string;
+  yarn_id: string;
+  sno: number;
+  color_name: string;
+  planned_kgs: number;
+  purchase_qty: number | null;
+}
+
 /** A yarn the BOM buys (Yarn Process, step 3). `purchase_qty` is written by
  *  the SERVER from the fabrics' Req Wt, never sent by the form. */
 export interface IwoFabricBomYarnRow {
@@ -105,13 +117,17 @@ export interface IwoFabricBomYarnRow {
   bom_id: string;
   sno: number;
   item_id: string;
-  /** For = Yarn only (step 4): the typed weight and the stage it is bought in. */
+  /** For = Yarn only (step 4): the typed weight (Σ shades on DYED, written by
+   *  the server) and the Stage — GREY or DYED (0592). */
   planned_kgs: number | null;
   buy_stage_id: string | null;
+  /** DYED only (0592): how the colour is got. */
+  colour_by: IwoColourBy | null;
   purchase_qty: number | null;
   uom_id: string | null;
   refusal_reason: string | null;
   iwo_fabric_bom_yarn_stages: IwoFabricBomYarnStageRow[];
+  iwo_fabric_bom_yarn_shades: IwoFabricBomYarnShadeRow[];
 }
 
 export interface IwoFabricBom {
@@ -178,6 +194,14 @@ export const iwoFabricBomLineInput = z.object({
 
 export type IwoFabricBomLineInput = z.input<typeof iwoFabricBomLineInput>;
 
+/** A shade as SENT (0592). Colour capitalised like the Yarn Colour panel it is
+ *  picked from; `purchase_qty` is never sent — the server computes it. Blank
+ *  seeds are dropped by `keptIwoYarnShades` before this is read. */
+export const iwoFabricBomYarnShadeInput = z.object({
+  color_name: capsTextNullable(),
+  planned_kgs: z.number().nullable().default(null),
+});
+
 export const iwoFabricBomInput = z.object({
   iwo_id: z.string().uuid({ message: "Choose the Internal Work Order" }),
   bom_date: z.string().min(1, "Date is required"),
@@ -198,6 +222,10 @@ export const iwoFabricBomInput = z.object({
       fabricBomYarnInput.extend({
         planned_kgs: z.number().nullable().default(null),
         buy_stage_id: z.string().uuid().nullable().default(null),
+        // DYED only (0592). What a DYED line owes is `lines.ts`'s — the schema
+        // cannot see which stage is DYED.
+        colour_by: z.enum(["dyed_purchase", "yarn_dyeing"]).nullable().default(null),
+        shades: z.array(iwoFabricBomYarnShadeInput).default([]),
       }),
     )
     .optional(),

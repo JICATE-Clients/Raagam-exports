@@ -6,13 +6,21 @@ import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { today } from "@/lib/calendar";
 import { iwoFabricBomInput, type IwoFabricBomInput, type IwoFabricBomParsed } from "./types";
-import { iwoFabricLineProblems, iwoYarnLineProblems, keptIwoFabricLines, keptIwoYarnLines } from "./lines";
+import {
+  iwoFabricLineProblems,
+  iwoShadeTotal,
+  iwoYarnLineProblems,
+  keptIwoFabricLines,
+  keptIwoYarnLines,
+  keptIwoYarnShades,
+} from "./lines";
 import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase } from "./yarn";
 import { kgUomOf } from "./service";
 // The ORDER Fabric BOM's pure engine and its order-agnostic loaders, reused as
 // they are — see yarn.ts for why the IWO must not compute a yarn weight any
 // other way. Nothing here edits the order module.
 import {
+  comboKey,
   isRefusal,
   stageProblem,
   stageProcessQty,
@@ -20,12 +28,13 @@ import {
   yarnStageStarted,
   type FabricComposition,
 } from "@/lib/orders/fabric-bom/yarn-process";
-import { stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
+import { colouredStageIds, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import {
   getBomYarnComposition,
   getFabricProcessLookupRows,
   getFabricProcessRows,
+  getYarnStageRows,
 } from "@/lib/orders/fabric-bom/service";
 
 type Result = { ok: true; bomId: string } | { ok: false; error: string };
@@ -38,7 +47,13 @@ const PATH = "/orders/iwo-fabric-bom";
  * types.ts). Delete-then-insert, the order screen's own write shape — the
  * child tables hold nothing a row id is cited by.
  */
-async function writeChildren(s: Db, bomId: string, p: IwoFabricBomParsed, mode: "yarn" | "fabric") {
+async function writeChildren(
+  s: Db,
+  bomId: string,
+  p: IwoFabricBomParsed,
+  mode: "yarn" | "fabric",
+  facts: YarnModeFacts | null,
+) {
   if (p.palette) {
     const { error: d } = await s.from("iwo_fabric_bom_palette").delete().eq("bom_id", bomId);
     if (d) return d.message;
@@ -127,7 +142,7 @@ async function writeChildren(s: Db, bomId: string, p: IwoFabricBomParsed, mode: 
     }
   }
   if (p.yarns) {
-    const err = await writeYarns(s, bomId, p, mode);
+    const err = await writeYarns(s, bomId, p, mode, facts);
     if (err) return err;
   }
   return null;
@@ -154,10 +169,16 @@ async function fabricIdsOf(s: Db, bomId: string, p: IwoFabricBomParsed): Promise
  * preview-versus-stored split this module exists to prevent. So a payload with
  * yarns but no lines or processes is refused rather than half-computed.
  */
-async function writeYarns(s: Db, bomId: string, p: IwoFabricBomParsed, mode: "yarn" | "fabric"): Promise<string | null> {
+async function writeYarns(
+  s: Db,
+  bomId: string,
+  p: IwoFabricBomParsed,
+  mode: "yarn" | "fabric",
+  facts: YarnModeFacts | null,
+): Promise<string | null> {
   if (!p.yarns) return null;
   const kg = await kgUomOf(s);
-  type Built = { row: Record<string, unknown>; stages: Record<string, unknown>[] };
+  type Built = { row: Record<string, unknown>; stages: Record<string, unknown>[]; shades: Record<string, unknown>[] };
   const out: Built[] = [];
 
   /** One yarn's stored row and stages, from its kept stages and its weight
@@ -168,10 +189,12 @@ async function writeYarns(s: Db, bomId: string, p: IwoFabricBomParsed, mode: "ya
     kept: NonNullable<IwoFabricBomParsed["yarns"]>[number]["stages"],
     weight: ReturnType<typeof iwoYarnModePurchase>,
     extra: Record<string, unknown>,
+    shades: Record<string, unknown>[] = [],
   ): Built => {
     const refused = isRefusal(weight);
     const byCombo = refused ? [] : weight.byCombo;
     return {
+      shades,
       row: {
         bom_id: bomId,
         sno: out.length + 1,
@@ -224,14 +247,43 @@ async function writeYarns(s: Db, bomId: string, p: IwoFabricBomParsed, mode: "ya
     }
     for (const y of kept) {
       const stages = startedStages(y);
+      // GREY or DYED (0592) — read off the stage master, never the payload's
+      // say-so. A DYED yarn's weight is its shades; `colour_by` is kept only
+      // there, so a line switched back to GREY cannot leave a stale one behind.
+      const dyed = !!y.buy_stage_id && !!facts?.dyedStages.has(y.buy_stage_id);
+      const shades = dyed ? keptIwoYarnShades(y.shades) : [];
       const weight = iwoYarnModePurchase(
-        y.planned_kgs,
-        stages.map((st) => ({ loss_pct: st.loss_pct ?? null })),
+        dyed ? null : y.planned_kgs,
+        stages.map((st) => ({ combo: st.combo ?? null, loss_pct: st.loss_pct ?? null })),
         kg?.id ?? null,
         kg?.decimals ?? null,
         nameById.get(y.item_id) ?? "this yarn",
+        dyed
+          ? {
+              colourBy: y.colour_by,
+              shades: shades.map((sh) => ({ color_name: sh.color_name ?? "", planned_kgs: sh.planned_kgs })),
+            }
+          : null,
       );
-      out.push(build(y, stages, weight, { planned_kgs: y.planned_kgs, buy_stage_id: y.buy_stage_id }));
+      const shadeQty = isRefusal(weight) ? undefined : weight.shadeQty;
+      out.push(
+        build(
+          y,
+          stages,
+          weight,
+          {
+            planned_kgs: dyed ? iwoShadeTotal(shades) : y.planned_kgs,
+            buy_stage_id: y.buy_stage_id,
+            colour_by: dyed ? y.colour_by : null,
+          },
+          shades.map((sh, i) => ({
+            sno: i + 1,
+            color_name: sh.color_name,
+            planned_kgs: sh.planned_kgs,
+            purchase_qty: shadeQty?.[comboKey(sh.color_name)] ?? null,
+          })),
+        ),
+      );
     }
   } else {
     if (!p.lines || !p.processes) {
@@ -319,7 +371,48 @@ async function writeYarns(s: Db, bomId: string, p: IwoFabricBomParsed, mode: "ya
     const { error: stErr } = await s.from("iwo_fabric_bom_yarn_stages").insert(stageRows);
     if (stErr) return stErr.message;
   }
+  const shadeRows = out.flatMap((y) => y.shades.map((sh) => ({ ...sh, yarn_id: bySno.get(y.row.sno as number) })));
+  if (shadeRows.length) {
+    const { error: shErr } = await s.from("iwo_fabric_bom_yarn_shades").insert(shadeRows);
+    if (shErr) return shErr.code === "23505" ? "A shade is listed twice on one yarn — plan it once." : shErr.message;
+  }
   return null;
+}
+
+/**
+ * THE TWO MASTER FACTS THE YARN LINE RULES NEED (0592), read once per save:
+ * which `yarn_stage` rows are DYED (`colouredStageIds` — `stageRank`, the
+ * Fabric BOM's own test, never the word compared here) and which processes
+ * DYE (`is_dyeing`). A failed read REFUSES the save: an empty set would read
+ * every DYED yarn as GREY, or every dyeing step as not one, and quietly
+ * waive the shade rules.
+ */
+type YarnModeFacts = { dyedStages: Set<string>; dyeingProcesses: Set<string> };
+
+async function yarnModeFactsOf(s: Db, p: IwoFabricBomParsed): Promise<YarnModeFacts | string> {
+  const stages = await getYarnStageRows();
+  if (!stages.length) return "Could not read the yarn stages (GREY / DYED) — try again.";
+  const procIds = [
+    ...new Set((p.yarns ?? []).flatMap((y) => y.stages.map((st) => st.process_id)).filter(Boolean)),
+  ] as string[];
+  const dyeingProcesses = new Set<string>();
+  if (procIds.length) {
+    const { data, error } = await s.from("processes").select("id, is_dyeing").in("id", procIds);
+    if (error) return `Could not read the process master: ${error.message}`;
+    for (const r of (data ?? []) as { id: string; is_dyeing: boolean | null }[]) {
+      if (r.is_dyeing) dyeingProcesses.add(r.id);
+    }
+  }
+  return { dyedStages: colouredStageIds(stages), dyeingProcesses };
+}
+
+/** The Yarn Colour panel names — the payload's when it carries the palette
+ *  (the screen always does), else the stored ones. */
+async function yarnColoursOf(s: Db, bomId: string | null, p: IwoFabricBomParsed): Promise<string[]> {
+  if (p.palette) return p.palette.filter((r) => r.section === "yarn").map((r) => r.name);
+  if (!bomId) return [];
+  const { data } = await s.from("iwo_fabric_bom_palette").select("name").eq("bom_id", bomId).eq("section", "yarn");
+  return ((data ?? []) as { name: string }[]).map((r) => r.name);
 }
 
 /**
@@ -333,16 +426,22 @@ async function iwoForOf(s: Db, iwoId: string): Promise<"yarn" | "fabric" | null>
   return f === "yarn" || f === "fabric" ? f : null;
 }
 
-/** For = Yarn: the Yarn Lines rules (`lines.ts`), run again on the server. */
-function yarnLineProblem(p: IwoFabricBomParsed): string | null {
+/** For = Yarn: the Yarn Lines rules (`lines.ts`), run again on the server —
+ *  the stage and process facts read off the masters, never the payload. */
+function yarnLineProblem(p: IwoFabricBomParsed, facts: YarnModeFacts, yarnColours: string[]): string | null {
   if (!p.yarns) return null;
-  const facts = p.yarns.map((y) => ({
+  const lines = p.yarns.map((y) => ({
     item_id: y.item_id,
     buy_stage_id: y.buy_stage_id,
     planned_kgs: y.planned_kgs,
     hasStages: y.stages.length > 0,
+    colour_by: y.colour_by,
+    shades: y.shades,
+    steps: y.stages
+      .filter((st) => st.process_id)
+      .map((st) => ({ combo: st.combo ?? null, dyeing: facts.dyeingProcesses.has(st.process_id as string) })),
   }));
-  return iwoYarnLineProblems(facts)[0]?.message ?? null;
+  return iwoYarnLineProblems(lines, { isDyedStage: (id) => facts.dyedStages.has(id), yarnColours })[0]?.message ?? null;
 }
 
 /**
@@ -444,13 +543,17 @@ export async function saveIwoFabricBom(
   const s = await createClient();
   const mode = await iwoForOf(s, p.iwo_id);
   if (!mode) return { ok: false, error: "A Fabric BOM is raised only for an Internal Work Order For Yarn or Fabric." };
+  let facts: YarnModeFacts | null = null;
   if (mode === "yarn") {
     // A Yarn IWO bypasses the fabric sections (screenshot 2937): no fabric
     // line or fabric route is accepted, and the yarn lines are its whole plan.
     if ((p.lines ?? []).length || (p.processes ?? []).some((r) => r.process_id)) {
       return { ok: false, error: "This work order is For Yarn — it takes yarn lines, not fabric lines." };
     }
-    const yarnErr = yarnLineProblem(p);
+    const read = await yarnModeFactsOf(s, p);
+    if (typeof read === "string") return { ok: false, error: read };
+    facts = read;
+    const yarnErr = yarnLineProblem(p, facts, await yarnColoursOf(s, bomId, p));
     if (yarnErr) return { ok: false, error: yarnErr };
   }
   const lineErr = await lineProblem(s, p);
@@ -484,7 +587,7 @@ export async function saveIwoFabricBom(
     if (error) return { ok: false, error: error.message };
   }
 
-  const childErr = await writeChildren(s, id, p, mode);
+  const childErr = await writeChildren(s, id, p, mode, facts);
   if (childErr) return { ok: false, error: childErr };
 
   await writeAudit({

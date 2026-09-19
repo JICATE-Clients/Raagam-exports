@@ -20,7 +20,7 @@ import {
   type FabricComposition,
 } from "../lib/orders/fabric-bom/yarn-process.ts";
 import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase } from "../lib/orders/iwo-fabric-bom/yarn.ts";
-import { iwoYarnLineProblems, keptIwoYarnLines } from "../lib/orders/iwo-fabric-bom/lines.ts";
+import { iwoShadeTotal, iwoYarnLineProblems, keptIwoYarnLines } from "../lib/orders/iwo-fabric-bom/lines.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -154,9 +154,16 @@ check(
   ["Add at least one yarn."],
 );
 check(
-  "§11 a kept line owes its stage and its weight",
+  // 0592: with no Stage the line cannot know whether it owes a weight (GREY)
+  // or shades (DYED), so it asks for the Stage alone.
+  "§11 a kept line with no Stage is asked for the Stage first",
   iwoYarnLineProblems([{ item_id: COTTON, buy_stage_id: null, planned_kgs: null }]).map((p) => p.message),
-  ["Yarn line 1: choose the stage it is bought in.", "Yarn line 1: enter the Planned Weight (KGS)."],
+  ["Yarn line 1: choose the Stage (GREY or DYED)."],
+);
+check(
+  "§11 a GREY line owes its weight",
+  iwoYarnLineProblems([{ item_id: COTTON, buy_stage_id: "grey", planned_kgs: null }]).map((p) => p.message),
+  ["Yarn line 1: enter the Planned Weight (KGS)."],
 );
 check(
   "§11 a yarn listed twice is refused by row",
@@ -170,6 +177,150 @@ check(
   "§11 a line with only its stages typed is NOT blank",
   keptIwoYarnLines([{ item_id: null, buy_stage_id: null, planned_kgs: null, hasStages: true }]).length,
   1,
+);
+
+// ---------------------------------------------------------------------------
+// §12 SHADES (0592, client audio 2026-09-19): GREY = one weight, no colour;
+// DYED = shades, and Colour by Dyed Purchase (each shade bought) or Yarn
+// Dyeing (the grey total bought once, a dyeing step per shade).
+// ---------------------------------------------------------------------------
+
+const ctx = { isDyedStage: (id: string) => id === "dyed", yarnColours: ["NAVY", "Black "] };
+const msgs = (l: Parameters<typeof iwoYarnLineProblems>[0][number]) =>
+  iwoYarnLineProblems([l], ctx).map((p) => p.message);
+const navy = { color_name: "navy", planned_kgs: 250 };
+const black = { color_name: "BLACK", planned_kgs: 100 };
+const dye = (combo: string | null) => ({ combo, dyeing: true });
+
+check("§12 a GREY line with a weight is clean", msgs({ item_id: COTTON, buy_stage_id: "grey", planned_kgs: 1000 }), []);
+check(
+  "§12 GREY takes no shades",
+  msgs({ item_id: COTTON, buy_stage_id: "grey", planned_kgs: 1000, shades: [navy] }),
+  ["Yarn line 1: a GREY yarn has no shades — clear them, or set the Stage to DYED."],
+);
+check(
+  "§12 GREY takes no dyeing step — dyeing is what DYED means",
+  msgs({ item_id: COTTON, buy_stage_id: "grey", planned_kgs: 1000, steps: [dye(null)] }),
+  ["Yarn line 1: dyeing makes this yarn DYED — set its Stage to DYED and add the shades."],
+);
+check(
+  "§12 GREY takes no step scoped to a colour",
+  msgs({ item_id: COTTON, buy_stage_id: "grey", planned_kgs: 1000, steps: [{ combo: "NAVY", dyeing: false }] }),
+  ["Yarn line 1: a GREY yarn is one lot — clear the For colour on its Yarn Process step."],
+);
+check(
+  "§12 DYED owes Colour by and its shades — no Planned Weight asked",
+  msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null }),
+  ["Yarn line 1: choose Colour by — Dyed Purchase or Yarn Dyeing.", "Yarn line 1: add the shades and the KGS of each ([Shades])."],
+);
+check(
+  "§12 a shade must be on the Yarn Colour panel, once, with KGS",
+  msgs({
+    item_id: COTTON,
+    buy_stage_id: "dyed",
+    planned_kgs: null,
+    colour_by: "dyed_purchase",
+    shades: [navy, { color_name: "RED", planned_kgs: 5 }, { color_name: "NAVY", planned_kgs: 0 }, { color_name: null, planned_kgs: null }],
+  }),
+  [
+    "Yarn line 1: shade 2: RED is not on the Yarn Colour panel — add it there first.",
+    "Yarn line 1: shade 3: NAVY is listed twice — plan it once.",
+    "Yarn line 1: shade 3: KGS must be a number more than 0.",
+  ],
+);
+check(
+  "§12 Dyed Purchase: bought dyed, so no dyeing step",
+  msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null, colour_by: "dyed_purchase", shades: [navy], steps: [dye("NAVY")] }),
+  ["Yarn line 1: it is bought already dyed — remove the dyeing step, or choose Colour by Yarn Dyeing."],
+);
+check(
+  "§12 Yarn Dyeing: every shade needs its own dyeing step",
+  msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null, colour_by: "yarn_dyeing", shades: [navy, black], steps: [dye("NAVY")] }),
+  ["Yarn line 1: add a Yarn Dyeing step For BLACK on Yarn Process."],
+);
+check(
+  "§12 Yarn Dyeing: a dyeing step For every colour is refused — one per shade",
+  msgs({ item_id: COTTON, buy_stage_id: "dyed", planned_kgs: null, colour_by: "yarn_dyeing", shades: [navy], steps: [dye(null), dye("NAVY")] }),
+  ["Yarn line 1: choose which shade each dyeing step is For — one dyeing step per shade."],
+);
+check(
+  "§12 a step For a colour that is not a shade is refused",
+  msgs({
+    item_id: COTTON,
+    buy_stage_id: "dyed",
+    planned_kgs: null,
+    colour_by: "yarn_dyeing",
+    shades: [navy],
+    steps: [dye("NAVY"), { combo: "BLACK", dyeing: false }],
+  }),
+  ["Yarn line 1: a Yarn Process step is For BLACK, which is not a shade of this yarn."],
+);
+check(
+  "§12 a correct Yarn Dyeing line is clean",
+  msgs({
+    item_id: COTTON,
+    buy_stage_id: "dyed",
+    planned_kgs: null,
+    colour_by: "yarn_dyeing",
+    shades: [navy, black],
+    steps: [dye("NAVY"), dye("BLACK"), { combo: null, dyeing: false }],
+  }),
+  [],
+);
+check("§12 the Planned Weight of a DYED line is Σ shades", iwoShadeTotal([navy, black, { color_name: "", planned_kgs: null }]), 350);
+check("§12 …and blank while a shade has no number", iwoShadeTotal([navy, { color_name: "BLACK", planned_kgs: null }]), null);
+
+// The arithmetic. The SRS's own example, re-read by the audio: 250 KG of NAVY
+// elastane by Yarn Dyeing at 10% dye loss. The grey bought is 250 / 0.9.
+const shaded = (
+  colourBy: "dyed_purchase" | "yarn_dyeing",
+  shades: { color_name: string; planned_kgs: number | null }[],
+  stages: { combo: string | null; loss_pct: number }[],
+) => iwoYarnModePurchase(null, stages, KG, 3, "70D ELASTANE", { colourBy, shades });
+
+const srs = shaded("yarn_dyeing", [{ color_name: "NAVY", planned_kgs: 250 }], [{ combo: "NAVY", loss_pct: 10 }]);
+check("§12 SRS: 250 KG NAVY @ 10% → 277.778 grey bought", isRefusal(srs) ? srs : srs.qty, 277.778);
+refute("§12 …never 275 (the ×(1+L) reading)", isRefusal(srs) ? srs : srs.qty, 275);
+
+// Two shades, each dyed at 10%: 100/0.9 = 111.1111…, twice = 222.2222…
+// Yarn Dyeing buys ONE grey lot and rounds it once → 222.223.
+// Dyed Purchase buys each shade and rounds each → 111.112 × 2 = 222.224.
+const two = [
+  { color_name: "NAVY", planned_kgs: 100 },
+  { color_name: "BLACK", planned_kgs: 100 },
+];
+const twoSteps = [
+  { combo: "NAVY", loss_pct: 10 },
+  { combo: "BLACK", loss_pct: 10 },
+];
+const yd = shaded("yarn_dyeing", two, twoSteps);
+const dp = shaded("dyed_purchase", two, twoSteps);
+check("§12 Yarn Dyeing rounds the grey lot ONCE", isRefusal(yd) ? yd : yd.qty, 222.223);
+check("§12 Dyed Purchase rounds EACH shade", isRefusal(dp) ? dp : dp.qty, 222.224);
+check("§12 …and says what each shade buys", isRefusal(dp) ? dp : dp.shadeQty, { NAVY: 111.112, BLACK: 111.112 });
+check("§12 Yarn Dyeing carries no per-shade purchase", isRefusal(yd) ? yd : yd.shadeQty, undefined);
+
+// A step For NAVY grosses NAVY only; an uncoloured step grosses every shade.
+const scoped = shaded(
+  "yarn_dyeing",
+  two,
+  [
+    { combo: "NAVY", loss_pct: 10 },
+    { combo: null, loss_pct: 2 },
+  ],
+);
+check(
+  "§12 each shade is its own bucket, grossed by the steps that cover it",
+  isRefusal(scoped) ? scoped : scoped.byCombo.map((c) => [c.combo, r3(c.gross)]),
+  [
+    ["NAVY", r3(100 / 0.9 / 0.98)],
+    ["BLACK", r3(100 / 0.98)],
+  ],
+);
+check(
+  "§12 Colour by missing refuses by name",
+  iwoYarnModePurchase(null, [], KG, 3, "70D ELASTANE", { colourBy: null, shades: two }),
+  { refused: "Choose how 70D ELASTANE is coloured (Colour by) on Yarn Lines." },
 );
 
 if (failed) {

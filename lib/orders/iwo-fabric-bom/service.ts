@@ -61,7 +61,7 @@ export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
       "id, code, iwo_date, iwo_for, style_ref_no, deli_date, remarks, status, created_by, created_at, " +
         "sales_orders(id, order_number), " +
         "iwo_fabric_boms(*, iwo_fabric_bom_palette(*), iwo_fabric_bom_dias(*), iwo_fabric_bom_lines(*), " +
-        "iwo_fabric_bom_processes(*), iwo_fabric_bom_yarns(*, iwo_fabric_bom_yarn_stages(*)))",
+        "iwo_fabric_bom_processes(*), iwo_fabric_bom_yarns(*, iwo_fabric_bom_yarn_stages(*), iwo_fabric_bom_yarn_shades(*)))",
     )
     .in("iwo_for", ["yarn", "fabric"])
     .eq("location_id", locationId)
@@ -91,6 +91,9 @@ export async function listIwoFabricBomTasks(): Promise<IwoFabricBomTask[]> {
               .map((y) => ({
                 ...y,
                 iwo_fabric_bom_yarn_stages: [...(y.iwo_fabric_bom_yarn_stages ?? [])].sort(
+                  (a, c) => a.sno - c.sno,
+                ),
+                iwo_fabric_bom_yarn_shades: [...(y.iwo_fabric_bom_yarn_shades ?? [])].sort(
                   (a, c) => a.sno - c.sno,
                 ),
               })),

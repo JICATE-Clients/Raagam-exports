@@ -36,6 +36,12 @@
  * and a Planned Weight; Yarn Process then lists those picked yarns, and each
  * purchase is the Planned Weight through the yarn's own stages
  * (`iwoYarnModePurchase`, the same helper the save calls).
+ *
+ * 0592 (client audio 2026-09-19): a Yarn line's Stage decides its shape. GREY
+ * is one Planned Weight; DYED takes "Colour by" (Dyed Purchase / Yarn Dyeing)
+ * and its SHADES in a [Shades] popup (`yarn-shades-sheet.tsx`), and its
+ * Planned Weight becomes Σ shades. Each shade is its own bucket in the engine,
+ * so Yarn Process offers the shades in its For column with no new code there.
  */
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -92,10 +98,23 @@ import {
   type YarnStageRow,
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
-import { stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
+import { colouredStageIds, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { fabricFormLabel } from "@/lib/orders/fabric-bom/component-map";
-import { iwoFabricGross, iwoRoutesByFabric, iwoYarnModePurchase } from "@/lib/orders/iwo-fabric-bom/yarn";
-import { iwoYarnLineProblems, keptIwoYarnLines } from "@/lib/orders/iwo-fabric-bom/lines";
+import {
+  IWO_COLOUR_BY_OPTIONS,
+  iwoFabricGross,
+  iwoRoutesByFabric,
+  iwoYarnModePurchase,
+  type IwoColourBy,
+} from "@/lib/orders/iwo-fabric-bom/yarn";
+import {
+  iwoShadeTotal,
+  iwoYarnLineProblems,
+  keptIwoYarnLines,
+  keptIwoYarnShades,
+} from "@/lib/orders/iwo-fabric-bom/lines";
+import type { SheetOrigin } from "@/components/ui/sheet";
+import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -152,10 +171,28 @@ const blankLine = (): LineRow => ({
   req_kgs: "",
 });
 
-/** A For = Yarn line (step 4): the yarn, its buy stage, the Planned Weight typed. */
-type YarnLineRow = { key: string; item_id: string | null; buy_stage_id: string | null; planned_kgs: string };
-// EVERY SEED IS BLANK — the save drops an untouched yarn line by testing what is typed.
-const blankYarnLine = (): YarnLineRow => ({ key: newKey(), item_id: null, buy_stage_id: null, planned_kgs: "" });
+/** A For = Yarn line (step 4): the yarn, its Stage, and either the Planned
+ *  Weight typed (GREY) or Colour by + its shades (DYED, 0592). */
+type YarnLineRow = {
+  key: string;
+  item_id: string | null;
+  buy_stage_id: string | null;
+  planned_kgs: string;
+  colour_by: IwoColourBy | "";
+  shades: ShadeRow[];
+};
+// EVERY SEED IS BLANK — the save drops an untouched yarn line (and an untouched
+// shade) by testing what is typed. One blank shade stands ready, so the Shades
+// popup never opens on a bare "+ Add" (AGENTS.md, default rows).
+const blankShade = (): ShadeRow => ({ key: newKey(), color_name: "", planned_kgs: "" });
+const blankYarnLine = (): YarnLineRow => ({
+  key: newKey(),
+  item_id: null,
+  buy_stage_id: null,
+  planned_kgs: "",
+  colour_by: "",
+  shades: [blankShade()],
+});
 
 /** "" → null; anything else → a number, or NaN for a non-number. */
 const num = (v: string): number | null => {
@@ -317,6 +354,9 @@ export function IwoFabricBomScreen({
   const [openYarnId, setOpenYarnId] = useState<string | null | undefined>(undefined);
   /** For = Yarn (step 4): the picked yarns and their Planned Weight. */
   const [yarnLines, setYarnLines] = useState<YarnLineRow[]>([]);
+  /** The yarn line whose [Shades] popup is open, and the button it grew from. */
+  const [shadesFor, setShadesFor] = useState<string | null>(null);
+  const [shadesOrigin, setShadesOrigin] = useState<SheetOrigin | null>(null);
   const [openFabricId, setOpenFabricId] = useState<string | null | undefined>(undefined);
   /** The compositions behind the lines' fabrics, keyed with the question it
    *  answers so a late reply is never shown against changed fabrics. */
@@ -448,12 +488,21 @@ export function IwoFabricBomScreen({
     // Fabric one they are derived, and the Yarn Lines grid is not shown.
     const yl =
       t.iwo_for === "yarn"
-        ? (b.iwo_fabric_bom_yarns ?? []).map((y) => ({
-            key: newKey(),
-            item_id: y.item_id,
-            buy_stage_id: y.buy_stage_id,
-            planned_kgs: str(y.planned_kgs),
-          }))
+        ? (b.iwo_fabric_bom_yarns ?? []).map((y) => {
+            const shades = (y.iwo_fabric_bom_yarn_shades ?? []).map((sh) => ({
+              key: newKey(),
+              color_name: sh.color_name,
+              planned_kgs: str(sh.planned_kgs),
+            }));
+            return {
+              key: newKey(),
+              item_id: y.item_id,
+              buy_stage_id: y.buy_stage_id,
+              planned_kgs: str(y.planned_kgs),
+              colour_by: y.colour_by ?? ("" as const),
+              shades: shades.length ? shades : [blankShade()],
+            };
+          })
         : [];
     setYarnLines(yl.length ? yl : [blankYarnLine()]);
     setOpenYarnId(undefined);
@@ -539,18 +588,40 @@ export function IwoFabricBomScreen({
     processKinds,
   );
 
+  /** GREY or DYED (0592) — `stageRank` via `colouredStageIds`, the Fabric BOM's
+   *  own test and the one the save runs; never the word DYED compared here. */
+  const dyedStageIds = colouredStageIds(data.yarnStages);
+  const isDyedLine = (l: YarnLineRow) => !!l.buy_stage_id && dyedStageIds.has(l.buy_stage_id);
+  const shadeFacts = (l: YarnLineRow) =>
+    l.shades.map((sh) => ({ color_name: normName(sh.color_name) || null, planned_kgs: num(sh.planned_kgs) }));
+  /** The Yarn Colour panel's names — what a shade may be. */
+  const yarnColourNames = [...new Set(palette.yarn.map((r) => normName(r.value)).filter(Boolean))];
+
   /** One yarn's purchase weight, or the refusal standing in for it — the order
-   *  engine, with the arguments the save passes (no source, no shades yet). */
-  const weightFor = (r: YarnRow) =>
-    yarnMode
-      ? iwoYarnModePurchase(
-          num(yarnLines.find((l) => l.item_id === r.item_id)?.planned_kgs ?? ""),
-          r.stages.map((st) => ({ loss_pct: num(st.loss_pct) })),
-          data.kgUom?.id ?? null,
-          data.kgUom?.decimals ?? null,
-          r.name || "this yarn",
-        )
-      : yarnPurchase(
+   *  engine, with the arguments the save passes (no source; shades on a DYED
+   *  Yarn IWO line, 0592). */
+  const weightFor = (r: YarnRow) => {
+    if (yarnMode) {
+      const l = yarnLines.find((x) => x.item_id === r.item_id);
+      const dyed = !!l && isDyedLine(l);
+      return iwoYarnModePurchase(
+        dyed ? null : num(l?.planned_kgs ?? ""),
+        r.stages.map((st) => ({ combo: st.combo || null, loss_pct: num(st.loss_pct) })),
+        data.kgUom?.id ?? null,
+        data.kgUom?.decimals ?? null,
+        r.name || "this yarn",
+        dyed && l
+          ? {
+              colourBy: l.colour_by || null,
+              shades: keptIwoYarnShades(shadeFacts(l)).map((sh) => ({
+                color_name: sh.color_name ?? "",
+                planned_kgs: sh.planned_kgs,
+              })),
+            }
+          : null,
+      );
+    }
+    return yarnPurchase(
       r.item_id,
       fabricGross,
       compositionById,
@@ -560,6 +631,7 @@ export function IwoFabricBomScreen({
       new Map(),
       [],
     );
+  };
 
   /** Gross Yarn for one line: its Req Wt through its fabric's route losses
    *  (`comboUplift`, divide by 1 — L, compounded). Blank while either is unknown. */
@@ -620,13 +692,31 @@ export function IwoFabricBomScreen({
 
   /** For = Yarn: the Yarn Lines rules (`lines.ts`) — the same function the
    *  action runs. A yarn line with stages typed counts as started. */
-  const yarnLineFacts = yarnLines.map((l) => ({
-    item_id: l.item_id,
-    buy_stage_id: l.buy_stage_id,
-    planned_kgs: num(l.planned_kgs),
-    hasStages: !!l.item_id && (yarnAnswers[l.item_id]?.stages ?? []).some((st) => !!(st.stage_id || st.process_id)),
-  }));
-  const yarnLineIssues = yarnMode ? iwoYarnLineProblems(yarnLineFacts) : [];
+  const yarnLineFacts = yarnLines.map((l) => {
+    const stages = l.item_id ? (yarnAnswers[l.item_id]?.stages ?? []) : [];
+    return {
+      item_id: l.item_id,
+      buy_stage_id: l.buy_stage_id,
+      planned_kgs: num(l.planned_kgs),
+      hasStages: stages.some((st) => !!(st.stage_id || st.process_id)),
+      colour_by: l.colour_by || null,
+      shades: shadeFacts(l),
+      // "Is this a dyeing step" is the process master's `is_dyeing` — the
+      // flag the save reads too (0592 set it on YARN DYEING).
+      steps: stages
+        .filter((st) => st.process_id)
+        .map((st) => ({
+          combo: st.combo || null,
+          dyeing: !!processKinds.get(st.process_id as string)?.is_dyeing,
+        })),
+    };
+  });
+  const yarnLineIssues = yarnMode
+    ? iwoYarnLineProblems(yarnLineFacts, {
+        isDyedStage: (id) => dyedStageIds.has(id),
+        yarnColours: yarnColourNames,
+      })
+    : [];
 
   const validity = sectionValidity({
     sections: [
@@ -654,7 +744,12 @@ export function IwoFabricBomScreen({
         kind: "custom" as const,
       })),
       ...routeBlockers.map((b) => ({ section: "process", label: "Fabric Process", message: b.message, kind: "custom" as const })),
-      ...yarnLineIssues.map((y) => ({ section: "yarnLines", label: "Yarn Lines", message: y.message, kind: "custom" as const })),
+      ...yarnLineIssues.map((y) => ({
+        section: y.section ?? "yarnLines",
+        label: y.section === "yarns" ? "Yarn Process" : "Yarn Lines",
+        message: y.message,
+        kind: "custom" as const,
+      })),
       ...(yarnsLoading
         ? [{ section: "yarns", label: "Yarn Process", message: "Yarn Process is still reading the fabrics' compositions " + "—" + " save again in a moment.", kind: "custom" as const }]
         : []),
@@ -684,6 +779,10 @@ export function IwoFabricBomScreen({
         item_id: l.item_id as string,
         planned_kgs: l.planned_kgs,
         buy_stage_id: l.buy_stage_id,
+        // Sent as typed; the SERVER decides GREY/DYED off the stage master and
+        // drops both on a GREY line (0592).
+        colour_by: l.colour_by,
+        shades: keptIwoYarnShades(l.shades),
         stages: (yarnAnswers[l.item_id as string]?.stages ?? []).map((st, j) => ({
           sno: j + 1,
           stage_id: st.stage_id,
@@ -1139,20 +1238,37 @@ export function IwoFabricBomScreen({
   /** The purchase a yarn line leads to — its Planned Weight through its own
    *  Yarn Process stages. Blank while it cannot be stated; Yarn Process says why. */
   const purchaseFor = (l: YarnLineRow): number | null => {
+    const w = answerFor(l);
+    return w && !isRefusal(w) ? w.qty : null;
+  };
+  /** The engine's whole answer for a line — the Shades popup reads its
+   *  per-shade purchases (Dyed Purchase) from the same call. */
+  const answerFor = (l: YarnLineRow) => {
     if (!l.item_id) return null;
     const r = yarnRows.find((y) => y.item_id === l.item_id);
-    if (!r) return null;
-    const w = weightFor(r);
-    return isRefusal(w) ? null : w.qty;
+    return r ? weightFor(r) : null;
   };
+
+  const openShades = (l: YarnLineRow, origin: SheetOrigin) => {
+    setShadesOrigin(origin);
+    setShadesFor(l.key);
+  };
+  const shadeLine = shadesFor ? (yarnLines.find((l) => l.key === shadesFor) ?? null) : null;
+  const shadeAnswer = shadeLine ? answerFor(shadeLine) : null;
+  const shadeQty = shadeAnswer && !isRefusal(shadeAnswer) && "shadeQty" in shadeAnswer ? shadeAnswer.shadeQty : undefined;
 
   /**
    * YARN LINES — screenshot 2937's main grid: Yarn Description, Stage, Planned
    * Weight (KGS). Purchase Wt is the answer, read-only: what Yarn Process's
    * stages make of the Planned Weight.
    *
-   * WIDTHS (check:grid-budget): name 288 + code 144 + range 112 + range 112 =
-   * 656 + 72 chrome = 728 <= 1155.
+   * 0592: Colour by and [Shades] belong to a DYED line only. On a GREY line
+   * they stand empty and out of the way (the button is disabled, so Tab never
+   * lands on a door that opens nothing), and a DYED line's Planned Weight is
+   * Σ shades, read-only.
+   *
+   * WIDTHS (check:grid-budget): name 288 + code 144 + code 144 + hug 88 +
+   * range 112 + range 112 = 888 + 72 chrome = 960 <= 1155.
    */
   const yarnLineColumns: ChildGridColumn<YarnLineRow>[] = [
     {
@@ -1191,21 +1307,94 @@ export function IwoFabricBomScreen({
       ),
     },
     {
+      header: "Colour by",
+      width: FIELD_WIDTH_CSS.code,
+      // Owed on a DYED line only, so the hold is per ROW (the Mixing Uom
+      // shape) — a column star would cage a GREY line on a field it never owes.
+      cell: (r) =>
+        isDyedLine(r) ? (
+          <RequiredScope required label="Colour by">
+            <Select
+              compact
+              required
+              aria-label="Colour by"
+              value={r.colour_by}
+              onChange={(e) => patchYarnLine(r.key, { colour_by: e.target.value as IwoColourBy | "" })}
+            >
+              <option value="" />
+              {IWO_COLOUR_BY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </RequiredScope>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
+      header: "Shades",
+      width: FIELD_WIDTH_CSS.hug,
+      cell: (r) => {
+        const n = keptIwoYarnShades(shadeFacts(r)).length;
+        return (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 w-full"
+            /* Disabled on a GREY line with no shades, which `ROW_FIELDS`
+               excludes, so no Tab stop opens nothing. BUT LIVE ON A GREY LINE
+               THAT STILL HOLDS SHADES: the rules refuse that line until they
+               are cleared ("a GREY yarn has no shades"), and a disabled door to
+               the only fix would make the refusal unsatisfiable. */
+            disabled={!isDyedLine(r) && n === 0}
+            /* A MARKER, NEVER A HANDLER — `data-row-open` puts the button on
+               the row's axis for Tab, Enter and ← → at once (the order
+               screen's [Detail] shape), since a DYED line's shades are
+               otherwise reachable only with the mouse. */
+            data-row-open
+            aria-label={n ? `Shades — ${n} entered` : "Shades — none entered"}
+            onClick={(ev) => openShades(r, ev.currentTarget.getBoundingClientRect())}
+          >
+            {n ? String(n) : "Shades"}
+          </Button>
+        );
+      },
+    },
+    {
       header: "Planned Weight (KGS)",
       required: true,
       align: "right",
       width: FIELD_WIDTH_CSS.range,
-      total: { kind: "sum", of: (r) => num(r.planned_kgs) || 0, format: kg },
-      cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          required
-          aria-label="Planned Weight (KGS)"
-          value={r.planned_kgs}
-          onChange={(e) => patchYarnLine(r.key, { planned_kgs: e.target.value })}
-        />
-      ),
+      total: {
+        kind: "sum",
+        of: (r) => (isDyedLine(r) ? (iwoShadeTotal(shadeFacts(r)) ?? 0) : num(r.planned_kgs) || 0),
+        format: kg,
+      },
+      cell: (r) =>
+        isDyedLine(r) ? (
+          // Σ shades — the server writes the same sum (0592).
+          <Input
+            className="h-8 text-right"
+            readOnly
+            aria-label="Planned Weight (KGS), the sum of the shades"
+            value={(() => {
+              const t = iwoShadeTotal(shadeFacts(r));
+              return t == null ? "" : kg(t);
+            })()}
+          />
+        ) : (
+          <Input
+            className="h-8 text-right"
+            inputMode="decimal"
+            required
+            aria-label="Planned Weight (KGS)"
+            value={r.planned_kgs}
+            onChange={(e) => patchYarnLine(r.key, { planned_kgs: e.target.value })}
+          />
+        ),
     },
     {
       // Derived, never typed — `readOnly` also takes it off the Tab path.
@@ -1697,6 +1886,22 @@ export function IwoFabricBomScreen({
           onBlockedSave: revealFirstProblem,
           isPending,
         }}
+      />
+
+      <YarnShadesSheet
+        open={!!shadeLine}
+        onClose={() => setShadesFor(null)}
+        origin={shadesOrigin}
+        yarnName={shadeLine?.item_id ? (yarnById.get(shadeLine.item_id)?.name ?? "") : ""}
+        colourBy={shadeLine?.colour_by || null}
+        rows={shadeLine?.shades ?? []}
+        onChange={(next) => shadeLine && patchYarnLine(shadeLine.key, { shades: next })}
+        colours={yarnColourNames}
+        purchaseOf={
+          shadeLine?.colour_by === "dyed_purchase" ? (c) => shadeQty?.[normName(c)] ?? null : null
+        }
+        newKey={newKey}
+        readOnly={!perms.canEdit && !perms.canCreate}
       />
     </>
   );

@@ -26,6 +26,7 @@
  */
 
 import { missingFabricLineFields } from "@/lib/orders/fabric-bom/fabric-line-rules";
+import type { IwoColourBy } from "./yarn";
 
 /** A line as the rules read it. Numbers may be NaN — a typed non-number —
  *  which is refused by name rather than read as blank. */
@@ -125,52 +126,169 @@ export function iwoFabricLineProblems(
 // ---------------------------------------------------------------------------
 
 /**
- * A yarn line on a For = Yarn BOM (screenshot 2937): the yarn, the stage it is
- * BOUGHT in (GREY / DYED), and the Planned Weight typed. Its process stages
- * are Yarn Process's, and a line with only stages typed still counts as
- * started — it is the operator's work, not a seeded blank.
+ * A yarn line on a For = Yarn BOM (screenshot 2937): the yarn, its Stage
+ * (GREY / DYED), and either the Planned Weight typed (GREY) or its shades
+ * (DYED, 0592). Its process stages are Yarn Process's, and a line with only
+ * stages typed still counts as started — it is the operator's work, not a
+ * seeded blank.
+ *
+ * ## WHAT STAGE MEANS (client audio, 2026-09-19 — REVERSES 0581)
+ *
+ *   - **GREY** — raw grey yarn, ONE weight, no colour breakdown. So no shades,
+ *     no step scoped to a colour, and no dyeing step: dyeing a yarn is what
+ *     makes it DYED, and the planner says so with the Stage.
+ *   - **DYED** — the shades, a weight each, and HOW the colour is got
+ *     (`colour_by`): **Dyed Purchase** buys each shade dyed, so a dyeing step
+ *     here would dye it twice; **Yarn Dyeing** buys the grey total and dyes it,
+ *     so EVERY shade needs a dyeing step For that shade — one step per shade is
+ *     what gives the Budget one dyeing line (and one rate) per shade.
+ *
+ * "Is this a dyeing step" is the process master's `is_dyeing` (0557; 0592 set
+ * it on YARN DYEING) — read by the CALLER and handed in as `dyeing`, so this
+ * file stays pure. Not the step's Stage: a winding step after dyeing sits in
+ * the DYED stage and is not a dyeing step.
  */
+export type IwoYarnShadeFacts = { color_name?: string | null; planned_kgs: number | null };
+
+/** A Yarn Process step as the rules read it — only steps naming a process. */
+export type IwoYarnStepFacts = { combo: string | null; dyeing: boolean };
+
 export type IwoYarnLineFacts = {
   item_id: string | null;
   buy_stage_id: string | null;
   planned_kgs: number | null;
   hasStages?: boolean;
+  colour_by?: IwoColourBy | null;
+  shades?: readonly IwoYarnShadeFacts[];
+  steps?: readonly IwoYarnStepFacts[];
 };
 
+/** THE SHADE BLANK-ROW FILTER — the Shades grid seeds one blank row, and it
+ *  tests only what is typed, so an untouched seed is never stored. */
+export const isBlankIwoYarnShade = (s: IwoYarnShadeFacts): boolean =>
+  !s.color_name?.trim() && s.planned_kgs == null;
+
+export function keptIwoYarnShades<T extends IwoYarnShadeFacts>(shades: readonly T[] | undefined): T[] {
+  return (shades ?? []).filter((s) => !isBlankIwoYarnShade(s));
+}
+
 export const isBlankIwoYarnLine = (l: IwoYarnLineFacts): boolean =>
-  !l.item_id && !l.buy_stage_id && l.planned_kgs == null && !l.hasStages;
+  !l.item_id &&
+  !l.buy_stage_id &&
+  l.planned_kgs == null &&
+  !l.hasStages &&
+  !l.colour_by &&
+  keptIwoYarnShades(l.shades).length === 0;
 
 export function keptIwoYarnLines<T extends IwoYarnLineFacts>(lines: readonly T[]): T[] {
   return lines.filter((l) => !isBlankIwoYarnLine(l));
 }
 
-export type IwoYarnLineProblem = { row: number; message: string };
+/** Where the fix is: the line itself, its Shades, or its Yarn Process steps. */
+export type IwoYarnLineProblem = { row: number; message: string; section?: "yarnLines" | "yarns" };
+
+export type IwoYarnRuleContext = {
+  /** Is this `yarn_stage` id the DYED one? `stageRank` ≥ 1 at the call site. */
+  isDyedStage: (stageId: string) => boolean;
+  /** The BOM's Yarn Colour panel names — what a shade may be. */
+  yarnColours: readonly string[];
+};
+
+const up = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
 
 /**
- * What a kept yarn line owes: the yarn, its buy stage (GREY or DYED — it
- * decides what is purchased), and a weight above 0. At least one line: a
- * For = Yarn BOM with no yarn plans nothing. A yarn listed twice is refused
- * here rather than by the unique index, naming the rows.
+ * What a kept yarn line owes, by its Stage (see the type above). At least one
+ * line: a For = Yarn BOM with no yarn plans nothing. A yarn listed twice is
+ * refused here rather than by the unique index, naming the rows.
+ *
+ * `ctx` defaults to "no stage is DYED" — every pre-0592 caller's reading.
  */
-export function iwoYarnLineProblems(lines: readonly IwoYarnLineFacts[]): IwoYarnLineProblem[] {
+export function iwoYarnLineProblems(
+  lines: readonly IwoYarnLineFacts[],
+  ctx: IwoYarnRuleContext = { isDyedStage: () => false, yarnColours: [] },
+): IwoYarnLineProblem[] {
   const out: IwoYarnLineProblem[] = [];
   const firstRowOf = new Map<string, number>();
+  const panel = new Set(ctx.yarnColours.map(up).filter(Boolean));
   let kept = 0;
   lines.forEach((l, i) => {
     if (isBlankIwoYarnLine(l)) return;
     kept++;
     const row = i + 1;
     const at = `Yarn line ${row}`;
-    if (!l.item_id) out.push({ row, message: `${at}: choose the yarn.` });
+    const say = (message: string, section: IwoYarnLineProblem["section"] = "yarnLines") =>
+      out.push({ row, message: `${at}: ${message}`, section });
+
+    if (!l.item_id) say("choose the yarn.");
     else {
       const first = firstRowOf.get(l.item_id);
-      if (first) out.push({ row, message: `${at}: this yarn is already on line ${first} — plan it once.` });
+      if (first) say(`this yarn is already on line ${first} — plan it once.`);
       else firstRowOf.set(l.item_id, row);
     }
-    if (!l.buy_stage_id) out.push({ row, message: `${at}: choose the stage it is bought in.` });
-    if (l.planned_kgs == null) out.push({ row, message: `${at}: enter the Planned Weight (KGS).` });
-    else if (!(l.planned_kgs > 0)) out.push({ row, message: `${at}: Planned Weight must be a number more than 0.` });
+    if (!l.buy_stage_id) {
+      say("choose the Stage (GREY or DYED).");
+      return;
+    }
+    const shades = keptIwoYarnShades(l.shades);
+    const steps = l.steps ?? [];
+
+    if (!ctx.isDyedStage(l.buy_stage_id)) {
+      // GREY — one weight, no colour.
+      if (l.planned_kgs == null) say("enter the Planned Weight (KGS).");
+      else if (!(l.planned_kgs > 0)) say("Planned Weight must be a number more than 0.");
+      if (shades.length) say("a GREY yarn has no shades — clear them, or set the Stage to DYED.");
+      if (steps.some((s) => s.dyeing)) {
+        say("dyeing makes this yarn DYED — set its Stage to DYED and add the shades.", "yarns");
+      } else if (steps.some((s) => up(s.combo))) {
+        say("a GREY yarn is one lot — clear the For colour on its Yarn Process step.", "yarns");
+      }
+      return;
+    }
+
+    // DYED — the shades, and how they are coloured.
+    if (!l.colour_by) say("choose Colour by — Dyed Purchase or Yarn Dyeing.");
+    if (!shades.length) {
+      say("add the shades and the KGS of each ([Shades]).");
+      return;
+    }
+    const seen = new Set<string>();
+    shades.forEach((s, j) => {
+      const name = up(s.color_name);
+      const which = `shade ${j + 1}`;
+      if (!name) say(`${which}: choose the colour.`);
+      else if (!panel.has(name)) say(`${which}: ${name} is not on the Yarn Colour panel — add it there first.`);
+      else if (seen.has(name)) say(`${which}: ${name} is listed twice — plan it once.`);
+      if (name) seen.add(name);
+      if (s.planned_kgs == null) say(`${which}: enter the KGS.`);
+      else if (!(s.planned_kgs > 0)) say(`${which}: KGS must be a number more than 0.`);
+    });
+
+    for (const st of steps) {
+      const c = up(st.combo);
+      if (c && !seen.has(c)) say(`a Yarn Process step is For ${c}, which is not a shade of this yarn.`, "yarns");
+    }
+    if (l.colour_by === "dyed_purchase" && steps.some((s) => s.dyeing)) {
+      say("it is bought already dyed — remove the dyeing step, or choose Colour by Yarn Dyeing.", "yarns");
+    }
+    if (l.colour_by === "yarn_dyeing") {
+      if (steps.some((s) => s.dyeing && !up(s.combo))) {
+        say("choose which shade each dyeing step is For — one dyeing step per shade.", "yarns");
+      }
+      for (const name of seen) {
+        if (!steps.some((s) => s.dyeing && up(s.combo) === name)) {
+          say(`add a Yarn Dyeing step For ${name} on Yarn Process.`, "yarns");
+        }
+      }
+    }
   });
-  if (!kept) out.push({ row: 0, message: "Add at least one yarn." });
+  if (!kept) out.push({ row: 0, message: "Add at least one yarn.", section: "yarnLines" });
   return out;
+}
+
+/** Σ a DYED line's shades — its Planned Weight, derived (0592). Null while any
+ *  kept shade has no number, so a partial sum is never shown as the answer. */
+export function iwoShadeTotal(shades: readonly IwoYarnShadeFacts[] | undefined): number | null {
+  const kept = keptIwoYarnShades(shades);
+  if (!kept.length || kept.some((s) => s.planned_kgs == null || !(s.planned_kgs > 0))) return null;
+  return Number(kept.reduce((a, s) => a + (s.planned_kgs as number), 0).toFixed(4));
 }
