@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FIELD_SPAN, FIELD_TRACK, RequiredScope, useLocked } from "@/components/ui/field";
@@ -930,16 +930,31 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
 
   const idx = rows.indexOf(row);
 
+  /* THE VERTICAL AXIS LEAVES OUT A MERGED CELL (`ChildGridColumn.spanRows`).
+     Its field lives only in the first row's DOM, so counting it would shift
+     every column below by one — ↓ from Compo Color landing on Fabric Type.
+     Only a span INSIDE the row counts: an outer grid's span around this whole
+     grid is not one of our cells. ←/→ keep the full list, so the merged cell
+     is still one step left of the first row's first cell. */
+  const colFieldsIn = (r: HTMLElement) =>
+    fieldsIn(r).filter((f) => {
+      const s = f.closest("[data-grid-span]");
+      return !(s && r.contains(s));
+    });
+  const vcol = colFieldsIn(row).indexOf(el);
+
   const focusColIn = (target?: HTMLElement) => {
     if (!target) return false;
-    const fields = fieldsIn(target);
+    const fields = colFieldsIn(target);
     // Arriving from a nested grid has no column of its own — land on the first.
+    // So does leaving the merged cell (`vcol === -1` without `fromChildGrid`):
+    // it belongs to every row, so there is no column to keep.
     // Otherwise clamp to the last field when the destination row is SHORTER
     // than this one (rows are ragged wherever a cell is conditional), rather
-    // than letting `fields[col]` come back undefined.
-    const next = fromChildGrid
+    // than letting `fields[vcol]` come back undefined.
+    const next = fromChildGrid || vcol === -1
       ? fields[0]
-      : (fields[col] ?? fields[fields.length - 1]);
+      : (fields[vcol] ?? fields[fields.length - 1]);
     if (!next) return false;
     // The same test Tab now makes: this function's callers use its answer to
     // decide whether to consume the key, and "I found an element" is not the
@@ -1337,6 +1352,25 @@ export interface ChildGridColumn<T> {
   align?: "left" | "right" | "center";
   className?: string;
   /**
+   * ONE CELL FOR THE WHOLE GRID, merged down every row — a value that belongs
+   * to the thing the rows are OF, not to any one row. TABLE layout only: the
+   * cell renders in the first row of the page with `rowSpan` over the rest, and
+   * is skipped in the others. `cell` is called with that first row.
+   *
+   * Asked for on Fabric BOM ▸ Components (client 2026-09-18): the part's
+   * Component sits in the colourway table, once, instead of as a lone field
+   * beside it — a plain column would repeat it on every colourway (GOA-0034 has
+   * five) and invite five edits of one fact.
+   *
+   * THE KEYBOARD STAYS ALIGNED. ↑/↓ choose the target by field INDEX within a
+   * row, and the spanned cell exists only in the first row's DOM — so the cell
+   * is marked `data-grid-span` and `gridKeyNav` leaves it out of the column
+   * count. Without that, ↓ from Compo Color would land on Fabric Type.
+   * A card layout has no merged cell; a caller that renders its own card
+   * (`renderMobileRow`) decides where this field goes there.
+   */
+  spanRows?: boolean;
+  /**
    * The column's width — `"6rem"` for a percentage, omitted to flex and take
    * the remaining space (the picker/name column).
    *
@@ -1478,6 +1512,7 @@ export function ChildGrid<T extends { key: string }>({
   railAdd = false,
   railBorder = false,
   renderListItem,
+  railGroup,
   onOpenRow,
   canFold,
   renderFoldedRow,
@@ -2390,6 +2425,22 @@ export function ChildGrid<T extends { key: string }>({
    */
   renderListItem?: (row: T, index: number) => ReactNode;
   /**
+   * HEADINGS IN THE MASTER-DETAIL RAIL — the group a row is listed under.
+   * Each run of consecutive entries sharing a `key` is drawn as one group: a
+   * caption (`label`, a hairline, then `meta` — a count, say) and the entries
+   * hanging off a tree line beneath it. Rows must arrive already ORDERED by
+   * group; this draws the groups, it never sorts.
+   *
+   * Asked for on Fabric BOM ▸ Components (client 2026-09-18): a Set item's
+   * panels listed TOP, then BOTTOM, each under its coordinate, the way
+   * Manual's Components sheet already groups them.
+   *
+   * THE HEADING IS NOT AN ENTRY. It is a plain `div` with no tabindex and no
+   * `data-md-list-item`, so `mdListKeyNav`'s ↑↓ step straight over it and it
+   * costs no Tab stop. Keep `label` inert text, for `renderListItem`'s reason.
+   */
+  railGroup?: (row: T) => { key: string; label: ReactNode; meta?: ReactNode } | null;
+  /**
    * Fires when the operator PICKS a line out of the master-detail list.
    *
    * Deliberately not "the open row changed": `openRowKey` also moves when a row
@@ -2620,6 +2671,21 @@ export function ChildGrid<T extends { key: string }>({
    * rail that does not exist would vanish rather than move.
    */
   const addInRail = mdActive && !!renderListItem && !!addBtn && railAdd;
+
+  /* THE RAIL'S ENTRIES CUT INTO RUNS OF ONE GROUP — see `railGroup`. A plain
+     function, not a hook. Without `railGroup` it is one ungrouped run, so every
+     other rail renders exactly as before. Consecutive runs only: rows arrive
+     already ordered, and this never sorts. */
+  const railSegments = (list: T[]) => {
+    const segs: { group: { key: string; label: ReactNode; meta?: ReactNode } | null; items: { row: T; localI: number }[] }[] = [];
+    list.forEach((row, localI) => {
+      const g = railGroup?.(row) ?? null;
+      const last = segs[segs.length - 1];
+      if (last && (last.group?.key ?? null) === (g?.key ?? null)) last.items.push({ row, localI });
+      else segs.push({ group: g, items: [{ row, localI }] });
+    });
+    return segs;
+  };
   const addOnTotalsRow = !!addBtn && !addInRail && hasTotals && mode !== "responsive";
   /** Where the figures start — everything left of it belongs to the label. */
   const firstTotalIndex = columns.findIndex((c) => c.total && c.total.kind !== "blank");
@@ -2954,9 +3020,12 @@ export function ChildGrid<T extends { key: string }>({
                   {!hideIndex && (
                     <td className="px-2 py-1.5 text-center align-top text-xs text-muted-foreground">{startIndex + i + 1}</td>
                   )}
-                  {columns.map((c, ci) => (
+                  {columns.map((c, ci) => (c.spanRows && localI > 0) ? null : (
                     <td
                       key={ci}
+                      /* ONE MERGED CELL — see `ChildGridColumn.spanRows`. */
+                      rowSpan={c.spanRows ? view.length : undefined}
+                      data-grid-span={c.spanRows ? "" : undefined}
                       className={cn(
                         // FAINTER GRIDLINE. Full-strength rules between cells are
                         // what makes a data grid look like a 1998 spreadsheet;
@@ -3600,7 +3669,8 @@ export function ChildGrid<T extends { key: string }>({
                  without it the list would push the "+ Add" out of the pane at
                  exactly the row count that makes an Add most useful. */
               className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {view.map((row, localI) => {
+              {railSegments(view).map((seg) => {
+                const entries = seg.items.map(({ row, localI }) => {
                 const i = offset + localI;
                 const isOpen =
                   row.key === (openRowKey ?? rows[rows.length - 1]?.key ?? null);
@@ -3702,6 +3772,36 @@ export function ChildGrid<T extends { key: string }>({
                   >
                     {renderListItem(row, i)}
                   </button>
+                );
+                });
+                if (!seg.group) {
+                  return <Fragment key={`e:${seg.items[0].row.key}`}>{entries}</Fragment>;
+                }
+                /* A GROUP, DRAWN WITH LINES (client 2026-09-18, option A of
+                   "Coordinate Rail Styling") — the new sidebar's own shape
+                   (`SidebarSection guide`, approved 2026-09-17): a caption in
+                   ink with a hairline to the edge and the meta at its end,
+                   then the entries hanging off a 1px tree line. No tint, and
+                   the entry cards are untouched, so this rail still matches
+                   Material BOM's and Manual's. The caption is inert — no
+                   tabindex, no `data-md-list-item` — so ↑↓ step over it and it
+                   costs no Tab stop. `mt-4` between groups against the skin's
+                   6px between entries is what makes two groups read as two. */
+                return (
+                  <div key={`g:${seg.group.key}:${seg.items[0].row.key}`} className="mt-4 first:mt-0">
+                    <div className="flex items-center gap-2 px-1 pb-1.5">
+                      <span className="min-w-0 max-w-[70%] text-[10.5px] font-semibold uppercase tracking-wider text-foreground">
+                        {seg.group.label}
+                      </span>
+                      <span aria-hidden className="h-px flex-1 bg-border" />
+                      {seg.group.meta != null && (
+                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                          {seg.group.meta}
+                        </span>
+                      )}
+                    </div>
+                    <div className="ml-2.5 border-l border-border pl-2.5">{entries}</div>
+                  </div>
                 );
               })}
             </div>
