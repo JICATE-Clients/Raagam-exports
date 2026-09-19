@@ -38,7 +38,6 @@ import {
   Factory,
   PieChart,
   HandCoins,
-  ListChecks,
   Receipt,
   RotateCcw,
   Scissors,
@@ -50,7 +49,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Toggle } from "@/components/ui/toggle";
 import { Tabs } from "@/components/ui/tabs";
 import {
@@ -186,6 +184,9 @@ type CostRow = {
   component_id: string | null;
   /** Other Expenses / Other Incomes' head — a `config_lookups` row (0575). */
   cost_head_id: string | null;
+  /** Yarn Purchases' Stage — a `yarn_stage` lookup row (0590). NOT read by
+   *  `isBlankLine`: a stage alone is not a typed line. */
+  stage_id: string | null;
   /**
    * Other Expenses' Type — SCREEN STATE, NEVER SENT. The scope is what is
    * stored (doc "Phase 4"): no order = SQ Wise, an order = Order Wise, an
@@ -214,18 +215,12 @@ type FabricBreakdownGroup = {
 type Form = {
   budget_date: string;
   description: string;
-  currency_code: string;
-  exchange_rate: string;
-  remark: string;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const BLANK = (): Form => ({
   budget_date: today(),
   description: "",
-  currency_code: "",
-  exchange_rate: "1",
-  remark: "",
 });
 
 const blankCost = (key: string, source: BudgetSource): CostRow => ({
@@ -265,6 +260,7 @@ const blankCost = (key: string, source: BudgetSource): CostRow => ({
   style_ref_no: null,
   component_id: null,
   cost_head_id: null,
+  stage_id: null,
   scope: "sq",
   cutting_rate: "",
   making_rate: "",
@@ -330,6 +326,7 @@ type LineLike = {
   style_ref_no?: string | null;
   component_id?: string | null;
   cost_head_id?: string | null;
+  stage_id?: string | null;
 } & Partial<Record<CmtOperationKey, number | null>>;
 
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
@@ -369,6 +366,7 @@ const rowOf = (key: string, l: LineLike): CostRow => ({
   style_ref_no: l.style_ref_no ?? null,
   component_id: l.component_id ?? null,
   cost_head_id: l.cost_head_id ?? null,
+  stage_id: l.stage_id ?? null,
   scope: scopeOfLine(l),
   cutting_rate: str(l.cutting_rate),
   making_rate: str(l.making_rate),
@@ -760,9 +758,6 @@ export function BudgetScreen({
     setForm({
       budget_date: b.budget_date,
       description: b.description ?? "",
-      currency_code: b.currency_code ?? "",
-      exchange_rate: String(b.exchange_rate ?? 1),
-      remark: b.remark ?? "",
     });
     setOrders(
       (b.orders ?? []).map((o) => ({ key: newKey(), garment_order_id: o.garment_order_id })),
@@ -1095,19 +1090,20 @@ export function BudgetScreen({
     ),
   };
 
+  const flagToggle = (r: CostRow, key: "is_foc" | "is_import", aria: string, className?: string) => (
+    <Toggle
+      checked={r[key]}
+      ariaLabel={aria}
+      disabled={!editable}
+      onChange={(v) => setCost(r.key, { [key]: v })}
+      className={className}
+    />
+  );
   const toggleCol = (header: string, key: "is_foc" | "is_import", aria: string): CostCol => ({
     header,
-    cell: (r) => (
-      <Toggle
-        checked={r[key]}
-        ariaLabel={aria}
-        disabled={!editable}
-        onChange={(v) => setCost(r.key, { [key]: v })}
-      />
-    ),
+    cell: (r) => flagToggle(r, key, aria),
   });
   const focCol = toggleCol("FOC", "is_foc", "Free of cost");
-  const importCol = toggleCol("Import", "is_import", "Imported");
 
   /**
    * THE CURRENCY'S BLANK IS INR, AND SAYS SO. `currency_code` NULL is INR by
@@ -1117,8 +1113,9 @@ export function BudgetScreen({
    *
    * Clearing the currency clears the exchange rate with it (0572's check:
    * the two are null together). Choosing one fills the rate only from the
-   * budget's OWN header rate for that same currency; otherwise it stays blank
-   * for the operator, and `lineInrRate` refuses with a sentence until it is.
+   * ORDERS' rate for that same currency (the header's Exchange rate, read off
+   * Order Entry since 2026-09-19); otherwise it stays blank for the operator,
+   * and `lineInrRate` refuses with a sentence until it is.
    */
   const pickCurrency = (r: CostRow, raw: string) => {
     const code = raw === "INR" ? "" : raw;
@@ -1126,8 +1123,8 @@ export function BudgetScreen({
       ? ""
       : code === r.currency_code
         ? r.ex_rate
-        : code === form.currency_code
-          ? form.exchange_rate
+        : code === orderCurrency && orderRate != null
+          ? String(orderRate)
           : "";
     setCost(r.key, { currency_code: code, ex_rate });
   };
@@ -1334,18 +1331,129 @@ export function BudgetScreen({
 
   /**
    * FOC and Import as ONE cell — two 36px switches side by side, FOC first,
-   * each carrying its own `aria-label` (the header names the pair on screen).
-   * Merged because two separate `num` columns (144px) cost the yarn grid its
-   * table on the client's display, and the pair is 88px here (Phase 6's own
-   * suggested re-cut). `hug`: 36 + 4 + 36 + the cell's 12px padding = 88.
+   * each carrying its own `aria-label`. Merged because two separate `num`
+   * columns (144px) cost the yarn grid its table on the client's display, and
+   * the pair is 88px here (Phase 6's own suggested re-cut). `hug`: 36 + 4 + 36
+   * + the cell's 12px padding = 88. Splitting them back would put Yarn
+   * Purchases at 1152px against the 1155px budget — 3px from dropping to cards.
+   *
+   * EACH SWITCH NAMES ITSELF (user 2026-09-19, screenshot 2950: "why this
+   * screen have two toggle button single field"). The header "FOC · Import"
+   * named the pair, but nothing said WHICH switch was which, so the cell read as
+   * one field with two toggles. A 10px caption sits over each switch — the
+   * cell stays 88px wide — and `min-h-0` drops `Toggle`'s 36px floor so
+   * caption + gap + switch (10 + 2 + 20) fits the row's 32px controls instead
+   * of growing every line. The captions are `aria-hidden`: each checkbox
+   * already carries its own name ("Free of cost", "Imported").
    */
   const flagsCol: CostCol = {
     header: "FOC · Import",
     cell: (r) => (
-      <span className="inline-flex items-center gap-1">
-        {focCol.cell(r, 0)}
-        {importCol.cell(r, 0)}
+      <span className="inline-flex items-end gap-1">
+        {(
+          [
+            ["is_foc", "FOC", "Free of cost"],
+            ["is_import", "Import", "Imported"],
+          ] as const
+        ).map(([key, caption, aria]) => (
+          <span key={key} className="flex w-9 flex-col items-center gap-0.5">
+            <span aria-hidden className="text-[10px] leading-none text-muted-foreground">
+              {caption}
+            </span>
+            {flagToggle(r, key, aria, "min-h-0")}
+          </span>
+        ))}
       </span>
+    ),
+  };
+
+  /**
+   * STAGE and COLOUR of a yarn purchase, READ-ONLY and in one 88px cell (user
+   * 2026-09-19, screenshot 2952: "Stage, color field is missing in yarn
+   * purchase"; chose "show them, read-only").
+   *
+   * THEY SAY WHAT THE FABRIC BOM DECIDED, AND TODAY THAT IS ALWAYS GREY. Its
+   * `yarnPurchase` (lib/orders/fabric-bom) grosses every dyed shade back to the
+   * GREY yarn it needs and buys that yarn in one lot (a26732c, "grey yarn one
+   * lot"); the colour is priced one step later, as dyeing per yarn x shade on
+   * Process Rates > Yarn Processes (c9c0dd8). `order_fabric_bom_yarns` stores
+   * no stage because there is only ever one — so this names the rule rather
+   * than reading a column. If the BOM ever buys DYED yarn per colour, that is a
+   * stored stage and this constant is what must go.
+   *
+   * A HAND-ADDED LINE SHOWS NO STAGE: nothing behind it decided one, and
+   * printing GREY there would claim what nobody said. Colour is the line's own
+   * `combo`, on every line — blank today, since no yarn line carries one.
+   *
+   * Their own columns, straight after Yarn — the legacy line's Yarn / Stage /
+   * Color order (screenshot 2954).
+   *
+   * DUPLICATED FROM THE FABRIC BOM'S YARN PROCESS (user 2026-09-19: "see the
+   * stage is from yarn process of fabric bom ... just duplicate it there").
+   * Stage is the same `LookupDialogPicker` over the same `yarn_stage` rows
+   * (GREY / DYED) that `components/orders/yarn-process-grid.tsx` uses, and
+   * Colour the same `<Select>` over the order's own colourways. A pulled line
+   * arrives with both set from that yarn's first Yarn Process step (0590 —
+   * `firstStep` in the budget service); the planner can change either.
+   *
+   * HISTORY, so nobody redoes it: a merged "Stage · Colour" cell, then a
+   * two-row re-layout (reverted — "i just told to add new color and stage
+   * field only"), then read-only text under the Yarn picker that a new
+   * budget's blank row left empty. Every other column stays exactly where and
+   * as wide as it was.
+   */
+  const stageOptions = (held: string | null) =>
+    data.lookups.filter((l) => l.kind === "yarn_stage" && (!isInactive(l) || l.id === held));
+  const stageCol: CostCol = {
+    header: "Stage",
+    cell: (r) =>
+      // THE PICKER HAS NO READ-ONLY STATE — the Head column's own answer.
+      editable ? (
+        <LookupDialogPicker
+          kind="yarn_stage"
+          label="Stage"
+          compact
+          options={stageOptions(r.stage_id)}
+          value={r.stage_id}
+          onChange={(id) => setCost(r.key, { stage_id: id || null })}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+        />
+      ) : (
+        <Input
+          className="h-8"
+          readOnly
+          value={data.lookups.find((l) => l.id === r.stage_id)?.name ?? ""}
+        />
+      ),
+  };
+  /** A line's colourways: its own order's, or every picked order's for a
+   *  hand-added line that names none. The value it holds always survives the
+   *  list (AGENTS.md "Disabled rows"), as on the Fabric BOM. */
+  const colourOptions = (r: CostRow) => {
+    const list = r.garment_order_id
+      ? (orderById.get(r.garment_order_id)?.combos ?? [])
+      : [...new Set(pickedFacts.flatMap((o) => o.combos))];
+    return r.combo && !list.includes(r.combo) ? [...list, r.combo] : list;
+  };
+  const colourCol: CostCol = {
+    header: "Colour",
+    cell: (r) => (
+      <Select
+        compact
+        className="h-8"
+        aria-label="Colour"
+        value={r.combo ?? ""}
+        disabled={!editable}
+        onChange={(e) => setCost(r.key, { combo: e.target.value || null })}
+      >
+        <option value=""></option>
+        {colourOptions(r).map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </Select>
     ),
   };
 
@@ -1366,9 +1474,19 @@ export function BudgetScreen({
   /* Yarn Purchases — 144 + 88 + 112 + 88 + 72 + 88 + 72 + 88 + 72 + 88 + 112
      = 1024, + 72 = 1096 <= 1155 -> 5xl. Re-cut from 1,312: FOC + Import merged
      (-56), Yarn party -> code, Description term -> hug (the Yarn picker names
-     the yarn; the text is the pulled line's note), Curr and Rate -> num. */
+     the yarn; the text is the pulled line's note), Curr and Rate -> num.
+     2026-09-19: + Stage (hug 88, a picker) and Colour (hug 88, a select) after
+     Yarn, and NOTHING else moved or narrowed — the user's rule for this change.
+     That is 1200, + 72 = 1272: past the 1155px laptop pane, so this grid
+     switches to a table from `7xl` (1280) instead of `5xl`. At or above 1280
+     the 1272px table always fits (the client's screen gives ~1312); below it,
+     one-frame cards — never a sideways scroll. 8px of headroom under 1280: the
+     next column here needs a re-cut, not a wider threshold. */
   const yarnPurchaseColumns: CostCol[] = withRowRules([
+    // grid-budget: exempt -- Stage + Colour were added without moving or narrowing any existing column (user 2026-09-19); the grid switches to cards below 7xl (1280px), wider than its 1272px table, so it never scrolls sideways
     { ...itemCol("Yarn"), width: FIELD_WIDTH_CSS.code },
+    { ...stageCol, width: FIELD_WIDTH_CSS.hug },
+    { ...colourCol, width: FIELD_WIDTH_CSS.hug },
     { ...descCol("Description"), width: FIELD_WIDTH_CSS.hug },
     { ...specCol, width: FIELD_WIDTH_CSS.range },
     { ...qtyCol("Reqd"), width: FIELD_WIDTH_CSS.hug },
@@ -1989,7 +2107,7 @@ export function BudgetScreen({
       <ChildGrid<CostRow>
         columns={yarnPurchaseColumns}
         rows={rowsOf("yarn")}
-        tableFrom="5xl"
+        tableFrom="7xl"
         flatRows
         renderMobileRow={(row, i) => costCard(yarnPurchaseColumns, row, i)}
         hideAdd={!editable}
@@ -2376,6 +2494,10 @@ export function BudgetScreen({
     facts: pickedFacts,
     entryDate: form.budget_date || null,
   });
+  /** The picked orders' one currency and rate, read off Order Entry — null when
+   *  there is none (no order yet, or orders that disagree). */
+  const orderCurrency = isRefusal(sales.currency) ? null : sales.currency;
+  const orderRate = typeof sales.conv === "number" ? sales.conv : null;
 
   // ---- the Amendment Protocol's record --------------------------------------
 
@@ -2434,7 +2556,6 @@ export function BudgetScreen({
   const validity = sectionValidity({
     sections: [
       { key: "budget" },
-      { key: "orders" },
       ...BUDGET_SECTIONS.map((s) => ({ key: s.key })),
       { key: "general" },
     ],
@@ -2446,7 +2567,7 @@ export function BudgetScreen({
       ...(pickedOrders.length === 0
         ? [
             {
-              section: "orders",
+              section: "budget",
               label: "Orders",
               message: "Add at least one garment order.",
               kind: "custom" as const,
@@ -2492,17 +2613,6 @@ export function BudgetScreen({
             },
           ]
         : []),
-      ...(numOrNull(form.exchange_rate) == null || (numOrNull(form.exchange_rate) as number) <= 0
-        ? [
-            {
-              section: "budget",
-              fieldId: "budget-exchange-rate",
-              label: "Exchange rate",
-              message: "Exchange rate must be more than 0",
-              kind: "custom" as const,
-            },
-          ]
-        : []),
     ],
   });
 
@@ -2535,7 +2645,8 @@ export function BudgetScreen({
       key: "budget",
       label: "Budget",
       icon: Coins,
-      done: !!form.budget_date,
+      // The orders live in this section now, so it is done once it has both.
+      done: !!form.budget_date && pickedOrders.length > 0,
       content: (
         <SectionBody title="Budget">
           {/* WIDTHS, NOT TWELFTHS (Phase 6, the house convention — commits
@@ -2557,7 +2668,6 @@ export function BudgetScreen({
                 track     A term 176   B term 176   C party 200   D hug 88    E hug 88   then
                 budget    Entry No     Date         Group         Currency    Exch. rate SQ Description (name 288)
                 orders    SQ No        RE No        Customer      Order Qty   SQ Qty     Unit (hug 88)
-                remark    Remark, to the cap
 
                 budget  176 + 176 + 200 + 88 + 88 + 288 = 1016 + 5 x 12 = 1076
                 orders  176 + 176 + 200 + 88 + 88 + 88  =  816 + 5 x 12 =  876
@@ -2568,6 +2678,13 @@ export function BudgetScreen({
                  Up here they end 200px apart and the widest row is 100px
                  narrower. It is an order fact on the budget's row — accepted
                  for the balance; every other order fact stays below.
+              5. NO REMARK BOX (user, shot 2951: "no need remarks in new
+                 budget"). It came with the first build (70c25a8, 2026-08-17),
+                 was never in the client's budget blueprint, and no budget had
+                 one. Only the editor dropped it: `order_budgets.remark` and the
+                 optional schema field stay, so no migration was needed. The
+                 approver's remark (`decision_remark`, mandatory on a reject)
+                 and the Reopen remark are different fields and are untouched.
 
               The first five columns are shared, so Currency sits over Order
               Qty and Exchange rate over SQ Qty. The two rows split by WHO owns
@@ -2579,8 +2696,7 @@ export function BudgetScreen({
               clipped the RE No, and Entry No / SQ No follow the same series.
 
               THE CAP IS DEFINITE — 68rem, 1088px: the 1076 budget row plus
-              12px of slack so a sub-pixel font metric cannot wrap it, and the
-              Remark ends on that same edge. Below it (a 1366 laptop's pane is
+              12px of slack so a sub-pixel font metric cannot wrap it. Below it (a 1366 laptop's pane is
               ~1090px, so it just fits) a row folds its last field onto a new
               line, like any `FieldRow`, rather than scrolling. Never `max-w-fit`:
               inside a container-query ancestor a content-sized cap resolves to
@@ -2615,42 +2731,21 @@ export function BudgetScreen({
                   onChange={(e) => set({ description: e.target.value })}
                 />
               </Field>
-              {/* THE CODE ONLY — "USD", not "USD · US Dollar". The field is
-                  `hug` (88px); the name beside the code would be clipped to
-                  "USD · U…" in every row it appears, and the code is what the
-                  operator types to find it anyway. */}
-              <Field label="Currency" w="hug" htmlFor="bg-cur">
-                <Select
-                  id="bg-cur"
-                  disabled={!editable}
-                  value={form.currency_code}
-                  onChange={(e) => set({ currency_code: e.target.value })}
-                >
-                  <option value=""></option>
-                  {data.currencies.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-                </Select>
+              {/* CURRENCY AND EXCHANGE RATE ARE READ OFF ORDER ENTRY (user
+                  2026-09-19: "all the fields data need to fetch from order
+                  entry"). Both are terms of the ORDER — its Prices tab — and
+                  were typed a second time here as a "planning rate" that the
+                  sales figures never used: `inrValue` converts each order at
+                  its own booked rate, so a different number typed here could
+                  only ever disagree with the bottom bar. Now both are
+                  `salesSummary()`'s — the same figures the bar shows — and a
+                  group that disagrees (two currencies, two rates) says so under
+                  the field rather than picking one. Blank with no order picked. */}
+              <Field label="Currency" w="hug" htmlFor="bg-cur" error={refusalOf(sales.currency)}>
+                <Input id="bg-cur" readOnly value={figureText(sales.currency)} />
               </Field>
-              <Field
-                label="Exchange rate"
-                w="hug"
-                htmlFor="budget-exchange-rate"
-                error={
-                  numOrNull(form.exchange_rate) == null || (numOrNull(form.exchange_rate) as number) <= 0
-                    ? "Exchange rate must be more than 0"
-                    : null
-                }
-              >
-                <Input
-                  id="budget-exchange-rate"
-                  inputMode="decimal"
-                  readOnly={!editable}
-                  value={form.exchange_rate}
-                  onChange={(e) => set({ exchange_rate: e.target.value })}
-                />
+              <Field label="Exchange rate" w="hug" htmlFor="bg-exr" error={refusalOf(sales.conv)}>
+                <Input id="bg-exr" readOnly className="text-right" value={figureText(sales.conv)} />
               </Field>
               {/* UP HERE, beside the exchange rate, to fill that row's gap — see
                   the layout comment above (user, screenshot 2948). */}
@@ -2689,17 +2784,36 @@ export function BudgetScreen({
                 <Input id="bg-unit" readOnly value={asText(sales.unit)} />
               </Field>
             </FieldRow>
-            <FieldRow>
-              <Field label="Remark" htmlFor="bg-remark" className="w-full">
-                <Textarea
-                  id="bg-remark"
-                  rows={2}
-                  readOnly={!editable}
-                  value={form.remark}
-                  onChange={(e) => set({ remark: e.target.value })}
-                />
-              </Field>
-            </FieldRow>
+          </div>
+
+          {/* THE ORDERS ARE PICKED HERE, UNDER THE FIELDS THEY FILL (user
+              2026-09-19: "hide the order tab i mean the second tab of the
+              budget"). They were a rail section of their own, one click away
+              from the SQ No / RE No / Customer / Currency boxes above — which
+              read as empty fields that never fetched, when the answer was on
+              the next tab. Picking an order here fills those boxes in place.
+              The grid is unchanged: a budget still groups MANY orders. */}
+          <div className="mt-4">
+            <ChildGrid<OrderRow>
+              /* grid-caption: exempt -- the Budget section holds the header
+                 fields AND this grid since the Orders section was folded in,
+                 so the section title no longer names it. */
+              label="Orders"
+              columns={orderColumns}
+              rows={orders}
+              seedRow
+              hideAdd={!editable}
+              lockExisting={!editable}
+              onAdd={() => mutOrders((xs) => [...xs, { key: newKey(), garment_order_id: null }])}
+              onRemove={(r) => mutOrders((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add order"
+            />
+            {/* UNDER THE GRID IT IS ABOUT — a blocked Save used to toast it. Only
+                once a Save was tried: a new budget with no order yet is not an
+                error, it is a budget nobody has started. */}
+            <FieldError id="bg-orders-error">
+              {saveAttempted && pickedOrders.length === 0 ? "Add at least one garment order." : null}
+            </FieldError>
           </div>
 
           {!editable && (
@@ -2713,32 +2827,6 @@ export function BudgetScreen({
           )}
 
           {revisions.length > 0 && <RevisionHistory revisions={revisions} />}
-        </SectionBody>
-      ),
-    },
-    {
-      key: "orders",
-      label: "Orders",
-      icon: ListChecks,
-      done: pickedOrders.length > 0,
-      content: (
-        <SectionBody title="Orders">
-          <ChildGrid<OrderRow>
-            columns={orderColumns}
-            rows={orders}
-            seedRow
-            hideAdd={!editable}
-            lockExisting={!editable}
-            onAdd={() => mutOrders((xs) => [...xs, { key: newKey(), garment_order_id: null }])}
-            onRemove={(r) => mutOrders((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add order"
-          />
-          {/* UNDER THE GRID IT IS ABOUT — a blocked Save used to toast it. Only
-              once a Save was tried: a new budget with no order yet is not an
-              error, it is a budget nobody has started. */}
-          <FieldError id="bg-orders-error">
-            {saveAttempted && pickedOrders.length === 0 ? "Add at least one garment order." : null}
-          </FieldError>
         </SectionBody>
       ),
     },
@@ -2889,9 +2977,12 @@ export function BudgetScreen({
     return {
       budget_date: form.budget_date,
       description: form.description || null,
-      currency_code: form.currency_code || null,
-      exchange_rate: numOrNull(form.exchange_rate) ?? 1,
-      remark: form.remark || null,
+      // THE ORDERS' TERMS, SNAPSHOT — approval routing (`currency_code` in the
+      // flow context) and the approver's screen read these. A group with no
+      // single rate stores 1, the column's own default: nothing converts
+      // through it (`inrValue` uses each order's rate).
+      currency_code: orderCurrency,
+      exchange_rate: orderRate ?? 1,
       orders: pickedOrders.map((o, i) => {
         const oo = orderById.get(o.garment_order_id as string);
         return {
@@ -2930,6 +3021,7 @@ export function BudgetScreen({
         style_ref_no: c.style_ref_no,
         component_id: c.component_id,
         cost_head_id: c.cost_head_id,
+        stage_id: c.stage_id,
         // 0574 — null each when not broken up. The schema derives `rate` from
         // these when any is set, so the two cannot be sent disagreeing.
         ...breakupOf(c),

@@ -68,6 +68,11 @@ const AMBIGUOUS = {
   // an FK to a table that already has one to the same target, and this entry is
   // that rule being followed rather than a bug being cleaned up after.
   workers: { departments: ["department_id", "prod_dept_id"] },
+  // 0590 put `stage_id` on `order_budget_lines`, which already had
+  // `cost_head_id` (0575) to the same table. Nothing embeds either today (lines
+  // are read as `order_budget_lines(*)`); declared the day the second FK lands,
+  // the same rule the `workers` entry above follows.
+  order_budget_lines: { config_lookups: ["cost_head_id", "stage_id"] },
 };
 
 /* KNOWN GAP, MEASURED 2026-09-11 AND DELIBERATELY NOT CLOSED HERE.

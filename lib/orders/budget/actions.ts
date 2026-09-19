@@ -122,6 +122,8 @@ async function writeChildren(
     packing_rate: l.packing_rate ?? null,
     // 0575 — the Expense / Income Head.
     cost_head_id: l.cost_head_id ?? null,
+    // 0590 — the yarn stage.
+    stage_id: l.stage_id ?? null,
   }));
 
   if (lines.length) {
