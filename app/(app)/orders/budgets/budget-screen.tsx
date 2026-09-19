@@ -1095,19 +1095,20 @@ export function BudgetScreen({
     ),
   };
 
+  const flagToggle = (r: CostRow, key: "is_foc" | "is_import", aria: string, className?: string) => (
+    <Toggle
+      checked={r[key]}
+      ariaLabel={aria}
+      disabled={!editable}
+      onChange={(v) => setCost(r.key, { [key]: v })}
+      className={className}
+    />
+  );
   const toggleCol = (header: string, key: "is_foc" | "is_import", aria: string): CostCol => ({
     header,
-    cell: (r) => (
-      <Toggle
-        checked={r[key]}
-        ariaLabel={aria}
-        disabled={!editable}
-        onChange={(v) => setCost(r.key, { [key]: v })}
-      />
-    ),
+    cell: (r) => flagToggle(r, key, aria),
   });
   const focCol = toggleCol("FOC", "is_foc", "Free of cost");
-  const importCol = toggleCol("Import", "is_import", "Imported");
 
   /**
    * THE CURRENCY'S BLANK IS INR, AND SAYS SO. `currency_code` NULL is INR by
@@ -1334,17 +1335,38 @@ export function BudgetScreen({
 
   /**
    * FOC and Import as ONE cell — two 36px switches side by side, FOC first,
-   * each carrying its own `aria-label` (the header names the pair on screen).
-   * Merged because two separate `num` columns (144px) cost the yarn grid its
-   * table on the client's display, and the pair is 88px here (Phase 6's own
-   * suggested re-cut). `hug`: 36 + 4 + 36 + the cell's 12px padding = 88.
+   * each carrying its own `aria-label`. Merged because two separate `num`
+   * columns (144px) cost the yarn grid its table on the client's display, and
+   * the pair is 88px here (Phase 6's own suggested re-cut). `hug`: 36 + 4 + 36
+   * + the cell's 12px padding = 88. Splitting them back would put Yarn
+   * Purchases at 1152px against the 1155px budget — 3px from dropping to cards.
+   *
+   * EACH SWITCH NAMES ITSELF (user 2026-09-19, screenshot 2950: "why this
+   * screen have two toggle button single field"). The header "FOC · Import"
+   * named the pair, but nothing said WHICH switch was which, so the cell read as
+   * one field with two toggles. A 10px caption sits over each switch — the
+   * cell stays 88px wide — and `min-h-0` drops `Toggle`'s 36px floor so
+   * caption + gap + switch (10 + 2 + 20) fits the row's 32px controls instead
+   * of growing every line. The captions are `aria-hidden`: each checkbox
+   * already carries its own name ("Free of cost", "Imported").
    */
   const flagsCol: CostCol = {
     header: "FOC · Import",
     cell: (r) => (
-      <span className="inline-flex items-center gap-1">
-        {focCol.cell(r, 0)}
-        {importCol.cell(r, 0)}
+      <span className="inline-flex items-end gap-1">
+        {(
+          [
+            ["is_foc", "FOC", "Free of cost"],
+            ["is_import", "Import", "Imported"],
+          ] as const
+        ).map(([key, caption, aria]) => (
+          <span key={key} className="flex w-9 flex-col items-center gap-0.5">
+            <span aria-hidden className="text-[10px] leading-none text-muted-foreground">
+              {caption}
+            </span>
+            {flagToggle(r, key, aria, "min-h-0")}
+          </span>
+        ))}
       </span>
     ),
   };
