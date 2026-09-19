@@ -163,6 +163,9 @@ import {
   type FabricProcessRow,
   type FabricProcessScope,
 } from "@/lib/orders/fabric-bom/processes";
+/* PRINT CHECKPOINTS A + B and the per-branch print gate (client 2026-09-19) —
+   the same functions the server's guard reads. */
+import { printRouteProblems, printedGroup } from "@/lib/orders/fabric-bom/print-route";
 /* WHERE THIS FABRIC COMES FROM (0564, `doc/order/fabriprocess.md` §2) — the
    planner's Default Rule 1 / Rule 2 choice, declared PER FABRIC because one
    order legitimately knits the body and buys greige rolls for the collar rib.
@@ -171,6 +174,8 @@ import {
   FABRIC_SOURCES,
   FABRIC_SOURCE_LABELS,
   asFabricSource,
+  effectiveFabricSource,
+  sourceFromRoute,
   stepSuppressedBySource,
   suppressedBySource,
   type FabricSource,
@@ -2385,6 +2390,8 @@ export function FabricBomScreen({
         component_id: p.component_id,
         stage_id: p.stage_id,
         process_id: p.process_id,
+        /* 0583 — "DYEING [WITH BIOWASH]". */
+        sub_category_id: p.sub_category_id ?? null,
         loss_for_id: p.loss_for_id,
         /* Text, like every numeric cell on this screen: a controlled `<Input>`
            cannot hold "1." or "" as a number, so the form keeps text and the
@@ -6898,6 +6905,11 @@ export function FabricBomScreen({
         gross: p.qty == null ? null : (held?.gross ?? 0) + p.qty,
         uom_id: p.uom_id,
         component_ids: componentsByEntry.get(p.entry_key) ?? [],
+        /* IS THIS SLICE PRINTED? (2026-09-19) — off the BOM's own lines, the
+           same `printedGroup` `fabricGrossOf` (actions.ts) asks of the saved
+           lines, so an unprinted colourway's yarn is not grossed by the print
+           stage in the preview any more than in the stored figure. */
+        printed: printedGroup(lines, p.item_id, p.combo, componentsByEntry.get(p.entry_key) ?? []),
         /* THE REASON TRAVELS WITH THE NULL (2026-09-03). `preview` already holds
            the sentence that names the fix — "Enter the consumption for WHITE ·
            S" — and dropping it here is what left the Yarn Process tab printing
@@ -6909,7 +6921,7 @@ export function FabricBomScreen({
       });
     }
     return [...byBucket.values()];
-  }, [preview, entries]);
+  }, [preview, entries, lines]);
 
   const compositionById = useMemo(
     () => new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c])),
@@ -6957,11 +6969,30 @@ export function FabricBomScreen({
            out. */
         is_knitting: kind?.is_knitting ?? false,
         is_dyeing: kind?.is_dyeing ?? false,
+        /* 2026-09-19 — which step is the print, so an unprinted colourway's
+           ladder can leave the print stage out (`routeForPrint`). Carried by
+           `routesByFabricOf` server-side in step. */
+        is_print: kind?.is_print ?? false,
       });
       out.set(p.item_id, list);
     }
     return out;
   }, [procs, data.processes]);
+
+  /**
+   * EACH FABRIC'S SOURCE, READ OFF ITS ROUTE (client 2026-09-19) — a branch that
+   * opens with FABRIC PURCHASE / DYED FABRIC PURCHASE is bought, not knitted.
+   * `sourceFromRoute` is the one derivation; the server's save runs it again on
+   * the payload and stores the answer, so this preview and the stored figure
+   * are one reading of one route. A fabric with no route yet keeps whatever
+   * source it had stored.
+   */
+  const routeSources = useMemo(
+    () => sourceFromRoute(procs, data.processes, data.processLookups.stages),
+    [procs, data.processes, data.processLookups.stages],
+  );
+  const sourceOf = (itemId: string): FabricSource =>
+    effectiveFabricSource(asFabricSource(scopeFor(itemId).source), routeSources.get(itemId));
 
   /**
    * EVERYTHING ONE FABRIC GROUP'S YARN DYED TABS NEED (0512), from an ANCHOR
@@ -7166,7 +7197,15 @@ export function FabricBomScreen({
          source, or an unrecognised string, read as Rule 1 rather than as
          "suppress everything" — the safe direction, since it buys slightly too
          much cloth rather than too little. */
-      new Map(procScopes.map((s) => [s.item_id, asFabricSource(s.source)])),
+      /* 2026-09-19: READ OFF THE ROUTE (`sourceOf`) for every fabric the
+         route or a stored scope names — the server's `sourceByFabricOf` now
+         reads the same derivation, so preview and stored figure still match. */
+      new Map(
+        [...new Set([...procScopes.map((s) => s.item_id), ...routeSources.keys()])].map((id) => [
+          id,
+          sourceOf(id),
+        ]),
+      ),
       /* PER-SHADE DYEING LOSS (0568) — see `yarnShades` above for why this is
          passed before the column that can set it exists. */
       yarnShades,
@@ -7248,13 +7287,37 @@ export function FabricBomScreen({
    * rule the wrong gate is how a narrowing and its twin come to disagree —
    * the divergence that has already happened three times in this module.
    */
-  const routeBlockers = stageRouteProblems(procs, data.processes, data.processLookups.stages, {
-    gatesFor: (itemId) => ({
-      printDeclared: declaredPrints.length > 0,
-      fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
+  const routeBlockers = [
+    ...stageRouteProblems(procs, data.processes, data.processLookups.stages, {
+      /* PRINT IS PER BRANCH SINCE 2026-09-19 — the same `printedGroup` the
+         grid's `printDeclaredFor` reads, so the twin and the Save gate cannot
+         disagree about which branch may print. */
+      gatesFor: (itemId, combo, componentId) => ({
+        printDeclared: printedGroup(lines, itemId, combo, [componentId]),
+        fabricIsYarnDyed: isYarnDyed(fabricTypeOf(itemId)),
+      }),
+      fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
     }),
-    fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
-  });
+    /* CHECKPOINTS A + B (client 2026-09-19): a printed line whose route never
+       prints, and a Printing step serving no printed line. The server's
+       `printRouteProblem` runs the identical function on the payload. */
+    ...printRouteProblems(
+      procs,
+      lines,
+      (processId) => !!data.processes.find((o) => o.id === processId)?.is_print,
+      {
+        fabricName: (itemId) => fabricById.get(itemId) ?? "This fabric",
+        componentName: (id) => data.components.find((c) => c.id === id)?.name ?? "",
+      },
+    ),
+    /* A FABRIC BOUGHT IN ONE BRANCH AND KNITTED IN ANOTHER — `sourceFromRoute`
+       refuses it, because yarn is bought per fabric, not per colourway. */
+    ...[...routeSources].flatMap(([itemId, s]) =>
+      typeof s === "string"
+        ? []
+        : [{ item_id: itemId, row_key: "", message: `${fabricById.get(itemId) ?? "This fabric"}: ${s.refused}` }],
+    ),
+  ];
 
   const validity = sectionValidity({
     /* `colors` WAS LISTED HERE THOUGH IT DECLARED NO PROBLEMS, until the
@@ -9379,6 +9442,11 @@ export function FabricBomScreen({
               }}
               renderPanel={(r) => {
                 const scope = scopeFor(r.item_id);
+                /* THE SOURCE THE FIGURES USE — read off the route since
+                   2026-09-19 (`sourceOf`), which is what makes a route opening
+                   with DYED FABRIC PURCHASE stop buying yarn. `scope.source` is
+                   only the stored fallback now. */
+                const source = sourceOf(r.item_id);
                 const fabricRows = procs.filter((p) => p.item_id === r.item_id);
                 /* A STEP NAMING A BRANCH ON AN AXIS THAT IS NOW OFF is out of
                    the grid but not out of state — the same rows
@@ -9619,10 +9687,10 @@ export function FabricBomScreen({
                         control that caused it, present exactly while the state
                         it describes is true, which is the only shape a line
                         under a heading may take on this screen. */}
-                    {scope.source !== "yarn_knit" && (
+                    {source !== "yarn_knit" && (
                       <p className="text-xs text-warning">
                         {(() => {
-                          const off = suppressedBySource(scope.source);
+                          const off = suppressedBySource(source);
                           const names = [
                             off.yarnPurchase && "Yarn Purchase",
                             off.knitting && "Knitting",
@@ -9633,8 +9701,8 @@ export function FabricBomScreen({
                               ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
                               : (names[0] ?? "");
                           return names.length
-                            ? `${list} ${names.length > 1 ? "are" : "is"} not planned for this fabric — ${FABRIC_SOURCE_LABELS[scope.source]}, so the demand is the purchased roll weight in kg.`
-                            : `${FABRIC_SOURCE_LABELS[scope.source]} — the demand is the purchased roll weight in kg.`;
+                            ? `${list} ${names.length > 1 ? "are" : "is"} not planned for this fabric — ${FABRIC_SOURCE_LABELS[source]}, so the demand is the purchased roll weight in kg.`
+                            : `${FABRIC_SOURCE_LABELS[source]} — the demand is the purchased roll weight in kg.`;
                         })()}
                       </p>
                     )}
@@ -9676,6 +9744,17 @@ export function FabricBomScreen({
                       processes={data.processes}
                       lookups={data.processLookups}
                       printDeclared={printDeclared}
+                      /* CHECKPOINT B, PER BRANCH (client 2026-09-19) — Printing
+                         is offered only on a (colourway, component) branch
+                         whose lines carry a print, not on every branch because
+                         some colourway somewhere is AOP. The Save gate below
+                         asks `printedGroup` the identical question. */
+                      printDeclaredFor={(row) =>
+                        printedGroup(lines, r.item_id, row.combo, [row.component_id])
+                      }
+                      /* 0583 — "DYEING [WITH BIOWASH]"; this BOM's route table
+                         has the column to hold it. */
+                      subCategories
                       /* 0557, doc/order/update.md §7.3 — a Yarn-Dyed
                          fabric's dyeing loss is carried on the Yarn
                          Process tab, so Fabric Process withholds
@@ -9689,7 +9768,7 @@ export function FabricBomScreen({
                          nothing is withheld from the ▾, because a purchased
                          cloth's route is still allowed to record that it was
                          knitted by somebody else. See the prop's own note. */
-                      source={scope.source}
+                      source={source}
                       /* THE SCREEN'S OWN GENERATOR, so a route added to a
                          reopened BOM cannot collide with the keys
                          `openExisting` has already issued. */
@@ -9925,6 +10004,8 @@ export function FabricBomScreen({
         sno: i + 1,
         stage_id: p.stage_id,
         process_id: p.process_id,
+        /* 0583 — never sent without its process. */
+        sub_category_id: p.process_id ? (p.sub_category_id ?? null) : null,
         loss_for_id: p.loss_for_id,
         loss_pct: numOrNull(p.loss_pct),
         /* NO `rate` — the client removed the column on 2026-09-03 and it went

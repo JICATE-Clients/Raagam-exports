@@ -1003,3 +1003,96 @@ export function exportYarnRequirementCsv(data: YarnFabricRequirementReport): voi
   }
   download(`${stem("YarnFabricRequirement", data.header)}.csv`, toCsv(rows), "text/csv");
 }
+
+// ---------------------------------------------------------------------------
+// Printing Requirement (client 2026-09-19)
+// ---------------------------------------------------------------------------
+
+/* ONE COLUMN SET for the PDF, the CSV and the on-screen tab — "the exact
+   weight sent for printing" is `Sent Wt`, the print step's INPUT. */
+const PRINT_COLUMNS = [
+  "Assort Colour",
+  "Fabric",
+  "Component",
+  "Print",
+  "Process",
+  "Dia/Size",
+  "Wt Sent for Printing",
+  "Loss %",
+  "Wt After Printing",
+];
+
+function printRow(r: YarnFabricRequirementReport["printing"]["groups"][number]["rows"][number]): string[] {
+  return [
+    r.combo,
+    r.fabricName,
+    r.component,
+    r.print,
+    r.processName,
+    r.dia,
+    fmtNumber(r.sentWt),
+    `${r.lossPct.toFixed(2)}%`,
+    fmtNumber(r.receivedWt),
+  ];
+}
+
+/**
+ * THE DEDICATED PRINTING REQUIREMENT — what the printer is sent, per
+ * colourway, and only for the colourways / components the order prints. The
+ * isolation is the engine's (`routeForPrint`), not this renderer's: an
+ * unprinted group never reaches a print section, so there is nothing here to
+ * filter out.
+ */
+export function exportPrintRequirementPdf(data: YarnFabricRequirementReport): void {
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  const M = 36;
+  const y = drawLetterhead(doc, data.header, "Printing Requirement", yarnReportFacts(data.header));
+  const body: string[][] = [];
+  const bold = new Set<number>();
+  for (const g of data.printing.groups) {
+    for (const r of g.rows) body.push(printRow(r));
+    if (data.printing.groups.length > 1) {
+      bold.add(body.length);
+      body.push([`${g.combo || "All colours"} total`, "", "", "", "", "", fmtNumber(g.sentWt), "", fmtNumber(g.receivedWt)]);
+    }
+  }
+  bold.add(body.length);
+  body.push(["TOTAL SENT FOR PRINTING", "", "", "", "", "", fmtNumber(data.printing.sentWt), "", fmtNumber(data.printing.receivedWt)]);
+  autoTable(doc, {
+    head: [PRINT_COLUMNS],
+    body,
+    startY: y,
+    margin: { left: M, right: M },
+    styles: monoStyles(),
+    headStyles: monoHead(),
+    columnStyles: { 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" } },
+    didParseCell: (d) => {
+      if (d.section === "body" && bold.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+    },
+  });
+  signOffFooter(doc);
+  pageFooter(doc, data.header);
+  doc.save(`${stem("PrintingRequirement", data.header)}.pdf`);
+}
+
+export function exportPrintRequirementCsv(data: YarnFabricRequirementReport): void {
+  /* No total rows — a spreadsheet sums its own column (the Entry Register's
+     reason, above). */
+  const rows: string[][] = [PRINT_COLUMNS];
+  for (const g of data.printing.groups) {
+    for (const r of g.rows) {
+      rows.push([
+        r.combo,
+        r.fabricName,
+        r.component,
+        r.print,
+        r.processName,
+        r.dia,
+        String(r.sentWt),
+        String(r.lossPct),
+        String(r.receivedWt),
+      ]);
+    }
+  }
+  download(`${stem("PrintingRequirement", data.header)}.csv`, toCsv(rows), "text/csv");
+}

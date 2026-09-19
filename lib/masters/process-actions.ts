@@ -26,12 +26,67 @@ function rev(): void {
  *  `short_description` and `hsn_code` are NOT here: the client removed the first
  *  on 2026-09-16 (doc/order/fabriprocess.md §4, dropped by 0565) and the second
  *  on 2026-09-18 (dropped by 0571) — see `lib/masters/process-types.ts`. */
-function normalizeSubCategories(data: ProcessInput): { sno: number; sub_category: string }[] {
+function normalizeSubCategories(
+  data: ProcessInput,
+): { id?: string; sno: number; sub_category: string }[] {
   if (!data.has_sub_categories) return [];
   return data.sub_categories
-    .map((c) => c.sub_category.trim())
-    .filter((name) => name.length > 0)
-    .map((sub_category, i) => ({ sno: i + 1, sub_category }));
+    .map((c) => ({ id: c.id, sub_category: c.sub_category.trim() }))
+    .filter((c) => c.sub_category.length > 0)
+    .map((c, i) => ({ ...(c.id ? { id: c.id } : {}), sno: i + 1, sub_category: c.sub_category }));
+}
+
+/**
+ * RECONCILE THE SUB-CATEGORY GRID BY ID (0583) — `syncSubCategories` in
+ * `./category-actions.ts` is the shape, and its header is the reason: the
+ * delete-all-then-reinsert shortcut is "safe only when nothing references the
+ * children", and since 0583 a Fabric BOM route step does
+ * (`order_fabric_bom_processes.sub_category_id`, ON DELETE RESTRICT).
+ * Existing rows keep their id, only a genuinely removed one is deleted, and a
+ * removal a route still names is refused in words rather than as an FK code.
+ *
+ * "HAS SUB CATEGORIES" TURNED OFF LEAVES THE ROWS ALONE. They are hidden from
+ * every picker (`getFabricProcessRows` marks them), and a route that already
+ * names one keeps reading "DYEING [WITH BIOWASH]". Deleting them on untick —
+ * what the wholesale replace did — would now be refused for any row in use,
+ * which would make the checkbox itself unsaveable.
+ */
+async function syncProcessSubCategories(
+  s: Awaited<ReturnType<typeof createClient>>,
+  processId: string,
+  data: ProcessInput,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!data.has_sub_categories) return { ok: true };
+  const rows = normalizeSubCategories(data);
+  const keepIds = rows.map((r) => r.id).filter((id): id is string => !!id);
+
+  let del = s.from("process_sub_categories").delete().eq("process_id", processId);
+  if (keepIds.length) del = del.not("id", "in", `(${keepIds.join(",")})`);
+  const { error: delErr } = await del;
+  if (delErr) {
+    if (delErr.code === "23503") {
+      return {
+        ok: false,
+        error:
+          "That sub-category is used on a Fabric BOM's Fabric Process route. Change those routes first, or rename it instead of removing it.",
+      };
+    }
+    return { ok: false, error: delErr.message };
+  }
+  for (const r of rows.filter((r) => r.id)) {
+    const { error } = await s
+      .from("process_sub_categories")
+      .update({ sno: r.sno, sub_category: r.sub_category })
+      .eq("id", r.id as string)
+      .eq("process_id", processId);
+    if (error) return { ok: false, error: error.message };
+  }
+  const fresh = rows.filter((r) => !r.id).map((r) => ({ process_id: processId, sno: r.sno, sub_category: r.sub_category }));
+  if (fresh.length) {
+    const { error } = await s.from("process_sub_categories").insert(fresh);
+    if (error) return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 /**
@@ -136,16 +191,9 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
   if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("processes").update(header).eq("id", id);
   if (error) return fail(error.message);
-  // Replace the sub-category grid wholesale (small, fully-loaded set).
-  const { error: delErr } = await s.from("process_sub_categories").delete().eq("process_id", id);
-  if (delErr) return fail(delErr.message);
-  const rows = normalizeSubCategories(p.data);
-  if (rows.length) {
-    const { error: cErr } = await s
-      .from("process_sub_categories")
-      .insert(rows.map((r) => ({ ...r, process_id: id })));
-    if (cErr) return fail(cErr.message);
-  }
+  // Reconciled BY ID since 0583 — a Fabric BOM route may point at a row.
+  const subRes = await syncProcessSubCategories(s, id, p.data);
+  if (!subRes.ok) return fail(subRes.error);
   // The stage mapping, replaced wholesale for the same reason the grid above is:
   // a small, fully-loaded set the screen always holds in its entirety. Nothing
   // else in the app writes this table, so there is no row here that the editor

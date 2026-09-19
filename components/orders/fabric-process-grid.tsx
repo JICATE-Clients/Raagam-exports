@@ -72,11 +72,14 @@ import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
-  MAX_ROUTE_STAGES,
   baseProcessMissing,
   baseProcessRepeated,
   baseProcessesForStage,
   blankFabricProcess,
+  clothPurchaseNotFirst,
+  processPickValue,
+  processPickerItems,
+  splitProcessPick,
   dyeingBlocked,
   fabricProcessRowStarted,
   printBlocked,
@@ -110,6 +113,8 @@ export function FabricProcessGrid({
   lookups,
   newKey,
   printDeclared,
+  printDeclaredFor,
+  subCategories = false,
   fabricIsYarnDyed = false,
   source = "yarn_knit",
   canCreate = false,
@@ -162,6 +167,24 @@ export function FabricProcessGrid({
   /** Has the order declared an AOP / Roll form print? (0528) — withheld from
    *  "Print" processes in the Process picker until it is. */
   printDeclared: boolean;
+  /**
+   * PER-BRANCH PRINT GATE (client 2026-09-19, checkpoint B): does THIS row's
+   * (colourway, component) branch carry a print on the order? When given it
+   * replaces `printDeclared` row by row, so a Printing step is offered only
+   * where there is something to print — not on WHITE because NAVY is AOP.
+   * `printedGroup` in `lib/orders/fabric-bom/print-route.ts` is the answer;
+   * the Save gate reads the same one. Omitted (IWO Fabric BOM), the
+   * fabric-wide `printDeclared` applies exactly as before.
+   */
+  printDeclaredFor?: (row: FabricProcessRow) => boolean;
+  /**
+   * OFFER THE MASTER'S SUB-CATEGORIES — "DYEING [WITH BIOWASH]" (0583). OPT-IN
+   * because the value needs a column to land in: Fabric BOM's route table has
+   * `sub_category_id`, IWO Fabric BOM's does not, and a picker offering a
+   * choice the save then drops is the silent-loss shape AGENTS.md's "Disabled
+   * rows" section is about.
+   */
+  subCategories?: boolean;
   /** Is THIS fabric Yarn-Dyed? (0557, doc/order/update.md §7.3) — withholds
    *  "Dyeing"-flagged processes from the Process picker, since a yarn-dyed
    *  fabric's dyeing loss is already carried on the Yarn Process tab and a
@@ -201,15 +224,20 @@ export function FabricProcessGrid({
   const colourWise = !!colours;
   const componentWise = !!components;
 
-  /* THE FOUR-STAGE CAP IS PER BRANCH (client spec 2026-09-01, "up to 4
-     distinct stages" — of one route, and a split fabric has one route per
-     branch). With every branch in one grid the button cannot know which
-     branch the next row is for, so it stands down only once EVERY branch the
-     toggles can name is full; a fifth step typed into one branch while
-     another is still short is named on that row instead (`overCap`). */
+  /* NO CAP ON A ROUTE'S LENGTH (client review 2026-09-19: "more than four is
+     not allowed" was the complaint). The 2026-09-01 spec asked for "up to 4
+     distinct stages" and the grid capped ROWS at four, which is a different
+     thing: a route has at most four STAGES (Greige · Dyed/Wash · Print) but
+     each stage runs several processes, and three of the client's own five
+     standard chains (`standard-routes.ts`) are five to eight steps long —
+     none of them could be entered. The stage rules in `stage-routes.ts` are
+     what bound a route now; nothing ever enforced the cap past this grid.
+
+     A branch is still one (colourway, component) leaf, keyed here the way
+     `stageRouteProblems` keys it, because the stage narrowing below reads a
+     row's position within its own branch. */
   const branchKey = (r: Pick<FabricProcessRow, "combo" | "component_id">) =>
     `${colourWise ? (r.combo ?? "") : ""}::${componentWise ? (r.component_id ?? "") : ""}`;
-  const branchCount = Math.max(1, colourWise ? colours!.length : 1) * Math.max(1, componentWise ? components!.length : 1);
   const stepsInBranch = new Map<string, number>();
   const positionInBranch = new Map<string, number>();
   for (const r of rows) {
@@ -218,7 +246,6 @@ export function FabricProcessGrid({
     stepsInBranch.set(k, n);
     positionInBranch.set(r.key, n);
   }
-  const overCap = (r: FabricProcessRow) => (positionInBranch.get(r.key) ?? 0) > MAX_ROUTE_STAGES;
 
   /* THE STAGE DECIDES THE PROCESS (0563, `doc/order/fabriprocess.md` §1 · §3).
      The supervisor's own reason for this is a STOCK LEDGER one, not a tidiness
@@ -275,7 +302,12 @@ export function FabricProcessGrid({
      that is not in the ▾, which is the failure mode "empty-and-explain" exists
      to avoid one step earlier. `baseProcessMissing` stands down in exactly that
      case, so the two agree. */
-  const baseCandidates = processesForFabric(processes, { printDeclared, fabricIsYarnDyed });
+  /** THE PRINT GATE FOR ONE ROW — per branch when the caller can answer it
+   *  (`printDeclaredFor`), else the fabric-wide flag. Every narrowing and twin
+   *  on the row reads this one value, so they cannot disagree. */
+  const printOk = (r: FabricProcessRow) => (printDeclaredFor ? printDeclaredFor(r) : printDeclared);
+  const baseCandidatesFor = (r: FabricProcessRow) =>
+    processesForFabric(processes, { printDeclared: printOk(r), fabricIsYarnDyed });
   /**
    * Does this fabric's SOURCE stop the engine charging for this step? (0564.)
    *
@@ -300,8 +332,6 @@ export function FabricProcessGrid({
    */
   const suppressedReason = (r: FabricProcessRow) =>
     sourceSuppressedReason(r, processes, source);
-  const branchesFull =
-    [...stepsInBranch.values()].filter((n) => n >= MAX_ROUTE_STAGES).length >= branchCount;
 
   /*
    * NO `usedIds`, AND THE OMISSION IS THE RULE RATHER THAN AN OVERSIGHT.
@@ -523,18 +553,33 @@ export function FabricProcessGrid({
           <RecordPicker
             label=""
             compact
-            items={processesForFabric(processes, {
-              currentValue: r.process_id,
-              printDeclared,
-              fabricIsYarnDyed,
-              /* 0563 — the two stage narrowings. Both are OPTIONAL opts that
-                 default to no narrowing, so a row with no Stage named yet sees
-                 exactly the list this grid offered before they existed. */
-              stageId: r.stage_id,
-              isFirstOfStage: opensStage(r),
-            })}
-            value={r.process_id}
-            onChange={(id) => patch(r.key, { process_id: id })}
+            items={(() => {
+              const narrowed = processesForFabric(processes, {
+                currentValue: r.process_id,
+                printDeclared: printOk(r),
+                fabricIsYarnDyed,
+                /* 0563 — the two stage narrowings. Both are OPTIONAL opts that
+                   default to no narrowing, so a row with no Stage named yet sees
+                   exactly the list this grid offered before they existed. */
+                stageId: r.stage_id,
+                isFirstOfStage: opensStage(r),
+              });
+              /* 0583 — each process, then "PROCESS [SUB]" for each of its
+                 sub-categories. Expanded AFTER every narrowing, so a
+                 sub-category is offered exactly where its process is. */
+              return subCategories ? processPickerItems(narrowed, r) : narrowed;
+            })()}
+            value={subCategories ? processPickValue(r) : r.process_id}
+            onChange={(id) =>
+              patch(
+                r.key,
+                subCategories
+                  ? splitProcessPick(id)
+                  : /* A caller without sub-categories still clears any it was
+                       handed, so a process change never keeps the old one's. */
+                    { process_id: id, sub_category_id: null },
+              )
+            }
             disabled={readOnly}
             required={fabricProcessRowStarted(r)}
             /* Empty-and-explain. An empty list here means the Process master has
@@ -550,10 +595,13 @@ export function FabricProcessGrid({
               print was removed (or from before this gate existed) — the
               same "held value survives, tagged" idiom `printBlocked` shares
               with every disabled-row rule in this app. */}
-          {printBlocked(r, processes, printDeclared) && (
+          {printBlocked(r, processes, printOk(r)) && (
             <div className="mt-0.5 text-xs text-warning">
-              Print details are not available — add a Roll form print on
-              Color/Print Details first.
+              {printDeclaredFor
+                ? /* Per branch: the order may print another colour, just not
+                     this one — say which fact is missing. */
+                  "No print is declared for this fabric / colour in Order Entry — remove Printing, or add the print on the order."
+                : "Print details are not available — add a Roll form print on Color/Print Details first."}
             </div>
           )}
           {/* 0557 — this fabric's Type was set to Yarn Dyed AFTER this row
@@ -581,7 +629,7 @@ export function FabricProcessGrid({
               which differs when a stage's only allowed process is print-gated
               — so the twin could name a mismatch the narrowing had already
               permitted. */}
-          {stageMismatchBlocked(r, processes, { printDeclared, fabricIsYarnDyed }) && (
+          {stageMismatchBlocked(r, processes, { printDeclared: printOk(r), fabricIsYarnDyed }) && (
             <div className="mt-0.5 text-xs text-warning">
               {stageName(r.stage_id)} does not run {""}
               {processes.find((p) => p.id === r.process_id)?.name ?? "this process"} — the
@@ -612,13 +660,21 @@ export function FabricProcessGrid({
               moved this fabric into {stageName(r.stage_id)} — a stage is entered once.
             </div>
           )}
+          {/* 0583 — a bought roll starts the route. Same sentence the Save gate
+              prints (`stageRouteProblems`), shortened for the cell. */}
+          {clothPurchaseNotFirst(rowsInBranch(r), indexInBranch(r), processes) && (
+            <div className="mt-0.5 text-xs text-warning">
+              A purchased roll is where the route starts — move{" "}
+              {processes.find((p) => p.id === r.process_id)?.name ?? "this step"} to the first row.
+            </div>
+          )}
           {baseProcessMissing(rowsInBranch(r), indexInBranch(r), processes, {
-            printDeclared,
+            printDeclared: printOk(r),
             fabricIsYarnDyed,
           }) && (
             <div className="mt-0.5 text-xs text-warning">
               A {stageName(r.stage_id)} route opens with{" "}
-              {baseProcessesForStage(baseCandidates, r.stage_id)
+              {baseProcessesForStage(baseCandidatesFor(r), r.stage_id)
                 .map((p) => p.name)
                 .join(" or ") || "that stage's base process"}{" "}
               — that is the step that moves the cloth into {stageName(r.stage_id)} stock.
@@ -639,13 +695,6 @@ export function FabricProcessGrid({
           {suppressedReason(r) && (
             <div className="mt-0.5 text-xs text-muted-foreground">
               {suppressedReason(r)}
-            </div>
-          )}
-          {/* A FIFTH STEP IN ONE BRANCH while "+ Add process" is still up for
-              the others — named on the row, never trimmed (see `hideAdd`). */}
-          {overCap(r) && (
-            <div className="mt-0.5 text-xs text-warning">
-              A route runs at most {MAX_ROUTE_STAGES} stages — this branch already has them.
             </div>
           )}
         </div>
@@ -802,18 +851,9 @@ export function FabricProcessGrid({
           ))}
         </FieldGrid>
       )}
-      /* FOUR STAGES, AND NO MORE (client spec 2026-09-01: "the system must
-         support up to 4 distinct stages"). `hideAdd` rather than a check inside
-         `onAdd` because it does two things at once — it removes the button AND
-         makes Enter on the last field decline, so the keyboard cannot get past
-         the cap either. That is the same reasoning the Garment Order's style
-         cap records, and the same prop.
-
-         THE ROWS ALREADY ENTERED ARE NEVER TRIMMED. A BOM loaded from a time
-         when the cap was different keeps every stage it has; the cap refuses
-         the NEXT one. Silently dropping a fifth stage because a rule changed is
-         data loss dressed up as validation. */
-      hideAdd={readOnly || branchesFull}
+      /* THE 4-ROW CAP IS GONE (client 2026-09-19) — see `branchKey` above.
+         Only a read-only grid hides "+ Add process" now. */
+      hideAdd={readOnly}
       /* A NEW ROW NAMES NO BRANCH, and since 2026-09-16 that is a VALID
          ANSWER on the colour axis rather than a hold: a blank Colour means the
          step treats every colourway, which is what most steps do. The Component

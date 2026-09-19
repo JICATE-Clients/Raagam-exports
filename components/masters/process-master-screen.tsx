@@ -32,7 +32,9 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
-type SubRow = { key: string; sub_category: string };
+/** `id` is the stored row's, carried so a save reconciles by id (0583 — a
+ *  Fabric BOM route may point at it). Absent on a row typed since the load. */
+type SubRow = { key: string; id?: string; sub_category: string };
 /** One row of the Fabric Stages grid — see `ProcessFabricStage` (0563). */
 type StageRow = { key: string; stage_id: string; is_base: boolean };
 
@@ -216,7 +218,7 @@ export function ProcessMasterScreen({
       has_sub_categories: r.has_sub_categories,
       inactive: r.inactive,
     });
-    const loaded = r.sub_categories.map((c) => ({ key: newKey(), sub_category: c.sub_category }));
+    const loaded = r.sub_categories.map((c) => ({ key: newKey(), id: c.id, sub_category: c.sub_category }));
     // A record that HAS sub-categories switched on but no lines saved against it
     // opens with a row standing ready, the same as a new one — the second of the
     // three statements in the rule above, and the one an `openEdit` that merely
@@ -313,7 +315,7 @@ export function ProcessMasterScreen({
         sub_categories: form.has_sub_categories
           ? subs
               .filter((s) => s.sub_category.trim())
-              .map((s, i) => ({ sno: i + 1, sub_category: s.sub_category.trim() }))
+              .map((s, i) => ({ ...(s.id ? { id: s.id } : {}), sno: i + 1, sub_category: s.sub_category.trim() }))
           : [],
         /* THE BLANK-ROW FILTER, and it tests `stage_id` and nothing else.
            `is_base` must never join it. A tick defaulting to `false` in an

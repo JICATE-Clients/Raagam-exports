@@ -23,6 +23,8 @@ import { isReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
 import {
   exportEntryRegisterCsv,
   exportEntryRegisterPdf,
+  exportPrintRequirementCsv,
+  exportPrintRequirementPdf,
   exportYarnRequirementCsv,
   exportYarnRequirementPdf,
 } from "@/lib/orders/fabric-bom/reports-export";
@@ -119,6 +121,15 @@ export function FabricBomReportsSheet({
                 key: "requirement",
                 label: "Yarn & Fabric Requirement",
                 content: <RequirementReportView data={requirementData} />,
+              },
+              /* THE PRINTING REQUIREMENT (client 2026-09-19) — the weight sent to
+                 the printer, isolated to the colourways / components the order
+                 prints. Read off the SAME report object as the tab beside it, so
+                 the two can never disagree about a printing figure. */
+              {
+                key: "printing",
+                label: "Printing Requirement",
+                content: <PrintRequirementView data={requirementData} />,
               },
             ]}
           />
@@ -1089,6 +1100,101 @@ function RequirementReportView({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Report 3 — Printing Requirement (client 2026-09-19)
+// ---------------------------------------------------------------------------
+
+/**
+ * "A separate, dedicated printing requirement report displaying the exact
+ * weight sent for printing." The PRINT sections of the Yarn & Fabric
+ * Requirement ledger, lifted out and grouped per assort colourway —
+ * `YarnFabricRequirementReport.printing`. Only printed colourways and
+ * components appear, because the engine keeps the print stage out of every
+ * unprinted group's ladder (`routeForPrint`); this view filters nothing.
+ */
+function PrintRequirementView({
+  data,
+}: {
+  data: YarnFabricRequirementReport | { refused: string } | null;
+}) {
+  if (!data) return null;
+  if (isReportRefusal(data)) {
+    return <div className="rounded-md border border-border bg-white p-4 text-sm text-destructive">{data.refused}</div>;
+  }
+  const p = data.printing;
+  return (
+    <div>
+      {p.groups.length > 0 && (
+        <ExportBar onCsv={() => exportPrintRequirementCsv(data)} onPdf={() => exportPrintRequirementPdf(data)} />
+      )}
+      <Letterhead title="Printing Requirement" docNo={data.header.bomCode} />
+      <YarnReportFactsRow header={data.header} />
+      <QuantityBand header={data.header} />
+      <div className="mt-3">
+        <SectionHeader>Fabric Sent for Printing</SectionHeader>
+        {p.groups.length === 0 ? (
+          /* EMPTY-AND-EXPLAIN — an empty printing report must not read as
+             "nothing to print" when the real cause is a route with no Printing
+             step (which Save now refuses) or an order with no print. */
+          <div className="border-x border-b border-border bg-white px-4 py-3 text-[12.5px] text-muted-foreground">
+            No fabric on this BOM is sent for printing — no fabric line carries a print from Order
+            Entry, or no Fabric Process route has a Printing step.
+          </div>
+        ) : (
+          <ReportTable>
+            <thead>
+              <tr>
+                <Th>Assort Colour</Th>
+                <Th>Fabric</Th>
+                <Th>Component</Th>
+                <Th>Print</Th>
+                <Th>Process</Th>
+                <Th>Dia/Size</Th>
+                <Th right>Wt Sent for Printing</Th>
+                <Th right>Loss %</Th>
+                <Th right>Wt After Printing</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.groups.map((g) => (
+                <Fragment key={`pg-${g.combo}`}>
+                  {g.rows.map((r, i) => (
+                    <tr key={`pr-${g.combo}-${i}`} className="odd:bg-white even:bg-[#fafbfc]">
+                      <Td>{r.combo || "All colours"}</Td>
+                      <Td>{r.fabricName}</Td>
+                      <Td>{r.component || "—"}</Td>
+                      <Td>{r.print || "—"}</Td>
+                      <Td>{r.processName}</Td>
+                      <Td>{r.dia || "—"}</Td>
+                      <Td right mono className="font-semibold">{fmtNumber(r.sentWt)}</Td>
+                      <Td right mono>{r.lossPct.toFixed(2)}%</Td>
+                      <Td right mono>{fmtNumber(r.receivedWt)}</Td>
+                    </tr>
+                  ))}
+                  {p.groups.length > 1 && (
+                    <tr className="bg-[#f6f7f9] font-semibold">
+                      <Td colSpan={6}>{g.combo || "All colours"} total</Td>
+                      <Td right mono>{fmtNumber(g.sentWt)}</Td>
+                      <Td>{""}</Td>
+                      <Td right mono>{fmtNumber(g.receivedWt)}</Td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+              <tr className="bg-[#eaf7fd] font-semibold text-[#037bb8]">
+                <Td colSpan={6}>Total Sent for Printing</Td>
+                <Td right mono className="font-semibold">{fmtNumber(p.sentWt)}</Td>
+                <Td>{""}</Td>
+                <Td right mono className="font-semibold">{fmtNumber(p.receivedWt)}</Td>
+              </tr>
+            </tbody>
+          </ReportTable>
+        )}
+      </div>
     </div>
   );
 }

@@ -720,14 +720,22 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
   // `inactive`, not `is_active` — 0227's spelling. Reading the flag column from
   // memory is what leaves a picker silently empty, since PostgREST answers a
   // select over a MISSING column with an error rather than nulls.
+  /* `is_knitting` JOINED THIS SELECT ON 2026-09-16 (0564) — the third kind
+     flag, read for the same reason as the other two and by the same rule
+     file. The Fabric Process screen carries it onto each route step so the
+     preview suppresses exactly what the save path suppresses; see
+     `./fabric-source.ts`.
+
+     `is_cloth_purchase` + `has_sub_categories` JOINED ON 2026-09-19 (0583) —
+     the first says which step BUYS the cloth (`sourceFromRoute`), the second
+     whether the master's sub-category rows are live. A missing column THROWS
+     below, for this function's standing reason — and it did, for a few
+     minutes on 2026-09-19, between this select landing and 0583 being
+     applied: both Fabric BOM screens failed to load. Apply the migration
+     BEFORE the select that needs it. */
   const { data, error } = await s
     .from("processes")
-    /* `is_knitting` JOINED THIS SELECT ON 2026-09-16 (0564) — the third kind
-       flag, read for the same reason as the other two and by the same rule
-       file. The Fabric Process screen carries it onto each route step so the
-       preview suppresses exactly what the save path suppresses; see
-       `./fabric-source.ts`. */
-    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting")
+    .select("id, name, inactive, for_fabric, is_print, is_dyeing, is_knitting, is_cloth_purchase, has_sub_categories")
     .order("name");
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST (AGENTS.md) — `data ?? []`
   // on a missing column (e.g. `is_dyeing` before 0557 is applied) turns a
@@ -784,6 +792,28 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     else rolesByProcess.set(r.process_id, [role]);
   }
 
+  /* THE SUB-CATEGORIES (0583) — a third query, not an embed, for the stage
+     routes' two reasons above. "DYEING [WITH BIOWASH]" was never offered
+     because nothing on an order screen read this table (client 2026-09-19).
+     A failure THROWS rather than returning none: an empty answer would make
+     every held sub-category render as "(sub-category removed)" and the next
+     save would still carry the id — a label lying about the value. */
+  const { data: subRows, error: subError } = await s
+    .from("process_sub_categories")
+    .select("id, process_id, sno, sub_category")
+    .order("sno");
+  if (subError) {
+    throw new Error(`Could not load the process sub-categories: ${subError.message}`);
+  }
+  const subsByProcess = new Map<string, { id: string; name: string }[]>();
+  for (const r of (subRows ?? []) as { id: string; process_id: string; sub_category: string | null }[]) {
+    const name = (r.sub_category ?? "").trim();
+    if (!name) continue;
+    const list = subsByProcess.get(r.process_id);
+    if (list) list.push({ id: r.id, name });
+    else subsByProcess.set(r.process_id, [{ id: r.id, name }]);
+  }
+
   return ((data ?? []) as {
     id: string;
     name: string;
@@ -792,6 +822,8 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     is_print: boolean | null;
     is_dyeing: boolean | null;
     is_knitting: boolean | null;
+    is_cloth_purchase: boolean | null;
+    has_sub_categories: boolean | null;
   }[]).map((p) => ({
     id: p.id,
     code: null,
@@ -801,6 +833,16 @@ export async function getFabricProcessRows(): Promise<FabricProcessOption[]> {
     is_print: p.is_print ?? false,
     is_dyeing: p.is_dyeing ?? false,
     is_knitting: p.is_knitting ?? false,
+    is_cloth_purchase: p.is_cloth_purchase ?? false,
+    /* ALL of them, marked `hidden` when the master's "Has Sub Categories" is
+       off. Hidden ones are not OFFERED (`processPickerItems` skips them), but
+       a route that already holds one still reads its real name
+       (`processLabel`) — the "Disabled rows" rule: never show a filled field
+       as something other than what it holds. */
+    sub_categories: (subsByProcess.get(p.id) ?? []).map((sc) => ({
+      ...sc,
+      hidden: !p.has_sub_categories,
+    })),
     stage_roles: rolesByProcess.get(p.id) ?? [],
   }));
 }

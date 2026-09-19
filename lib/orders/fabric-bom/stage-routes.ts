@@ -512,6 +512,34 @@ export function baseProcessRepeated(
 }
 
 /**
+ * INLINE TWIN, and the fourth refusable fault (client 2026-09-19): a step that
+ * BUYS the cloth (`is_cloth_purchase` — FABRIC PURCHASE, DYED FABRIC PURCHASE)
+ * sits below another step in its branch.
+ *
+ * A bought roll is where a route STARTS. Anything above it claims the cloth was
+ * knitted or dyed in-house before it was bought, which is the live route
+ * `[GREIGE] KNITTING → [DYED] DYEING → [DYED] FABRIC PURCHASE` — the operator
+ * reaching for a dyed purchase the Dyed stage could not offer, and the demand
+ * engine then charging yarn AND the purchase. `sourceFromRoute` reads only a
+ * branch's FIRST step, so a purchase anywhere else would also be silently
+ * ignored by the arithmetic; refusing it keeps "what the route says" and "what
+ * is bought" one fact.
+ *
+ * Counts only rows ABOVE that name a process: a blank row the operator has
+ * just added is not a step yet.
+ */
+export function clothPurchaseNotFirst(
+  rows: readonly FabricProcessRow[],
+  index: number,
+  options: readonly FabricProcessOption[],
+): boolean {
+  const row = rows[index];
+  if (!row?.process_id) return false;
+  if (!options.find((p) => p.id === row.process_id)?.is_cloth_purchase) return false;
+  return rows.slice(0, index).some((r) => !!r.process_id);
+}
+
+/**
  * EVERY ROUTE FAULT IN A WHOLE DOCUMENT, as sentences — the half the screen's
  * Save gate and the server action share so that they cannot disagree about what
  * is refusable.
@@ -541,7 +569,15 @@ export function stageRouteProblems(
   rows: readonly FabricProcessRow[],
   options: readonly FabricProcessOption[],
   stages: readonly FabricStageLike[],
-  opts: { gatesFor?: (itemId: string) => FabricStageGates; fabricName?: (itemId: string) => string } = {},
+  opts: {
+    /* THE BRANCH IS PASSED TOO (2026-09-19), because the print gate is now a
+       fact about a (fabric, colourway, component) leaf rather than the whole
+       order — see `printedGroup` in `./print-route.ts`. The two extra
+       arguments are optional, so a caller written against `(itemId)` alone
+       (IWO Fabric BOM) type-checks and keeps its fabric-wide gate. */
+    gatesFor?: (itemId: string, combo?: string | null, componentId?: string | null) => FabricStageGates;
+    fabricName?: (itemId: string) => string;
+  } = {},
 ): { item_id: string; row_key: string; message: string }[] {
   const nameOf = (id: string | null) =>
     (id && stages.find((s) => s.id === id)?.name) || "this stage";
@@ -562,7 +598,7 @@ export function stageRouteProblems(
   for (const branch of branches.values()) {
     for (let i = 0; i < branch.length; i++) {
       const row = branch[i];
-      const gates = opts.gatesFor?.(row.item_id) ?? {};
+      const gates = opts.gatesFor?.(row.item_id, row.combo ?? null, row.component_id ?? null) ?? {};
       const where = opts.fabricName ? `${opts.fabricName(row.item_id)}: ` : "";
       const process = options.find((p) => p.id === row.process_id)?.name ?? "that process";
       if (stageRegressionBlocked(branch, i, stages)) {
@@ -578,6 +614,17 @@ export function stageRouteProblems(
         // ONE FAULT PER ROW. A row whose stage regresses will usually also fail
         // the pair test (Knitting under Dyed, say), and two sentences about one
         // cell read as two problems to fix.
+        continue;
+      }
+      if (clothPurchaseNotFirst(branch, i, options)) {
+        out.push({
+          item_id: row.item_id,
+          row_key: row.key,
+          message:
+            `${where}${process} is where this fabric's route starts — a bought roll arrives ` +
+            `${nameOf(row.stage_id)}, so nothing can be knitted or dyed before it. Move it to the first ` +
+            `row, or remove the steps above it.`,
+        });
         continue;
       }
       if (stageMismatchBlocked(row, options, gates)) {
