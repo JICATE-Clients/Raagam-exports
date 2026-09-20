@@ -12,7 +12,8 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Toggle } from "@/components/ui/toggle";
+import { Field, FieldGrid, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
@@ -27,7 +28,12 @@ import { saveApprovalFlow, setApprovalFlowActive } from "@/lib/approvals/actions
 import { describeCriteria } from "@/lib/approvals/criteria";
 import { WORKFLOW_LIST, workflowLabel } from "@/lib/approvals/workflows";
 import type { RoleOption } from "@/lib/approvals/admin";
-import type { ApprovalFlow, ApprovalStep, CriteriaCondition } from "@/lib/approvals/types";
+import type {
+  ApprovalFlow,
+  ApprovalStep,
+  CriteriaCondition,
+  SlaBreachAction,
+} from "@/lib/approvals/types";
 
 export type FlowRow = ApprovalFlow & { created_by_name?: string | null };
 
@@ -37,6 +43,90 @@ type StepRow = {
   step_label: string;
   approver_role_key: string;
   step_type: "" | "review" | "final";
+  /**
+   * THE DEADLINE, IN MINUTES, AS TYPED (0601).
+   *
+   * A STRING in the row and a NUMBER in the payload, and the conversion is the
+   * point: `approval_validate_steps` refuses `"30"`, so a box that handed its
+   * raw value straight through would fail every save with a message about JSON
+   * types. Held as text while the operator types (an `<input>` mid-keystroke is
+   * "3", then "30"), coerced once in `stepsPayload`.
+   */
+  sla_minutes: string;
+  /** '' means the step declares nothing — not 'none'. See the column's comment. */
+  on_sla_breach: "" | SlaBreachAction;
+  /**
+   * TELL THE APPROVER WHO MISSED IT, when this step escalates (0603).
+   *
+   * DEFAULT OFF, and that is the client-facing decision rather than a shortcut:
+   * an approver nagged about a missed SLA learns to clear the clock by
+   * approving, which is the opposite of what an approval step is for. Ticked,
+   * the notice still says what happened to the DOCUMENT ("no longer waiting on
+   * you"), never what the person failed to do.
+   */
+  notify_missed_approver: boolean;
+  /**
+   * EVERYTHING THIS SCREEN DOES NOT EDIT, CARRIED THROUGH THE ROUND TRIP.
+   *
+   * `stepsPayload` used to rebuild each step from the four fields above, so
+   * opening a flow and pressing Save DELETED every key the builder has no
+   * control for — `approver_user_ids`, `allow_self_approve`,
+   * `required_permission`, `approver_resolver`, the SLA fields. A migration
+   * wrote them, the screen showed nothing about them, and one Save silently
+   * undid it: the Order Budget flow named an approver by id and allowed the
+   * submitter to approve (0600), and both would have vanished on the next edit
+   * of an unrelated field. Saving a step you did not touch must not change it.
+   *
+   * The "What this means" panel already SAYS what these hold
+   * (`describeStep`), so they are visible even while they are not editable.
+   */
+  rest: Omit<
+    ApprovalStep,
+    | "step_order"
+    | "step_label"
+    | "approver_role_key"
+    | "step_type"
+    | "sla_minutes"
+    | "on_sla_breach"
+    | "notify_missed_approver"
+  >;
+};
+
+/** Split a stored step into the editable fields and everything else. */
+function splitStep(s: ApprovalStep): Omit<StepRow, "key"> {
+  const {
+    step_order: _o,
+    step_label,
+    approver_role_key,
+    step_type,
+    sla_minutes,
+    on_sla_breach,
+    notify_missed_approver,
+    ...rest
+  } = s;
+  return {
+    step_label: step_label ?? "",
+    approver_role_key: approver_role_key ?? "",
+    step_type: (step_type ?? "") as StepRow["step_type"],
+    /* DESTRUCTURED OUT OF `rest`, not merely read from it. Left in the bag they
+       would be respread over the edited values in `stepsPayload` — the row's
+       own SLA field would render correctly and save the OLD number. */
+    sla_minutes: sla_minutes == null ? "" : String(sla_minutes),
+    on_sla_breach: on_sla_breach ?? "",
+    notify_missed_approver: notify_missed_approver === true,
+    rest,
+  };
+}
+
+/** A fresh, empty step row, minus the key the component's own counter owns. */
+const BLANK_STEP: Omit<StepRow, "key"> = {
+  step_label: "",
+  approver_role_key: "",
+  step_type: "",
+  sla_minutes: "",
+  on_sla_breach: "",
+  notify_missed_approver: false,
+  rest: {},
 };
 
 /** One criteria condition being edited. */
@@ -135,7 +225,7 @@ export function ApprovalFlowsScreen({
     setFlowName("");
     setPriority("100");
     setIsActive(true);
-    setSteps([{ key: newKey(), step_label: "", approver_role_key: "", step_type: "" }]);
+    setSteps([{ key: newKey(), ...BLANK_STEP }]);
     setCrits([]);
     setDirty(false);
     setMode("edit");
@@ -147,14 +237,7 @@ export function ApprovalFlowsScreen({
     setFlowName(f.flow_name);
     setPriority(String(f.priority));
     setIsActive(f.is_active);
-    setSteps(
-      (f.steps ?? []).map((s) => ({
-        key: newKey(),
-        step_label: s.step_label ?? "",
-        approver_role_key: s.approver_role_key ?? "",
-        step_type: (s.step_type ?? "") as StepRow["step_type"],
-      })),
-    );
+    setSteps((f.steps ?? []).map((s) => ({ key: newKey(), ...splitStep(s) })));
     setCrits(critRowsOf(f.criteria));
     setDirty(false);
     setMode("edit");
@@ -213,10 +296,31 @@ export function ApprovalFlowsScreen({
     steps
       .filter((s) => s.step_label.trim() || s.approver_role_key)
       .map((s, i) => ({
+        /* The untouched keys FIRST, so an edited field always wins over the
+           value it was read from — and nothing this screen cannot show is
+           dropped (see `StepRow.rest`). */
+        ...s.rest,
         step_order: i + 1,
         step_label: s.step_label.trim(),
         approver_role_key: s.approver_role_key || null,
         ...(s.step_type ? { step_type: s.step_type } : {}),
+        /* A NUMBER, AND ONLY WHEN THERE IS ONE. `approval_validate_steps`
+           refuses a string, and an OMITTED key is what "this step has no
+           deadline" means — `sla_minutes: null` would be a declaration of
+           nothing, which the trigger reads differently from silence. */
+        ...(s.sla_minutes.trim() && Number(s.sla_minutes) > 0
+          ? { sla_minutes: Number(s.sla_minutes) }
+          : {}),
+        ...(s.on_sla_breach ? { on_sla_breach: s.on_sla_breach } : {}),
+        /* ONLY WHERE IT ESCALATES. `approval_validate_steps` (0603) refuses
+           `true` on any other breach action — on a reminder those same people
+           are already the ones told — and sending `false` on a step with no
+           SLA at all would be a policy declared where nothing can trigger it.
+           The grid keeps the tick visible so a switched-off decision is still
+           readable; this is where it stops being sent. */
+        ...(s.on_sla_breach === "escalate"
+          ? { notify_missed_approver: s.notify_missed_approver }
+          : {}),
       }));
 
   /**
@@ -347,6 +451,94 @@ export function ApprovalFlowsScreen({
           <span className="text-sm tabular-nums text-muted-foreground">{n}</span>
         );
       },
+    },
+    /**
+     * THE DEADLINE (0601) — `doc/order/newfeature.md` §3's escalation matrix,
+     * as two cells rather than a migration.
+     *
+     * MINUTES, because the client stated the SLA in minutes ("30–120 mins").
+     * The "What this means" panel reads it back as "2 hours" where that is
+     * kinder (`describeStep`), so the admin never has to do the arithmetic to
+     * check their own policy.
+     */
+    {
+      header: "SLA (min)",
+      width: FIELD_WIDTH_CSS.hug,
+      align: "right",
+      cell: (r) => (
+        <Input
+          type="number"
+          min={1}
+          step={1}
+          value={r.sla_minutes}
+          onChange={(e) =>
+            mutSteps((xs) =>
+              xs.map((x) => (x.key === r.key ? { ...x, sla_minutes: e.target.value } : x)),
+            )
+          }
+        />
+      ),
+    },
+    {
+      header: "On breach",
+      width: FIELD_WIDTH_CSS.code,
+      cell: (r) => (
+        <Select
+          compact
+          value={r.on_sla_breach}
+          onChange={(e) =>
+            mutSteps((xs) =>
+              xs.map((x) =>
+                x.key === r.key
+                  ? { ...x, on_sla_breach: e.target.value as StepRow["on_sla_breach"] }
+                  : x,
+              ),
+            )
+          }
+        >
+          {/* BLANK IS NOT "none". Blank means the step declares nothing, and the
+              sweeper's default for a step with a deadline is to remind — which
+              is the safe default and the one an admin who set only a number
+              almost certainly meant. Choosing "Record only" is a deliberate
+              decision to chase nobody, so it has to be picked. */}
+          <option value="">Remind (default)</option>
+          <option value="notify">Remind the approver</option>
+          <option value="escalate">Escalate to the next step</option>
+          <option value="none">Record only — chase nobody</option>
+        </Select>
+      ),
+    },
+    /**
+     * THE CLIENT'S OWN TOGGLE (0603) — "we can toggle 'Notify Missed Approver'
+     * ON if you prefer strict SLA visibility for your team".
+     *
+     * DEAD UNLESS THE STEP ESCALATES, and it SAYS so rather than silently doing
+     * nothing: on a reminder the same approvers are already the ones told, and
+     * the database refuses `true` there. A switch that can be flicked and has
+     * no effect is the "star with nothing behind it" shape AGENTS.md refuses —
+     * so where it cannot apply, there is no switch to flick.
+     */
+    {
+      header: "Tell missed approver",
+      width: FIELD_WIDTH_CSS.hug,
+      align: "center",
+      cell: (r) =>
+        r.on_sla_breach === "escalate" ? (
+          <Toggle
+            checked={r.notify_missed_approver}
+            /* The column header names it on screen and reaches nothing
+               programmatically — `ariaLabel` is what the primitive asks for in
+               a grid cell, or this ships an unnamed checkbox. */
+            ariaLabel="Tell the approver who missed this step"
+            onChange={(next) =>
+              mutSteps((xs) =>
+                xs.map((x) => (x.key === r.key ? { ...x, notify_missed_approver: next } : x)),
+              )
+            }
+          />
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
     },
     {
       header: "Type",
@@ -562,7 +754,7 @@ export function ApprovalFlowsScreen({
             onAdd={() => {
               mutSteps((xs) => [
                 ...xs,
-                { key: newKey(), step_label: "", approver_role_key: "", step_type: "" },
+                { key: newKey(), ...BLANK_STEP },
               ]);
             }}
             onRemove={(row) => mutSteps((xs) => xs.filter((x) => x.key !== row.key))}

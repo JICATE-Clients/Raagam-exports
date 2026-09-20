@@ -1221,3 +1221,79 @@ reads vocabulary widths (`FIELD_WIDTH_CSS.hug`) from `components/ui/field.tsx`. 
 `6xl` threshold the check exists to refuse, and the run still ended green. **A screen is not
 done until that check lists every grid it touched as an `ok` line by name** — absent is not
 ok. Verified by making it fail first against the Budget screen's `costGrid`.
+
+## Approval SLA and escalation (STANDING)
+
+**A step with a deadline is a step that escalates by itself.** `doc/order/newfeature.md`
+§3: a budget approval left untouched past its SLA goes up to the next authority, and
+nobody has to notice. Declared once — `sla_minutes` + `on_sla_breach` on a flow step
+(0601) — and read by four things that cannot drift apart: the clock trigger, the
+sweeper, the queue's Overdue pill, and the sentence the Flows screen prints back.
+
+**MINUTES, AND THE SKILL SHIPS HOURS.** The client's matrix is "30–120 mins", so
+minutes is the stored unit. `sla_hours` was in `lib/approvals/types.ts` from the day the
+engine landed and was **read by nothing** — the exact state `dynamic-approval-flow` names
+in its key constraints: *"a column no code reads is worse than a missing one: it lies to
+the admin who set it."* It was deleted in the same change that made `sla_minutes` real,
+because two fields competing to be the one that works is that lie with a second door.
+
+**THE TICK IS THE PART THAT FAILS SILENTLY.** There is no `pg_cron` on this project
+(checked against `pg_extension`), and a SQL schedule could not send a web push anyway —
+that is `web-push` + VAPID, a Node concern, and an escalation the MD learns about when
+they next open the app is a note, not an escalation. So:
+
+- `vercel.json` runs `/api/cron/approval-sla` every five minutes. **It refuses every
+  request without `CRON_SECRET`**, and answers 503 rather than falling open: the route
+  advances approvals past the people who were meant to make them, and an unset
+  environment variable is not consent. Set it in Vercel or **nothing ever escalates** —
+  and nothing looks wrong, which is the whole danger.
+- `proxy.ts` stands down for `/api/cron/`. Without that the session gate answers a
+  cookie-less cron with a 307 to /login, which a scheduler records as a SUCCESS.
+- `/approvals` sweeps opportunistically on load, throttled to once a minute per server
+  instance, so a misconfigured cron degrades to "escalates when someone opens the app"
+  instead of to nothing. It is the net, never the mechanism.
+
+**ESCALATING INTO A VOID IS THE STRANDING BUG WEARING A DIFFERENT HAT**, and it is
+refused in two places rather than one. `approval_validate_steps` rejects
+`on_sla_breach = 'escalate'` on the LAST step at flow-save time, where the admin is
+looking; `approval_sweep_sla` additionally declines to advance into a step whose role
+has no holders today. A run pushed into nobody's queue raises nothing and is chased by
+no one.
+
+**A FLOW NAMING A ROLE NOBODY HOLDS FAILS THE SUBMIT, NOT THE FLOW.**
+`approval_start_run` asserts step 1 has an approver and RAISES — so the Factory Manager
+→ MD chain (0602) is seeded **`is_active = false`** and switched on once somebody holds
+the role. An active chain into an empty role means every budget submit fails, today,
+with a message about approver resolution. The Flows screen already warns "nobody holds
+this" in red beside the step; the inactive seed is what puts that warning in front of
+someone before it costs a submit.
+
+**"Overdue" is answered in SQL** (`approval_my_queue.is_overdue`), never from
+`Date.now()` in a render. The React Compiler refuses the impure call outright, and it
+would be the wrong clock besides: a phone whose time is days out would paint half the
+queue red. FALSE also covers "no deadline was set", which is not "on time".
+
+**THE APPROVER WHO MISSED IT IS NOT TOLD, BY DEFAULT — and that is the decision, not
+an omission** (user, 2026-09-20): *"If managers feel penalized or nagged by SLA breach
+notifications, they tend to blindly hit Approve just to clear the notification clock —
+defeating the purpose of budget oversight."* The escalation already unblocks the
+factory, and the missed approver's own queue updates itself, so they cannot act on an
+item that has moved on. The requester IS always told, because the route their own
+document took changed.
+
+It is switchable per step — `notify_missed_approver` (0603), a tick in the Steps grid —
+and **per STEP rather than as an app setting**, for the reason `steps_snapshot` exists:
+a run freezes its steps, so a policy on the step travels with the request. A global
+switch read at sweep time would change the rules under every request already in flight.
+`true` is REFUSED anywhere but `escalate` — on a reminder those same people are already
+the ones told — so the switch does not render on a step where it could do nothing. Even
+switched on, the notice says what happened to the DOCUMENT ("no longer waiting on you"),
+never what the person failed to do: a reprimand is what produces the rubber-stamping the
+default exists to avoid.
+
+Verified by being made to FAIL first — the validator's five refusals, the clock not
+re-arming on an unrelated UPDATE, a second sweep reporting `breached = 0`, and the
+escalation returning the LEVEL 1 holders rather than the people it escalated to. Full
+reasoning in `supabase/migrations/0601_approval_sla_escalation.sql` and
+`0603_approval_notify_missed_approver.sql`; the plan and what was already built in
+`doc/order/newfeature-plan.md`.

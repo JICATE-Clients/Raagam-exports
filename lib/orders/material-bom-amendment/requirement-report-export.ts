@@ -18,7 +18,18 @@ import { fmtQty } from "@/lib/uom/convert";
 
 export type PdfOutput = "download" | "print";
 
-const HEAD = ["Item Name", "Item Color", "Calculated Qty", "Required Qty", "Uom", "Purchase Uom", "Stage"];
+/* "Purchase Qty" JOINED ON 2026-09-20 and sits BEFORE its unit — the paper and
+   the spreadsheet print what the screen prints, column for column. */
+const HEAD = [
+  "Item Name",
+  "Item Color",
+  "Calculated Qty",
+  "Required Qty",
+  "Uom",
+  "Purchase Qty",
+  "Purchase Uom",
+  "Stage",
+];
 
 function stem(r: MbaRequirementReport): string {
   const key = (r.header.scNo || r.header.bomCode || "bom").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -32,6 +43,7 @@ function body(r: MbaRequirementReport): string[][] {
     x.calculated != null ? fmtQty(x.calculated, x.decimals) : "—",
     x.required != null ? fmtQty(x.required, x.decimals) : (x.refusal ?? "—"),
     x.uom,
+    x.purchaseQty != null ? fmtQty(x.purchaseQty, x.purchaseDecimals) : "—",
     x.purchaseUom,
     x.stage,
   ]);
@@ -102,7 +114,7 @@ export async function exportMaterialBomRequirementPdf(
     styles: { fontSize: 8, cellPadding: 3.5, textColor: 20, lineColor: 200, lineWidth: 0.4 },
     headStyles: { fillColor: [235, 237, 240], textColor: 20, fontStyle: "bold" },
     alternateRowStyles: { fillColor: [250, 250, 251] },
-    columnStyles: { 2: { halign: "right" }, 3: { halign: "right", fontStyle: "bold" } },
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right", fontStyle: "bold" }, 5: { halign: "right" } },
   });
 
   const pages = doc.getNumberOfPages();

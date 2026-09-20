@@ -1,9 +1,18 @@
 import { requirePermission, can } from "@/lib/auth/server";
-import { getMyQueue, getStrandedRuns } from "@/lib/approvals/service";
+import { createClient } from "@/lib/supabase/server";
+import { getMyQueue, getStrandedRuns, canAct } from "@/lib/approvals/service";
+import { WORKFLOWS } from "@/lib/approvals/workflows";
+import { kpisFromJson } from "@/lib/orders/budget/amendment";
+import type { CanActVerdict } from "@/lib/approvals/types";
 import { withCreators } from "@/lib/created-by";
 import { ifInstalled } from "@/lib/approvals/install";
+import { sweepSlaOpportunistically } from "@/lib/approvals/sla";
 import { ApprovalsNotInstalled } from "@/components/approvals/approvals-not-installed";
-import { ApprovalsInboxScreen, type QueueRow } from "./approvals-inbox-screen";
+import {
+  ApprovalsInboxScreen,
+  type BudgetCard,
+  type QueueRow,
+} from "./approvals-inbox-screen";
 
 /**
  * MY APPROVALS — the one queue, across every module.
@@ -31,6 +40,20 @@ export default async function ApprovalsPage() {
   // be the lockout described above; `dashboard:view` is what every signed-in
   // user in this app already holds.
   await requirePermission("dashboard", "view");
+
+  /**
+   * SWEEP BEFORE READING (0601), not after.
+   *
+   * A run that escalated a minute ago belongs in THIS render of the queue, not
+   * the next one — an approver who opens their inbox and does not see the thing
+   * that was just escalated to them has been told nothing. `sweepSla` never
+   * throws and throttles itself to once a minute per instance, so the cost on
+   * the ordinary load is one RPC that returns zeros.
+   *
+   * It is a NET, not the mechanism: `vercel.json`'s cron is what makes an
+   * escalation happen while nobody is looking. See `lib/approvals/sla.ts`.
+   */
+  await sweepSlaOpportunistically();
 
   /* Same guard as the flows route — the queue RPC does not exist until 0502 is
      applied, and an inbox that crashes is a worse answer than one that says the
@@ -80,5 +103,98 @@ export default async function ApprovalsPage() {
     })),
   );
 
-  return <ApprovalsInboxScreen rows={rows} stranded={stranded} canViewAll={viewAll} />;
+  return (
+    <ApprovalsInboxScreen
+      rows={rows}
+      stranded={stranded}
+      canViewAll={viewAll}
+      budgets={await budgetCards(rows)}
+      verdicts={await queueVerdicts(rows)}
+    />
+  );
+}
+
+/**
+ * THE FIGURES THE PHONE CARD SHOWS — `doc/order/newfeature.md` §2.
+ *
+ * "Approvers view high-level budget metrics (Order Qty, Gross Sales, Total
+ * Expenses, Profit %, Profit Value) in a clean card format."
+ *
+ * ## READ FROM `submitted_summary`, NEVER RECOMPUTED
+ *
+ * That column is the §4.2 snapshot `submitBudget` stores in the same write as
+ * the status — the figures AS SUBMITTED. Recomputing them here would be a
+ * second assembler for one number, and the MD would be approving a total the
+ * merchandiser never saw. It is also what the desktop screen and the push
+ * notification both read, so all three say the same thing by construction.
+ *
+ * ## ONE QUERY FOR THE WHOLE QUEUE
+ *
+ * Not one per card. A queue of twenty budgets is twenty round trips on a
+ * phone's connection, and the inbox already renders without any of this — the
+ * figures are an enrichment, so a failure returns an empty map and the cards
+ * fall back to naming the document.
+ */
+async function budgetCards(rows: QueueRow[]): Promise<Record<string, BudgetCard>> {
+  const ids = rows
+    .filter((r) => r.workflow_key === WORKFLOWS.order_budget.key)
+    .map((r) => r.subject_id);
+  if (ids.length === 0) return {};
+  try {
+    const s = await createClient();
+    const { data, error } = await s
+      .from("order_budgets")
+      .select("id, code, currency_code, submitted_summary")
+      .in("id", ids);
+    if (error) {
+      console.error("[approvals] budget cards:", error.message);
+      return {};
+    }
+    const out: Record<string, BudgetCard> = {};
+    for (const b of (data ?? []) as {
+      id: string;
+      code: string | null;
+      currency_code: string | null;
+      submitted_summary: unknown;
+    }[]) {
+      out[b.id] = {
+        code: b.code,
+        currency: b.currency_code,
+        kpis: kpisFromJson(b.submitted_summary),
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * MAY I ACT ON THIS ONE — the real verdict, per row.
+ *
+ * ## WHY THIS IS NOT ASSUMED FROM BEING IN THE QUEUE
+ *
+ * It nearly could be: both readers resolve through `approval_step_approvers`.
+ * But `approval_can_act` asks ONE question more — a step may additionally
+ * demand a `required_permission`, and the queue RPC does not test it. A row
+ * can therefore be in your list and still refuse you, which is precisely the
+ * case where synthesising `can_act: true` would put a button in front of
+ * somebody the database is about to reject.
+ *
+ * So it is asked properly, in parallel, and a failure yields no verdict — the
+ * card then shows the figures and no buttons, which is the safe direction.
+ */
+async function queueVerdicts(rows: QueueRow[]): Promise<Record<string, CanActVerdict>> {
+  const out: Record<string, CanActVerdict> = {};
+  await Promise.all(
+    rows.map(async (r) => {
+      try {
+        const v = await canAct(r.run_id);
+        if (v?.can_act) out[r.run_id] = v;
+      } catch {
+        /* one row's verdict failing must not empty the whole inbox */
+      }
+    }),
+  );
+  return out;
 }
