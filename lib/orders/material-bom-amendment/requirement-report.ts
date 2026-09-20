@@ -50,6 +50,11 @@ type StoredRow = {
   required_qty: number | null;
   refusal_reason: string | null;
   consumption_uom_id: string | null;
+  /** WHAT IS ACTUALLY BOUGHT, in the purchase unit — stored by the save, never
+   *  re-derived here (`purchase_uom_id` alone was read until 2026-09-20, which
+   *  is how the report came to print a consumption figure under a purchase
+   *  unit; see the `purchaseQty` note below). */
+  purchase_qty: number | null;
   purchase_uom_id: string | null;
   item_color_id: string | null;
 };
@@ -146,7 +151,7 @@ export async function materialBomRequirementReport(
       .from("material_bom_amendment_requirements")
       .select(
         "item_line_id, item_id, sno, combo, basis, basis_qty, no_of_items, per_pieces, excess_pct, " +
-          "required_qty, refusal_reason, consumption_uom_id, purchase_uom_id, item_color_id",
+          "required_qty, refusal_reason, consumption_uom_id, purchase_qty, purchase_uom_id, item_color_id",
       )
       .eq("amendment_id", bom.id)
       .order("sno", { ascending: true }),
@@ -243,10 +248,23 @@ export async function materialBomRequirementReport(
           );
     /* PURCHASE UOM ONLY WHERE A PACK CONVERTS — the tab prints "—" on a line
        bought in the unit it is consumed in, and so does this. */
-    const purchaseUom =
-      r.purchase_uom_id && r.purchase_uom_id !== r.consumption_uom_id
-        ? (uoms.get(r.purchase_uom_id)?.code ?? "—")
-        : "—";
+    const converts = !!r.purchase_uom_id && r.purchase_uom_id !== r.consumption_uom_id;
+    const purchaseUom = converts ? (uoms.get(r.purchase_uom_id as string)?.code ?? "—") : "—";
+    /**
+     * AND THE FIGURE THAT UNIT MEASURES (client 2026-09-20: "the UOM for
+     * Buttons should be shown as Gross").
+     *
+     * The report used to print the purchase UNIT and never the purchase
+     * QUANTITY, so a button line read "5,225 · NOS · GROSS" — the 5,225 is
+     * pieces, the GROSS beside it is what the line is bought in, and the two
+     * sitting in one row read as one number in the wrong unit. 36.28 GROSS is
+     * what is ordered, and the save has stored it all along (`purchase_qty`,
+     * `toPurchaseQty` on the tab): the column was simply never printed.
+     *
+     * READ, NOT RE-DERIVED — the file header's rule. Dividing 5,225 by the pack
+     * here would round a second time and could disagree with the tab.
+     */
+    const purchaseUomDecimals = converts ? (uoms.get(r.purchase_uom_id as string)?.decimals ?? null) : null;
     return {
       key: `${r.sno}`,
       material: material || "(unknown item)",
@@ -256,7 +274,9 @@ export async function materialBomRequirementReport(
       refusal: r.required_qty == null ? (r.refusal_reason ?? "—") : null,
       uom: uom?.code ?? "—",
       decimals: uom?.decimals ?? null,
+      purchaseQty: converts ? r.purchase_qty : null,
       purchaseUom,
+      purchaseDecimals: purchaseUomDecimals,
       stage: (line?.purchase_stage ?? "").trim() || "—",
     };
   });

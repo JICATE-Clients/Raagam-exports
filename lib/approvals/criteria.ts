@@ -126,6 +126,23 @@ export interface StepDescription {
   warning?: string;
 }
 
+/**
+ * "45 minutes" · "2 hours" · "1 hour 30 minutes" (0601).
+ *
+ * The STORED unit is minutes and stays minutes — this is the sentence only.
+ * A flow set to 120 reading "If untouched for 120 minutes" is arithmetic the
+ * admin has to do to check their own policy, and the whole point of the
+ * "What this means" panel is that they do not have to.
+ */
+function slaText(minutes: number): string {
+  const m = Math.round(minutes);
+  if (m < 60) return `${m} minute${m === 1 ? '' : 's'}`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  const hours = `${h} hour${h === 1 ? '' : 's'}`;
+  return rest === 0 ? hours : `${hours} ${rest} minute${rest === 1 ? '' : 's'}`;
+}
+
 export function describeStep(
   step: ApprovalStep,
   holderCount?: number,
@@ -151,14 +168,24 @@ export function describeStep(
       ? ` Any ${step.min_approvals} of them must approve.`
       : ' All of them must approve.';
   }
-  if (step.sla_hours) {
+  if (step.sla_minutes) {
     const onBreach = step.on_sla_breach ?? 'notify';
+    const within = slaText(step.sla_minutes);
     sentence +=
       onBreach === 'escalate'
-        ? ` If untouched for ${step.sla_hours}h it moves to the next step automatically.`
+        ? ` If untouched for ${within} it moves to the next step automatically, and that step's approvers are told why.`
         : onBreach === 'none'
-          ? ` A ${step.sla_hours}h target is recorded but nothing happens if it passes.`
-          : ` If untouched for ${step.sla_hours}h, a reminder is raised.`;
+          ? ` A ${within} target is recorded but nothing happens if it passes.`
+          : ` If untouched for ${within}, a reminder is raised.`;
+    /* SAID EITHER WAY (0603). The quiet default is the client's decision, not
+       an omission — so the sentence states it, rather than only mentioning the
+       switch when it happens to be on. An admin reading "What this means"
+       should be able to see which way it was left. */
+    if (onBreach === 'escalate') {
+      sentence += step.notify_missed_approver
+        ? ' The approver who missed it is told that it has moved on.'
+        : ' The approver who missed it is not notified.';
+    }
   }
   if (step.on_return_restart_from_step) {
     sentence += ` Returning sends it back to step ${step.on_return_restart_from_step}.`;
@@ -224,6 +251,26 @@ export function validateSteps(steps: ApprovalStep[]): string[] {
     }
     if (step.mode === 'parallel' && step.min_approvals && step.min_approvals < 1) {
       errors.push(`Step ${n} has min_approvals below 1.`);
+    }
+
+    /* 0601's two SLA rules, mirrored from `approval_validate_steps`. The trigger
+       is still the authority — these exist so the admin reads the problem in the
+       builder instead of as a raised exception after pressing Save. */
+    if (step.sla_minutes != null && !(Number(step.sla_minutes) > 0)) {
+      errors.push(`Step ${n} has an SLA of "${step.sla_minutes}"; it must be a number of minutes above zero.`);
+    }
+    if (step.on_sla_breach && step.on_sla_breach !== 'none' && !step.sla_minutes) {
+      errors.push(`Step ${n} says what to do on breach but sets no SLA, so nothing would ever trigger it.`);
+    }
+    if (step.notify_missed_approver && step.on_sla_breach !== 'escalate') {
+      errors.push(
+        `Step ${n} is set to tell the approver who missed it, but it does not escalate — on a reminder they are already the ones told. Set it to escalate, or untick it.`,
+      );
+    }
+    if (step.on_sla_breach === 'escalate' && n === steps.length) {
+      errors.push(
+        `Step ${n} is the last step, so it cannot escalate — there is no step above it. Use "remind", or add the step it should escalate to.`,
+      );
     }
   });
 

@@ -1873,7 +1873,33 @@ export function IwoFabricBomScreen({
    *  own sentence), then its stages in the order screen's shared grid. */
   const yarnPanel = (r: YarnRow) => {
     const w = weightFor(r);
-    const combos = isRefusal(w) ? [] : w.byCombo.map((c) => c.combo).filter(Boolean);
+    const line = yarnMode ? (yarnLines.find((x) => x.item_id === r.item_id) ?? null) : null;
+    /**
+     * The colours this yarn's steps may be For.
+     *
+     * ON A FOR = YARN BOM THEY ARE THE LINE'S OWN SHADES, read straight off
+     * [Shades] rather than out of the computed weight. `byCombo` says the same
+     * thing while the weight can be stated — and says NOTHING the moment it
+     * refuses, which is exactly when the planner is filling the screen in: a
+     * shade whose KGS is not typed yet refuses (`iwoYarnModePurchase`), the
+     * list emptied, and the Colour box the save demands an answer in had no
+     * options to offer (client 2026-09-20). The shade NAMES are known long
+     * before the arithmetic is.
+     */
+    const combos = line
+      ? [...new Set(keptIwoYarnShades(shadeFacts(line)).map((sh) => sh.color_name ?? "").filter(Boolean))]
+      : isRefusal(w)
+        ? []
+        : w.byCombo.map((c) => c.combo).filter(Boolean);
+    /* A dyeing step on a Yarn-Dyeing DYED line owes its shade — 0592's "one
+       dyeing step per shade", which `iwoYarnLineProblems` refuses the save
+       over. `is_dyeing` off the process master, the same flag the save reads. */
+    const owesCombo = (st: YarnStageRow) =>
+      !!line &&
+      isDyedLine(line) &&
+      line.colour_by === "yarn_dyeing" &&
+      !!st.process_id &&
+      !!processKinds.get(st.process_id)?.is_dyeing;
     return (
       <>
         {isRefusal(w) && <p className="mb-1.5 text-xs text-danger">{w.refused}</p>}
@@ -1884,6 +1910,7 @@ export function IwoFabricBomScreen({
           stages={data.yarnStages}
           lossFor={data.processLookups.lossFor}
           combos={combos}
+          owesCombo={owesCombo}
           newKey={newKey}
           canCreate={perms.canCreate}
           canEdit={perms.canEdit}

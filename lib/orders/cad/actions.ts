@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { notifyMerchandiserOfCadSubmit } from "./notify";
 import { cadMarkerInput, type CadMarkerInput } from "./types";
 import { getCadWeightRows, getOrderPanels, type OrderPanelRow } from "./service";
 import {
@@ -197,6 +198,15 @@ export async function createCadMarker(data: CadMarkerInput): Promise<Result> {
     entityType: "order_cad_marker",
     entityId: created.id,
   });
+
+  /* A SHEET CAN BE BORN SUBMITTED — the screen's "Submitted" switch is on the
+     same form as New, so a CAD operator who measures everything in one sitting
+     never passes through draft. Leaving the alert only on `update` would make
+     the hand-off depend on whether they happened to save halfway. */
+  if (p.data.is_submitted) {
+    await notifyMerchandiserOfCadSubmit(p.data.garment_order_id);
+  }
+
   rev();
   return { ok: true, id: created.id };
 }
@@ -213,9 +223,11 @@ export async function updateCadMarker(id: string, data: CadMarkerInput): Promise
     .eq("id", id)
     .maybeSingle();
 
+  const wasSubmitted = (before as { status?: string } | null)?.status === "submitted";
+
   const { error } = await s
     .from("order_cad_markers")
-    .update(await headerOnly(p.data, (before as { status?: string } | null)?.status === "submitted"))
+    .update(await headerOnly(p.data, wasSubmitted))
     .eq("id", id);
   if (error) return fail(error.message);
 
@@ -227,6 +239,17 @@ export async function updateCadMarker(id: string, data: CadMarkerInput): Promise
     entityType: "order_cad_marker",
     entityId: id,
   });
+
+  /* STAGE 3 → 4 OF THE CAD HAND-OFF (§1): the weights are confirmed, so the
+     merchandiser is told. ON THE TRANSITION, not on the state — a submitted
+     sheet saved again (a remark typed, a layout re-uploaded) must not re-alert.
+     `wasSubmitted` is the same fact `headerOnly` already reads to decide
+     whether to stamp `submitted_at`, so the two cannot disagree about what a
+     submit is. */
+  if (p.data.is_submitted && !wasSubmitted) {
+    await notifyMerchandiserOfCadSubmit(p.data.garment_order_id);
+  }
+
   rev();
   return { ok: true, id };
 }

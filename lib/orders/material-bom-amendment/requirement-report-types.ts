@@ -19,7 +19,20 @@ export type MbaRequirementRow = {
   uom: string;
   /** `decimal_places_allowed` of the consumption unit — both figures are in it. */
   decimals: number | null;
+  /**
+   * WHAT IS ORDERED, in `purchaseUom` — the stored `purchase_qty`, null on a
+   * line bought in the unit it is consumed in.
+   *
+   * IT TRAVELS WITH ITS UNIT AND IS NEVER PRINTED WITHOUT IT. The report
+   * carried `purchaseUom` alone until 2026-09-20, so a button line showed
+   * 5,225 (pieces) on the same row as GROSS and read as 5,225 gross.
+   */
+  purchaseQty: number | null;
   purchaseUom: string;
+  /** `decimal_places_allowed` of the PURCHASE unit — `purchaseQty` is in it,
+   *  and it is a different unit from `decimals` above, so it is a different
+   *  precision (36.28 GROSS beside 5,225 NOS). */
+  purchaseDecimals: number | null;
   stage: string;
 };
 

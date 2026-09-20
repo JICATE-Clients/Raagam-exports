@@ -51,7 +51,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldGrid, RequiredScope } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -84,6 +84,7 @@ export function YarnProcessGrid({
   stages,
   lossFor,
   combos,
+  owesCombo = () => false,
   newKey,
   canCreate = false,
   canEdit = false,
@@ -120,6 +121,28 @@ export function YarnProcessGrid({
    * `byCombo` breakdown the weight came out of.
    */
   combos: string[];
+  /**
+   * WHICH ROWS OWE A COLOUR WHATEVER THE `For` LABEL SAYS (client 2026-09-20).
+   *
+   * `Colour` is revealed by `For` = COLOR WISE, which is right while naming a
+   * colourway is optional — the loss is measured per colour or it is not. On a
+   * DYED Yarn IWO line coloured by Yarn Dyeing it is not optional: 0592's rule
+   * is ONE DYEING STEP PER SHADE, and `iwoYarnLineProblems` refuses the save
+   * with "choose which shade each dyeing step is For".
+   *
+   * WITHOUT THIS THE REFUSAL WAS UNSATISFIABLE. The dyeing step's `For` was
+   * blank, so this cell rendered the dash — the operator could not name the
+   * shade the save was demanding, could not save, and had no control to press
+   * (client screenshot, IWO ▸ Yarn Process, 2026-09-20). That is the same
+   * failure AGENTS.md records under Mandatory fields: "A HOLD REFUSES MOVEMENT
+   * AND NEVER REFUSES CHOOSING" — a rule that cannot be satisfied is worse than
+   * no rule. The cell is therefore shown, `required`, whenever the row owes one.
+   *
+   * A PREDICATE, NOT A FLAG: it is a property of the ROW (is this step a dyeing
+   * step on that line?), which only the caller can answer — this grid is handed
+   * `processes` without the master's `is_dyeing` kind.
+   */
+  owesCombo?: (row: YarnStageRow) => boolean;
   /**
    * The SCREEN's key generator, passed in rather than grown here — the argument
    * `FabricProcessGrid` and `StyleProcessGrid` both record: these rows are
@@ -249,7 +272,11 @@ export function YarnProcessGrid({
           onChange={(id) =>
             patch(r.key, {
               loss_for_id: id || null,
-              combo: isColorWise(id || null, lossFor) ? r.combo : "",
+              /* Cleared when the label stops scoping by colour — UNLESS the row
+                 owes its shade anyway (`owesCombo`): there the Colour cell stays
+                 on screen, so clearing it would silently empty a mandatory cell
+                 from a keystroke aimed at a different column. */
+              combo: isColorWise(id || null, lossFor) || owesCombo(r) ? r.combo : "",
             })
           }
           canCreate={canCreate && !readOnly}
@@ -267,7 +294,8 @@ export function YarnProcessGrid({
        * arithmetic rather than a label, 2026-09-01). So a stage marked PURPLE
        * grosses up the purple share alone and leaves green at its net weight.
        *
-       * SHOWN ONLY WHEN `For` IS COLOR WISE. Process Wise treats the whole
+       * SHOWN WHEN `For` IS COLOR WISE — OR WHEN THE ROW OWES A SHADE
+       * (`owesCombo`, whose prop comment carries the reasoning). Process Wise treats the whole
        * yarn — the ordinary case since 0520 — so a colourway box beside it would
        * offer a choice the arithmetic would ignore, which is worse than not
        * offering one. A row not yet answering `For` at all shows the dash too:
@@ -284,31 +312,48 @@ export function YarnProcessGrid({
        */
       header: "Colour",
       width: "8rem",
-      cell: (r) =>
-        isColorWise(r.loss_for_id, lossFor) ? (
-          <Select
-            compact
-            className="h-8"
-            aria-label="For colourway"
-            value={r.combo}
-            disabled={readOnly}
-            onChange={(e) => patch(r.key, { combo: e.target.value })}
-          >
-            <option value="">All colourways</option>
-            {/* THE HELD VALUE SURVIVES A LIST THAT NO LONGER OFFERS IT — the
-                "Disabled rows" rule. A combo removed from the order after the
-                treatment was recorded would otherwise render as blank, which
-                reads as "applies to everything" and silently widens the loss to
-                every colourway. */}
-            {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
-        ),
+      /* The header `*` — per COLUMN, so it reads "some row here owes one"; the
+         hold itself is per ROW, in the scope below. */
+      required: rows.some(owesCombo),
+      cell: (r) => {
+        const owes = owesCombo(r);
+        if (!owes && !isColorWise(r.loss_for_id, lossFor)) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        return (
+          /* Per-row `required`, nested inside the scope `ChildGrid` opens from
+             the column: without it every row's cell would inherit the header's
+             star and hold the cursor on a step that owes nothing. */
+          <RequiredScope required={owes} label="Colour">
+            <Select
+              compact
+              className="h-8"
+              aria-label="For colourway"
+              value={r.combo}
+              disabled={readOnly}
+              required={owes}
+              onChange={(e) => patch(r.key, { combo: e.target.value })}
+            >
+              {/* "All colourways" IS NOT ON OFFER TO A ROW THAT OWES ONE — a
+                  dyeing step treats one shade (0592), so blank there is the
+                  state being refused, not a wider answer. The blank option
+                  stays, unlabelled: it is what the cell shows before a shade is
+                  chosen, and it is what `required` holds on. */}
+              {owes ? <option value="" /> : <option value="">All colourways</option>}
+              {/* THE HELD VALUE SURVIVES A LIST THAT NO LONGER OFFERS IT — the
+                  "Disabled rows" rule. A combo removed from the order after the
+                  treatment was recorded would otherwise render as blank, which
+                  reads as "applies to everything" and silently widens the loss to
+                  every colourway. */}
+              {(combos.includes(r.combo) || !r.combo ? combos : [...combos, r.combo]).map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          </RequiredScope>
+        );
+      },
     },
     {
       /* Legacy's greyed "Descriptions" cell, as free text — the same call the

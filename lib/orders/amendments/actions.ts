@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { getDefaultTaskOwners } from "@/lib/ta/task-owner-defaults";
 import { assertOrderUnlocked } from "@/lib/orders/budget/lock";
+import { notifyCadOfNewOrder } from "@/lib/orders/cad/notify";
 import {
   amendmentInput,
   mergeTaCompletions,
@@ -2146,6 +2147,27 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
     entityType: "garment_order_amendment",
     entityId: created.id,
   });
+
+  /**
+   * STAGE 1 → 2 OF THE CAD HAND-OFF (`doc/order/newfeature.md` §1).
+   *
+   * "Saving a new Sales Order Entry triggers an automated notification to the
+   * CAD department." Until this line that walk was a person carrying a printed
+   * CARE sheet across the factory.
+   *
+   * `mintedOrderId` IS THE DISCRIMINATOR, and it is the reason this is one line
+   * and not a rule. A new RE No was minted = this is a new ORDER; a document
+   * saved against an RE that already existed is an AMENDMENT (0517), and CAD
+   * does not want the same order arriving in its queue every time a style is
+   * revised. See `notifyCadOfNewOrder`'s own header.
+   *
+   * Fire-and-forget: it never throws, so the order is saved whatever happens to
+   * the push. Awaited rather than floated because a serverless function can be
+   * frozen the moment its response is returned — an un-awaited promise here is
+   * a notification that sometimes arrives.
+   */
+  if (mintedOrderId) await notifyCadOfNewOrder(created.id);
+
   rev();
   return { ok: true };
 }

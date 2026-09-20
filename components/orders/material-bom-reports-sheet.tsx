@@ -202,6 +202,10 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
                 <Th right>Calculated Qty</Th>
                 <Th right>Required Qty</Th>
                 <Th>Uom</Th>
+                {/* THE PURCHASE FIGURE SITS BESIDE ITS UNIT (client
+                    2026-09-20). Without it the row read "5,225 · NOS · GROSS"
+                    — pieces printed under a unit they are not in. */}
+                <Th right>Purchase Qty</Th>
                 <Th>Purchase Uom</Th>
                 <Th>Stage</Th>
               </tr>
@@ -224,6 +228,9 @@ function RequirementView({ data }: { data: MbaRequirementReport | { refused: str
                     )}
                   </td>
                   <td className="px-2 py-1">{r.uom}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">
+                    {r.purchaseQty != null ? fmtQty(r.purchaseQty, r.purchaseDecimals) : "—"}
+                  </td>
                   <td className="px-2 py-1">{r.purchaseUom}</td>
                   <td className="px-2 py-1">{r.stage}</td>
                 </tr>

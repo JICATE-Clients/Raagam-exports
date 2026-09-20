@@ -29,6 +29,8 @@ import {
   keptIwoYarnLines,
 } from "../lib/orders/iwo-fabric-bom/lines.ts";
 
+import { readFileSync } from "node:fs";
+
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
@@ -574,6 +576,46 @@ check(
     ],
   );
 }
+
+// ---------------------------------------------------------------------------
+// §15 THE REFUSAL MUST BE SATISFIABLE (client 2026-09-20)
+//
+// §12's "choose which shade each dyeing step is For" was refused while the
+// cell that names the shade was NOT ON SCREEN: `YarnProcessGrid`'s Colour cell
+// is revealed by the `For` label saying COLOR WISE, and a dyeing step whose
+// `For` was blank showed a dash instead. The planner could not fill it, could
+// not save, and had no control to press — AGENTS.md's "A HOLD REFUSES MOVEMENT
+// AND NEVER REFUSES CHOOSING", one screen along.
+//
+// The arithmetic vectors above cannot see that, so these read the source: the
+// grid must reveal the cell for a row that owes a shade, and the SCREEN must be
+// what says which rows do (only it knows the process master's `is_dyeing`).
+// Both were made to FAIL against the code as it stood before the fix.
+// ---------------------------------------------------------------------------
+
+const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+const gridSrc = read("../components/orders/yarn-process-grid.tsx");
+const colourCell = gridSrc.slice(gridSrc.indexOf('header: "Colour"'));
+const screenSrc = read("../app/(app)/orders/iwo-fabric-bom/iwo-fabric-bom-screen.tsx");
+
+check(
+  // The GUARD, not merely a mention of `owesCombo` anywhere in the cell: the
+  // bug was exactly that the dash won whenever `For` was not COLOR WISE.
+  "§15 the Colour cell's dash is guarded by `owesCombo` as well as the For label",
+  /if \(!owes && !isColorWise\(/.test(colourCell),
+  true,
+);
+check("§15 …and is `required` there, so the star and the hold come off one prop", /required=\{owes\}/.test(colourCell), true);
+check(
+  "§15 the IWO screen tells the grid which of its steps owe a shade",
+  /<YarnProcessGrid[\s\S]{0,800}?owesCombo=\{/.test(screenSrc),
+  true,
+);
+check(
+  "§15 …and offers the line's own shades, which are known before the weight is",
+  /const combos = line[\s\S]{0,200}?keptIwoYarnShades/.test(screenSrc),
+  true,
+);
 
 if (failed) {
   console.error(`\n${failed} IWO Fabric BOM vector(s) failed.`);
