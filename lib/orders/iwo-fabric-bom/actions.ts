@@ -44,6 +44,7 @@ import {
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { isYarnDyed } from "@/lib/orders/fabric-bom/fabric-line-rules";
 import { colorLossesForStorage } from "@/lib/orders/fabric-bom/color-loss";
+import { diaKnitProblem, type DiaDeclaration } from "@/lib/orders/fabric-bom/dia-knit";
 import {
   getBomYarnComposition,
   getFabricProcessLookupRows,
@@ -715,7 +716,7 @@ async function fabricTypesOf(s: Db, ids: string[]): Promise<Map<string, string |
  * owed. A failed lookup refuses the save: an empty map would read every cloth
  * as "not yarn dyed" and quietly waive the rule.
  */
-async function lineProblem(s: Db, p: IwoFabricBomParsed): Promise<string | null> {
+async function lineProblem(s: Db, bomId: string | null, p: IwoFabricBomParsed): Promise<string | null> {
   if (!p.lines) return null;
   const ids = [...new Set(keptIwoFabricLines(p.lines).map((l) => l.item_id))];
   const typeById = new Map<string, string | null>();
@@ -745,7 +746,48 @@ async function lineProblem(s: Db, p: IwoFabricBomParsed): Promise<string | null>
       return st ? stageRank(st) : null;
     },
   )[0];
-  return first?.message ?? null;
+  if (first) return first.message;
+  return diaKnitProblemOf(s, bomId, p);
+}
+
+/**
+ * FINISH DIA OF THE FABRIC'S OWN FAMILY (client 2026-09-19; the order action
+ * runs the same `diaKnitProblem`). The family is the line's Structure's
+ * `fabric_structure_id` code, read off `categories` — never off the payload;
+ * the declared dias are the payload's when it carries the panel (the screen
+ * always does), else the stored ones. A failed read refuses rather than
+ * waiving the rule.
+ */
+async function diaKnitProblemOf(s: Db, bomId: string | null, p: IwoFabricBomParsed): Promise<string | null> {
+  const kept = keptIwoFabricLines(p.lines ?? []).filter((l) => l.finish_dia && l.structure_id);
+  if (!kept.length) return null;
+  let dias: DiaDeclaration[];
+  if (p.dias) dias = p.dias.map((d) => ({ knit_type: d.knit_type, dia: d.dia }));
+  else if (bomId) {
+    const { data, error } = await s.from("iwo_fabric_bom_dias").select("knit_type, dia").eq("bom_id", bomId);
+    if (error) return `Could not read the Dia panel: ${error.message}`;
+    dias = (data ?? []) as DiaDeclaration[];
+  } else dias = [];
+  const structureIds = [...new Set(kept.map((l) => l.structure_id as string))];
+  const { data: cats, error } = await s
+    .from("categories")
+    .select("id, family:config_lookups!fabric_structure_id(code)")
+    .in("id", structureIds);
+  if (error) return `Could not read the fabric structures: ${error.message}`;
+  type Coded = { code: string | null };
+  const knitOf = new Map<string, string | null>();
+  for (const c of (cats ?? []) as unknown as { id: string; family: Coded | Coded[] | null }[]) {
+    const f = c.family;
+    knitOf.set(c.id, Array.isArray(f) ? (f[0]?.code ?? null) : (f?.code ?? null));
+  }
+  const itemIds = [...new Set(kept.map((l) => l.item_id))];
+  const { data: items } = await s.from("items").select("id, name").in("id", itemIds);
+  const nameOf = new Map(((items ?? []) as { id: string; name: string | null }[]).map((i) => [i.id, i.name ?? "This fabric"]));
+  for (const l of kept) {
+    const problem = diaKnitProblem(l.finish_dia, knitOf.get(l.structure_id as string) ?? null, dias, nameOf.get(l.item_id) ?? "This fabric");
+    if (problem) return problem;
+  }
+  return null;
 }
 
 /**
@@ -787,7 +829,7 @@ export async function saveIwoFabricBom(
     const stageErr = await yarnStageProblem(s, p);
     if (stageErr) return { ok: false, error: stageErr };
   }
-  const lineErr = await lineProblem(s, p);
+  const lineErr = await lineProblem(s, bomId, p);
   if (lineErr) return { ok: false, error: lineErr };
   const routeErr = await routeProblem(s, bomId, p);
   if (routeErr) return { ok: false, error: routeErr };

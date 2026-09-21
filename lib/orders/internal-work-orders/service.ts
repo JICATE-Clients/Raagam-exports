@@ -19,7 +19,10 @@ export type IwoFabricOption = PickerRow & { category_id: string | null };
 /** A structure (a FABRIC-class category — SINGLE JERSEY) carries its knit
  *  family (Circular / Flat Knit / Woven), which the SRS prints as the fabric's
  *  "Structure" and the app calls Structure Type (fabric-bom/service.ts). */
-export type IwoStructureOption = PickerRow & { knit: string | null };
+/** `knit` is the family's NAME (a label); `knit_code` its lookup code —
+ *  `circular` / `flat_knit` / `woven`, the same code a Dia panel row stores,
+ *  which is what `dia-knit.ts` compares (Finish Dia scoped by family). */
+export type IwoStructureOption = PickerRow & { knit: string | null; knit_code: string | null };
 
 export type IwoProcessOption = PickerRow & { for_yarn: boolean; for_fabric: boolean };
 
@@ -189,11 +192,11 @@ export async function getIwoFormData(): Promise<IwoFormData> {
   // getStructureRows: that embed does not parse against the generated types).
   const knitIds = [...new Set(fabricCats.map((c) => c.fabric_structure_id).filter(Boolean))] as string[];
   const knitRes = knitIds.length
-    ? await s.from("config_lookups").select("id, name").in("id", knitIds)
-    : { data: [] as { id: string; name: string | null }[], error: null };
+    ? await s.from("config_lookups").select("id, code, name").in("id", knitIds)
+    : { data: [] as { id: string; code: string | null; name: string | null }[], error: null };
   if (knitRes.error) throw new Error(`Internal work order form: ${knitRes.error.message}`);
   const knitById = new Map(
-    ((knitRes.data ?? []) as { id: string; name: string | null }[]).map((r) => [r.id, r.name]),
+    ((knitRes.data ?? []) as { id: string; code: string | null; name: string | null }[]).map((r) => [r.id, r]),
   );
 
   return {
@@ -206,7 +209,8 @@ export async function getIwoFormData(): Promise<IwoFormData> {
       code: c.short_name,
       name: c.name ?? c.short_name ?? "(unnamed)",
       inactive: isInactive(c),
-      knit: c.fabric_structure_id ? (knitById.get(c.fabric_structure_id) ?? null) : null,
+      knit: c.fabric_structure_id ? (knitById.get(c.fabric_structure_id)?.name ?? null) : null,
+      knit_code: c.fabric_structure_id ? (knitById.get(c.fabric_structure_id)?.code ?? null) : null,
     })),
     uoms: ((uomRes.data ?? []) as { id: string; code: string; name: string; is_active: boolean }[]).map(
       (u) => ({ id: u.id, code: u.code, name: u.name, inactive: isInactive(u) }),
