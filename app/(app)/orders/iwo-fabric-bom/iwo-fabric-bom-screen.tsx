@@ -120,6 +120,7 @@ import {
 } from "@/lib/orders/fabric-bom/yarn-process";
 import { routeStepCount, type FabricProcessRow } from "@/lib/orders/fabric-bom/processes";
 import { colorLossesFromDraft, colorLossesToDraft } from "@/lib/orders/fabric-bom/color-loss";
+import { diaKey, diaKnitProblem, knitLabel, knitTypesOfDia } from "@/lib/orders/fabric-bom/dia-knit";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import { fabricFormLabel } from "@/lib/orders/fabric-bom/component-map";
 import {
@@ -138,6 +139,7 @@ import {
 } from "@/lib/orders/iwo-fabric-bom/lines";
 import type { SheetOrigin } from "@/components/ui/sheet";
 import { YarnShadesSheet, type ShadeRow } from "./yarn-shades-sheet";
+import { FabricDiasSheet, blankDiaQty, isBlankDiaQty, type DiaQtyRow } from "./fabric-dias-sheet";
 import { YarnDyedSheet, type YdCombinationRow } from "@/components/orders/yarn-dyed-panels";
 import type { YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 
@@ -165,7 +167,7 @@ type Form = { iwo_id: string | null; bom_date: string };
 
 /**
  * One fabric line, as the two grids edit it. Numbers are held as the TEXT
- * typed, so a half-typed "12." is not rewritten under the caret; `lineFacts`
+ * typed, so a half-typed "12." is not rewritten under the caret; `expandLine`
  * turns them into numbers (NaN for a non-number, refused by name).
  */
 type LineRow = {
@@ -177,11 +179,22 @@ type LineRow = {
   mixing_uom_id: string | null;
   no_of_colors: string;
   gsm: string;
-  finish_dia: string;
   stage_id: string | null;
-  req_kgs: string;
   /** PRINT-stage lines only (0599). */
   print_name: string;
+  /**
+   * THE LINE'S DIAS, EACH WITH ITS OWN REQ WT — never empty (one blank row is
+   * the "no dia yet" state). ONE ROW PER FABRIC ON SCREEN, ONE STORED LINE PER
+   * DIA (client 2026-09-21: "if multiple is applicable can plan like color
+   * button — now it's creating another fabric, it's a bug"). `+ Dia` used to
+   * insert a second LINE of the same fabric, which showed the fabric twice on
+   * Allocation and Consumption. The screen now keeps one row and expands it
+   * back to 0592's one-line-per-(fabric, colour, dia) at every boundary —
+   * `expandLine` — so storage, `lines.ts` and the yarn engine are untouched.
+   * With ONE dia the grid's Finish Dia / Req Wt cells edit it in place; with
+   * more the cells go read-only (summary, Σ) and [Dias] is where they live.
+   */
+  dias: DiaQtyRow[];
 };
 
 const blankLine = (): LineRow => ({
@@ -193,11 +206,22 @@ const blankLine = (): LineRow => ({
   mixing_uom_id: null,
   no_of_colors: "",
   gsm: "",
-  finish_dia: "",
   stage_id: null,
-  req_kgs: "",
   print_name: "",
+  dias: [blankDiaQty(newKey())],
 });
+
+/** The dias a line PLANS — every row while there is one, otherwise the rows
+ *  that say something (a blank seed beside real dias is dropped, not stored
+ *  as a line with no dia). */
+const plannedDias = (l: LineRow): DiaQtyRow[] => (l.dias.length <= 1 ? l.dias : l.dias.filter((d) => !isBlankDiaQty(d)));
+/** The first dia — what the grid's cells edit when the line has one. */
+const soleDia = (l: LineRow): DiaQtyRow => l.dias[0] ?? blankDiaQty("");
+/** Σ Req Wt over the line's dias, or null while none is typed. */
+const lineKgs = (l: LineRow): number | null => {
+  const ns = plannedDias(l).map((d) => num(d.req_kgs)).filter((n): n is number => n != null);
+  return ns.length ? ns.reduce((a, b) => a + b, 0) : null;
+};
 
 /** Details ▸ Yarn Dyed Details rows (0599), addressed by the FABRIC — the
  *  panels' own row types plus the `item_id` they belong to. */
@@ -236,19 +260,28 @@ const str = (n: number | null | undefined) => (n == null ? "" : String(n));
 const kg = (n: number) =>
   n.toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
-const lineFacts = (l: LineRow): IwoFabricLineFacts => ({
-  structure_id: l.structure_id,
-  item_id: l.item_id,
-  color_name: l.color_name.trim() || null,
-  fabric_form: l.fabric_form || null,
-  mixing_uom_id: l.mixing_uom_id,
-  no_of_colors: num(l.no_of_colors),
-  gsm: num(l.gsm),
-  finish_dia: l.finish_dia.trim() || null,
-  stage_id: l.stage_id,
-  req_kgs: num(l.req_kgs),
-  print_name: l.print_name.trim() || null,
-});
+/** ONE STORED LINE PER DIA — the boundary between the screen's one-row-per-
+ *  fabric and 0592's grain. Every rule, the engine and the payload read THIS,
+ *  so a line with three dias is three lines to all of them, exactly as when
+ *  `+ Dia` inserted three rows. */
+const expandLine = (l: LineRow): IwoFabricLineFacts[] =>
+  plannedDias(l).map((d) => ({
+    structure_id: l.structure_id,
+    item_id: l.item_id,
+    color_name: l.color_name.trim() || null,
+    fabric_form: l.fabric_form || null,
+    mixing_uom_id: l.mixing_uom_id,
+    no_of_colors: num(l.no_of_colors),
+    gsm: num(l.gsm),
+    finish_dia: d.dia.trim() || null,
+    stage_id: l.stage_id,
+    req_kgs: num(d.req_kgs),
+    print_name: l.print_name.trim() || null,
+  }));
+/** The expanded lines with the SCREEN row each came from, so a rule's "Fabric
+ *  line N" names the row the operator sees, not the stored line's ordinal. */
+const expandLines = (lines: readonly LineRow[]): { facts: IwoFabricLineFacts; row: number }[] =>
+  lines.flatMap((l, i) => expandLine(l).map((facts) => ({ facts, row: i + 1 })));
 
 /** "No fabrics" is DERIVED, never stored — the order screen's `EMPTY_COMPOSITION`,
  *  a module constant so its identity is stable across renders. */
@@ -406,6 +439,8 @@ export function IwoFabricBomScreen({
   /** The yarn line whose [Shades] popup is open, and the button it grew from. */
   const [shadesFor, setShadesFor] = useState<string | null>(null);
   const [shadesOrigin, setShadesOrigin] = useState<SheetOrigin | null>(null);
+  const [diasFor, setDiasFor] = useState<string | null>(null);
+  const [diasOrigin, setDiasOrigin] = useState<SheetOrigin | null>(null);
   const [openFabricId, setOpenFabricId] = useState<string | null | undefined>(undefined);
   /** Fabric Allocation ▸ [Detail] (0599): the FABRIC whose Yarn Dyed Details
    *  is open (or null), and the button it grew from. */
@@ -499,20 +534,38 @@ export function IwoFabricBomScreen({
       dia: r.dia ?? "",
     }));
     setDias(d.length ? d : [blankDia()]);
-    const ls = (b.iwo_fabric_bom_lines ?? []).map((r) => ({
-      key: newKey(),
-      structure_id: r.structure_id,
-      item_id: r.item_id,
-      color_name: r.color_name ?? "",
-      fabric_form: r.fabric_form ?? "",
-      mixing_uom_id: r.mixing_uom_id,
-      no_of_colors: str(r.no_of_colors),
-      gsm: str(r.gsm),
-      finish_dia: r.finish_dia ?? "",
-      stage_id: r.stage_id,
-      req_kgs: str(r.req_kgs),
-      print_name: r.print_name ?? "",
-    }));
+    // ONE ROW PER FABRIC: stored lines that differ only by dia fold into one
+    // row's `dias` (the inverse of `expandLine`). Grouped on every other field,
+    // so two colours of one fabric stay two rows — a colour is a bucket the
+    // engine and the shades key on, a dia is not.
+    const ls: LineRow[] = [];
+    const rowByGroup = new Map<string, LineRow>();
+    for (const r of b.iwo_fabric_bom_lines ?? []) {
+      const group = [r.structure_id, r.item_id, r.color_name, r.fabric_form, r.mixing_uom_id, str(r.no_of_colors), str(r.gsm), r.stage_id, r.print_name]
+        .map((v) => v ?? "")
+        .join("\u0000");
+      const dia = { key: newKey(), dia: r.finish_dia ?? "", req_kgs: str(r.req_kgs) };
+      const held = rowByGroup.get(group);
+      if (held) {
+        held.dias.push(dia);
+        continue;
+      }
+      const row: LineRow = {
+        key: newKey(),
+        structure_id: r.structure_id,
+        item_id: r.item_id,
+        color_name: r.color_name ?? "",
+        fabric_form: r.fabric_form ?? "",
+        mixing_uom_id: r.mixing_uom_id,
+        no_of_colors: str(r.no_of_colors),
+        gsm: str(r.gsm),
+        stage_id: r.stage_id,
+        print_name: r.print_name ?? "",
+        dias: [dia],
+      };
+      rowByGroup.set(group, row);
+      ls.push(row);
+    }
     setLines(ls.length ? ls : [blankLine()]);
     // Every value re-sent as stored — the save is delete-then-insert, so a
     // column left off these rows would be reset to its default (the panels'
@@ -670,7 +723,9 @@ export function IwoFabricBomScreen({
    *  save calls (`iwoFabricGross`). */
   const fabricGross = iwoFabricGross(
     // Each colour its own bucket (0599) — what the Yarn Dyed shades key on.
-    lines.map((l) => ({ item_id: l.item_id, req_kgs: num(l.req_kgs), color_name: l.color_name })),
+    // One entry per DIA (`expandLine`): a fabric's dias of one colour sum
+    // into that colour's bucket, as they always did as separate lines.
+    expandLines(lines).map(({ facts }) => ({ item_id: facts.item_id, req_kgs: facts.req_kgs, color_name: facts.color_name })),
     data.kgUom?.id ?? null,
     (id) => fabricById.get(id)?.name ?? "this fabric",
   );
@@ -781,7 +836,7 @@ export function IwoFabricBomScreen({
   /** Gross Yarn for one line: its Req Wt through its fabric's route losses
    *  (`comboUplift`, divide by 1 — L, compounded). Blank while either is unknown. */
   const grossYarnFor = (l: LineRow): number | null => {
-    const kgs = num(l.req_kgs);
+    const kgs = lineKgs(l);
     if (!l.item_id || kgs == null || !(kgs > 0)) return null;
     const factor = comboUplift(routesByFabric.get(l.item_id) ?? [], "", []);
     return isRefusal(factor) ? null : kgs * factor;
@@ -831,10 +886,97 @@ export function IwoFabricBomScreen({
   };
 
   /** The line rules (`lines.ts`) — the same function the action runs. */
-  const lineProblems = iwoFabricLineProblems(lines.map(lineFacts), (id) => fabricTypeOf(id), fabricStageRank);
+  /* Run over the EXPANDED lines (one per dia), the rows re-labelled to the
+     screen row each came from. */
+  const expanded = expandLines(lines);
+  const lineProblems = iwoFabricLineProblems(
+    expanded.map((x) => x.facts),
+    (id) => fabricTypeOf(id),
+    fabricStageRank,
+  )
+    .map((p) => {
+      const row = expanded[p.row - 1]?.row ?? p.row;
+      // The sentence carries the ordinal too ("Fabric line 3: …") — re-labelled
+      // to the screen row, so a fabric with three dias is not "lines 3, 4, 5".
+      return { ...p, row, message: p.message.replace(/^Fabric line \d+:/, `Fabric line ${row}:`) };
+    })
+    // Two dias of one row failing the same test are ONE thing to fix.
+    .filter((p, i, all) => all.findIndex((q) => q.row === p.row && q.field === p.field && q.message === p.message) === i);
+
+  /** The Dia panel's values — what Finish Dia offers (Phase 2, the order
+   *  screen's `declaredDiaOptions`): one option per dia (`diaKey`, capitals
+   *  like the stored value) carrying the FAMILIES it is declared under, so the
+   *  list can be scoped to one fabric's family. */
+  const diaDeclarations = dias.map((d) => ({ knit_type: d.knit_type || null, dia: d.dia }));
+  const declaredDiaOptions = (() => {
+    const kinds = new Map<string, string[]>();
+    for (const d of dias) {
+      const key = diaKey(d.dia);
+      if (!key) continue;
+      const seen = kinds.get(key) ?? [];
+      if (d.knit_type && !seen.includes(d.knit_type)) seen.push(d.knit_type);
+      kinds.set(key, seen);
+    }
+    return [...kinds].map(([value, codes]) => ({
+      value,
+      label: value,
+      sublabel: codes.length ? codes.map(knitLabel).join(" · ") : undefined,
+      codes,
+    }));
+  })();
+  /** A line's fabric family — its Structure's code (`circular` / `flat_knit` /
+   *  `woven`), the same code a Dia panel row stores. Null = no family set, so
+   *  nothing to scope by. */
+  const lineKnitCode = (l: { structure_id: string | null }): string | null =>
+    l.structure_id ? (data.structures.find((x) => x.id === l.structure_id)?.knit_code ?? null) : null;
+  /**
+   * THE DIAS ONE FABRIC MAY PICK — ITS OWN KNIT FAMILY'S ONLY (client
+   * 2026-09-19: "if the fabric is circular, circular dias only; if flat, flat
+   * only"). The order screen's rule, which this copy had not received: a
+   * Fabric IWO with a circular jersey and a woven cloth offered every declared
+   * dia to both. `dia-knit.ts` is the one rule, read here and by the Save gate
+   * and the action. With no family on the structure every declared dia stays
+   * on offer, as before; an UNTYPED dia is not offered to a typed fabric.
+   * A held value always survives, tagged — dropping it would show the cell
+   * empty and the next Save would blank it (AGENTS.md, "Disabled rows").
+   */
+  const diaOptionsFor = (held: string, knit: string | null) => {
+    const scoped = (knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions).map(
+      ({ codes: _codes, ...o }) => o,
+    );
+    const v = held.trim();
+    if (!v || scoped.some((o) => o.value === diaKey(v))) return scoped;
+    const kinds = knitTypesOfDia(v, diaDeclarations);
+    const sublabel =
+      knit && kinds.length && !kinds.includes(knit)
+        ? `${kinds.map(knitLabel).join(" / ")} — not ${knitLabel(knit)}`
+        : kinds.length
+          ? kinds.map(knitLabel).join(" / ")
+          : "not on the Dia panel";
+    return [...scoped, { value: v, label: v, sublabel }];
+  };
+  /** A line holding a dia of the WRONG family — refused at Save, here and in
+   *  the action (`diaKnitProblem`, the sentence the server returns too). */
+  const diaKnitBlockers = lines.flatMap((l, i) =>
+    plannedDias(l).flatMap((d) => {
+      const p = l.item_id ? diaKnitProblem(d.dia, lineKnitCode(l), diaDeclarations, fabricById.get(l.item_id)?.name ?? "This fabric") : null;
+      return p ? [{ row: i + 1, message: p }] : [];
+    }),
+  );
+  /** THE ONE DIA A NEW LINE OPENS WITH — the order screen's `defaultDiaFor`
+   *  (client spec point 5: "automatically prepopulate the Dia field … but
+   *  remain editable"), counted PER FAMILY since 2026-09-19: a circular jersey
+   *  on a BOM declaring one circular and one woven dia opens on its one
+   *  circular dia, never on the woven one. Two or more in the family → blank;
+   *  a guessed diameter standing in a cell that decides the knitting programme
+   *  is worse than an empty one. */
+  const defaultDiaFor = (knit: string | null) => {
+    const scoped = knit ? declaredDiaOptions.filter((o) => o.codes.includes(knit)) : declaredDiaOptions;
+    return scoped.length === 1 ? scoped[0].value : "";
+  };
 
   /** Each fabric's line Stage — what decides whether its route stops at Greige. */
-  const fabricStageOf = iwoFabricStages(lines.map(lineFacts));
+  const fabricStageOf = iwoFabricStages(expanded.map((x) => x.facts));
   const isGreigeFabric = (itemId: string) => fabricStageRank(fabricStageOf.get(itemId) ?? null) === 0;
 
   /** The Fabric Process stage rules (0570) — the order screen's `routeBlockers`,
@@ -909,6 +1051,7 @@ export function IwoFabricBomScreen({
         message: p.message,
         kind: "custom" as const,
       })),
+      ...diaKnitBlockers.map((b) => ({ section: "consumption", label: `Fabric line ${b.row}`, message: b.message, kind: "custom" as const })),
       ...routeBlockers.map((b) => ({ section: "process", label: "Fabric Process", message: b.message, kind: "custom" as const })),
       ...yarnLineIssues.map((y) => ({
         section: y.section ?? "yarnLines",
@@ -976,7 +1119,8 @@ export function IwoFabricBomScreen({
       })),
       // Blank rows are dropped HERE as well as in the action: the schema
       // requires a fabric on every line it is sent.
-      lines: yarnMode ? [] : keptIwoFabricLines(lines.map(lineFacts)).map((l) => ({
+      // One stored line per dia (`expandLine`).
+      lines: yarnMode ? [] : keptIwoFabricLines(expandLines(lines).map((x) => x.facts)).map((l) => ({
         ...l,
         item_id: l.item_id ?? "",
         fabric_form: l.fabric_form as "open" | "tubular" | null,
@@ -1237,15 +1381,6 @@ export function IwoFabricBomScreen({
   const ydYarnOptions = (comp?.yarns ?? []).map((y) => ({ id: y.id, code: null, name: y.name, inactive: y.inactive }));
   const ydYarnName = (id: string | null) => (id ? ((comp?.yarns ?? []).find((y) => y.id === id)?.name ?? "") : "");
 
-  /** The Dia panel's values — what Finish Dia offers (Phase 2, the order
-   *  screen's `declaredDiaOptions`). Capitals, like the stored value. */
-  const declaredDias = [...new Set(dias.map((d) => d.dia.trim().toUpperCase()).filter(Boolean))];
-  const diaOptionsFor = (held: string) => {
-    const opts = declaredDias.map((d) => ({ value: d, label: d }));
-    const v = held.trim();
-    // A value the line already holds always survives, tagged.
-    return !v || declaredDias.includes(v.toUpperCase()) ? opts : [...opts, { value: v, label: v, sublabel: "not on the Dia panel" }];
-  };
 
   /** The Print cell — Fabric Consumption's, kept as a renderer beside the
    *  Colour cell below (both stood on Allocation too until 2026-09-21; see
@@ -1281,13 +1416,29 @@ export function IwoFabricBomScreen({
   const consumptionNeeds = lineProblems.filter((p) => CONSUMPTION_FIELDS.has(p.field));
   /** Consumption draws its Print column only while a line needs it. */
   const showPrintColumn = lines.some((l) => owesPrint(l) || !!l.print_name.trim());
+  /** THE COLOUR COLUMN GOES WITH THE COLOUR (client 2026-09-21, screenshot
+   *  2989: a greige-only plan showed a column of dashes — "no need to show in
+   *  UI also"). The Print column's gate, one column along: drawn once any line
+   *  is in a coloured stage, or still holds a colour to clear. */
+  const showColourColumn = lines.some((l) => owesColour(l) || !!l.color_name.trim());
 
   /** ONE STAGE PER FABRIC (Phase 2's rule): choosing it on one line sets it on
    *  every line of that fabric, so a + Dia line never lags behind and trips
    *  the "one Stage" refusal. A line with no fabric changes alone. */
   const setFabricStage = (r: LineRow, stageId: string | null) => {
+    /* THE STAGE DECIDES THE FIELDS — RESTRICTED, NOT WARNED (the yarn grid's
+       2026-09-21 rule, "changing Stage CLEARS a process the new stage would
+       not offer", applied here on the client's word, screenshot 2987: "stage
+       is greige means the colour field must hide"). A colour typed before the
+       Stage was set to GREIGE used to stay in the box, and the box stayed on
+       screen only so the refusal ("a GREIGE line has no colour — clear it")
+       had a way out. Clearing it here means the Colour cell reads "—" the
+       moment GREIGE is picked, and a Print goes the same way off a Print
+       stage. Every line of the fabric moves together — one Stage per fabric. */
+    const rank = fabricStageRank(stageId);
+    const dropped = { ...(rank === 0 ? { color_name: "" } : {}), ...(rank !== 2 ? { print_name: "" } : {}) };
     setLines((xs) =>
-      xs.map((x) => (x.key === r.key || (r.item_id && x.item_id === r.item_id) ? { ...x, stage_id: stageId } : x)),
+      xs.map((x) => (x.key === r.key || (r.item_id && x.item_id === r.item_id) ? { ...x, stage_id: stageId, ...dropped } : x)),
     );
     setDirty(true);
   };
@@ -1385,9 +1536,15 @@ export function IwoFabricBomScreen({
             patchLine(r.key, {
               item_id: id,
               structure_id: (id ? fabricById.get(id)?.category_id : null) ?? r.structure_id,
-              // ONE DIA DECLARED → PREFILLED, and still editable (the order
-              // screen's rule: "automatically prepopulate … but remain editable").
-              ...(id && !r.finish_dia.trim() && declaredDias.length === 1 ? { finish_dia: declaredDias[0] } : {}),
+              // ONE DIA DECLARED IN THIS FABRIC'S FAMILY → PREFILLED, and still
+              // editable (`defaultDiaFor`, the order screen's rule).
+              ...(id && r.dias.length === 1 && !soleDia(r).dia.trim()
+                ? {
+                    dias: [
+                      { ...soleDia(r), dia: defaultDiaFor(lineKnitCode({ structure_id: (fabricById.get(id)?.category_id ?? r.structure_id) ?? null })) },
+                    ],
+                  }
+                : {}),
             })
           }
         />
@@ -1478,9 +1635,9 @@ export function IwoFabricBomScreen({
       return {
         item_id: itemId,
         name: fabricById.get(itemId)?.name ?? "",
-        lines: ls.length,
-        kgs: ls.reduce((a, l) => a + (num(l.req_kgs) || 0), 0),
-        dias: new Set(ls.map((l) => l.finish_dia.trim().toUpperCase())).size,
+        lines: ls.reduce((a, l) => a + plannedDias(l).length, 0),
+        kgs: ls.reduce((a, l) => a + (lineKgs(l) || 0), 0),
+        dias: new Set(ls.flatMap((l) => plannedDias(l).map((d) => d.dia.trim().toUpperCase()))).size,
         colours: new Set(ls.map((l) => normName(l.color_name))).size,
       };
     })
@@ -1549,14 +1706,19 @@ export function IwoFabricBomScreen({
           },
         ]
       : []),
-    {
-      // DYED / WASH / PRINT ask for it; GREIGE shows "—" (user 2026-09-20: "if
-      // the dyed is chosen ask three field color, dia, weight").
-      header: "Colour",
-      width: FIELD_WIDTH_CSS.code,
-      required: lines.some(owesColour),
-      cell: (r) => colourCell(r),
-    },
+    ...(showColourColumn
+      ? [
+          {
+            // DYED / WASH / PRINT ask for it; a GREIGE line among coloured ones
+            // shows "—" (user 2026-09-20: "if the dyed is chosen ask three
+            // field color, dia, weight"); a greige-only grid has no column.
+            header: "Colour",
+            width: FIELD_WIDTH_CSS.code,
+            required: lines.some(owesColour),
+            cell: (r: LineRow) => colourCell(r),
+          },
+        ]
+      : []),
     {
       // PICKS FROM THE DIA PANEL (Phase 2, the order screen's Finish Dia): a
       // Combobox, so typed text is a SEARCH, never a stored value. Several
@@ -1567,39 +1729,54 @@ export function IwoFabricBomScreen({
       // line is planned per colour AND dia. A per-row hold under a column star,
       // the Colour cell's shape.
       required: lines.some(owesDia),
-      cell: (r) => (
-        <RequiredScope required={owesDia(r)} label="Finish Dia">
-          <Combobox
-            compact
-            inputClassName="h-8"
-            required={owesDia(r)}
-            options={diaOptionsFor(r.finish_dia)}
-            value={r.finish_dia}
-            onChange={(v) => patchLine(r.key, { finish_dia: v })}
-            clearable
+      cell: (r) =>
+        r.dias.length > 1 ? (
+          /* SEVERAL DIAS — the list lives behind [Dias]; here the summary,
+             read-only (off the Tab path), the shape [Color Loss] gives a
+             colour-wise step's Loss %. */
+          <Input
+            className="h-8"
+            readOnly
+            aria-label="Finish Dias"
+            value={plannedDias(r).map((d) => d.dia.trim()).filter(Boolean).join(" · ")}
           />
-        </RequiredScope>
-      ),
+        ) : (
+          <RequiredScope required={owesDia(r)} label="Finish Dia">
+            <Combobox
+              compact
+              inputClassName="h-8"
+              required={owesDia(r)}
+              options={diaOptionsFor(soleDia(r).dia, lineKnitCode(r))}
+              value={soleDia(r).dia}
+              onChange={(v) => patchLine(r.key, { dias: [{ ...soleDia(r), dia: v }] })}
+              clearable
+            />
+          </RequiredScope>
+        ),
     },
     {
       header: "Req Wt (KGS)",
       required: true,
       align: "right",
       width: FIELD_WIDTH_CSS.range,
-      total: { kind: "sum", of: (r) => num(r.req_kgs) || 0, format: kg },
+      total: { kind: "sum", of: (r) => lineKgs(r) || 0, format: kg },
       // Owed only on a line naming a fabric — see Stage above.
-      cell: (r) => (
-        <RequiredScope required={!!r.item_id} label="Req Wt (KGS)">
-          <Input
-            className="h-8 text-right"
-            inputMode="decimal"
-            required={!!r.item_id}
-            aria-label="Req Wt (KGS)"
-            value={r.req_kgs}
-            onChange={(e) => patchLine(r.key, { req_kgs: e.target.value })}
-          />
-        </RequiredScope>
-      ),
+      cell: (r) =>
+        r.dias.length > 1 ? (
+          /* Σ over the dias, read-only — each dia's own weight is typed in [Dias]. */
+          <Input className="h-8 text-right" readOnly aria-label="Req Wt (KGS)" value={lineKgs(r) == null ? "" : kg(lineKgs(r) as number)} />
+        ) : (
+          <RequiredScope required={!!r.item_id} label="Req Wt (KGS)">
+            <Input
+              className="h-8 text-right"
+              inputMode="decimal"
+              required={!!r.item_id}
+              aria-label="Req Wt (KGS)"
+              value={soleDia(r).req_kgs}
+              onChange={(e) => patchLine(r.key, { dias: [{ ...soleDia(r), req_kgs: e.target.value }] })}
+            />
+          </RequiredScope>
+        ),
     },
     {
       header: "Form",
@@ -1649,54 +1826,42 @@ export function IwoFabricBomScreen({
       },
     },
     {
-      /* + DIA (user 2026-09-20, screenshot 2968: "for the greige it should
-         allow to add multiple dias … now can only add one"). The rules always
-         allowed several dias of one fabric — a line per dia — but the only
-         way to add one was a fresh line on Fabric Allocation with the fabric
-         picked again. This adds the next line of THE SAME FABRIC right under
-         this one: structure, fabric, stage, form, GSM, Mixing Uom and No Of
-         Colors copied (one Stage per fabric is the rule), and Colour, Finish
-         Dia, Print and Req Wt left blank — they are what makes it a new line.
-         `data-row-open` puts it on the row's axis for Tab, Enter and ← →. */
-      header: "+ Dia",
+      /* [DIAS] — the line's dias with a Req Wt each, in a sheet (client
+         2026-09-21). Replaces `+ Dia` (2026-09-20, screenshot 2968), which
+         inserted a second LINE of the same fabric and so showed the fabric
+         twice. The count is the button's label once there is more than one,
+         the [Shades] shape. `data-row-open` puts it on the row's axis for Tab,
+         Enter and ← →. Disabled until the line names a fabric — there is
+         nothing to plan a dia of. */
+      header: "Dias",
       width: FIELD_WIDTH_CSS.num,
-      cell: (r) => (
-        <span title={r.item_id ? undefined : "Choose the fabric on Fabric Allocation first"} className="inline-block">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-row-open
-            disabled={!r.item_id}
-            aria-label="Add another dia of this fabric"
-            onClick={() => addLineLike(r)}
-          >
-            + Dia
-          </Button>
-        </span>
-      ),
+      cell: (r) => {
+        const n = plannedDias(r).filter((d) => d.dia.trim() || d.req_kgs.trim()).length;
+        return (
+          <span title={r.item_id ? undefined : "Choose the fabric on Fabric Allocation first"} className="inline-block w-full">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-full"
+              data-row-open
+              disabled={!r.item_id}
+              aria-label={n > 1 ? `Dias — ${n} entered` : "Dias"}
+              onClick={(ev) => openDias(r, ev.currentTarget.getBoundingClientRect())}
+            >
+              {n > 1 ? String(n) : "Dias"}
+            </Button>
+          </span>
+        );
+      },
     },
   ];
 
-  /** The next line of the same fabric, inserted under `r` — see + Dia. */
-  function addLineLike(r: LineRow) {
-    if (!r.item_id) return;
-    const next: LineRow = {
-      ...blankLine(),
-      structure_id: r.structure_id,
-      item_id: r.item_id,
-      fabric_form: r.fabric_form,
-      mixing_uom_id: r.mixing_uom_id,
-      no_of_colors: r.no_of_colors,
-      gsm: r.gsm,
-      stage_id: r.stage_id,
-    };
-    setLines((xs) => {
-      const i = xs.findIndex((x) => x.key === r.key);
-      return i < 0 ? [...xs, next] : [...xs.slice(0, i + 1), next, ...xs.slice(i + 1)];
-    });
-    setDirty(true);
-  }
+  const openDias = (l: LineRow, origin: SheetOrigin) => {
+    setDiasOrigin(origin);
+    setDiasFor(l.key);
+  };
+  const diasLine = diasFor ? (lines.find((l) => l.key === diasFor) ?? null) : null;
 
   // ---- Yarn Lines (For = Yarn, step 4) -----------------------------------------
 
@@ -2204,7 +2369,7 @@ export function IwoFabricBomScreen({
       key: "consumption",
       label: "Fabric Consumption",
       icon: Scale,
-      done: consumptionRows.some((l) => (num(l.req_kgs) ?? 0) > 0),
+      done: consumptionRows.some((l) => (lineKgs(l) ?? 0) > 0),
       content: (
         <SectionBody title="Fabric Consumption">
           {/* EVERY ALLOCATION LINE, FILLED OR NOT, so the fields are on screen
@@ -2253,9 +2418,8 @@ export function IwoFabricBomScreen({
             <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
               {fabricTotals.map((t) => (
                 <li key={t.item_id}>
-                  <span className="font-medium text-foreground">{t.name}</span> — {kg(t.kgs)} KGS across {t.lines} lines
-                  {t.dias > 1 ? ` · ${t.dias} dias` : ""}
-                  {t.colours > 1 ? ` · ${t.colours} colours` : ""}
+                  <span className="font-medium text-foreground">{t.name}</span> — {kg(t.kgs)} KGS across{" "}
+                  {[t.dias > 1 ? `${t.dias} dias` : "", t.colours > 1 ? `${t.colours} colours` : ""].filter(Boolean).join(" · ") || `${t.lines} lines`}
                 </li>
               ))}
             </ul>
@@ -2447,6 +2611,19 @@ export function IwoFabricBomScreen({
           onBlockedSave: revealFirstProblem,
           isPending,
         }}
+      />
+
+      <FabricDiasSheet
+        open={!!diasLine}
+        onClose={() => setDiasFor(null)}
+        origin={diasOrigin}
+        fabricName={diasLine?.item_id ? (fabricById.get(diasLine.item_id)?.name ?? "") : ""}
+        rows={diasLine?.dias ?? []}
+        onChange={(next) => diasLine && patchLine(diasLine.key, { dias: next.length ? next : [blankDiaQty(newKey())] })}
+        optionsFor={(held) => diaOptionsFor(held, diasLine ? lineKnitCode(diasLine) : null)}
+        required={!!diasLine && owesDia(diasLine)}
+        newKey={newKey}
+        readOnly={!perms.canEdit && !perms.canCreate}
       />
 
       <YarnShadesSheet

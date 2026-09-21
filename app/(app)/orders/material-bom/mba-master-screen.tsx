@@ -2869,19 +2869,35 @@ export function MbaMasterScreen({
                would cage the operator on a finished row (the Items/Pcs shape
                one column over). */
             const owed = colourRequired(grain) && !r.item_color_id;
+            /* HIDDEN OFF A COLOUR-WISE LINE (client spec 2026-09-21: ITEM_WISE
+               and SIZE_WISE — "Color: HIDDEN"). A row that is not a colourway
+               has no colour to match, so the box is a dash, and Tab walks past
+               it. A value the row ALREADY holds survives (a BOM saved before
+               the rule, the "Disabled rows" shape): the box stays so it can be
+               read and cleared, never silently kept. */
+            if (!colourRequired(grain) && !o?.item_color_id) {
+              return <span className="px-1 text-xs text-muted-foreground">—</span>;
+            }
             return (
               <RequiredScope required={owed} label="Item Color">
-                <LookupDialogPicker
-                  kind="fabric_color"
-                  label="Item Color"
-                  required={owed}
-                  options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
-                  value={o?.item_color_id ?? null}
-                  onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
-                  canCreate={masterPerms.canCreate}
-                  canEdit={masterPerms.canEdit}
-                  compact
-                />
+                {/* THE RED IS EARNED HERE, not only the star: the client asked
+                    for the blank cell to "highlight in red", and the boxed
+                    field style draws nothing on `data-required-empty` (only
+                    the "lines" style colours the edge). The same ring the IWO
+                    Fabric Consumption grid put on its owed boxes. */}
+                <span className="block [&_[data-required-empty]]:ring-1 [&_[data-required-empty]]:ring-danger">
+                  <LookupDialogPicker
+                    kind="fabric_color"
+                    label="Item Color"
+                    required={owed}
+                    options={orderColourOptions(sl.style_ref_no ?? r.style_ref_no, o?.item_color_id ?? null)}
+                    value={o?.item_color_id ?? null}
+                    onChange={(id) => setSlice(r.key, sl, { item_color_id: id })}
+                    canCreate={masterPerms.canCreate}
+                    canEdit={masterPerms.canEdit}
+                    compact
+                  />
+                </span>
               </RequiredScope>
             );
           }}

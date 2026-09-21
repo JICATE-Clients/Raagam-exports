@@ -688,6 +688,26 @@ check(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// §17 FINISH DIA OF THE FABRIC'S OWN FAMILY (client 2026-09-19) — the order
+// screen's rule, applied to the IWO on 2026-09-21. `dia-knit.ts` is the rule
+// (vectored on the order side); these pin that the IWO copy READS it: the
+// picker is scoped by the line's family, the one-dia prefill counts within
+// that family, and the Save gate + the action both refuse the wrong family.
+// ---------------------------------------------------------------------------
+
+const actionSrc = read("../lib/orders/iwo-fabric-bom/actions.ts");
+check("§17 the IWO Finish Dia picker is scoped by the line's family", /diaOptionsFor\(soleDia\(r\)\.dia, lineKnitCode\(r\)\)/.test(screenSrc), true);
+check("§17 …and the [Dias] sheet reads the SAME scoped list", /optionsFor=\{\(held\) => diaOptionsFor\(held, diasLine \? lineKnitCode\(diasLine\)/.test(screenSrc), true);
+// ONE ROW PER FABRIC (client 2026-09-21): `+ Dia` inserted a second LINE of the
+// same fabric, so the fabric showed twice. The dias now live on the row and are
+// expanded to one stored line each at the boundary — `expandLine`.
+check("§17 `+ Dia` no longer inserts a second line of the fabric", /addLineLike/.test(screenSrc), false);
+check("§17 …the payload, the rules and the engine read the EXPANDED lines", (screenSrc.match(/expandLines\(lines\)/g) ?? []).length >= 3, true);
+check("§17 …and the one-dia prefill counts within that family", /defaultDiaFor\(lineKnitCode\(/.test(screenSrc), true);
+check("§17 the screen's Save gate refuses a wrong-family dia", /diaKnitBlockers\.map/.test(screenSrc), true);
+check("§17 …and so does the action, with the same sentence", /diaKnitProblem\(l\.finish_dia, knitOf\.get/.test(actionSrc), true);
+
 if (failed) {
   console.error(`\n${failed} IWO Fabric BOM vector(s) failed.`);
   process.exit(1);

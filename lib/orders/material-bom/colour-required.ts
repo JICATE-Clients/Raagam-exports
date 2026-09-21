@@ -12,7 +12,13 @@
  * unanswered question the purchaser will have to come back and ask.
  *
  * Under ITEM_WISE / SIZE_WISE (Attribute = Order, Style, Country, ticked or
- * not) the colour is optional exactly as before — a polybag has none.
+ * not) the Item Color cell is NOT DRAWN (client spec 2026-09-21, "Color:
+ * HIDDEN") — a polybag has none, and a row that is not a colourway has nothing
+ * to match. A colour such a row already holds stays visible until cleared.
+ *
+ * SIZE NEEDS NO RULE OF ITS OWN. The spec's "Size: MANDATORY" under SIZE_WISE /
+ * COLOR_SIZE_WISE is satisfied by construction: a size-wise row IS a size of the
+ * order's assortment (`productionSlices` explodes it), never a box to fill.
  *
  * ## WHAT SATISFIES IT
  *

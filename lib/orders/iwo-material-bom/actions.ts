@@ -7,7 +7,15 @@ import { writeAudit } from "@/lib/audit";
 import { today } from "@/lib/calendar";
 import { isRefusal } from "@/lib/orders/material-bom/requirement";
 import { iwoMaterialBomInput, type IwoMaterialBomInput, type IwoMaterialBomParsed } from "./types";
-import { iwoMbProblems, iwoMbQuantity, keptIwoMbLines, keptIwoMbProcesses, type UomFacts } from "./rules";
+import {
+  iwoMbProblems,
+  iwoMbQuantity,
+  keptIwoMbLines,
+  keptIwoMbProcesses,
+  keptIwoMbSlices,
+  plannedQtyOf,
+  type UomFacts,
+} from "./rules";
 
 type Result = { ok: true; bomId: string } | { ok: false; error: string };
 type Db = Awaited<ReturnType<typeof createClient>>;
@@ -25,6 +33,8 @@ const lineFacts = (l: NonNullable<IwoMaterialBomParsed["items"]>[number]) => ({
   purchase_uom_id: l.purchase_uom_id,
   uom_conversion_id: l.uom_conversion_id,
   planned_qty: l.planned_qty,
+  attribute: l.attribute,
+  slices: l.slices.map((s) => ({ item_color_id: s.item_color_id, size: s.size ?? null, planned_qty: s.planned_qty })),
   moq: l.moq,
   round_to: l.round_to,
   is_advised: l.is_advised,
@@ -98,7 +108,13 @@ async function writeChildren(s: Db, bomId: string, p: IwoMaterialBomParsed): Pro
         purchase_uom_id: l.purchase_uom_id,
         moq: l.moq,
         round_to: l.round_to,
-        planned_qty: l.planned_qty,
+        /* Σ THE BREAKUP under a split attribute (0614) — `plannedQtyOf`, the
+           reader the rules and the quantity chain use. Never the typed line
+           figure, which the screen stops offering the moment the line splits.
+           The rules above have already refused a split line with no rows, so
+           this is a number here. */
+        planned_qty: plannedQtyOf(l),
+        attribute: l.attribute,
         is_advised: l.is_advised,
         send_out: l.send_out,
         is_foc: l.is_foc,
@@ -112,8 +128,29 @@ async function writeChildren(s: Db, bomId: string, p: IwoMaterialBomParsed): Pro
             }),
       };
     });
-    const { error } = await s.from("iwo_material_bom_items").insert(rows);
+    const { data: inserted, error } = await s.from("iwo_material_bom_items").insert(rows).select("id, sno");
     if (error) return error.code === "23514" ? "A line names an item that is not a Sewing or Packing accessory." : error.message;
+
+    /* THE BREAKUP ROWS (0614) — under the line each belongs to, keyed back by
+       `sno` (the array index the insert above assigned). The old rows went
+       with the line: `on delete cascade` off the delete-and-reinsert above. */
+    const lineIdBySno = new Map(((inserted ?? []) as { id: string; sno: number }[]).map((r) => [r.sno, r.id]));
+    const sliceRows = lines.flatMap((l, i) => {
+      if (l.attribute === "item") return [];
+      const lineId = lineIdBySno.get(i + 1);
+      if (!lineId) return [];
+      return keptIwoMbSlices(l.slices).map((sl, j) => ({
+        item_line_id: lineId,
+        sno: j + 1,
+        item_color_id: sl.item_color_id,
+        size: sl.size?.trim() || null,
+        planned_qty: sl.planned_qty,
+      }));
+    });
+    if (sliceRows.length) {
+      const { error: sliceErr } = await s.from("iwo_material_bom_item_slices").insert(sliceRows);
+      if (sliceErr) return sliceErr.message;
+    }
   }
 
   if (procs.length) {

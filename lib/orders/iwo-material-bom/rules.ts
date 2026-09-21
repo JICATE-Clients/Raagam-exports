@@ -31,8 +31,16 @@ import { requiredWithProcessLoss, type ProcessLossRow } from "@/lib/orders/mater
 import { resolveLinePack, type PackRow } from "@/lib/orders/material-bom/pack-resolve";
 import { isRefusal, roundUpTo, type Refusal } from "@/lib/orders/material-bom/requirement";
 import { toPurchaseQty } from "@/lib/uom/convert";
+import { attributeHasColour, attributeHasSize, IWO_MB_ATTRIBUTE_LABELS, type IwoMbAttribute } from "./types";
 
 /** One item line as these rules read it. Numbers may be NaN (typed text). */
+/** One breakup row as the rules read it (0614). */
+export type IwoMbSliceFacts = {
+  item_color_id: string | null;
+  size: string | null;
+  planned_qty: number | null;
+};
+
 export type IwoMbLineFacts = {
   category_id: string | null;
   item_id: string | null;
@@ -41,7 +49,11 @@ export type IwoMbLineFacts = {
   consumption_uom_id: string | null;
   purchase_uom_id: string | null;
   uom_conversion_id: string | null;
+  /** The line's own figure — read only under `attribute = item`; see `plannedQtyOf`. */
   planned_qty: number | null;
+  /** 0614. Absent on a caller written before it means `item`. */
+  attribute?: IwoMbAttribute;
+  slices?: readonly IwoMbSliceFacts[];
   moq: number | null;
   round_to: number | null;
   is_advised: boolean;
@@ -58,12 +70,40 @@ export type IwoMbProcessFacts = {
   vendor_id: string | null;
 };
 
+/** A breakup row nobody typed on — dropped by the save, never counted. */
+export const isBlankIwoMbSlice = (s: IwoMbSliceFacts): boolean =>
+  !s.item_color_id && !s.size?.trim() && s.planned_qty == null;
+
+/** The rows that count — `slices` minus the blanks (0614). */
+export const keptIwoMbSlices = <T extends IwoMbSliceFacts>(rows: readonly T[] | undefined): T[] =>
+  (rows ?? []).filter((s) => !isBlankIwoMbSlice(s));
+
+/**
+ * THE LINE'S PLANNED QTY — ITS OWN FIGURE, OR THE SUM OF ITS BREAKUP (0614).
+ *
+ * One reader for the four consumers that need it (the rules below, the quantity
+ * chain, the save, the screen's read-only cell), so a line broken up by colour
+ * can never be costed on a stale figure typed before it was. Under `item` the
+ * typed figure is the answer; otherwise Σ of the kept rows — and NULL while no
+ * row carries a quantity, so "enter the Planned Qty" still fires rather than a
+ * 0 reading as an answer.
+ */
+export function plannedQtyOf(l: IwoMbLineFacts): number | null {
+  const attribute = l.attribute ?? "item";
+  if (attribute === "item") return l.planned_qty;
+  const rows = keptIwoMbSlices(l.slices).filter((s) => s.planned_qty != null);
+  if (rows.length === 0) return null;
+  return Number(rows.reduce((a, s) => a + (s.planned_qty as number), 0).toFixed(4));
+}
+
 export const isBlankIwoMbLine = (l: IwoMbLineFacts): boolean =>
   !l.category_id &&
   !l.item_id &&
   !l.specification?.trim() &&
   !l.item_color_id &&
   l.planned_qty == null &&
+  (l.attribute ?? "item") === "item" &&
+  keptIwoMbSlices(l.slices).length === 0 &&
   l.moq == null &&
   l.round_to == null &&
   !l.is_advised &&
@@ -103,8 +143,34 @@ export function iwoMbProblems(
     const at = `Line ${i + 1}`;
     if (!l.item_id) out.push({ section: "items", message: `${at}: choose the material.` });
     if (!l.consumption_uom_id) out.push({ section: "items", message: `${at}: choose the Cons. Uom (the unit Planned Qty is in).` });
-    if (l.planned_qty == null) out.push({ section: "items", message: `${at}: enter the Planned Qty.` });
-    else if (!(l.planned_qty > 0)) out.push({ section: "items", message: `${at}: Planned Qty must be a number more than 0.` });
+    const attribute = l.attribute ?? "item";
+    if (attribute === "item") {
+      if (l.planned_qty == null) out.push({ section: "items", message: `${at}: enter the Planned Qty.` });
+      else if (!(l.planned_qty > 0)) out.push({ section: "items", message: `${at}: Planned Qty must be a number more than 0.` });
+    } else {
+      /* THE BREAKUP (0614): every kept row owes what its attribute names — a
+         Colour, a Size, or both — and a quantity; two rows of one (colour,
+         size) would be one lot typed twice. A breakup with no rows is a line
+         with no Planned Qty, said in the breakup's words. */
+      const label = IWO_MB_ATTRIBUTE_LABELS[attribute];
+      const rows = keptIwoMbSlices(l.slices);
+      if (rows.length === 0) {
+        out.push({ section: "items", message: `${at}: ${label} wise — add at least one row in the Breakup, with its Planned Qty.` });
+      }
+      const seen = new Set<string>();
+      rows.forEach((s, j) => {
+        const row = `${at}, Breakup row ${j + 1}`;
+        if (attributeHasColour(attribute) && !s.item_color_id) out.push({ section: "items", message: `${row}: choose the Colour.` });
+        if (attributeHasSize(attribute) && !s.size?.trim()) out.push({ section: "items", message: `${row}: enter the Size.` });
+        if (s.planned_qty == null) out.push({ section: "items", message: `${row}: enter the Planned Qty.` });
+        else if (!(s.planned_qty > 0)) out.push({ section: "items", message: `${row}: Planned Qty must be a number more than 0.` });
+        const key = `${attributeHasColour(attribute) ? (s.item_color_id ?? "") : ""}|${attributeHasSize(attribute) ? (s.size ?? "").trim().toUpperCase() : ""}`;
+        if ((attributeHasColour(attribute) ? s.item_color_id : true) && (attributeHasSize(attribute) ? s.size?.trim() : true)) {
+          if (seen.has(key)) out.push({ section: "items", message: `${row}: this ${label.toLowerCase()} is already on another row — merge them.` });
+          seen.add(key);
+        }
+      });
+    }
     if (l.moq != null && !(l.moq >= 0)) out.push({ section: "items", message: `${at}: MOQ must be a number, 0 or more.` });
     if (l.round_to != null && !(l.round_to > 0)) out.push({ section: "items", message: `${at}: Round To must be a number more than 0.` });
   });
@@ -149,7 +215,11 @@ export function iwoMbQuantity<C extends PackRow>(
   if (!line.item_id) return { refused: "Choose the material" };
   const cons = line.consumption_uom_id ? uoms.get(line.consumption_uom_id) : undefined;
   if (!cons) return { refused: "Choose the Cons. Uom — the unit Planned Qty is in" };
-  if (line.planned_qty == null || !(line.planned_qty > 0)) return { refused: "Enter the Planned Qty" };
+  // The line's own figure, or Σ its breakup (0614) — one reader, `plannedQtyOf`.
+  const planned = plannedQtyOf(line);
+  if (planned == null || !(planned > 0)) {
+    return { refused: (line.attribute ?? "item") === "item" ? "Enter the Planned Qty" : "Enter the Planned Qty on each Breakup row" };
+  }
 
   const lossRows: ProcessLossRow[] = processLoss.map((p, i) => ({
     row_uid: null,
@@ -157,7 +227,7 @@ export function iwoMbQuantity<C extends PackRow>(
     sno: i + 1,
     loss_pct: p.loss_pct,
   }));
-  const required = requiredWithProcessLoss(line.planned_qty, lossRows, cons.code, cons.decimal_places_allowed);
+  const required = requiredWithProcessLoss(planned, lossRows, cons.code, cons.decimal_places_allowed);
   if (isRefusal(required)) return required;
 
   // No purchase unit, or the same one: the pack is 1 : 1.
