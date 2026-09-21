@@ -9,6 +9,7 @@ import { useModalGuard } from "@/lib/reload-guard";
 import { BomQueuePill, bomCardStats } from "@/components/orders/bom-queue";
 import { loadFabricBomEntryRegister } from "@/lib/orders/fabric-bom/actions";
 import { isReportRefusal, type ReportRefusal } from "@/lib/orders/fabric-bom/report-refusal";
+import { findOrderReport } from "@/lib/orders/order-reports";
 import type {
   EntryRegister,
   EntryRegisterComponentGroup,
@@ -229,6 +230,11 @@ function Qty({ value, unit }: { value: number; unit?: string | null }) {
   );
 }
 
+/** The registered report these figures are read from — named off
+ *  `ORDER_REPORTS` rather than typed here, so a rename there reaches the
+ *  drawer (AGENTS.md "An order's reports are declared once"). */
+const SOURCE_REPORT = findOrderReport("fabric-bom-register");
+
 function RequirementBody({ register }: { register: EntryRegister }) {
   const { groups, grandTotal } = register;
 
@@ -249,6 +255,9 @@ function RequirementBody({ register }: { register: EntryRegister }) {
         <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Fabric quantities
         </h3>
+        {SOURCE_REPORT && (
+          <p className="mt-0.5 text-[10px] text-muted-foreground">From {SOURCE_REPORT.label}</p>
+        )}
         <dl className="mt-2 grid grid-cols-3 gap-2">
           {[
             { label: "Cut Qty", node: <Qty value={grandTotal.sqQty} /> },
