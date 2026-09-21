@@ -280,6 +280,10 @@ export function MobileCardList<Row>({
    * intha mari visible aaganum" — a touch opens the BOM itself). The card has
    * no state, no overlay, no tooltip and no hover lift.
    *
+   * WHAT `onEdit` DOES IS STILL THE CALLER'S. Fabric BOM (2026-09-21) routes
+   * the tap to its own right-edge detail drawer (`BomQueue`'s `onPreview`);
+   * the card itself gained nothing, and every other queue is unchanged.
+   *
    * `badge` is ignored here: the stripe is this layout's status mark.
    */
   queue?: boolean;

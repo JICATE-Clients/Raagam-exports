@@ -26,6 +26,7 @@ export function DataTable<T>({
   bare = false,
   rowClassName,
   dense = false,
+  compact = false,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -68,11 +69,22 @@ export function DataTable<T>({
    * density is unchanged for every other listing.
    */
   dense?: boolean;
+  /**
+   * HIGH-DENSITY ENTERPRISE LIST (Garment Orders, 2026-09-21). Keeps the
+   * default `px-3 py-2` rhythm but drops the body to `text-xs`, the header to
+   * `text-[10px]` on a `bg-slate-50` band, and the row rule to a hairline
+   * `border-slate-100` with a `hover:bg-slate-50/80` wash. The slate values are
+   * the LIGHT-mode look only: every one carries a `dark:` fallback to the
+   * theme token it replaces, or a dark-mode operator gets a white header band
+   * under muted grey text. Opt-in, and `dense` wins if both are passed.
+   */
+  compact?: boolean;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   /* One padding token for th and td both, so the header can never sit on a
      different rhythm from the rows beneath it. */
   const pad = dense ? "px-2 py-1" : "px-3 py-2";
+  const tight = compact && !dense;
   const selected = selectedKeys ?? new Set<string>();
   const allSelected = rows.length > 0 && rows.every((r, i) => selected.has(getKey(r, i)));
 
@@ -86,9 +98,18 @@ export function DataTable<T>({
       {/* `hidden md:table`, with the stacked cards below taking over — see the
           note above that block. Desktop is unchanged: `md:table` restores the
           element's own default display. */}
-      <table className={cn("hidden w-full md:table", dense ? "text-xs" : "text-sm")}>
+      <table
+        className={cn("hidden w-full md:table", dense || tight ? "text-xs" : "text-sm")}
+      >
         <thead>
-          <tr className="border-b border-border bg-surface-muted">
+          <tr
+            className={cn(
+              "border-b",
+              tight
+                ? "border-slate-200 bg-slate-50 dark:border-border dark:bg-surface-muted"
+                : "border-border bg-surface-muted",
+            )}
+          >
             {selectable && (
               <th className={cn("w-10", pad)}>
                 <input
@@ -113,7 +134,9 @@ export function DataTable<T>({
                   // case and spacing, not just weight" — the same reasoning
                   // that keeps this bold at 12px rather than clotting).
                   pad,
-                  "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
+                  tight
+                    ? "text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+                    : "text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground",
                   align[c.align ?? "left"],
                   c.className,
                 )}
@@ -141,7 +164,9 @@ export function DataTable<T>({
                 <tr
                   key={key}
                   className={cn(
-                    "border-b border-border last:border-0 hover:bg-surface-muted/60",
+                    tight
+                      ? "border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/80 dark:border-border dark:hover:bg-surface-muted/60"
+                      : "border-b border-border last:border-0 hover:bg-surface-muted/60",
                     href && "cursor-pointer",
                     selected.has(key) && "bg-primary/5",
                     rowClassName?.(row, ri),
