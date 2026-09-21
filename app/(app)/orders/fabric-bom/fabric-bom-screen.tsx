@@ -10470,6 +10470,10 @@ export function FabricBomScreen({
           tasks={tasks}
           noun="fabric"
           stat={lineStat}
+          /* THE SAME PENDING / UPDATED BOX AS MATERIAL BOM (2026-09-21: "the
+             Update and Pending options displayed exactly like they are in
+             Material"). One component, so the two queues cannot drift. */
+          quickStatus
           onOpen={openTask}
           /* A TAP OPENS THE DETAIL DRAWER, not the editor (2026-09-21) — the
              editor is the drawer's "Open BOM". Fabric BOM only; Material BOM's
