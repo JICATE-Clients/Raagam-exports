@@ -149,12 +149,41 @@ export function expandPlan(l: PlanLine): PlanFacts[] {
   }
   const colour = planHasColour(l.plan_by);
   const dia = planHasDia(l.plan_by);
-  return keptPlanRows(l.rows).map((r) => ({
-    color_name: text(colour ? r.color_name : l.color_name),
-    print_name: text(colour ? r.print_name : l.print_name),
-    finish_dia: text(dia ? r.dia : l.finish_dia),
-    req_kgs: num(r.req_kgs),
-  }));
+  /* A HIDDEN AXIS MERGES, A VISIBLE ONE REFUSES (client screenshot 2993). A
+     row keeps every axis it was typed with even while the attribute hides one
+     (`replan` never clears), so under Colour a plan typed as WHITE 74" 400 +
+     WHITE 76" 100 is two rows that differ only on the hidden dia — one stored
+     line, WHITE 74" 500, is the only honest reading, and switching back to
+     Colour + Dia restores the two. Rows identical on EVERY axis are a true
+     duplicate the operator typed, left separate so the unique-triple rule in
+     `lines.ts` refuses them by name. */
+  const groups = new Map<string, { visible: PlanFacts; hidden: Set<string>; rows: PlanRow[] }>();
+  for (const r of keptPlanRows(l.rows)) {
+    const visible: PlanFacts = {
+      color_name: text(colour ? r.color_name : l.color_name),
+      print_name: text(colour ? r.print_name : l.print_name),
+      finish_dia: text(dia ? r.dia : l.finish_dia),
+      req_kgs: num(r.req_kgs),
+    };
+    const key = [comboKey(visible.color_name), comboKey(visible.print_name), comboKey(visible.finish_dia)].join(" ");
+    const hidden = [colour ? "" : comboKey(r.color_name) + "|" + comboKey(r.print_name), dia ? "" : comboKey(r.dia)].join(" ");
+    const g = groups.get(key);
+    if (g) {
+      g.hidden.add(hidden);
+      g.rows.push(r);
+    } else groups.set(key, { visible, hidden: new Set([hidden]), rows: [r] });
+  }
+  const out: PlanFacts[] = [];
+  for (const g of groups.values()) {
+    if (g.rows.length > 1 && g.hidden.size > 1) {
+      const ns = g.rows.map((r) => num(r.req_kgs)).filter((n): n is number => n != null);
+      const sum = ns.length ? Number(ns.reduce((a, b) => a + b, 0).toFixed(4)) : null;
+      out.push({ ...g.visible, req_kgs: sum });
+    } else {
+      for (const r of g.rows) out.push({ ...g.visible, req_kgs: num(r.req_kgs) });
+    }
+  }
+  return out;
 }
 
 /** A stored line as `foldLines` reads it — numbers, as the DB holds them. */
@@ -210,14 +239,14 @@ export function foldLines(lines: readonly StoredPlanLine[], newKey: () => string
 export function replan(l: PlanLine, plan_by: PlanBy, newKey: () => string): PlanLine {
   if (plan_by === l.plan_by) return l;
   if (l.plan_by === "fabric") {
-    const seed: PlanRow = {
-      key: newKey(),
-      color_name: planHasColour(plan_by) ? l.color_name : "",
-      print_name: planHasColour(plan_by) ? l.print_name : "",
-      dia: planHasDia(plan_by) ? l.finish_dia : "",
-      req_kgs: l.req_kgs,
-    };
-    const rows = l.rows.length && !(l.rows.length === 1 && isBlankPlanRow(l.rows[0])) ? l.rows : [seed];
+    /* Under Fabric the ROW's cells are the truth and `rows` is what an earlier
+       split left behind. A split of two or more kept rows is restored as it
+       was; otherwise one row is seeded from the row's own cells — never a
+       stale single row, which would put back a colour the operator has since
+       changed on the row. */
+    const kept = keptPlanRows(l.rows);
+    const seed: PlanRow = { key: newKey(), color_name: l.color_name, print_name: l.print_name, dia: l.finish_dia, req_kgs: l.req_kgs };
+    const rows = kept.length >= 2 ? l.rows : [seed];
     return {
       ...l,
       plan_by,
@@ -239,8 +268,14 @@ export function replan(l: PlanLine, plan_by: PlanBy, newKey: () => string): Plan
       req_kgs: str(reqKgsOf(l)),
     };
   }
-  // Split → split: a row keeps the axis it had; an axis that joins the split
-  // takes the fabric row's value; one that leaves it goes back to the row.
+  /* Split → split: A ROW KEEPS EVERY AXIS IT WAS TYPED WITH. An axis that
+     leaves the split is merely HIDDEN — `expandPlan` reads the fabric row for
+     it and merges rows that differ only there — so switching back restores
+     the rows exactly (client screenshot 2993: Colour + Dia → Colour → Colour +
+     Dia used to stamp one dia onto every row). An axis that joins the split
+     fills a row only where the row has none. The fabric row takes the first
+     row's value for an axis that leaves, so the summary and the expansion
+     agree. */
   const gainsColour = planHasColour(plan_by) && !planHasColour(l.plan_by);
   const losesColour = !planHasColour(plan_by) && planHasColour(l.plan_by);
   const gainsDia = planHasDia(plan_by) && !planHasDia(l.plan_by);
@@ -254,9 +289,9 @@ export function replan(l: PlanLine, plan_by: PlanBy, newKey: () => string): Plan
     finish_dia: losesDia ? (first?.dia ?? "") : gainsDia ? "" : l.finish_dia,
     rows: l.rows.map((r) => ({
       ...r,
-      color_name: gainsColour ? l.color_name : losesColour ? "" : r.color_name,
-      print_name: gainsColour ? l.print_name : losesColour ? "" : r.print_name,
-      dia: gainsDia ? l.finish_dia : losesDia ? "" : r.dia,
+      color_name: gainsColour && !r.color_name.trim() ? l.color_name : r.color_name,
+      print_name: gainsColour && !r.print_name.trim() ? l.print_name : r.print_name,
+      dia: gainsDia && !r.dia.trim() ? l.finish_dia : r.dia,
     })),
   };
 }

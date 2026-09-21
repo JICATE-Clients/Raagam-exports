@@ -799,7 +799,29 @@ check("§18 fold: greige lines (no colour) in two dias → Dia", foldLines([{ co
 // switching the attribute keeps what was typed
 const single = pl({ color_name: "WHITE", finish_dia: "74", req_kgs: "500", rows: [blankPlanRow("z")] });
 check("§18 replan Fabric → Colour + Dia seeds the first row from the fabric row", replan(single, "colour_dia", nk).rows.map((r) => [r.color_name, r.dia, r.req_kgs]), [["WHITE", "74", "500"]]);
-check("§18 replan Fabric → Colour keeps the dia ON the row", (() => { const r = replan(single, "colour", nk); return [r.finish_dia, r.rows[0].color_name, r.rows[0].dia]; })(), ["74", "WHITE", ""]);
+check("§18 replan Fabric → Colour keeps the dia ON the row (and, hidden, on the seed row)", (() => { const r = replan(single, "colour", nk); return [r.finish_dia, r.rows[0].color_name, r.rows[0].dia]; })(), ["74", "WHITE", "74"]);
+
+// THE PATH IN SCREENSHOT 2993: Colour + Dia → Colour → Colour + Dia. The first
+// cut cleared each row's dia on the way out and stamped one dia on every row
+// on the way back, so WHITE 74 400 + WHITE 76 100 became WHITE 74 twice and
+// the unique-triple rule refused a plan the operator had not typed.
+const twoDias = pl({ plan_by: "colour_dia", rows: [
+  { key: "a", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "400" },
+  { key: "b", color_name: "WHITE", print_name: "", dia: "76", req_kgs: "100" },
+] });
+const viaColour = replan(twoDias, "colour", nk);
+check("§18 hiding the dia axis keeps each row's dia", viaColour.rows.map((r) => r.dia), ["74", "76"]);
+check("§18 …the fabric row takes the first row's dia", viaColour.finish_dia, "74");
+check("§18 …and the expansion MERGES rows that differ only on the hidden axis: WHITE 74 500, one line", facts(viaColour), [["WHITE", null, "74", 500]]);
+check("§18 …so switching back restores the two rows exactly", facts(replan(viaColour, "colour_dia", nk)), facts(twoDias));
+check(
+  "§18 rows identical on EVERY axis are a true duplicate and stay two lines (refused by name)",
+  facts(pl({ plan_by: "colour_dia", rows: [
+    { key: "a", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "400" },
+    { key: "b", color_name: "WHITE", print_name: "", dia: "74", req_kgs: "100" },
+  ] })).length,
+  2,
+);
 check("§18 replan a split → Fabric copies the first row back and Σ as the figure", (() => { const r = replan(folded, "fabric", nk); return [r.color_name, r.finish_dia, r.req_kgs]; })(), ["WHITE", "74", "1350"]);
 check("§18 replan Colour → Colour + Dia keeps every colour row and asks for its dia", (() => {
   const r = replan(pl({ plan_by: "colour", finish_dia: "74", rows: [{ key: "a", color_name: "WHITE", print_name: "", dia: "", req_kgs: "1" }, { key: "b", color_name: "RED", print_name: "", dia: "", req_kgs: "2" }] }), "colour_dia", nk);
