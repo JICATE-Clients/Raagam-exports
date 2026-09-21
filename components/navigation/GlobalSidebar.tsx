@@ -58,7 +58,12 @@ export function GlobalSidebar() {
   const bands = toBands(items);
 
   return (
-    <div className="relative h-full w-16 shrink-0">
+    /* `w-14` (56px), down from `w-16` (2026-09-21, compact sidebar pass): the
+        rail holds 40px icon rows inside `p-1.5`, so 52px is its content and
+        the old 64px was 12px of side gap. The spacer and the collapsed
+        panel below must stay the same width, or the page shifts under the
+        rail. */
+    <div className="relative h-full w-14 shrink-0">
       <aside
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
@@ -67,10 +72,10 @@ export function GlobalSidebar() {
           "transition-[width,border-radius,box-shadow] duration-[220ms] ease-out",
           // Open, it FLOATS: rounded trailing edge and a real lift, so it
           // reads as a panel over the page rather than a wider column.
-          expanded ? "w-52 rounded-r-2xl shadow-elev-hi" : "w-16",
+          expanded ? "w-52 rounded-r-2xl shadow-elev-hi" : "w-14",
         )}
       >
-        <div className="flex h-12 shrink-0 items-center justify-center border-b border-border px-3">
+        <div className="flex h-12 shrink-0 items-center justify-center border-b border-border px-2">
           <Image
             src="/brand/raagam-wordmark.png"
             alt="Raagam Exports"

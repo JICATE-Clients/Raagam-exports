@@ -170,11 +170,22 @@ const QUEUE_THEME: Partial<Record<BomStatus, { pill: string; edge: string }>> = 
   },
 };
 
+/** The queue's status pill — exported so a caller's own surface (Fabric BOM's
+ *  preview drawer) paints the same shade the card beside it does. */
+export function BomQueuePill({ status }: { status: BomStatus }) {
+  return (
+    <StatusPill tone={queueTone(status)} className={QUEUE_THEME[status]?.pill}>
+      {bomStatusText(status)}
+    </StatusPill>
+  );
+}
+
 export function BomQueue({
   tasks,
   noun,
   stat,
   onOpen,
+  onPreview,
   canDelete = false,
   onDelete,
   onReports,
@@ -193,6 +204,14 @@ export function BomQueue({
   /** The card's middle figure — see `bomCardStats`. */
   stat: (t: BomTaskRow) => CardStat;
   onOpen: (t: BomTaskRow) => void;
+  /**
+   * WHAT A CARD TAP DOES, WHEN IT IS NOT "OPEN THE EDITOR" — opt-in, and only
+   * Fabric BOM passes it (2026-09-21: a right-edge detail drawer, with the
+   * editor one "Open BOM" press further on). This deliberately reverses the
+   * 2026-09-18 "a tap opens the BOM itself" for Fabric BOM ONLY; Material BOM
+   * passes nothing and its tap still goes straight to the editor.
+   */
+  onPreview?: (t: BomTaskRow) => void;
   canDelete?: boolean;
   onDelete?: (t: BomTaskRow) => void;
   /** A document report reachable straight off the card, without opening the
@@ -376,11 +395,7 @@ export function BomQueue({
             {t.po_no ? <span className="font-mono"> · {t.po_no}</span> : null}
           </>
         )}
-        pill={(t) => (
-          <StatusPill tone={queueTone(t.status)} className={QUEUE_THEME[t.status]?.pill}>
-            {bomStatusText(t.status)}
-          </StatusPill>
-        )}
+        pill={(t) => <BomQueuePill status={t.status} />}
         stats={(t) => bomCardStats(t, stat(t))}
         /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
            `queue` on `MobileCardList`. A tap opens the BOM straight away; no
@@ -402,7 +417,7 @@ export function BomQueue({
         /* "Created " IN WORDS — in the drawer the pair sits alone beside the
            buttons, with no column header to say what the date is. */
         footerNote={showCreated ? (t) => `Created ${createdMeta(t)}` : undefined}
-        onEdit={onOpen}
+        onEdit={onPreview ?? onOpen}
         canDelete={canDelete}
         /* Only an order that HAS a BOM has anything to delete — that is the
            "Pending" case, and it is the whole reason the queue lists ORDERS.
