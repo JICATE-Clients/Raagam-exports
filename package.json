@@ -66,6 +66,7 @@
     "check:ta-schedule": "npx --yes tsx scripts/check-ta-schedule.mts",
     "check:ta-ladder": "npx --yes tsx scripts/check-ta-ladder.mts",
     "check:ta-merge": "npx --yes tsx scripts/check-ta-merge.mts",
+    "check:work-flow": "npx --yes tsx scripts/check-work-flow.mts",
     "check:ta-approval-merge": "npx --yes tsx scripts/check-ta-approval-merge.mts",
     "check:amendment-files": "npx --yes tsx scripts/check-amendment-files.mts",
     "check:customer-dedup": "npx --yes tsx scripts/check-customer-dedup.mts",
